@@ -334,14 +334,14 @@ describe("A table's cells keep their sources", { timeout: 30_000 }, () => {
     expect(told).toContain("1 marker matched none of the text's Citations and was left out");
   });
 
-  // protects=in added text, a table cell's source written as a name in brackets becomes the Citation recorded for that Document with cite (#961); fails_when=it stays as text though a Citation of it was recorded; no_claim=none beyond protects.
+  // protects=in added text, a table cell's source written as a name in brackets is refused once (#1075), and written so again becomes the Citation recorded for that Document with cite (#961); fails_when=it stays as text though a Citation of it was recorded; no_claim=none beyond protects.
   test("an added table's bracketed name links to the Citation recorded for it", async () => {
     const content =
       "| Term | What it means |\n|---|---|\n| Spring tide | The biggest tide [Tides, p. 1] |";
     const model = scriptedModel(
       (call): ScriptedReply =>
         citingFirst(call, () =>
-          called(call, "add_to_mind")
+          call.results.filter((each) => each.tool === "add_to_mind").length > 1
             ? { text: "Done." }
             : { calls: [{ tool: "add_to_mind", input: { content } }] },
         ),
@@ -357,7 +357,8 @@ describe("A table's cells keep their sources", { timeout: 30_000 }, () => {
         ["Spring tide", "The biggest tide ⟨found⟩"],
       ],
     ]);
-    expect(changesIn(answer)).toEqual([expect.not.objectContaining({ unlinkedSources: 1 })]);
+    expect(mindCalls(answer)[0]?.mindProblem).toEqual({ kind: "uncited", mindId: mind.id });
+    expect(changesIn(answer)).toEqual([expect.not.objectContaining({ droppedSources: 1 })]);
   });
 });
 

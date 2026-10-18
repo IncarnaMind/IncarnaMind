@@ -7,11 +7,11 @@
  * them into a note.
  */
 
-import { markdownToBlocks } from "../../core/answers/markdown";
-import { CITATION_NODE, type ConversationAnswer } from "../../core/api";
-import { asGenerated } from "../../shared/aiText";
-import { citationNode, type NodeJSON, withCitations } from "../../shared/blockJson";
-import { withFigures } from "../../shared/figureMarkers";
+import { markdownToBlocks } from "../core/answers/markdown";
+import { CITATION_NODE, type ConversationAnswer } from "../core/api";
+import { asGenerated } from "./aiText";
+import { citationNode, type NodeJSON, withCitations } from "./blockJson";
+import { withFigures } from "./figureMarkers";
 
 /**
  * While it is written, what would still change how it looks is held back, and

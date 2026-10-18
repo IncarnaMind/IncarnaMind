@@ -7,9 +7,9 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
 import { type ConversationAnswer, NOTE_BLOCK_TYPES } from "../../core/api";
+import { answerBlocks } from "../../shared/answerBlocks";
 import type { NodeJSON } from "../../shared/blockJson";
 import { withoutFraming } from "../../shared/noteBlocks";
-import { answerBlocks } from "./answerBlocks";
 import { tablesOf } from "./editor/answerTables";
 import { withoutCitationGlue } from "./editor/citationGlue";
 import { useAppStore } from "./store";

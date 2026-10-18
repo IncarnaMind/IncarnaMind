@@ -177,8 +177,8 @@ describe("Tools for the model", () => {
     await execute("Dover" as never, options);
     expect(calls).toEqual([{ place: "Dover" }, {}]);
     expect(contexts).toEqual([
-      { toolCallId: "call-1", signal },
-      { toolCallId: "call-1", signal },
+      { toolCallId: "call-1", signal, canCallAgain: expect.any(Function) },
+      { toolCallId: "call-1", signal, canCallAgain: expect.any(Function) },
     ]);
   });
 

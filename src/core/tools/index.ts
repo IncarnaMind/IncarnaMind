@@ -47,6 +47,8 @@ export interface ToolCallContext {
    * write or a send a Tool-level "always" would let through (#78, ../approvals).
    */
   readThirdParty?(source: ReadThirdPartySource): void;
+  /** Whether the model gets a step after this call's that can call Tools again: a call refused with none left can't be tried again. */
+  canCallAgain?(): boolean;
 }
 
 /** A Tool (CONTEXT.md) as a Run offers it to the model. */

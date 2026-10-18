@@ -34,7 +34,7 @@ import {
   type OllamaModels,
   outputTokensFor,
 } from "../../src/core/providers/ollamaModels";
-import { answerBlocks } from "../../src/renderer/src/answerBlocks";
+import { answerBlocks } from "../../src/shared/answerBlocks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";

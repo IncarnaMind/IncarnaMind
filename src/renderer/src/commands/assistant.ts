@@ -1,7 +1,7 @@
 import type { AssistantDock, ConversationAnswer } from "../../../core/api";
+import { answerBlocks, hasText } from "../../../shared/answerBlocks";
 import type { MessageKey } from "../../../shared/i18n";
 import { addAnswer } from "../addToNote";
-import { answerBlocks, hasText } from "../answerBlocks";
 import { copyAnswer, notesToAdd } from "../answerEditors";
 import { shownDock } from "../assistantPlace";
 import { useComposer } from "../composer";

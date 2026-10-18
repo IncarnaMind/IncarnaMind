@@ -4604,9 +4604,12 @@ export const en = {
     "Couldn't change “{mind}”: only text the assistant wrote can be written anew",
   "mindCall.failed.stopped": "Stopped before “{mind}” changed",
   "mindCall.failed.noTable": "Couldn't make the table, so nothing was added to “{mind}”",
+  "mindCall.failed.uncited": "Didn't add to “{mind}”: its sources weren't cited",
   "mindChanges.unlinked":
     "· {count} sources in the table couldn't be linked, so they're shown as text",
   "mindChanges.unlinked.one": "· 1 source in the table couldn't be linked, so it's shown as text",
+  "mindChanges.dropped": "· {count} sources couldn't be matched, so they were left out",
+  "mindChanges.dropped.one": "· 1 source couldn't be matched, so it was left out",
   "mindChanges.extraCells": "· {count} extra cells were kept as text",
   "mindChanges.extraCells.one": "· 1 extra cell was kept as text",
   "mindCall.failed.localMode": "Couldn't change “{mind}”: “Keep everything on this computer” is on",

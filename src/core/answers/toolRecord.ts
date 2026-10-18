@@ -69,6 +69,8 @@ function whyNot(problem: MindProblem | undefined): string {
       return "it was stopped";
     case "no-table":
       return "its table couldn't be made";
+    case "uncited":
+      return "its sources were written as text, or as markers with no Citation recorded";
     case "local-mode":
       return "“Keep everything on this computer” is on";
     case "not-ready":

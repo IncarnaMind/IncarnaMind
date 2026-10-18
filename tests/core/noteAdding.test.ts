@@ -8,7 +8,7 @@ import {
   messageReference,
   PROPOSAL_ATTRIBUTE,
 } from "../../src/core";
-import { answerBlocks } from "../../src/renderer/src/answerBlocks";
+import { answerBlocks } from "../../src/shared/answerBlocks";
 import { allOrigins } from "../../src/shared/blockOrigins";
 import { withoutFraming } from "../../src/shared/noteBlocks";
 import { aiUseOfAccepted, pendingProposals, resolveProposals } from "../../src/shared/proposals";

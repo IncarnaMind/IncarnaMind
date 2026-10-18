@@ -13,10 +13,10 @@ import type {
   Settings,
 } from "../../core/api";
 import { messageReference } from "../../core/references";
+import { answerBlocks } from "../../shared/answerBlocks";
 import { type HelpShortcut, helpKeysOf, helpLabel, isHelpShortcut } from "../../shared/meetingHelp";
 import type { PanelState } from "../../shared/meetingPanel";
 import { withoutFraming } from "../../shared/noteBlocks";
-import { answerBlocks } from "./answerBlocks";
 import { keysHere } from "./commands/keymap";
 import { openConversation, useConversations } from "./conversations";
 import { core, files } from "./core";

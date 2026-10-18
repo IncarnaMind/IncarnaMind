@@ -23,7 +23,8 @@ import {
 import { toolRecordLines } from "../../src/core/answers/toolRecord";
 import { plainText } from "../../src/core/mindText";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
-import { answerBlocks } from "../../src/renderer/src/answerBlocks";
+import { answerBlocks } from "../../src/shared/answerBlocks";
+import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
 import { withoutFraming } from "../../src/shared/noteBlocks";
 import { resolveProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -309,10 +310,17 @@ async function runCase(
     answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.request] : [])),
   );
   const citedInMinds: string[] = [];
+  const sourcesAsTextIn: string[] = [];
+  const documentNames = scoped.map((document) => document.name);
   for (const mindId of changed) {
     const written = await connectToMind(core, mindId);
     await written.settled();
     citedInMinds.push(...citedDocuments(written.doc));
+    for (const text of acceptedTexts(written.doc, requests).values()) {
+      sourcesAsTextIn.push(
+        ...sourcesAsText(text, (source) => namesOneOf(source.name, documentNames)),
+      );
+    }
   }
   let changes: CaseResult["changes"] = [];
   if (client) {
@@ -332,6 +340,7 @@ async function runCase(
     citedInMinds,
     changedBlocks,
     addedBlocks,
+    sourcesAsText: sourcesAsTextIn,
     scoped,
   });
   return {

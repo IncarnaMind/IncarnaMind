@@ -43,12 +43,20 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
+import { answerBlocks } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import type { LiveDocument } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import {
+  linkKnownSources,
+  type NamedSource,
+  namesOneOf,
+  sourcesAsText,
+} from "../../shared/namedSources";
+import { withoutFraming } from "../../shared/noteBlocks";
 import {
   decisionsOn,
   pendingProposals,
@@ -73,6 +81,7 @@ import {
   type ClaimedChange,
   type ConversationAnswer,
   type ConversationAskResult,
+  type ConversationMessage,
   type ConversationQuestion,
   type CoreEventName,
   type CoreEvents,
@@ -365,6 +374,22 @@ const NO_SCOPE: SearchScope = { folderIds: [], tagIds: [], documentIds: [] };
 
 const changesAMind = (change: MindChange) =>
   change.created || change.revised === true || change.proposals > 0;
+
+function lastAnswerOf(
+  conversationId: string,
+  earlier: readonly ConversationMessage[],
+): MindToolsOptions["lastAnswer"] {
+  const at = earlier.findLastIndex((message) => message.kind === "answer");
+  const answer = earlier[at];
+  if (answer?.kind !== "answer") return null;
+  const blocks = withoutFraming(answerBlocks({ ...answer, status: "done" }));
+  if (blocks.length === 0) return null;
+  const question = earlier.slice(0, at).findLast((message) => message.kind === "question");
+  return {
+    blocks,
+    origin: { from: messageReference(conversationId, answer.id), question: question?.text ?? "" },
+  };
+}
 
 const followsAChange = (answer: ConversationAnswer | undefined) =>
   answer !== undefined &&
@@ -791,7 +816,8 @@ export function createAnswers(options: AnswersOptions) {
      * Blocks the User selected there, where a Mind it makes goes, and what
      * Blocks it adds link back to. It is offered the Minds' Tools. Absent: none.
      */
-    assistant?: Pick<MindToolsOptions, "focused" | "folderId" | "origin"> & RequestContext;
+    assistant?: Pick<MindToolsOptions, "focused" | "folderId" | "origin" | "lastAnswer"> &
+      RequestContext;
   }): void {
     const { home, answerId, model, context, forcedSkill } = input;
     const scoped = input.scoped ?? input.documentIds !== null;
@@ -1600,6 +1626,7 @@ export function createAnswers(options: AnswersOptions) {
         route && (route.kind === "write" || route.kind === "edit")
           ? { change: route.kind, newMind: route.newMind }
           : null;
+      let documentNames: string[] | undefined;
       const mindsTools =
         minds && input.assistant
           ? mindTools({
@@ -1615,10 +1642,19 @@ export function createAnswers(options: AnswersOptions) {
                 let unrecorded = 0;
                 let firstUnrecorded = -1;
                 const written = withoutSearchTalk(withoutFootnoteDefinitions(text));
-                const tables = linkTableSources(written.markdown, (source) => {
+                const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
-                });
+                };
+                documentNames ??= options.documents
+                  .searchableBySize(input.documentIds)
+                  .map((each) => each.name);
+                const names = documentNames;
+                const known = (source: NamedSource) =>
+                  namesOneOf(source.name, names) || link({ ...source, location: null }) !== null;
+                const asText = sourcesAsText(written.markdown, known);
+                const sourced = linkKnownSources(written.markdown, known, link);
+                const tables = linkTableSources(sourced.text, link);
                 const cited = markdownToBlocks(tables.markdown).flatMap((block, index) =>
                   withCitations([block], (marker) => {
                     const node = session.checkedNode(marker);
@@ -1645,6 +1681,8 @@ export function createAnswers(options: AnswersOptions) {
                   notFound,
                   unrecorded,
                   firstUnrecorded,
+                  sourcesAsText: asText,
+                  droppedSources: sourced.dropped,
                   unlinkedSources: tables.unlinked,
                   extraCells: tables.extraCells,
                   searchTalk: written.left,
@@ -2233,6 +2271,7 @@ export function createAnswers(options: AnswersOptions) {
         },
         folderId: oneFolderOf(question.scope),
         origin: { from: messageReference(conversation.id, answer.id), question: question.text },
+        lastAnswer: lastAnswerOf(conversation.id, turn.earlier),
         followsAChange: followsAChange(
           turn.earlier.findLast((message) => message.kind === "answer"),
         ),

@@ -18,6 +18,7 @@ export interface ChangedMind {
   changed: number;
   tables: number;
   unlinkedSources: number;
+  droppedSources: number;
   extraCells: number;
 }
 
@@ -34,6 +35,7 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
       changed: 0,
       tables: 0,
       unlinkedSources: 0,
+      droppedSources: 0,
       extraCells: 0,
     };
     row.created ||= change.created;
@@ -44,6 +46,7 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
     else row.wrote += change.paragraphs ?? 0;
     row.tables += tables;
     row.unlinkedSources += change.unlinkedSources ?? 0;
+    row.droppedSources += change.droppedSources ?? 0;
     row.extraCells += change.extraCells ?? 0;
     rows.set(change.mindId, row);
   }

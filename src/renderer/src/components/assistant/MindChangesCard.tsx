@@ -21,13 +21,18 @@ function factText(t: Translate, row: ChangedMind, name: string, waiting: Waiting
   return changeFact(t, row, name);
 }
 
-/** What of its tables was kept as text, after its count; null when nothing was. */
+/** What of its tables was kept as text, and what sources were left out, after its count; null when nothing was. */
 function keptText(t: Translate, row: ChangedMind): string | null {
   const notes = [
     ...(row.unlinkedSources === 1
       ? [t("mindChanges.unlinked.one")]
       : row.unlinkedSources > 1
         ? [t("mindChanges.unlinked", { count: row.unlinkedSources })]
+        : []),
+    ...(row.droppedSources === 1
+      ? [t("mindChanges.dropped.one")]
+      : row.droppedSources > 1
+        ? [t("mindChanges.dropped", { count: row.droppedSources })]
         : []),
     ...(row.extraCells === 1
       ? [t("mindChanges.extraCells.one")]

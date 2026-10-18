@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { ConversationAnswer, ConversationQuestion } from "../../../../core/api";
+import { answerBlocks, hasText } from "../../../../shared/answerBlocks";
 import type { NodeJSON } from "../../../../shared/blockJson";
-import { answerBlocks, hasText } from "../../answerBlocks";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";

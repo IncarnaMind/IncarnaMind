@@ -150,7 +150,11 @@ function checkedSchema(schema: Record<string, unknown>) {
  * JSON Schema and call. Arguments a model sends that aren't an object are
  * taken as none. (The one place Tools meet the loop's library.)
  */
-export function toToolSet(tools: readonly RunTool[], signal: AbortSignal): ToolSet {
+export function toToolSet(
+  tools: readonly RunTool[],
+  signal: AbortSignal,
+  canCallAgain: () => boolean = () => true,
+): ToolSet {
   const set: ToolSet = {};
   for (const each of tools) {
     set[each.name] = tool({
@@ -160,6 +164,7 @@ export function toToolSet(tools: readonly RunTool[], signal: AbortSignal): ToolS
         each.call(isPlainObject(input) ? forTool(input, each.inputSchema) : {}, {
           toolCallId,
           signal: abortSignal ?? signal,
+          canCallAgain,
         }),
     });
   }
@@ -366,9 +371,11 @@ function failure(
 
 async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
   const { signal, window, maxSteps } = request;
+  let canCallAgain = maxSteps > 2;
   const tools = toToolSet(
     request.tools.map((each) => gated(each, request)),
     signal,
+    () => canCallAgain && (window === undefined || window.canCallTools()),
   );
   const initial = toModelMessages(request.messages);
   /** Steering messages, where each was taken among the responses. */
@@ -411,6 +418,7 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
       }
       // The last step must write; so must a step with no room left for a Tool's result.
       const write = stepNumber >= maxSteps - 1 || (window !== undefined && !window.canCallTools());
+      canCallAgain = stepNumber + 1 < maxSteps - 1;
       return { ...(messages && { messages }), ...(write && { toolChoice: "none" as const }) };
     },
     abortSignal: signal,

@@ -113,6 +113,19 @@ describe("The everyday request guards", () => {
     expect(failures([3])).toEqual([]);
   });
 
+  // protects=a Mind written with a source as text fails, naming it, and one with none passes (#1075); fails_when=bracketed sources in a Mind go unnoticed; no_claim=how the sources are found (tests/shared/namedSources.test.ts).
+  test("a Mind holding a source written as text fails", () => {
+    const kinds = (sourcesAsText: string[]) =>
+      requestFailures(
+        outcome({
+          answer: { text: "", citations: [], toolCalls: [created], steps: null },
+          sourcesAsText,
+        }),
+      ).map((failure) => failure.kind);
+    expect(kinds(["[5_Rue_Berryer_Paris, slide 3]"])).toEqual(["as-text"]);
+    expect(kinds([])).toEqual([]);
+  });
+
   // protects=a page made with no Citations in it fails, whatever the reply cites; fails_when=the reply's Citations count for the page's; no_claim=none beyond protects.
   test("a page whose Citations were lost fails, whatever the reply cites", () => {
     const failures = requestFailures(

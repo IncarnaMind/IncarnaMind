@@ -16,7 +16,7 @@ import {
   type MarkedFigure,
 } from "../../src/core";
 import { migrate, migrations, openDatabase } from "../../src/core/storage";
-import { answerBlocks } from "../../src/renderer/src/answerBlocks";
+import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { translate } from "../../src/shared/i18n";
 import {
