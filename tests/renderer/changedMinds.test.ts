@@ -239,11 +239,9 @@ describe("The Minds an Answer changed", () => {
 
   // protects=the card's note on a table's sources uses the glossary's word for a Citation's source, 出处, in Chinese (#961); fails_when=it says 来源; no_claim=how the card lays it out.
   test("the note on a table's sources says 出处 in Chinese", () => {
-    expect(translate("zh-CN", "mindChanges.unlinked.one")).toBe(
-      "· 表格中有 1 处出处无法关联，已作为文字显示",
-    );
+    expect(translate("zh-CN", "mindChanges.unlinked.one")).toBe("· 1 处出处未关联，显示为文字");
     expect(translate("zh-CN", "mindChanges.unlinked", { count: 3 })).toBe(
-      "· 表格中有 3 处出处无法关联，已作为文字显示",
+      "· 3 处出处未关联，显示为文字",
     );
   });
 });

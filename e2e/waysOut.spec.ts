@@ -136,7 +136,7 @@ test("a model that can't add Citations says so under its Answer, and Choose anot
   await expect(answer).toHaveAttribute("data-status", "done");
   const line = answer.getByTestId("answer-no-citations");
   await expect(line).toHaveText(
-    "tiny-no-tools can’t add Citations, so nothing in this Answer is checked · Choose another model",
+    "tiny-no-tools can’t add Citations: nothing here is checked · Choose another model",
   );
   await screenshot(answer, "no-citations-line");
   await pointAndClick(window, line.getByTestId("answer-choose-model"));
@@ -144,9 +144,7 @@ test("a model that can't add Citations says so under its Answer, and Choose anot
   await window.keyboard.press("Escape");
 
   await setLanguage(window, "zh-CN");
-  await expect(line).toHaveText(
-    "tiny-no-tools 无法添加引用，这个回答里的内容都没有核对 · 换一个模型",
-  );
+  await expect(line).toHaveText("tiny-no-tools 无法添加引用：这里的内容均未核对 · 换一个模型");
   await screenshot(answer, "no-citations-line-zh");
   await app.close();
 });

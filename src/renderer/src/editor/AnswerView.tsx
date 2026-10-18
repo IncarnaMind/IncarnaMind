@@ -20,6 +20,7 @@ import { useAnswers } from "../answers";
 import { useApprovals, waitingFor } from "../approvals";
 import { signInAgain } from "../chatGptSignIn";
 import { MindCall } from "../components/assistant/MindCall";
+import { DetailsLine } from "../components/DetailsLine";
 import { useIsExampleAnswer } from "../components/GettingStarted";
 import { PlugIcon, ScriptIcon, SkillIcon, StopIcon } from "../components/icons";
 import { DocumentLineIcon, FindSourcesLineIcon } from "../components/lineIcons";
@@ -619,13 +620,22 @@ function ScriptApprovalCard({
             code={request.script}
           />
         </p>
-        <p
+        <div
           data-testid="approval-sandbox"
           data-sandbox={sandboxed ? "os" : "none"}
           className="approval-explanation"
         >
-          {t(sandboxed ? "scripts.card.sandboxed" : "scripts.card.noSandbox")}
-        </p>
+          {sandboxed ? (
+            <DetailsLine
+              testId="approval-sandbox-reach"
+              details={t("scripts.card.sandboxed.details")}
+            >
+              {t("scripts.card.sandboxed")}
+            </DetailsLine>
+          ) : (
+            <p>{t("scripts.card.noSandbox")}</p>
+          )}
+        </div>
         <ThirdPartyLine request={request} />
       </div>
       <div className="approval-details">
@@ -665,9 +675,18 @@ function ScriptApprovalCard({
             <ProblemMark />
             {t("scripts.alwaysRun.title", params)}
           </p>
-          <p className="approval-warning-body">
-            {t(sandboxed ? "scripts.alwaysRun.bodySandboxed" : "scripts.alwaysRun.body", params)}
-          </p>
+          {sandboxed ? (
+            <DetailsLine
+              testId="always-run-reach"
+              className="approval-warning-body"
+              details={t("scripts.alwaysRun.bodySandboxed.details")}
+            >
+              {t("scripts.alwaysRun.bodySandboxed", params)}
+            </DetailsLine>
+          ) : (
+            <p className="approval-warning-body">{t("scripts.alwaysRun.body", params)}</p>
+          )}
+          <p className="approval-warning-body">{t("scripts.alwaysRun.trust")}</p>
           <div className="approval-buttons">
             <button
               type="button"

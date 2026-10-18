@@ -387,7 +387,7 @@ describe("A table that can't be made goes in nowhere", { timeout: 30_000 }, () =
     });
     expect(call?.mindChange).toBeUndefined();
     expect(changesIn(answer)).toEqual([]);
-    expect(answer.text).toBe("这些内容没法做成表格，所以写在下面，没有添加到“Tides”。");
+    expect(answer.text).toBe("没能做成表格：内容在下方，未添加到“Tides”。");
   });
 
   // protects=added pipe lines with no row of ---, or an HTML table, add nothing, and the model is told the User's words for it, in English only for an English Question; fails_when=either lands in the page, or the model gets both languages' words; no_claim=none beyond protects.
@@ -419,9 +419,9 @@ describe("A table that can't be made goes in nowhere", { timeout: 30_000 }, () =
       expect(mindCalls(answer)[0]).toMatchObject({ mindProblem: { kind: "no-table" } });
       const told = lastResult(model);
       expect(told).toContain(
-        "in these words: “I couldn't make this into a table, so it's below as text. Nothing was added to “Tides”.”",
+        "in these words: “No table made: it’s below as text, not in “Tides”.”",
       );
-      expect(told).not.toContain("没法做成表格");
+      expect(told).not.toContain("没能做成表格");
       expect(told).toContain("so the User still has it");
     }
   });

@@ -52,9 +52,7 @@ describe("A reply that claims a change none of its calls made", () => {
     expect(unbackedClaimKey(["added", "made"])).toBe("answer.unbacked.made");
     expect(unbackedClaimKey(["removed"])).toBe("answer.unbacked.removed");
     expect(unbackedClaimKey(["removed", "changed"])).toBe("answer.unbacked.changed");
-    expect(en("answer.unbacked.changed")).toBe(
-      "This reply says it changed a Mind, but no change was made.",
-    );
+    expect(en("answer.unbacked.changed")).toBe("It says it changed a Mind, but nothing changed.");
     expect(zh("answer.unbacked.changed")).toBe("这条回答说修改了 Mind，但实际没有任何改动。");
   });
 });

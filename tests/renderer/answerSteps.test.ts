@@ -322,10 +322,10 @@ describe("an Answer's steps", () => {
     const none = input({ toolCalls: searches });
     expect(foldedLine(none)).toEqual({ kind: "read-passages", passages: 4, citedAfterChecking: 0 });
     expect(en("steps.readNoneMatched", { passages: en("steps.passages", { count: 4 }) })).toBe(
-      "Read 4 passages · none of its sentences could be matched to them",
+      "Read 4 passages · no sentence matched them",
     );
     expect(zh("steps.readNoneMatched", { passages: zh("steps.passages", { count: 4 }) })).toBe(
-      "读取了 4 个段落 · 没有句子能与这些段落对应",
+      "读取了 4 个段落 · 没有句子与之对应",
     );
 
     const added = input({

@@ -126,9 +126,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await expect(pane.getByTestId("chat-readiness")).toHaveCount(0);
 
   const answer = pane.getByTestId("answer");
-  await expect(answer.getByTestId("answer-example")).toHaveText(
-    "Example Answer, written in advance: no model needed to try it",
-  );
+  await expect(answer.getByTestId("answer-example")).toHaveText("Example Answer · no model needed");
   // Both Citations are checked against the Documents' text: the quotes are found.
   const checks = pane.getByTestId("margin-check");
   await expect(checks).toHaveCount(2);
@@ -194,7 +192,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   const readyAnswer = assistantAnswers(window).last();
   await expect(readyAnswer).toHaveAttribute("data-status", "done");
   await expect(readyAnswer.getByTestId("answer-example")).toHaveText(
-    "Example Answer, written in advance: no model needed to try it",
+    "Example Answer · no model needed",
   );
   const chips = readyAnswer.getByTestId("citation-chip");
   await expect(chips).toHaveCount(2);
@@ -476,9 +474,7 @@ test("in Chinese, the ready Question is the Chinese example's, answered with no 
   await pointAndClick(window, ready);
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done");
-  await expect(answer.getByTestId("answer-example")).toHaveText(
-    "预先写好的示例回答，无需模型即可体验",
-  );
+  await expect(answer.getByTestId("answer-example")).toHaveText("示例回答 · 无需模型");
   await expect(answer.getByTestId("citation-chip")).toHaveCount(2);
   await expect(step(window, "question")).toHaveAttribute("data-state", "done");
   await expect(step(window, "question")).toContainText("已提过问题");

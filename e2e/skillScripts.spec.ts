@@ -98,10 +98,16 @@ test("a Skill script asks first with an approval card: Allow once runs it, and t
   const reach = card.getByTestId("approval-sandbox");
   await expect(reach).toHaveAttribute("data-sandbox", sandbox);
   await expect(reach).toContainText(
-    sandbox === "os"
-      ? "This script runs in a sandbox: it can't open your home folder or IncarnaMind's data"
-      : "no sandbox",
+    sandbox === "os" ? "Runs in a sandbox: no internet, no home folder." : "No sandbox",
   );
+  if (sandbox === "os") {
+    const details = reach.getByTestId("approval-sandbox-reach-details");
+    await expect(details).toHaveAttribute("aria-expanded", "false");
+    await details.click();
+    await expect(reach.getByTestId("approval-sandbox-reach-list")).toContainText(
+      "It can’t open your home folder or IncarnaMind’s data",
+    );
+  }
   await expect(answer).toHaveAttribute("data-status", "streaming");
   await expect(answer.getByTestId("answer-writing")).toHaveText("Waiting for your approval");
 
@@ -143,9 +149,16 @@ test("Always run shows a risk warning first; confirmed, the Skill's scripts run 
   const sandboxed = (await scriptSandbox(window)) === "os";
   await expect(warning).toContainText(
     sandboxed
-      ? "Scripts run in a sandbox: they can't open your home folder"
-      : "Scripts aren't sandboxed",
+      ? "They run in a sandbox, but can still read files on other drives."
+      : "With no sandbox, they can delete your files and send your data online.",
   );
+  await expect(warning).toContainText("Only for a Skill you trust. Reset in Settings › Approvals.");
+  if (sandboxed) {
+    await warning.getByTestId("always-run-reach-details").click();
+    await expect(warning.getByTestId("always-run-reach-list")).toContainText(
+      "can’t open your home folder or IncarnaMind’s data",
+    );
+  }
   await warning.getByTestId("always-run-cancel").click();
   await expect(warning).toHaveCount(0);
   await expect(card.getByTestId("approval-allow-once")).toBeVisible();
