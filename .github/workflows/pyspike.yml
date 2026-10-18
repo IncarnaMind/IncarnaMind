@@ -29,6 +29,11 @@ jobs:
           done
           exit 1
       - run: node spike/python/fetch.mjs
+      # Chromium's sandbox on Linux as a .deb installs it: the setuid helper, owned by root.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
       - if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" node spike/python/run.mjs
       - if: runner.os != 'Linux'

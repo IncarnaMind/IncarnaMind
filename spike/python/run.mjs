@@ -1,7 +1,7 @@
 // Runs the spike twice, with a temporary home folder: the first run measures and probes, the
 // second checks that nothing the first left in storage or files is there. Prints a summary.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +31,7 @@ for (const file of readdirSync(dist)) {
   size.gzip += gzip;
   size.brotli += brotli;
 }
+mkdirSync(join(here, "results"), { recursive: true });
 writeFileSync(join(here, "results", "size.json"), JSON.stringify(size, null, 2));
 console.log(JSON.stringify({ raw: size.raw, gzip: size.gzip, brotli: size.brotli }));
 for (const run of [1, 2]) {
