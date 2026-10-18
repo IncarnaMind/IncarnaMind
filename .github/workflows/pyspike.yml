@@ -1,0 +1,40 @@
+# Temporary (#444): runs the Python sandbox spike on Linux, Windows and macOS. Removed once
+# the numbers are in the report.
+name: Python sandbox spike
+on:
+  push:
+    branches: [spike/444-pyodide]
+jobs:
+  spike:
+    name: Spike (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Install Electron
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            node node_modules/electron/install.js && exit 0
+            sleep 20
+          done
+          exit 1
+      - run: node spike/python/fetch.mjs
+      - if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" node spike/python/run.mjs
+      - if: runner.os != 'Linux'
+        run: node spike/python/run.mjs
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pyspike-${{ matrix.os }}
+          path: spike/python/results/
