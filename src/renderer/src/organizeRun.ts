@@ -18,6 +18,20 @@ let lastOrganize: Undoable | null = null;
 export const lastOrganizeStep = (): Undoable | null => lastOrganize;
 
 /**
+ * What Undo puts a Document back to: as it was before Organize, except that one Organize hadn't
+ * finished with (waiting for a model, or queued) goes back with no assignment at all. Put back as
+ * waiting it would show "Needs attention" with a model chosen, and be organized again at the next
+ * start (#1391).
+ */
+const wasBefore = (
+  before: ReadonlyMap<string, DocumentGroupAssignment>,
+  id: string,
+): DocumentGroupAssignment | undefined => {
+  const item = before.get(id);
+  return item && (working(item) || item.status === "waiting") ? undefined : item;
+};
+
+/**
  * Says what Organize did once it has gone through `ids` (#763): how many
  * Documents got a Suggested Folder, with Undo, which puts each back as it was
  * (Tags it suggested stay, to accept or reject). Said nothing when it
@@ -34,12 +48,12 @@ export function sayWhenOrganized(
   const finish = () => {
     unsubscribe();
     const changed = itemsNow().filter(
-      (item) => item.suggested && placeOf(item) !== placeOf(before.get(item.documentId)),
+      (item) => item.suggested && placeOf(item) !== placeOf(wasBefore(before, item.documentId)),
     );
     if (changed.length === 0) return;
     const stays = (now: ReadonlyMap<string, DocumentGroupAssignment>, wanted: "undone" | "done") =>
       changed.filter((item) => {
-        const then = wanted === "undone" ? before.get(item.documentId) : item;
+        const then = wanted === "undone" ? wasBefore(before, item.documentId) : item;
         return placeOf(now.get(item.documentId)) === placeOf(then);
       });
     const assignmentsNow = () =>
@@ -47,7 +61,7 @@ export function sayWhenOrganized(
         (useAppStore.getState().library?.assignments ?? []).map((item) => [item.documentId, item]),
       );
     const put = (item: DocumentGroupAssignment) => {
-      const previous = before.get(item.documentId);
+      const previous = wasBefore(before, item.documentId);
       if (!previous) return core.restoreAssignment(item.documentId, null);
       const { documentId: _id, ...rest } = previous;
       return core.restoreAssignment(item.documentId, rest);

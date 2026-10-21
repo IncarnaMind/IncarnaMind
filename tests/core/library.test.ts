@@ -209,6 +209,40 @@ describe("Library groups", () => {
     expect(await settled(core, second.id)).toMatchObject({ status: "classified" });
   });
 
+  // protects=Documents Undo puts back with no assignment (Organize hadn't finished with them) show nothing waiting or failed, and the next start doesn't organize them again; fails_when=a Document is left waiting or is organized again at start; no_claim=the Undo step's wording.
+  test("a Document put back with no assignment isn't waiting, and isn't organized at the next start", async () => {
+    const fake = classifierModel();
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, { createChatModel: () => fake.model });
+    await core.createLibraryGroup({ name: "Research", description: "Scientific research papers." });
+    const first = await add(core, "one.txt", "A research paper about membranes.");
+    const second = await add(core, "two.txt", "A research paper about water filtration.");
+    await settled(core, first.id, "waiting");
+    await settled(core, second.id, "waiting");
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    await core.saveLibrarySettings({
+      classifier: {
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "small-classifier" },
+      },
+      automatic: false,
+    });
+    await settled(core, first.id);
+    await settled(core, second.id);
+    expect(fake.calls).toHaveLength(2);
+
+    await core.restoreAssignment(first.id, null);
+    await core.restoreAssignment(second.id, null);
+
+    expect((await core.getLibrary()).assignments).toEqual([]);
+    core.close();
+    const restarted = startCore(dataDir, { createChatModel: () => fake.model });
+    // Nothing is due, so no request comes: a short window for the ones a start would make.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(fake.calls).toHaveLength(2);
+    expect((await restarted.getLibrary()).assignments).toEqual([]);
+  });
+
   test("removing the last folder during inference stops progress until a folder exists", async () => {
     const { core, fake, group } = await setup();
     const doc = await add(core);
