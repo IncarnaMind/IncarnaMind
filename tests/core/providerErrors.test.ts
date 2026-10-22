@@ -93,6 +93,40 @@ describe("A failed request", () => {
     expect(classifyProviderError(refused("Request Timeout", 408)).kind).toBe("network");
   });
 
+  test("whose reply is cut off partway, wrapped as the SDK wraps it, is no connection, with its cause", () => {
+    const wrapped = (cause: Error) =>
+      new APICallError({
+        message: "Failed to process successful response",
+        url: "https://api.anthropic.com/v1/messages",
+        requestBodyValues: {},
+        statusCode: 200,
+        cause,
+      });
+    const cut = wrapped(
+      new TypeError("terminated", {
+        cause: Object.assign(new Error("other side closed"), {
+          name: "SocketError",
+          code: "UND_ERR_SOCKET",
+        }),
+      }),
+    );
+    expect(classifyProviderError(cut)).toEqual({
+      kind: "network",
+      message: "terminated",
+      status: 200,
+    });
+    expect(translate("en", "answer.error.network", { service: "Anthropic" })).toBe(
+      "Couldn’t reach Anthropic. Check your internet connection",
+    );
+    expect(translate("zh-CN", "answer.error.network", { service: "Anthropic" })).toBe(
+      "无法连接 Anthropic，请检查网络连接",
+    );
+    // A reply that was whole but couldn't be read stays a reply that couldn't be read.
+    expect(
+      classifyProviderError(wrapped(new SyntaxError("Unexpected end of JSON input"))).kind,
+    ).toBe("no-answer");
+  });
+
   test("whose reply can't be read is no Answer, without the reply it quotes", () => {
     const unreadable = new TypeValidationError({
       value: { answer: "The codeword is zanzibar." },

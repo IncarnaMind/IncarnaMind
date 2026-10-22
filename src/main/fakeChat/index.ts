@@ -59,7 +59,6 @@ const EDIT_WORD_MS = 10;
 /** The cells whose provider has refused them once already ("busy" in the Question). */
 const refusedOnce = new Set<string>();
 const offline = new Set<string>();
-/** The "overloaded" Questions whose first reply has failed already. */
 const overloadedOnce = new Set<string>();
 
 /**

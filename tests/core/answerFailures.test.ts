@@ -22,18 +22,15 @@ type StreamPart =
     ? Part
     : never;
 
-/** A model whose reply starts, then ends with `failure`: thrown, or sent as the stream's error. */
-function breakingModel(failure: { thrown: Error } | { sent: unknown }): MockLanguageModelV4 {
+/** A model whose reply starts, then ends with `sent` as the stream's error. */
+function breakingModel(sent: unknown): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doStream: async () => ({
       stream: new ReadableStream<StreamPart>({
         start(controller) {
           controller.enqueue({ type: "stream-start", warnings: [] });
-          if ("thrown" in failure) controller.error(failure.thrown);
-          else {
-            controller.enqueue({ type: "error", error: failure.sent });
-            controller.close();
-          }
+          controller.enqueue({ type: "error", error: sent });
+          controller.close();
         },
       }),
     }),
@@ -44,27 +41,54 @@ function breakingModel(failure: { thrown: Error } | { sent: unknown }): MockLang
 const sse = (type: string, data: Record<string, unknown>) =>
   `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
 
+const MESSAGE_START = sse("message_start", {
+  message: {
+    id: "msg_1",
+    type: "message",
+    role: "assistant",
+    content: [],
+    usage: { input_tokens: 5, output_tokens: 1 },
+  },
+});
+
+const eventStream = { headers: { "content-type": "text/event-stream" } };
+
 /** Claude, as Anthropic answers when it is overloaded after the reply has begun. */
 function overloadedClaude() {
-  const reply = [
-    sse("message_start", {
-      message: {
-        id: "msg_1",
-        type: "message",
-        role: "assistant",
-        content: [],
-        usage: { input_tokens: 5, output_tokens: 1 },
-      },
-    }),
-    sse("error", { error: { type: "overloaded_error", message: "Overloaded" } }),
-  ].join("");
+  const reply =
+    MESSAGE_START + sse("error", { error: { type: "overloaded_error", message: "Overloaded" } });
+  const server = async (): Promise<Response> => new Response(reply, eventStream);
+  return createAnthropic({ apiKey: KEY, fetch: server })("claude-haiku-5-5");
+}
+
+/** Claude, over a connection that ends once the reply has begun: Node's fetch fails the read with "terminated". */
+function cutClaude() {
   const server = async (): Promise<Response> =>
-    new Response(reply, { headers: { "content-type": "text/event-stream" } });
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(MESSAGE_START));
+          controller.error(
+            new TypeError("terminated", {
+              cause: Object.assign(new Error("other side closed"), {
+                name: "SocketError",
+                code: "UND_ERR_SOCKET",
+              }),
+            }),
+          );
+        },
+      }),
+      eventStream,
+    );
   return createAnthropic({ apiKey: KEY, fetch: server })("claude-haiku-5-5");
 }
 
 /** Asks a Question with `model` answering, and gives back how it failed and what the log says of it. */
-async function failWith(model: MockLanguageModelV4 | ReturnType<typeof overloadedClaude>) {
+async function failWith(
+  model: MockLanguageModelV4 | ReturnType<typeof overloadedClaude>,
+  /** Keys the User has saved for other providers, which the core has handled by then. */
+  savedKeys: Partial<Record<"openai" | "anthropic", string>> = {},
+) {
   const { log, entries } = recordingLog();
   const { core, client, mind } = await setUpWithDocuments(
     scriptedModel(() => ({ text: "" })),
@@ -74,6 +98,14 @@ async function failWith(model: MockLanguageModelV4 | ReturnType<typeof overloade
       createChatModel: () => model,
     },
   );
+  for (const [kind, apiKey] of Object.entries(savedKeys)) {
+    await core.saveChatProvider({
+      kind: kind === "openai" ? "openai" : "anthropic",
+      apiKey,
+      modelId: kind === "openai" ? "gpt-5.4-mini" : "claude-haiku-5-5",
+      keepDefault: true,
+    });
+  }
   const answerId = await askNew(core, client, mind.id, QUESTION);
   const ended = await answerEnded(core, answerId);
   if (ended.event !== "failed") throw new Error("The Answer didn't fail.");
@@ -94,14 +126,10 @@ const cases: {
   message: string;
 }[] = [
   {
-    way: "the connection ends partway, as a timed-out reply does",
-    model: () =>
-      breakingModel({
-        thrown: new TypeError("terminated", {
-          cause: Object.assign(new Error("Body Timeout Error"), { code: "UND_ERR_BODY_TIMEOUT" }),
-        }),
-      }),
+    way: "the connection ends once the reply has begun, as the SDK wraps it",
+    model: cutClaude,
     kind: "network",
+    status: 200,
     message: "terminated",
   },
   {
@@ -128,12 +156,12 @@ const cases: {
   {
     way: "a reply that can't be read",
     model: () =>
-      breakingModel({
-        sent: new JSONParseError({
+      breakingModel(
+        new JSONParseError({
           text: `{"answer": "${DOCUMENT_TEXT}`,
           cause: new SyntaxError("Unterminated string in JSON"),
         }),
-      }),
+      ),
     kind: "no-answer",
     message: "The model's reply couldn't be read (AI_JSONParseError).",
   },
@@ -171,4 +199,24 @@ describe("An Answer that can't be made", { timeout: 30_000 }, () => {
       }
     });
   }
+});
+
+describe("An Answer that fails with a key in the provider's words", () => {
+  test("never keeps a key the core has handled, however short or plain, wherever it stands", async () => {
+    const short = "sk-1234";
+    const plain = "abcdefghijklmnopqrstuvwxyzabcdef";
+    const failed = await failWith(
+      refusing(401, `Incorrect key ${short} (and ${plain}) for this server`),
+      { openai: short, anthropic: plain },
+    );
+
+    expect(failed.logged?.fields).toEqual({
+      answerId: expect.any(String),
+      errorKind: "auth",
+      status: 401,
+      message: "Incorrect key [redacted] (and [redacted]) for this server",
+    });
+    const everything = JSON.stringify(failed.entries);
+    for (const secret of [short, plain]) expect(everything).not.toContain(secret);
+  });
 });

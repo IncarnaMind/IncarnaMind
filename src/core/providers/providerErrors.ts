@@ -251,6 +251,12 @@ function sortedError(cause: unknown): ProviderError {
     const status = cause.statusCode;
     // No status: the request never got a response, or the provider's error didn't say.
     if (status === undefined) return { kind: streamed ? "provider" : "network", message };
+    // A reply cut off partway: the SDK wraps the connection's error (Node's "terminated") in an
+    // error that has the status of the reply.
+    if (status >= 200 && status < 300 && APICallError.isInstance(cause) && cause.cause) {
+      const inner = sortedError(cause.cause);
+      if (inner.kind === "network") return inner;
+    }
     if (status === 401 || status === 403) return { kind: "auth", message };
     const said = streamed ? message : `${message} ${cause.responseBody ?? ""}`;
     if (status === 400 && /must have data retention enabled/i.test(said)) {

@@ -40,7 +40,12 @@ export interface ActivityLog {
 }
 
 /** Starts logging the core's events. */
-export function logActivity(events: EventSource, log: Logger): ActivityLog {
+export function logActivity(
+  events: EventSource,
+  log: Logger,
+  /** The secrets the core has handled, which no logged message keeps. */
+  secrets: ReadonlySet<string> = new Set(),
+): ActivityLog {
   /** What was last logged about each Document, Connector…, so only changes are logged. */
   const documents = new Map<string, string>();
   const files = new Map<string, string>();
@@ -141,7 +146,7 @@ export function logActivity(events: EventSource, log: Logger): ActivityLog {
         answerId,
         errorKind: error.kind,
         status: error.status,
-        message: redactMessage(error.message),
+        message: redactMessage(error.message, [...secrets]),
       }),
     ),
     events.on("embedding.changed", ({ provider, error }) => {
