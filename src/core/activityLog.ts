@@ -6,7 +6,8 @@
  * but what is picked here reaches the log: ids, statuses, kinds and counts.
  * Never a Document's name, path or text, Mind content, a Question or an Answer, nor
  * the messages providers and Connectors send back, which can quote any of
- * them, or a key.
+ * them, or a key: a failed Answer's message only as `redactMessage` leaves it,
+ * so its cause can be found (#1487).
  */
 import type { Logger } from "./adapters";
 import type {
@@ -17,6 +18,7 @@ import type {
   Task,
   Unsubscribe,
 } from "./api";
+import { redactMessage } from "./redact";
 
 /** Logs nothing: the core's log when the host gives none. */
 export const silentLogger: Logger = {
@@ -135,7 +137,12 @@ export function logActivity(events: EventSource, log: Logger): ActivityLog {
     events.on("documents.tagged", onTagged),
     events.on("connectors.changed", onConnectors),
     events.on("answer.failed", ({ answerId, error }) =>
-      log.warn("answer.failed", { answerId, errorKind: error.kind }),
+      log.warn("answer.failed", {
+        answerId,
+        errorKind: error.kind,
+        status: error.status,
+        message: redactMessage(error.message),
+      }),
     ),
     events.on("embedding.changed", ({ provider, error }) => {
       const kind = error?.kind ?? null;

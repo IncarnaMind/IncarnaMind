@@ -17,6 +17,7 @@ const KINDS: ProviderErrorKind[] = [
   "rate-limit",
   "network",
   "provider",
+  "refused",
   "consent-declined",
   "consent-revoked",
   "local-mode",
@@ -180,6 +181,49 @@ describe("a failed Answer's problem line", () => {
       expect(ANSWER_PROBLEMS[kind].fix.kind).toBe("retry");
     }
     expect(ANSWER_PROBLEMS["too-long"].fix.kind).toBe("none");
+  });
+
+  test("each way an Answer fails says why, with the action that fits, in both languages (#1487)", () => {
+    const service = { model: "claude-haiku-5-5", service: "Anthropic" };
+    const shown = (kind: ProviderErrorKind, language: "en" | "zh-CN") => {
+      const { line, fix } = ANSWER_PROBLEMS[kind];
+      return [
+        translate(language, line, service),
+        fix.kind === "none" ? "" : translate(language, fix.label),
+      ];
+    };
+    expect(shown("network", "en")).toEqual([
+      "Couldn’t reach Anthropic. Check your internet connection",
+      "Try again",
+    ]);
+    expect(shown("rate-limit", "en")).toEqual([
+      "Anthropic is limiting requests right now",
+      "Try again",
+    ]);
+    expect(shown("auth", "en")).toEqual([
+      "The key for claude-haiku-5-5 was refused",
+      "Check the key",
+    ]);
+    expect(shown("refused", "en")).toEqual([
+      "Anthropic refused this request",
+      "Choose another model",
+    ]);
+    expect(shown("no-answer", "en")).toEqual(["The model sent no Answer", "Try again"]);
+    expect(shown("provider", "en")).toEqual(["Anthropic ran into a problem", "Try again"]);
+    expect(shown("unknown", "en")).toEqual(["Something went wrong with Anthropic", "Try again"]);
+
+    expect(shown("network", "zh-CN")).toEqual(["无法连接 Anthropic，请检查网络连接", "重试"]);
+    expect(shown("rate-limit", "zh-CN")).toEqual(["Anthropic 暂时限制了请求", "重试"]);
+    expect(shown("auth", "zh-CN")).toEqual(["claude-haiku-5-5 的密钥被拒绝了", "检查密钥"]);
+    expect(shown("refused", "zh-CN")).toEqual(["Anthropic 拒绝了这个请求", "换一个模型"]);
+    expect(shown("no-answer", "zh-CN")).toEqual(["模型没有给出回答", "重试"]);
+    expect(shown("provider", "zh-CN")).toEqual(["Anthropic 出错了", "重试"]);
+    expect(shown("unknown", "zh-CN")).toEqual(["Anthropic 出了问题，原因不明", "重试"]);
+    expect(ANSWER_PROBLEMS.refused.fix).toEqual({
+      kind: "settings",
+      page: "models",
+      label: "answer.error.chooseModel",
+    });
   });
 
   test("the line is one short sentence in both languages, naming the model where it can", () => {

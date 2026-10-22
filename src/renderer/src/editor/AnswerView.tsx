@@ -286,6 +286,7 @@ export function NoCitationsLine({
 const WRONG_MODEL: ReadonlySet<ProviderErrorKind> = new Set([
   "model",
   "provider",
+  "refused",
   "no-answer",
   "unknown",
 ]);

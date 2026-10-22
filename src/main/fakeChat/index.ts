@@ -3,7 +3,10 @@
  * test builds (`electron-vite build --mode test`) contain this file, and only
  * `INCARNAMIND_FAKE_CHAT=1` turns it on.
  *
- * A Question with "blank reply" in it gets a reply with no text at all. A model whose id ends
+ * A Question with "blank reply" in it gets a reply with no text at all. One with "refused request"
+ * in it is refused as a provider refuses a request it can't take (HTTP 400), quoting it; one with
+ * "overloaded" in it fails the first time it is asked, as its reply begins, as Anthropic's
+ * "Overloaded" does. A model whose id ends
  * "-not-found" fails as one its provider doesn't know when it answers; one ending "-claims-not-found"
  * does when it finds or checks claims; one ending "-claims-offline" can't reach its provider the
  * first time it finds claims. A key with "refused" in it is refused,
@@ -15,7 +18,7 @@
  * "rate-limited" meets its rate limit.
  */
 
-import { APICallError } from "ai";
+import { APICallError, StreamProviderError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
@@ -56,6 +59,8 @@ const EDIT_WORD_MS = 10;
 /** The cells whose provider has refused them once already ("busy" in the Question). */
 const refusedOnce = new Set<string>();
 const offline = new Set<string>();
+/** The "overloaded" Questions whose first reply has failed already. */
+const overloadedOnce = new Set<string>();
 
 /**
  * The scripted replies to a request that doesn't ask for JSON, in order: the first that
@@ -180,6 +185,32 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
           statusCode: 429,
           isRetryable: false,
         });
+      }
+      const question = lastQuestion(prompt);
+      if (/refused request/i.test(question)) {
+        throw new APICallError({
+          message: `messages.0.content: "${question}" can't be taken`,
+          url: "https://fake.invalid/chat",
+          requestBodyValues: {},
+          statusCode: 400,
+        });
+      }
+      if (/\boverloaded\b/i.test(question) && !overloadedOnce.has(question)) {
+        overloadedOnce.add(question);
+        const overloaded = new StreamProviderError({
+          message: "Overloaded",
+          type: "overloaded_error",
+          statusCode: 529,
+        });
+        return {
+          stream: new ReadableStream<StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] });
+              controller.enqueue({ type: "error", error: overloaded });
+              controller.close();
+            },
+          }),
+        };
       }
       const search = tools?.find((each) => each.type === "provider");
       const edit = search ? null : fakeEdit(prompt);

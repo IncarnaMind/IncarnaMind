@@ -4088,6 +4088,11 @@ export type ProviderErrorKind =
   | "rate-limit"
   | "network"
   | "provider"
+  /**
+   * The provider refused the request as it was sent (an HTTP 4xx other than a refused key, an
+   * unknown model, a timeout or a rate limit): sent again, it would be refused again.
+   */
+  | "refused"
   | "consent-declined"
   /** The User turned off the flow to the model's service while the work was under way: nothing more was sent. */
   | "consent-revoked"
@@ -4121,6 +4126,8 @@ export interface ProviderError {
   kind: ProviderErrorKind;
   /** The provider's own message, for details. */
   message: string;
+  /** The provider's HTTP status, when it gave one, for the log. */
+  status?: number;
   /** The message as a key of the dictionary, when the core worded it, to say in the interface language. */
   wording?: ErrorWording;
   /**

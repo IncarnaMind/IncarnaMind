@@ -1,8 +1,19 @@
-import { APICallError, RetryError, UnsupportedFunctionalityError } from "ai";
+import {
+  APICallError,
+  EmptyResponseBodyError,
+  InvalidResponseDataError,
+  JSONParseError,
+  NoOutputGeneratedError,
+  RetryError,
+  StreamProviderError,
+  TypeValidationError,
+  UnsupportedFunctionalityError,
+} from "ai";
 import type { ProviderError, ProviderErrorKind, SignInRouteProblem } from "../api";
 import {
   ConsentDeclinedError,
   ConsentRevokedError,
+  isRecord,
   LocalModeError,
   TranslatableError,
 } from "../errors";
@@ -128,10 +139,6 @@ export function contextOverflow(
   };
 }
 
-const refusesWithoutRetention = (error: APICallError) =>
-  error.statusCode === 400 &&
-  /must have data retention enabled/i.test(`${error.message} ${error.responseBody ?? ""}`);
-
 /**
  * Whether a provider refused a request because the model can't use `feature`:
  * e.g. Ollama's "model does not support tools", vLLM's "--enable-auto-tool-choice",
@@ -168,7 +175,9 @@ export function refusesFeature(
 
 /**
  * Sorts a failed provider request into a kind the UI can explain: a bad key,
- * an unknown model, rate limiting, no connection, or the provider's own error.
+ * an unknown model, rate limiting, no connection, a request the provider
+ * refused, a reply that couldn't be read, or the provider's own error. Keeps
+ * the provider's HTTP status, when it gave one, for the log.
  * For the ChatGPT plan, also a missing or expired sign-in, a reached plan
  * limit, or OpenAI refusing the sign-in; for a route signed in with the
  * User's own account (Claude, Copilot), its own problems (`signInRoute`); for an Ollama Cloud model, its
@@ -186,6 +195,12 @@ export function classifyProviderError(error: unknown): ProviderError {
       retried.cause instanceof SignInRouteError)
       ? retried.cause
       : retried;
+  const sorted = sortedError(cause);
+  const status = isRecord(cause) ? (cause.statusCode ?? cause.status) : undefined;
+  return typeof status === "number" ? { ...sorted, status } : sorted;
+}
+
+function sortedError(cause: unknown): ProviderError {
   const message = messageOf(cause);
 
   const badKey = cause instanceof KeyCharacterError ? cause : keyCharacterOf(message);
@@ -229,26 +244,46 @@ export function classifyProviderError(error: unknown): ProviderError {
   // A plan's sign-in couldn't be refreshed for a passing reason (e.g. the provider's server failed).
   if (cause instanceof OAuthTokenError) return { kind: "provider", message };
 
-  if (APICallError.isInstance(cause)) {
+  // An error the provider sends once its reply has begun, e.g. Anthropic's "Overloaded", has a
+  // status as a refused request does.
+  const streamed = StreamProviderError.isInstance(cause);
+  if (APICallError.isInstance(cause) || streamed) {
     const status = cause.statusCode;
-    // No status: the request never got a response.
-    if (status === undefined) return { kind: "network", message };
+    // No status: the request never got a response, or the provider's error didn't say.
+    if (status === undefined) return { kind: streamed ? "provider" : "network", message };
     if (status === 401 || status === 403) return { kind: "auth", message };
-    if (refusesWithoutRetention(cause)) return { kind: "data-retention", message };
-    // Google answers a bad key with 400 "API key not valid", in the body when the message is only the status.
-    if (status === 400 && /api[ _-]?key/i.test(`${message} ${cause.responseBody ?? ""}`)) {
-      return { kind: "auth", message };
+    const said = streamed ? message : `${message} ${cause.responseBody ?? ""}`;
+    if (status === 400 && /must have data retention enabled/i.test(said)) {
+      return { kind: "data-retention", message };
     }
+    // Google answers a bad key with 400 "API key not valid", in the body when the message is only the status.
+    if (status === 400 && /api[ _-]?key/i.test(said)) return { kind: "auth", message };
     if (status === 404) return { kind: "model", message };
+    if (status === 408) return { kind: "network", message };
     if (status === 429) return { kind: "rate-limit", message };
-    return { kind: "provider", message };
+    // The provider answered, but not in a form that can be read.
+    if (status >= 200 && status < 300) return { kind: "no-answer", message };
+    if (status >= 400 && status < 500) return { kind: "refused", message };
+    if (status >= 500) return { kind: "provider", message };
+    return { kind: "unknown", message };
+  }
+  // A reply that couldn't be read. These errors quote the reply, so only their name is kept.
+  if (
+    JSONParseError.isInstance(cause) ||
+    TypeValidationError.isInstance(cause) ||
+    InvalidResponseDataError.isInstance(cause) ||
+    EmptyResponseBodyError.isInstance(cause) ||
+    NoOutputGeneratedError.isInstance(cause)
+  ) {
+    return { kind: "no-answer", message: `The model's reply couldn't be read (${cause.name}).` };
   }
 
   if (cause instanceof Error) {
     if (cause.name === "AbortError" || cause.name === "TimeoutError") {
       return { kind: "network", message };
     }
-    if (cause instanceof TypeError && /fetch failed|network/i.test(message)) {
+    // Node's fetch says "terminated" when the connection ends partway through a reply.
+    if (cause instanceof TypeError && /fetch failed|network|^terminated$/i.test(message)) {
       return { kind: "network", message };
     }
   }

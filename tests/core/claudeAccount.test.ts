@@ -766,7 +766,7 @@ describe("Failures", () => {
 
     const error = await failure(core);
 
-    expect(error.kind).toBe("provider");
+    expect(error.kind).toBe("refused");
     expect(error.signInRoute).toBeUndefined();
   });
 
