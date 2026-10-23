@@ -35,8 +35,8 @@ export interface ProcessorHandlers {
   /**
    * A processing job is about to go to a worker, from the queue or its turn in the scan lane:
    * returns it as it starts, if that has changed since it was queued (the scanned pages it keeps).
-   * `warm`: the worker has run a job of its kind before, so it has nothing to load first (a new
-   * worker starts up, and loads PDF.js for its first PDF).
+   * `warm`: the worker has read a file of its kind before, so it has nothing to load first (a
+   * new worker starts up, and loads PDF.js for its first PDF).
    */
   onStart(job: ProcessingJob, warm: boolean): ProcessingJob | undefined;
   /** A job that reads scanned pages stopped to wait its turn in the scan lane. */
@@ -134,8 +134,9 @@ export function createProcessor(
     const run = running.get(id);
     if (closed || !run) return;
     running.delete(id);
-    if (run.worker.alive) rest(run.worker);
     const { job } = run;
+    if (job.task === "process" && result.outcome === "ready") run.worker.kinds.add(job.kind);
+    if (run.worker.alive) rest(run.worker);
     const waiting = scansWaiting.findIndex((each) => each.job === job && each.stopping);
     if (waiting !== -1 && result.outcome === "stopped" && !run.cancelled) {
       const entry = scansWaiting[waiting];
@@ -302,7 +303,6 @@ export function createProcessor(
         return;
       }
       run.posted = true;
-      run.worker.kinds.add(job.kind);
       run.worker.thread.postMessage({
         id,
         job,

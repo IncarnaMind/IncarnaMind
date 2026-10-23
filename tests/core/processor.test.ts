@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { ProcessingJob, ProcessingResult } from "../../src/core/documents/processing";
 import { createProcessor, type ProcessorHandlers } from "../../src/core/documents/processor";
@@ -5,7 +6,7 @@ import { createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { buildPdf } from "../helpers/pdf";
 
 describe("Processing jobs on workers", { timeout: 30_000 }, () => {
-  test("a PDF stopped while its password is read never reaches its worker: the next PDF there still starts cold (#1506)", async () => {
+  test("a worker counts as warm for a kind only once it has read a file of it (#1506)", async () => {
     let release = (_password: string | undefined) => {};
     const password = new Promise<string | undefined>((resolve) => {
       release = resolve;
@@ -36,30 +37,41 @@ describe("Processing jobs on workers", { timeout: 30_000 }, () => {
     const processor = createProcessor(handlers);
     onTestFinished(() => processor.close());
     const folder = await createSourceFolder();
-    const job = async (documentId: string): Promise<ProcessingJob> => ({
+    const pdf = (documentId: string, file: string): ProcessingJob => ({
       task: "process",
       documentId,
       kind: "pdf",
-      file: await writeSourceFile(
-        folder,
-        `${documentId}.pdf`,
-        buildPdf([{ lines: ["Spring tides."] }]),
-      ),
+      file,
     });
+    const tides = await writeSourceFile(
+      folder,
+      "tides.pdf",
+      buildPdf([{ lines: ["Spring tides."] }]),
+    );
+    const run = async (job: ProcessingJob) => {
+      const result = resultOf(job.documentId);
+      processor.enqueue(job);
+      return (await result).outcome;
+    };
 
+    // Stopped while its password is read: it never reaches the worker.
     const stopped = resultOf("locked");
-    processor.enqueue(await job("locked"));
+    processor.enqueue(pdf("locked", tides));
     await expect.poll(() => starts.length).toBe(1);
     processor.cancel("locked");
     release(undefined);
-    expect(await stopped).toEqual({ outcome: "stopped" });
+    expect((await stopped).outcome).toBe("stopped");
+    // A file that can't be read is given up before PDF.js loads.
+    expect(await run(pdf("missing", join(folder, "missing.pdf")))).toBe("file-unreadable");
+    // The first PDF read loads it; the next has nothing to load.
+    expect(await run(pdf("first", tides))).toBe("ready");
+    expect(await run(pdf("second", tides))).toBe("ready");
 
-    const next = resultOf("next");
-    processor.enqueue(await job("next"));
-    expect((await next).outcome).toBe("ready");
     expect(starts).toEqual([
       ["locked", false],
-      ["next", false],
+      ["missing", false],
+      ["first", false],
+      ["second", true],
     ]);
   });
 });
