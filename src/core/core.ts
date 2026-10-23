@@ -117,6 +117,7 @@ import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { createOwnFiles } from "./documents/ownFiles";
 import { createPdfPasswords } from "./documents/pdfPasswords";
+import { READING_SPEED } from "./documents/readingSpeed";
 import { createVersionRetention, type VersionRetention } from "./documents/retention";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL, createTextRecognitionModel } from "./documents/scan";
 import type { WindowedPassage } from "./documents/search";
@@ -637,6 +638,10 @@ export function createCore(adapters: CoreAdapters): Core {
       textRecognition: textRecognitionModel,
       ...(adapters.scansAtOnce !== undefined && { scansAtOnce: adapters.scansAtOnce }),
       pdfPassword: (id) => pdfPasswords.of(id),
+      readingSpeed: {
+        read: () => settings.readDeviceValue(READING_SPEED),
+        write: (speed) => settings.writeDeviceValue(READING_SPEED, speed),
+      },
       folders,
       emitStatus: (document) => {
         events.emit("document.status", document);
