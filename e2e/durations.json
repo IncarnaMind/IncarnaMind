@@ -78,7 +78,7 @@
   "otherModels.spec.ts": 8,
   "palette.spec.ts": 21,
   "pauseMyMic.spec.ts": 33,
-  "planLimit.spec.ts": 100,
+  "planLimit.spec.ts": 30,
   "privacy.spec.ts": 7,
   "problems.spec.ts": 30,
   "providerTiers.spec.ts": 14,
