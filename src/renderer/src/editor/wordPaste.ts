@@ -82,6 +82,29 @@ function dropComments(body: HTMLElement): void {
   }
 }
 
+const showsNothing = (element: Element) =>
+  (element.textContent ?? "").trim() === "" && !element.querySelector("img, br");
+
+/**
+ * A Mind has no page break of its own (an imported one stays with its Word file), so a pasted one
+ * goes. Word writes the break outside any paragraph, then the rest of the paragraph that held it:
+ * an empty paragraph when the break stood alone, which goes with it.
+ */
+function dropPageBreaks(body: HTMLElement): void {
+  for (const pageBreak of body.querySelectorAll('br[style*="page-break-before" i]')) {
+    let holder = pageBreak;
+    while (holder.parentElement && !holder.parentElement.matches("body, div, td, th")) {
+      holder = holder.parentElement;
+    }
+    let rest = holder.nextSibling;
+    while (rest && holdsNothing(rest)) rest = rest.nextSibling;
+    pageBreak.remove();
+    if (!showsNothing(holder)) continue;
+    holder.remove();
+    if (rest && isElement(rest) && rest.tagName === "P" && showsNothing(rest)) rest.remove();
+  }
+}
+
 function headingOf(paragraph: Element, document: Document): Element | null {
   const style = /^Mso(.+?)(?:CxSp\w+)?$/.exec(paragraph.className)?.[1];
   const level = style === undefined ? null : headingLevelOfStyleName(style);
@@ -106,6 +129,7 @@ export function fromWord(html: string): string {
   for (const empty of [...body.getElementsByTagName("o:p")]) {
     if (empty.textContent === "") empty.remove();
   }
+  dropPageBreaks(body);
   const lists = (container: Element) => {
     const children = [...container.childNodes].filter((node) => !holdsNothing(node));
     if (!children.some((child) => listParagraphOf(child))) return;
