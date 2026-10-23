@@ -4,7 +4,9 @@ import {
   cycleTabs,
   focusGroup,
   moveToGroup,
+  showTabByNumber,
   splitToTheRight,
+  tabByNumber,
 } from "../components/tabs/tabActions";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../layoutSlice";
 import { useAppStore } from "../store";
@@ -68,6 +70,23 @@ const focusGroupCommands = [1, 2, 3].map(
   }),
 );
 
+/**
+ * ⌃1–⌃8 show a tab of the focused group by its place, ⌃9 its last, as in VS Code: Alt on Windows
+ * and Linux, where Ctrl+1–3 go to a group.
+ */
+const showTabCommands = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(
+  (number): Command => ({
+    id: number === 9 ? "tab.showLast" : `tab.show${number}`,
+    label:
+      number === 9 ? "command.tab.showLast" : (_ctx, t) => t("command.tab.show", { n: number }),
+    shortcut: { keys: { mac: `Ctrl+${number}`, other: `Alt+${number}` } },
+    group: "open",
+    reversible: true,
+    when: () => tabByNumber(number) !== null,
+    run: () => showTabByNumber(number),
+  }),
+);
+
 export const tabCommands: readonly Command[] = [
   {
     ...fromMenu("tab.close"),
@@ -115,6 +134,7 @@ export const tabCommands: readonly Command[] = [
     reversible: true,
     run: () => cycleTabs(-1),
   },
+  ...showTabCommands,
   ...focusGroupCommands,
   {
     id: "tab.keep",
