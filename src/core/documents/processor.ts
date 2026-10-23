@@ -276,7 +276,6 @@ export function createProcessor(
     const id = nextId++;
     const worker = idle.pop() ?? startWorker();
     const warm = worker.kinds.has(queued.kind);
-    worker.kinds.add(queued.kind);
     const run: Run = {
       id,
       job: queued,
@@ -303,6 +302,7 @@ export function createProcessor(
         return;
       }
       run.posted = true;
+      run.worker.kinds.add(job.kind);
       run.worker.thread.postMessage({
         id,
         job,
