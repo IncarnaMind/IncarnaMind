@@ -709,7 +709,7 @@ describe("When Questions can't be answered", () => {
         payload: {
           mindId: mind.id,
           answerId,
-          error: { kind, message: expect.stringContaining(message) },
+          error: { kind, message: expect.stringContaining(message), status },
         },
       });
       expect(answerIn(reader, answerId).attrs).toMatchObject({

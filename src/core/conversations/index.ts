@@ -173,6 +173,7 @@ const ERROR_KINDS: Record<ProviderErrorKind, true> = {
   "rate-limit": true,
   network: true,
   provider: true,
+  refused: true,
   "consent-declined": true,
   "consent-revoked": true,
   "local-mode": true,

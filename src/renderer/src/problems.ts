@@ -69,6 +69,11 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   "rate-limit": { line: "answer.error.rate-limit", fix: retry },
   network: { line: "answer.error.network", fix: retry },
   provider: { line: "answer.error.provider", fix: retry },
+  // Asked again, the same request is refused again: another model may take it.
+  refused: {
+    line: "answer.error.refused",
+    fix: { kind: "settings", page: "models", label: "answer.error.chooseModel" },
+  },
   // A local model's context window: trying again can't help, shortening the Question does.
   "too-long": { line: "answer.error.too-long", fix: { kind: "none" } },
   "no-answer": { line: "answer.error.no-answer", fix: retry },

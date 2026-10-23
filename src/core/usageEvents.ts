@@ -116,6 +116,7 @@ const ANSWER_ERRORS = [
   "rate-limit",
   "network",
   "provider",
+  "refused",
   "consent-declined",
   "consent-revoked",
   "local-mode",

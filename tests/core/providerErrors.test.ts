@@ -1,4 +1,4 @@
-import { APICallError, RetryError } from "ai";
+import { APICallError, RetryError, StreamProviderError, TypeValidationError } from "ai";
 import { describe, expect, test } from "vitest";
 import { KeyCharacterError } from "../../src/core/providers/apiKey";
 import { JevRequestError } from "../../src/core/providers/jev";
@@ -38,8 +38,12 @@ describe("A provider's refusal", () => {
     }
   });
 
-  test("with another 400 stays the provider's own error", () => {
-    expect(classifyProviderError(refused("messages: field required")).kind).toBe("provider");
+  test("with another 400 is a refused request, with its status", () => {
+    expect(classifyProviderError(refused("messages: field required"))).toEqual({
+      kind: "refused",
+      message: "messages: field required",
+      status: 400,
+    });
   });
 
   test("of a key, said only in the body of a 400 (Google's model list), is a refused key", () => {
@@ -53,6 +57,94 @@ describe("A provider's refusal", () => {
       }),
     });
     expect(classifyProviderError(listRefused).kind).toBe("auth");
+  });
+});
+
+describe("A failed request", () => {
+  const streamed = (statusCode: number | undefined, message: string) =>
+    new StreamProviderError({ message, type: "overloaded_error", statusCode });
+
+  test("ended by the provider once its reply began is sorted by the status it gave", () => {
+    expect(classifyProviderError(streamed(529, "Overloaded"))).toEqual({
+      kind: "provider",
+      message: "Overloaded",
+      status: 529,
+    });
+    expect(classifyProviderError(streamed(429, "Rate limited")).kind).toBe("rate-limit");
+    expect(classifyProviderError(streamed(401, "Invalid key")).kind).toBe("auth");
+    expect(classifyProviderError(streamed(400, "Bad request")).kind).toBe("refused");
+    expect(classifyProviderError(streamed(undefined, "Something odd"))).toEqual({
+      kind: "provider",
+      message: "Something odd",
+    });
+  });
+
+  test("whose connection timed out or ended partway is no connection", () => {
+    expect(
+      classifyProviderError(
+        new TypeError("terminated", {
+          cause: Object.assign(new Error("Body Timeout Error"), { code: "UND_ERR_BODY_TIMEOUT" }),
+        }),
+      ).kind,
+    ).toBe("network");
+    expect(classifyProviderError(new DOMException("Timed out", "TimeoutError")).kind).toBe(
+      "network",
+    );
+    expect(classifyProviderError(refused("Request Timeout", 408)).kind).toBe("network");
+  });
+
+  test("whose reply is cut off partway, wrapped as the SDK wraps it, is no connection, with its cause", () => {
+    const wrapped = (cause: Error) =>
+      new APICallError({
+        message: "Failed to process successful response",
+        url: "https://api.anthropic.com/v1/messages",
+        requestBodyValues: {},
+        statusCode: 200,
+        cause,
+      });
+    const cut = wrapped(
+      new TypeError("terminated", {
+        cause: Object.assign(new Error("other side closed"), {
+          name: "SocketError",
+          code: "UND_ERR_SOCKET",
+        }),
+      }),
+    );
+    expect(classifyProviderError(cut)).toEqual({
+      kind: "network",
+      message: "terminated",
+      status: 200,
+    });
+    expect(translate("en", "answer.error.network", { service: "Anthropic" })).toBe(
+      "Couldn’t reach Anthropic. Check your internet connection",
+    );
+    expect(translate("zh-CN", "answer.error.network", { service: "Anthropic" })).toBe(
+      "无法连接 Anthropic，请检查网络连接",
+    );
+    // A reply that was whole but couldn't be read stays a reply that couldn't be read.
+    expect(
+      classifyProviderError(wrapped(new SyntaxError("Unexpected end of JSON input"))).kind,
+    ).toBe("no-answer");
+  });
+
+  test("whose reply can't be read is no Answer, without the reply it quotes", () => {
+    const unreadable = new TypeValidationError({
+      value: { answer: "The codeword is zanzibar." },
+      cause: new Error("Expected a string."),
+    });
+    expect(classifyProviderError(unreadable)).toEqual({
+      kind: "no-answer",
+      message: "The model's reply couldn't be read (AI_TypeValidationError).",
+    });
+    expect(classifyProviderError(refused("Invalid JSON response", 200)).kind).toBe("no-answer");
+  });
+
+  test("that nothing explains is unknown, and keeps its status", () => {
+    expect(classifyProviderError(refused("Found", 302))).toEqual({
+      kind: "unknown",
+      message: "Found",
+      status: 302,
+    });
   });
 });
 

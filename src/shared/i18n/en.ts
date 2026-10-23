@@ -1388,6 +1388,7 @@ export const en = {
   "tagging.problem.rate-limit":
     "Couldn’t tag: the AI model’s service is limiting requests for now.",
   "tagging.problem.provider": "Couldn’t tag: the AI model’s service returned an error.",
+  "tagging.problem.refused": "Couldn’t tag: the AI model’s service refused the request.",
   "tagging.problem.consent-declined":
     "Couldn’t tag: sending excerpts to the AI model’s service isn’t allowed.",
   "tagging.problem.consent-revoked":
@@ -1952,6 +1953,7 @@ export const en = {
   "providers.test.rate-limit": "The provider is limiting requests for this key. Try again shortly.",
   "providers.test.network": "Couldn’t reach the server. Check its URL and your connection.",
   "providers.test.provider": "The provider returned an error.",
+  "providers.test.refused": "The provider refused the request.",
   "providers.test.local-mode": "Not sent: “Keep everything on this computer” is on.",
   "providers.test.consent-revoked": "Not sent: you turned off sending to this service.",
   "providers.test.consent-declined":
@@ -2645,6 +2647,7 @@ export const en = {
   "answer.error.rate-limit": "{service} is limiting requests right now",
   "answer.error.network": "Couldn’t reach {service}. Check your internet connection",
   "answer.error.provider": "{service} ran into a problem",
+  "answer.error.refused": "{service} refused this request",
   "answer.error.consent-declined": "Nothing was sent: you chose not to send data to this service",
   "answer.error.local-mode": "Stopped: everything stays on this computer",
   "answer.error.consent-revoked": "Stopped: you turned off sending to {service}",
@@ -2652,7 +2655,7 @@ export const en = {
   "answer.error.ollama-not-running": "Ollama isn’t running on this computer",
   "answer.error.too-long": "This Question is too long for the model. Shorten it.",
   "answer.error.no-answer": "The model sent no Answer",
-  "answer.error.unknown": "This Answer couldn’t be written",
+  "answer.error.unknown": "Something went wrong with {service}",
   "answer.error.not-signed-in": "You’re not signed in to ChatGPT",
   "answer.error.plan-limit": "Your ChatGPT plan’s usage limit is reached",
   "answer.error.blocked": "OpenAI didn’t let IncarnaMind use your ChatGPT plan",
