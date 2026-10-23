@@ -135,10 +135,16 @@ export interface ReadingMeterOptions {
 }
 
 export function createReadingMeter(options: ReadingMeterOptions) {
-  /** When each Document's processing job started, for those whose time counts. */
-  const started = new Map<string, number>();
-  /** Documents processed, waiting to be embedded, with how long processing took. */
-  const embedding = new Map<string, { kind: DocumentKind; bytes: number; ms: number }>();
+  /**
+   * When each Document's processing job started, for those whose time counts; then, processed,
+   * how long that took while it waits to be embedded. Each with the embedding model it began
+   * under: it counts only for that model, and only while it is still the one in use.
+   */
+  const started = new Map<string, { at: number; model: string }>();
+  const embedding = new Map<
+    string,
+    { kind: DocumentKind; bytes: number; ms: number; model: string }
+  >();
   /** What is measured for the embedding model in use; `unkept` until written to the device value. */
   let measured: ReadingSpeed | null = null;
   let unkept = false;
@@ -159,15 +165,19 @@ export function createReadingMeter(options: ReadingMeterOptions) {
     const model = options.embedding();
     if (measured?.embedding !== model) {
       keep();
-      // Processed under the old model: the new one's time would hold a share of the old.
-      embedding.clear();
+      // Begun under another model, they can't count: let them go rather than keep them till quit.
+      for (const readings of [started, embedding]) {
+        for (const [id, { model: begun }] of readings) if (begun !== model) readings.delete(id);
+      }
       measured = speedFor(options.read(), model);
     }
     return measured;
   };
 
-  const add = (kind: DocumentKind, bytes: number, ms: number) => {
-    measured = withReading(speed(), kind, bytes, ms / 1000);
+  const add = (kind: DocumentKind, bytes: number, ms: number, model: string) => {
+    const current = speed();
+    if (current.embedding !== model) return;
+    measured = withReading(current, kind, bytes, ms / 1000);
     unkept = true;
     if (options.clock() - keptAt >= KEEP_EVERY_MS) keep();
   };
@@ -175,7 +185,7 @@ export function createReadingMeter(options: ReadingMeterOptions) {
   return {
     /** A Document's processing job starts; `warm` as `ProcessorHandlers.onStart` gives it. */
     started(documentId: string, warm: boolean): void {
-      if (warm) started.set(documentId, options.clock());
+      if (warm) started.set(documentId, { at: options.clock(), model: options.embedding() });
       else started.delete(documentId);
     },
 
@@ -184,22 +194,22 @@ export function createReadingMeter(options: ReadingMeterOptions) {
      * read once embedded, which takes its share of the time too.
      */
     processed(documentId: string, kind: DocumentKind, bytes: number, ready: boolean): void {
-      speed();
       const begun = started.get(documentId);
       started.delete(documentId);
       embedding.delete(documentId);
       if (begun === undefined) return;
-      const ms = options.clock() - begun;
-      if (ready) add(kind, bytes, ms);
-      else embedding.set(documentId, { kind, bytes, ms });
+      const ms = options.clock() - begun.at;
+      if (ready) add(kind, bytes, ms, begun.model);
+      else embedding.set(documentId, { kind, bytes, ms, model: begun.model });
     },
 
     /** `ms` as `EmbeddingQueueOptions.onEmbedded` gives it: null leaves the Document out. */
     embedded(documentId: string, ms: number | null): void {
-      speed();
       const processed = embedding.get(documentId);
       embedding.delete(documentId);
-      if (processed && ms !== null) add(processed.kind, processed.bytes, processed.ms + ms);
+      if (processed && ms !== null) {
+        add(processed.kind, processed.bytes, processed.ms + ms, processed.model);
+      }
     },
 
     /** It was deleted, or its folder unlinked: its reading won't finish. */

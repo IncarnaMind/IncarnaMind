@@ -205,6 +205,25 @@ describe("How long reading takes on this computer (#1506)", () => {
     expect(meter.seconds(files(1, "markdown", 2_000))).toBeNull();
   });
 
+  test("a reading counts only for the embedding model it began under", () => {
+    const { meter, advance, useEmbedding } = startMeter();
+    // Begun with embeddings on, read once they were turned off: neither model's time.
+    useEmbedding("multilingual-e5-small");
+    meter.started("switched", true);
+    advance(10);
+    useEmbedding("");
+    meter.processed("switched", "markdown", 2_000, true);
+    expect(meter.seconds(files(1, "markdown", 2_000))).toBeNull();
+
+    // Begun once they were on again, before anything else noticed: that model's time.
+    useEmbedding("multilingual-e5-small");
+    meter.started("after", true);
+    advance(30);
+    meter.processed("after", "markdown", 2_000, false);
+    meter.embedded("after", 70);
+    expect(meter.seconds(files(1, "markdown", 2_000))).toBeCloseTo(0.1);
+  });
+
   test("a write that fails is tried again when the meter closes, and the failure is reported", () => {
     let time = 0;
     let stored: string | undefined;
