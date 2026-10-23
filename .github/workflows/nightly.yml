@@ -24,17 +24,21 @@ concurrency:
 
 jobs:
   # The whole smoke suite on macOS, including the specs only macOS has, such as the traffic
-  # lights in the title bar (e2e/titleBar.spec.ts) and full screen. As one job it takes about two
+  # lights in the title bar (e2e/titleBar.spec.ts) and full screen. As one job it takes about three
   # hours there, so it is split into shards that run at once, balanced as CI's Linux shards are
-  # (scripts/smoke-shard.mjs and e2e/durations.json).
+  # (scripts/smoke-shard.mjs and e2e/durations.json). macOS takes about 1.4 times as long as Linux
+  # for the same specs, so five shards come to about 42 minutes each. Only five macOS jobs run at
+  # once and the packaged job below is a sixth, so it and a shard take turns: the night is about 46
+  # minutes. Four shards would be about 52 each, too near the 60-minute limit; six leave two jobs
+  # waiting, about 70 minutes in all.
   smoke-macos:
-    name: Smoke shard ${{ matrix.shard }}/4 (macOS)
+    name: Smoke shard ${{ matrix.shard }}/5 (macOS)
     runs-on: macos-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -51,9 +55,29 @@ jobs:
             sleep 20
           done
           exit 1
-      - run: npm run test:smoke -- $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 4)
+      # A failed spec is tried once more here, and one that passes then is listed below, so the
+      # night stays green on a slow runner's one-off and the flake is counted, not hidden. Pull
+      # requests don't retry (playwright.config.ts).
+      - run: npm run test:smoke -- --retries=1 --reporter=github,list,json $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 5)
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: flaky-report.json
+      - name: List the specs that passed only on a retry
+        id: flaky
+        if: always()
+        run: |
+          test -f flaky-report.json || exit 0
+          flaky="$(jq -r '.. | objects | select(has("specs")) | .specs[] | select(any(.tests[]; .status == "flaky")) | "e2e/\(.file):\(.line) \(.title)"' flaky-report.json)"
+          {
+            echo "### Smoke shard ${{ matrix.shard }}/5 (macOS): specs that passed only on a retry"
+            if [ -z "$flaky" ]; then echo "None."; else echo "$flaky" | sed 's/^/- /'; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ -n "$flaky" ] || exit 0
+          echo "flaky=true" >> "$GITHUB_OUTPUT"
+          echo "$flaky" | while IFS= read -r spec; do
+            echo "::warning title=Passed only on a retry::$spec"
+          done
       - name: Upload Playwright traces
-        if: failure()
+        if: failure() || steps.flaky.outputs.flaky == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: smoke-test-results-macos-${{ matrix.shard }}
