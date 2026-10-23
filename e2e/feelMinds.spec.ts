@@ -5,6 +5,7 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
   askInAssistant,
+  assistantAnswers,
   createDataFolder,
   dismissChatSetup,
   mindWrittenBefore,
@@ -191,6 +192,64 @@ test("the assistant writes into the Mind, then Undo", async () => {
     await window.keyboard.press("ControlOrMeta+z");
     await expect(editorOf(window)).not.toContainText("The supplier is late.");
   });
+
+  await endFeel(run);
+});
+
+// protects=the assistant's new text for its own summary fills the page as the model writes it, the old summary staying in view until all of it is in, with the page's scroll where it was (#1635); fails_when=the summary drops to the first new paragraph and grows back, the page jumps, or nothing shows until the call is whole; no_claim=a real model, whose input may arrive in one burst.
+test("the assistant writes its own summary again in full, as it comes", async () => {
+  test.setTimeout(150_000);
+  const run = await startFeel(dataDir, "assistant-rewrites", { fakeChat: true });
+  const { app, window, feel } = run;
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await mindWrittenBefore(window, "Reading group", [{ note: "Notes for Thursday." }]);
+  await pointAndClick(
+    window,
+    window.getByTestId("mind-list-item").filter({ hasText: "Reading group" }),
+  );
+  await expect(editorOf(window)).toContainText("Notes for Thursday.");
+
+  await feel.step("ask for a summary page", async () => {
+    await askInAssistant(window, "Write a summary page");
+    await pointAndClick(
+      window,
+      window.getByTestId("mind-list-item").filter({ hasText: "Summary" }),
+    );
+    await expect(editorOf(window)).toContainText(
+      "Neap tides come in between, at the quarter moons.",
+    );
+  });
+  const scroller = window.locator('[data-testid="mind-scroller"]:visible');
+  const scrolledTo = await scroller.evaluate((element) => element.scrollTop);
+  // The line at the Mind's top that counts the changes moves the whole editor (#1325): the old
+  // summary is measured from the editor's top.
+  const placeOfOld = () =>
+    editorOf(window).evaluate((editor) => {
+      const line = [...editor.querySelectorAll("p")].find((each) =>
+        each.textContent?.includes("when the Sun and the Moon pull together."),
+      );
+      return line ? line.getBoundingClientRect().top - editor.getBoundingClientRect().top : null;
+    });
+  const place = await placeOfOld();
+  await feel.step("write it again in full", async () => {
+    await window.keyboard.press("ControlOrMeta+j");
+    await expect(window.getByTestId("composer-input")).toBeFocused();
+    await window.keyboard.type("Write the summary again in full");
+    await window.keyboard.press("Enter");
+    await expect(editorOf(window)).toContainText("when the Sun and the Moon pull the same way.");
+    await expect(editorOf(window)).toContainText(
+      "Neap tides come in between, at the quarter moons.",
+    );
+    expect(await placeOfOld()).toBeCloseTo(place ?? Number.NaN, 0);
+    await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+      timeout: 30_000,
+    });
+    await expect(editorOf(window)).toContainText("the range swings from its widest");
+  });
+  expect(await placeOfOld()).toBeCloseTo(place ?? Number.NaN, 0);
+  expect(await scroller.evaluate((element) => element.scrollTop)).toBe(scrolledTo);
 
   await endFeel(run);
 });

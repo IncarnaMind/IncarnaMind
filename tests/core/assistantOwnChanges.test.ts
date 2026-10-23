@@ -232,8 +232,8 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     expect(changesIn(second)).toEqual([expect.objectContaining({ revised: true, proposals: 2 })]);
   });
 
-  // protects=edit_mind's new text for its own waiting section goes in as the model writes it, each finished paragraph in that section's place, and ends as the same one version as when it comes whole (#1635); fails_when=nothing shows until the call is whole, the old section stays beside the new paragraphs, or the end differs from the whole call's; no_claim=a real model's input order, which streams only when the part comes before the content.
-  test("new text for its own waiting section goes in as it is written, in that section's place", async () => {
+  // protects=edit_mind's new text for its own waiting section goes in as the model writes it, each finished paragraph after the section, which stays in view until all of it is in and then goes, ending as the same one version as when it comes whole (#1635); fails_when=nothing shows until the call is whole, the section shrinks to the part that arrived, the old section stays at the end, or the end differs from the whole call's; no_claim=a real model's input order, which streams only when the part comes before the content.
+  test("new text for its own waiting section goes in as it is written, then takes that section's place", async () => {
     const longer =
       "## Summary\n\nThe paper is about spring tides and their causes.\n\nThe moon drives them twice a month.\n\nNeap tides come between.";
     const input = { mind: "Tide notes", part: "Summary", content: longer };
@@ -270,7 +270,12 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     });
     await expect
       .poll(() => shownWithChanges(page))
-      .toEqual(["+ Summary", "+ The paper is about spring tides and their causes."]);
+      .toEqual([
+        "+ Summary",
+        "+ The paper is about spring tides.",
+        "+ Summary",
+        "+ The paper is about spring tides and their causes.",
+      ]);
     release();
     const answer = await second;
 
@@ -679,12 +684,114 @@ describe("Taking back a revision", { timeout: 30_000 }, () => {
     });
     await expect
       .poll(() => shownWithChanges(page))
-      .toEqual(["+ Summary", "+ The paper is about spring tides.", "+ The moon drives them."]);
+      .toEqual([
+        "+ Summary",
+        "+ The paper is about spring tides.",
+        "+ Summary",
+        "+ The paper is about spring tides.",
+        "+ The moon drives them.",
+      ]);
     release();
     await second;
 
     await page.settled();
     expect(exactly(page)).toEqual(before);
+  });
+
+  /**
+   * "write a summary page", then "make it longer" as new text streamed in and held after its
+   * second paragraph: the page as it was before, and what ends the hold.
+   */
+  async function cutOff() {
+    const input = {
+      mind: "Tide notes",
+      part: "Summary",
+      content:
+        "## Summary\n\nThe paper is about spring tides and their causes.\n\nThe moon drives them twice a month.\n\nNeap tides come between.",
+    };
+    let release = () => {};
+    let fail = (_error: Error) => {};
+    const held = new Promise<void>((resolve, reject) => {
+      release = resolve;
+      fail = reject;
+    });
+    const model = scriptedModel((call): ScriptedReply => {
+      if (asked(call).endsWith("write a summary page")) {
+        return called(call, "create_mind")
+          ? { text: "Made “Tide notes”." }
+          : {
+              calls: [
+                { tool: "create_mind", input: { title: "Tide notes", content: SUMMARY_PAGE } },
+              ],
+            };
+      }
+      if (called(call, "edit_mind")) return { text: "Rewrote the summary." };
+      return {
+        calls: [{ tool: "edit_mind", input, streamInput: true }],
+        pause: { after: JSON.stringify(input).indexOf("Neap") + 4, until: held },
+      };
+    });
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const mind = await core.createMind({ title: "Q3 review" });
+    const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+    const page = await madeBy(core, first);
+    await page.settled();
+    const before = exactly(page);
+    const second = await core.askInConversation({
+      text: "make it longer",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    if (!second.asked) throw new Error("Not asked.");
+    await expect
+      .poll(() => shownWithChanges(page))
+      .toContain("+ The moon drives them twice a month.");
+    const pageId = changesIn(first).find((change) => change.created)?.mindId ?? "";
+    return { core, dataDir, page, pageId, before, second, release, fail };
+  }
+
+  const claimsNoChange = async (core: Core, conversationId: string, answerId: string) => {
+    const { messages } = await core.getConversation(conversationId);
+    const answer = messages.find((message) => message.id === answerId);
+    return answer?.kind === "answer" && changesIn(answer).length === 0;
+  };
+
+  // protects=Stop while edit_mind's new text is still coming takes back what came: the page is exactly as it was, and the call's card claims no change for the window to apply (#1635 review); fails_when=part of the new text stays beside the old, or its change is applied; no_claim=Stop's words.
+  test("Stop while a revision streams in leaves the page exactly as it was", async () => {
+    const { core, page, before, second, release } = await cutOff();
+    const ended = answerEnded(core, second.answerId);
+    await core.stopConversationAnswer({
+      conversationId: second.conversation.id,
+      answerId: second.answerId,
+    });
+    release();
+    await ended;
+    await page.settled();
+    expect(exactly(page)).toEqual(before);
+    expect(await claimsNoChange(core, second.conversation.id, second.answerId)).toBe(true);
+  });
+
+  // protects=a provider's failure while edit_mind's new text is still coming takes back what came, as Stop does (#1635 review); fails_when=the cut-off text stays, or its change is applied; no_claim=the failure's words.
+  test("a model that fails while a revision streams in leaves the page exactly as it was", async () => {
+    const { core, page, before, second, fail } = await cutOff();
+    fail(new Error("The connection dropped."));
+    expect((await answerEnded(core, second.answerId)).event).toBe("failed");
+    await page.settled();
+    expect(exactly(page)).toEqual(before);
+    expect(await claimsNoChange(core, second.conversation.id, second.answerId)).toBe(true);
+  });
+
+  // protects=quitting while edit_mind's new text is still coming leaves the page, opened again, exactly as it was (#1635 review); fails_when=the cut-off text is waiting there on the next start; no_claim=the Answer's own state after a quit.
+  test("quitting while a revision streams in leaves the page exactly as it was on the next start", async () => {
+    const { core, dataDir, pageId, before } = await cutOff();
+    core.close();
+    const again = startCore(dataDir);
+    const reopened = await connectToMind(again, pageId);
+    await reopened.settled();
+    expect(exactly(reopened)).toEqual(before);
+    again.close();
   });
 
   // protects=a revision of the page saves a Checkpoint of it first, as any change the assistant makes does; fails_when=none is saved, so the old version can't be restored from history; no_claim=what the Checkpoint holds.
@@ -956,8 +1063,8 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
     },
   );
 
-  // protects=new text for the summary added from an Answer goes in as the model writes it, each finished paragraph after the old one, which is proposed for removal, and is asked for as the whole call's is (#1635); fails_when=nothing shows until the call is whole, the old summary isn't proposed for removal, or the change isn't tagged as asked; no_claim=what the window then applies.
-  test("new text for the summary added from an Answer goes in as it is written, the old one to remove", async () => {
+  // protects=new text for the summary added from an Answer goes in as the model writes it, each finished paragraph after the old one, which stays as it is until all of it is in and is then proposed for removal, asked for as the whole call's is (#1635); fails_when=nothing shows until the call is whole, the old summary is hidden while the new one comes, isn't proposed for removal at the end, or the change isn't tagged as asked; no_claim=what the window then applies.
+  test("new text for the summary added from an Answer goes in as it is written, the old one to remove at the end", async () => {
     const summary = "The paper is about spring tides.";
     const first = "The paper is about spring tides, at new and full moon.";
     const input = {
@@ -985,9 +1092,7 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
     await client.settled();
 
     const asking = askAssistant(core, { text: "Make the summary longer.", mindId: mind.id });
-    await expect
-      .poll(() => shownWithChanges(client).slice(-2))
-      .toEqual([`- ${summary}`, `+ ${first}`]);
+    await expect.poll(() => shownWithChanges(client).slice(-2)).toEqual([summary, `+ ${first}`]);
     release();
     const answer = await asking;
 

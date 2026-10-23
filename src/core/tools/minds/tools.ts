@@ -96,6 +96,8 @@ import {
   ownWaitingTexts,
   replaceApplied,
   replaceOwn,
+  retireApplied,
+  retireOwn,
   waitingIn,
   writtenByAnswer,
 } from "../../proposals/ownWaiting";
@@ -1013,11 +1015,10 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     made: boolean;
     origin: BlockOrigin;
     /**
-     * Puts the first Blocks in place of the text the call revises (edit_mind's content), its
-     * request recorded: their ids, or null when that text changed since it was read. Without
-     * it, the first go in after `anchor`, as the rest always do.
+     * What the request is tagged as asked for, read before the first Block goes in: edit_mind's
+     * content asks for a revision, as `replaceStretch` tags it. Without it, `requestedIn`.
      */
-    replace?(note: Y.XmlFragment, first: readonly NodeJSON[]): string[] | null;
+    tag?(note: Y.XmlFragment): RequestedChange | null;
   }
 
   const writerFor = (mind: ChangeableMind, after: string | null, made: boolean): Writer => {
@@ -1048,27 +1049,25 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     if (fresh.length === 0) return;
     const first = writer.written === 0;
     if (first && !writer.made) minds.checkpoint(writer.mind.id);
-    let wrote = false;
     minds.edit(writer.mind.id, (note) => {
+      const tag = first
+        ? writer.tag
+          ? writer.tag(note)
+          : requestedIn(writer.mind.id, writer.made)
+        : null;
       const anchor = note
         .toArray()
         .find(
           (each): each is Y.XmlElement =>
             each instanceof Y.XmlElement && writer.anchor !== null && idOf(each) === writer.anchor,
         );
-      const ids =
-        first && writer.replace
-          ? writer.replace(note, fresh)
-          : insertBlocks(note, fresh, { after: anchor ?? null, request: writer.request });
-      if (!ids) return;
-      wrote = true;
+      const ids = insertBlocks(note, fresh, { after: anchor ?? null, request: writer.request });
       writer.anchor = ids.at(-1) ?? writer.anchor;
       writer.ids.push(...ids);
       const doc = note.doc;
       if (!doc) return;
       setOrigins(doc, ids, writer.origin);
-      if (first && !writer.replace) {
-        const tag = requestedIn(writer.mind.id, writer.made);
+      if (first) {
         recordProposalRequest(doc, writer.request, {
           source: "answer-added",
           providerId: options.prepared.provider.id,
@@ -1078,7 +1077,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         });
       }
     });
-    if (wrote) writer.written = blocks.length;
+    writer.written = blocks.length;
   };
 
   /**
@@ -1215,6 +1214,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       if (stream.writer) minds.writing(stream.writer.mind.id, null);
     }
     streams.clear();
+    takeBackRevisions();
   });
 
   /**
@@ -1259,7 +1259,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       firstUnrecorded < 0 ? -1 : Math.min(firstUnrecorded, blocks.length - 1),
     );
     // A revision of the assistant's own text repeats it by design.
-    stream.copy = writer.replace ? null : repeatIn(writer, ready);
+    stream.copy = writer.tag ? null : repeatIn(writer, ready);
     if (stream.copy !== null) {
       withdraw(writer);
       minds.writing(writer.mind.id, null);
@@ -1561,6 +1561,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
   >();
 
   const settle = (): void => {
+    takeBackRevisions();
     for (const [toolCallId, each] of unsettled) {
       const { blocks, cited, unrecorded, ...notes } = options.blocksOf(each.markdown);
       if (blocks.length !== each.ids.length) {
@@ -1662,10 +1663,19 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       : `Revised your own text in “${mind.name}”${went}: the old version of it is gone. ${outcome}`;
   };
 
-  /**
-   * Puts `revised` in place of `over`'s Blocks, as Proposals of `request` linked back to the
-   * Answer (see `writeOver`); null when those Blocks changed since they were read.
-   */
+  const revisionTag = (
+    note: Y.XmlFragment,
+    mindId: string,
+    over: OwnWaiting | OwnApplied,
+    asWrite: boolean,
+  ): RequestedChange | null => {
+    const asked =
+      over.kind === "own"
+        ? requestedIn(mindId, false) !== null && ownAsked(note, over)
+        : (requested?.change === "edit" || asWrite) && requestedIn(mindId, false) !== null;
+    return asked ? (asWrite ? "write" : "edit") : null;
+  };
+
   const replaceStretch = (
     note: Y.XmlFragment,
     mindId: string,
@@ -1674,10 +1684,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     request: string,
     asWrite: boolean,
   ): string[] | null => {
-    const asked =
-      over.kind === "own"
-        ? requestedIn(mindId, false) !== null && ownAsked(note, over)
-        : (requested?.change === "edit" || asWrite) && requestedIn(mindId, false) !== null;
+    const tag = revisionTag(note, mindId, over, asWrite);
     const written =
       over.kind === "own"
         ? replaceOwn(note, over, revised, request)
@@ -1690,15 +1697,15 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       providerId: options.prepared.provider.id,
       modelId: options.prepared.modelId,
       createdAt: options.now().toISOString(),
-      ...(asked && { requested: asWrite ? ("write" as const) : ("edit" as const) }),
+      ...(tag && { requested: tag }),
     });
     return written;
   };
 
   /**
-   * By call: edit_mind's content coming in as the model writes it (#1635), each finished
-   * paragraph put in place of the assistant's own text it revises, read as the call began:
-   * that text, its words for the result's lengths, and its Citations.
+   * By call: edit_mind's content as it comes in (#1635). Each finished paragraph goes in after the
+   * text it revises, which stays in view until all of it is in, so the page never shrinks to the
+   * part that arrived; that text is read as the call began.
    */
   interface Revising {
     writer: Writer;
@@ -1707,6 +1714,17 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     cited: string[];
   }
   const revisions = new Map<string, Revising>();
+
+  // A revision cut off by Stop, a failed model or a quit would leave part of the new text beside
+  // the old, and the window would apply it: it is taken back.
+  const takeBackRevisions = (): void => {
+    for (const [toolCallId, revising] of revisions) {
+      withdraw(revising.writer);
+      minds.writing(revising.writer.mind.id, null);
+      options.failed(toolCallId, { kind: "stopped", mindId: revising.writer.mind.id });
+    }
+    revisions.clear();
+  };
 
   /**
    * `edit_mind` with new text: it takes the place of the assistant's own text over the
@@ -1751,7 +1769,13 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       minds.writing(mind.id, null);
       request = going.writer.request;
       dropped = droppedOf(going.cited, blocks);
-      ids = going.writer.written > 0 ? going.writer.ids : null;
+      const retired = minds.edit(mind.id, (note) =>
+        over.kind === "own"
+          ? retireOwn(note, over, going.writer.request)
+          : retireApplied(note, over, going.writer.request),
+      );
+      if (!retired) withdraw(going.writer);
+      ids = retired ? going.writer.ids : null;
     } else {
       dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));
       request = randomUUID();
@@ -1837,14 +1861,12 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       ids: [],
       made: false,
       origin: options.origin,
-      replace: (note, first) =>
-        replaceStretch(note, mind.id, read.over, first.map(createElement), request, false),
+      tag: (note) => revisionTag(note, mind.id, read.over, false),
     };
     revisions.set(toolCallId, { writer, ...read });
     return { writer, created: false };
   };
 
-  /** What streamed in for an edit_mind call, if it went into the Mind the call names; elsewhere, it is taken back. */
   const revisionOf = (toolCallId: string, mindId: string | null): Revising | null => {
     streams.delete(toolCallId);
     ended.add(toolCallId);
@@ -1917,7 +1939,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       const markdown = optional(input.content);
       const instruction = markdown === null ? text(input.instruction, "instruction") : "";
       const target = targetOf(input);
-      // What streamed in stands where the text it revises was: that text was read as it began.
+      // What streamed in revises the text as it read when the call began.
       const streamed =
         markdown === null
           ? null

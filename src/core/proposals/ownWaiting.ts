@@ -316,14 +316,28 @@ export function replaceApplied(
   revised: readonly Y.XmlElement[],
   request: string,
 ): string[] | null {
-  const old = blocksOf(blocks, applied);
-  const last = old?.at(-1);
-  if (!old || !last) return null;
-  for (const element of old) setProposal(element, { id: randomUUID(), request, kind: "delete" });
+  const last = blocksOf(blocks, applied)?.at(-1);
+  if (!last || !retireApplied(blocks, applied, request)) return null;
   blocks.insert(blocks.toArray().indexOf(last) + 1, [...revised]);
   for (const element of revised)
     setProposal(element, { id: randomUUID(), request, kind: "insert" });
   return revised.map(idOf);
+}
+
+/**
+ * Proposes `applied`'s Blocks for removal, as Proposals of `request`: what `replaceApplied`
+ * does before the new Blocks go in. False, changing nothing, when they changed since they were
+ * read. Call it in a Yjs transaction.
+ */
+export function retireApplied(
+  blocks: Y.XmlFragment,
+  applied: OwnApplied,
+  request: string,
+): boolean {
+  const old = blocksOf(blocks, applied);
+  if (!old || old.length === 0) return false;
+  for (const element of old) setProposal(element, { id: randomUUID(), request, kind: "delete" });
+  return true;
 }
 
 /** How many of the Citations in `over`'s Blocks `revised` leaves out; 0 once they have changed. */
@@ -343,7 +357,6 @@ export function citationsOver(
   return (blocksOf(blocks, over) ?? []).flatMap(citationsIn);
 }
 
-/** How many of the Citations `cited` `revised` leaves out. */
 export function droppedOf(cited: readonly string[], revised: readonly NodeJSON[]): number {
   const kept = new Set(revised.flatMap(citationsIn));
   return cited.filter((key) => !kept.has(key)).length;
@@ -376,14 +389,26 @@ export function replaceOwn(
   revised: readonly Y.XmlElement[],
   request: string,
 ): string[] | null {
-  const old = blocksOf(blocks, own);
-  const first = old?.[0];
-  if (!old || !first) return null;
-  keepRevised(blocks, request, old);
+  const first = blocksOf(blocks, own)?.[0];
+  if (!first) return null;
   const at = blocks.toArray().indexOf(first);
-  blocks.delete(at, old.length);
+  if (!retireOwn(blocks, own, request)) return null;
   blocks.insert(at, [...revised]);
   for (const element of revised)
     setProposal(element, { id: randomUUID(), request, kind: "insert" });
   return revised.map(idOf);
+}
+
+/**
+ * Takes `own`'s Blocks out, kept so rejecting `request` brings them back: what `replaceOwn`
+ * does before the new Blocks go in. False, changing nothing, when they changed since they were
+ * read. Call it in a Yjs transaction.
+ */
+export function retireOwn(blocks: Y.XmlFragment, own: OwnWaiting, request: string): boolean {
+  const old = blocksOf(blocks, own);
+  const first = old?.[0];
+  if (!old || !first) return false;
+  keepRevised(blocks, request, old);
+  blocks.delete(blocks.toArray().indexOf(first), old.length);
+  return true;
 }

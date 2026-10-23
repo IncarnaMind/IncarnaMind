@@ -27,7 +27,8 @@
  * chart (#1091); "Make a bar chart of rent by lease" does the same with each unit's
  * monthly rent, so Use all can draw it again from every lease.
  * "Write a short summary of this agreement" (为这份协议写一份简短摘要) calls
- * add_to_mind with it, for the Mind in focus.
+ * add_to_mind with it, for the Mind in focus; "Write the summary again in full" (把总结完整重写)
+ * then gives edit_mind that summary's whole new text, four paragraphs, as content (#1635).
  * "Write a brief summary" (写一份简要总结) adds one to the Mind in <mind>, but
  * answers that no Mind is open when that Mind has no name, as models did (#1212).
  */
@@ -103,6 +104,16 @@ const SUMMARY = [
   "## Summary",
   "Spring tides come at new and full moon, when the Sun and the Moon pull together.",
   "Neap tides come in between, at the quarter moons.",
+].join("\n\n");
+
+/** New text for the assistant's own summary, whole, as content (#1635). */
+const IN_FULL = /\bwrite the summary again in full\b|把总结完整重写/i;
+const FULL_SUMMARY = [
+  "## Summary",
+  "Spring tides come at new and full moon, when the Sun and the Moon pull the same way.",
+  "The tide then rises highest and falls lowest, so harbours mark those days on their charts.",
+  "Neap tides come in between, at the quarter moons, when the pulls partly cancel out.",
+  "Twice a month, then, the range swings from its widest to its narrowest and back.",
 ].join("\n\n");
 
 /** The newcomer's first request (#1174): a short summary of "this agreement", written into the Mind in focus. */
@@ -191,6 +202,13 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     if (made === undefined)
       return { tool: "create_mind", input: { title: "Summary", content: SUMMARY } };
     return { text: firstSentence(made) };
+  }
+  if (IN_FULL.test(question)) {
+    const result = lastResult(prompt, "edit_mind");
+    if (result === undefined) {
+      return { tool: "edit_mind", input: { part: "Summary", content: FULL_SUMMARY } };
+    }
+    return { text: firstSentence(result) };
   }
   if (SUMMARY_HERE.test(question)) {
     const added = lastResult(prompt, "add_to_mind");

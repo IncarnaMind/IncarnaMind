@@ -174,7 +174,7 @@ function nextReply(prompt: Prompt, tools: readonly OfferedTool[]): Reply {
 }
 
 /** The Minds' Tools whose input the scripted provider streams. */
-const STREAMED_INPUT: ReadonlySet<string> = new Set(["add_to_mind", "create_mind"]);
+const STREAMED_INPUT: ReadonlySet<string> = new Set(["add_to_mind", "create_mind", "edit_mind"]);
 
 /** The scripted reply to a request, as it streams: its reasoning, then a Tool call or its Answer. */
 export function replyParts(prompt: Prompt, tools: readonly OfferedTool[]): StreamPart[] {
