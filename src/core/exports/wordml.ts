@@ -137,6 +137,33 @@ export function footnote(id: number, runs: string, styles = FOOTNOTE_STYLES): st
   return `<w:footnote w:id="${id}"><w:p><w:pPr><w:pStyle w:val="${escapeXml(styles.text)}"/></w:pPr><w:r><w:rPr><w:rStyle w:val="${escapeXml(styles.reference)}"/></w:rPr><w:footnoteRef/></w:r>${runs}</w:p></w:footnote>`;
 }
 
+// ---------------------------------------------------------------------------
+// Cross-references
+
+/** Named as Word names its own hidden bookmarks: "_Ref" and nine digits. */
+export const noteBookmark = (id: number): string => `_Ref${900_000_000 + id}`;
+
+export function bookmarked(id: number, name: string, xml: string): string {
+  return `<w:bookmarkStart w:id="${id}" w:name="${escapeXml(name)}"/>${xml}<w:bookmarkEnd w:id="${id}"/>`;
+}
+
+/**
+ * Word's own cross-reference to a footnote (Insert › Cross-reference › Footnote number, formatted):
+ * the number of the footnote that the bookmark `name` encloses the mark of, in the footnote
+ * reference style, which Word keeps up to date. `shown` is the number until it is updated, as
+ * XML text already: digits, or the writer's own mark for them.
+ */
+export function noteNumber(name: string, shown: string, style = FOOTNOTE_STYLES.reference): string {
+  const mark = (type: string) => `<w:r><w:fldChar w:fldCharType="${type}"/></w:r>`;
+  return (
+    mark("begin") +
+    `<w:r><w:instrText xml:space="preserve"> NOTEREF ${escapeXml(name)} \\f \\h </w:instrText></w:r>` +
+    mark("separate") +
+    `<w:r><w:rPr><w:rStyle w:val="${escapeXml(style)}"/></w:rPr><w:t>${shown}</w:t></w:r>` +
+    mark("end")
+  );
+}
+
 /**
  * The footnotes part (word/footnotes.xml): the separator lines Word draws
  * above the footnotes, as footnotes -1 and 0 (which the settings name), then

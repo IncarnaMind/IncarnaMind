@@ -201,19 +201,25 @@ function edit(doc: Y.Doc): string | null {
   };
   doc.transact(() => {
     blocks.toArray().some((each, index) => each instanceof Y.XmlElement && visit(each, index));
+    const citationOf = () => {
+      const element = new Y.XmlElement("citation");
+      for (const [key, value] of Object.entries({
+        passageId: "round-trip",
+        documentId: "round-trip",
+        documentName: "Round-trip check source",
+        quote: "A quote.",
+        check: "found",
+      })) {
+        element.setAttribute(key, value);
+      }
+      return element;
+    };
     const paragraph = new Y.XmlElement("paragraph");
-    const citation = new Y.XmlElement("citation");
-    for (const [key, value] of Object.entries({
-      passageId: "round-trip",
-      documentId: "round-trip",
-      documentName: "Round-trip check source",
-      quote: "A quote.",
-      check: "found",
-    })) {
-      citation.setAttribute(key, value);
-    }
-    paragraph.insert(0, [new Y.XmlText(`${ADDED} `), citation]);
-    blocks.insert(after, [paragraph]);
+    paragraph.insert(0, [new Y.XmlText(`${ADDED} `), citationOf()]);
+    // The same source and place again: a cross-reference to the first one's note.
+    const again = new Y.XmlElement("paragraph");
+    again.insert(0, [new Y.XmlText(`${ADDED} `), citationOf()]);
+    blocks.insert(after, [paragraph, again]);
   });
   return changed;
 }
@@ -436,8 +442,19 @@ export async function checkExport(bytes: Uint8Array): Promise<ExportCheck> {
     if (!shown.includes(ADDED))
       return { ok: false, detail: "the added paragraph isn't in the file", exported: result.data };
     const footnotes = [...exported].find(([name]) => /^word\/footnotes\d*\.xml$/.test(name));
-    if (!footnotes || !new TextDecoder().decode(footnotes[1]).includes(SOURCE)) {
+    const notes = footnotes ? new TextDecoder().decode(footnotes[1]) : "";
+    if (!notes.includes(SOURCE)) {
       return { ok: false, detail: "the Citation isn't a footnote", exported: result.data };
+    }
+    const cited = notes.split(SOURCE).length - 1;
+    const refs = (xml: string) => xml.split("NOTEREF ").length - 1;
+    const first = new TextDecoder().decode(original.get(pkg.part));
+    if (cited !== 1 || refs(main) !== refs(first) + 1) {
+      return {
+        ok: false,
+        detail: `the same Citation again isn't one footnote and a cross-reference to it (${cited} notes, ${refs(main) - refs(first)} cross-references added)`,
+        exported: result.data,
+      };
     }
     const again = await readWordStructure(
       await openWordPackage(result.data),
@@ -453,7 +470,7 @@ export async function checkExport(bytes: Uint8Array): Promise<ExportCheck> {
     }
     return {
       ok: true,
-      detail: `${edited ? "a word changed, " : ""}a paragraph and a footnote added; ${touched.length} parts written, ${kept} body elements as they were`,
+      detail: `${edited ? "a word changed, " : ""}two paragraphs, a footnote and a cross-reference to it added; ${touched.length} parts written, ${kept} body elements as they were`,
       exported: result.data,
     };
   } catch (error) {
@@ -507,6 +524,16 @@ export async function checkListExport(bytes: Uint8Array): Promise<ExportCheck> {
       .join("");
     if (!shown.includes(`${ADDED} [1]`)) {
       return { ok: false, detail: "the Citation isn't [1] in the text", exported: result.data };
+    }
+    if (
+      shown.split(`${ADDED} [1]`).length !== 3 ||
+      shown.slice(shown.lastIndexOf("References")).includes("[2]")
+    ) {
+      return {
+        ok: false,
+        detail: "the same Citation again isn't [1] too, with its source listed once",
+        exported: result.data,
+      };
     }
     if (!shown.includes("References") || !shown.endsWith("Round-trip check source")) {
       return { ok: false, detail: "the list isn't at the end", exported: result.data };

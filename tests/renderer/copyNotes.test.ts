@@ -43,6 +43,22 @@ describe("copying Citations as text", () => {
     );
   });
 
+  test("a source and place cited again takes the first note's number, and is listed once", () => {
+    const copied = copiedText(
+      fragmentOf(
+        paragraph(text("Spring"), cite(2)),
+        paragraph(text("Neap"), cite(5)),
+        paragraph(text("Spring again"), cite(2)),
+        paragraph(text("Later"), cite(7)),
+      ),
+      schema,
+      context,
+    );
+    expect(copied).toBe(
+      "Spring[1]\n\nNeap[2]\n\nSpring again[1]\n\nLater[3]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 5\n[3] Tides, p. 7",
+    );
+  });
+
   test("in Chinese", () => {
     expect(
       copiedText(fragmentOf(paragraph(text("大潮"), cite(2))), schema, {
@@ -90,6 +106,34 @@ describe("copying Citations as Word footnotes", () => {
     expect(html.match(/<!\[endif\]>/g)).toHaveLength(4);
     expect(html).toContain("mso-footnote-id:ftn1");
     expect(html).toContain("mso-footnote-id:ftn2");
+  });
+
+  test("a source and place cited again repeats the first note's number and adds no note", () => {
+    const { document } = parseHTML("<!doctype html><html><body></body></html>");
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<p>One<span data-type="citation"></span></p><p>Two<span data-type="citation"></span></p><p>Three<span data-type="citation"></span></p>';
+    addFootnotes(
+      root,
+      citationsIn(
+        fragmentOf(
+          paragraph(text("a"), cite(2)),
+          paragraph(text("b"), cite(5)),
+          paragraph(text("c"), cite(2)),
+        ),
+      ),
+      context,
+    );
+    const html = wordFootnoteHtml(root.innerHTML);
+    expect(html.match(/mso-element:footnote"/g)).toHaveLength(2);
+    expect(html.match(/mso-footnote-id:ftn1/g)).toHaveLength(2);
+    expect(html.match(/mso-footnote-id:ftn2/g)).toHaveLength(2);
+    expect(html).not.toContain("mso-footnote-id:ftn3");
+    // The third marker is the first note's number, raised, linked to it, with "[n]" for other apps.
+    expect(html).toContain(
+      '<sup class="MsoFootnoteReference"><a href="#_ftn1"><![if !supportFootnotes]>[<![endif]>1<![if !supportFootnotes]>]<![endif]></a></sup>',
+    );
+    expect(html.match(/data-type="citation"/g)).toHaveLength(3);
   });
 
   test("the footnote list and its Sources stay, and no fixed mark is left as a comment", () => {

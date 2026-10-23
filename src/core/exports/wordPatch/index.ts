@@ -299,7 +299,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   });
   let text: string;
   try {
-    text = patch.write();
+    text = docxWriter.finish(patch.write());
   } catch (error) {
     throw new WordPartError(
       pkg.part,

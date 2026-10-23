@@ -26,7 +26,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { acceptedParagraphs, textOf, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { editMind } from "../helpers/minds";
+import { editMind, readMind, writeMind } from "../helpers/minds";
 import {
   commented,
   field,
@@ -1143,6 +1143,78 @@ describe("Word's rules", () => {
     const original = unzip(bytes).get("word/document.xml")?.toString("utf8") ?? "";
     const head = (xml: string) => xml.slice(0, xml.indexOf("<w:body>"));
     expect(head(document)).toBe(head(original));
+  });
+
+  test("a Citation of a source and place the document already cites in a new paragraph is a cross-reference to that note, numbered after the document's own", async () => {
+    const { core, mindId, client } = await setUp({
+      body: paragraph(
+        `${run("Text.")}<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="1"/></w:r>`,
+      ),
+      footnotes: `<w:footnote w:id="1"><w:p>${run("Old.")}</w:p></w:footnote>`,
+    });
+    const tides = await tidesDocument(core);
+    editMind(client, (blocks) => [
+      ...blocks,
+      { type: "paragraph", content: [text("New."), citation(tides)] },
+      { type: "paragraph", content: [text("Again."), citation(tides)] },
+    ]);
+    await client.settled();
+    const { document, part } = await exported(core, mindId);
+    const ids = [...part("word/footnotes.xml").matchAll(/<w:footnote\b[^>]*w:id="(-?\d+)"/g)].map(
+      (match) => Number(match[1]),
+    );
+    expect(ids).toEqual([-1, 0, 1, 2]);
+    const bookmark =
+      /<w:bookmarkStart w:id="(\d+)" w:name="(_Ref\d+)"\/>(<w:r>(?:(?!<\/w:r>).)*<w:footnoteReference w:id="2"\/><\/w:r>)<w:bookmarkEnd w:id="\1"\/>/.exec(
+        document,
+      );
+    expect(bookmark).not.toBeNull();
+    expect(document).toContain(`NOTEREF ${bookmark?.[2]} \\f \\h `);
+    // The document's own note is 1 and the new one 2, which the reference shows until Word updates it.
+    expect(document).toMatch(
+      /w:fldCharType="separate"\/><\/w:r><w:r><w:rPr><w:rStyle w:val="FootnoteReference"\/><\/w:rPr><w:t>2<\/w:t><\/w:r><w:r><w:fldChar w:fldCharType="end"\/>/,
+    );
+    expect(document).not.toContain("⟦");
+    const taken = [...document.matchAll(/<w:bookmarkStart w:id="(\d+)"/g)].map((match) => match[1]);
+    expect(new Set(taken).size).toBe(taken.length);
+  });
+
+  test("an export that cites a source again imports as a Word file: the note is a footnote, each cross-reference a field with its number, and nothing changes on the way back", async () => {
+    const core = startCore(await createTempDataFolder());
+    const tides = await tidesDocument(core);
+    const mind = await core.createMind({ title: "Memo" });
+    const author = await connectToMind(core, mind.id);
+    writeMind(author, [
+      { type: "paragraph", content: [text("One."), citation(tides)] },
+      { type: "paragraph", content: [text("Two."), citation(tides)] },
+      { type: "paragraph", content: [text("Three."), citation(tides)] },
+    ]);
+    await author.settled();
+    const made = await core.exportMind(mind.id, { format: "docx" });
+    const { mindId, client } = await importFile(core, Buffer.from(made.data));
+
+    const atoms: { kind?: unknown; label?: unknown; info?: unknown }[] = [];
+    const visit = (node: JSONContent) => {
+      if (node.type === WORD_ATOM_NODE) atoms.push(node.attrs ?? {});
+      for (const child of node.content ?? []) visit(child);
+    };
+    visit(readMind(client).toJSON());
+    // The bookmark around the note's mark, both ends, and what the file has of the rest.
+    expect(atoms.filter((atom) => atom.kind === "bookmark")).toHaveLength(2);
+    const shown = atoms.filter((atom) => atom.kind !== "bookmark");
+    expect(shown.map((atom) => [atom.kind, atom.label])).toEqual([
+      ["footnote", "1"],
+      ["field", "1"],
+      ["field", "1"],
+    ]);
+    expect(shown.slice(1).map((atom) => atom.info)).toEqual([
+      { field: "NOTEREF" },
+      { field: "NOTEREF" },
+    ]);
+
+    const before = unzip(made.data);
+    const back = await exported(core, mindId);
+    expect(changed(before, back.files)).toEqual([]);
   });
 
   test("a table nested 2,000 deep keeps its depth, and every cell still ends with a paragraph when the one after the nested table goes", async () => {

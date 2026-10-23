@@ -156,6 +156,7 @@ export async function styleCitations(
         runs,
         note,
         unverified: cluster.citations.some((citation) => citation.footnote.unverified),
+        of: cluster.citations.map((citation) => citation.footnote.source).join("\n"),
         ...(failed.length > 0 && { failed }),
         ...(first?.inserted && { inserted: first.inserted }),
         ...(first?.deleted && { deleted: first.deleted }),

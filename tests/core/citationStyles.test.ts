@@ -542,6 +542,34 @@ describe("exporting a Mind in its citation style", () => {
     expect(textOf(part(files, "word/document.xml"))).toContain("Bibliography");
   });
 
+  test("a repeat in Word follows the style's own rule: Bluebook's Id., Chicago's short note, each a note of its own (#1552)", async () => {
+    for (const [style, repeat] of [
+      ["bluebook-law-review", /^ ?Id\.$/],
+      [
+        "chicago-notes",
+        /^ ?Kahneman and Tversky, “Prospect Theory: An Analysis of Decision under Risk,” 265\.$/,
+      ],
+    ] as const) {
+      const { core, mind, client, prospect } = await setUp();
+      await core.setMindCitationStyle(mind.id, style);
+      writeMind(client, [
+        paragraph(
+          text("A "),
+          citation(prospect, page(265)),
+          text(". B "),
+          citation(prospect, page(265)),
+          text("."),
+        ),
+      ]);
+      await client.settled();
+      const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+      const notes = Object.values(footnotesOf(part(files, "word/footnotes.xml")));
+      expect(notes, style).toHaveLength(2);
+      expect(notes[1], style).toMatch(repeat);
+      expect(part(files, "word/document.xml"), style).not.toContain("NOTEREF");
+    }
+  });
+
   test("a Document with no details is in the Bibliography of Markdown and Word, in every style", async () => {
     const { core, mind, client, lease } = await setUp();
     writeMind(client, [paragraph(text("Rent is monthly "), citation(lease, page(2)), text("."))]);

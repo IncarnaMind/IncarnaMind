@@ -154,7 +154,7 @@ describe("exporting a Mind to PDF", () => {
     );
     const docx = (await core.exportMind(mind.id, { format: "docx" })).data;
     expect(zipFingerprint(docx)).toBe(
-      "a2d8108fece220b9636e48e474e197047990eea40c802de251834bf88a301501",
+      "9f081a86e0c52e4e709d2607c95f38838fe76c5392f8097516db18c466efa9a2",
     );
   });
 
