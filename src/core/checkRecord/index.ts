@@ -19,7 +19,7 @@ import {
 } from "../api";
 import { describeModel } from "../chatModelNames";
 import { InvalidInputError, TranslatableError } from "../errors";
-import { unifyIdeographs } from "../exports/pdfUnicode";
+import { printedPdf } from "../exports/printedPdf";
 import { safeFileName } from "../fileNames";
 import type { Language } from "../language";
 import { renderCsv } from "./csv";
@@ -139,7 +139,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
         };
       }
       if (!deps.printer) throw new TranslatableError({ key: "error.checkRecord.noPdf" });
-      const printed = await deps.printer.print({
+      const data = await printedPdf(deps.printer, {
         language,
         paper: deps.paper(),
         title: base,
@@ -147,7 +147,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
         notes: [],
         footer: t("checkRecord.note"),
       });
-      return { fileName: `${base}.pdf`, data: unifyIdeographs(printed) };
+      return { fileName: `${base}.pdf`, data };
     },
   };
 }

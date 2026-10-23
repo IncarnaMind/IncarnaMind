@@ -700,9 +700,11 @@ describe("The check record as PDF", () => {
         },
       },
     });
-    await expect(failing.core.saveCheckRecord(failing.mind.id, "pdf")).rejects.toThrow(
-      "The PDF took too long to lay out.",
-    );
+    await expect(failing.core.saveCheckRecord(failing.mind.id, "pdf")).rejects.toMatchObject({
+      name: "PdfLayoutError",
+      wording: { key: "error.pdf.notLaidOut" },
+      cause: new Error("The PDF took too long to lay out."),
+    });
     expect(readdirSync(failing.out)).toEqual([]);
 
     const bare = await setUp();

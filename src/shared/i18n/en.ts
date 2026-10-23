@@ -3383,6 +3383,7 @@ export const en = {
   "export.failed.notAllowed": "you haven’t allowed new files in “{folder}”, a Linked folder",
   "export.changeLocation": "Change output location…",
   "export.allow": "Allow",
+  "export.tryAgain": "Try again",
   "export.doneIn": "Saved “{name}” in {folder}",
   "export.changeFolder": "Change folder…",
   "export.parts.separator": ", ",
@@ -3542,6 +3543,7 @@ export const en = {
   "error.checkRecord.format": "The check record can be saved as PDF or CSV.",
   "error.checkRecord.noPdf":
     "This copy of IncarnaMind can’t make PDFs. Save the check record as CSV instead.",
+  "error.pdf.notLaidOut": "Couldn’t lay out the PDF, so nothing was saved.",
   "error.export.choice": "{name} must be true or false.",
   "error.export.textOnly": "The Documents kept as text must be a list of their ids.",
   "error.export.theirChanges": "theirChanges must be “shown” or “accepted”.",

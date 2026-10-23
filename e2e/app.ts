@@ -345,6 +345,7 @@ export async function launchApp(
     openApps.delete(app);
     if (!home) void rm(appHome, { recursive: true, force: true, maxRetries: 3 });
   });
+  await paintNoFrameInPrintPage(app);
   const window = await app.firstWindow();
   await window.getByTestId("plus-menu").waitFor();
   if (!keepWindow) {
@@ -355,6 +356,19 @@ export async function launchApp(
   }
   await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
+}
+
+/**
+ * Leaves the hidden print page as the app has it: never shown, it paints no frame, so nothing
+ * that waits for one settles. Playwright's focus emulation, which it turns on in every page it
+ * attaches to, has Chromium paint a page that isn't shown, and hid a print that never ended (#1455).
+ */
+async function paintNoFrameInPrintPage(app: ElectronApplication): Promise<void> {
+  await app.context().addInitScript(() => {
+    if (!location.pathname.endsWith("/print.html")) return;
+    HTMLImageElement.prototype.decode = () => new Promise<void>(() => undefined);
+    globalThis.requestAnimationFrame = () => 0;
+  });
 }
 
 async function answerExportQuestions(

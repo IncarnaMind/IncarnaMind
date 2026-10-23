@@ -14,7 +14,7 @@ import type {
 import { type CitedCount, hasCitationPlace, optionsFor } from "../../shared/exportOptions";
 import type { MessageKey } from "../../shared/i18n";
 import { core } from "./core";
-import { errorMessage } from "./errors";
+import { describeError, errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { folderName } from "./linkedFolders";
 import { useAppStore } from "./store";
@@ -107,6 +107,8 @@ export type ExportResult = { tableId?: string } & (
       places: CitedCount | null;
     }
   | { mindId: string; state: "failed"; format: ExportKind; message: string }
+  /** A PDF that couldn't be laid out: nothing was saved, and the Output location is fine. */
+  | { mindId: string; state: "not-laid-out"; format: ExportKind }
   /** A source pack of a Mind with no Citations: nothing to make, and nothing went wrong. */
   | { mindId: string; state: "empty"; format: ExportFormat }
   | {
@@ -199,6 +201,13 @@ export async function answerCitationPlace(
 ): Promise<void> {
   await keep((preferences) => ({ ...preferences, citationPlace: answer }));
   if (exportPreferences().citationPlace === answer) await exportMind(mindId, format);
+}
+
+/** What a failed export says: a PDF that couldn't be laid out is tried again, anything else says why. */
+function failedResult(mindId: string, format: ExportKind, failure: unknown): ExportResult {
+  return describeError(failure).wording?.key === "error.pdf.notLaidOut"
+    ? { mindId, state: "not-laid-out", format }
+    : { mindId, state: "failed", format, message: errorMessage(failure, translateNow) };
 }
 
 const NO_CHECKS: SentenceChecksExported = {
@@ -320,12 +329,7 @@ export async function exportMind(
         : savedResult(mindId, chosen, saved),
     );
   } catch (failure) {
-    settle({
-      mindId,
-      state: "failed",
-      format: chosen,
-      message: errorMessage(failure, translateNow),
-    });
+    settle(failedResult(mindId, chosen, failure));
   }
 }
 
@@ -344,7 +348,7 @@ export async function exportCheckRecord(
     }
     settle(savedResult(mindId, kind, await core.saveCheckRecord(mindId, format)));
   } catch (failure) {
-    settle({ mindId, state: "failed", format: kind, message: errorMessage(failure, translateNow) });
+    settle(failedResult(mindId, kind, failure));
   }
 }
 
