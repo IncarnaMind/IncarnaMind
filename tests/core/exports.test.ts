@@ -388,6 +388,55 @@ describe("exporting a Mind", () => {
     });
   });
 
+  test("to .docx: to-dos start with ☐ or ☒ at the text edge, a nested one 24px in, and bullets and numbers keep Word's indents", async () => {
+    const { core, mind, client } = await setUp();
+    const task = (checked: boolean, ...content: JSONContent[]): JSONContent => ({
+      type: "taskItem",
+      attrs: { checked },
+      content,
+    });
+    writeMind(client, [
+      paragraph(text("Before.")),
+      {
+        type: "taskList",
+        content: [
+          task(
+            false,
+            paragraph(text("核查清单项")),
+            {
+              type: "taskList",
+              content: [
+                task(true, paragraph(text("已核对")), {
+                  type: "taskList",
+                  content: [task(false, paragraph(text("Deeper")))],
+                }),
+              ],
+            },
+            { type: "bulletList", content: [item(paragraph(text("Supporting note")))] },
+          ),
+          task(true, paragraph()),
+        ],
+      },
+      { type: "bulletList", content: [item(paragraph(text("Ordinary bullet")))] },
+    ]);
+    await client.settled();
+    const { document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+    const written = [...document.matchAll(/<w:p>(.*?)<\/w:p>/g)].map((found) => ({
+      text: textOf(found[0]),
+      indent: /<w:ind w:left="(\d+)"(?: w:hanging="(\d+)")?\/>/.exec(found[0])?.slice(1, 3),
+      listed: found[0].includes("<w:numPr>"),
+    }));
+    expect(written).toEqual([
+      { text: "Before.", indent: undefined, listed: false },
+      { text: "☐\t核查清单项", indent: ["420", "420"], listed: false },
+      { text: "☒\t已核对", indent: ["780", "420"], listed: false },
+      { text: "☐\tDeeper", indent: ["1140", "420"], listed: false },
+      { text: "Supporting note", indent: ["1140", "360"], listed: true },
+      { text: "☒\t", indent: ["420", "420"], listed: false },
+      { text: "Ordinary bullet", indent: ["720", "360"], listed: true },
+    ]);
+  });
+
   test("to .docx: headings, lists, code and math, the Question left out, and each Citation a Word footnote", async () => {
     const { core, mind, client, tides } = await setUp();
     writeSample(client, tides);
