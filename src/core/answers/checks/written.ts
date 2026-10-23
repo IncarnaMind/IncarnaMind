@@ -99,6 +99,39 @@ export interface CheckWrittenInput {
   checking(count: number): void;
   /** Changes the Mind's content, in one transaction. */
   edit(change: (blocks: Y.XmlFragment) => void): void;
+  /** The cap and places shared with the checks of the write's other paragraphs; none: its own. */
+  share?: WriteCheckShare;
+  /** The marks' shared id, for a write checked a paragraph at a time. */
+  request?: string;
+}
+
+/**
+ * What the checks of one write share when its paragraphs are checked as each lands (#1635):
+ * how many sentences may still be sent, and the places of those checked at once.
+ */
+export interface WriteCheckShare {
+  left: number;
+  run<T>(check: () => Promise<T>): Promise<T>;
+}
+
+/** `onService`: the model is on a service, not on this computer, which checks one at a time. */
+export function shareWriteChecks(onService: boolean): WriteCheckShare {
+  let free = onService ? CLOUD_SENTENCES_AT_ONCE : 1;
+  const waiting: (() => void)[] = [];
+  return {
+    left: SENTENCES_CHECKED_AT_MOST,
+    async run(check) {
+      if (free > 0) free--;
+      else await new Promise<void>((resolve) => waiting.push(resolve));
+      try {
+        return await check();
+      } finally {
+        const next = waiting.shift();
+        if (next) next();
+        else free++;
+      }
+    },
+  };
 }
 
 /**
@@ -500,23 +533,30 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     if (!prepared) return null;
     const { searchable, check: scope } = options.scopeOf(mindId);
     if (searchable === 0) return null;
-    const sending = sentences.slice(0, SENTENCES_CHECKED_AT_MOST);
+    const share = input.share ?? shareWriteChecks(prepared.provider.service !== null);
+    const sending = sentences.slice(0, Math.max(0, share.left));
+    share.left -= sending.length;
     input.checking(sending.length);
-    const request = randomUUID();
+    const request = input.request ?? randomUUID();
     const startedAt = options.now().toISOString();
     const { outcomes, stop } = await runItems(
       sending,
-      async (sentence) => {
-        const result = await checkWithin(sentence, mindId, scope, prepared, signal);
-        const failure = runFailureOf(result);
-        if (failure) throw new RunItemError(failure);
-        const uncovered =
-          result.verdict === "unsupported" && result.unsupported?.covered
-            ? result.unsupported.uncovered
+      (sentence) =>
+        share.run(async () => {
+          // It may have waited for a place while the check was stopped.
+          signal.throwIfAborted();
+          const result = await checkWithin(sentence, mindId, scope, prepared, signal);
+          const failure = runFailureOf(result);
+          if (failure) throw new RunItemError(failure);
+          const uncovered =
+            result.verdict === "unsupported" && result.unsupported?.covered
+              ? result.unsupported.uncovered
+              : null;
+          const nodes = uncovered
+            ? await cutOf(blocks, sentence, uncovered, prepared, signal)
             : null;
-        const nodes = uncovered ? await cutOf(blocks, sentence, uncovered, prepared, signal) : null;
-        return { result, uncovered, nodes };
-      },
+          return { result, uncovered, nodes };
+        }),
       { concurrency: prepared.provider.service ? CLOUD_SENTENCES_AT_ONCE : 1, signal },
     );
     if (signal.aborted) return null;
@@ -607,7 +647,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       landings.push({ sentence, nodes: null, mark });
     });
     const at = options.now().toISOString();
-    for (const sentence of sentences.slice(SENTENCES_CHECKED_AT_MOST)) {
+    for (const sentence of sentences.slice(sending.length)) {
       landings.push({
         sentence,
         nodes: null,
