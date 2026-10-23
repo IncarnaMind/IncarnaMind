@@ -347,3 +347,66 @@ test("while Organize files new Documents on the plan, its limit has the same one
     await removeDataFolder(sources);
   }
 });
+
+test("an Organize the User runs on the plan, while Automatic tagging goes to another service, names the plan in its line, in English and Chinese", async () => {
+  const openai = await createFakeOpenAI();
+  openai.reply = {
+    kind: "answer",
+    text: JSON.stringify({ groupId: "__unsorted__", tags: [] }),
+  };
+  const sources = await createDataFolder();
+  const { app, window } = await launchApp(dataDir, { chatGpt: openai.endpoints.issuer, home });
+  try {
+    await setWindowSize(app, window, WIDE.width, WIDE.height);
+    await dismissChatSetup(window);
+    await signInWithChatGpt(app, window, openai);
+    // Automatic tags with the chat model's service, a server; Organize has the plan's model.
+    // Automatic tagging is stopped, so only the Organize the User runs sends.
+    await window.evaluate(async (model) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const plan = (await core.listChatProviders()).find((each) => each.kind === "chatgpt");
+      if (!plan) throw new Error("The ChatGPT plan isn't set up.");
+      const server = await core.saveChatProvider({
+        kind: "openai-compatible",
+        baseUrl: "https://llm.example.com/v1",
+        modelId: "example-model",
+      });
+      await core.updateSettings({
+        user: { chatModel: { providerId: server.id, modelId: "example-model" } },
+      });
+      await core.createLibraryGroup({ name: "Invoices", description: "Invoices" });
+      await core.saveLibrarySettings({
+        classifier: null,
+        organizeWith: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
+        automatic: false,
+      });
+      await core.setTaggingWithAi(null, false);
+    }, LUNA);
+    await addDocuments(window, await invoices(sources, ["Invoice 91"]));
+    await expect(listed(window, "Invoice 91")).toBeVisible();
+
+    const resets = usedUp(openai, LUNA, 1);
+    await window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.classifyDocuments(),
+    );
+    await expect(listed(window, "Invoice 91")).toHaveAttribute(
+      "data-tagging",
+      "waiting-for-provider",
+    );
+    const label = window
+      .getByTestId("sidebar-status")
+      .getByTestId("tagging-paused")
+      .getByTestId("status-label");
+    await expect(label).toHaveText(
+      new RegExp(`^Your ChatGPT plan’s limit is reached until .*:${minutesOf(resets)}`),
+    );
+    await setLanguage(window, "zh-CN");
+    await expect(label).toHaveText(
+      new RegExp(`^ChatGPT 订阅额度已用完，.*:${minutesOf(resets)}.* 恢复$`),
+    );
+  } finally {
+    await app.close();
+    await openai.close();
+    await removeDataFolder(sources);
+  }
+});

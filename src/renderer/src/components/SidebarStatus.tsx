@@ -302,6 +302,7 @@ function useStatuses(): Status[] {
       // Only the User's own Documents: the examples need no model, so they alone don't ask for one.
       let waitingForTagger = 0;
       let waitingForPlan = 0;
+      let organizeWaitsForPlan = false;
       let planResetsAt: string | null = null;
       let rateLimited = 0;
       let keyRefused = 0;
@@ -342,6 +343,7 @@ function useStatuses(): Status[] {
               if (!held) waitingForTagger++;
               if (item.taggingError?.kind === "plan-limit") {
                 waitingForPlan++;
+                if (held) organizeWaitsForPlan = true;
                 const resets = item.taggingError.resetsAt ?? null;
                 if (resets !== null && (planResetsAt === null || resets > planResetsAt)) {
                   planResetsAt = resets;
@@ -365,6 +367,7 @@ function useStatuses(): Status[] {
         tagging,
         waitingForTagger,
         waitingForPlan,
+        organizeWaitsForPlan,
         planResetsAt,
         rateLimited,
         keyRefused,
@@ -408,8 +411,9 @@ function useStatuses(): Status[] {
     organizesNew ? "classification" : "tagging",
     counts.keyRefused > 0,
   );
+  // The plan the waiting work sends to: while tagging is Automatic, Organize has a model of its own.
   const planService = useTaggingService(
-    organizesNew ? "classification" : "tagging",
+    counts.organizeWaitsForPlan ? "classification" : "tagging",
     counts.waitingForPlan > 0,
   );
   const places = useAppStore(
