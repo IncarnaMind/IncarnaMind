@@ -179,7 +179,13 @@ for (const gap of [0, 20, 40, 60, 80]) {
           expect(code).toBe(0);
           return index;
         }),
-      );
+      ).catch(async (error: Error) => {
+        const log = await logOf(dataDir).catch(() => "(no log)");
+        const windows = [await windowsOf(a), await windowsOf(b)];
+        throw new Error(
+          `${error.message} Windows of the two copies: ${windows.join(" and ")}.\n${log.split("\n").slice(-30).join("\n")}`,
+        );
+      });
       const winnerPort = loserIndex === 0 ? b : a;
       await expect.poll(() => windowsOf(winnerPort), { timeout: 60_000 }).toBeGreaterThan(0);
       await new Promise((done) => setTimeout(done, 2_000));
