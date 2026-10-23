@@ -11,11 +11,19 @@ import type { ObjectRef } from "../../src/renderer/src/objects";
 import { type Undoable, useUndo } from "../../src/renderer/src/undo";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
-// What the drop's picture shrinks into, the motion module stood in for: there is no page here.
+// The drop's picture shrinking or fading, the motion module stood in for: there is no page here.
 const settled: unknown[] = [];
+const faded: unknown[] = [];
 vi.mock("../../src/renderer/src/motion", () => ({
   exitToward: (element: unknown) => settled.push(element),
+  exit: (element: unknown) => faded.push(element),
 }));
+
+// The window's own listeners, which the layer adds once a drag starts.
+const windowListeners = new Map<string, ((event: unknown) => void)[]>();
+const onWindow = (type: string, event: unknown) => {
+  for (const listener of windowListeners.get(type) ?? []) listener(event);
+};
 
 type Layer = typeof import("../../src/renderer/src/dragDrop");
 let layer: Layer;
@@ -58,6 +66,11 @@ beforeAll(async () => {
   Object.assign(globalThis, {
     document: { createElement: fakeElement, body: { append() {} } },
     SVGElement: FakeIcon,
+    window: {
+      addEventListener(type: string, listener: (event: unknown) => void) {
+        windowListeners.set(type, [...(windowListeners.get(type) ?? []), listener]);
+      },
+    },
   });
   layer = await import("../../src/renderer/src/dragDrop");
   OBJECTS_TYPE = layer.OBJECTS_TYPE;
@@ -67,6 +80,7 @@ beforeEach(() => {
   useUndo.setState({ done: [], undone: [], line: null });
   layer.useDragState.setState({ over: null, at: null, source: null });
   settled.length = 0;
+  faded.length = 0;
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -257,6 +271,75 @@ describe("a drop target", () => {
     const [picture] = settled as FakeElement[];
     expect(picture?.children[0]).toEqual(new FakeIcon("row"));
   });
+});
+
+describe("a drag let go where nothing takes it", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  describe("on macOS", () => {
+    beforeEach(() => {
+      vi.stubGlobal("navigator", { platform: "MacIntel" });
+    });
+
+    test("is taken by the window, so it ends as it is let go, its picture fading there", () => {
+      const { types, data } = startDragging([mind("m")]);
+      const tag = layer.dropProps("tag", documentsTarget());
+      const over = dragEvent(types, { data });
+      tag.onDragOver(over);
+      onWindow("dragover", over);
+      expect(lit()).toBeNull();
+      expect(over.defaultPrevented).toBe(true);
+      expect(over.dataTransfer.dropEffect).toBe("move");
+      const drop = dragEvent(types, { data });
+      tag.onDrop(drop);
+      onWindow("drop", drop);
+      expect(drop.defaultPrevented).toBe(true);
+      expect(faded).toHaveLength(1);
+      expect(settled).toEqual([]);
+      expect(layer.draggedIn({ types })).toBeNull();
+    });
+
+    test("leaves a drop a target took to it, and a drag from another app to the window", () => {
+      const { types, data } = startDragging([doc("a")]);
+      const tag = layer.dropProps("tag", documentsTarget());
+      const over = dragEvent(types, { data });
+      tag.onDragOver(over);
+      onWindow("dragover", over);
+      expect(over.dataTransfer.dropEffect).toBe("copy");
+      const drop = dragEvent(types, { data });
+      tag.onDrop(drop);
+      onWindow("drop", drop);
+      expect(settled).toHaveLength(1);
+      expect(faded).toEqual([]);
+      const files = dragEvent(["Files"]);
+      onWindow("dragover", files);
+      onWindow("drop", files);
+      expect(files.defaultPrevented).toBe(false);
+      expect(faded).toEqual([]);
+    });
+  });
+
+  for (const platform of ["Win32", "Linux x86_64"]) {
+    test(`stays refused on ${platform}, with the system's no-drop cursor, and the drag still ends`, () => {
+      vi.stubGlobal("navigator", { platform });
+      const { types, data } = startDragging([mind("m")]);
+      const tag = layer.dropProps("tag", documentsTarget());
+      const over = dragEvent(types, { data });
+      tag.onDragOver(over);
+      onWindow("dragover", over);
+      expect(over.defaultPrevented).toBe(false);
+      expect(over.dataTransfer.dropEffect).toBe("none");
+      const drop = dragEvent(types, { data });
+      tag.onDrop(drop);
+      onWindow("drop", drop);
+      expect(drop.defaultPrevented).toBe(false);
+      expect(faded).toEqual([]);
+      expect(settled).toEqual([]);
+      expect(layer.draggedIn({ types })).toBeNull();
+    });
+  }
 });
 
 describe("files dragged from another app", () => {

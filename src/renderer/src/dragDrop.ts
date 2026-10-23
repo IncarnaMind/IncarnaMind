@@ -1,7 +1,7 @@
 import { type DragEvent, useEffect, useState } from "react";
 import { create } from "zustand";
 import type { Words } from "./lineNames";
-import { exitToward } from "./motion";
+import { exit, exitToward } from "./motion";
 import { useNotices } from "./notices";
 import { OBJECT_KINDS, type ObjectRef } from "./objects";
 import type { SelectSurface } from "./selectionModel";
@@ -99,8 +99,9 @@ let listening = false;
 function listenForEnd(): void {
   if (listening || typeof window === "undefined") return;
   listening = true;
+  window.addEventListener("dragover", takeAnywhere);
+  window.addEventListener("drop", dropAnywhere);
   window.addEventListener("dragend", endDrag);
-  window.addEventListener("drop", endDrag);
 }
 
 const afterFrame = (run: () => void) =>
@@ -257,15 +258,42 @@ function show(key: string, effect: DropEffect, point: Point): void {
   useDragState.setState({ ...(changed && { over: { key, effect } }), at });
 }
 
-function settleInto(target: Element, at: Point): void {
+function letGo(at: Point, into?: Element): void {
   if (!lifted) return;
   const picture = lifted;
   picture.classList.remove("top-0", "-left-[2000px]");
   picture.style.left = `${at.x - 12}px`;
   picture.style.top = `${at.y - 14}px`;
   document.body.append(picture);
-  exitToward(picture, target);
+  if (into) exitToward(picture, into);
+  else exit(picture, {});
   picture.remove();
+}
+
+// Read when the drag moves, not once: the e2e tests change the platform the page reports.
+const onMac = () => /Mac/.test(navigator.platform);
+
+// On macOS a refused drop leaves its picture on screen until the pointer next moves (#1513), so
+// there a drag of this window's own is taken wherever it is let go. Elsewhere a refused drop stays
+// refused, which keeps the system's no-drop cursor.
+const untakenOwnDrag = (event: globalThis.DragEvent) =>
+  onMac() &&
+  dragging !== null &&
+  !event.defaultPrevented &&
+  event.dataTransfer?.types.includes(OBJECTS_TYPE) === true;
+
+function takeAnywhere(event: globalThis.DragEvent): void {
+  if (!event.dataTransfer || !untakenOwnDrag(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+}
+
+function dropAnywhere(event: globalThis.DragEvent): void {
+  if (untakenOwnDrag(event)) {
+    event.preventDefault();
+    letGo(pointOf(event));
+  }
+  endDrag();
 }
 
 export interface DropProps {
@@ -325,8 +353,7 @@ export function dropProps<Place>(
       const dropped = droppedIn(event.dataTransfer);
       if (!dropped) return;
       // A target that says what its drop does is a row: the picture shrinks into it (DESIGN.md, Motion).
-      if (dropped.kind === "objects" && effect.said)
-        settleInto(event.currentTarget, pointOf(event));
+      if (dropped.kind === "objects" && effect.said) letGo(pointOf(event), event.currentTarget);
       void finish(target.drop(dropped, effect));
       open?.();
     },
