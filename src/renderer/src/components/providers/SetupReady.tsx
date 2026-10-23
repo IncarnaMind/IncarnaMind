@@ -9,11 +9,13 @@ import { CheckLineIcon } from "../lineIcons";
 import { ROUTE_LABELS, TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ProblemLine } from "../ProblemLine";
+import { UndoLineAt } from "../UndoLine";
 import { buttonStyle } from "../ui";
 import { CHATGPT_RECIPIENT } from "./ChatGptSignIn";
 import { jobSelectClass, ROWS, RoleSelect, useJobSummary, useModelRoles } from "./ModelDefaults";
 import { providerName } from "./ProviderPage";
 import { SendsLine } from "./SendsLine";
+import { SETUP_UNDO_PLACE } from "./shared";
 
 function recipientOf(provider: ChatProvider, name: string): string | null {
   if (provider.kind === "ollama") return null;
@@ -82,6 +84,8 @@ export function SetupReady() {
         <CheckLineIcon className="size-4 shrink-0 text-ink" />
         {name ? t("setup.ready", { name }) : t("setup.ready.generic")}
       </h2>
+      {/* Empty, it takes no room: the card's gap above it is taken back. */}
+      <UndoLineAt place={SETUP_UNDO_PLACE} className="pl-2 empty:-mb-2.5" />
       {listFailed && (
         <ProblemLine
           testId="setup-jobs-problem"

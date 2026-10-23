@@ -66,9 +66,16 @@ export interface UndoProblem {
 }
 
 export type UndoLineState =
-  | { id: number; change: Undoable; problem?: undefined; note?: undefined }
-  | { id: number; problem: UndoProblem; change?: undefined; note?: undefined }
-  | { id: number; note: Words; busy?: boolean; change?: undefined; problem?: undefined };
+  | { id: number; change: Undoable; problem?: undefined; note?: undefined; shownAt?: undefined }
+  | { id: number; problem: UndoProblem; shownAt?: string; change?: undefined; note?: undefined }
+  | {
+      id: number;
+      note: Words;
+      busy?: boolean;
+      shownAt?: string;
+      change?: undefined;
+      problem?: undefined;
+    };
 
 interface UndoState {
   /** The changes ⌘Z takes back, the last one last. */
@@ -79,6 +86,10 @@ interface UndoState {
   line: UndoLineState | null;
   /** The step being taken now, off both stacks until it ends: a key pressed meanwhile waits its turn. */
   running: { step: "undo" | "redo"; change: Undoable } | null;
+  /** The places showing their own undo line now (`UndoLineAt`), each once for every time it shows. */
+  places: readonly string[];
+  /** Says a place shows its own undo line, until the function it returns is called. */
+  showPlace(place: string): () => void;
   /** Puts a change just made on the stack and shows its line; nothing more can be redone. */
   push(change: Undoable): void;
   undo(): Promise<void>;
@@ -101,6 +112,17 @@ export const nextToUndo = ({ done, running }: Pick<UndoState, "done" | "running"
 /** What ⇧⌘Z does again next, once the step being taken now has ended: a change being taken back is. */
 export const nextToRedo = ({ undone, running }: Pick<UndoState, "undone" | "running">) =>
   running?.step === "undo" && running.change.redo ? running.change : undone.at(-1);
+
+/**
+ * Where the line shows: the place its change showed its line (`Undoable.shownAt`), or null for the
+ * sidebar's foot. A problem goes to the sidebar's foot when no `UndoLineAt` shows its place, so a
+ * failure is never out of sight: an Answer has none for problems, and a setup card or a Settings
+ * page may have closed.
+ */
+export function lineShownAt({ line, places }: Pick<UndoState, "line" | "places">): string | null {
+  const place = line?.change?.shownAt ?? line?.shownAt ?? null;
+  return line?.problem && place !== null && !places.includes(place) ? null : place;
+}
 
 /** How long the line shows before it goes by itself. */
 export const UNDO_SHOWN_MS = 10_000;
@@ -159,6 +181,7 @@ export const useUndo = create<UndoState>()((set, get) => {
             },
           },
         },
+        ...(change.shownAt && { shownAt: change.shownAt }),
       },
     }));
   };
@@ -168,6 +191,15 @@ export const useUndo = create<UndoState>()((set, get) => {
     undone: [],
     line: null,
     running: null,
+    places: [],
+    showPlace(place) {
+      set((state) => ({ places: [...state.places, place] }));
+      return () =>
+        set((state) => {
+          const at = state.places.indexOf(place);
+          return { places: state.places.filter((_, index) => index !== at) };
+        });
+    },
     push(change) {
       // A command offers the change its action already offered.
       if (get().done.at(-1) === change) return;
@@ -193,7 +225,9 @@ export const useUndo = create<UndoState>()((set, get) => {
         set((state) => ({
           undone: change.redo ? [...state.undone, change] : [],
           running: null,
-          ...(note && { line: { id: ++lines, note } }),
+          ...(note && {
+            line: { id: ++lines, note, ...(change.shownAt && { shownAt: change.shownAt }) },
+          }),
         }));
       }),
     redo: () =>

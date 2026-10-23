@@ -49,11 +49,16 @@ export function useOllamaStatus() {
  * Local mode: whether Ollama runs on its default port, and, if it does, one
  * call that pulls the recommended model (with progress) and makes it the
  * default chat model, or, with `keepDefault`, leaves a default there is.
+ * `localModeUnasked`: no "Also keep everything on this computer" box is
+ * shown, so turning Local mode on is said with the model, and Change.
  */
 export function useOllama(
   onSaved: (provider: ChatProvider) => void,
   undoPlace?: string,
-  { keepDefault = false }: { keepDefault?: boolean } = {},
+  {
+    keepDefault = false,
+    localModeUnasked = false,
+  }: { keepDefault?: boolean; localModeUnasked?: boolean } = {},
 ) {
   const t = useT();
   const { status, opening, detect, open } = useOllamaStatus();
@@ -75,7 +80,11 @@ export function useOllama(
         ...(keepLocal.setUp && { localOnly: keepLocal.checked }),
         ...(keepDefault && { keepDefault }),
       });
-      await localModeChosen(wasOn, undoPlace);
+      await localModeChosen(
+        wasOn,
+        undoPlace,
+        localModeUnasked ? status?.recommendedModel : undefined,
+      );
       onSaved(provider);
     } catch (failure) {
       setError(errorMessage(failure, t));
