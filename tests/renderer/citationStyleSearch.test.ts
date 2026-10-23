@@ -19,7 +19,6 @@ import { CITATION_STYLES } from "../helpers/core";
 
 const catalogue = createCatalogue(join(CITATION_STYLES, "styles.pack")).catalogue();
 
-/** The styles in the order the picker lists them. */
 const listed = (found: StyleMatches) =>
   (found.journalsFirst
     ? [...found.journals, ...found.styles]
@@ -49,13 +48,32 @@ describe.each(["en", "zh-CN"] as const)("searching the styles, in the %s interfa
     expect(first(query)).toBe(id);
   });
 
-  test("a common style's whole name, in either language, puts it first before every style has arrived and after", () => {
+  test("a common style's whole name, in either language, or another name of it puts it first before every style has arrived and after", () => {
+    const aliasesOf = (id: string | undefined) =>
+      COMMON_STYLES.find((style) => style.id === id)?.aliases ?? [];
     for (const style of COMMON_STYLES) {
       for (const name of [translate("en", style.label), translate("zh-CN", style.label)]) {
         expect(first(name, common), name).toBe(style.id);
         expect(first(name), name).toBe(style.id);
       }
+      for (const alias of style.aliases) {
+        expect(aliasesOf(first(alias, common)), alias).toContain(alias);
+        expect(aliasesOf(first(alias)), alias).toContain(alias);
+      }
     }
+  });
+
+  test("“American Psychological Association” puts APA 7 first, before the Basque APA whose short title it is", () => {
+    expect(listed(searchStyles(entries, "American Psychological Association")).slice(0, 2)).toEqual(
+      ["apa", "apa-eu"],
+    );
+  });
+
+  test("“medicine”, a field and not a name of Vancouver's, puts the journal Medicine first and Vancouver first among the styles", () => {
+    const found = searchStyles(entries, "medicine");
+    expect(listed(found)[0]).toBe("medicine");
+    expect(found.journalsFirst).toBe(true);
+    expect(found.styles[0]?.id).toBe("vancouver");
   });
 
   test("what a query showed before every style arrived keeps its place, and the rest follow", () => {

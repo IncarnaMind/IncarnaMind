@@ -50,7 +50,6 @@ interface CatalogueState {
   load(): void;
 }
 
-/** `TestHooks.holdStyleCatalogue`: the pack's list arrives once this is let go. */
 let held: { promise: Promise<void>; release(): void } | null = null;
 
 export function holdStyleCatalogue(hold: boolean): void {

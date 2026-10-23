@@ -45,7 +45,8 @@ export function CitationStylePickerHost() {
 
   const entries = useMemo(() => styleEntries(language, catalogue), [language, catalogue]);
   const byId = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
-  /** What the query in the field found, kept in its order as the rest of the styles arrive. */
+  // Written while SearchPicker computes its options; safe, as the same query and styles always
+  // give the same options, however often they are computed.
   const shown = useRef<{ query: string; found: StyleMatches } | null>(null);
 
   const sections = useCallback(

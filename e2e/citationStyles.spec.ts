@@ -134,14 +134,12 @@ async function chooseStyle(window: Page, search: string, label: string): Promise
   await expect(picker).toBeHidden();
 }
 
-/** Opens a Mind's citation style picker from its row's ⋯ menu in the sidebar. */
 async function openPickerFromRow(window: Page, row: Locator): Promise<void> {
   await row.hover();
   await pointAndClick(window, row.getByTestId("mind-menu"));
   await pointAndClick(window, row.getByTestId("mind.citationStyle"));
 }
 
-/** Holds back the picker's list of every style, as a slow computer would, or lets it arrive. */
 const holdStyleCatalogue = (window: Page, hold: boolean) =>
   window.evaluate((held) => {
     const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
@@ -656,7 +654,6 @@ for (const [language, name, id] of [
     const field = picker.getByTestId("citation-style-search");
     const labels = picker.getByTestId("citation-style-option-label");
 
-    // Only the common styles are in: the name typed and Enter at once take the style it names.
     await holdStyleCatalogue(window, true);
     await openPickerFromRow(window, row("Chapter 1"));
     await expect(field).toBeFocused();
@@ -666,8 +663,6 @@ for (const [language, name, id] of [
     await expect(picker).toBeHidden();
     await expect.poll(async () => (await styleOf(minds.first)).style).toBe(id);
 
-    // Every other style arrives while IEEE is shown, its rows under a pointer resting where they
-    // come: IEEE stays first and highlighted, and Enter takes it.
     expect((await styleOf(minds.second)).chosen).toBe(false);
     await openPickerFromRow(window, row("Chapter 2"));
     await expect(field).toBeFocused();

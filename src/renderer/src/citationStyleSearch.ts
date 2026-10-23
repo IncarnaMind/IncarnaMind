@@ -20,9 +20,12 @@ export interface StyleEntry {
   /** A journal's style: the title of the style it follows. */
   follows?: string;
   common: boolean;
-  /** Its names, normalised (`normalise`): in either language, or its title and short title. */
+  /**
+   * Its names, normalised (`normalise`): a common style's in either language and its aliases, or
+   * a pack style's title and short title.
+   */
   names: readonly string[];
-  /** What else it is found by, normalised: what else it's called ("国标"), a journal's fields. */
+  /** What else it is found by, normalised: a common style's keywords, a pack style's fields. */
   keywords: readonly string[];
 }
 
@@ -36,7 +39,9 @@ export function styleEntries(language: Language, catalogue: StyleCatalogue | nul
     title: translate(language, style.label),
     format: style.format,
     common: true,
-    names: [translate("en", style.label), translate("zh-CN", style.label)].map(normalise),
+    names: [translate("en", style.label), translate("zh-CN", style.label), ...style.aliases].map(
+      normalise,
+    ),
     keywords: style.keywords.map(normalise),
   }));
   const rest: StyleEntry[] = (catalogue?.styles ?? []).map((style) => ({
