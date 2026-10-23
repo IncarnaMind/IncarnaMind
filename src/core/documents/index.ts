@@ -1325,6 +1325,7 @@ export function createDocuments(options: DocumentsOptions) {
     for (const id of ids) {
       vectors.removeDocument(id);
       processor.cancel(id);
+      reading.forget(id);
     }
     // Pushed first, so a Citation quoting what is kept never shows "can't check" meanwhile.
     if (keep) options.emitKept?.(keptCitationTexts());

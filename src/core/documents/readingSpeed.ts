@@ -194,11 +194,18 @@ export function createReadingMeter(options: ReadingMeterOptions) {
       else embedding.set(documentId, { kind, bytes, ms });
     },
 
-    embedded(documentId: string, ms: number): void {
+    /** `ms` as `EmbeddingQueueOptions.onEmbedded` gives it: null leaves the Document out. */
+    embedded(documentId: string, ms: number | null): void {
       speed();
       const processed = embedding.get(documentId);
       embedding.delete(documentId);
-      if (processed) add(processed.kind, processed.bytes, processed.ms + ms);
+      if (processed && ms !== null) add(processed.kind, processed.bytes, processed.ms + ms);
+    },
+
+    /** It was deleted, or its folder unlinked: its reading won't finish. */
+    forget(documentId: string): void {
+      started.delete(documentId);
+      embedding.delete(documentId);
     },
 
     /**

@@ -36,8 +36,12 @@ export interface EmbeddingQueueOptions {
   announce(documentId: string): void;
   /** A Document just became ready (e.g. for automatic tagging). Called before it is announced. */
   onReady?: (documentId: string) => void;
-  /** It became ready, embedded in `ms` (by `performance.now()`) once the model had loaded. */
-  onEmbedded?: (documentId: string, ms: number) => void;
+  /**
+   * It became ready, embedded in `ms` (by `performance.now()`) once the model had loaded; null
+   * when an earlier turn embedded part of it (held for a Meeting, paused, or the model
+   * unavailable part way), so this turn took only the rest.
+   */
+  onEmbedded?: (documentId: string, ms: number | null) => void;
   /**
    * The Document's Linked folder is paused: it is left "embedding" until it
    * is resumed, which queues it again.
@@ -188,6 +192,8 @@ export function createEmbeddingQueue(options: EmbeddingQueueOptions): EmbeddingQ
       startOver(id);
       dimensions = null;
     }
+    // Its first vector of this version and model sets its dimensions: none yet, it is all to do.
+    const whole = dimensions === null;
     const passages = db.all<{ seq: number; text: string }>(
       `SELECT seq, text FROM passages
        WHERE document_id = ? AND deleted_at IS NULL AND embedding IS NULL
@@ -255,7 +261,7 @@ export function createEmbeddingQueue(options: EmbeddingQueueOptions): EmbeddingQ
     }
     setStatus(id, "ready", "embedding");
     if (stateOf(id)?.status === "ready") {
-      options.onEmbedded?.(id, performance.now() - begun);
+      options.onEmbedded?.(id, whole ? performance.now() - begun : null);
       try {
         options.onReady?.(id);
       } catch (error) {

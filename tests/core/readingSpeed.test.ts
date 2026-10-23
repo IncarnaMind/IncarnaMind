@@ -167,6 +167,31 @@ describe("How long reading takes on this computer (#1506)", () => {
     expect(meter.seconds(files(1, "markdown", 2_000))).toBeCloseTo(0.1);
   });
 
+  test("a Document whose embedding stopped part way doesn't count: its last turn took only the rest", () => {
+    const { meter, advance, read, useEmbedding } = startMeter();
+    useEmbedding("multilingual-e5-small");
+    meter.started("held", true);
+    advance(10);
+    meter.processed("held", "markdown", 2_000, false);
+    meter.embedded("held", null);
+    expect(meter.seconds(files(1, "markdown", 2_000))).toBeNull();
+
+    read("markdown", 2_000, 100);
+    expect(meter.seconds(files(1, "markdown", 2_000))).toBeCloseTo(0.1);
+  });
+
+  test("a Document deleted before it is embedded is forgotten: its reading won't finish", () => {
+    const { meter, advance, useEmbedding } = startMeter();
+    useEmbedding("multilingual-e5-small");
+    meter.started("deleted", true);
+    advance(10);
+    meter.processed("deleted", "markdown", 2_000, false);
+    meter.forget("deleted");
+
+    meter.embedded("deleted", 90);
+    expect(meter.seconds(files(1, "markdown", 2_000))).toBeNull();
+  });
+
   test("a Document processed under one embedding model isn't counted for the next, when it is embedded", () => {
     const { meter, advance, useEmbedding } = startMeter();
     useEmbedding("multilingual-e5-small");
@@ -242,5 +267,19 @@ describe("How long reading takes on this computer (#1506)", () => {
       JSON.stringify({ embedding: "", kinds: { csv: { count: "many" } } }),
     );
     expect(unreadable.meter.seconds(files(3, "csv", 5_000))).toBeNull();
+
+    // Kept without the smallest and largest sizes read: that kind is measured again, from the
+    // next file of it read.
+    const older = startMeter(
+      JSON.stringify({
+        embedding: "",
+        kinds: {
+          csv: { count: 3, megabytes: 0.005, seconds: 0.02, sizeSquares: 0, products: 0 },
+        },
+      }),
+    );
+    expect(older.meter.seconds(files(3, "csv", 5_000))).toBeNull();
+    older.read("csv", 5_000, 30);
+    expect(older.meter.seconds(files(3, "csv", 5_000))).toBeCloseTo(0.09);
   });
 });
