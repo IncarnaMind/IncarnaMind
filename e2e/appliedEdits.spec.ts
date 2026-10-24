@@ -4,6 +4,7 @@ import type { CoreBridge } from "../src/core/api";
 import {
   createDataFolder,
   dismissChatSetup,
+  focusEditor,
   focusSettled,
   launchApp,
   motionSettled,
@@ -555,7 +556,7 @@ test("typed elsewhere after ⌘J, by the keyboard alone: the line goes, Review c
   await askToChange(window, "replace strong with powerful");
   await expect(note).toHaveText(POWERFUL);
   await expect(line.getByTestId("applied-review")).toBeVisible();
-  await editor.focus();
+  await focusEditor(window, editor);
   await window.keyboard.press(toTheEnd);
   await window.keyboard.press("Enter");
   await window.keyboard.type(TYPED);
@@ -589,7 +590,7 @@ test("typed elsewhere after ⌘J, by the keyboard alone: the line goes, Review c
   await askToChange(window, "replace regular with steady");
   const STEADY = "The tides here are very powerful and really steady.";
   await expect(note).toHaveText(STEADY);
-  await editor.focus();
+  await focusEditor(window, editor);
   await window.keyboard.press(toTheEnd);
   await window.keyboard.type(" Again.");
   await expect(paragraphs.last()).toHaveText(`${TYPED} Again.`);
@@ -609,7 +610,7 @@ test("Review changes lives with the Mind's editor: once its tab has shown anothe
   await slideSelect(window, paragraphs.first(), TIDES);
   await askToChange(window, "replace strong with powerful");
   await expect(paragraphs.first()).toHaveText(POWERFUL);
-  await editor.focus();
+  await focusEditor(window, editor);
   await window.keyboard.press(toTheEnd);
   await window.keyboard.press("Enter");
   await window.keyboard.type("Typed.");
