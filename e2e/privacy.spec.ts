@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { gunzipSync } from "node:zlib";
-import { expect, type Locator, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { startSourceServices } from "../tests/helpers/sourceServices";
 import {
@@ -18,6 +18,7 @@ import {
   saveProviderUnasked,
   setLanguage,
   setWindowSize,
+  showSettingsPage,
 } from "./app";
 
 let dataDir: string;
@@ -174,19 +175,28 @@ test("the Privacy page lists the data flows and the update check, and offers no 
   await second.app.close();
 });
 
+/** Searches arXiv through the bridge, as Find sources does. Resolves once the search has ended. */
+const searchArxiv = (window: Page, query: string) =>
+  window.evaluate(async (words) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.findSources({ query: words, providers: ["arxiv"] });
+  }, query);
+
+/** Whether arXiv has a decision of the User's, whatever it is, from the core. */
+const arxivDecided = (window: Page) =>
+  window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await bridge.listDataFlows()).some((each) => each.flow.service.name === "arXiv");
+  });
+
 test("stopping the only service, one allowed in an earlier search, leaves its Undo line, and Undo and ⌘Z bring it back as it was, twice", async () => {
   const sources = await startSourceServices();
   try {
     const { app, window } = await launchApp(dataDir, { sources: sources.url });
     await setWindowSize(app, window, 1280, 800);
     await dismissChatSetup(window);
-    const search = (query: string) =>
-      window.evaluate(async (words) => {
-        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        await bridge.findSources({ query: words, providers: ["arxiv"] });
-      }, query);
     // The search ends, and arXiv is no part of any flow now: only the User's decision is left.
-    const searched = search("CRISPR off-target detection");
+    const searched = searchArxiv(window, "CRISPR off-target detection");
     await pointAndClick(window, window.getByTestId("consent-allow"));
     await searched;
 
@@ -229,11 +239,94 @@ test("stopping the only service, one allowed in an earlier search, leaves its Un
     // Back as it was, it needs no question: the next search goes straight to arXiv.
     await closeSettings(window);
     const before = sources.requests.filter((request) => request.path.startsWith("/arxiv")).length;
-    await search("base editing");
+    await searchArxiv(window, "base editing");
     await expect(window.getByTestId("consent-dialog")).toBeHidden();
     expect(
       sources.requests.filter((request) => request.path.startsWith("/arxiv")).length,
     ).toBeGreaterThan(before);
+    await app.close();
+  } finally {
+    await sources.close();
+  }
+});
+
+test("⌘Z in Settings takes back only a step whose line is on a page in view: not one from a page the User has left", async () => {
+  const sources = await startSourceServices();
+  try {
+    const { app, window } = await launchApp(dataDir, { sources: sources.url });
+    await setWindowSize(app, window, 1280, 800);
+    await dismissChatSetup(window);
+    const searched = searchArxiv(window, "CRISPR off-target detection");
+    await pointAndClick(window, window.getByTestId("consent-allow"));
+    await searched;
+
+    const privacy = await openPrivacySettings(window);
+    const arxiv = privacy.getByTestId("data-service").filter({ hasText: "arXiv" });
+    await pointAndClick(window, arxiv.getByTestId("data-service-revoke"));
+    await expect(privacy.getByTestId("data-service")).toHaveCount(0);
+    await expect(
+      privacy.getByTestId("consent-settings").getByTestId("undo-line-here"),
+    ).toContainText("Stopped allowing arXiv");
+
+    // On another page the Privacy page stays mounted, hidden: its line isn't in view, so ⌘Z does
+    // nothing to a decision the User can't see.
+    await showSettingsPage(window, "general");
+    await window.keyboard.press("ControlOrMeta+z");
+    expect(await arxivDecided(window)).toBe(false);
+
+    // Back on its page, ⌘Z reaches the step, and ⇧⌘Z is held the same way from another page.
+    await showSettingsPage(window, "privacy");
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(arxiv).toHaveAttribute("data-consent", "accepted");
+    await showSettingsPage(window, "general");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    expect(await arxivDecided(window)).toBe(true);
+    await showSettingsPage(window, "privacy");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(privacy.getByTestId("data-service")).toHaveCount(0);
+    await app.close();
+  } finally {
+    await sources.close();
+  }
+});
+
+test("a consent question over Settings is answered only by its own buttons: ⌘Z, ⇧⌘Z and Return on Decline never allow", async () => {
+  const sources = await startSourceServices();
+  try {
+    const { app, window } = await launchApp(dataDir, { sources: sources.url });
+    await setWindowSize(app, window, 1280, 800);
+    await dismissChatSetup(window);
+    const allowed = searchArxiv(window, "CRISPR off-target detection");
+    await pointAndClick(window, window.getByTestId("consent-allow"));
+    await allowed;
+    const requestsToArxiv = () =>
+      sources.requests.filter((request) => request.path.startsWith("/arxiv")).length;
+
+    // Stopped in Settings, with its Undo line in view: a search then asks again, over Settings.
+    const privacy = await openPrivacySettings(window);
+    const arxiv = privacy.getByTestId("data-service").filter({ hasText: "arXiv" });
+    await pointAndClick(window, arxiv.getByTestId("data-service-revoke"));
+    await expect(privacy.getByTestId("data-service")).toHaveCount(0);
+    const before = requestsToArxiv();
+    const searching = searchArxiv(window, "base editing");
+    const consent = window.getByTestId("consent-dialog");
+    await expect(consent).toBeVisible();
+    await expect(consent).toContainText("arXiv");
+    await expect(consent.getByTestId("consent-decline")).toBeFocused();
+
+    // No key answers it as Allow: the Undo line behind it can't be reached.
+    await window.keyboard.press("ControlOrMeta+z");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    expect(await arxivDecided(window)).toBe(false);
+    await expect(consent).toBeVisible();
+    expect(requestsToArxiv()).toBe(before);
+
+    // Return, on the focused Decline, declines: nothing is sent.
+    await window.keyboard.press("Enter");
+    await expect(consent).toBeHidden();
+    await searching;
+    expect(requestsToArxiv()).toBe(before);
+    await expect(arxiv).toHaveAttribute("data-consent", "declined");
     await app.close();
   } finally {
     await sources.close();

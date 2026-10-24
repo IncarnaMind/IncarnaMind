@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { CommandId, ShortcutKeys } from "../../../shared/commands";
+import { topModalNow } from "../components/useModal";
 import { files } from "../core";
 import type { ObjectRef } from "../objects";
 import { useAppStore } from "../store";
@@ -60,19 +61,32 @@ const contextAt = (target: EventTarget | null): CommandContext => ({
 
 const dialogOpen = () => document.querySelector("dialog[open]") !== null;
 
+/** The places whose undo lines are on screen in a modal: not those on a hidden page of it. */
+const linesShownIn = (modal: HTMLElement | null): string[] =>
+  modal
+    ? [...modal.querySelectorAll<HTMLElement>("[data-undo-place]")]
+        .filter((each) => each.checkVisibility())
+        .flatMap((each) => each.dataset.undoPlace ?? [])
+    : [];
+
 /**
- * Whether an open dialog keeps a command's keys from the page behind it. ⌘Z and ⇧⌘Z are not kept
- * from a change whose line the dialog shows (Settings): they do what that line's Undo does.
+ * Whether an open modal keeps a command's keys from the page behind it. ⌘Z and ⇧⌘Z get past only
+ * to a step whose line is drawn on screen in the modal on top (`shown`), as Settings draws its
+ * own: a modal on top of that one (a consent question) holds them, and so does another page of
+ * Settings, so no key but a dialog's own buttons answers it or changes what the User can't see.
  */
-function dialogHolds(id: CommandId): boolean {
-  if (!dialogOpen()) return false;
+export function holdsKey(
+  id: CommandId,
+  shown: readonly string[],
+  state: Parameters<typeof nextToUndo>[0] & Parameters<typeof nextToRedo>[0],
+): boolean {
   if (id !== "edit.undo" && id !== "edit.redo") return true;
-  const state = useUndo.getState();
-  const place = (id === "edit.undo" ? nextToUndo(state) : nextToRedo(state))?.shownAt;
-  return !(
-    place && document.querySelector(`dialog[open] [data-undo-place="${CSS.escape(place)}"]`)
-  );
+  const step = id === "edit.undo" ? nextToUndo(state) : nextToRedo(state);
+  return !(step?.shownAt !== undefined && shown.includes(step.shownAt));
 }
+
+const dialogHolds = (id: CommandId) =>
+  dialogOpen() && holdsKey(id, linesShownIn(topModalNow()), useUndo.getState());
 
 const report = (error: unknown) => useAppStore.getState().reportError(error);
 
