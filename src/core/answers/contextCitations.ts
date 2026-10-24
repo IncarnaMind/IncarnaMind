@@ -51,8 +51,16 @@ export function createContextCitations(): ContextCitations {
         location: parseLocation(attributes.location),
         quote: typeof attributes.quote === "string" ? attributes.quote : "",
       };
-      const { passageId, contentHash, pageTo, quote } = citation;
-      const key = JSON.stringify([passageId, documentId, contentHash, pageFrom, pageTo, quote]);
+      const { passageId, contentHash, pageTo, location, quote } = citation;
+      const key = JSON.stringify([
+        passageId,
+        documentId,
+        contentHash,
+        pageFrom,
+        pageTo,
+        location,
+        quote,
+      ]);
       let id = ids.get(key);
       if (!id) {
         id = `C${ids.size + 1}`;

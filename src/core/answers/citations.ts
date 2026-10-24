@@ -949,8 +949,8 @@ export function createCitationSession(
   let removedMarkers = 0;
   /** Markers whose Citations went into a Mind rather than the Answer's text (#202). */
   const placedElsewhere = new Set<number>();
-  /** Ids the model wrote as text, not as records (`citeWrittenIds`). */
-  let idsAsText = 0;
+  /** The Question context's Citations the model wrote as ids in text, not as records (`citeWrittenIds`), each once. */
+  const idsAsText = new Set<string>();
 
   const handleFor = (passageId: string) => {
     let handle = handleOf.get(passageId);
@@ -1609,7 +1609,8 @@ export function createCitationSession(
     citeWrittenIds(markdown: string, notKept: string): string {
       const written = writtenIds(markdown);
       if (written.length === 0) return markdown;
-      idsAsText += written.length;
+      // A write into a Mind is read again as its input grows: a Citation counts once, however often it's read.
+      for (const each of written) for (const id of each.ids) idsAsText.add(id);
       let next = Math.max(0, ...records.keys(), ...markersIn(markdown)) + 1;
       const markerOf = (id: string): number | null => {
         for (const record of records.values()) if (record.handle === id) return record.marker;
@@ -1661,7 +1662,7 @@ export function createCitationSession(
         droppedMarkers: removedMarkers,
         droppedRecords: unused + rejected.length,
         rejectedRecords: rejected,
-        idsAsText,
+        idsAsText: idsAsText.size,
       };
     },
   };

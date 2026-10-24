@@ -5506,8 +5506,8 @@ export interface AnswerFinished extends AnswerPlace {
    */
   rejectedRecords: RejectedRecord[];
   /**
-   * Ids of the Question context's Citations the model wrote as text rather than citing them
-   * (#1800), each made that Citation or taken out: the evaluation counts them.
+   * How many of the Question context's Citations the model wrote as ids in text rather than
+   * citing them (#1800), each made that Citation or taken out: the evaluation counts them.
    */
   idsAsText: number;
   /** Markers the model left out of its text for records it gave, which the engine put in. */
