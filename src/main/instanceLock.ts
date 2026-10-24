@@ -1,4 +1,4 @@
-import { mkdirSync, truncateSync } from "node:fs";
+import { existsSync, mkdirSync, truncateSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -49,6 +49,22 @@ function isHeld(file: string): boolean {
     throw error;
   } finally {
     db.close();
+  }
+}
+
+/** Whether another copy holds the folder at this moment: running, or quitting and about to let go. */
+export function heldByAnotherCopy(
+  folder: string,
+  report: (what: string, error: unknown) => void,
+): boolean {
+  const ownerFile = join(folder, "instance.owner");
+  if (!existsSync(ownerFile)) return false;
+  try {
+    return isHeld(ownerFile);
+  } catch (error) {
+    // `lockInstance` empties a file that isn't a database: no copy holds it.
+    if (code(error) !== SQLITE_NOTADB) report("app.instanceLockFailed", error);
+    return false;
   }
 }
 

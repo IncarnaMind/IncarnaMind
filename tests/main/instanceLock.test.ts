@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
-import { lockInstance } from "../../src/main/instanceLock";
+import { heldByAnotherCopy, lockInstance } from "../../src/main/instanceLock";
 
 const CHILD = fileURLToPath(new URL("../helpers/instanceLockChild.ts", import.meta.url));
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -64,6 +64,20 @@ describe("one copy of the app holds a data folder", () => {
     const both = [lockInstance(one, report), lockInstance(other, report)];
     expect(both.map((each) => each.held)).toEqual([true, true]);
     for (const each of both) each.release();
+  });
+
+  test("tells whether another copy holds the folder, without taking it", async () => {
+    const where = await folder();
+    expect(heldByAnotherCopy(where, report)).toBe(false);
+    const first = lockInstance(where, report);
+    expect(heldByAnotherCopy(where, report)).toBe(true);
+    first.release();
+    expect(heldByAnotherCopy(where, report)).toBe(false);
+    await writeFile(join(where, "instance.owner"), "not a database, only text ".repeat(8));
+    expect(heldByAnotherCopy(where, report)).toBe(false);
+    const next = lockInstance(where, report);
+    expect(next.held).toBe(true);
+    next.release();
   });
 
   test("letting go twice is harmless", async () => {
