@@ -156,7 +156,8 @@ function sentenceClaims(sentence: string, minds: ReadonlyMap<string, string>): C
   return [...new Set(kinds)].map((kind) => ({ kind, sentence, mind: named, theirs }));
 }
 
-const sentencesOf = (reply: string): string[] =>
+/** A reply's sentences, its Citation and figure markers left out. */
+export const sentencesOf = (reply: string): string[] =>
   reply
     .replace(/\[\^\d+\]|\[=\d+\]/g, "")
     .split(/(?<=[.!?])\s+|(?<=[。！？])|\n+/)
@@ -288,7 +289,7 @@ const CLAIMED_WORDS: Record<ClaimedChange, string> = {
   removed: "removed or replaced text in a Mind",
 };
 
-const UNSEEN_REPLY =
+export const UNSEEN_REPLY =
   "The User will not read your earlier reply and does not know you were asked again. Write your reply as if for the first time: don't mention, apologise for or correct an earlier reply.";
 
 /** The record of what the calls did, then to write the reply again from it. */
@@ -332,7 +333,8 @@ export function unmadeFixesNote(
   ].join("\n");
 }
 
-function thisAnswersRecord(
+/** What the Tools of this Answer did, as IncarnaMind recorded it, for asking the model again. */
+export function thisAnswersRecord(
   calls: readonly AnswerToolCall[],
   names: MindNames,
   states?: ChangeStates,

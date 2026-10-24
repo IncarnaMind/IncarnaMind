@@ -33,6 +33,7 @@ import { CoverageLine, WrittenFromLine } from "./CoverageLines";
 import { MindChangesCard, NoMindLine, wantedAMind } from "./MindChangesCard";
 import { SelfCheckLines } from "./SelfCheckLines";
 import { StillReadingLine } from "./StillReadingLine";
+import { UnrunToolLines } from "./UnrunToolLines";
 
 /** What adding an Answer needs from the thread around it. */
 export interface AnswerKeeping {
@@ -148,6 +149,7 @@ export function AssistantAnswer({
       )}
       {!streaming && <WaitingChangesLine answer={answer} />}
       {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
+      {!streaming && <UnrunToolLines steps={answer.steps} onRetry={regenerate} />}
       {!streaming && scopeEmpty && (
         <ProblemLine
           role="status"

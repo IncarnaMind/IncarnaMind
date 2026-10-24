@@ -85,6 +85,7 @@ import {
   type CitationSupport,
   type CitedSelection,
   type ClaimedChange,
+  type ClaimedTool,
   type CommandDone,
   type CommandProblem,
   type CommandsFound,
@@ -188,6 +189,7 @@ import {
   unmadeFixesNote,
 } from "./claimedChanges";
 import { unmadeFixesIn } from "./claimedFixes";
+import { unrunToolClaims, unrunToolsNote } from "./claimedTools";
 import {
   conversationContext,
   conversationContextOf,
@@ -971,6 +973,8 @@ export function createAnswers(options: AnswersOptions) {
     /** The one request to fix figures, if the engine made it (see ./figureRetry). */
     let figureRetry: FigureRetry | null = null;
     let unbackedClaims: ClaimedChange[] = [];
+    let unrunTools: readonly ClaimedTool[] = [];
+    let askedAgainFor: readonly ClaimedTool[] = [];
     /** What the model calls counted, the cached input tokens too. */
     const usage: AnswerUsage = {
       inputTokens: 0,
@@ -1050,6 +1054,11 @@ export function createAnswers(options: AnswersOptions) {
           firstWordAt !== Infinity && { firstWordMs: wordAfter(sentAt, firstWordAt) }),
         ...(careful && { careful: true as const }),
         ...(unbackedClaims.length > 0 && { unbackedClaims: [...unbackedClaims] }),
+        ...(unrunTools.length > 0 && {
+          unrunTools: [...unrunTools],
+          ...(!calculating && unrunTools.includes("calculate") && { calculateUnavailable: true }),
+        }),
+        ...(askedAgainFor.length > 0 && { askedAgainFor: [...askedAgainFor] }),
         ...(coverage && { coverage }),
         ...(writtenFrom && wroteNewText() && { writtenFrom }),
         ...(reading && { stillReading: reading }),
@@ -2109,6 +2118,25 @@ export function createAnswers(options: AnswersOptions) {
           ) ?? null
         );
       };
+      const claimedTools: TurnCheck = {
+        name: "claimed-tool",
+        check: (text) => {
+          const tools = unrunToolClaims(text, toolCalls);
+          return tools.length > 0
+            ? {
+                claims: [],
+                tools,
+                note: unrunToolsNote(
+                  tools,
+                  toolCalls,
+                  options.readableMindName,
+                  calculating,
+                  appliedInTurn,
+                ),
+              }
+            : null;
+        },
+      };
       const turnChecks: TurnCheck[] = [
         {
           name: "claimed-change",
@@ -2142,7 +2170,11 @@ export function createAnswers(options: AnswersOptions) {
               : null;
           },
         },
+        claimedTools,
       ];
+      // An Answer the User reads holds its claims of Tools to its calls; a check's or a call's
+      // help is read by its own flow.
+      const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -2236,11 +2268,9 @@ export function createAnswers(options: AnswersOptions) {
         ...(prepared.capabilities.facts.toolsEveryRequest && { toolsEveryRequest: true }),
         retryQuotes: prepared.retryQuotes,
         cacheKey: place.conversationId ?? place.mindId ?? undefined,
-        ...(input.assistant && {
-          turnChecks,
-          shownUpTo: heldBack,
-          mayEndBlank: changedAMind,
-        }),
+        ...(input.assistant
+          ? { turnChecks, shownUpTo: heldBack, mayEndBlank: changedAMind }
+          : readByUser && { turnChecks: [claimedTools] }),
         signal: controller.signal,
       })) {
         if (finished) break;
@@ -2281,6 +2311,11 @@ export function createAnswers(options: AnswersOptions) {
             break;
           case "claims-unbacked":
             unbackedClaims = event.claims;
+            unrunTools = event.tools ?? [];
+            writeSoon();
+            break;
+          case "asked-again":
+            askedAgainFor = event.tools;
             writeSoon();
             break;
           case "usage":

@@ -76,6 +76,7 @@ import type {
   AnswerPhase,
   CitationSupport,
   ClaimedChange,
+  ClaimedTool,
   FigureRetry,
   ProviderError,
   QuoteRetry,
@@ -119,7 +120,7 @@ import {
 } from "./prompt";
 import { retryQuotes } from "./quoteRetry";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
-import { claimsOf, createNudges, settleReply, type TurnCheck } from "./turnChecks";
+import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
 import { citeUnmarked } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
 
@@ -499,8 +500,13 @@ export type AnswerEngineEvent =
   | { type: "read-third-party"; source: ReadThirdPartySource }
   /** A model call ended, with the tokens its provider counted, the cached ones too. */
   | { type: "usage"; usage: TokenUsage }
-  /** The reply claims these changes to a Mind, which none of the Answer's Tool calls made. */
-  | { type: "claims-unbacked"; claims: ClaimedChange[] }
+  /**
+   * The reply claims these changes to a Mind, or says these Tools ran (#1796), which none of the
+   * Answer's Tool calls made or ran.
+   */
+  | { type: "claims-unbacked"; claims: ClaimedChange[]; tools?: ClaimedTool[] }
+  /** The reply said these Tools ran, and none had: the model was asked once more (#1796). */
+  | { type: "asked-again"; tools: readonly ClaimedTool[] }
   /** The Answer is complete. Nothing follows. */
   | { type: "finished" }
   /** The model or its provider failed. Nothing follows. */
@@ -1672,8 +1678,7 @@ async function* toolLoop(
   const releasable = (text: string) =>
     Math.min(request.shownUpTo?.(text) ?? text.length, heldBackFrom(text, toolTextTags));
   function* flag(text: string): Generator<AnswerEngineEvent> {
-    const claims = claimsOf(request.turnChecks ?? [], text);
-    if (claims.length > 0) yield { type: "claims-unbacked", claims };
+    yield* flagged(flagsOf(request.turnChecks ?? [], text));
   }
   function* backToFirst(written: string): Generator<AnswerEngineEvent> {
     if (released > 0) yield { type: "text-retracted", length: released };
@@ -1888,6 +1893,7 @@ async function* toolLoop(
         }
         const settled = settleReply(request.turnChecks ?? [], taken.text, nudges);
         if ("nudge" in settled) {
+          if (settled.tools) yield { type: "asked-again", tools: settled.tools };
           standing = taken.text;
           if (released > 0) yield { type: "text-retracted", length: released };
           released = 0;
@@ -1904,7 +1910,7 @@ async function* toolLoop(
           released = keptText.length;
         }
         yield* release(keptText.length);
-        if (settled.claims.length > 0) yield { type: "claims-unbacked", claims: settled.claims };
+        yield* flagged(settled);
         yield* endAnswer();
         return;
       }
@@ -2043,8 +2049,13 @@ async function* structured(
 }
 
 function* flagClaims(request: AnswerRequest, text: string): Generator<AnswerEngineEvent> {
-  const claims = claimsOf(request.turnChecks ?? [], text);
-  if (claims.length > 0) yield { type: "claims-unbacked", claims };
+  yield* flagged(flagsOf(request.turnChecks ?? [], text));
+}
+
+function* flagged({ claims, tools }: Flags): Generator<AnswerEngineEvent> {
+  if (claims.length > 0 || tools) {
+    yield { type: "claims-unbacked", claims, ...(tools && { tools }) };
+  }
 }
 
 /** A plain streamed Answer, with no Tools and no Citations. */
