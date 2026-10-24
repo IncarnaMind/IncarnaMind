@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -51,6 +51,15 @@ const whereIs = (window: Page): Promise<Where> =>
       answerBelowFoot:
         (answers.item(answers.length - 1)?.getBoundingClientRect().bottom ?? 0) - box.bottom,
     };
+  });
+
+const isFullyVisible = (answer: Locator) =>
+  answer.evaluate((element) => {
+    const thread = element.closest('[data-testid="assistant-thread"]');
+    if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    const box = element.getBoundingClientRect();
+    const view = thread.getBoundingClientRect();
+    return box.top >= view.top - 1 && box.bottom <= view.bottom + 1;
   });
 
 /** Every frame from now on, where the Question at `index` is under the thread's top, once it shows. */
@@ -400,22 +409,56 @@ test("an older Answer sought in another conversation stays in view after its fla
   await expect(answers).toHaveCount(4);
   const selected = answers.first();
   await expect(selected).toHaveAttribute("data-sought", "true");
-  const visible = () =>
-    selected.evaluate((element) => {
-      const thread = element.closest('[data-testid="assistant-thread"]');
-      if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
-      const answer = element.getBoundingClientRect();
-      const view = thread.getBoundingClientRect();
-      return answer.top >= view.top - 1 && answer.bottom <= view.bottom + 1;
-    });
-  await expect.poll(visible).toBe(true);
+  await expect.poll(() => isFullyVisible(selected)).toBe(true);
   await expect.poll(async () => (await whereIs(window)).fromFoot).toBeGreaterThan(24);
   const before = (await whereIs(window)).scrollTop;
 
   await expect(selected).not.toHaveAttribute("data-sought");
-  await expect.poll(visible).toBe(true);
+  await expect.poll(() => isFullyVisible(selected)).toBe(true);
   const after = await whereIs(window);
   expect(after.fromFoot).toBeGreaterThan(24);
   expect(Math.abs(after.scrollTop - before)).toBeLessThanOrEqual(2);
+  await app.close();
+});
+
+test("an older Answer already visible when it is sought stays put after its flash ends", async () => {
+  const { app, window } = await startLongThread();
+  const older = assistantAnswers(window).first();
+  await older.scrollIntoViewIfNeeded();
+  await expect.poll(() => isFullyVisible(older)).toBe(true);
+  const position = (await whereIs(window)).scrollTop;
+
+  await window.keyboard.press("ControlOrMeta+Shift+o");
+  await expect(window.getByTestId("assistant-empty")).toBeVisible();
+  for (const day of ["Friday", "Saturday", "Sunday", "Thursday"]) {
+    await askInAssistant(window, `What do tides do on ${day}`);
+  }
+  await window.getByTestId("assistant-thread").evaluate((thread, top) => {
+    thread.scrollTop = top;
+    thread.dispatchEvent(new Event("scroll"));
+  }, position);
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Your Documents answer this");
+  const found = window
+    .locator('[data-testid="palette-group"][data-group="conversationText"]')
+    .getByTestId("palette-item")
+    .filter({ hasText: "What do tides do on Monday" });
+  await expect(found).toHaveCount(1);
+  await found.click();
+
+  const selected = assistantAnswers(window).first();
+  await expect(selected).toHaveAttribute("data-sought", "true");
+  await expect.poll(() => isFullyVisible(selected)).toBe(true);
+  const before = await whereIs(window);
+  expect(before.scrollTop).toBe(position);
+  expect(before.fromFoot).toBeGreaterThan(24);
+
+  await expect(selected).not.toHaveAttribute("data-sought");
+  await expect.poll(() => isFullyVisible(selected)).toBe(true);
+  const after = await whereIs(window);
+  expect(after.scrollTop).toBe(position);
+  expect(after.fromFoot).toBeGreaterThan(24);
   await app.close();
 });

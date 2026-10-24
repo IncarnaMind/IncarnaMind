@@ -124,7 +124,9 @@ export function useThreadScroll(
       where.current = conversationId;
       release(turn, scroller);
       element.style.paddingBottom = "";
-      atFoot.current = true;
+      atFoot.current = holdOff
+        ? scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= AT_FOOT_PX
+        : true;
     }
     if (holdOff) return;
     const sent = asking && !wasAsking.current;
