@@ -10,7 +10,6 @@ export const citationsOf = (state: EditorState, claim: ShownClaim): NumberedCita
     (each) => each.pos >= claim.sentence.from && each.pos < claim.sentence.to,
   );
 
-/** A Citation's own check that says it doesn't hold: its quote wasn't found, or it doesn't support the sentence. */
 const DOESNT_HOLD: ReadonlySet<CitationCheck> = new Set([
   "not-found",
   "unsupported",

@@ -70,7 +70,6 @@ const TONE: Record<ClaimMarkState, string> = {
 const sentenceOf = (editor: Editor, claim: ShownClaim) =>
   editor.state.doc.textBetween(claim.sentence.from, claim.sentence.to, " ", " ").trim();
 
-/** No action about Citations: a figure worked out, a contradiction, or nothing found. */
 const NO_DECISION: CitationDecision = { kind: "none" };
 
 /**
@@ -530,7 +529,11 @@ function ClaimCard({
         )}
         {decision.kind === "replace" && (
           <p data-testid="claim-replace-note" className="claim-card-says">
-            {t("claim.replaceCitation.note")}{" "}
+            {t(
+              decision.citation.attributes.check === "not-found"
+                ? "claim.replaceCitation.quoteNotFound"
+                : "claim.replaceCitation.doesntSupport",
+            )}{" "}
             <CitationChip citation={decision.citation} testId="claim-replace-chip" />
           </p>
         )}

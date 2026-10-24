@@ -129,13 +129,23 @@ const foundEvidence = (over: Partial<CitationAttributes>) => {
   return evidence;
 };
 
+const QUOTED_WORDS: CitationAttributes["quotedWords"] = {
+  answer: [{ text: "agreed in advance", found: false }],
+  closest: null,
+};
+
 describe("Widen the Citation and Replace the Citation", () => {
-  test("widening keeps the one Citation and takes the whole clause's words, Place and version", () => {
-    const { editor } = editorHolding({});
+  test("widening keeps the one Citation and takes the clause's Passage, words, Place and version", () => {
+    const { editor } = editorHolding({
+      passageId: "passage-OLD",
+      verdict: "The contract says two days a week, p. 2",
+      quotedWords: QUOTED_WORDS,
+    });
     expect(
       widenCitation(editor, {
         citation: onlyCitation(editor.state),
         evidence: foundEvidence({
+          passageId: "passage-NEW",
           quote: LINE,
           pageFrom: 5,
           pageTo: 5,
@@ -146,6 +156,7 @@ describe("Widen the Citation and Replace the Citation", () => {
     ).toBe(true);
     expect(countCitations(editor.state)).toBe(1);
     expect(onlyCitation(editor.state).attributes).toMatchObject({
+      passageId: "passage-NEW",
       documentId: "contract",
       quote: LINE,
       pageFrom: 5,
@@ -154,15 +165,24 @@ describe("Widen the Citation and Replace the Citation", () => {
       contentHash: "v2",
       check: "found",
       checkReason: null,
+      verdict: null,
+      quotedWords: null,
     });
   });
 
-  test("replacing keeps the one Citation and points it at the Passage the check found", () => {
-    const { editor } = editorHolding({ check: "not-found", checkReason: "quote-not-on-pages" });
+  test("replacing keeps the one Citation, points it at the Passage the check found, and clears what wasn't checked", () => {
+    const { editor } = editorHolding({
+      passageId: "passage-OLD",
+      check: "not-found",
+      checkReason: "quoted-words-not-on-pages",
+      verdict: "The contract says three months, p. 2",
+      quotedWords: QUOTED_WORDS,
+    });
     expect(
       replaceCitation(editor, {
         citation: onlyCitation(editor.state),
         evidence: foundEvidence({
+          passageId: "passage-NEW",
           quote: "Probation lasts three months.",
           pageFrom: 6,
           pageTo: 6,
@@ -173,6 +193,7 @@ describe("Widen the Citation and Replace the Citation", () => {
     ).toBe(true);
     expect(countCitations(editor.state)).toBe(1);
     expect(onlyCitation(editor.state).attributes).toMatchObject({
+      passageId: "passage-NEW",
       documentId: "contract",
       quote: "Probation lasts three months.",
       pageFrom: 6,
@@ -181,6 +202,8 @@ describe("Widen the Citation and Replace the Citation", () => {
       contentHash: "v3",
       check: "found",
       checkReason: null,
+      verdict: null,
+      quotedWords: null,
     });
   });
 });

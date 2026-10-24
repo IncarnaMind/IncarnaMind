@@ -304,7 +304,6 @@ export function addAsCitation(editor: Editor, claim: ShownClaim): boolean {
   return true;
 }
 
-/** Gives an existing Citation other attributes where it stands: one step for ⌘Z. */
 function rewriteCitation(
   editor: Editor,
   citation: NumberedCitation,
@@ -322,14 +321,15 @@ function rewriteCitation(
 /**
  * Widens the sentence's Citation to the whole clause the check found, in
  * place, so a check never adds a second Citation on the same words (#1620).
- * The wider quote is found where the check read it, so the Citation takes
- * that Place and version too.
+ * The wider quote is found at the Passage the check read, so the Citation
+ * takes its place and version too, as the core's own re-point does.
  */
 export function widenCitation(
   editor: Editor,
   { citation, evidence }: { citation: NumberedCitation; evidence: CitationAttributes },
 ): boolean {
   return rewriteCitation(editor, citation, {
+    passageId: evidence.passageId,
     quote: evidence.quote,
     pageFrom: evidence.pageFrom,
     pageTo: evidence.pageTo,
@@ -337,16 +337,25 @@ export function widenCitation(
     contentHash: evidence.contentHash,
     check: "found",
     checkReason: null,
+    verdict: evidence.verdict ?? null,
+    quotedWords: evidence.quotedWords ?? null,
   });
 }
 
 /**
  * Points the sentence's Citation that doesn't hold at the Passage the check
- * found instead, again in place (#1620).
+ * found instead, again in place (#1620). Only that Passage's quote was
+ * checked, so the old verdict and quoted words go with the old quote.
  */
 export function replaceCitation(
   editor: Editor,
   { citation, evidence }: { citation: NumberedCitation; evidence: CitationAttributes },
 ): boolean {
-  return rewriteCitation(editor, citation, { ...evidence, check: "found", checkReason: null });
+  return rewriteCitation(editor, citation, {
+    ...evidence,
+    check: "found",
+    checkReason: null,
+    verdict: evidence.verdict ?? null,
+    quotedWords: evidence.quotedWords ?? null,
+  });
 }

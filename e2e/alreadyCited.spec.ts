@@ -418,9 +418,7 @@ test("a Citation that isn't found is replaced in place by the Passage the check 
   await expect(marks(window).first()).not.toHaveAttribute("data-addable");
 
   const card = await openCard(window, marks(window).first());
-  await expect(card.getByTestId("claim-replace-note")).toContainText(
-    "原来的引用未找到，或不支持这句话",
-  );
+  await expect(card.getByTestId("claim-replace-note")).toContainText("未找到原引用的引文");
   await expect(card.getByTestId("claim-replace-chip")).toHaveText("1");
   await expect(card.getByTestId("claim-quote")).toContainText("Neap tides happen");
   await expect(card.getByTestId("claim-add-citation")).toHaveCount(0);
