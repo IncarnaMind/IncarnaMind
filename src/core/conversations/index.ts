@@ -100,6 +100,8 @@ export interface Turn {
   question: ConversationQuestion;
   answer: ConversationAnswer;
   earlier: ConversationMessage[];
+  /** Before this turn was added, for discarding it before it is published. */
+  previousConversationUpdatedAt?: string;
 }
 
 interface ConversationRow {
@@ -833,6 +835,8 @@ export function createConversations(db: Database, now: () => string) {
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
     ): Turn {
+      const previousConversationUpdatedAt =
+        input.conversationId === null ? undefined : liveRow(input.conversationId).updated_at;
       return db.transaction(() => {
         const at = now();
         let conversationId = input.conversationId;
@@ -879,7 +883,54 @@ export function createConversations(db: Database, now: () => string) {
           },
           at,
         );
-        return turnOf(question, answer.id);
+        const turn = turnOf(question, answer.id);
+        return previousConversationUpdatedAt === undefined
+          ? turn
+          : { ...turn, previousConversationUpdatedAt };
+      });
+    },
+
+    /** Removes an unpublished turn whose model or Skill couldn't be asked. */
+    discard(turn: Turn): void {
+      const questionId = turn.question.id;
+      const answerId = turn.answer.id;
+      db.transaction(() => {
+        const question = db.get<{ seq: number; conversation_id: string }>(
+          `SELECT seq, conversation_id FROM conversation_messages
+           WHERE id = ? AND kind = 'question' AND deleted_at IS NULL`,
+          [questionId],
+        );
+        const answer = db.get<{ seq: number; conversation_id: string }>(
+          `SELECT seq, conversation_id FROM conversation_messages
+           WHERE id = ? AND kind = 'answer' AND question_id = ? AND status = 'streaming'
+             AND text = '' AND deleted_at IS NULL`,
+          [answerId, questionId],
+        );
+        if (!question || !answer || question.conversation_id !== answer.conversation_id) return;
+        db.run("DELETE FROM conversation_messages_fts WHERE rowid IN (?, ?)", [
+          BigInt(question.seq),
+          BigInt(answer.seq),
+        ]);
+        db.run("DELETE FROM conversation_messages WHERE id IN (?, ?)", [questionId, answerId]);
+        const remaining = db.get<{ count: number }>(
+          "SELECT count(*) AS count FROM conversation_messages WHERE conversation_id = ?",
+          [question.conversation_id],
+        );
+        if (remaining?.count !== 0) {
+          if (turn.previousConversationUpdatedAt !== undefined) {
+            db.run("UPDATE conversations SET updated_at = ? WHERE id = ? AND updated_at = ?", [
+              turn.previousConversationUpdatedAt,
+              question.conversation_id,
+              turn.conversation.updatedAt,
+            ]);
+          }
+          return;
+        }
+        db.run(
+          "DELETE FROM conversations_fts WHERE rowid IN (SELECT seq FROM conversations WHERE id = ?)",
+          [question.conversation_id],
+        );
+        db.run("DELETE FROM conversations WHERE id = ?", [question.conversation_id]);
       });
     },
 

@@ -224,6 +224,22 @@ describe("Empty conversations", { timeout: 30_000 }, () => {
     });
     expect(rowCount(dataDir, "conversations")).toBe(0);
   });
+
+  test("a rejected follow-up leaves its existing conversation untouched", async () => {
+    const { core, clock, ended } = await setUp(streamingModel("Hello."));
+    const first = await ask(core, ended, { text: "Hello" });
+    const before = await core.getConversation(first.conversation.id);
+    clock.advance(1000);
+
+    const result = await core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Summarise",
+      forcedSkill: "no-such-skill",
+    });
+
+    expect(result).toMatchObject({ asked: false, reason: "skill-unavailable" });
+    expect(await core.getConversation(first.conversation.id)).toEqual(before);
+  });
 });
 
 describe("History: by Folder, all of them, and search", { timeout: 30_000 }, () => {

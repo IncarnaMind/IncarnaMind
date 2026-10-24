@@ -112,7 +112,7 @@ import { createConnectors } from "./connectors";
 import { connectorDirectory } from "./connectors/directory";
 import { createConnectorRegistry, REGISTRY, REGISTRY_SENDS } from "./connectors/registry";
 import { createConsent, type DataFlowRegistry } from "./consent";
-import { createConversations, type QuestionInput } from "./conversations";
+import { createConversations, type QuestionInput, type Turn } from "./conversations";
 import { createMeter } from "./cost/meter";
 import {
   createDocuments,
@@ -519,6 +519,11 @@ export function createCore(adapters: CoreAdapters): Core {
   // The assistant's conversations (ADR-0017); Answers a quit left being written are settled now.
   const conversations = createConversations(db, now);
   const conversationsChanged = () => events.emit("conversations.changed", null);
+  const publishConversation = (turn: Turn) => {
+    events.emit("conversation.message", turn.question);
+    events.emit("conversation.message", turn.answer);
+    conversationsChanged();
+  };
   const unsaved = createUnsavedChanges({
     dataDir: adapters.paths.dataDir,
     tempDir: adapters.paths.tempDir ?? tmpdir(),
@@ -1448,6 +1453,7 @@ export function createCore(adapters: CoreAdapters): Core {
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     providerExists: (providerId) => chat.exists(providerId),
+    defaultModel: () => settings.get().user.chatModel,
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
     async prepareQuickModel(answers, prepared) {
@@ -1578,22 +1584,22 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read) => {
+      add: (input, answerModel, read, emit = true) => {
         const turn = conversations.add(input, answerModel, read);
-        events.emit("conversation.message", turn.question);
-        events.emit("conversation.message", turn.answer);
-        conversationsChanged();
+        if (emit) publishConversation(turn);
         return turn;
       },
+      publish: publishConversation,
+      discard: (turn) => conversations.discard(turn),
       questionOf: (input) => conversations.questionOf(input),
       clearScope: (questionId) => {
         const question = conversations.clearScope(questionId);
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read) => {
+      restartAnswer: (answerId, answerModel, read, emit = true) => {
         const turn = conversations.restartAnswer(answerId, answerModel, read);
-        events.emit("conversation.message", turn.answer);
+        if (emit) events.emit("conversation.message", turn.answer);
         return turn;
       },
       writeAnswer: (answerId, write) => {
