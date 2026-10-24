@@ -94,6 +94,7 @@ describe.each(MODELS)("%s, live", (model) => {
       ]);
       const [tagged] = await waitForTagging(core, [document?.id ?? ""], undefined, 180_000);
       expect(tagged?.tagging).toBe("tagged");
+      const tagging = requests.sent.slice();
 
       const check = await core.checkClaim({ claim: "Spring tides come near the full Moon." });
       expect(check.verdict).not.toBe("not-checked");
@@ -105,9 +106,11 @@ describe.each(MODELS)("%s, live", (model) => {
         );
       }
       expect(requests.refused).toEqual([]);
-      const wentTo = requests.sent.map((each) => each.model);
-      expect(wentTo).toContain(catalogProvider("anthropic")?.roles.quickTasks);
-      expect(wentTo).toContain(model);
+      const checked = requests.sent.slice(tagging.length);
+      expect(new Set(tagging.map((each) => each.model))).toEqual(
+        new Set([catalogProvider("anthropic")?.roles.quickTasks]),
+      );
+      expect(new Set(checked.map((each) => each.model))).toEqual(new Set([model]));
       for (const each of requests.sent) {
         const form = thinkingOffForm(each.model);
         expect({ thinking: each.thinking, effort: each.effort }, each.model).toEqual({
