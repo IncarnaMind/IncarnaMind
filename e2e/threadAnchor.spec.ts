@@ -380,6 +380,72 @@ for (const { language, width, question } of [
   });
 }
 
+test("Add to Mind on an earlier Answer leaves the anchored Question and its room unchanged", async () => {
+  const { app, window } = await startLongThread();
+  const answer = await askSlowAnchored(
+    window,
+    "What do tides do with forty citations. Answer slowly",
+  );
+  const before = await whereIs(window);
+  const room = () =>
+    window.evaluate(() => {
+      const thread = document.querySelector<HTMLElement>('[data-testid="assistant-thread"]');
+      const log = document.querySelector<HTMLElement>('[data-testid="assistant-log"]');
+      const question = [...(log?.querySelectorAll(".assistant-question") ?? [])].at(-1);
+      const last = [...(log?.children ?? [])]
+        .filter((child) => !child.matches('[data-testid="add-to-picker"]'))
+        .at(-1);
+      if (!thread || !log || !question || !last) throw new Error("The anchored turn is missing.");
+      const style = getComputedStyle(thread);
+      const filled = last.getBoundingClientRect().bottom - question.getBoundingClientRect().top;
+      const inner =
+        thread.clientHeight -
+        (Number.parseFloat(style.paddingTop) || 0) -
+        (Number.parseFloat(style.paddingBottom) || 0);
+      return {
+        actual: Number.parseFloat(log.style.paddingBottom) || 0,
+        expected: Math.max(0, Math.round(inner - filled)),
+      };
+    });
+  const check = async () => {
+    const held = await room();
+    expect(held.actual).toBe(held.expected);
+    const after = await whereIs(window);
+    expect(Math.abs(after.question - before.question)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(2);
+    await expect(window.getByTestId("assistant-thread")).toHaveAttribute("data-anchored", "");
+  };
+  const duringNextChunk = async (act: () => Promise<void>) => {
+    const text = await answer.textContent();
+    await act();
+    await expect.poll(() => answer.textContent()).not.toBe(text);
+    await expect
+      .poll(async () => {
+        const held = await room();
+        return held.actual - held.expected;
+      })
+      .toBe(0);
+    await check();
+  };
+
+  await duringNextChunk(async () => {
+    await assistantAnswers(window)
+      .first()
+      .getByTestId("answer-add-to")
+      .evaluate((button: HTMLElement) => button.click());
+    await expect(window.getByTestId("add-to-picker")).toBeVisible();
+  });
+  await duringNextChunk(async () => {
+    await window.getByTestId("add-to-search").fill("no such Mind");
+    await expect(window.locator(".add-to-empty")).toBeVisible();
+  });
+  await duringNextChunk(async () => {
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("add-to-picker")).toHaveCount(0);
+  });
+  await app.close();
+});
+
 test("an older Answer sought in another conversation stays in view after its flash ends", async () => {
   const { app, window } = await startLongThread();
   await window.keyboard.press("ControlOrMeta+Shift+o");

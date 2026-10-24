@@ -67,7 +67,7 @@ export function Popover({
   const returning = useRef(returnFocus);
   returning.current = returnFocus;
   const dismissByEscape = useRef((from: Element | VirtualElement) => {
-    if (returning.current && from instanceof HTMLElement) from.focus();
+    if (returning.current && from instanceof HTMLElement) from.focus({ preventScroll: true });
     dismiss.current("escape");
   });
 
