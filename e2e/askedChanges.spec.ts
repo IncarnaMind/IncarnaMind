@@ -162,8 +162,10 @@ test("typed elsewhere after “make it longer”, the line goes but Review chang
   await expect(line.getByTestId("applied-count")).toHaveText("Changed 2 paragraphs");
 
   const OWN = "My own note on the harbour.";
+  // At its end: in a paragraph that long, its middle is inside the words, and End doesn't move a Mac's caret.
   const box = await paragraphs.last().boundingBox();
-  await paragraphs.last().click({ position: { x: (box?.width ?? 2) - 2, y: (box?.height ?? 8) - 4 } });
+  const end = { x: (box?.width ?? 2) - 2, y: (box?.height ?? 8) - 4 };
+  await paragraphs.last().click({ position: end });
   await focusSettled(window, editor);
   await window.keyboard.press("Enter");
   await window.keyboard.type(OWN);
