@@ -138,6 +138,7 @@
   "modelSetup.spec.ts": 149,
   "modelsSettings.spec.ts": 7,
   "motion.spec.ts": 24,
+  "moveTo.spec.ts": 40,
   "naming.spec.ts": 58,
   "nearestPassage.spec.ts": 14,
   "newFolder.spec.ts": 36,
