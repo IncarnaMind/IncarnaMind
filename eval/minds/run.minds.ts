@@ -4,7 +4,8 @@
  * holds every run to the checks in ./checks. It writes a report and fails when
  * a request is under the bar.
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import { OUT_OF_CREDIT, spendOf } from "../../scripts/nightlyRealModel";
@@ -15,7 +16,7 @@ import { commitOf } from "../lib/commit";
 import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
 import { openLibrary } from "../lib/library";
 import { createLog, type Log } from "../lib/log";
-import { CASES, type MindsCase, WORKSPACES } from "./cases";
+import { CASES, DOCUMENTS, type MindsCase, WORKSPACES } from "./cases";
 import { examine } from "./examine";
 import { unbackedIn } from "./judge";
 import { createRecorder, type Tokens } from "./record";
@@ -58,10 +59,12 @@ async function runOne(
   const judge = recorder.counted(
     createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" }),
   );
+  const folder = each.documents ? await mkdtemp(join(tmpdir(), "incarnamind-eval-minds-")) : null;
+  const documents = folder ? await writeDocuments(folder, each.language) : [];
   const library = await openLibrary({
     name: "minds",
     embedder: createFakeEmbedder(),
-    documents: [],
+    documents,
     keep: keepData,
     embeddings: false,
     chatModels: recorder.chatModels,
@@ -130,7 +133,18 @@ async function runOne(
     };
   } finally {
     await library.close();
+    if (folder) await rm(folder, { recursive: true, force: true });
   }
+}
+
+async function writeDocuments(folder: string, language: MindsCase["language"]) {
+  return Promise.all(
+    DOCUMENTS[language].map(async ({ file, text }) => {
+      const path = join(folder, file);
+      await writeFile(path, text);
+      return { key: file, path };
+    }),
+  );
 }
 
 function selected(only: string | undefined): readonly MindsCase[] {
