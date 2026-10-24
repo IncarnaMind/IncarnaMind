@@ -44,6 +44,7 @@ const NO_CITATIONS = {
   droppedMarkers: 0,
   droppedRecords: 0,
   rejectedRecords: [],
+  idsAsText: 0,
   placedMarkers: 0,
   citedAfterChecking: { count: 0, asked: false },
   citationSupport: null,

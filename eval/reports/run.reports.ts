@@ -86,6 +86,14 @@ interface Run {
   text: string;
   usage: AnswerUsage;
   error: string | null;
+  /** The Answer's Tool calls, in order, and the markers the app took out for want of a Citation. */
+  steps: string[];
+  droppedMarkers: number;
+  /** Records the model gave whose markers its text never had, and markers the app placed for it. */
+  droppedRecords: number;
+  placedMarkers: number;
+  rejected: unknown[];
+  cited: string[];
 }
 
 async function citationsOf(core: Core, documents: ReadonlyMap<string, string>) {
@@ -144,13 +152,29 @@ async function ask(core: Core, text: string, mindId: string) {
     forcedSkill: "mind-to-report",
   });
   if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
-  const finished = await new Promise<{ idsAsText?: number; usage: AnswerUsage } | null>((done) => {
+  const finished = await new Promise<{
+    idsAsText?: number;
+    droppedMarkers: number;
+    droppedRecords: number;
+    placedMarkers: number;
+    rejectedRecords: unknown[];
+    usage: AnswerUsage;
+  } | null>((done) => {
     const timer = setTimeout(() => end(null), ANSWER_TIMEOUT_MS);
     const stops = [
       core.on("answer.finished", (event) => event.answerId === asked.answerId && end(event)),
       core.on("answer.failed", (event) => event.answerId === asked.answerId && end(null)),
     ];
-    function end(event: { idsAsText?: number; usage: AnswerUsage } | null) {
+    function end(
+      event: {
+        idsAsText?: number;
+        droppedMarkers: number;
+        droppedRecords: number;
+        placedMarkers: number;
+        rejectedRecords: unknown[];
+        usage: AnswerUsage;
+      } | null,
+    ) {
       clearTimeout(timer);
       for (const stop of stops) stop();
       done(event);
@@ -290,6 +314,12 @@ async function runCase(
     text: "",
     usage: empty,
     error: null,
+    steps: [],
+    droppedMarkers: 0,
+    droppedRecords: 0,
+    placedMarkers: 0,
+    rejected: [],
+    cited: [],
   };
   try {
     const zh = each.language === "zh-CN";
@@ -313,6 +343,13 @@ async function runCase(
     const { answer, finished } = await ask(core, each.request, mind.id);
     run.usage = finished.usage;
     run.idsAsText = finished.idsAsText ?? 0;
+    run.droppedMarkers = finished.droppedMarkers;
+    run.droppedRecords = finished.droppedRecords;
+    run.placedMarkers = finished.placedMarkers;
+    run.rejected = finished.rejectedRecords;
+    run.steps = answer.toolCalls.map(
+      (call) => `${call.tool} ${JSON.stringify(call.input).slice(0, 80)}`,
+    );
     const written = answer.toolCalls.flatMap((call) => call.mindChange ?? []).at(-1);
     const report = each.writes
       ? written
@@ -321,6 +358,9 @@ async function runCase(
       : { citations: answer.citations, text: answer.text };
     run.text = report.text;
     run.citations = report.citations.length;
+    run.cited = report.citations.map(
+      (each) => `${each.check} p.${each.pageFrom} ${String(each.quote ?? "").slice(0, 40)}`,
+    );
     const keptEach = claims.map(({ citation }) =>
       report.citations.some((each) => sameLocation(each, citation ?? {})),
     );

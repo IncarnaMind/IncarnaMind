@@ -1082,7 +1082,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
       (message) => message.role === "assistant" && message.text,
     );
     expect(earlier.map((message) => message.text)).toEqual([
-      "Revenue grew 20.4% in 2025[Acme Annual Report 2025, p. 1]; gross margin rose 2.3 percentage points[Acme Annual Report 2025, p. 2].",
+      "Revenue grew 20.4% in 2025[Acme Annual Report 2025, p. 1 · C1]; gross margin rose 2.3 percentage points[Acme Annual Report 2025, p. 2 · C2].",
     ]);
     const [match] = await core.searchConversations("percentage");
     expect(match?.conversation.id).toBe(conversationId);

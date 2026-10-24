@@ -1959,7 +1959,11 @@ async function* structured(
             type: "string",
             description: "The Answer, in Markdown, with Citation markers and figure markers.",
           },
-          citations: recordsSchema,
+          // A small local model leaves out what its schema doesn't require: a record needs its quote here.
+          citations: {
+            ...recordsSchema,
+            items: { ...recordsSchema.items, required: [...recordsSchema.items.required, "quote"] },
+          },
           ...(request.documents.calculate && { calculations: calculationsSchema }),
         },
         required: ["answer", "citations"],

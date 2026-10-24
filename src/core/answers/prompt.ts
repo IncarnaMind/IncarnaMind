@@ -420,7 +420,14 @@ const CALCULATIONS =
  * (#1800): models copied "[Tides, p. 3]" as text, which opens nothing.
  */
 const KEEP_CITATIONS = (record: string) =>
-  `- A Citation shown with an id, like [Tides, p. 3 · C2], stays with its claim: ${record} with that id as the passage (no quote), and its marker after the claim. Never write a source or an id in brackets as text.`;
+  `- A Citation shown with an id, like [Tides, p. 3 · C2], stays with its claim: ${record} with that id as the passage (no quote), and its marker after the claim. Keep each one this way, every one the Answer keeps, rather than citing a Passage for its claim again. Never write a source or an id in brackets as text.`;
+
+/**
+ * Asked again when a reply's markers have no record while its Question context shows Citation
+ * ids (#1800): a model writing a long report sometimes wrote every marker and never called cite.
+ */
+export const unrecordedMarkersNote = (markers: readonly number[]) =>
+  `Your reply has markers that no cite record backs: ${markers.map((marker) => `[^${marker}]`).join(", ")}. Call cite for them first, giving the id of a claim's Citation, like C2, as the passage, then write your whole reply again. The User will not read your earlier reply: don't mention it.`;
 
 /** The Citation check finds a quote with an ellipsis only part by part (see ../../shared/quoteMatch): best avoided. */
 const UNBROKEN_QUOTE =

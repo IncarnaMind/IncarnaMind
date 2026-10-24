@@ -283,6 +283,28 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
     expect(told).toContain("C1 can't be kept");
   });
 
+  // protects=a reply whose markers no record backs, while the context shows ids, is asked again in the Tool loop, and the model's records then keep the Mind's Citations; fails_when=the markers are dropped and the claims read uncited; no_claim=how often a real model needs it (eval/reports).
+  test("markers written without cite are asked about once, and then kept by id", async () => {
+    const UNBACKED = "no cite record backs";
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!call.prompt.includes(UNBACKED)) return { text: REPORT };
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const ids = [...new Set(idsShown(call.prompt))];
+        const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      return { text: REPORT };
+    });
+    const { core, client, mind, documents } = await setUpWithDocuments(model, pdfs());
+    const citations = await writeReview(core, client, documents);
+
+    const { answer, finished } = await ask(core, ASKED, mind.id);
+
+    expect(answer.citations.map(kept)).toEqual(citations.map(kept));
+    expect(finished.droppedMarkers).toBe(0);
+  });
+
   // protects=a Mind with no Citations reads as it did, with no ids; fails_when=an id appears; no_claim=none beyond protects.
   test("a Mind with no Citations reads with no ids", async () => {
     const model = reportModel(() => "A report.");

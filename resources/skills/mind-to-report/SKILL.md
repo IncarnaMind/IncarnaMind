@@ -29,7 +29,7 @@ Write connected paragraphs; use lists only where the material is a list. Don't u
 
 ## Keep the Citations
 
-- Every claim that carried a Citation in the Mind keeps that Citation in the report, attached to the same claim. Keep it by its id, the way your instructions for citing say: record it with cite, giving its id (such as C1) as the passage, and put that record's marker, such as [^1], right after the claim. There is no need to search for it again.
+- Every claim that carried a Citation in the Mind keeps that Citation in the report, attached to the same claim. Keep it by its id, the way your instructions for citing say: record it with cite, giving its id (such as C1) as the passage, and put that record's marker, such as [^1], right after the claim. Do this for every claim you keep, never searching or citing a Passage for it again, even when the Documents' text is given with the Question.
 - Never write a source or an id in brackets as text, such as [Attention Is All You Need, p. 3] or [C1]: that opens nothing.
 - If cite says a Citation can't be kept, keep its claim without a marker and say plainly, in the language of the report, that its source is no longer available.
 - Never invent a source, a page or a quote, never attach a Citation to a claim it wasn't attached to, and don't write a list of sources or a bibliography.

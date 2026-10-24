@@ -43,7 +43,7 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
-import { hasText, pageBlocks } from "../../shared/answerBlocks";
+import { hasText, markersIn, pageBlocks } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
 import { askedFor, waitsForUser as heldForUser } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
@@ -263,6 +263,7 @@ import {
   sourcesInstructions,
   stillReadingNote,
   THIS_DOCUMENT_RULE,
+  unrecordedMarkersNote,
   webInstructions,
   withPassageNotes,
   workingCopyNote,
@@ -2164,6 +2165,18 @@ export function createAnswers(options: AnswersOptions) {
                   claims: ["changed"],
                   note: unmadeFixesNote(unmade, toolCalls, options.readableMindName, appliedInTurn),
                 }
+              : null;
+          },
+        },
+        {
+          name: "unrecorded-markers",
+          check: (text) => {
+            if (ids.size() === 0) return null;
+            const unrecorded = [...new Set(markersIn(text))].filter(
+              (marker) => !session.tools.hasRecord?.(marker),
+            );
+            return unrecorded.length > 0
+              ? { claims: [], note: unrecordedMarkersNote(unrecorded) }
               : null;
           },
         },
