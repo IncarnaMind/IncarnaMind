@@ -57,6 +57,7 @@ The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where
 | Own workings | 工作文件 | A Document the User keeps as their own workings: "不作为引用来源", "重新作为引用来源", its label "不引用", and on a check's card "只有你自己的工作文件这样写。" |
 | quote (of a Citation) | 引文 | "已在第 3 页找到引文", "未找到引文". |
 | Quote (block) | 引述 | The "/" menu's block for quoted text; not a Citation (引用) or its quote (引文). |
+| Selected text (in a Document) | 所选文字, 选中的文字 | Words the User selected in a Document's viewer, to ask about, add to a note or copy: "就此提问", "“{文档}”中选中的文字没有发送". Not a Quote block (引述). |
 | Location | 位置 | "第 3 页", "第 2 张幻灯片", "第 4–6 行", "§ 标题", a web page's "§ 历史，第 3 段". |
 | Cited page | 引用页面 | The saved picture of what a Citation points at: "打开引用页面". |
 | Source pack | PDF 引用页面合集 | The export of a Mind's cited pages. |

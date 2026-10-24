@@ -19,7 +19,7 @@ import { requestEditField } from "../editor/selectionCommands";
 import { startEditing } from "../editWithAi";
 import { assistantTabOf, groupsMerged } from "../layoutSlice";
 import { useAppStore } from "../store";
-import { assistantHandle, noteHandle } from "./handles";
+import { assistantHandle, noteHandle, viewerSelectionHandle } from "./handles";
 import type { Command } from "./registry";
 
 /*
@@ -68,9 +68,14 @@ export function focusComposer(): void {
  * ⌘J: the assistant's composer. From a note with text selected in it, the
  * Edit with AI… field of the selection menu takes the cursor; where that menu
  * can't open (all of the Mind selected), the composer says what to change in
- * the selection.
+ * the selection. With words selected in a Document, it asks about them.
  */
 function askOrEdit(): void {
+  const viewer = viewerSelectionHandle.current;
+  if (viewer?.ask) {
+    viewer.ask();
+    return;
+  }
   const note = noteHandle.current;
   if (note && !note.editor.isDestroyed) {
     if (requestEditField(note.editor)) return;

@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
 import { create } from "zustand";
-import type { SearchScope } from "../../core/api";
+import { type AskedQuote, MOST_ASKED_QUOTES, type SearchScope } from "../../core/api";
 import { folderScope } from "../../shared/searchScope";
 
 /** What the composer holds for one Mind until it is asked: the text, the Search scope and a Skill. */
@@ -22,12 +22,33 @@ export interface Draft {
   tell?: string;
   /** Long pastes, each a chip above the text until it is put back, saved as a Document, or asked with. */
   pastes: Paste[];
+  /** Words selected in Documents to ask about ("Ask about this", #101), each a chip before the text. */
+  quotes?: AskedQuote[];
 }
 
 /** Text pasted into the composer that was too long to leave in it (DESIGN.md, Composer › Height). */
 export interface Paste {
   id: string;
   text: string;
+}
+
+/** These words from that place: a draft and a Question hold each once. */
+export const quoteKey = (quote: AskedQuote): string =>
+  `${quote.documentId}:${JSON.stringify(quote.location)}:${quote.quote}`;
+
+export const holdsQuote = (quotes: readonly AskedQuote[], quote: AskedQuote): boolean =>
+  quotes.some((each) => quoteKey(each) === quoteKey(quote));
+
+/** The quotes of `first` and then `added`, each once, as many as a Question takes. */
+export function withQuotes(
+  first: readonly AskedQuote[],
+  added: readonly AskedQuote[],
+): AskedQuote[] {
+  const quotes: AskedQuote[] = [];
+  for (const quote of [...first, ...added]) {
+    if (!holdsQuote(quotes, quote)) quotes.push(quote);
+  }
+  return quotes.slice(0, MOST_ASKED_QUOTES);
 }
 
 /** A paste over this many characters, or lines, becomes a chip. */
@@ -50,9 +71,19 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((each) => typeof each === "string");
 
+/** The quotes in what a reload left, as far as they read. */
+export const quotesFrom = (value: unknown): AskedQuote[] =>
+  Array.isArray(value) ? value.filter(isQuote) : [];
+
+const isQuote = (value: unknown): value is AskedQuote =>
+  isObject(value) &&
+  typeof value.documentId === "string" &&
+  typeof value.documentName === "string" &&
+  typeof value.quote === "string";
+
 function isDraft(value: unknown): value is Draft {
   if (!isObject(value)) return false;
-  const { text, scope, skill, pastes } = value;
+  const { text, scope, skill, pastes, quotes } = value;
   const validScope =
     scope === null ||
     (isObject(scope) &&
@@ -66,7 +97,8 @@ function isDraft(value: unknown): value is Draft {
     Array.isArray(pastes) &&
     pastes.every(
       (paste) => isObject(paste) && typeof paste.id === "string" && typeof paste.text === "string",
-    )
+    ) &&
+    (quotes === undefined || (Array.isArray(quotes) && quotes.every(isQuote)))
   );
 }
 
