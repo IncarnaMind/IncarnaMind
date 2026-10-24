@@ -13,14 +13,16 @@ import type { EvalDocument } from "../lib/evaluationSet";
  * What the Documents make of a sentence: "contradicted-or-unsupported" for a wrong figure,
  * which either verdict flags; "partly" for a general word for the agreement's own term, which
  * is judged on the term with the wider group not covered (DESIGN.md › Checks); "contradicted"
- * for a genuine conflict, which a judgement must never lose.
+ * for a genuine conflict, which a judgement must never lose; "absent" for a figure for a period
+ * the agreement doesn't cover, which is another claim, so its card says nothing was found.
  */
 export type Expected =
   | "supported"
   | "partly"
   | "contradicted-or-unsupported"
   | "contradicted"
-  | "unsupported";
+  | "unsupported"
+  | "absent";
 
 export interface RepeatSentence {
   /** The same for the same kind of sentence in each language, so the two read side by side. */
@@ -66,7 +68,7 @@ export const DOCUMENTS: readonly RepeatDocument[] = [
           "EMPLOYMENT AGREEMENT",
           "This Employment Agreement is made between Larkfield Provisions Ltd (the Company) and Tunde Okoro (the Employee).",
           "1. Role and start date",
-          "The Employee is employed as People Operations Partner and starts on 11 January 2027.",
+          "The Employee is employed as People Operations Partner and starts on 11 January 2025.",
           "The Employee reports to the Director of People.",
           "2. Pay",
           "The salary is 61,500 per year, paid monthly in arrears on the last working day of the month.",
@@ -109,7 +111,7 @@ export const DOCUMENTS: readonly RepeatDocument[] = [
           "劳动合同书",
           "甲方（用人单位）：明川食品有限公司",
           "乙方（劳动者）：林晓",
-          "第一条　工作岗位：乙方担任人力资源业务伙伴，自2027年1月11日起入职，向人力资源总监汇报。",
+          "第一条　工作岗位：乙方担任人力资源业务伙伴，自2025年1月11日起入职，向人力资源总监汇报。",
           "第二条　劳动报酬：乙方月工资为人民币一万八千元，于每月最后一个工作日发放。",
           "第三条　工作时间和地点：工作时间为周一至周五9:00至17:30，午休一小时。",
           "乙方每周可在家工作两天，须事先与主管商定。",
@@ -174,9 +176,10 @@ export const DOCUMENTS: readonly RepeatDocument[] = [
  * contradictions of the agreement, of a kind each, so a change to a verdict or
  * a judgement is measured against the conflicts it loses (#1647). The near
  * misses give a figure or a detail of another person or role than the
- * agreement's, or add one to its own, each expected not Contradicted. The
- * paraphrases say a clause's duty or permission in other words, each expected
- * Supported.
+ * agreement's, or add one to its own, each expected not Contradicted, and a
+ * holiday figure for the year before the agreement starts, expected "I didn't
+ * find this". The paraphrases say a clause's duty or permission in other
+ * words, each expected Supported.
  */
 const sentencesOf =
   (kind: RepeatSentence["kind"], expected: Expected) =>
@@ -191,6 +194,7 @@ const sentencesOf =
 
 const conflicts = sentencesOf("conflict", "contradicted");
 const nearMisses = sentencesOf("near-miss", "unsupported");
+const notCovered = sentencesOf("near-miss", "absent");
 const paraphrases = sentencesOf("paraphrase", "supported");
 
 export const SETS: readonly RepeatSet[] = [
@@ -413,7 +417,7 @@ export const SETS: readonly RepeatSet[] = [
     mind: "合同要点",
     sentences: conflicts([
       ["number", "乙方月工资为人民币两万元。"],
-      ["date", "乙方自2027年2月11日起入职。"],
+      ["date", "乙方自2025年2月11日起入职。"],
       ["year", "乙方自2028年1月11日起入职。"],
       ["negation", "试用期内任何一方都不得解除本合同。", 1682],
       ["unit", "乙方年工资为人民币一万八千元。"],
@@ -480,32 +484,43 @@ export const SETS: readonly RepeatSet[] = [
     id: "en-near-misses",
     language: "en",
     mind: "Other people and details",
-    sentences: nearMisses([
-      ["staff-days", "Staff may work from home on Mondays and Fridays."],
-      [
-        "staff-condition",
-        "Staff may carry over up to 5 unused days into the next year if their manager agrees.",
-        1718,
-      ],
-      ["role-home", "Managers may work from home three days a week.", 1718],
-      ["role-holiday", "Managers are entitled to 30 days of paid holiday per year."],
-      ["person-holiday", "The Director of People is entitled to 30 days of paid holiday per year."],
-      ["person-home", "The Director of People may work from home three days a week.", 1718],
-    ]),
+    sentences: [
+      ...nearMisses([
+        ["staff-days", "Staff may work from home on Mondays and Fridays."],
+        [
+          "staff-condition",
+          "Staff may carry over up to 5 unused days into the next year if their manager agrees.",
+          1718,
+        ],
+        ["role-home", "Managers may work from home three days a week.", 1718],
+        ["role-holiday", "Managers are entitled to 30 days of paid holiday per year."],
+        [
+          "person-holiday",
+          "The Director of People is entitled to 30 days of paid holiday per year.",
+        ],
+        ["person-home", "The Director of People may work from home three days a week.", 1718],
+      ]),
+      ...notCovered([
+        ["period-not-covered", "In 2024 the Employee was entitled to 25 days of paid holiday."],
+      ]),
+    ],
   },
   {
     id: "zh-near-misses",
     language: "zh-CN",
     mind: "他人与细节",
-    sentences: nearMisses([
-      ["staff-days", "员工每周可在家工作两天，具体为周一和周五。", 1718],
-      ["staff-detail", "员工的工资于每月最后一个工作日通过银行转账发放。"],
-      ["role-home", "经理每周可在家工作三天。", 1718],
-      ["role-holiday", "经理每年享有带薪年休假15天。", 1718],
-      ["person-holiday", "人力资源总监每年享有带薪年休假15天。"],
-      ["person-home", "人力资源总监每周可在家工作三天。", 1718],
-      ["added-detail", "乙方月工资为人民币一万八千元，通过银行转账发放。"],
-    ]),
+    sentences: [
+      ...nearMisses([
+        ["staff-days", "员工每周可在家工作两天，具体为周一和周五。", 1718],
+        ["staff-detail", "员工的工资于每月最后一个工作日通过银行转账发放。"],
+        ["role-home", "经理每周可在家工作三天。", 1718],
+        ["role-holiday", "经理每年享有带薪年休假15天。", 1718],
+        ["person-holiday", "人力资源总监每年享有带薪年休假15天。"],
+        ["person-home", "人力资源总监每周可在家工作三天。", 1718],
+        ["added-detail", "乙方月工资为人民币一万八千元，通过银行转账发放。"],
+      ]),
+      ...notCovered([["period-not-covered", "2024年乙方享有带薪年休假15天。"]]),
+    ],
   },
 ];
 
