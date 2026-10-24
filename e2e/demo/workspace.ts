@@ -66,6 +66,27 @@ export async function connectClaude(window: Page): Promise<string> {
   throw new Error(`No key in ${KEY_NAMES.join(" or ")} is accepted by Anthropic.`);
 }
 
+/**
+ * Makes Claude Sonnet 5.5 the model of every step that picks its own cheaper one otherwise: the
+ * calls that don't write the Answer, and tagging and Organize. Organize stays a thing the User
+ * starts, so it is on screen when it runs.
+ */
+export async function chooseSonnetEverywhere(window: Page): Promise<void> {
+  await window.evaluate(async (modelId) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [provider] = await bridge.listChatProviders();
+    if (!provider) throw new Error("No chat provider is saved.");
+    const choice = { providerId: provider.id, modelId };
+    await bridge.updateSettings({ user: { quickTasksModel: choice } });
+    const { settings } = await bridge.getLibrary();
+    await bridge.saveLibrarySettings({
+      ...settings,
+      classifier: { kind: "chat", choice },
+      automatic: false,
+    });
+  }, MODEL);
+}
+
 /** The spend the app has counted this month on its providers, in dollars. */
 export async function spent(window: Page): Promise<number> {
   return window.evaluate(async () => {
@@ -90,36 +111,35 @@ const blockElement = (block: Block) =>
 export interface Workspace {
   /** The Mind of the draft. */
   paperId: string;
+  /** Where the lenders' new Documents are, on disk. */
+  lendersPath: string;
 }
 
 /**
- * Adds the Documents to two Folders, makes the draft's title in the first, and waits until every
- * Document is read. `writeDraft` adds the rest once the cited paragraph is in.
+ * Makes the two Folders, adds the credit Documents to the first, links the folder the lenders'
+ * new Documents arrived in (left for Organize to sort), makes the draft's title and the Mind the
+ * term sheets are compared in, and waits until every Document is read. `writeDraft` adds the
+ * rest once the cited paragraph is in.
  */
 export async function buildWorkspace(
   window: Page,
   script: DemoScript,
-  sheetsFolder: string,
+  sources: string,
 ): Promise<Workspace> {
   const credit = join(SHIPPED, script.credit.source);
-  const sheets = await writeTermSheets(sheetsFolder, script.language as DemoLanguage);
+  const lendersPath = join(sources, script.lenders);
+  const sheets = await writeTermSheets(lendersPath, script.language as DemoLanguage);
   const creditFiles = (await readdir(credit)).sort().map((name) => join(credit, name));
   const { creditFolderId, contractsFolderId } = await window.evaluate(
-    async ({ folders, creditFiles: inCredit, sheets: contracts }) => {
+    async ({ folders, creditFiles: inCredit, lenders }) => {
       const bridge = () => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const creditFolder = await bridge().createLibraryGroup({
-        name: folders.credit,
-        description: "",
-      });
-      const contractsFolder = await bridge().createLibraryGroup({
-        name: folders.contracts,
-        description: "",
-      });
+      const creditFolder = await bridge().createLibraryGroup(folders.credit);
+      const contractsFolder = await bridge().createLibraryGroup(folders.contracts);
       await bridge().addDocuments(inCredit, { groupId: creditFolder.id });
-      await bridge().addDocuments(contracts, { groupId: contractsFolder.id });
+      await bridge().addLinkedFolder(lenders);
       return { creditFolderId: creditFolder.id, contractsFolderId: contractsFolder.id };
     },
-    { folders: script.folders, creditFiles, sheets },
+    { folders: script.folders, creditFiles, lenders: lendersPath },
   );
   // "Ready" comes before the search finds every Document's words: an Answer asked in between
   // says they are still being read.
@@ -173,7 +193,7 @@ export async function buildWorkspace(
       change: Array.from(Y.encodeStateAsUpdate(options)),
     },
   );
-  return { paperId };
+  return { paperId, lendersPath };
 }
 
 /**

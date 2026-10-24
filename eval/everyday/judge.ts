@@ -36,10 +36,11 @@ export async function judgeClaims(
   reply: string,
   record: readonly string[],
   earlier: readonly string[] = [],
+  extraInstructions = "",
 ): Promise<ClaimVerdict> {
   const { text } = await generateText({
     model,
-    instructions: INSTRUCTIONS,
+    instructions: extraInstructions === "" ? INSTRUCTIONS : `${INSTRUCTIONS}\n${extraInstructions}`,
     prompt: [
       ...(earlier.length > 0 ? ["<earlier-record>", ...earlier, "</earlier-record>"] : []),
       "<record>",
