@@ -2983,6 +2983,7 @@ export function createCore(adapters: CoreAdapters): Core {
     mindFolder: (mindId) => minds.get(mindId).folderId,
     now,
     checksRelyOn: (documentIds) => retention.isRetained("check-result", documentIds),
+    conversationCitationsRelyOn: (documentIds) => conversations.citationsRelyOn(documentIds),
     recheck: (input) => recheckCitation(documents, input),
     changed: (value) => events.emit("examples.changed", value),
   });
