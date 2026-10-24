@@ -48,10 +48,10 @@ import { holdsNothing } from "../../../shared/madeMind";
 import { looksLikeTable } from "../../../shared/markdownTables";
 import {
   changedParagraphs,
-  pendingProposals,
   readProposalAttribute,
   recordProposalRequest,
   resolveProposals,
+  waitingChanges,
 } from "../../../shared/proposals";
 import { countFor, countText, mostlyCjk } from "../../../shared/wordCount";
 import {
@@ -1060,7 +1060,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
   /** What a request did in a Mind: how many of its changes wait there now. */
   const changeIn = (mindId: string, request: string, created: boolean): MindChange => {
     const { proposals, paragraphs, tables, charts } = minds.read(mindId, (note) => ({
-      proposals: pendingProposals(note).filter((each) => each.request === request).length,
+      proposals: waitingChanges(note, (each) => each.request === request),
       ...writtenBy(note, request),
     }));
     return {
@@ -1696,10 +1696,17 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         `That text of “${mind.name}” changed while it was being read. Nothing was changed.`,
       );
     }
-    const revision = (): MindChange => ({
-      ...changeIn(mind.id, request, false),
-      ...(over.kind === "own" && { revised: true }),
-    });
+    const revision = (): MindChange => {
+      const changed =
+        over.kind === "applied"
+          ? minds.read(mind.id, (note) => changedParagraphs(note, (ref) => ref.request === request))
+          : 0;
+      return {
+        ...changeIn(mind.id, request, false),
+        ...(over.kind === "own" && { revised: true }),
+        ...(changed > 0 && { changed }),
+      };
+    };
     const change: MindChange = {
       ...revision(),
       ...citedIn({ cited, unrecorded: 0 }),

@@ -119,6 +119,20 @@ describe("the repeated checks", () => {
     expect(summary?.falseSupported).toBe(0);
   });
 
+  test("expect the not-found card for a figure for a year the agreement doesn't cover", () => {
+    const [summary] = summarise(
+      (["absent", "differs", "contradicted", "partly"] as const).map((outcome, index) =>
+        row(index + 1, "period-not-covered", outcome, "en-near-misses"),
+      ),
+    );
+    expect(summary?.misses.map((each) => each.outcome)).toEqual([
+      "differs",
+      "contradicted",
+      "partly",
+    ]);
+    expect(summary?.absentOnStated).toBe(0);
+  });
+
   test("count a genuine conflict Supported as a false Supported, and a known miss apart", () => {
     const [summary] = summarise([
       row(1, "number", "contradicted", "zh-conflicts"),

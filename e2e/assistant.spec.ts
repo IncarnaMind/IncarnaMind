@@ -495,7 +495,9 @@ test("under 1,000px a side dock sits at the bottom and goes back when wider; gro
   await expect(window.getByTestId("assistant-menu-left")).toHaveAttribute("aria-checked", "true");
   // Choosing a side here says why it stays at the bottom.
   await window.getByTestId("assistant-menu-right").click();
-  await expect(window.getByTestId("tab-notice")).toHaveAttribute("data-kind", "assistantNarrow");
+  await expect(window.getByTestId("undo-message")).toHaveText(
+    "Narrow window: the assistant moved to the bottom.",
+  );
   await expect(assistant).toHaveAttribute("data-dock", "bottom");
   await screenshot(window, "assistant-narrow-960");
   await setWindowSize(app, window, 1600, 660);
