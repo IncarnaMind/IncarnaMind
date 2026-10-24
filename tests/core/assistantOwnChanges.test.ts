@@ -839,6 +839,54 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
     },
   );
 
+  // protects=a summary written anew over the one added from an Answer counts each paragraph once: the old one removed and the new one added are one change of the paragraph, in the Answer's record as in the Mind; fails_when=the count is the Proposals (20 for 10 paragraphs written anew); no_claim=how many of the Proposals wait, which is the number Accept all acts on (#1335).
+  test.each([
+    ["10 paragraphs written anew", 10, 10, 10, 22],
+    ["10 paragraphs written anew as 12", 10, 12, 12, 24],
+    ["one paragraph written anew as 10", 1, 10, 10, 13],
+    ["10 paragraphs written anew as 8", 10, 8, 10, 20],
+  ])(
+    "%s is %i → %i, changed %i, with %i changes to accept",
+    async (_, before, after, changed, waiting) => {
+      const paragraphs = (count: number, say: string) =>
+        Array.from({ length: count }, (_, index) => `${say} ${index + 1}.`);
+      const old = paragraphs(before, "The quarter went to plan, as paragraph");
+      const longer = paragraphs(after, "The quarter went to plan and then some, as paragraph");
+      const model = scriptedModel((call): ScriptedReply => {
+        if (call.results.length > 0) return { text: "Done." };
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Tide notes", content: `## Tide notes\n\n${longer.join("\n\n")}` },
+            },
+          ],
+        };
+      });
+      const { core, mind, client } = await setUp(model);
+      await core.addToNote({
+        mindId: mind.id,
+        blocks: [
+          { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Tide notes" }] },
+          ...old.map((words) => ({ type: "paragraph", content: [{ type: "text", text: words }] })),
+        ],
+        origin: null,
+        model: null,
+      });
+      await client.settled();
+
+      const answer = await askAssistant(core, {
+        text: "Make the summary longer.",
+        mindId: mind.id,
+      });
+
+      await client.settled();
+      const [change] = changesIn(answer);
+      expect(change).toMatchObject({ changed, proposals: waiting });
+      expect(waitingFrom(client, change?.request ?? "")).toBe(waiting);
+    },
+  );
+
   // protects=new text for the assistant's summary that leaves out a Citation tells the model so, as an instruction's rewrite does; fails_when=the Citation goes with no word to the model; no_claim=what the model then says.
   test("new text that leaves out a Citation of the summary says so to the model", async () => {
     const model = scriptedModel((call): ScriptedReply => {
