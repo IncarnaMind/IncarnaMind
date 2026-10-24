@@ -1,7 +1,8 @@
 import { useRef } from "react";
 import type { DeletedItem } from "../../../core/api";
 import { lostSentences } from "../deletedItems";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
+import { formatCount } from "../linkedFolders";
 import { deletedName, deleteItemsPermanently } from "../recentlyDeleted";
 import { useAppStore } from "../store";
 import {
@@ -28,19 +29,21 @@ export function DeletePermanentlyDialog({
   onClose(): void;
 }) {
   const t = useT();
+  const language = useLanguage();
   const dialog = useModal(request !== null);
   // Kept while the dialog closes, so its text doesn't empty out first.
   const shown = useRef(request);
   if (request) shown.current = request;
   const { items, empty } = shown.current ?? { items: [], empty: false };
   const [only] = items;
+  const count = formatCount(items.length, language);
   const title = empty
     ? t("deleted.confirm.title.empty")
     : only && items.length === 1
       ? t("deleted.confirm.title.one", { name: deletedName(only) })
       : items.every((item) => item.kind === "document")
-        ? t("deleted.confirm.title.documents", { count: items.length })
-        : t("deleted.confirm.title.items", { count: items.length });
+        ? t("deleted.confirm.title.documents", { count })
+        : t("deleted.confirm.title.items", { count });
   const lost = lostSentences(items, deletedName).map(({ key, params }) => t(key, params));
 
   const confirm = () => {
