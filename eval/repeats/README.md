@@ -59,6 +59,26 @@ npm run eval:repeats
 
 ## Results
 
+### 2026-10-24: the holiday clause is dated, so the 2026 sentences are conflicts (#1765)
+
+The test agreements say the Employee starts on 11 January 2027 and give no year for the holiday clause, so a sentence about holiday in 2026 was a claim about a year the agreement might not cover, and Sonnet 5.5 called it a near miss in 8 of 10 checks. The holiday clause now starts on 1 January 2025 ("From 1 January 2025 the Employee is entitled to 27 working days of paid holiday per year…", "自2025年1月1日起，乙方每年享有带薪年休假10天…"); the employment start date and the other sentences are as they were. A new expected value, `absent`, is for a figure about a year before the clause starts ("In 2024 the Employee was entitled to 25 days of paid holiday.", "2024年乙方享有带薪年休假15天。"): the card should say "I didn’t find this".
+
+`main`'s agreements and these, Haiku 5.5, same day, interleaved; Sonnet 5.5 on these only. Counts are of checks.
+
+| Sentence | Model | These agreements | `main`'s agreements |
+|---|---|---|---|
+| "In 2026 the Employee was entitled to 25 days of paid holiday." Contradicted | Haiku 5.5 | 39 of 39 | 37 of 39 |
+| the same | Sonnet 5.5 | 20 of 20 | 2 of 10 (an earlier run) |
+| "2026年乙方享有带薪年休假15天。" Contradicted | Haiku 5.5 | 40 of 40 | 39 of 39 |
+| the same | Sonnet 5.5 | 20 of 20 | not measured |
+| "经理每年享有带薪年休假15天。" Contradicted or Supported (wrong) | Haiku 5.5 | 20 of 80 | 19 of 80 |
+| "The Employee shall work from home two days a week." not Contradicted (wrong) | Haiku 5.5 | 34 of 79 | 25 of 79 |
+| "2024年乙方享有带薪年休假15天。" says "I didn’t find this" | Haiku 5.5 | 0 of 79 | not in `main`'s sets |
+
+- The 2024 sentences are a known miss: the check calls them conflicts or partly supported, because its rule for a conflict says nothing about the period (#1765).
+- A fixture that moved the employment start date to 2025 as well made "经理每年享有带薪年休假15天。" wrong in 38 of 79 checks (19 of 80 on `main`); only the holiday clause is dated for that reason.
+- "The Employee shall…" is within the spread of `main` alone (8 of 40 in an earlier run, 25 of 79 here).
+
 ### 2026-10-24: a Supported reply with a wider scope keeps its partly-supported card (#1708)
 
 Claude Haiku 5.5 on the same Documents, Library and search as below, against `main` measured the same day with the same sentences (main's check, these sets). The change: a Supported reply with a wider scope that names its parts keeps the partly-supported card with the Passage it cited, also when its parts came from the request for them, and no nearest line is asked about. It changes no verdict: only the amber "says something different" card becomes the partly-supported one, and a request goes. In 169 such checks the nearest-line request was made 13 times (where the roles differ), against 130 of 174 on `main`, a median of 0.8 s each.

@@ -461,8 +461,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     ) {
       const part = await parts(evidence);
       if (signal.aborted) return notChecked("stopped");
-      // The Passage the check cited states the term's own value, so no nearest line is asked
-      // about: one judged different replaced the partly-supported card of "职工…" (#1708).
+      // The Passage the check cited states the term's own value, so no nearest line is asked about.
       const nearest = differs ? undefined : null;
       if (part.covered && part.uncovered)
         return unsupported({ reason: verdict.says, ...part }, evidence, nearest);
