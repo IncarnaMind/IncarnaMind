@@ -57,7 +57,8 @@ async function deleteAgain(items: readonly DeletedItem[]): Promise<void> {
 /** What the undo line says a restore did: where one item went back to, if it was in a Folder still there. */
 function restoredMessage(items: readonly DeletedItem[]): WordsInLine {
   const [only] = items;
-  if (!only || items.length > 1) return (t) => t("object.restored.count", { count: items.length });
+  if (!only || items.length > 1)
+    return (t) => t("object.restored.count", { count: formatCount(items.length, languageNow()) });
   const folder = useAppStore.getState().library?.groups.find((group) => group.id === only.groupId);
   return (t) => {
     const name = deletedName(only);

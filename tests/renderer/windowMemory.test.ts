@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { draftsFrom, withReloaded } from "../../src/renderer/src/composer";
+import type { AskedQuote } from "../../src/core/api";
+import { draftsFrom, withQuotes, withReloaded } from "../../src/renderer/src/composer";
 
 /*
  * What a reload of the window's page puts back of the composer (#1500): the drafts it kept,
@@ -46,5 +47,32 @@ describe("The drafts a reload leaves", () => {
     expect(draftsFrom(null)).toEqual({});
     expect(draftsFrom("drafts")).toEqual({});
     expect(draftsFrom([draft])).toEqual({});
+  });
+});
+
+const quoteOn = (page: number, words = "Margins recover."): AskedQuote => ({
+  documentId: "d",
+  documentName: "Rate cuts",
+  quote: words,
+  pageFrom: page,
+  pageTo: page,
+  location: { kind: "page", from: page, to: page },
+});
+
+describe("The words selected to ask about, in a draft (#101)", () => {
+  test("a reload keeps a draft's quotes, and drops a draft whose quotes don't read", () => {
+    const asking = { ...draft, quotes: [quoteOn(2)] };
+
+    expect(draftsFrom({ asking, broken: { ...draft, quotes: [{ quote: 3 }] } })).toEqual({
+      asking,
+    });
+  });
+
+  test("quotes put together go each once, and as many as a Question takes", () => {
+    const pages = Array.from({ length: 12 }, (_, index) => quoteOn(index + 1));
+
+    expect(withQuotes([quoteOn(2)], [quoteOn(2), quoteOn(3)])).toEqual([quoteOn(2), quoteOn(3)]);
+    expect(withQuotes([quoteOn(2)], [quoteOn(2, "Other words.")])).toHaveLength(2);
+    expect(withQuotes(pages.slice(0, 6), pages.slice(6))).toEqual(pages.slice(0, 10));
   });
 });

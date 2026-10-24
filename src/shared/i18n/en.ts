@@ -451,6 +451,7 @@ export const en = {
   "undo.folderGone": "“{name}” is deleted",
   "undo.restoreFolder": "Restore {name}",
   "undo.title": "Undo ({shortcut})",
+  "line.actionKeys": "{label} ({keys})",
 
   "mind.untitled": "Untitled",
   "conversation.untitled": "New chat",
@@ -670,6 +671,11 @@ export const en = {
   "claim.addAsCitation": "Add as Citation",
   "claim.alreadyCited": "Already cited",
   "claim.alreadyCited.open": "Already cited: open citation {number}",
+  "claim.widenCitation": "Widen the Citation",
+  "claim.widenCitation.note": "Your Citation covers part of it; the clause continues",
+  "claim.replaceCitation": "Replace the Citation",
+  "claim.replaceCitation.quoteNotFound": "Your Citation’s quote isn’t found where it points",
+  "claim.replaceCitation.doesntSupport": "Your Citation doesn’t support this sentence",
   "claim.calculated.title": "Calculated from your Documents",
   "claim.calculated.stated": "The sentence says {stated}.",
   "claim.calculated.inputs": "Worked out from",
@@ -946,6 +952,13 @@ export const en = {
   "composer.edit.send": "Change it (Enter)",
   "composer.selection.drop": "Don’t ask about this",
   "assistant.question.quote": "About:",
+  "assistant.question.quoteGone": "(since deleted)",
+  "assistant.quote.leftOut.deleted":
+    "A quote from “{document}” wasn’t sent: the Document has been deleted.",
+  "composer.quote.tooMany":
+    "A Question can be about {count} selections at most: remove one to add this.",
+  "assistant.quote.leftOut":
+    "A quote from “{document}” wasn’t sent: the Document no longer has those words where you selected them.",
   "composer.edit.translateInto": "Translate into ",
   "proposal.region": "Changes from the assistant",
   "proposal.count": "{count} changes from the assistant",
@@ -1144,6 +1157,7 @@ export const en = {
   "viewer.outline.collapse": "Collapse {title}",
   "viewer.outline.untitled": "Untitled",
   "viewer.selection.label": "Selected text",
+  "viewer.selection.ask": "Ask about this",
   "viewer.selection.addToNote": "Add to note",
   "viewer.selection.copy": "Copy with citation",
   "viewer.selection.added": "Added a quote to “{mind}”",
@@ -1161,6 +1175,7 @@ export const en = {
     "Couldn’t cite these words: a Citation covers two pages at most.",
   "viewer.selection.refused.noText":
     "Couldn’t cite these words: the Document has no text there to check them against.",
+  "command.viewer.selection.ask": "Ask about the selected text",
   "command.viewer.selection.addToNote": "Add the selected text to note",
   "command.viewer.selection.copy": "Copy the selected text with its citation",
   "viewer.mark.found": "Citation {number}: quote found",
@@ -4092,6 +4107,7 @@ export const en = {
   "menu.reopenTab": "Reopen Closed Tab",
   "menu.splitRight": "Split to the Right",
   "menu.closeWindow": "Close Window",
+  "menu.closeAll": "Close All",
   "menu.edit": "Edit",
   "menu.undo": "Undo",
   "menu.redo": "Redo",

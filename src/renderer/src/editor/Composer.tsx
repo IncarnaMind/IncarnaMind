@@ -36,6 +36,7 @@ import {
   NO_MIND,
   type Paste,
   useComposer,
+  withQuotes,
 } from "../composer";
 import {
   answerBeingWritten,
@@ -70,6 +71,7 @@ import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
+import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
 import { EditStatus } from "./EditStatus";
 import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon } from "./icons";
@@ -157,7 +159,8 @@ export function Composer({
   // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
   const scope = mindSearchScope(draft.scope, folderId, folderHolds);
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
-  // User into the Mind that opens, whose draft is empty; the rest of its state starts over.
+  // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
+  // whatever that draft holds; the rest of its state starts over.
   const was = useRef(key);
   useEffect(() => {
     const before = was.current;
@@ -171,10 +174,18 @@ export function Composer({
     const state = useComposer.getState();
     const loose = state.draft(NO_MIND);
     const own = state.draft(key);
-    if (loose.text === "" && loose.pastes.length === 0) return;
-    if (own.text !== "" || own.pastes.length > 0) return;
-    state.update(key, { text: loose.text, pastes: loose.pastes });
-    state.update(NO_MIND, { text: "", pastes: [] });
+    const quotes = loose.quotes ?? [];
+    const words =
+      (loose.text !== "" || loose.pastes.length > 0) && own.text === "" && own.pastes.length === 0;
+    if (!words && quotes.length === 0) return;
+    state.update(key, {
+      ...(words && { text: loose.text, pastes: loose.pastes }),
+      ...(quotes.length > 0 && { quotes: withQuotes(own.quotes ?? [], quotes) }),
+    });
+    state.update(NO_MIND, {
+      ...(words && { text: "", pastes: [] }),
+      ...(quotes.length > 0 && { quotes: [] }),
+    });
   }, [key]);
   const problem = useAnswers((state) => state.blocked[composerKey(mindId)]);
   const skills = useAppStore((state) => state.skills);
@@ -539,7 +550,9 @@ export function Composer({
       return;
     }
     useAnswers.getState().dismiss(composerKey(mindId));
-    if (said === undefined) update({ text: "", skill: null, pastes: [] });
+    // Words asked from ⌘K go alone: the draft, its chips too, stays for the User.
+    const quotes = said === undefined ? (current.quotes ?? []) : [];
+    if (said === undefined) update({ text: "", skill: null, pastes: [], quotes: [] });
     setExpanded(false);
     setViewing(null);
     setPicking(null);
@@ -551,15 +564,20 @@ export function Composer({
       scope: composerScope(current, folderId),
       model: modelInUseOf(mind?.doc ?? null),
       forcedSkill: draft.skill,
+      quotes,
     });
     if (asked) {
       selection.asked();
       return;
     }
-    // Not asked: its words come back here, unless the User has typed anew meanwhile.
+    // Not asked: its words come back here, unless the User has typed anew meanwhile; its quotes
+    // come back whatever was typed.
     const now = useComposer.getState().draft(key);
+    const back = withQuotes(quotes, now.quotes ?? []);
     if (now.text === "" && now.pastes.length === 0) {
-      update({ text: typed, pastes: draft.pastes, skill: now.skill ?? draft.skill });
+      update({ text: typed, pastes: draft.pastes, skill: now.skill ?? draft.skill, quotes: back });
+    } else if (quotes.length > 0) {
+      update({ quotes: back });
     }
   };
 
@@ -591,16 +609,18 @@ export function Composer({
         return;
       }
     }
+    const quotes = draft.quotes ?? [];
     if (
       event.key === "Backspace" &&
-      selection.quote !== "" &&
+      (selection.quote !== "" || quotes.length > 0) &&
       draft.text === "" &&
       event.currentTarget.selectionStart === 0 &&
       event.currentTarget.selectionEnd === 0
     ) {
       // As in a recipient field, Backspace at the start takes the last chip away.
       event.preventDefault();
-      selection.leaveOut();
+      if (quotes.length > 0) update({ quotes: quotes.slice(0, -1) });
+      else selection.leaveOut();
       return;
     }
     if (event.key === "Enter" && !event.shiftKey && !event.altKey && !isCommand(event)) {
@@ -797,6 +817,13 @@ export function Composer({
             }}
           />
         )}
+        <AskedQuoteChips
+          quotes={draft.quotes ?? []}
+          onRemove={(quote) => {
+            update({ quotes: (draft.quotes ?? []).filter((each) => each !== quote) });
+            field.current?.focus();
+          }}
+        />
         {editing && (
           <span
             data-testid="composer-edit-quote"

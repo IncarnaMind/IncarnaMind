@@ -15,16 +15,17 @@ const surfaceOf = (ctx: CommandContext): SelectSurface | null =>
 export const selectionCommands: readonly Command[] = [
   {
     ...fromMenu("edit.selectAll"),
-    // Only while the focus is in a list: in the note, the composer or a field, ⌘A selects text.
-    shortcut: { keys: "CmdOrCtrl+A", list: true },
+    // In a field, the note or the composer, ⌘A selects their text, as it always does.
+    shortcut: { keys: "CmdOrCtrl+A", outsideText: true },
     palette: false,
     group: "edit",
     reversible: true,
     run(ctx) {
       const surface = surfaceOf(ctx);
-      const focus = document.activeElement;
-      // The Edit menu's Select All comes here too, from wherever the focus is.
-      if (surface && !typesText(focus) && focus?.closest("[aria-multiselectable]")) {
+      // The Edit menu's Select All comes here too, from wherever the focus is. In a list, ⌘A is
+      // the rows' even while the focus is on its bar: the page's own Select All would highlight
+      // every label (#1350).
+      if (surface && !typesText(document.activeElement)) {
         useSelection.getState().all(surface);
       } else {
         document.execCommand("selectAll");

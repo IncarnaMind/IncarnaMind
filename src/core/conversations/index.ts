@@ -51,7 +51,7 @@ import type {
   SearchScope,
   ThirdPartySource,
 } from "../api";
-import { CLAIMED_CHANGES } from "../api";
+import { CLAIMED_CHANGES, MOST_ASKED_QUOTES } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
@@ -372,8 +372,6 @@ export function parseOnScreen(value: unknown): string[] {
   return [...new Set(value as string[])];
 }
 
-// Each quote goes to the model with the Passages of its pages: more would crowd out the rest.
-const MOST_QUOTES = 10;
 // Two pages of dense text, the most a Citation covers, with room to spare.
 const MOST_QUOTED_CHARACTERS = 50_000;
 
@@ -410,10 +408,10 @@ function parseQuotes(value: unknown): AskedQuote[] {
   if (value === undefined || value === null) return [];
   const unreadable = () => new InvalidInputError({ key: "error.question.quotes" });
   if (!Array.isArray(value)) throw unreadable();
-  if (value.length > MOST_QUOTES) {
+  if (value.length > MOST_ASKED_QUOTES) {
     throw new InvalidInputError({
       key: "error.question.quotes.tooMany",
-      values: { count: MOST_QUOTES },
+      values: { count: MOST_ASKED_QUOTES },
     });
   }
   return value.map((each) => {
@@ -1190,6 +1188,19 @@ export function createConversations(db: Database, now: () => string) {
     /** Adds the Units the Citations of conversations point to in these Documents to `cited`. */
     addCitedUnits(documentIds: ReadonlySet<string>, cited: CitedUnits[]): void {
       eachCitation((citation) => addCitedUnit(citation, documentIds, cited));
+    },
+
+    /** Whether an Answer of a conversation not deleted permanently cites one of these Documents. */
+    citationsRelyOn(documentIds: readonly string[]): boolean {
+      if (documentIds.length === 0) return false;
+      const wanted = new Set(documentIds);
+      let found = false;
+      eachCitation((citation) => {
+        if (typeof citation.documentId === "string" && wanted.has(citation.documentId)) {
+          found = true;
+        }
+      });
+      return found;
     },
 
     /** Calls `visit` with the attributes of each Citation in the Answers of conversations. */

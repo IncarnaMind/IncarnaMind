@@ -1071,7 +1071,7 @@ export interface MindChange {
   request: string;
   /** How many Proposals it made there. */
   proposals: number;
-  /** How many paragraphs and headings they change, add or remove (`changedParagraphs`). Absent: none. */
+  /** How many paragraphs they change, add or remove, each once (`changedParagraphs`). Absent: none. */
   changed?: number;
   /** How many paragraphs the whole Blocks it wrote hold (a heading or a table holds none). Absent: none. */
   paragraphs?: number;
@@ -1717,6 +1717,9 @@ export interface CitedSelection extends CitationRecheck {
   /** The words selected, read as words, without a running header or footer selected with them. */
   quote: string;
 }
+
+/** At most this many `AskedQuote`s go with a Question: each brings the Passages of its pages. */
+export const MOST_ASKED_QUOTES = 10;
 
 /**
  * Words the User selected in a Document to ask about ("Ask about this", #101), as
@@ -9625,8 +9628,17 @@ export interface CoreApi {
   /** Consent requests still waiting for an answer, e.g. for a window that opened after they were raised. */
   listConsentRequests(): Promise<ConsentRequest[]>;
   respondToConsent(requestId: string, accept: boolean): Promise<void>;
-  /** Forgets the User's decision: the next request on the flow asks again. */
-  revokeConsent(flowId: DataFlowId, serviceId: string): Promise<void>;
+  /**
+   * Forgets the User's decision: the next request on the flow asks again. Returns the time it was
+   * forgotten (ISO 8601), for `restoreConsent`; null when there was no decision.
+   */
+  revokeConsent(flowId: DataFlowId, serviceId: string): Promise<string | null>;
+  /**
+   * Brings back the decision `revokeConsent` forgot at `revokedAt`, as it was: no more kinds of
+   * data than were accepted, the date it was made, even for a service the flow no longer goes
+   * to. A decision made since stands, and so does a later forgetting: only the newest comes back.
+   */
+  restoreConsent(flowId: DataFlowId, serviceId: string, revokedAt: string): Promise<void>;
   /**
    * Every registered external data flow, each with the services it goes to,
    * including a flow that sends nothing now: the Privacy page lists them all.
@@ -10570,6 +10582,7 @@ const methods: Record<CoreApiMethod, true> = {
   listConsentRequests: true,
   respondToConsent: true,
   revokeConsent: true,
+  restoreConsent: true,
   listRegisteredDataFlows: true,
   allowDataFlow: true,
   listNetworkTraffic: true,
