@@ -70,7 +70,11 @@ async function expectCitedPage(
     .getByTestId("viewer")
     .locator('[data-page-number="1"] [data-quote-highlight]');
   await expect(highlight.first()).toBeInViewport();
-  await expect.poll(async () => (await highlight.allTextContents()).join("")).toContain(quote);
+  // The PDF's text layer can leave out a space between two words of a quote.
+  const unspaced = (text: string) => text.replace(/\s+/g, "");
+  await expect
+    .poll(async () => unspaced((await highlight.allTextContents()).join("")))
+    .toContain(unspaced(quote));
   await window.keyboard.press("Escape");
 }
 
@@ -100,7 +104,7 @@ test("an English Conversation's Citations open their original pages after the in
 
   const again = await launchApp(dataDir, { examples: true });
   await setWindowSize(again.app, again.window, 1440, 900);
-  const reopened = await openFromPalette(again.window, "leverage limit");
+  const reopened = await openFromPalette(again.window, "facilities agreement");
   await expect(reopened.getByTestId("citation-chip")).toHaveCount(2);
   await expectCitedPage(
     again.window,
