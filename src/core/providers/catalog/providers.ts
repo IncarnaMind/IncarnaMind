@@ -43,6 +43,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://api.anthropic.com/v1" }],
     apiKey: "required",
     keyUrl: "https://platform.claude.com/settings/keys",
+    billingUrl: "https://platform.claude.com/settings/billing",
     keyGuide: [
       {
         en: "Open Anthropic's key page and sign in to the Anthropic Console.",
@@ -130,6 +131,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://api.openai.com/v1" }],
     apiKey: "required",
     keyUrl: "https://platform.openai.com/api-keys",
+    billingUrl: "https://platform.openai.com/settings/organization/billing/overview",
     keyGuide: [
       {
         en: "Open OpenAI's key page and sign in to the OpenAI platform.",
@@ -273,6 +275,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://openrouter.ai/api/v1" }],
     apiKey: "required",
     keyUrl: "https://openrouter.ai/settings/keys",
+    billingUrl: "https://openrouter.ai/credits",
     keyGuide: [
       {
         en: "Open OpenRouter's key page and sign in.",
@@ -387,6 +390,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://api.deepseek.com" }],
     apiKey: "required",
     keyUrl: "https://platform.deepseek.com/api_keys",
+    billingUrl: "https://platform.deepseek.com/top_up",
     keyGuide: [
       {
         en: "Open DeepSeek's key page and sign up or sign in to the DeepSeek platform.",
@@ -499,12 +503,14 @@ const PROVIDERS = [
         baseUrl: "https://api.moonshot.cn/v1",
         keyUrl: "https://platform.kimi.com/console/api-keys",
         pricingUrl: "https://platform.moonshot.cn/docs/pricing/chat",
+        billingUrl: "https://platform.kimi.com/console",
       },
       {
         id: "intl",
         label: { en: "International", zh: "国际" },
         baseUrl: "https://api.moonshot.ai/v1",
         keyUrl: "https://platform.kimi.ai/console/api-keys",
+        billingUrl: "https://platform.kimi.ai/console",
       },
     ],
     apiKey: "required",
@@ -819,6 +825,11 @@ export function fieldValueOf(endpoint: Endpoint, baseUrl: string | null): string
   const value = baseUrl.slice(before.length, baseUrl.length - after.length);
   return fieldAccepts(endpoint.field, value) ? value : null;
 }
+
+export const billingUrlOf = (
+  provider: CatalogProvider,
+  endpointId: string | null | undefined,
+): string | undefined => endpointOf(provider, endpointId)?.billingUrl ?? provider.billingUrl;
 
 export const pricingUrlOf = (
   provider: CatalogProvider,

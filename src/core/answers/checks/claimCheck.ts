@@ -116,6 +116,8 @@ function failureOf(error: ProviderError): { reason: ClaimCheckFailure; detail: s
       return { reason: "cost-cap", detail: null };
     case "plan-limit":
       return { reason: "plan-limit", detail: null };
+    case "out-of-credit":
+      return { reason: "out-of-credit", detail: null };
     case "consent-revoked":
       return { reason: "consent-revoked", detail: null };
     case "local-mode":
