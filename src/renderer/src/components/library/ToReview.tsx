@@ -1,8 +1,9 @@
 import { menuKeysLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useLibraryFolds, useRevealed } from "../../libraryFolds";
 import { FIRST_ROWS } from "../../libraryPage";
+import { formatCount } from "../../linkedFolders";
 import { lastOrganizeStep } from "../../organizeRun";
 import { useAppStore } from "../../store";
 import { type ToReview as Review, reviewSummary, TO_REVIEW } from "../../toReview";
@@ -22,6 +23,7 @@ export function ToReview({
   suggestedIn(documentId: string): string | null;
 }) {
   const t = useT();
+  const language = useLanguage();
   const open = useLibraryFolds((state) => state.reviewOpen);
   const showingAll = useLibraryFolds((state) => state.showingAll);
   const element = useRevealed<HTMLDivElement>(TO_REVIEW);
@@ -113,7 +115,10 @@ export function ToReview({
           return (
             <div key={folder.id} data-testid="library-review-group" data-folder={folder.id}>
               <p className="flex h-8 items-end border-b border-rule pb-1 pl-14 text-[12px] leading-4 font-semibold text-ink-secondary">
-                {t("library.review.group", { folder: folder.name, count: documents.length })}
+                {t("library.review.group", {
+                  folder: folder.name,
+                  count: formatCount(documents.length, language),
+                })}
               </p>
               {listed.map((doc) => (
                 <LibraryRow
@@ -134,7 +139,7 @@ export function ToReview({
                     onClick={() => useLibraryFolds.getState().showAll(`${TO_REVIEW}:${folder.id}`)}
                     className={quietButtonClass}
                   >
-                    {t("library.showAll", { count: documents.length })}
+                    {t("library.showAll", { count: formatCount(documents.length, language) })}
                   </button>
                 </div>
               )}

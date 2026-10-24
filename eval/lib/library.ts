@@ -204,6 +204,7 @@ function rerankingModelReady(core: Core, modelCache: string | undefined, log: Lo
 
 /** Resolves with the Documents once each has finished processing, logging progress. */
 function processed(core: Core, ids: readonly string[], log: Log): Promise<Document[]> {
+  if (ids.length === 0) return Promise.resolve([]);
   return new Promise<Document[]>((resolve, reject) => {
     const latest = new Map<string, Document>();
     const finish = () => {

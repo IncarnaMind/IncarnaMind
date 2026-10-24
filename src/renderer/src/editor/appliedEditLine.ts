@@ -383,7 +383,12 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       keys(options.undoKeys()),
     ];
     if (line.changes.length > 0) parts.push(dot(), button("review", t("edit.applied.review")));
-    const element = lineElement("applied-line", "applied-line", parts);
+    // What the assistant wrote comes in the page's top margin; an edit asked on the text keeps its line over its Block.
+    const element = lineElement(
+      "applied-line",
+      line.facts ? "applied-line applied-line--band" : "applied-line",
+      parts,
+    );
     if (line.reason) element.title = t("proposal.why", { reason: line.reason });
     return element;
   }

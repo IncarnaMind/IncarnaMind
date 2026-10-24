@@ -4,6 +4,7 @@ import { daysLeft, whenDeleted } from "../../deletedItems";
 import { useLanguage, useT } from "../../i18n";
 import { useLibraryFolds, useRevealed } from "../../libraryFolds";
 import { RECENTLY_DELETED } from "../../libraryPage";
+import { formatCount } from "../../linkedFolders";
 import { deletedName, restoreItems, useDeleted, watchDeleted } from "../../recentlyDeleted";
 import { useRequests } from "../../requests";
 import { useSelectable, useSelectedOn, useSelection, useSelectionOrder } from "../../selection";
@@ -82,6 +83,7 @@ export function DeletedSection() {
   if (rows.length === 0) return null;
   const heldIds = new Set(held.map((ref) => ref.id));
   const chosen = rows.filter((item) => heldIds.has(item.id));
+  const chosenCount = formatCount(chosen.length, language);
   const now = new Date();
   const label = t("deleted.title");
   const toggle = () => useLibraryFolds.getState().toggle(RECENTLY_DELETED);
@@ -156,7 +158,7 @@ export function DeletedSection() {
           {chosen.length > 0 && (
             <div
               role="toolbar"
-              aria-label={t("deleted.selected", { count: chosen.length })}
+              aria-label={t("deleted.selected", { count: chosenCount })}
               data-testid="deleted-selection"
               onKeyDown={(event) => {
                 if (event.key === "Escape") useSelection.getState().clear("deleted");
@@ -166,7 +168,7 @@ export function DeletedSection() {
               <input
                 type="checkbox"
                 data-testid="deleted-select-all"
-                aria-label={t("deleted.selectAll", { count: rows.length })}
+                aria-label={t("deleted.selectAll", { count: formatCount(rows.length, language) })}
                 checked={chosen.length === rows.length}
                 ref={(box) => {
                   if (box) box.indeterminate = chosen.length < rows.length;
@@ -179,7 +181,7 @@ export function DeletedSection() {
                 className={boxClass}
               />
               <span role="status" className="font-semibold text-ink">
-                {t("deleted.selected", { count: chosen.length })}
+                {t("deleted.selected", { count: chosenCount })}
               </span>
               <button
                 type="button"
@@ -188,7 +190,7 @@ export function DeletedSection() {
                 onClick={() => restore(chosen)}
               >
                 {t(chosen.length > 1 ? "deleted.restore.count" : "deleted.restore", {
-                  count: chosen.length,
+                  count: chosenCount,
                 })}
               </button>
               <button
@@ -201,7 +203,7 @@ export function DeletedSection() {
                   chosen.length > 1
                     ? "deleted.deletePermanently.count"
                     : "deleted.deletePermanently",
-                  { count: chosen.length },
+                  { count: chosenCount },
                 )}
               </button>
               <button
