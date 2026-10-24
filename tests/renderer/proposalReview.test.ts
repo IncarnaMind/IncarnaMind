@@ -1,6 +1,6 @@
 import { Editor, type JSONContent } from "@tiptap/core";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
-import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
+import { prosemirrorToYXmlFragment, ySyncPluginKey } from "@tiptap/y-tiptap";
 import { describe, expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core";
@@ -44,10 +44,13 @@ const citation = (quote: string, proposal: unknown = null): JSONContent => ({
  * The note's state with the review's plugin, as the editor has it once it is
  * shown (a headless editor adds no plugins): changes go through `apply`.
  */
-function noteWith(content: JSONContent[]) {
+function noteWith(
+  content: JSONContent[],
+  asked?: (state: EditorState, request: string) => boolean,
+) {
   const editor = new Editor({
     element: null,
-    extensions: [...noteExtensions(), ProposalReview],
+    extensions: [...noteExtensions(), asked ? ProposalReview.configure({ asked }) : ProposalReview],
     content: { type: "doc", content },
   });
   onTestFinished(() => editor.destroy());
@@ -255,6 +258,62 @@ describe("Proposals in the editor", () => {
     const [wash] = proposalReviewKey.getState(note.state)?.decorations.find() ?? [];
     expect(wash).toMatchObject({ from: target?.from, to: target?.to });
     expect(classOf(wash)).toBe("proposal-target");
+  });
+});
+
+describe("Changes the User's own Question asked for", () => {
+  /** A paragraph of `request` coming in from the core's copy of the Mind, as one update does. */
+  const arrives = (note: ReturnType<typeof noteWith>, id: string, request: string) =>
+    note.apply((tr) => {
+      const { paragraph } = note.state.schema.nodes;
+      tr.insert(
+        tr.doc.content.size,
+        paragraph?.create(
+          { id, [PROPOSAL_ATTRIBUTE]: { id, request, kind: "insert" } },
+          note.state.schema.text(`Words of ${id}.`),
+        ) ?? [],
+      ).setMeta(ySyncPluginKey, { isChangeOrigin: true });
+    });
+
+  test("apply from the frame the first of them arrives, and wait only if the window then holds them back", () => {
+    const note = noteWith(
+      [{ type: "paragraph", attrs: { id: "p1" }, content: [text("The tide turns.")] }],
+      (_state, request) => request === "r1",
+    );
+    const ids = (list: readonly { id: string }[]) => list.map((each) => each.id);
+
+    arrives(note, "a", "r1");
+    const review = () => proposalReviewKey.getState(note.state);
+    expect(ids(pendingIn(note.state))).toEqual([]);
+    expect(ids(review()?.applied ?? [])).toEqual(["a"]);
+
+    arrives(note, "b", "r2");
+    expect(ids(pendingIn(note.state))).toEqual(["b"]);
+
+    note.apply((tr) => tr.setMeta(proposalReviewKey, { applying: new Set<string>() }));
+    arrives(note, "c", "r1");
+    expect(ids(pendingIn(note.state))).toEqual(["a", "b", "c"]);
+  });
+
+  test("wait as before where this window didn't ask, and in a Mind opened with them already there", () => {
+    const apart = noteWith(
+      [{ type: "paragraph", attrs: { id: "p1" }, content: [text("The tide turns.")] }],
+      () => false,
+    );
+    arrives(apart, "a", "r1");
+    expect(pendingIn(apart.state).map((each) => each.id)).toEqual(["a"]);
+
+    const opened = noteWith(
+      [
+        {
+          type: "paragraph",
+          attrs: { id: "p2", [PROPOSAL_ATTRIBUTE]: { id: "d", request: "r1", kind: "insert" } },
+          content: [text("Already there.")],
+        },
+      ],
+      () => true,
+    );
+    expect(pendingIn(opened.state).map((each) => each.id)).toEqual(["d"]);
   });
 });
 
