@@ -2924,10 +2924,11 @@ export function createAnswers(options: AnswersOptions) {
           options.conversations.discard(turn);
           return ready;
         }
+        const readyMind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
           ready.model,
-          readOf(mind),
+          readOf(readyMind),
           false,
         );
         options.conversations.publish(readyTurn);
@@ -2937,7 +2938,7 @@ export function createAnswers(options: AnswersOptions) {
           ready,
           documentIds,
           emptyScope,
-          mind,
+          readyMind,
           question.onScreen,
           quotes,
         );

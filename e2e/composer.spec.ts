@@ -356,6 +356,7 @@ test("a Question waiting for model readiness survives a force-quit, is stopped o
     await expect(first.window.getByTestId("assistant-answer-on-its-way")).toBeVisible();
     // The held response proves the ask is waiting inside readyModel.
     await expect.poll(() => ollama.tags).toBeGreaterThan(before);
+    await expect.poll(() => bridge(first.window).storedConversation()).not.toBeNull();
     await forceQuit(first.app);
     ollama.release();
 

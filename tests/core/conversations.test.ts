@@ -33,6 +33,8 @@ import {
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 import { controlledModel, promptOf, scriptedModels, streamingModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
@@ -615,6 +617,53 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
     controlled.finish();
     expect(await finished).toMatchObject({ mindId: null, conversationId: result.conversation.id });
     expect(messages.at(-1)).toMatchObject({ text: "A Mind is a notebook.", status: "done" });
+  });
+
+  test("a Mind edited while model readiness waits is read after the wait", async () => {
+    const model = streamingModel("Noted.");
+    let hold = false;
+    let release = () => {};
+    const readiness = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let began = () => {};
+    const readinessBegan = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const { core, ended } = await setUp(model, {
+      ollamaModels: {
+        describe: async () => {
+          if (hold) {
+            began();
+            await readiness;
+          }
+          return null;
+        },
+        loaded: async () => null,
+        running: async () => true,
+      },
+    });
+    const mind = await core.createMind({ title: "Tides" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [note("Before the wait.")]);
+    await client.settled();
+
+    hold = true;
+    const asking = core.askInConversation({ text: "Summarise my notes", mindId: mind.id });
+    try {
+      await readinessBegan;
+      writeMind(client, [note("After the wait.")]);
+      await client.settled();
+    } finally {
+      release();
+    }
+    const result = await asking;
+    if (!result.asked) throw new Error("Not asked.");
+    expect(await ended(result.answerId)).toBe("finished");
+
+    const sent = promptOf(model).at(-1)?.text ?? "";
+    expect(sent).toContain("After the wait.");
+    expect(sent).not.toContain("Before the wait.");
   });
 
   test("stopped, or with its conversation deleted, keeps what it has; regenerated, it is written again in place", async () => {
