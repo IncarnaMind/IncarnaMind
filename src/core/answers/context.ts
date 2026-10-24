@@ -30,7 +30,7 @@ import { type ReviewReading, reviewReading } from "../mindText";
 import { attribute, contentMarkdown, textAttribute, toMarkdown } from "./blocks";
 import { answerMarkdown } from "./contextText";
 import type { AnswerMessage } from "./engine";
-import { askedAbout, onScreenLine } from "./prompt";
+import { askedAbout, mindsLine, onScreenLine } from "./prompt";
 import {
   type ChangeStates,
   type MindNames,
@@ -568,6 +568,8 @@ interface ConversationContextOptions {
   changeStates?: ChangeStates;
   /** The names of the Documents open on screen, the focused group's first. */
   onScreen?: readonly string[];
+  /** The names of the User's Minds, the most recently changed first. */
+  minds?: readonly string[];
 }
 
 /**
@@ -587,6 +589,7 @@ export function conversationContextOf(
     mindNames = () => null,
     changeStates,
     onScreen = [],
+    minds = [],
   }: ConversationContextOptions = {},
 ): QuestionContextWithOrigins {
   const pieces: Piece[] = earlier.flatMap((message): Piece[] => {
@@ -623,8 +626,8 @@ export function conversationContextOf(
     ];
   });
   const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(question));
-  // With the Question, not the Mind: opening another Document then never changes what a prompt cache keeps.
-  const asked = [onScreenLine(onScreen), mind?.selection ?? "", question]
+  // With the Question, not the Mind: opening another Document or changing a Mind then never changes what a prompt cache keeps.
+  const asked = [mindsLine(minds), onScreenLine(onScreen), mind?.selection ?? "", question]
     .filter((part) => part !== "")
     .join("\n\n");
   return {

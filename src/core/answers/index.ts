@@ -409,6 +409,9 @@ const NOTHING_TO_CITE =
 /** Tells the model its Question's Search scope holds no Documents, so it answers from what it has (#748). */
 const EMPTY_SCOPE_NOTE = `The User limited this Question to a Search scope (Folders, Tags or Documents) that holds no Documents, so there is nothing to search. ${NOTHING_TO_CITE} The line under your Answer offers to search all their Documents instead.`;
 
+// Told only this, models took a Mind the User named for a Document and wrote nothing (#1790).
+const MINDS_ARE_NOT_DOCUMENTS = "Their Minds aren't Documents: read_mind reads one they name.";
+
 const noDocumentsNote = (examples: boolean) =>
   `None of the User's own Documents can be searched yet${examples ? " (the examples IncarnaMind made aren't theirs)" : ""}, so there is nothing to search. ${NOTHING_TO_CITE} They can add Documents to the Library.`;
 
@@ -2159,9 +2162,10 @@ export function createAnswers(options: AnswersOptions) {
           [
             base,
             mode === "no-documents"
-              ? scoped && input.emptyScope
-                ? EMPTY_SCOPE_NOTE
-                : noDocumentsNote(input.emptyScope)
+              ? [
+                  scoped && input.emptyScope ? EMPTY_SCOPE_NOTE : noDocumentsNote(input.emptyScope),
+                  ...(withMindTools ? [MINDS_ARE_NOT_DOCUMENTS] : []),
+                ].join(" ")
               : documentInstructions(
                   mode,
                   options.documents.searchableNames(documentIds, LISTED_DOCUMENTS),
@@ -2600,12 +2604,14 @@ export function createAnswers(options: AnswersOptions) {
       mind && earlier.length > 0 ? mind.reading.section(MIND_TOKEN_LIMIT, asking) : mind?.section;
     const documents = options.documents.names();
     const shown = namesOnScreen(onScreen, documentIds);
+    const minds = help ? [] : (options.minds?.list().map((each) => each.name) ?? []);
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
       documents,
       mindNames: options.readableMindName,
       changeStates: changeStatesOf,
       onScreen: shown,
+      minds,
     });
     const requestOf = (reading: MindReading, kept: MindCut): RequestMind => ({
       text: kept.text,
@@ -2639,6 +2645,7 @@ export function createAnswers(options: AnswersOptions) {
                   mindNames: options.readableMindName,
                   changeStates: changeStatesOf,
                   onScreen: shown,
+                  minds,
                 }).context,
                 request: requestOf(mind.reading, smaller),
                 share: smaller.share,

@@ -129,6 +129,21 @@ export function onScreenLine(names: readonly string[]): string {
   return `${ON_SCREEN} ${names.map((name) => `"${listedName(name)}"`).join(", ")}`;
 }
 
+const YOUR_MINDS = "The User's Minds:";
+
+/** The most Mind names `mindsLine` gives: the most recently changed. */
+export const LISTED_MINDS = 30;
+
+/**
+ * The line just before the Question naming the User's Minds (#1790); "" for none. Given no
+ * names, models took "the Project plan" for a Document and wrote nothing.
+ */
+export function mindsLine(names: readonly string[]): string {
+  const listed = [...new Set(names.map(listedName))].slice(0, LISTED_MINDS);
+  if (listed.length === 0) return "";
+  return `${YOUR_MINDS} ${listed.map((name) => `"${name}"`).join(", ")}`;
+}
+
 /**
  * What "this document" and a short piece mean in the assistant (#1334), told once: given only
  * the Documents in scope, models summarised every one, at length.
@@ -237,6 +252,7 @@ export function mindInstructions(
     TURN_RULE,
     "",
     "The write command is create_mind for a new Mind, or add_to_mind for the empty Mind in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Mind the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
+    `- A line "${YOUR_MINDS} …" before the Question names their Minds, the most recently changed first. A name the User gives that one of their Minds has is that Mind, also when they don't call it a Mind ("the trip plan", "会议记录"): to write from it, read it with read_mind first; to change it, give its name in mind. Only a name that no Mind has can be a Document's. A name that is neither on the line nor a Document's may still be a Mind's, as read_mind finds any Mind by its name; when none has it, say so in one sentence that names it, and change nothing.`,
     "- A <tool-record> is IncarnaMind's record of what an earlier Answer's Tools really did, and what the User did with the changes since: trust it over that Answer's words, and never write one. A change the User undid or rejected is gone: don't bring it back or say it is still there. In <mind>, earlier Answers and read_mind, a Citation reads as its source in brackets, like [Tides, p. 3].",
     "- The Mind to change is the one in <mind>, unless the User names another, or means a page your <tool-record> says you made or changed earlier in this conversation: then give that Mind's name in mind. If they ask to change their text but none is in <mind> and they name none, change nothing: say so, and that they can open one or ask for a new Mind.",
     "- In <mind> and read_mind, [waiting change, adds: …] and [waiting change, removes: …] mark changes still waiting for the User, often your own. To change text that waits (make it longer or shorter, reword it, remove part of it), call edit_mind on it, naming its heading in part: that revises the waiting text itself. Never add a second copy. To add more from the Documents, search and cite first, then give edit_mind the section's whole new text as content.",
