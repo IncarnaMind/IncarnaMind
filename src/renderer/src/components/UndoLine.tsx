@@ -221,7 +221,6 @@ function ChangeLine({
   );
 }
 
-/** A line's own action, such as Reopen: its words, with its shortcut in the tooltip. */
 function ActionButton({ action }: { action: LineAction }) {
   const t = useT();
   const label = action.label(t);

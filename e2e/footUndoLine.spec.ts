@@ -73,7 +73,6 @@ function linesOf(target: Locator): Promise<number> {
   });
 }
 
-/** The line says its name cut in the middle, two lines at most, with its action whole and level with its last words. */
 async function expectWholeLine(window: Page, full: string, actionTestId: string): Promise<void> {
   const line = window.getByTestId("undo-line");
   const message = line.getByTestId("undo-message");
@@ -130,7 +129,6 @@ for (const language of ["en", "zh-CN"] as const) {
         const title = `Tides ${language} ${width}`;
         await nameMind(window, title);
 
-        // Renamed in place to a long name: its line is the one slot.
         await window.getByTestId("mind-list-item").filter({ hasText: title }).dblclick();
         const field = window.getByTestId("mind-rename");
         await expect(field).toBeVisible();
@@ -141,7 +139,6 @@ for (const language of ["en", "zh-CN"] as const) {
         await motionSettled(window);
         await expectWholeLine(window, LONG_NAME, "undo-action");
 
-        // Closing the tab replaces it: one line, in the same place and style.
         await window.locator('[role="tab"][aria-selected="true"]').getByTestId("tab-close").click();
         open -= 1;
         await expect(tabs).toHaveCount(open);
@@ -157,7 +154,6 @@ for (const language of ["en", "zh-CN"] as const) {
             .screenshot({ path: join(SCREENSHOTS, `foot-closed-${language}-${width}.png`) });
         }
 
-        // Never over the status row or the footer.
         const [lineBox, statusBox, footerBox] = await Promise.all([
           boxOf(line),
           boxOf(window.getByTestId("sidebar-status")),
@@ -167,7 +163,6 @@ for (const language of ["en", "zh-CN"] as const) {
         expect(overlaps(lineBox, footerBox)).toBe(false);
         expect(lineBox.y + lineBox.height).toBeLessThanOrEqual(statusBox.y + 0.5);
 
-        // Reopen, then ⇧⌘T, bring the tab back where it was; Esc puts the line away.
         await line.getByTestId("tab-notice-reopen").click();
         open += 1;
         await expect(tabs).toHaveCount(open);
@@ -189,7 +184,6 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(line.getByTestId("undo-message")).toHaveCount(0);
         await expect(tabs).toHaveCount(open);
 
-        // Back for the next width.
         await window.keyboard.press("ControlOrMeta+Shift+t");
         open += 1;
         await expect(tabs).toHaveCount(open);
