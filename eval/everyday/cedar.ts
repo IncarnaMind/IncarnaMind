@@ -22,10 +22,12 @@ const ENGLISH: readonly CedarDocument[] = [
     lines: [
       "SENIOR FACILITIES AGREEMENT - EXECUTED VERSION",
       "Borrower: Cedar Holdings Limited. Agent: Northbank plc.",
-      "Clause 21.2 Leverage. The Borrower shall ensure that Leverage in respect of each Relevant Period does not exceed 3.50:1.",
-      "Leverage means the ratio of Total Net Debt on the last day of a Relevant Period to EBITDA for that Relevant Period.",
+      "Clause 21.2 Leverage. The Borrower shall ensure that Leverage",
+      "in respect of each Relevant Period does not exceed 3.50:1.",
+      "Leverage means the ratio of Total Net Debt on the last day of a",
+      "Relevant Period to EBITDA for that Relevant Period.",
       "Relevant Period means each period of twelve months ending on a Quarter Date.",
-      "Signed for and on behalf of the Borrower and the Agent on 14 March 2025.",
+      "Signed for the Borrower and the Agent on 14 March 2025.",
     ],
   },
   {
@@ -33,7 +35,8 @@ const ENGLISH: readonly CedarDocument[] = [
     lines: [
       "AMENDMENT LETTER No. 2 to the Senior Facilities Agreement",
       "Executed on 2 September 2026.",
-      "With effect from 1 January 2027, in Clause 21.2 the ratio 3.50:1 is replaced by 3.00:1.",
+      "With effect from 1 January 2027, in Clause 21.2 the ratio 3.50:1",
+      "is replaced by 3.00:1.",
       "Until that date Clause 21.2 applies unamended.",
     ],
   },
