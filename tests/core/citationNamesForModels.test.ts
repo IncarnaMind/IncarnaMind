@@ -62,17 +62,17 @@ describe("a Question's context", () => {
     await client.settled();
 
     expect(await contextOfNextQuestion(core, client, mind.id, model, "When?")).toContain(
-      "It leaves early [Ferry, p. 2]",
+      "It leaves early [Ferry, p. 2 · C1]",
     );
 
     await core.renameDocument(ferry.id, "Ferry timetable");
     const renamed = await contextOfNextQuestion(core, client, mind.id, model, "And later?");
-    expect(renamed).toContain("It leaves early [Ferry timetable, p. 2]");
-    expect(renamed).not.toContain("[Ferry, p. 2]");
+    expect(renamed).toContain("It leaves early [Ferry timetable, p. 2 · C1]");
+    expect(renamed).not.toContain("[Ferry, p. 2");
 
     await core.deleteDocument(ferry.id);
     const deleted = await contextOfNextQuestion(core, client, mind.id, model, "And on Sunday?");
-    expect(deleted).toContain("It leaves early [Ferry, p. 2]");
+    expect(deleted).toContain("It leaves early [Ferry, p. 2 · C1]");
     expect(deleted).not.toContain("Ferry timetable");
   });
 
@@ -127,20 +127,20 @@ describe("the assistant's context", () => {
     };
 
     const first = await asked("When does the ferry leave?", null);
-    expect(first.sent).toContain("It leaves early [Ferry, p. 2]");
+    expect(first.sent).toContain("It leaves early [Ferry, p. 2 · C1]");
 
     await core.renameDocument(ferry.id, "Ferry timetable");
     const renamed = await asked("And on Sunday?", first.conversationId);
-    expect(renamed.sent).toContain("It leaves early [Ferry timetable, p. 2]");
+    expect(renamed.sent).toContain("It leaves early [Ferry timetable, p. 2 · C1]");
     expect(renamed.sent).toMatch(/It leaves at nine \[Ferry timetable[^\]]*\]/);
     expect(renamed.sent).not.toMatch(/\[Ferry[,\]]/);
 
     await core.deleteDocument(ferry.id);
     const deleted = await asked("And on Monday?", first.conversationId);
     // Each reads as it was cited: the Answer written after the rename was cited as "Ferry timetable".
-    expect(deleted.sent).toContain("It leaves early [Ferry, p. 2]");
-    expect(deleted.sent).toContain("It leaves at nine [Ferry, line 1]");
-    expect(deleted.sent).toContain("It leaves at nine [Ferry timetable, line 1]");
+    expect(deleted.sent).toContain("It leaves early [Ferry, p. 2 · C1]");
+    expect(deleted.sent).toContain("It leaves at nine [Ferry, line 1 · C");
+    expect(deleted.sent).toContain("It leaves at nine [Ferry timetable, line 1 · C");
   });
 });
 

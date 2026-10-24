@@ -49,6 +49,7 @@ import { askedFor, waitsForUser as heldForUser } from "../../shared/askedChanges
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
+import { translate } from "../../shared/i18n";
 import { englishPlace } from "../../shared/locations";
 import { holdsNothing } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
@@ -202,6 +203,11 @@ import {
   type RequestMind,
   readMind,
 } from "./context";
+import {
+  type ContextCitations,
+  createContextCitations,
+  withoutWrittenIds,
+} from "./contextCitations";
 import { coverageInstructions, coverageOf, documentsAsked, type SizedDocument } from "./coverage";
 import {
   documentSkimBlock,
@@ -322,6 +328,8 @@ interface WrittenAnswer {
 interface MindToRead {
   mindId: string;
   reading: MindReading;
+  /** The ids its Citations read with, which the Answer's `cite` takes (#1800). */
+  ids: ContextCitations;
   /** What of it the Question context holds, before the model is known: at most `MIND_TOKEN_LIMIT` tokens. */
   section: MindSection;
 }
@@ -829,6 +837,8 @@ export function createAnswers(options: AnswersOptions) {
     questionId: string;
     model: ChatModelChoice;
     context: QuestionContext;
+    /** The ids the Citations in `context` read with; absent: it shows none. */
+    ids?: ContextCitations;
     /** The Documents of the Question's Search scope; null with no Search scope (every Document). */
     documentIds: string[] | null;
     /** The User limited the Question to some Documents. Absent: `documentIds` names some. */
@@ -1078,6 +1088,8 @@ export function createAnswers(options: AnswersOptions) {
       : null;
     const passagesOf = (documentId: string) =>
       options.documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+    const ids = input.ids ?? createContextCitations();
+    const notKept = translate(answerLanguage(context.question), "answer.sourceNotKept");
     const session = createCitationSession(
       searched,
       {
@@ -1091,6 +1103,7 @@ export function createAnswers(options: AnswersOptions) {
             passages: () => openingWithin(passagesOf(original.id), OPENING_TOKEN_LIMIT),
           }
         : undefined,
+      ids,
     );
     /**
      * Whether its model is offered `calculate` and its steer: a fact of the
@@ -1144,7 +1157,8 @@ export function createAnswers(options: AnswersOptions) {
     /** Writes the Answer as it stands into its home; false if it is gone. */
     const write = (outcome?: Outcome): boolean => {
       const final = outcome !== undefined;
-      const text = withoutFootnoteDefinitions(markdown);
+      // Turned into their Citations when the Answer ends (`finish`): till then none shows.
+      const text = withoutFootnoteDefinitions(final ? markdown : withoutWrittenIds(markdown));
       // Final: a marker with no record is removed, and each is counted for the summary.
       const citationOf = (marker: number) =>
         final ? session.finalCitation(marker) : session.streamingCitation(marker);
@@ -1211,7 +1225,15 @@ export function createAnswers(options: AnswersOptions) {
       for (const call of toolCalls) {
         if (call.status === "running") call.status = "failed";
         if (call.approval === "waiting") call.approval = "denied";
+        // What a call was given is kept with the conversation, where no id may be stored (#1800).
+        call.input = Object.fromEntries(
+          Object.entries(call.input).map(([key, value]) => [
+            key,
+            typeof value === "string" ? withoutWrittenIds(value) : value,
+          ]),
+        );
       }
+      markdown = session.citeWrittenIds(markdown, notKept);
       // The check runs once, now; its results are stored with each Citation, and each figure's input.
       try {
         session.check();
@@ -1887,6 +1909,7 @@ export function createAnswers(options: AnswersOptions) {
         minds && input.assistant
           ? mindTools({
               minds,
+              ids,
               prepared,
               rewriting: () => {
                 rewriting ??= options.prepareModel(model, "off").catch((error: unknown) => {
@@ -1907,7 +1930,9 @@ export function createAnswers(options: AnswersOptions) {
                 let notFound = 0;
                 let unrecorded = 0;
                 let firstUnrecorded = -1;
-                const written = withoutSearchTalk(withoutFootnoteDefinitions(text));
+                const written = withoutSearchTalk(
+                  session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
+                );
                 const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
@@ -2168,6 +2193,7 @@ export function createAnswers(options: AnswersOptions) {
                   passages,
                   scoped,
                   calculating,
+                  withMindTools || ids.size() > 0,
                 ),
             stillReadingNote(options.documents.reading(documentIds)),
             coverageInstructions(
@@ -2552,8 +2578,9 @@ export function createAnswers(options: AnswersOptions) {
     const name = options.readableMindName(mindId);
     if (name === null) return null;
     const documents = options.documents.names();
-    const reading = content.peek(mindId, (blocks) => readMind(blocks, name, focus, documents));
-    return { mindId, reading, section: reading.section(MIND_TOKEN_LIMIT, question) };
+    const ids = createContextCitations();
+    const reading = content.peek(mindId, (blocks) => readMind(blocks, name, focus, documents, ids));
+    return { mindId, reading, ids, section: reading.section(MIND_TOKEN_LIMIT, question) };
   }
 
   /** What an Answer records of the Mind it reads; null when none of it fits. */
@@ -2600,12 +2627,14 @@ export function createAnswers(options: AnswersOptions) {
       mind && earlier.length > 0 ? mind.reading.section(MIND_TOKEN_LIMIT, asking) : mind?.section;
     const documents = options.documents.names();
     const shown = namesOnScreen(onScreen, documentIds);
+    const ids = mind?.ids ?? createContextCitations();
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
       documents,
       mindNames: options.readableMindName,
       changeStates: changeStatesOf,
       onScreen: shown,
+      ids,
     });
     const requestOf = (reading: MindReading, kept: MindCut): RequestMind => ({
       text: kept.text,
@@ -2618,6 +2647,7 @@ export function createAnswers(options: AnswersOptions) {
       questionId: question.id,
       model: ready.model,
       context,
+      ids,
       contextReasons: [
         ...(section?.origins ?? []).map((source) => ({ via: "mind" as const, source })),
         ...origins.map((source) => ({ via: "context" as const, source })),
@@ -2639,6 +2669,7 @@ export function createAnswers(options: AnswersOptions) {
                   mindNames: options.readableMindName,
                   changeStates: changeStatesOf,
                   onScreen: shown,
+                  ids,
                 }).context,
                 request: requestOf(mind.reading, smaller),
                 share: smaller.share,
@@ -2788,6 +2819,7 @@ export function createAnswers(options: AnswersOptions) {
       documentIds: string[] | null;
       emptyScope: boolean;
     };
+    const ids = createContextCitations();
     const written = content.edit(
       mindId,
       (blocks): { answerId: string; edited: boolean } & Asked => {
@@ -2798,6 +2830,7 @@ export function createAnswers(options: AnswersOptions) {
           question.index,
           QUESTION_CONTEXT_TOKEN_BUDGET,
           options.documents.names(),
+          ids,
         );
         const asked = {
           ...askedWith(context, question.element),
@@ -2851,6 +2884,7 @@ export function createAnswers(options: AnswersOptions) {
       questionId,
       model,
       ...written,
+      ids,
       forcedSkill,
       consentNeeded,
     });

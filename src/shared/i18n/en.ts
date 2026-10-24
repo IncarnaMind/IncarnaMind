@@ -2778,6 +2778,7 @@ export const en = {
   "answer.figures.calculated.one": "Calculated 1 figure",
   "answer.figures.uncalculated": "{count} figures couldn’t be calculated",
   "answer.figures.uncalculated.one": "1 figure couldn’t be calculated",
+  "answer.sourceNotKept": "(source couldn’t be kept)",
   "answer.status.stopped": "Stopped",
   "answer.stop": "Stop",
   "answer.wait.still": "Still working",

@@ -62,6 +62,7 @@ import {
   topLevelBlocks,
 } from "../../answers/blocks";
 import type { CheckWrittenInput, WrittenCheck } from "../../answers/checks/written";
+import type { ContextCitations } from "../../answers/contextCitations";
 import type { ParagraphAsked } from "../../answers/paragraphAsked";
 import { withoutPointersBack } from "../../answers/pointersBack";
 import {
@@ -130,12 +131,14 @@ export interface MindsForTools {
   edit<T>(mindId: string, change: (blocks: Y.XmlFragment) => T): T;
   /**
    * The Mind as the model reads the one in focus, within about `tokens`
-   * tokens, and where the third-party text in what it gives came from (#78).
+   * tokens, its Citations with their ids in `ids`, and where the third-party
+   * text in what it gives came from (#78).
    */
   text(
     mindId: string,
     name: string,
     tokens: number,
+    ids: ContextCitations,
   ): { text: string; origins: readonly ThirdPartySource[] };
   /** Saves a Checkpoint of the Mind as it is, before the AI changes it (#113). */
   checkpoint(mindId: string): void;
@@ -175,6 +178,8 @@ export interface MindsForTools {
 
 export interface MindToolsOptions {
   minds: MindsForTools;
+  /** The ids `cite` takes for the Citations read_mind shows (#1800). */
+  ids: ContextCitations;
   /** The model the Answer is written with: edits are made on it too. */
   prepared: PreparedChatModel;
   /**
@@ -1584,7 +1589,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     untrustedResult: false,
     async call(input, { readThirdParty }) {
       const mind = found(findMind(minds.list(), text(input.mind, "mind")));
-      const read = minds.text(mind.id, mind.name, READ_TOKENS);
+      const read = minds.text(mind.id, mind.name, READ_TOKENS, options.ids);
       for (const source of read.origins) readThirdParty?.(source);
       return read.text;
     },

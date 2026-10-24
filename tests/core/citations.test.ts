@@ -1093,7 +1093,7 @@ describe("Citations in the Mind", { timeout: 30_000 }, () => {
     await answerEnded(core, result.answerId);
 
     expect(promptOf(model, 0)[1]?.text).toBe(
-      "Spring tides come at full moon[Tides, p. 2].\n\nIs that right?",
+      "Spring tides come at full moon[Tides, p. 2 · C1].\n\nIs that right?",
     );
   });
 });

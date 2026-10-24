@@ -506,9 +506,11 @@ describe("Built-in Skills forced on a Question", { timeout: 30_000 }, () => {
         );
         expect(calls[0]?.system).not.toContain(otherBody);
       }
-      // The Mind reached the model, its Citation as a reference.
+      // The Mind reached the model, its Citation as a reference with the id cite takes (#1800).
       const firstUser = calls[0]?.options.prompt.find((message) => message.role === "user");
-      expect(JSON.stringify(firstUser?.content)).toContain("The Moon drives the tides[Tides].");
+      expect(JSON.stringify(firstUser?.content)).toContain(
+        "The Moon drives the tides[Tides · C1].",
+      );
 
       // The normal Citation flow: a checked Citation in the Answer's text.
       expect(citationsIn(client, result.answerId)).toEqual([
