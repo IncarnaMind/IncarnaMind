@@ -2,10 +2,42 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { expect, test } from "vitest";
 import * as Y from "yjs";
-import type { Examples, LinkedFolder, Mind } from "../../src/core";
+import type { Document, Examples, LinkedFolder, Mind } from "../../src/core";
+import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import { createExamples } from "../../src/core/examples";
 import type { Language } from "../../src/core/language";
 import { createTempDataFolder } from "../helpers/core";
+
+const documentOf = (linkedFolderId: string, name: string): Document => ({
+  id: randomUUID(),
+  name,
+  kind: "pdf",
+  contentHash: randomUUID(),
+  path: `/examples/${name}.pdf`,
+  fileStatus: "available",
+  linkedFolderId,
+  size: 1000,
+  pageCount: 1,
+  status: "queued",
+  progress: null,
+  scan: null,
+  failure: null,
+  folderId: null,
+  tags: [],
+  tagging: "pending",
+  taggingError: null,
+  creationDate: null,
+  modifiedAt: null,
+  title: null,
+  web: null,
+  reference: null,
+  ownFile: null,
+  notCited: false,
+  found: null,
+  importedAs: null,
+  createdAt: "2026-10-16T09:00:00.000Z",
+  updatedAt: "2026-10-16T09:00:00.000Z",
+});
 
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
 
@@ -19,6 +51,8 @@ async function exampleOverFakes() {
   const values = new Map<string, unknown>();
   const minds = new Map<string, { mind: Mind; blocks: Y.XmlFragment }>();
   const folders = new Set<string>();
+  const documents = new Map<string, Document[]>();
+  const cited = new Set<string>();
   let language: Language = "en";
   let shown: Examples | undefined;
   const reports: { folder: string; shownFolder: string | null | undefined }[] = [];
@@ -57,6 +91,10 @@ async function exampleOverFakes() {
     linkFolder: async (path) => {
       const id = randomUUID();
       folders.add(id);
+      documents.set(id, [
+        documentOf(id, "Northwind Retail · Q3 2026 results"),
+        documentOf(id, "Northwind Retail · Senior facilities agreement (excerpt)"),
+      ]);
       setImmediate(() => reports.push({ folder: id, shownFolder: shown?.linkedFolderId }));
       return {
         id,
@@ -73,10 +111,11 @@ async function exampleOverFakes() {
     },
     unlinkFolder: (linkedFolderId) => void folders.delete(linkedFolderId),
     linkedFolderExists: (linkedFolderId) => folders.has(linkedFolderId),
-    documentsIn: () => [],
+    documentsIn: (linkedFolderId) => documents.get(linkedFolderId) ?? [],
     mindFolder: () => null,
     now: () => "2026-10-16T09:00:00.000Z",
     checksRelyOn: () => false,
+    conversationCitationsRelyOn: (documentIds) => documentIds.some((id) => cited.has(id)),
     recheck: () => {
       throw new Error("No Document has been read.");
     },
@@ -88,6 +127,10 @@ async function exampleOverFakes() {
   return {
     examples,
     reports,
+    cite: (documentIds: readonly string[]) => {
+      for (const id of documentIds) cited.add(id);
+    },
+    uncite: () => cited.clear(),
     switchTo: async (next: Language) => {
       language = next;
       await examples.followLanguage();
@@ -106,4 +149,23 @@ test("an example's Documents are known to be the example's before they are repor
 
   expect(reports).toHaveLength(3);
   for (const report of reports) expect(report.shownFolder).toBe(report.folder);
+});
+
+// protects=an untouched example whose Documents an existing Conversation Citation points at keeps its language and its Documents when the interface language changes (#1794); fails_when=the Documents are swapped, so the Citation's page can no longer open; no_claim=what the Citation's card shows.
+test("an example whose Documents a Conversation Citation uses keeps its language and Documents", async () => {
+  const { examples, switchTo, cite, uncite } = await exampleOverFakes();
+
+  const made = await examples.create();
+  const documents = examples.documentsOf(made.mindId as string) ?? [];
+  expect(documents).toHaveLength(2);
+  cite(documents);
+
+  await switchTo("zh-CN");
+  expect(examples.status().ready).toBe(EXAMPLE_SETS.credit.en.ready?.question);
+
+  // Once the Citation is gone, the next change of language swaps the example as usual.
+  uncite();
+  await switchTo("en");
+  await switchTo("zh-CN");
+  expect(examples.status().ready).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
 });
