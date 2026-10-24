@@ -333,10 +333,12 @@ export function parseQuotedWords(value: unknown): QuotedWords | null {
 
 /**
  * Whether the words the Answer put in quotation marks are in `text` too, as the
- * Citation check looks for them; a Citation that asked for none counts as
+ * Citation check looks for them: the pieces joined as the sentence wrote them,
+ * not each anywhere on its own. A Citation that asked for none counts as
  * found, so only a Citation with such words can fail this.
  */
 export function quotedWordsFoundIn(text: string, value: unknown): boolean {
   const quoted = parseQuotedWords(value);
-  return quoted === null || quoted.answer.every((piece) => findQuote(text, piece.text) !== null);
+  if (quoted === null) return true;
+  return findQuote(text, quoted.answer.map((piece) => piece.text).join("")) !== null;
 }
