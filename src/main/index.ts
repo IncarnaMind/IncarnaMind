@@ -72,7 +72,7 @@ const folderHeldBefore = heldByAnotherCopy(app.getPath("userData"), reportLock);
 // window comes forward. Two copies asking in the same millisecond can both get it, so the data
 // folder's own lock decides which of them runs (#1352).
 const instanceLock = app.requestSingleInstanceLock()
-  ? lockInstance(app.getPath("userData"), reportLock)
+  ? lockInstance(app.getPath("userData"), reportLock, { holderMayBeLeaving: folderHeldBefore })
   : null;
 const ownsDataFolder = instanceLock?.held ?? false;
 if (instanceLock?.timedOut) {

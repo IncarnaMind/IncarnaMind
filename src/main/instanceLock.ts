@@ -10,6 +10,9 @@ const SQLITE_NOTADB = 26;
 // database, so the app doesn't start.
 const GIVE_UP_AFTER_MS = 10_000;
 
+// A copy killed or crashing keeps its locks for a moment while the system takes the process down.
+const LEAVING_MS = 2_000;
+
 export interface InstanceLock {
   held: boolean;
   /** The folder stayed busy until the deadline: nothing should start, and the User is told. */
@@ -82,15 +85,19 @@ export function heldByAnotherCopy(
  * folder, however the two are scheduled. A file that isn't a database is emptied in place and
  * asked for again. `report` gets a failure that isn't one of these; the app then starts, as it did
  * without the lock.
+ *
+ * `holderMayBeLeaving`: this copy got Electron's lock from one that held the folder a moment ago,
+ * and may still be ending (#1448), so a held folder is asked for again for a short while first.
  */
 export function lockInstance(
   folder: string,
   report: (what: string, error: unknown) => void,
-  giveUpAfterMs = GIVE_UP_AFTER_MS,
+  { giveUpAfterMs = GIVE_UP_AFTER_MS, holderMayBeLeaving = false } = {},
 ): InstanceLock {
   const lockFile = join(folder, "instance.lock");
   const ownerFile = join(folder, "instance.owner");
   const give = performance.now() + giveUpAfterMs;
+  const holderGoneBy = performance.now() + (holderMayBeLeaving ? LEAVING_MS : 0);
   const held: DatabaseSync[] = [];
   let emptyings = 0;
   const emptied = (error: unknown, file: string) => {
@@ -115,7 +122,7 @@ export function lockInstance(
         if (code(error) !== SQLITE_BUSY) throw error;
       }
       try {
-        if (isHeld(ownerFile)) return NOT_HELD;
+        if (isHeld(ownerFile) && performance.now() >= holderGoneBy) return NOT_HELD;
       } catch (error) {
         if (!emptied(error, ownerFile)) throw error;
         continue;

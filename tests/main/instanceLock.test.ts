@@ -111,10 +111,10 @@ describe("one copy of the app holds a data folder", () => {
       db.exec("BEGIN EXCLUSIVE");
       return db;
     };
-    const ask = () =>
+    const ask = (mode = "try") =>
       new Promise<{ held: boolean; after: number }>((resolve, reject) => {
         const began = Date.now();
-        const child = spawn(process.execPath, [bundle, "try", where], {
+        const child = spawn(process.execPath, [bundle, mode, where], {
           stdio: ["ignore", "pipe", "inherit"],
         });
         let out = "";
@@ -138,8 +138,14 @@ describe("one copy of the app holds a data folder", () => {
     const refused = await ask();
     expect(refused.held).toBe(false);
     expect(refused.after).toBeLessThan(5_000);
+
+    // A copy that took Electron's lock from the holder waits a moment for it to end, then gives up.
+    expect((await ask("leaving")).held).toBe(false);
+    const waiting = ask("leaving");
+    await new Promise((done) => setTimeout(done, 1_000));
     lock.close();
     owner.close();
+    expect((await waiting).held).toBe(true);
   });
 
   test("a folder busy with nobody holding it past the deadline is not started on, and says so", async () => {
@@ -148,7 +154,7 @@ describe("one copy of the app holds a data folder", () => {
     stopped.exec("PRAGMA locking_mode = EXCLUSIVE");
     stopped.exec("BEGIN EXCLUSIVE");
     const began = performance.now();
-    const lock = lockInstance(where, report, 300);
+    const lock = lockInstance(where, report, { giveUpAfterMs: 300 });
     stopped.close();
     expect(lock).toMatchObject({ held: false, timedOut: true });
     expect(performance.now() - began).toBeGreaterThanOrEqual(300);
@@ -161,7 +167,7 @@ describe("one copy of the app holds a data folder", () => {
     await writeFile(join(where, "instance.owner"), text);
     const lock = lockInstance(where, report);
     expect(lock.held).toBe(true);
-    expect(lockInstance(where, report, 50)).toMatchObject({ held: false, timedOut: false });
+    expect(lockInstance(where, report, { giveUpAfterMs: 50 })).toMatchObject({ held: false, timedOut: false });
     lock.release();
   });
 
