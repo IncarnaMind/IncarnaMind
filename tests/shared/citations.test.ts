@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { CitationAttributes } from "../../src/core/api";
+import type { CitationAttributes, CitationRecheck } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import {
   badgeMessage,
+  changedSourceNote,
   citationAttributesOf,
   citationReference,
   citationSource,
@@ -12,6 +13,7 @@ import {
   closestWordsMessage,
   parseQuotedWords,
   quotedWordsFoundIn,
+  quoteStanding,
   shownDocumentName,
   withShownName,
 } from "../../src/shared/citations";
@@ -616,6 +618,76 @@ describe("Finding a quote across pages in the viewer", () => {
     expect(findQuoteInPages(pages, "Neap tides are small.")).toEqual([
       { page: 1, piece: 0, start: 0, end: 21 },
     ]);
+  });
+});
+
+describe("A Citation whose Document changed after it was cited", () => {
+  const rechecked = (patch: Partial<CitationRecheck>): CitationRecheck => ({
+    check: "found",
+    checkReason: null,
+    contentHash: "def",
+    passageId: "passage-2",
+    pageFrom: 12,
+    pageTo: 13,
+    location: { kind: "page", from: 12, to: 13 },
+    ...patch,
+  });
+
+  test("finds the quote at its Location, at another one, or no longer there", () => {
+    expect(quoteStanding(found, rechecked({}))).toBe("found");
+    // A quote that now spans another Unit moved too.
+    expect(quoteStanding(found, rechecked({ pageFrom: 14, pageTo: 15 }))).toBe("moved");
+    expect(quoteStanding(found, rechecked({ pageTo: 14 }))).toBe("moved");
+    expect(
+      quoteStanding(found, rechecked({ check: "not-found", checkReason: "quote-not-on-pages" })),
+    ).toBe("gone");
+    // A whole file cited before Locations stays found as one text.
+    expect(
+      quoteStanding({ pageFrom: null, pageTo: null }, rechecked({ pageFrom: null, pageTo: null })),
+    ).toBe("found");
+    // Not while it isn't checked, or when the version can't be checked.
+    expect(quoteStanding(found, null)).toBeNull();
+    expect(
+      quoteStanding(found, rechecked({ check: "cant-check", checkReason: "no-text" })),
+    ).toBeNull();
+  });
+
+  test("says the Document changed and how the quote stands, in English and Chinese", () => {
+    const note = (patch: Partial<CitationRecheck>, language: Language) =>
+      changedSourceNote(true, found, rechecked(patch), in_(language));
+    expect(note({}, "en")).toBeNull();
+    expect(note({}, "zh-CN")).toBeNull();
+    expect(
+      note({ pageFrom: 14, pageTo: 14, location: { kind: "section", heading: "Budget" } }, "en"),
+    ).toEqual({
+      notice: "The Document changed after this was cited.",
+      quote: "Its quote is now at § Budget.",
+    });
+    expect(
+      note({ pageFrom: 14, pageTo: 14, location: { kind: "section", heading: "Budget" } }, "zh-CN"),
+    ).toEqual({
+      notice: "此文档在被引用后有改动。",
+      quote: "引文已移到§ Budget。",
+    });
+    expect(note({ check: "not-found", checkReason: "quote-not-on-pages" }, "en")).toEqual({
+      notice: "The Document changed after this was cited.",
+      quote: "Its quote is no longer in the new version.",
+    });
+    expect(note({ check: "not-found", checkReason: "quote-not-on-pages" }, "zh-CN")).toEqual({
+      notice: "此文档在被引用后有改动。",
+      quote: "新版本中已找不到这条引文。",
+    });
+    // Changed, but the new version can't be checked: the notice alone.
+    expect(note({ check: "cant-check", checkReason: "no-text" }, "en")).toEqual({
+      notice: "The Document changed after this was cited.",
+      quote: null,
+    });
+  });
+
+  test("says nothing while the Document is unchanged, while the quote is still at its Location, and until it is checked", () => {
+    expect(changedSourceNote(false, found, rechecked({}), in_("en"))).toBeNull();
+    expect(changedSourceNote(true, found, null, in_("en"))).toBeNull();
+    expect(changedSourceNote(true, found, rechecked({}), in_("en"))).toBeNull();
   });
 });
 

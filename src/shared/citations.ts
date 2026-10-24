@@ -10,6 +10,7 @@ import type {
   CitationAttributes,
   CitationCheck,
   CitationCheckReason,
+  CitationRecheck,
   Document,
   KeptCitationText,
   QuotedPiece,
@@ -214,6 +215,62 @@ export function citationState(
     return { check: "cant-check", reason: "document-removed", documentId: null, changedAfterCited };
   }
   return { check, reason, documentId: live.id, changedAfterCited };
+}
+
+/** Where a Citation's quote stands in its Document's current version. */
+export type QuoteStanding = "found" | "moved" | "gone";
+
+/**
+ * How a Citation's quote stands in the version `recheck` read: at the
+ * Location it cites, at another one, or no longer there. Null while the
+ * version isn't checked, and when it can't be checked.
+ */
+export function quoteStanding(
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo">>,
+  recheck: CitationRecheck | null,
+): QuoteStanding | null {
+  if (recheck === null || recheck.check === "cant-check") return null;
+  if (recheck.check !== "found") return "gone";
+  const from = cited.pageFrom ?? null;
+  const to = cited.pageTo ?? from;
+  const now = recheck.pageFrom;
+  return now === from && (recheck.pageTo ?? now) === to ? "found" : "moved";
+}
+
+/** What a Citation's card and the viewer say once its Document changed after it was cited. */
+export interface ChangedSource {
+  /** "The Document changed after this was cited." */
+  notice: string;
+  /** How the quote stands in the new version; null when that couldn't be checked. */
+  quote: string | null;
+}
+
+/**
+ * What a Citation's card and its viewer say when its Document changed after
+ * it was cited: that it changed, and where its quote stands in the new
+ * version. Null while the Document is unchanged, and while the quote is still
+ * at its Location in the new version: the text it quotes didn't change, so
+ * nothing is said.
+ */
+export function changedSourceNote(
+  changed: boolean,
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo">>,
+  recheck: CitationRecheck | null,
+  t: Translate,
+): ChangedSource | null {
+  if (!changed || recheck === null) return null;
+  const standing = quoteStanding(cited, recheck);
+  if (standing === "found") return null;
+  const notice = t("citation.changedAfterCited");
+  if (standing === "gone") return { notice, quote: t("citation.changed.gone") };
+  if (standing === null) return { notice, quote: null };
+  const where = recheck.location ? formatLocation(recheck.location, t) : null;
+  return {
+    notice,
+    quote: where
+      ? t("citation.changed.moved", { location: where })
+      : t("citation.changed.moved.anywhere"),
+  };
 }
 
 /**

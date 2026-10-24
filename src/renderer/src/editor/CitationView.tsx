@@ -12,6 +12,7 @@ import {
 import {
   badgeMessage,
   type CitationState,
+  changedSourceNote,
   citationSource,
   citationState,
   parseQuotedWords,
@@ -26,6 +27,7 @@ import {
 } from "../../../shared/locations";
 import { useAnswers } from "../answers";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
+import { useCitationRecheck } from "../citationVersion";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
@@ -538,9 +540,8 @@ function CitationCard({
   const t = useT();
   const language = useLanguage();
   const gap = useGap();
-  const web = useAppStore(
-    (store) => store.documents.find((each) => each.id === state.documentId)?.web ?? null,
-  );
+  const live = useAppStore((store) => store.documents.find((each) => each.id === state.documentId));
+  const web = live?.web ?? null;
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;
   const withPdfPage = location ? formatLocationWithPdf(location, t) : null;
@@ -571,6 +572,12 @@ function CitationCard({
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
   const quote = useReadableQuote(attributes);
+  const recheck = useCitationRecheck(
+    state.changedAfterCited ? attributes : null,
+    state.changedAfterCited,
+    live?.contentHash,
+  );
+  const changed = changedSourceNote(state.changedAfterCited, attributes, recheck, t);
   return (
     <div className={`citation-card citation-card--${state.check}`} contentEditable={false}>
       <div className="citation-card-head">
@@ -602,6 +609,16 @@ function CitationCard({
         </figure>
       )}
       {state.check === "not-found" && <CitationQuotedWords attributes={attributes} />}
+      {changed && (
+        <div data-testid="citation-changed" className="citation-card-changed">
+          <p className="citation-card-note">{changed.notice}</p>
+          {changed.quote && (
+            <p data-testid="citation-changed-quote" className="citation-card-note">
+              {changed.quote}
+            </p>
+          )}
+        </div>
+      )}
       {attributes.verdict && (
         <p data-testid="citation-verdict" className="citation-card-verdict">
           {attributes.verdict}

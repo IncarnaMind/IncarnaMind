@@ -5266,6 +5266,11 @@
     margin: 0;
     vertical-align: baseline;
   }
+  .citation-card-changed {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
   .citation-card-note {
     padding-left: 22px;
     font-size: var(--text-meta);

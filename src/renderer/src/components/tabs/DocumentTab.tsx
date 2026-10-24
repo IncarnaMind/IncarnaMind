@@ -151,8 +151,9 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
       document,
       preview,
       keep: () => void useAppStore.getState().changeLayout({ type: "keep", tabId }),
+      target,
     }),
-    [document, preview, tabId],
+    [document, preview, tabId, target],
   );
   const fileKey = useFileKey(document);
   const places = usePlaceMemory(target);
