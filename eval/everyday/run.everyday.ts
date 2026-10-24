@@ -9,8 +9,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import type { AnswerUsage } from "../../src/core";
+import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { markersIn } from "../../src/shared/answerBlocks";
+import { evalOllamaModels } from "../lib/citations";
 import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
 import type { EvalDocument } from "../lib/evaluationSet";
@@ -19,6 +21,7 @@ import { createLog, type Log } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { type CaseResult, fetchPapers, fetchReserves, judgeOf, reports, runCase } from "./asking";
 import { CASES, type EverydayCase, floorOf, type LibraryName } from "./cases";
+import { writeCedarDocuments } from "./cedar";
 import { failureLine, pointsBack, type RequestFailure } from "./checks";
 import { writeDatedDocuments } from "./dated";
 import { type DecisionProvider, decide, forcing } from "./decisions";
@@ -56,11 +59,16 @@ async function runModel(
     reports: needed.has("reports") ? await reports() : [],
     dated: needed.has("dated") ? await writeDatedDocuments(datedFolder) : [],
     reserves: needed.has("reserves") ? await fetchReserves(config.cacheDir, log) : [],
+    cedar: needed.has("cedar") ? await writeCedarDocuments(datedFolder, "en") : [],
+    "cedar-zh": needed.has("cedar-zh") ? await writeCedarDocuments(datedFolder, "zh-CN") : [],
   };
+  const calculates =
+    catalogFacts(modelsProviderOfKind(chat.kind, chat.endpoint), chat.modelId)?.calculates === true;
+  const ollamaModels = evalOllamaModels(chat);
   const judge = createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" });
   const model = `${chat.kind}/${chat.modelId}${decider ? ` + ${decider.provider} decisions` : ""}`;
   const results: CaseResult[] = [];
-  for (const name of ["papers", "reports", "dated", "reserves"] as const) {
+  for (const name of ["papers", "reports", "dated", "reserves", "cedar", "cedar-zh"] as const) {
     const wanted = cases.filter((each) => each.library === name);
     if (wanted.length === 0) continue;
     const watch = watchReasks();
@@ -81,6 +89,7 @@ async function runModel(
       examples: join(ROOT, "resources", "examples"),
       keep: config.keepData,
       embeddings: false,
+      ...(ollamaModels && { ollamaModels }),
       log,
     });
     try {
@@ -103,6 +112,7 @@ async function runModel(
         try {
           result = await runCase(library, scoped, judge, model, each, {
             watch,
+            calculates,
             ...(deciding && { deciding }),
           });
         } catch (error) {

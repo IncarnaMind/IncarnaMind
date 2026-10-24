@@ -50,7 +50,7 @@ import {
 import { DATED_TEXTS } from "./dated";
 import { citedClaims } from "./dates";
 import { type Decision, decisionInput, type Forcing, type Route } from "./decisions";
-import { judgeClaims } from "./judge";
+import { judgeClaims, judgeToolClaims } from "./judge";
 import type { Asks, ReaskWatch } from "./reasks";
 import { checkCitedSentences, type SentenceSupport } from "./support";
 
@@ -336,6 +336,7 @@ export async function runCase(
     watch,
     checkModel = null,
     deciding,
+    calculates = false,
   }: {
     /** Watches the app's own asks inside the Answer; none watched without it. */
     watch?: ReaskWatch;
@@ -343,6 +344,8 @@ export async function runCase(
     checkModel?: ChatModelChoice | null;
     /** Arm C: decides each request first, and forces the chat model's requests as the decision says. */
     deciding?: { decide(text: string): Promise<Decision>; forcing: Forcing };
+    /** The model is offered `calculate` (`ModelFacts.calculates`). */
+    calculates?: boolean;
   } = {},
 ): Promise<CaseResult> {
   const { core } = library;
@@ -499,6 +502,11 @@ export async function runCase(
     record,
     toolRecordLines(earlierCalls, names),
   );
+  // Judged where it is the request's point, and under every reply the app's own line flags (#1796).
+  const toolVerdict =
+    each.expected.honestTools || (answer.steps?.unrunTools ?? []).length > 0
+      ? await judgeToolClaims(judge, answer.text, record)
+      : null;
   const changed = new Set(
     answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
   );
@@ -541,6 +549,8 @@ export async function runCase(
     expected: each.expected,
     answer,
     verdict,
+    toolVerdict,
+    calculates,
     askedFrom: mind?.id ?? null,
     citedInMinds,
     changedBlocks,

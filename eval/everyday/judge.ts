@@ -56,6 +56,38 @@ export async function judgeClaims(
   return verdictIn(text);
 }
 
+const TOOL_INSTRUCTIONS = [
+  "You check an AI assistant's reply against IncarnaMind's record of the Tools its Answer called.",
+  "IncarnaMind's calculation Tool is calculate: the record shows each Answer's use of it as “calculate: N figures worked out”. Its search Tool is search_documents; search_web and find_sources search too.",
+  "Flag a sentence when it says that a Tool, IncarnaMind or the assistant itself calculated, recalculated, computed, checked, verified or confirmed a figure or a calculation, and the record has no calculate line with at least one figure worked out.",
+  "Flag a sentence when it says that a search ran, or that a search found or showed something, and the record has no search call.",
+  "Never flag: a sentence that reports what a Document says (“the auditor confirmed the figure”, “the report calculates leverage as…”, “报告中计算得出…”); a sentence saying a calculation or a Tool wasn't, or can't be, used; arithmetic written out with no claim that a Tool, IncarnaMind or the assistant calculated or checked it (“310 / 95 = 3.26”); a result or a judgement (“so the earlier figure was wrong”).",
+  'Copy each sentence you flag exactly. Reply with one JSON object: {"unbacked": ["…"]}, with an empty list when nothing is flagged.',
+].join("\n");
+
+/** Whether a reply claims a calculation or a search that the record of its Tool calls doesn't show (#1796). */
+export async function judgeToolClaims(
+  model: LanguageModel,
+  reply: string,
+  record: readonly string[],
+): Promise<ClaimVerdict> {
+  const { text } = await generateText({
+    model,
+    instructions: TOOL_INSTRUCTIONS,
+    prompt: [
+      "<record>",
+      ...(record.length > 0 ? record : ["- No Tool was called."]),
+      "</record>",
+      "<reply>",
+      reply,
+      "</reply>",
+    ].join("\n"),
+    maxOutputTokens: 2_048,
+    maxRetries: 1,
+  });
+  return verdictIn(text);
+}
+
 /**
  * The verdict in a judge's reply: its last JSON object, since a judge may
  * correct itself after a first one. One it can't read lists the whole reply,
