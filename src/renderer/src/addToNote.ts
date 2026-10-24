@@ -195,7 +195,8 @@ const openBeside = (mindId: string) =>
 /**
  * A new Mind for an Answer, in the conversation's Folder. It is named by its first line, like
  * any Mind; the conversation's name goes on it only when the User gave the conversation one,
- * never the name it takes from the first Question, which is an instruction (#1174).
+ * never the name it takes from the first Question, which is an instruction (#1174). A table's
+ * first cell is no name either, so "Open as a table" passes the Question as the title (#1345).
  */
 const newMindFor = (added: AddedAnswer, title = added.conversation?.title ?? "") =>
   core.createMind({ title, folderId: added.conversation?.folderId ?? null });
@@ -240,7 +241,9 @@ export async function openTable(added: AddedAnswer): Promise<void> {
   if (openingTable) return;
   openingTable = true;
   try {
-    const mind = await newMindFor(added);
+    const asked = added.conversation?.title || cutTitle(questionOf(added.answer)?.text ?? "");
+    const taken = useAppStore.getState().minds.map((mind) => mindName(mind));
+    const mind = await newMindFor(added, numberedName(asked, taken) ?? asked);
     await openBeside(mind.id);
     try {
       await putIn(mind.id, added);

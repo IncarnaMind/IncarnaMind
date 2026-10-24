@@ -4101,6 +4101,7 @@ export const en = {
   "menu.reopenTab": "Reopen Closed Tab",
   "menu.splitRight": "Split to the Right",
   "menu.closeWindow": "Close Window",
+  "menu.closeAll": "Close All",
   "menu.edit": "Edit",
   "menu.undo": "Undo",
   "menu.redo": "Redo",

@@ -72,7 +72,7 @@ export function focusComposer(): void {
  */
 function askOrEdit(): void {
   const viewer = viewerSelectionHandle.current;
-  if (viewer) {
+  if (viewer?.ask) {
     viewer.ask();
     return;
   }

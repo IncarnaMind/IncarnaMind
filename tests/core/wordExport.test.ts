@@ -178,6 +178,34 @@ describe("what the Mind didn't change", () => {
     expect(word?.unknownParts).toEqual(["vendor/settings.vendor"]);
     expect(files.get("vendor/settings.vendor")?.toString("utf8")).toBe("<vendor>kept</vendor>");
   });
+
+  // protects=the export keeps the page the imported file has, its size and margins, whatever the computer's region; fails_when=the export takes the region's paper, as a native Mind's does; no_claim=Page view, which pageSetup.test.ts covers.
+  test.each([
+    [
+      "GB",
+      "Letter",
+      '<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1000" w:right="1000" w:bottom="1000" w:left="1000" w:header="500" w:footer="500" w:gutter="0"/>',
+    ],
+    [
+      "US",
+      "A4",
+      '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/>',
+    ],
+  ] as const)(
+    "on a computer in %s, a Mind imported from a %s file exports on that page",
+    async (region, _paper, sectPr) => {
+      const core = startCore(await createTempDataFolder(), { systemRegion: () => region });
+      const { mindId, client } = await importFile(
+        core,
+        wordFile({ body: paragraph("Text."), sectPr }),
+      );
+      editText(client, (value) => `${value} Edited.`);
+      await client.settled();
+
+      const { document } = await exported(core, mindId);
+      expect(document).toContain(`<w:sectPr>${sectPr}</w:sectPr>`);
+    },
+  );
 });
 
 describe("an edited paragraph", () => {
