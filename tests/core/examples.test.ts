@@ -559,7 +559,6 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
     { from: "zh-CN", to: "en" },
   ] as const satisfies { from: Language; to: Language }[];
 
-  /** An example made in `language`, its Citations copied into a Mind of the User's. */
   const exampleCitedInAnotherMind = async (language: Language) => {
     const set = EXAMPLE_SETS.credit[language];
     const started = await startWithExamples(language);
