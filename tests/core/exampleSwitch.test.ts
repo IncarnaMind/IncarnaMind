@@ -165,6 +165,7 @@ test("an example whose Documents a Conversation Citation uses keeps its language
 
   // Once the Citation is gone, the next change of language swaps the example as usual.
   uncite();
+  await switchTo("en");
   await switchTo("zh-CN");
   expect(examples.status().ready).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
 });
