@@ -167,7 +167,10 @@ describe("one copy of the app holds a data folder", () => {
     await writeFile(join(where, "instance.owner"), text);
     const lock = lockInstance(where, report);
     expect(lock.held).toBe(true);
-    expect(lockInstance(where, report, { giveUpAfterMs: 50 })).toMatchObject({ held: false, timedOut: false });
+    expect(lockInstance(where, report, { giveUpAfterMs: 50 })).toMatchObject({
+      held: false,
+      timedOut: false,
+    });
     lock.release();
   });
 
