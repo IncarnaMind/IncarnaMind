@@ -30,7 +30,6 @@ import { Sidebar } from "./components/Sidebar";
 import { SidebarControlContext } from "./components/SidebarToggle";
 import { SortMenu } from "./components/SortMenu";
 import { TagsDialog } from "./components/TagsDialog";
-import { TabNoticeLine } from "./components/tabs/TabNoticeLine";
 import { WordImportDialog } from "./components/WordImportDialog";
 import { files } from "./core";
 import { useDragState } from "./dragDrop";
@@ -295,7 +294,6 @@ function Workspace() {
           // Links dropped become web pages, so the card is where they go (#261).
           cardOverlay={fileDrop.active && fileDrop.links ? <DropOverlay links /> : null}
         />
-        <TabNoticeLine />
         <DropLabel />
         <PanelBoundary name="overlays">
           <CommandPalette />

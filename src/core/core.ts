@@ -2989,6 +2989,7 @@ export function createCore(adapters: CoreAdapters): Core {
     mindFolder: (mindId) => minds.get(mindId).folderId,
     now,
     checksRelyOn: (documentIds) => retention.isRetained("check-result", documentIds),
+    conversationCitationsRelyOn: (documentIds) => conversations.citationsRelyOn(documentIds),
     recheck: (input) => recheckCitation(documents, input),
     changed: (value) => events.emit("examples.changed", value),
   });
@@ -4042,10 +4043,17 @@ export function createCore(adapters: CoreAdapters): Core {
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {
-      consent.revoke(flowId, serviceId);
+      const revokedAt = consent.revoke(flowId, serviceId);
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
       }
+      transcriptionGateChanged();
+      settingsChanged();
+      await dataFlowsChanged();
+      return revokedAt;
+    },
+    restoreConsent: async (flowId, serviceId, revokedAt) => {
+      consent.restore(flowId, serviceId, revokedAt);
       transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();

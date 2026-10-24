@@ -9,6 +9,8 @@
  * the User undoes and redoes in the Mind. A Mind that isn't open in an
  * editor, such as a second one the turn changed, applies them once it opens.
  */
+import type { EditorState } from "@tiptap/pm/state";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { useCallback, useSyncExternalStore } from "react";
 import type * as Y from "yjs";
 import { create } from "zustand";
@@ -53,6 +55,12 @@ interface Asked {
 const asked = new Map<string, Asked>();
 const askedHere = new Set<string>();
 const seen = new Set<string>();
+
+/** Whether this window has a Question in flight whose request, as the Mind's record has it, asks for these changes. */
+export function askedInThisWindow(state: EditorState, request: string): boolean {
+  const doc = ySyncPluginKey.getState(state)?.binding?.doc;
+  return askedHere.size > 0 && doc !== undefined && askedFor(doc, request);
+}
 
 const keyOf = (answerId: string, mindId: string) => `${answerId} ${mindId}`;
 

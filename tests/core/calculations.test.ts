@@ -1845,6 +1845,87 @@ function reservesBook(): Buffer {
   });
 }
 
+describe("A ratio among a figure's inputs leaves it shown as its amounts are written (#1784)", {
+  timeout: 60_000,
+}, () => {
+  const REPORTS = {
+    en: {
+      name: "Northwind Annual Report.pdf",
+      lines: [
+        "EBITDA was £44 million in 2025, and net debt to EBITDA is 3.5:1.",
+        "Revenue was £352 million at a margin of 12.5%.",
+        "Cash at the year end was £12,400 thousand.",
+        "Product revenue was $1.2 billion and services $350 million.",
+      ],
+      asked: "What does it come to?",
+      answer: "It comes to [=1].",
+    },
+    "zh-CN": {
+      name: "北风年度报告.pdf",
+      lines: [
+        "息税折旧摊销前利润为1.2亿元，净负债与其之比为3.5:1。",
+        "营业收入2.4亿元，利润率为25.0%。",
+        "期末现金为12,400万元，服务收入为3,500万元。",
+      ],
+      asked: "合计是多少？",
+      answer: "合计为[=1]。",
+    },
+  };
+
+  test.each([
+    ["en", "ebitda * ratio", ["£44 million", "3.5"], null, "£154 million"],
+    ["en", "ebitda * ratio", ["£44 million", "3.5"], "million", "£154 million"],
+    ["en", "revenue * margin * ratio", ["£352 million", "12.5%", "3.5"], null, "£154 million"],
+    ["en", "cash * ratio", ["£12,400 thousand", "3.5"], null, "£43,400 thousand"],
+    [
+      "en",
+      "(product + services) * ratio",
+      ["$1.2 billion", "$350 million", "3.5"],
+      null,
+      "$5,425 million",
+    ],
+    [
+      "en",
+      "(product + services) * ratio",
+      ["$1.2 billion", "$350 million", "3.5"],
+      "billion",
+      "$5.425 billion",
+    ],
+    ["zh-CN", "ebitda * ratio", ["1.2亿元", "3.5"], null, "4.2亿元"],
+    ["zh-CN", "ebitda * ratio", ["1.2亿元", "3.5"], "亿", "4.2亿元"],
+    ["zh-CN", "revenue * margin * ratio", ["2.4亿元", "25.0%", "3.5"], null, "2.1亿元"],
+    ["zh-CN", "cash * ratio", ["12,400万元", "3.5"], null, "43,400万元"],
+    ["zh-CN", "(ebitda + services) * ratio", ["1.2亿元", "3,500万元", "3.5"], null, "54,250万元"],
+  ] as const)("%s: %s over %j in %s shows %s", async (language, formula, numbers, scale, shown) => {
+    const report = REPORTS[language];
+    const names = formula.match(/[a-z]+/g) ?? [];
+    const model = calculatingModel({
+      queries: [language === "en" ? "EBITDA" : "息税折旧摊销前利润"],
+      steps: [
+        (passages) => {
+          const passage = passageOf(passages, report.name.slice(0, 2));
+          const inputs = numbers.map((number, at) => ({
+            name: names[at],
+            label: names[at],
+            passage,
+            location: "p. 1",
+            quote: report.lines.find((line) => line.includes(number)),
+            number,
+          }));
+          const figure = { marker: 1, label: "Figure", formula, inputs, ...(scale && { scale }) };
+          return [{ tool: "calculate", input: { figures: [figure] } }];
+        },
+      ],
+      answer: report.answer,
+    });
+    const contents = buildPdf([
+      language === "en" ? { lines: report.lines } : { chineseLines: report.lines },
+    ]);
+    const { core } = await setUpCalculating(model, [{ name: report.name, contents }]);
+    expect((await askAndRead(core, report.asked)).answer.figures[0]?.shown).toBe(shown);
+  });
+});
+
 describe("The difference of two cited cells is calculated, not given up on (#1444)", {
   timeout: 60_000,
 }, () => {

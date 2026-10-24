@@ -1,3 +1,4 @@
+import { countNow } from "../i18n";
 import { useLibraryFolds } from "../libraryFolds";
 import { acceptSuggestions, rejectSuggestions, waitingIds } from "../suggestionReview";
 import type { Command, CommandContext } from "./registry";
@@ -13,7 +14,9 @@ export const suggestionCommands: readonly Command[] = [
     id: "document.accept",
     label: (ctx, t) => {
       const count = waitingIn(ctx).length;
-      return count > 1 ? t("document.accept.many", { count }) : t("document.accept");
+      return count > 1
+        ? t("document.accept.many", { count: countNow(count) })
+        : t("document.accept");
     },
     group: "main",
     appliesTo: ["document"],
@@ -27,7 +30,9 @@ export const suggestionCommands: readonly Command[] = [
     id: "document.reject",
     label: (ctx, t) => {
       const count = waitingIn(ctx).length;
-      return count > 1 ? t("document.reject.many", { count }) : t("document.reject");
+      return count > 1
+        ? t("document.reject.many", { count: countNow(count) })
+        : t("document.reject");
     },
     group: "main",
     appliesTo: ["document"],
