@@ -36,13 +36,14 @@ import {
 import { RouteProblemLine } from "../components/providers/RouteProblemLine";
 import { core } from "../core";
 import { formatResetTime } from "../cost";
+import { useDeclineEnded } from "../declineEnded";
 import { useFindSources } from "../findSources";
 import { useLanguage, useT } from "../i18n";
 import { useKeyRefusals, useKeySavedSince } from "../keyRefusals";
 import { requestModelMenu } from "../modelMenu";
 import { useModelNames, useServiceName } from "../modelNames";
 import { useStoppedByPlanLimit } from "../planLimits";
-import { ANSWER_PROBLEMS, type AnswerFix, failedAnswerLine } from "../problems";
+import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
 import { useRouteOffered } from "../routeSignIn";
 import type { SettingsPage } from "../settingsPages";
 import { skillTitle } from "../skills";
@@ -331,6 +332,10 @@ export function AnswerError({
   // Once the User has been sent to add credit, asking again is what's next.
   const [billingOpened, setBillingOpened] = useState(false);
   const keySaved = useKeySavedSince(providerId, failedAt ?? shownAt);
+  const declineEnded = useDeclineEnded(
+    providerInUse?.service?.id ?? null,
+    kind === "consent-declined" && onRetry !== undefined,
+  );
   // Whose plan or sign-in it was decides the line. A sign-in that ends changes readiness, which
   // clears the list, so it is read again then, and not on every error (offline, that only fails).
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -374,10 +379,12 @@ export function AnswerError({
     );
   }
   const { line } = shown.problem;
-  const fix: AnswerFix =
-    billingOpened && onRetry && kind === "out-of-credit"
-      ? { kind: "retry", label: "answer.error.retry" }
-      : shown.problem.fix;
+  const fix =
+    kind === "consent-declined" && declineEnded
+      ? retry
+      : kind === "out-of-credit" && billingOpened && onRetry
+        ? retry
+        : shown.problem.fix;
   if (fix.kind === "ollama") return <OllamaNotRunningLine details={details} onRetry={onRetry} />;
   if (fix.kind === "local-model") {
     return (

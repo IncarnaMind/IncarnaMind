@@ -31,6 +31,8 @@
  * (为这份文件写一份简短摘要) does too, "Written from" the first Document on screen (#1334).
  * "Write a brief summary" (写一份简要总结) adds one to the Mind in <mind>, but
  * answers that no Mind is open when that Mind has no name, as models did (#1212).
+ * "Retell the summary" (重述总结) gives edit_mind the whole new text of the summary page, three
+ * paragraphs for the two, as a model does to make it longer (#1335).
  * "Say you added the risks" (说你加了风险部分) claims a write and makes none.
  */
 
@@ -93,6 +95,13 @@ export function mindRead(prompt: Prompt): string | null {
 const SUMMARY_PAGE =
   /\bwrite a summary page\b|写一个总结页面|\bwrite a summary of my documents\b|根据我现有的文件帮我写一份summary/i;
 const LONGER = /\blonger\b|长一点|更长/i;
+const RETELL = /\bretell the summary\b|重述总结/i;
+const RETOLD = [
+  "## Summary",
+  "Spring tides come at new and full moon, when the Sun and the Moon line up.",
+  "Neap tides come in between, at the quarter moons, when they pull apart.",
+  "Both follow the Moon's cycle.",
+].join("\n\n");
 const REVENUE_CHART = /\bchart of revenue by quarter\b|各季度收入的(?:柱状图|折线图)/i;
 const QUARTER_REVENUE = /Revenue in (Q\d) was (€\d+ million)/g;
 const RENT_CHART = /\bchart of rent by lease\b/i;
@@ -227,6 +236,11 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     const added = lastResult(prompt, "add_to_mind");
     if (added === undefined) return { tool: "add_to_mind", input: { content: SUMMARY } };
     return { text: firstSentence(added) };
+  }
+  if (RETELL.test(question)) {
+    const result = lastResult(prompt, "edit_mind");
+    if (result === undefined) return { tool: "edit_mind", input: { content: RETOLD } };
+    return { text: firstSentence(result) };
   }
   if (
     SHORTEN.test(question) ||

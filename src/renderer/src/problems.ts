@@ -34,7 +34,7 @@ export interface AnswerProblem {
   fix: AnswerFix;
 }
 
-const retry: AnswerFix = { kind: "retry", label: "answer.error.retry" };
+export const retry: AnswerFix = { kind: "retry", label: "answer.error.retry" };
 const chooseModel: AnswerFix = {
   kind: "settings",
   page: "models",
