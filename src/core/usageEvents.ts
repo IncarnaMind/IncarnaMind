@@ -117,6 +117,8 @@ const ANSWER_ERRORS = [
   "network",
   "provider",
   "refused",
+  "out-of-credit",
+  "region",
   "consent-declined",
   "consent-revoked",
   "local-mode",

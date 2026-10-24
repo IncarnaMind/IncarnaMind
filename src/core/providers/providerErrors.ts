@@ -200,6 +200,18 @@ export function classifyProviderError(error: unknown): ProviderError {
   return typeof status === "number" ? { ...sorted, status } : sorted;
 }
 
+// What providers say when the account has no credit left: Anthropic's 400, OpenAI's and Kimi's 429,
+// DeepSeek's and OpenRouter's 402, xAI's 403, and Zhipu's and Alibaba's by Chinese words or code.
+const OUT_OF_CREDIT =
+  /credit balance is too low|insufficient[_ ](?:balance|credits?|funds|quota)|exceeded[_ ]current[_ ]quota|billing[_ ]hard[_ ]limit|out of (?:credits?|balance)|used all (?:of )?(?:its |your )?available credits|(?:add|purchase) more credits|balance (?:is |has )?(?:too low|insufficient|exhausted|not enough)|arrearage|余额不足|欠费/i;
+
+// OpenAI's "Country, region, or territory not supported", Gemini's "User location is not supported", Anthropic's bare 403.
+const NOT_SERVED_HERE =
+  /unsupported_country_region_territory|country, region, or territory not supported|(?:country|region|location|territory) (?:is )?not supported|not available in your (?:country|region|location)|^request not allowed\b/i;
+
+const TOO_LONG =
+  /context[_ ]length|prompt is too long|maximum context|exceeds? the (?:maximum )?(?:number of )?(?:context|tokens)|exceeds? (?:the )?max(?:imum)? length|input token count|token limit|too many tokens/i;
+
 function sortedError(cause: unknown): ProviderError {
   const message = messageOf(cause);
 
@@ -257,8 +269,21 @@ function sortedError(cause: unknown): ProviderError {
       const inner = sortedError(cause.cause);
       if (inner.kind === "network") return inner;
     }
-    if (status === 401 || status === 403) return { kind: "auth", message };
     const said = streamed ? message : `${message} ${cause.responseBody ?? ""}`;
+    // Said with a 402, 429 (OpenAI, Kimi), 400 (Anthropic) or 403 (xAI) alike, so before the key's and the rate limit's.
+    if (
+      status === 402 ||
+      (status >= 400 && status < 500 && status !== 401 && OUT_OF_CREDIT.test(said))
+    ) {
+      return { kind: "out-of-credit", message };
+    }
+    if ([400, 403, 451].includes(status) && NOT_SERVED_HERE.test(said)) {
+      return { kind: "region", message };
+    }
+    if (status === 401 || status === 403) return { kind: "auth", message };
+    if (status === 413 || ([400, 422].includes(status) && TOO_LONG.test(said))) {
+      return { kind: "too-long", message };
+    }
     if (status === 400 && /must have data retention enabled/i.test(said)) {
       return { kind: "data-retention", message };
     }

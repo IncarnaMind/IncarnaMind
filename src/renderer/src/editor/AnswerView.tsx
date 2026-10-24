@@ -11,6 +11,7 @@ import {
   SOURCE_KIND_PROVIDERS,
   type ToolApprovalRequest,
 } from "../../../core/api";
+import { billingUrlOf, catalogProviderOf } from "../../../core/providers/catalog/providers";
 import { isSignInRoute, isSignInRouteProblem } from "../../../core/providers/signInRoutes";
 import { asksAfterThirdParty } from "../../../shared/approvalRules";
 import { toolCallsOf } from "../../../shared/toolCalls";
@@ -39,9 +40,9 @@ import { useFindSources } from "../findSources";
 import { useLanguage, useT } from "../i18n";
 import { useKeyRefusals, useKeySavedSince } from "../keyRefusals";
 import { requestModelMenu } from "../modelMenu";
-import { useModelNames } from "../modelNames";
+import { useModelNames, useServiceName } from "../modelNames";
 import { useStoppedByPlanLimit } from "../planLimits";
-import { ANSWER_PROBLEMS, failedAnswerLine } from "../problems";
+import { ANSWER_PROBLEMS, type AnswerFix, failedAnswerLine } from "../problems";
 import { useRouteOffered } from "../routeSignIn";
 import type { SettingsPage } from "../settingsPages";
 import { skillTitle } from "../skills";
@@ -325,10 +326,10 @@ export function AnswerError({
     (state) => state.models?.find((group) => group.provider.id === providerId)?.provider,
   );
   const provider = providerInUse?.kind;
-  const service = providerInUse
-    ? (providerInUse.service?.name ?? t(`providers.kind.${providerInUse.kind}`))
-    : t("answer.error.thisService");
+  const service = useServiceName(providerId);
   const [shownAt] = useState(() => new Date().toISOString());
+  // Once the User has been sent to add credit, asking again is what's next.
+  const [billingOpened, setBillingOpened] = useState(false);
   const keySaved = useKeySavedSince(providerId, failedAt ?? shownAt);
   // Whose plan or sign-in it was decides the line. A sign-in that ends changes readiness, which
   // clears the list, so it is read again then, and not on every error (offline, that only fails).
@@ -353,7 +354,9 @@ export function AnswerError({
         }
       : undefined;
   const offered = useRouteOffered(isSignInRoute(provider) ? provider : null);
-  const shown = failedAnswerLine(kind, provider, signInRoute, offered);
+  const catalog = providerInUse && catalogProviderOf(providerInUse.kind, providerInUse.catalogId);
+  const billingUrl = catalog && billingUrlOf(catalog, providerInUse.endpoint);
+  const shown = failedAnswerLine(kind, provider, signInRoute, offered, billingUrl);
   if (shown.kind === "route") {
     return (
       <RouteProblemLine
@@ -367,7 +370,11 @@ export function AnswerError({
       />
     );
   }
-  const { line, fix } = shown.problem;
+  const { line } = shown.problem;
+  const fix: AnswerFix =
+    billingOpened && onRetry && kind === "out-of-credit"
+      ? { kind: "retry", label: "answer.error.retry" }
+      : shown.problem.fix;
   if (fix.kind === "ollama") return <OllamaNotRunningLine details={details} onRetry={onRetry} />;
   if (fix.kind === "local-model") {
     return (
@@ -401,7 +408,10 @@ export function AnswerError({
               ? // The main process opens it in the User's browser.
                 {
                   label: `${t(fix.label)} ↗`,
-                  onClick: () => window.open(fix.url, "_blank", "noreferrer"),
+                  onClick: () => {
+                    window.open(fix.url, "_blank", "noreferrer");
+                    setBillingOpened(kind === "out-of-credit");
+                  },
                 }
               : fix.kind === "retry" && onRetry
                 ? { label: t(fix.label), onClick: onRetry }

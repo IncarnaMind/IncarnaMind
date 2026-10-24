@@ -61,6 +61,19 @@ function overloadedClaude() {
   return createAnthropic({ apiKey: KEY, fetch: server })("claude-haiku-5-5");
 }
 
+const CREDIT_MESSAGE =
+  "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.";
+
+/** Claude, as Anthropic answers an account with no credit left. */
+function creditlessClaude() {
+  const server = async (): Promise<Response> =>
+    Response.json(
+      { type: "error", error: { type: "invalid_request_error", message: CREDIT_MESSAGE } },
+      { status: 400 },
+    );
+  return createAnthropic({ apiKey: KEY, fetch: server })("claude-haiku-5-5");
+}
+
 /** Claude, over a connection that ends once the reply has begun: Node's fetch fails the read with "terminated". */
 function cutClaude() {
   const server = async (): Promise<Response> =>
@@ -171,6 +184,27 @@ const cases: {
     kind: "provider",
     status: 529,
     message: "Overloaded",
+  },
+  {
+    way: "an account with no credit, in Anthropic's own words (400)",
+    model: creditlessClaude,
+    kind: "out-of-credit",
+    status: 400,
+    message: CREDIT_MESSAGE,
+  },
+  {
+    way: "an account in arrears, in Chinese (429)",
+    model: () => refusing(429, "您的账户已欠费，请充值后重试。"),
+    kind: "out-of-credit",
+    status: 429,
+    message: "您的账户已欠费，请充值后重试。",
+  },
+  {
+    way: "a region the provider doesn't serve (403)",
+    model: () => refusing(403, "Country, region, or territory not supported"),
+    kind: "region",
+    status: 403,
+    message: "Country, region, or territory not supported",
   },
   {
     way: "a status nothing explains (a proxy's redirect)",

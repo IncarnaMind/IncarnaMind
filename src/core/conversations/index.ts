@@ -180,6 +180,8 @@ const ERROR_KINDS: Record<ProviderErrorKind, true> = {
   network: true,
   provider: true,
   refused: true,
+  "out-of-credit": true,
+  region: true,
   "consent-declined": true,
   "consent-revoked": true,
   "local-mode": true,

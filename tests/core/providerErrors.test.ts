@@ -148,6 +148,164 @@ describe("A failed request", () => {
   });
 });
 
+describe("A provider's own words for what went wrong", () => {
+  const said = (status: number, message: string, type = "") =>
+    new APICallError({
+      message,
+      url: "https://provider.example/v1/chat",
+      requestBodyValues: {},
+      statusCode: status,
+      responseBody: JSON.stringify({ error: { message: type ? "" : message, type, code: type } }),
+      isRetryable: false,
+    });
+  const QUOTA = "You exceeded your current quota, please check your plan and billing details.";
+  const CONTEXT = "This model's maximum context length is 128000 tokens.";
+
+  test.each([
+    ["Anthropic's 400", 400, "Your credit balance is too low to access the Anthropic API."],
+    ["Anthropic's 402 billing error", 402, "There was an issue with your billing information"],
+    ["OpenAI's 429 with no quota left", 429, QUOTA, "insufficient_quota"],
+    [
+      "OpenAI's billing limit",
+      400,
+      "Billing hard limit has been reached",
+      "billing_hard_limit_reached",
+    ],
+    [
+      "Kimi's 429",
+      429,
+      "Account suspended: insufficient balance, please recharge",
+      "exceeded_current_quota_error",
+    ],
+    ["DeepSeek's 402", 402, "Insufficient Balance"],
+    ["OpenRouter's 402", 402, "Insufficient credits. Add more using https://openrouter.ai/credits"],
+    ["xAI's words", 403, "Your team has used all available credits. Please purchase more credits."],
+    ["Zhipu's Chinese", 429, "您的账户已欠费，请充值后重试。"],
+    [
+      "Alibaba's code",
+      400,
+      "Access denied, please make sure your account is in good standing.",
+      "Arrearage",
+    ],
+  ])(
+    "%s: the account is out of credit, not rate limited or refused",
+    (_, status, message, type) => {
+      const error = said(status, message, type);
+      expect(classifyProviderError(error)).toEqual({ kind: "out-of-credit", message, status });
+    },
+  );
+
+  test.each([
+    [
+      "OpenAI's per-minute limit",
+      429,
+      "Rate limit reached for gpt-6 on tokens per min (TPM)",
+      "tokens",
+      "rate-limit",
+    ],
+    ["Gemini's quota, which resets by itself", 429, QUOTA, "RESOURCE_EXHAUSTED", "rate-limit"],
+    [
+      "Anthropic's rate limit",
+      429,
+      "Number of request tokens has exceeded your limit",
+      "rate_limit_error",
+      "rate-limit",
+    ],
+    ["Anthropic's refused key", 401, "invalid x-api-key", "authentication_error", "auth"],
+    [
+      "a key without permission",
+      403,
+      "Your API key does not have permission",
+      "permission_error",
+      "auth",
+    ],
+    [
+      "an unknown model",
+      404,
+      "The model `gpt-9` does not exist or you do not have access to it.",
+      "",
+      "model",
+    ],
+    ["an outage", 500, "Internal server error", "api_error", "provider"],
+    [
+      "a local server out of memory",
+      500,
+      "model requires more system memory (5.5 GiB)",
+      "",
+      "provider",
+    ],
+    [
+      "OpenAI's country, region or territory",
+      403,
+      "Country, region, or territory not supported",
+      "unsupported_country_region_territory",
+      "region",
+    ],
+    [
+      "Gemini's location",
+      400,
+      "User location is not supported for the API use.",
+      "FAILED_PRECONDITION",
+      "region",
+    ],
+    ["Anthropic's bare 403", 403, "Request not allowed", "forbidden", "region"],
+    [
+      "Anthropic's prompt",
+      400,
+      "prompt is too long: 214000 tokens > 200000 maximum",
+      "",
+      "too-long",
+    ],
+    [
+      "Anthropic's size limit",
+      413,
+      "Request exceeds the maximum allowed number of bytes.",
+      "request_too_large",
+      "too-long",
+    ],
+    ["OpenAI's and DeepSeek's context window", 400, CONTEXT, "context_length_exceeded", "too-long"],
+    [
+      "Gemini's input",
+      400,
+      "The input token count (1200000) exceeds the maximum number of tokens allowed",
+      "",
+      "too-long",
+    ],
+    [
+      "Kimi's token limit",
+      400,
+      "Invalid request: Your request exceeded model token limit: 262144",
+      "",
+      "too-long",
+    ],
+  ])("%s is %s", (_, status, message, type, kind) => {
+    expect(classifyProviderError(said(status, message, type)).kind).toBe(kind);
+  });
+
+  test("a failure of a model on this computer is never out of credit", () => {
+    expect(classifyProviderError(new TypeError("fetch failed")).kind).toBe("network");
+    expect(classifyProviderError(said(500, "llama runner process has terminated")).kind).toBe(
+      "provider",
+    );
+    expect(classifyProviderError(said(404, 'model "llama9" not found, try pulling it')).kind).toBe(
+      "model",
+    );
+  });
+
+  test("an out-of-credit or region problem has a line in both languages, for the Answer, a test and tagging", () => {
+    for (const kind of ["out-of-credit", "region"] as const) {
+      for (const key of [
+        `answer.error.${kind}`,
+        `providers.test.${kind}`,
+        `tagging.problem.${kind}`,
+      ] as const) {
+        expect(en[key], key).toBeTruthy();
+        expect(zhCN[key], key).toBeTruthy();
+      }
+    }
+  });
+});
+
 describe("A key with a character that keys don't use", () => {
   const engine = (code: number) =>
     new TypeError(
