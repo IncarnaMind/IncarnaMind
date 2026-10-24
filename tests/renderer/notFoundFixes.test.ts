@@ -1,10 +1,12 @@
 import { type Editor, getSchema, type JSONContent } from "@tiptap/core";
-import { EditorState, type Transaction } from "@tiptap/pm/state";
-import { describe, expect, test, vi } from "vitest";
-import { CITATION_NODE, CLAIM_CHECK_MARK, FOOTNOTE_NODE } from "../../src/core/api";
+import { EditorState, Plugin, type Transaction } from "@tiptap/pm/state";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { CITATION_NODE, CLAIM_CHECK_MARK, FOOTNOTE_NODE, GENERATED_MARK } from "../../src/core/api";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
 import { claimSpans, type ShownClaim } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
 import { sentenceSpans } from "../../src/shared/sentences";
 
 vi.mock("../../src/renderer/src/core", () => ({ core: {} }));
@@ -16,10 +18,11 @@ vi.mock("../../src/renderer/src/editWithAi", () => ({
 vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: vi.fn() }));
 vi.mock("../../src/renderer/src/i18n", () => ({ translateNow: (key: string) => key }));
 
-const { cutSentence, offersNotFound, searchedLess } = await import(
+const { cutSentence, keepAsView, offersKeepAsView, offersNotFound, searchedLess } = await import(
   "../../src/renderer/src/unsupportedFixes"
 );
 const { useNotices } = await import("../../src/renderer/src/notices");
+const { useUndo } = await import("../../src/renderer/src/undo");
 
 const schema = getSchema(noteExtensions());
 
@@ -45,24 +48,54 @@ const citation: JSONContent = {
 };
 
 function editorHolding(content: JSONContent[], isEditable = true) {
+  const undoStack: { step: unknown; before: EditorState }[] = [];
+  const manager = {
+    undoStack,
+    redoStack: [],
+    lastChange: 0,
+    stopCapturing() {},
+    addTrackedOrigin() {},
+    on() {},
+    off() {},
+  };
   let state = EditorState.create({
     doc: schema.nodeFromJSON({ type: "doc", content }),
-    plugins: [citationNumbersPlugin()],
+    plugins: [
+      citationNumbersPlugin(),
+      new Plugin({
+        key: yUndoPluginKey,
+        state: { init: () => ({ undoManager: manager }), apply: (_tr, value) => value },
+      }),
+    ],
   });
   const dispatched: Transaction[] = [];
   const editor = {
     get state() {
       return state;
     },
+    get isDestroyed() {
+      return false;
+    },
     isEditable,
     view: {
       dispatch(tr: Transaction) {
-        dispatched.push(tr);
+        const before = state;
         state = state.apply(tr);
+        undoStack.push({ step: {}, before });
+        dispatched.push(tr);
       },
     },
+    commands: {
+      undo() {
+        const undone = undoStack.pop();
+        if (undone) state = undone.before;
+        return true;
+      },
+    },
+    on() {},
+    off() {},
   } as unknown as Editor;
-  return { editor, dispatched };
+  return { editor, dispatched, undoStack };
 }
 
 /** The `index`th sentence of the `block`th top-level block, as a check of it would hold it. */
@@ -175,6 +208,110 @@ describe("a sentence that cites nothing and nothing backs", () => {
   });
 });
 
+describe("Keep as my view on a contradicted sentence", () => {
+  beforeEach(() => {
+    useUndo.setState({ done: [], undone: [], line: null, running: null });
+  });
+
+  /** The check of the first paragraph's marked words, as a contradicted card holds it. */
+  const contradictedIn = (editor: Editor): ShownClaim => ({
+    ...(claimsIn(editor).c as ShownClaim),
+    shown: { state: "contradicted" },
+  });
+
+  const contradictedText = (text: string): JSONContent => ({
+    type: "text",
+    text,
+    marks: [checkMark("c", text, "contradicted")],
+  });
+
+  const checkAttrsOf = (editor: Editor) => {
+    const found: Record<string, unknown>[] = [];
+    editor.state.doc.descendants((node) => {
+      if (!node.isText) return;
+      for (const mark of node.marks) {
+        if (mark.type.name === CLAIM_CHECK_MARK) found.push(mark.attrs);
+      }
+    });
+    return found;
+  };
+
+  const markTypesOf = (editor: Editor) => {
+    const found: string[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.isText) for (const mark of node.marks) found.push(mark.type.name);
+    });
+    return found;
+  };
+
+  test("is offered for a contradicted sentence alone, in a Mind that can be edited", () => {
+    const { editor } = editorHolding([
+      { type: "paragraph", content: [contradictedText("Two dogs.")] },
+    ]);
+    expect(offersKeepAsView(editor, contradictedIn(editor))).toBe(true);
+    for (const state of ["supported", "unsupported", "not-checked", "needs-recheck"] as const) {
+      const claim = { ...contradictedIn(editor), shown: { state } } as ShownClaim;
+      expect(offersKeepAsView(editor, claim)).toBe(false);
+    }
+    const { editor: fixed } = editorHolding(
+      [{ type: "paragraph", content: [contradictedText("Two dogs.")] }],
+      false,
+    );
+    expect(offersKeepAsView(fixed, contradictedIn(fixed))).toBe(false);
+  });
+
+  test("keeps the words as the User's own view, and one Undo brings the contradicted mark back", async () => {
+    const { editor, dispatched } = editorHolding([
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: "Two dogs.",
+            marks: [checkMark("c", "Two dogs.", "contradicted"), { type: GENERATED_MARK }],
+          },
+        ],
+      },
+    ]);
+    const claim = contradictedIn(editor);
+    keepAsView(editor, claim);
+
+    expect(dispatched).toHaveLength(1);
+    expect(editor.state.doc.textContent).toBe("Two dogs.");
+    expect(markTypesOf(editor)).toEqual([CLAIM_CHECK_MARK]);
+    const attrs = checkAttrsOf(editor)[0] as Record<string, unknown>;
+    expect(attrs.id).toBe("c");
+    expect(attrs.kept).toBe(true);
+    const check = readClaimCheck(attrs);
+    expect(
+      check &&
+        claimCheckShown(check, { text: "Two dogs.", versions: null, folderId: null, scope: null }),
+    ).toEqual({ state: "kept" });
+
+    const [change] = useUndo.getState().done;
+    expect(
+      change?.said(
+        (key) => key,
+        (name) => name,
+      ),
+    ).toBe("claim.keptAsView");
+    await useUndo.getState().undo();
+    expect(editor.state.doc.textContent).toBe("Two dogs.");
+    expect(checkAttrsOf(editor)[0]?.kept).toBeNull();
+    expect(markTypesOf(editor).sort()).toEqual([CLAIM_CHECK_MARK, GENERATED_MARK].sort());
+    const restored = readClaimCheck(checkAttrsOf(editor)[0]);
+    expect(
+      restored &&
+        claimCheckShown(restored, {
+          text: "Two dogs.",
+          versions: null,
+          folderId: null,
+          scope: null,
+        }),
+    ).toEqual({ state: "contradicted" });
+  });
+});
+
 describe("Search all Documents is offered while the check looked in less than every Document", () => {
   const scoped = (scope: Record<string, unknown>) =>
     ({ check: { scope } }) as unknown as ShownClaim;
@@ -201,14 +338,14 @@ const shapeOf = (editor: Editor, block = 0) => {
   return pieces;
 };
 
-const checkMark = (id: string) => ({
+const checkMark = (id: string, text: string, state = "unsupported") => ({
   type: CLAIM_CHECK_MARK,
   attrs: {
     id,
     request: "request-1",
     action: "check-against-documents",
-    state: "unsupported",
-    text: "",
+    state,
+    text,
     scope: { folderId: null, widened: false },
     versions: [],
     excluded: [],
@@ -220,7 +357,7 @@ const checkMark = (id: string) => ({
 const marked = (id: string, text: string): JSONContent => ({
   type: "text",
   text,
-  marks: [checkMark(id)],
+  marks: [checkMark(id, text)],
 });
 const note = (text: string): JSONContent => ({
   type: FOOTNOTE_NODE,
