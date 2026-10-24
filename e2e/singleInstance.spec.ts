@@ -277,13 +277,14 @@ const killAll = (pids: number[]) => {
 };
 
 /**
- * Starts a copy, then `starts` more just as it quits (`quitOnNextStart.cjs` quits it the moment
- * the next one logs its start), and waits until one copy is left, with one window. A start after
- * that must come to that window and quit.
+ * Starts a copy, then `starts` more that ask for the data folder while it quits
+ * (`startDuringQuit.cjs`), and waits until one copy is left, with one window. A start after that
+ * must come to that window and quit.
  */
 async function startWhileQuitting(how: "quit" | "quit-twice" | "crash", starts: number) {
   const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
   const boxes = join(home, "error-boxes.jsonl");
+  const mark = join(home, "quit-started");
   const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
   const ports: number[] = [];
   const start = async (extraEnv: Record<string, string> = {}) => {
@@ -294,7 +295,7 @@ async function startWhileQuitting(how: "quit" | "quit-twice" | "crash", starts: 
       [
         tag,
         `--remote-debugging-port=${port}`,
-        ...["-r", join(__dirname, "errorBoxes.cjs"), "-r", join(__dirname, "quitOnNextStart.cjs")],
+        ...["-r", join(__dirname, "errorBoxes.cjs"), "-r", join(__dirname, "startDuringQuit.cjs")],
       ],
       { INCARNAMIND_TEST_ERROR_BOXES: boxes, ...extraEnv },
     );
@@ -304,9 +305,11 @@ async function startWhileQuitting(how: "quit" | "quit-twice" | "crash", starts: 
     windows: (await Promise.all(ports.map(windowsOf))).reduce((sum, each) => sum + each, 0),
   });
   try {
-    await start({ INCARNAMIND_TEST_QUIT_ON_START: how });
+    await start({ INCARNAMIND_TEST_QUIT_MARK: mark, INCARNAMIND_TEST_QUIT_ON_START: how });
     await expect.poll(() => windowsOf(ports[0] as number), { timeout: 60_000 }).toBe(1);
-    for (let index = 0; index < starts; index += 1) await start();
+    for (let index = 0; index < starts; index += 1) {
+      await start({ INCARNAMIND_TEST_QUIT_MARK: mark });
+    }
     await expect
       .poll(left, { timeout: 90_000, message: "one copy is left, with a window" })
       .toEqual({ copies: 1, windows: 1 });
