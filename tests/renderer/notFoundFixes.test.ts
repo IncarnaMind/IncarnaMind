@@ -219,6 +219,12 @@ describe("Keep as my view on a contradicted sentence", () => {
     shown: { state: "contradicted" },
   });
 
+  const contradictedText = (text: string): JSONContent => ({
+    type: "text",
+    text,
+    marks: [checkMark("c", text, "contradicted")],
+  });
+
   const checkAttrsOf = (editor: Editor) => {
     const found: Record<string, unknown>[] = [];
     editor.state.doc.descendants((node) => {
@@ -239,14 +245,16 @@ describe("Keep as my view on a contradicted sentence", () => {
   };
 
   test("is offered for a contradicted sentence alone, in a Mind that can be edited", () => {
-    const { editor } = editorHolding([{ type: "paragraph", content: [marked("c", "Two dogs.")] }]);
+    const { editor } = editorHolding([
+      { type: "paragraph", content: [contradictedText("Two dogs.")] },
+    ]);
     expect(offersKeepAsView(editor, contradictedIn(editor))).toBe(true);
     for (const state of ["supported", "unsupported", "not-checked", "needs-recheck"] as const) {
       const claim = { ...contradictedIn(editor), shown: { state } } as ShownClaim;
       expect(offersKeepAsView(editor, claim)).toBe(false);
     }
     const { editor: fixed } = editorHolding(
-      [{ type: "paragraph", content: [marked("c", "Two dogs.")] }],
+      [{ type: "paragraph", content: [contradictedText("Two dogs.")] }],
       false,
     );
     expect(offersKeepAsView(fixed, contradictedIn(fixed))).toBe(false);
@@ -260,7 +268,7 @@ describe("Keep as my view on a contradicted sentence", () => {
           {
             type: "text",
             text: "Two dogs.",
-            marks: [checkMark("c", "Two dogs."), { type: GENERATED_MARK }],
+            marks: [checkMark("c", "Two dogs.", "contradicted"), { type: GENERATED_MARK }],
           },
         ],
       },
@@ -291,6 +299,16 @@ describe("Keep as my view on a contradicted sentence", () => {
     expect(editor.state.doc.textContent).toBe("Two dogs.");
     expect(checkAttrsOf(editor)[0]?.kept).toBeNull();
     expect(markTypesOf(editor).sort()).toEqual([CLAIM_CHECK_MARK, GENERATED_MARK].sort());
+    const restored = readClaimCheck(checkAttrsOf(editor)[0]);
+    expect(
+      restored &&
+        claimCheckShown(restored, {
+          text: "Two dogs.",
+          versions: null,
+          folderId: null,
+          scope: null,
+        }),
+    ).toEqual({ state: "contradicted" });
   });
 });
 
@@ -320,13 +338,13 @@ const shapeOf = (editor: Editor, block = 0) => {
   return pieces;
 };
 
-const checkMark = (id: string, text: string) => ({
+const checkMark = (id: string, text: string, state = "unsupported") => ({
   type: CLAIM_CHECK_MARK,
   attrs: {
     id,
     request: "request-1",
     action: "check-against-documents",
-    state: "unsupported",
+    state,
     text,
     scope: { folderId: null, widened: false },
     versions: [],
