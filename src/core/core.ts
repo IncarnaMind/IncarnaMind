@@ -4036,10 +4036,17 @@ export function createCore(adapters: CoreAdapters): Core {
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {
-      consent.revoke(flowId, serviceId);
+      const revokedAt = consent.revoke(flowId, serviceId);
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
       }
+      transcriptionGateChanged();
+      settingsChanged();
+      await dataFlowsChanged();
+      return revokedAt;
+    },
+    restoreConsent: async (flowId, serviceId, revokedAt) => {
+      consent.restore(flowId, serviceId, revokedAt);
       transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
