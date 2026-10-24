@@ -55,7 +55,7 @@ const whereIs = (window: Page): Promise<Where> =>
 /** Every frame from now on, where the Question at `index` is under the thread's top, once it shows. */
 const followQuestion = (window: Page, index: number) =>
   window.evaluate((at) => {
-    const holder = globalThis as unknown as { tops: number[]; following: boolean };
+    const holder = globalThis as unknown as { tops: number[]; following: boolean; frame: number };
     holder.tops = [];
     holder.following = true;
     const sample = () => {
@@ -64,15 +64,16 @@ const followQuestion = (window: Page, index: number) =>
       if (thread && question) {
         holder.tops.push(question.getBoundingClientRect().top - thread.getBoundingClientRect().top);
       }
-      if (holder.following) requestAnimationFrame(sample);
+      if (holder.following) holder.frame = requestAnimationFrame(sample);
     };
-    requestAnimationFrame(sample);
+    holder.frame = requestAnimationFrame(sample);
   }, index);
 
 const stopFollowing = (window: Page) =>
   window.evaluate(() => {
-    const holder = globalThis as unknown as { tops: number[]; following: boolean };
+    const holder = globalThis as unknown as { tops: number[]; following: boolean; frame: number };
     holder.following = false;
+    cancelAnimationFrame(holder.frame);
     return holder.tops;
   });
 
@@ -171,7 +172,7 @@ test("in a thread longer than its panel, the Question just sent goes to the top 
   await watchQuestionShifts(window);
   await window.keyboard.press("ControlOrMeta+j");
   await expect(window.getByTestId("composer-input")).toBeFocused();
-  await window.keyboard.type("What do tides do with forty citations");
+  await window.keyboard.type("What do tides do with forty citations. Answer slowly");
   await window.keyboard.press("Enter");
   const answers = assistantAnswers(window);
   await expect(window.getByTestId("assistant-question")).toHaveCount(5);
