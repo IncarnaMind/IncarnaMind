@@ -1639,6 +1639,24 @@
     border-radius: 3px;
     background: var(--color-accent);
   }
+  /*
+   * The undo line with the sidebar out of sight (#1776): the card's bottom left corner, 16px in
+   * from the window's edges as a small pill (the owner's ruling), since the sidebar's foot is gone.
+   * Inside the card, it stays above the assistant's composer and right of a left-docked one, and
+   * its width leaves the check badge at the foot's other end alone.
+   */
+  .undo-pill {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    z-index: 20;
+    box-sizing: border-box;
+    max-width: min(360px, calc(100% - 16px));
+    padding: 4px 8px 4px 12px;
+    border-radius: 16px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+  }
   .mind-health-note {
     margin: 0;
     color: var(--color-ink-meta);

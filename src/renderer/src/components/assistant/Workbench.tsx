@@ -37,6 +37,7 @@ import { useWindowSize } from "../../useWindowWidth";
 import { PanelBoundary } from "../PanelBoundary";
 import { ResizeRod } from "../ResizeRod";
 import { TabGroups } from "../tabs/TabGroups";
+import { UndoPill } from "../UndoPill";
 import { AskPill } from "./AskPill";
 import { Assistant } from "./Assistant";
 import { FloatResize } from "./FloatResize";
@@ -165,6 +166,7 @@ export function Workbench({
           <PanelBoundary name="card">{groups}</PanelBoundary>
         </ComposerDockContext.Provider>
         {cardOverlay}
+        <UndoPill />
         {quiet && <AskPill />}
       </div>
       {quiet || dock === "float" ? null : folded ? (
