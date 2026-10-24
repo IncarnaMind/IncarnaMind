@@ -1362,7 +1362,7 @@ describe("Structured output, for a model offered calculate", { timeout: 60_000 }
 });
 
 describe("A model not measured to use calculate answers as before", { timeout: 60_000 }, () => {
-  test("in the Tool loop: no calculate Tool, no steer, and its Answer is as it was", async () => {
+  test("in the Tool loop: no calculate Tool, no steer but that it has none, and its Answer is as it was", async () => {
     const model = citingModel({
       query: "revenue",
       records: (passages) => [
@@ -1379,7 +1379,9 @@ describe("A model not measured to use calculate answers as before", { timeout: 6
       expect(call.tools?.map((tool) => tool.name)).not.toContain("calculate");
     }
     const system = promptOf(model)[0]?.text ?? "";
-    expect(system).not.toMatch(/calculate|\[=1\]/);
+    expect(system).not.toMatch(/\bcalculate\b|\[=1\]/);
+    // So it never says a Tool calculated its figures (#1796).
+    expect(system).toContain("IncarnaMind has no calculation Tool for this model");
     expect(answer.text).toBe("Revenue grew about 20% [^1].");
     expect(answer.figures).toEqual([]);
     expect(answer.toolCalls.map((call) => call.tool)).toEqual(["search_documents"]);
@@ -1409,7 +1411,8 @@ describe("A model not measured to use calculate answers as before", { timeout: 6
     if (ended.event !== "finished") throw new Error(`The Answer failed: ${JSON.stringify(ended)}`);
 
     const request = ollama.chats.find((chat) => isAnswer(chat.body))?.body ?? {};
-    expect(JSON.stringify(request)).not.toMatch(/calculations|calculate/);
+    expect(JSON.stringify(request)).not.toMatch(/\bcalculations\b|\bcalculate\b|\[=1\]/);
+    expect(JSON.stringify(request)).toContain("IncarnaMind has no calculation Tool for this model");
     expect(ended.payload).toMatchObject({ figures: [], uncalculated: 0, figureRetry: null });
     expect(answerIn(client, answerId).textContent).toBe("Revenue grew 20.4% .");
   });
