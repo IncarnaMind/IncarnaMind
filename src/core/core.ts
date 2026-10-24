@@ -2983,7 +2983,21 @@ export function createCore(adapters: CoreAdapters): Core {
     mindFolder: (mindId) => minds.get(mindId).folderId,
     now,
     checksRelyOn: (documentIds) => retention.isRetained("check-result", documentIds),
-    conversationCitationsRelyOn: (documentIds) => conversations.citationsRelyOn(documentIds),
+    citationsRelyOn: (documentIds, exceptMindId) => {
+      const wanted = new Set(documentIds);
+      const cited: CitedUnits[] = [];
+      // A Mind waiting in Recently deleted comes back with its Citations, as a Conversation does.
+      for (const mind of db.all<{ id: string; deleted_at: string | null }>(
+        "SELECT id, deleted_at FROM minds WHERE purged_at IS NULL AND id <> ?",
+        [exceptMindId],
+      )) {
+        const add = (fragment: Y.XmlFragment) => addCitedUnits(fragment, wanted, cited);
+        if (mind.deleted_at === null) content.peek(mind.id, add);
+        else content.peekDeleted(mind.id, add);
+      }
+      conversations.addCitedUnits(wanted, cited);
+      return cited.length > 0;
+    },
     recheck: (input) => recheckCitation(documents, input),
     changed: (value) => events.emit("examples.changed", value),
   });
