@@ -211,10 +211,14 @@ test("a cited Mind made a report keeps its Citations", async () => {
   const cases = CASES.filter((each) => !wanted || wanted.includes(each.id));
   const runs = Number(process.env.INCARNAMIND_EVAL_REPORTS_RUNS ?? 10);
   const log = createLog();
-  const judge = createAiSdkChatModel({
-    ...chatModelSpecOf({ ...chat, modelId: "claude-haiku-5-5" }),
-    thinking: "off",
-  });
+  const judging =
+    config.judge ?? (chat.kind === "anthropic" ? { ...chat, modelId: "claude-haiku-5-5" } : null);
+  if (!judging) {
+    throw new Error(
+      "Set INCARNAMIND_EVAL_JUDGE_KIND, _MODEL and _KEY: off Anthropic, the judge isn't the model asked.",
+    );
+  }
+  const judge = createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" });
   const library = await openLibrary({
     name: "reports",
     embedder: createWorkerEmbedder(),
@@ -352,6 +356,12 @@ async function runCase(
     // Asked for in the Answer, a model may still write it into a Mind: the report is wherever it went.
     const written = answer.toolCalls.flatMap((call) => call.mindChange ?? []).at(-1);
     run.wroteMind = written !== undefined;
+    if (written) {
+      // What the assistant wrote waits as changes until the window applies them, as it does at once.
+      const client = await connectToMind(core, written.mindId);
+      client.doc.transact(() => decideProposals(client.blocks, () => true, "accept"));
+      await client.settled();
+    }
     const report = written
       ? await citationNodes(core, written.mindId)
       : { citations: answer.citations, text: answer.text };
@@ -360,24 +370,25 @@ async function runCase(
     run.cited = report.citations.map(
       (each) => `${each.check} p.${each.pageFrom} ${String(each.quote ?? "").slice(0, 40)}`,
     );
-    const keptEach = claims.map(({ citation }) =>
-      report.citations.some((each) => sameLocation(each, citation ?? {})),
+    // One Citation of the report keeps one claim: its own record first, then one at its Location.
+    const unused = [...report.citations];
+    const take = (matches: (each: (typeof unused)[number]) => boolean) => {
+      const at = unused.findIndex(matches);
+      if (at >= 0) unused.splice(at, 1);
+      return at >= 0;
+    };
+    const own = claims.map(({ citation }) => take((each) => sameCitation(each, citation ?? {})));
+    const keptEach = claims.map(
+      ({ citation }, index) => own[index] || take((each) => sameLocation(each, citation ?? {})),
     );
     run.kept = keptEach.filter(Boolean).length;
-    run.same = claims.filter(({ citation }) =>
-      report.citations.some((each) => sameCitation(each, citation ?? {})),
-    ).length;
+    run.same = own.filter(Boolean).length;
     const lost = claims.filter((_, index) => !keptEach[index]).map(({ claim }) => claim?.en ?? "");
     const stated = await stillStated(judge, report.text.replace(/\[\^\d+\]/g, ""), lost);
     run.uncited = lost.filter((_, index) => stated[index]);
     run.asText = [...sourcesAsText(report.text, known), ...(report.text.match(IDS) ?? [])];
     let saved = written?.mindId;
-    if (saved) {
-      // What the assistant wrote waits as changes until the window applies them, as it does at once.
-      const client = await connectToMind(core, saved);
-      client.doc.transact(() => decideProposals(client.blocks, () => true, "accept"));
-      await client.settled();
-    } else {
+    if (!saved) {
       saved = (await core.createMind({ title: "Report" })).id;
       await core.addToNote({
         mindId: saved,
