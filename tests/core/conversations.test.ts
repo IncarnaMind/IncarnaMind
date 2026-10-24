@@ -22,6 +22,7 @@ import {
   createTempDataFolder,
   manualClock,
   nextEvent,
+  nextTurn,
   queryDatabase,
   startCore,
 } from "../helpers/core";
@@ -663,7 +664,7 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
     });
   });
 
-  test("one left being written when IncarnaMind quit is stopped at the next start, and found by search", async () => {
+  test("one left being written when IncarnaMind quit is stopped at the next start, not asked again, and found by search", async () => {
     const controlled = controlledModel();
     const { core, dataDir, adapters } = await setUp(controlled.model);
     const result = await core.askInConversation({ text: "What is a Mind?" });
@@ -682,7 +683,9 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
     db.close();
 
     const later = startCore(dataDir, adapters);
+    await nextTurn();
 
+    expect(controlled.model.doStreamCalls).toHaveLength(1);
     expect(
       answerOf(await later.getConversation(result.conversation.id), result.answerId),
     ).toMatchObject({ text: "A notebook for a topic.", status: "stopped" });
