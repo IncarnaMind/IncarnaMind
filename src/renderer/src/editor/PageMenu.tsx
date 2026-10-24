@@ -235,6 +235,9 @@ export function PageMenu({
               void moveIntoFolder({ mindIds: [mindId] }, folderId);
             }
           }}
+          onCreate={(folderName) =>
+            void useAppStore.getState().createFolder({ mindIds: [mindId] }, folderName)
+          }
           onClose={() => setMoving(null)}
         />
       )}

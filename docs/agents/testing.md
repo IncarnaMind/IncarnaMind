@@ -12,7 +12,7 @@ CI (`.github/workflows/ci.yml`) runs three checks on every pull request (`pull_r
 | Electron smoke test (Linux) | Ubuntu | `npm ci`, the Noto CJK fonts (the runner has no Chinese face) and ffmpeg (for the feel check's videos; a failed install doesn't fail the check), then `npm run test:smoke` on a virtual display (`xvfb-run`): builds the app and runs every spec in `e2e/`, the feel check's among them, split into eight shards that run at once, balanced by how long each spec takes (`scripts/smoke-shard.mjs`, `e2e/durations.json`; refresh it from a green run's log when specs are added or slow down) (`Smoke shard N/8`); this check passes when all eight do. Each shard uploads the feel check's tables and videos as `feel-linux-N`, kept 14 days |
 | Every commit is signed off (DCO) | Ubuntu | a `Signed-off-by:` line on each commit (`git commit -s`), and no commit with an author, committer or sign-off at anthropic.com or a `Co-Authored-By:` trailer naming Claude or with an anthropic.com address (a commit carries its contributor's own name) |
 
-`main` should stay green. A pull request merges once its sign-off check passes and its author has run the checks that matter for the change on their own computer; the full suite runs on `main` every night. If a night goes red, fixing it comes before new work.
+`main` should stay green. A pull request merges once its sign-off check passes and its CI checks are green, or each red one is a known flaky spec named with its issue; the full suite also runs on `main` every night. If a night goes red, fixing it comes before new work.
 
 Every night, and by hand from the Actions tab, the Electron smoke test (macOS) in `.github/workflows/nightly.yml` runs the same suite on macOS, in four shards (`Smoke shard N/4 (macOS)`), with the specs only macOS has, such as the traffic lights in the title bar. A failing night is fixed before new work, like a red `main`.
 
@@ -26,8 +26,8 @@ The packages CI installs (the Noto CJK fonts, ffmpeg, LibreOffice) come from a c
 ## Before you open a pull request
 
 1. Merge `main` into your branch to resolve a conflict or to pick up something you need.
-2. Run what CI runs: `npm run typecheck`, `npm run lint`, `npm test`.
-3. Run `npm run test:smoke`: the whole suite, or at least every spec that touches what you changed. To find them, search `e2e/` for the test ids, labels and strings you changed or removed.
+2. Run the light checks on your computer: `npm run typecheck`, `npm run lint`, and the unit test files that cover what you changed (`npx vitest run <files>`). The whole unit suite and the smoke suite run on CI, on GitHub's machines, so they don't load yours.
+3. Find the smoke specs that touch what you changed (search `e2e/` for the test ids, labels and strings you changed or removed) and update them. Run one locally only when you need to see the UI or record it; otherwise CI runs them.
 4. When you change or remove UI, update or remove the tests that used it in the same pull request. A test still looking for something your change removed is broken by your change.
 5. Try the edge cases below that apply to your change, by test or by hand, and say in the pull request which you tried and which don't apply.
 
