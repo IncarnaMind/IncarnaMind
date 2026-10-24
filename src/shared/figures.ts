@@ -2067,6 +2067,10 @@ const unitLinesOf = (text: string) =>
     .filter((line) => UNIT_LINE.test(line))
     .join("\n");
 
+/** Whether `text` states a scale anywhere, apart from its figures: "(in millions)", "单位：万元". */
+export const statesScale = (text: string, context: FigureContext = {}): boolean =>
+  readStatedUnits(unitLinesOf(text), context).some((each) => each.scale !== 1);
+
 function besideNumber(text: string, from: number, to: number): boolean {
   const before = text
     .slice(Math.max(0, from - 2), from)

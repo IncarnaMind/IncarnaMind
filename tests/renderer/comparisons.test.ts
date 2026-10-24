@@ -105,6 +105,7 @@ describe("Reading a comparison table", () => {
   test("every cell without an Answer says why, in English and Chinese", () => {
     const problems: ComparisonProblem[] = [
       "not-found",
+      "scale-changed",
       "nothing-to-search",
       "source-removed",
       "left-out",
@@ -127,6 +128,14 @@ describe("Reading a comparison table", () => {
     }
     expect(translate("en", cellProblemMessage("cost-cap").key)).toBe("not checked: cost cap");
     expect(translate("zh-CN", cellProblemMessage("not-found").key)).toBe("未找到");
+    const scale = cellProblemMessage("scale-changed", "310000 GBP thousands");
+    expect(translate("en", scale.key, scale.params)).toBe(
+      "scale differs from the Document, which gives 310000 GBP thousands",
+    );
+    const yuan = cellProblemMessage("scale-changed", "31000 万元");
+    expect(translate("zh-CN", yuan.key, yuan.params)).toBe(
+      "金额单位与文档不符，文档写的是 31000 万元",
+    );
   });
 
   test("the interface says Compare Documents and comparison table, never Matrix", () => {
