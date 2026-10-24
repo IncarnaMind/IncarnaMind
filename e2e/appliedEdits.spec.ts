@@ -610,8 +610,10 @@ test("Review changes lives with the Mind's editor: once its tab has shown anothe
   await slideSelect(window, paragraphs.first(), TIDES);
   await askToChange(window, "replace strong with powerful");
   await expect(paragraphs.first()).toHaveText(POWERFUL);
-  await focusEditor(window, editor);
-  await window.keyboard.press(toTheEnd);
+  const box = await paragraphs.first().boundingBox();
+  const end = { x: (box?.width ?? 2) - 2, y: (box?.height ?? 8) - 4 };
+  await paragraphs.first().click({ position: end });
+  await focusSettled(window, editor);
   await window.keyboard.press("Enter");
   await window.keyboard.type("Typed.");
   await expect(lineOf(editor)).toHaveCount(0);
