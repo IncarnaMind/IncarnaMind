@@ -274,7 +274,7 @@ test("tabs split off and move by dragging with the mouse, by the tab's menu and 
   await expect(titlesIn(groupAt(window, 2))).toHaveText(["Gamma"]);
   await expect(groupAt(window, 2).getByRole("tab")).toBeFocused();
   await window.keyboard.press("ControlOrMeta+Alt+Backslash");
-  await expect(window.getByTestId("tab-notice")).toHaveText(
+  await expect(window.getByTestId("undo-message")).toHaveText(
     /Three groups fit side by side at most/,
   );
   await expect(groupsOf(window)).toHaveCount(3);
@@ -312,7 +312,7 @@ test("tabs split off and move by dragging with the mouse, by the tab's menu and 
   await groupAt(window, 2).getByTestId("tab-close").click();
   await expect(groupsOf(window)).toHaveCount(2);
   await window.keyboard.press("ControlOrMeta+3");
-  await expect(window.getByTestId("tab-notice")).toHaveText(/There’s no group 3/);
+  await expect(window.getByTestId("undo-message")).toHaveText(/There’s no group 3/);
 });
 
 test("one divider runs the full height through the strips and the pages; it resizes the groups, by mouse and keys, and a double-click makes them equal", async () => {
@@ -387,7 +387,7 @@ test("a pinned tab stays at the left of its group; ⌘W and a middle click leave
 
   await gamma.click();
   await window.keyboard.press("ControlOrMeta+w");
-  await expect(window.getByTestId("tab-notice")).toHaveText(/“Gamma” is pinned/);
+  await expect(window.getByTestId("undo-message")).toHaveText(/“Gamma” is pinned/);
   await gamma.click({ button: "middle" });
   await expect(titlesIn(group)).toHaveText(["Gamma", "Alpha", "Beta"]);
 

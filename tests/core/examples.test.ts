@@ -449,6 +449,89 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
       ]);
     });
   });
+
+  // protects=an example whose Documents a Conversation Citation quotes keeps its language and Documents when the interface language changes (#1794), so the Citation still opens its page; fails_when=the Documents are swapped and the Citation says its Linked folder was removed; no_claim=what the viewer draws.
+  test("an example whose Documents a Conversation Citation uses keeps its language and Documents", async () => {
+    const { core } = await startWithExamples("en");
+    const made = await core.createExamples();
+    await foundIn(core, made.mindId as string, "Net debt to EBITDA");
+
+    const { conversationId } = await core.askReadyQuestion();
+    const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
+    expect(cited).toHaveLength(2);
+
+    // updateSettings returns once the examples have followed the language, or not.
+    await core.updateSettings({ user: { language: "zh-CN" } });
+
+    expect((await core.listMinds()).map((mind) => mind.title)).toEqual([
+      "Draft: credit committee paper",
+    ]);
+    const stillThere = (await core.listDocuments()).map((each) => each.id);
+    for (const document of cited) expect(stillThere).toContain(document.id);
+    const messages = (await core.getConversation(conversationId)).messages;
+    const answer = messages.find((message) => message.kind === "answer");
+    if (answer?.kind !== "answer") throw new Error("The ready Question's Answer is gone.");
+    expect(new Set(answer.citations.map((each) => each.documentId))).toEqual(
+      new Set(cited.map((each) => each.id)),
+    );
+
+    // Once the Citation is gone, the next change of language swaps the example as usual.
+    await core.deleteConversation(conversationId);
+    await core.deletePermanently([{ kind: "conversation", id: conversationId }]);
+    await core.updateSettings({ user: { language: "en" } });
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await vi.waitFor(async () => {
+      expect((await core.listMinds()).map((mind) => mind.title)).toEqual([
+        EXAMPLE_SETS.credit["zh-CN"].title,
+      ]);
+    });
+  });
+
+  // protects=a Chinese example a Conversation cites keeps its Documents and files when the interface language becomes English, and after a restart; fails_when=the Chinese example is swapped for the English one, or a restart loses it; no_claim=none beyond protects.
+  test("a Chinese example a Conversation cites keeps its Documents when the language becomes English, and after a restart", async () => {
+    const set = EXAMPLE_SETS.credit["zh-CN"];
+    const { core, dataDir } = await startWithExamples("zh-CN");
+    const made = await core.createExamples();
+    await foundIn(core, made.mindId as string, set.quotes[0]?.quote.slice(0, 6) ?? "");
+    await core.askReadyQuestion();
+    const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
+    expect(cited).toHaveLength(2);
+
+    const expectKept = async (current: Core) => {
+      expect((await current.listMinds()).map((mind) => mind.title)).toEqual([set.title]);
+      expect(await current.getExamples()).toMatchObject({
+        linkedFolderId: made.linkedFolderId,
+        ready: set.ready?.question,
+      });
+      const stillThere = (await current.listDocuments()).map((each) => each.id);
+      for (const document of cited) expect(stillThere).toContain(document.id);
+      await expect(access(join(dataDir, set.folder))).resolves.toBeUndefined();
+    };
+
+    await core.updateSettings({ user: { language: "en" } });
+    await expectKept(core);
+
+    core.close();
+    await expectKept(startOn(dataDir, "en"));
+  });
+
+  // protects=a Conversation in Recently deleted can come back with Citations that open, so the example it cites stays as it is meanwhile; fails_when=the example is swapped while only a deleted Conversation cites it; no_claim=none beyond protects.
+  test("an example stays as it is while the Conversation citing it waits in Recently deleted", async () => {
+    const { core } = await startWithExamples("en");
+    const made = await core.createExamples();
+    await foundIn(core, made.mindId as string, "Net debt to EBITDA");
+    const { conversationId } = await core.askReadyQuestion();
+    const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
+    await core.deleteConversation(conversationId);
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+
+    expect((await core.listMinds()).map((mind) => mind.title)).toEqual([
+      "Draft: credit committee paper",
+    ]);
+    const stillThere = (await core.listDocuments()).map((each) => each.id);
+    for (const document of cited) expect(stillThere).toContain(document.id);
+  });
 });
 
 const GROUPS = [

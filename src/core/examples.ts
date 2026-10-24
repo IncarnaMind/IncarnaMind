@@ -108,6 +108,8 @@ export interface ExamplesOptions {
   now(): string;
   /** Whether a check result in some Mind relies on one of these Documents (#819). */
   checksRelyOn(documentIds: readonly string[]): boolean;
+  /** Whether an Answer in some Conversation cites one of these Documents. */
+  conversationCitationsRelyOn(documentIds: readonly string[]): boolean;
   recheck(input: RecheckCitationInput): CitationRecheck;
   /** Pushes "examples.changed". */
   changed(examples: Examples): void;
@@ -598,7 +600,7 @@ export function createExamples(options: ExamplesOptions) {
      * The interface language changed (#709): each example the User hasn't
      * touched becomes the same example in the new language, in its Mind, with
      * its Documents swapped. One they changed stays as it is, and so does one
-     * whose Documents a check result relies on (#819).
+     * whose Documents a check result (#819) or a Conversation's Citation relies on.
      */
     async followLanguage(): Promise<void> {
       const source = options.source;
@@ -609,11 +611,11 @@ export function createExamples(options: ExamplesOptions) {
         if (!examples || examples.language === language) continue;
         if (!options.mindExists(examples.mindId)) continue;
         if (!untouched(examples, EXAMPLE_SETS[group][examples.language])) continue;
+        const documentIds = options.documentsIn(examples.linkedFolderId).map((each) => each.id);
         // Swapping its Documents would leave the checks that relied on them needing a check
-        // again, for no change the User made: it stays as it is.
-        if (
-          options.checksRelyOn(options.documentsIn(examples.linkedFolderId).map((each) => each.id))
-        ) {
+        // again, and a Conversation's Citations without their original pages, for no change the
+        // User made: it stays as it is.
+        if (options.checksRelyOn(documentIds) || options.conversationCitationsRelyOn(documentIds)) {
           continue;
         }
         await switchLanguage(group, examples, source, language);
