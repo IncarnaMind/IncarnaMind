@@ -13,12 +13,15 @@ import {
   type CheckMindMode,
   type CheckSentencesResult,
   CITATION_NODE,
+  type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAction,
   type ProviderError,
 } from "../../core/api";
+import { quotedWordsFoundIn } from "../../shared/citations";
 import { core } from "./core";
-import { alreadyCitedBy } from "./editor/alreadyCited";
+import { citationDecision } from "./editor/alreadyCited";
+import type { NumberedCitation } from "./editor/citationNumbers";
 import type { ShownClaim } from "./editor/claimChecks";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
@@ -281,15 +284,15 @@ const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hang
 /**
  * Adds the Passage a check found as the sentence's Citation, at its end,
  * before its closing punctuation, and takes the check's mark off: the
- * Citation's own check stands for it now. One step for ⌘Z. A sentence that
- * already cites those words gets no second Citation.
+ * Citation's own check stands for it now. One step for ⌘Z. Only when the card
+ * offers it, so a sentence already citing those words gets no second Citation.
  */
 export function addAsCitation(editor: Editor, claim: ShownClaim): boolean {
   const evidence = claim.check.evidence;
   const { state } = editor;
   const type = state.schema.nodes[CITATION_NODE];
   const mark = state.schema.marks[CLAIM_CHECK_MARK];
-  if (!evidence || !type || !mark || alreadyCitedBy(state, claim)) return false;
+  if (!evidence || !type || !mark || citationDecision(state, claim).kind !== "add") return false;
   const words = state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
   const closing = CLOSING.exec(words)?.[0].length ?? 0;
   const at = claim.sentence.to - closing;
@@ -300,4 +303,63 @@ export function addAsCitation(editor: Editor, claim: ShownClaim): boolean {
   tr.insert(at, spaced ? [state.schema.text(" "), citation] : citation);
   editor.view.dispatch(tr);
   return true;
+}
+
+function rewriteCitation(
+  editor: Editor,
+  citation: NumberedCitation,
+  change: Partial<CitationAttributes>,
+): boolean {
+  const { state } = editor;
+  const node = state.doc.nodeAt(citation.pos);
+  if (!node || node.type.name !== CITATION_NODE) return false;
+  editor.view.dispatch(
+    state.tr.setNodeMarkup(citation.pos, undefined, { ...node.attrs, ...change }),
+  );
+  return true;
+}
+
+/**
+ * Widens the sentence's Citation to the whole clause the check found, in
+ * place, so a check never adds a second Citation on the same words (#1620).
+ * The wider quote is found at the Passage the check read, so the Citation
+ * takes its place and version too, as the core's own re-point does.
+ */
+export function widenCitation(
+  editor: Editor,
+  { citation, evidence }: { citation: NumberedCitation; evidence: CitationAttributes },
+): boolean {
+  return rewriteCitation(editor, citation, {
+    passageId: evidence.passageId,
+    quote: evidence.quote,
+    pageFrom: evidence.pageFrom,
+    pageTo: evidence.pageTo,
+    location: evidence.location,
+    contentHash: evidence.contentHash,
+    check: "found",
+    checkReason: null,
+    verdict: evidence.verdict ?? null,
+    quotedWords: evidence.quotedWords ?? null,
+  });
+}
+
+/**
+ * Points the sentence's Citation that doesn't hold at the Passage the check
+ * found instead, again in place (#1620). Only that Passage's quote was
+ * checked: it must hold the words the sentence put in quotation marks for the
+ * Citation to be found, and those words stay on it for the core's re-check.
+ * The old verdict described the old quote, so it goes.
+ */
+export function replaceCitation(
+  editor: Editor,
+  { citation, evidence }: { citation: NumberedCitation; evidence: CitationAttributes },
+): boolean {
+  if (!quotedWordsFoundIn(evidence.quote ?? "", citation.attributes.quotedWords)) return false;
+  return rewriteCitation(editor, citation, {
+    ...evidence,
+    check: "found",
+    checkReason: null,
+    verdict: evidence.verdict ?? null,
+    quotedWords: evidence.quotedWords ?? citation.attributes.quotedWords ?? null,
+  });
 }

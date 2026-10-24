@@ -29,11 +29,11 @@ export const useCardWidth = create<{ width: number | null }>()(() => ({ width: n
  */
 export const groupsMerged = () => groupsMergedAt(window.innerWidth, useCardWidth.getState().width);
 
-/** A line about the tabs, shown for a moment where the sidebar ends. */
+/** A line about the tabs, shown in the sidebar foot's one slot. */
 export type TabNotice =
   | { kind: "closed"; item: TabItem; count: number }
   | { kind: "maxGroups" }
-  | { kind: "noGroup"; group: number }
+  | { kind: "noGroup"; group: number; shortcut: string }
   | { kind: "pinned"; item: TabItem }
   | { kind: "merged" }
   /** A side dock chosen in a narrow window: it stays at the bottom until the window is wider. */
@@ -42,7 +42,6 @@ export type TabNotice =
 export interface LayoutSlice {
   /** Null until loaded. */
   layout: WindowLayout | null;
-  tabNotice: TabNotice | null;
   /** The tab whose name is being typed in it, if any. */
   renamingTabId: string | null;
   /** Reads the window's layout from the core, as it was left. */
@@ -54,7 +53,6 @@ export interface LayoutSlice {
    * through the core (and put back as the core has it if it refuses).
    */
   placeAssistant(place: Partial<AssistantPlace>): Promise<void>;
-  showTabNotice(notice: TabNotice | null): void;
   /** Starts typing a tab's name in it, or stops (null). */
   renameTab(tabId: string | null): void;
 }
@@ -72,7 +70,6 @@ export function createLayoutSlice(
 ): LayoutSlice {
   return {
     layout: null,
-    tabNotice: null,
     renamingTabId: null,
     async loadLayout() {
       set({ layout: await core.getLayout(WINDOW_ID) });
@@ -104,9 +101,6 @@ export function createLayoutSlice(
         report(error);
         if (placing === placings) await get().loadLayout().catch(report);
       }
-    },
-    showTabNotice(notice) {
-      set({ tabNotice: notice });
     },
     renameTab(tabId) {
       set({ renamingTabId: tabId });
