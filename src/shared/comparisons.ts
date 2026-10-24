@@ -114,6 +114,10 @@ export function cellProblemMessage(
       return { key: "comparison.cell.rateLimit" };
     case "network":
       return { key: "comparison.cell.network" };
+    case "out-of-credit":
+      return { key: "comparison.cell.outOfCredit" };
+    case "region":
+      return { key: "comparison.cell.region" };
     case "consent-declined":
       return { key: "comparison.cell.consentDeclined" };
     case "local-mode":

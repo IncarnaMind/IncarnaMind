@@ -2043,6 +2043,17 @@ export async function focusSettled(window: Page, editor: Locator): Promise<void>
   await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 20)));
 }
 
+/** The words of the sentences the User keeps as their own view, in the Mind's order. */
+export const keptWords = (editor: Locator) =>
+  editor.evaluate((dom) => {
+    const kept: string[] = [];
+    (dom as unknown as { editor: Editor }).editor.state.doc.descendants((node) => {
+      const marked = node.marks.some((each) => each.type.name === "claimCheck" && each.attrs.kept);
+      if (node.isText && marked) kept.push(node.text ?? "");
+    });
+    return kept;
+  });
+
 /** The page of the Mind the User is in, in the group they are in. */
 export const frontMind = (window: Page) =>
   window.locator('[data-testid="tab-group"][data-focused] [data-testid="mind-pane"]:visible');
