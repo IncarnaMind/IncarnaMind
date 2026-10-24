@@ -61,10 +61,11 @@ function decorations(doc: ProseMirrorNode, place: Place, label: string): Decorat
   if ("over" in place) {
     const block = blockAt(doc, place.over);
     if (!block) return [];
+    const key = `writing:over:${place.over}`;
     return [
       Decoration.widget(topBlockStart(doc, block.pos), widget, {
         side: -1,
-        key: `writing:over:${place.over}`,
+        key,
       }),
       Decoration.node(block.pos, block.pos + block.node.nodeSize, {
         class: "mind-rewriting",

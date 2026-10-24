@@ -10,6 +10,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  moveAssistant,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -239,5 +240,182 @@ test("a scroll up before the Answer reaches the foot leaves no blank under it on
     return scroller.scrollHeight - (end + scroller.scrollTop);
   });
   expect(blank).toBeLessThan(80);
+  await app.close();
+});
+
+async function expectAnchoredQuestion(window: Page) {
+  await expect(window.getByTestId("assistant-thread")).toHaveAttribute("data-anchored", "");
+  await expect.poll(async () => (await whereIs(window)).question).toBeLessThan(24);
+}
+
+async function askSlowAnchored(window: Page, question: string) {
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect(window.getByTestId("composer-input")).toBeFocused();
+  await window.keyboard.type(question);
+  await window.keyboard.press("Enter");
+  const answers = assistantAnswers(window);
+  await expect(answers).toHaveCount(5);
+  const answer = answers.last();
+  await expect(answer).toHaveAttribute("data-status", "streaming");
+  await expectAnchoredQuestion(window);
+  return answer;
+}
+
+test("a short-lived Answer shrink clamps the scroll without releasing the anchored Question, which later follows the foot", async () => {
+  const { app, window } = await startLongThread();
+  const answer = await askSlowAnchored(
+    window,
+    "What do tides do with forty citations. Answer slowly",
+  );
+  const anchored = await whereIs(window);
+  const log = window.getByTestId("assistant-log");
+  const thread = window.getByTestId("assistant-thread");
+
+  const grown = await answer.evaluate((element) => {
+    const log = element.parentElement;
+    if (!(log instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    const room = Number.parseFloat(log.style.paddingBottom) || 0;
+    const added = Math.floor(room / 2);
+    element.style.paddingBottom = `${added}px`;
+    return { room, added };
+  });
+  expect(grown.added).toBeGreaterThan(40);
+  await expect
+    .poll(() => log.evaluate((element) => Number.parseFloat(element.style.paddingBottom) || 0))
+    .toBeLessThan(grown.room);
+
+  const clamped = await answer.evaluate((element) => {
+    const thread = element.closest('[data-testid="assistant-thread"]');
+    if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    element.style.paddingBottom = "0px";
+    const top = thread.scrollTop;
+    // The clamp's scroll can arrive before the resize observer refills the room.
+    thread.dispatchEvent(new Event("scroll"));
+    return top;
+  });
+  expect(clamped).toBeLessThan(anchored.scrollTop - 2);
+  await expectAnchoredQuestion(window);
+  expect(Math.abs((await whereIs(window)).question - anchored.question)).toBeLessThanOrEqual(2);
+  expect((await whereIs(window)).scrollTop).toBeCloseTo(anchored.scrollTop, 0);
+
+  await answer.evaluate((element) => {
+    const thread = element.closest('[data-testid="assistant-thread"]');
+    if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    element.style.paddingBottom = `${thread.clientHeight}px`;
+  });
+  await expect(thread).not.toHaveAttribute("data-anchored");
+  await expect.poll(async () => (await whereIs(window)).fromFoot).toBeLessThanOrEqual(2);
+  const atFoot = await whereIs(window);
+  await answer.evaluate((element) => {
+    const thread = element.closest('[data-testid="assistant-thread"]');
+    if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    element.style.paddingBottom = `${thread.clientHeight + 80}px`;
+  });
+  await expect
+    .poll(async () => (await whereIs(window)).scrollTop)
+    .toBeGreaterThan(atFoot.scrollTop + 40);
+  await expect.poll(async () => (await whereIs(window)).fromFoot).toBeLessThanOrEqual(2);
+  await expect(answer).toHaveAttribute("data-status", "streaming");
+  await app.close();
+});
+
+for (const { language, width, question } of [
+  {
+    language: "en",
+    width: 1440,
+    question: "What do tides do with forty citations. Answer slowly",
+  },
+  {
+    language: "zh-CN",
+    width: 900,
+    question: "潮水每天怎样变化？ forty citations. Answer slowly",
+  },
+] as const) {
+  test(`resizing, docking, floating and folding keep an anchored Question from the foot (${language}, ${width}px)`, async () => {
+    const { app, window } = await startLongThread();
+    await setWindowSize(app, window, width, 640);
+    await setLanguage(window, language);
+    const answer = await askSlowAnchored(window, question);
+    const assistant = window.getByTestId("assistant");
+
+    const before = await assistant.boundingBox();
+    if (!before) throw new Error("The assistant isn't showing.");
+    const dock = await assistant.getAttribute("data-dock");
+    await window.getByTestId("assistant-resize").focus();
+    await window.keyboard.press(dock === "bottom" ? "ArrowUp" : "ArrowLeft");
+    await expect
+      .poll(() =>
+        assistant.evaluate((element, place) => {
+          const box = element.getBoundingClientRect();
+          return place === "bottom" ? box.height : box.width;
+        }, dock),
+      )
+      .toBe(dock === "bottom" ? before.height + 10 : before.width + 10);
+    await expectAnchoredQuestion(window);
+
+    await moveAssistant(window, "float");
+    await expect(assistant).toHaveAttribute("data-dock", "float");
+    await expectAnchoredQuestion(window);
+    await window.getByTestId("assistant-fold").click();
+    await expect(assistant).toHaveAttribute("data-folded", "true");
+    await window.getByTestId("assistant-fold").click();
+    await expect(assistant).not.toHaveAttribute("data-folded");
+    await expectAnchoredQuestion(window);
+
+    await moveAssistant(window, "right");
+    await expect(assistant).toHaveAttribute("data-chosen-dock", "right");
+    await expect(assistant).toHaveAttribute("data-dock", width < 1000 ? "bottom" : "right");
+    await expectAnchoredQuestion(window);
+    await expect(answer).toHaveAttribute("data-status", "streaming");
+    await app.close();
+  });
+}
+
+test("an older Answer sought in another conversation stays in view after its flash ends", async () => {
+  const { app, window } = await startLongThread();
+  await window.keyboard.press("ControlOrMeta+Shift+o");
+  await expect(window.getByTestId("assistant-empty")).toBeVisible();
+  for (const day of ["Friday", "Saturday", "Sunday", "Thursday"]) {
+    await askInAssistant(window, `What do tides do on ${day}`);
+  }
+  const previous = await window.getByTestId("assistant-thread").boundingBox();
+  if (!previous) throw new Error("The assistant isn't showing.");
+  await window.mouse.move(previous.x + previous.width / 2, previous.y + previous.height / 2, {
+    steps: 8,
+  });
+  await window.mouse.wheel(0, -200);
+  await expect.poll(async () => (await whereIs(window)).fromFoot).toBeGreaterThan(100);
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Your Documents answer this");
+  const found = window
+    .locator('[data-testid="palette-group"][data-group="conversationText"]')
+    .getByTestId("palette-item")
+    .filter({ hasText: "What do tides do on Monday" });
+  await expect(found).toHaveCount(1);
+  await found.click();
+
+  const answers = assistantAnswers(window);
+  await expect(answers).toHaveCount(4);
+  const selected = answers.first();
+  await expect(selected).toHaveAttribute("data-sought", "true");
+  const visible = () =>
+    selected.evaluate((element) => {
+      const thread = element.closest('[data-testid="assistant-thread"]');
+      if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+      const answer = element.getBoundingClientRect();
+      const view = thread.getBoundingClientRect();
+      return answer.top >= view.top - 1 && answer.bottom <= view.bottom + 1;
+    });
+  await expect.poll(visible).toBe(true);
+  await expect.poll(async () => (await whereIs(window)).fromFoot).toBeGreaterThan(24);
+  const before = (await whereIs(window)).scrollTop;
+
+  await expect(selected).not.toHaveAttribute("data-sought");
+  await expect.poll(visible).toBe(true);
+  const after = await whereIs(window);
+  expect(after.fromFoot).toBeGreaterThan(24);
+  expect(Math.abs(after.scrollTop - before)).toBeLessThanOrEqual(2);
   await app.close();
 });
