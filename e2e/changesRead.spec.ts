@@ -317,7 +317,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const applied = editor.getByTestId("applied-line");
     await expect(editor.locator("table")).toHaveCount(1);
     await expect(applied.getByTestId("applied-count")).toHaveText(count);
-    await expect(window.getByTestId("undo-message")).toHaveText(count);
+    // Its Undo is under the paragraph, on the applied line, not at the sidebar's foot.
+    await expect(window.getByTestId("undo-message")).toHaveCount(0);
     await pointAndClick(window, applied.getByTestId("applied-review"));
     await expect(applied.getByTestId("applied-count")).toHaveText(review);
     await app.close();
