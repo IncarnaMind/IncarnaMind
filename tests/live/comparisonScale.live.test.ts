@@ -201,7 +201,12 @@ async function liveCore(item: Case): Promise<{ core: Core; told: string[] }> {
       }),
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-  await core.saveChatProvider({ kind: LIVE.kind, apiKey: LIVE.key as string, modelId: LIVE.model });
+  await core.saveChatProvider({
+    kind: LIVE.kind,
+    apiKey: LIVE.key as string,
+    modelId: LIVE.model,
+    ...(LIVE.kind === "kimi" && { endpoint: "intl" }),
+  });
   const sources = await createTempDataFolder();
   await addAndProcess(core, [
     await writeSourceFile(sources, item.final, await readFile(join(FIXTURES, item.final))),

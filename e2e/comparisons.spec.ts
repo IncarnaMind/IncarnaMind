@@ -825,4 +825,16 @@ test("a cell whose amount changed scale says what the Document gives, offers Fil
     .toBe("! 金额单位与文档不符，文档写的是 310,000 GBP thousands");
   await expect(table.getByTestId("comparison-fill")).toHaveText("补全 1 个单元格");
   await screenshot(window, "compare-scale-zh-1440");
+
+  // At a narrow width the line wraps inside its cell.
+  await setWindowSize(app, window, 900, 860);
+  const cell = table.getByTestId("comparison-row").nth(final).getByTestId("comparison-cell");
+  const [line, box] = [
+    await cell.getByTestId("comparison-cell-problem").boundingBox(),
+    await cell.boundingBox(),
+  ];
+  if (!line || !box) throw new Error("The cell isn't on screen.");
+  expect(line.x).toBeGreaterThanOrEqual(box.x - 1);
+  expect(line.x + line.width).toBeLessThanOrEqual(box.x + box.width + 1);
+  await screenshot(window, "compare-scale-zh-900");
 });
