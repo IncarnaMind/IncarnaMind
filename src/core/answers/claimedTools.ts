@@ -15,7 +15,7 @@ import { sentencesOf, thisAnswersRecord, UNSEEN_REPLY } from "./claimedChanges";
 import type { ChangeStates, MindNames } from "./toolRecord";
 
 const CALCULATION_TOOL =
-  /\b(?:calculat(?:ion|e|ing|or)|comput(?:ation|e|ing)|math|maths|arithmetic)\s+(?:tool|function)s?\b|\bcalculators?\b/gi;
+  /\b(?:calculat(?:ion|e|ing|or)|comput(?:ation|e|ing)|math|maths|arithmetic)\s+(?:tool|function)s?\b|\b(?:the|a|my|IncarnaMind['’]s)\s+calculator\b/gi;
 // "Northbank's covenant calculator", "the vendor calculation tool": someone else's.
 const NAMED_OWNER =
   /\b(?!(?:IncarnaMind|That|It|What|There|Here|Who|He|She|Let)['’]s)[A-Z][\w&.-]*['’]s\s+(?:[\w-]+\s+){0,3}$/;

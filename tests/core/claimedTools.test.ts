@@ -58,6 +58,7 @@ describe("What a reply says a Tool did", () => {
     "The facility agent confirmed the ratio in its compliance certificate.",
     "310 / 95 = 3.26, so the earlier 3.37x was wrong.",
     "IncarnaMind checked every quote against its page.",
+    "An online loan calculator would give a different figure.",
     "审计师确认净负债为3.1亿英镑。",
     "报告中计算得出杠杆率为3.26倍。",
     "根据协议，杠杆率按净负债除以EBITDA计算。",
