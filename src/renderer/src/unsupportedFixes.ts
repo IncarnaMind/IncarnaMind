@@ -1,11 +1,12 @@
 /**
- * The fixes for a sentence found unsupported, from its card and ⌘K. With a
- * Citation (#1111): Cut the unsupported part, an Edit with AI that applies at
- * once with Undo. With none: Cut it, which takes the whole sentence
+ * The fixes for a sentence found unsupported or contradicted, from its card and
+ * ⌘K. With a Citation (#1111): Cut the unsupported part, an Edit with AI that
+ * applies at once with Undo. With none: Cut it, which takes the whole sentence
  * out with no model. Either: Search all Documents, its check again in every
  * Document, while it searched less than all; and Keep as my view, which makes
  * the sentence the User's own, as Mark as mine does, and keeps its check from
- * showing or counting. Each is one step of Undo.
+ * showing or counting. A contradicted sentence can be kept as the User's view
+ * too (#1768). Each is one step of Undo.
  */
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -56,6 +57,10 @@ export function offersNotFound(editor: Editor, claim: ShownClaim): boolean {
   );
 }
 
+export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
+  return editor.isEditable && claim.shown.state === "contradicted";
+}
+
 const claimAt = (editor: Editor, offered: (editor: Editor, claim: ShownClaim) => boolean) => {
   const { from, to } = editor.state.selection;
   return (
@@ -70,6 +75,10 @@ export const unsupportedAt = (editor: Editor): ShownClaim | null => claimAt(edit
 
 /** The sentence with no Citation that nothing backs that the selection is in, for ⌘K; null for none. */
 export const notFoundAt = (editor: Editor): ShownClaim | null => claimAt(editor, offersNotFound);
+
+/** The contradicted sentence the selection is in, for ⌘K; null for none. */
+export const contradictedAt = (editor: Editor): ShownClaim | null =>
+  claimAt(editor, offersKeepAsView);
 
 export const fixesFree = (mindId: string): boolean =>
   !useEdits.getState().pending[mindId] && !useChecks.getState().running[mindId];
