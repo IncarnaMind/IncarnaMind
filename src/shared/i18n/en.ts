@@ -451,6 +451,7 @@ export const en = {
   "undo.folderGone": "“{name}” is deleted",
   "undo.restoreFolder": "Restore {name}",
   "undo.title": "Undo ({shortcut})",
+  "line.actionKeys": "{label} ({keys})",
 
   "mind.untitled": "Untitled",
   "conversation.untitled": "New chat",

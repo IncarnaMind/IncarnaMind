@@ -441,6 +441,7 @@ export const zhCN = {
   "undo.folderGone": "“{name}”已删除",
   "undo.restoreFolder": "恢复“{name}”",
   "undo.title": "撤销（{shortcut}）",
+  "line.actionKeys": "{label}（{keys}）",
 
   "mind.untitled": "未命名",
   "conversation.untitled": "新对话",

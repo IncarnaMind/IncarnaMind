@@ -14,7 +14,7 @@ import { useLanguage, useT } from "../i18n";
 import { type Said, saidInLine } from "../lineNames";
 import { useFade } from "../motion";
 import { useAppStore } from "../store";
-import { UNDO_SHOWN_MS, type UndoLineState, useUndo } from "../undo";
+import { type LineAction, UNDO_SHOWN_MS, type UndoLineState, useUndo } from "../undo";
 
 const lineClass =
   "mx-2 flex min-w-0 shrink-0 gap-1 pt-0.5 pb-1 pl-2 text-[12px] leading-4 text-ink-secondary";
@@ -57,8 +57,23 @@ function Line({ line }: { line: UndoLineState }) {
   const shown = useRef<HTMLDivElement>(null);
   useFade(shown);
 
-  useGoesBy(line.change || (line.note && !line.busy) ? line.id : null);
+  useGoesBy(line.change || line.told || (line.note && !line.busy) ? line.id : null);
   useDismissOnEscape(true, () => useUndo.getState().dismiss());
+
+  if (line.told) {
+    const said = saidInLine(t, line.told.says);
+    const action = line.told.action;
+    if (!action) {
+      return (
+        <div ref={shown} className={lineClass}>
+          <span data-testid="undo-message" className="min-w-0 break-words" title={said.fullMessage}>
+            {said.message}
+          </span>
+        </div>
+      );
+    }
+    return <ChangeLine said={said} undo={<ActionButton action={action} />} line={shown} />;
+  }
 
   if (line.note) {
     return (
@@ -203,6 +218,27 @@ function ChangeLine({
       <span aria-hidden="true">{"\u00A0·\u00A0"}</span>
       <span className="-my-1 inline-block align-middle">{undo}</span>
     </div>
+  );
+}
+
+/** A line's own action, such as Reopen: its words, with its shortcut in the tooltip. */
+function ActionButton({ action }: { action: LineAction }) {
+  const t = useT();
+  const label = action.label(t);
+  const title = action.shortcut
+    ? t("line.actionKeys", { label, keys: shortcutLabel(action.shortcut) })
+    : label;
+  return (
+    <button
+      type="button"
+      data-testid={action.testId}
+      aria-label={title}
+      title={title}
+      onClick={action.run}
+      className={`${actionClass} whitespace-nowrap`}
+    >
+      {label}
+    </button>
   );
 }
 

@@ -166,14 +166,14 @@ test("tabs close, reopen, move and switch by mouse and keyboard; a deleted Mind'
   await expect(titlesOf(window)).toHaveText(["Alpha"]);
   await expect(activeTab(window)).toContainText("Alpha");
   expect(window.isClosed()).toBe(false);
-  const notice = window.getByTestId("tab-notice");
-  await expect(notice).toContainText("Closed “Gamma”");
+  const line = window.getByTestId("undo-line");
+  await expect(line.getByTestId("undo-message")).toHaveText("Closed “Gamma”");
   // ⇧⌘T reopens it where it was; the line's Reopen does the same.
   await window.keyboard.press("ControlOrMeta+Shift+t");
   await expect(titlesOf(window)).toHaveText(["Alpha", "Gamma"]);
   await expect(activeTab(window)).toContainText("Gamma");
   await window.keyboard.press("ControlOrMeta+w");
-  await notice.getByTestId("tab-notice-reopen").click();
+  await line.getByTestId("tab-notice-reopen").click();
   await expect(titlesOf(window)).toHaveText(["Alpha", "Gamma"]);
 
   // Deleting a Mind closes its tab.
