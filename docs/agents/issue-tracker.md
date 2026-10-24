@@ -37,7 +37,7 @@ Run `gh issue view <number> --comments`.
 
 A work item is an issue that lists small issues one agent should do together, so the agent reads the context once and opens one pull request.
 
-- **Title and labels:** "Work item: <theme>" with `work-item`, the group's `priority:` label and `complexity:routine`. Members keep their own labels. All members share one priority tier, and no member is hard.
+- **Title and labels:** "Work item: <theme>" with `work-item`, the group's `priority:` label and the highest `complexity:` of its members (`complexity:simple` or `complexity:medium`). Members keep their own labels. All members share one priority tier, and no member is hard.
 - **Body:** a line on the theme and the files or screens it touches, then a checklist with one link per member: `- [ ] #1350 Library: ⌘A also highlights the page's text`. Add "Split if over 600 lines" and name the split when it is known.
 - **Taking it:** claim the work item, read each member once, and build them in one branch and one pull request that closes the work item and every member ("Closes #1350, closes #1354"). Use `Closes`, not `Part of`, for a member that is done.
 - **Dropping a member:** one that turns out hard, blocked or undecided comes off the list with a comment saying why, and stays open on its own.
