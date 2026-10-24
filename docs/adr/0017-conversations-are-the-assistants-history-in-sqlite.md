@@ -41,3 +41,7 @@ Rich Blocks were rejected: they would tie the history to the editor's schema, an
 - **Answers as rich Blocks:** rejected, as above.
 - **One FTS5 index for titles and messages:** a contentless index can't say which kind of row a match came from, so each has its own.
 - **Searching with `LIKE`:** it matches inside words, can't fold traditional and simplified Chinese, and can't use the Library's word rules; FTS5 with the same segmenting as Passages does all three.
+
+## Amendment: a Citation in Question context reads with an id the Answer can keep it by (2026-10-24, #1800)
+
+Each Citation the model reads in Question context (the Mind it reads, read_mind's, an earlier Answer's) reads as its source and an id, "[Tides, p. 3 · C2]", and `cite` takes the id as a record's passage. The Answer's Citation is then that same Citation: its Document, the version it quotes (ADR-0010), its Location and its quote, checked as any other, so one whose Document changed or was deleted since says so. Why: read as plain references, a Mind's Citations were copied into a report as text that opens nothing, and that text went on into a new Mind and its exports (#1800). Ids are given in reading order for one Answer and never stored. An id the model still writes as text is made that Citation, never matched by a name, or taken out with words that say its source couldn't be kept.
