@@ -86,7 +86,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
   const answerId = text(node.attrs[BLOCK_ID_ATTRIBUTE]);
   const questionId = text(node.attrs.questionId);
   const modelId = text(node.attrs.modelId);
-  const shownModel = useModelNames()(modelId ?? "");
+  const shownModel = useModelNames()(modelId ?? "", text(node.attrs.providerId));
   const status = text(node.attrs.status) ?? "done";
   const writing = useAnswers((state) => (answerId ? state.writing.has(answerId) : false));
   // The event says so first; the status says so in windows that opened since.

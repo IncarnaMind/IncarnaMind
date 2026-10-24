@@ -271,7 +271,7 @@ function installMenuInLanguage(core: Core): void {
   const install = (language: Language) => {
     if (language === shown) return;
     shown = language;
-    installAppMenu(language, { developer });
+    installAppMenu(language, { developer, windows: appWindows });
   };
   install(resolveLanguage("system", app.getPreferredSystemLanguages()));
   core.getSettings().then(

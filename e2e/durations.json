@@ -42,6 +42,7 @@
   "charts.spec.ts": 208,
   "chatGptPaste.spec.ts": 6,
   "checkBadge.spec.ts": 26,
+  "checkCardBadge.spec.ts": 45,
   "checkRecord.spec.ts": 13,
   "checkStays.spec.ts": 19,
   "checklistExport.spec.ts": 12,

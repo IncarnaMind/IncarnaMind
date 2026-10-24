@@ -17,8 +17,11 @@ export interface ReviewPaneState {
   /** The author shown (`authorKey`); null for everyone. */
   who: string | null;
   selected: string | null;
-  /** The change decided last from the pane: selected again if Undo makes it wait again. */
-  decided: string | null;
+  /**
+   * The changes decided one by one from the pane, most recent last: the one
+   * Undo makes wait again is selected again.
+   */
+  decided: readonly string[];
   /** Counts the times it was asked to open, so it takes the focus each time. */
   opened: number;
 }
@@ -35,7 +38,7 @@ const CLOSED: ReviewPaneState = {
   filter: null,
   who: null,
   selected: null,
-  decided: null,
+  decided: [],
   opened: 0,
 };
 

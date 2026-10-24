@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { EditMenuState } from "../../../shared/bridge";
 import {
   type CommandId,
   type Keys,
@@ -65,6 +66,12 @@ export interface CommandContext {
   selection: readonly ObjectRef[];
   focus: ObjectRef | null;
   surface: Surface;
+  /**
+   * Where ⌘Z would act when ⌘K opened: the note's own history, a field's, or
+   * the app's changes (null). ⌘K holds the focus in its field, so Undo reads
+   * where the User was rather than where the palette is.
+   */
+  place?: EditMenuState["text"];
   /**
    * What only the place that shows the object can do, by command: renaming
    * in the row's own field, or opening a Citation's card. A command that needs

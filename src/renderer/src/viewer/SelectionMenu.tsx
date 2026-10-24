@@ -9,6 +9,7 @@ import { ChatLineIcon, CopyLineIcon, PlusLineIcon } from "../components/lineIcon
 import { holdsQuote, useComposer } from "../composer";
 import { Popover } from "../editor/Popover";
 import { useT } from "../i18n";
+import { useSettingUp } from "../modelSetup";
 import { type SelectionReader, selectionEnd } from "./selectedText";
 import {
   addSelectionToNote,
@@ -72,14 +73,19 @@ export function SelectionMenu({
   reader: SelectionReader;
 }) {
   const t = useT();
+  const settingUp = useSettingUp();
   const [held, setHeld] = useState<Held | null>(null);
   const [asked, setAsked] = useState<AskedQuote | null>(null);
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
-  const first = useRef<HTMLButtonElement>(null);
+  const firstAsk = useRef<HTMLButtonElement>(null);
+  const firstAdd = useRef<HTMLButtonElement>(null);
   const [adding, setAdding] = useState<HTMLButtonElement | null>(null);
-  const addButton = useCallback((element: HTMLButtonElement | null) => setAdding(element), []);
+  const addButton = useCallback((element: HTMLButtonElement | null) => {
+    setAdding(element);
+    firstAdd.current = element;
+  }, []);
   const focusBeforeMenu = useRef<HTMLElement | null>(null);
   const [focusWanted, setFocusWanted] = useState(false);
   const [away, setAway] = useState(false);
@@ -159,7 +165,7 @@ export function SelectionMenu({
       if (!menu.current?.contains(window.document.activeElement)) {
         focusBeforeMenu.current = window.document.activeElement as HTMLElement | null;
       }
-      if (open) first.current?.focus();
+      if (open) (settingUp ? firstAdd : firstAsk).current?.focus();
       else {
         setFocusWanted(true);
         setOpen(true);
@@ -167,7 +173,7 @@ export function SelectionMenu({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [held, open]);
+  }, [held, open, settingUp]);
 
   // Asked about, the words stay drawn while their chip waits in the composer, and go with it.
   useEffect(() => {
@@ -213,13 +219,21 @@ export function SelectionMenu({
       : null;
   }, [section, reader, document]);
 
+  const ask = useMemo(
+    () =>
+      held && !settingUp
+        ? () => {
+            close();
+            void askAboutSelection((heldNow() ?? held).selection).then(setAsked);
+          }
+        : null,
+    [held, settingUp, close, heldNow],
+  );
+
   const actions = useMemo(
     () =>
       held && {
-        ask: () => {
-          close();
-          void askAboutSelection((heldNow() ?? held).selection).then(setAsked);
-        },
+        ...(ask && { ask }),
         addToNote: () => {
           const now = heldNow() ?? held;
           if (addsWithoutAsking()) {
@@ -237,7 +251,7 @@ export function SelectionMenu({
           void copySelectionWithCitation((heldNow() ?? held).selection);
         },
       },
-    [held, close, heldNow],
+    [held, ask, close, heldNow],
   );
   // Only while there is a selection: another Document's tab may hold one.
   useEffect(() => {
@@ -275,25 +289,27 @@ export function SelectionMenu({
         role="menu"
         aria-label={t("viewer.selection.label")}
         data-testid="viewer-selection-menu"
-        {...(focusWanted && { initialFocus: first })}
+        {...(focusWanted && { initialFocus: settingUp ? firstAdd : firstAsk })}
         onDismiss={close}
         onKeyDown={onMenuKeyDown}
         className="viewer-selection-menu"
       >
         <div ref={menu} className="editor-menu">
-          <button
-            ref={first}
-            type="button"
-            role="menuitem"
-            data-testid="viewer-selection-ask"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={actions.ask}
-            className="editor-menu-item"
-          >
-            <ChatLineIcon className="size-4 shrink-0 text-ink-secondary" />
-            <span className="flex-1 truncate">{t("viewer.selection.ask")}</span>
-            <kbd className="editor-menu-shortcut">{shortcutLabel("composer.focus")}</kbd>
-          </button>
+          {ask && (
+            <button
+              ref={firstAsk}
+              type="button"
+              role="menuitem"
+              data-testid="viewer-selection-ask"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={ask}
+              className="editor-menu-item"
+            >
+              <ChatLineIcon className="size-4 shrink-0 text-ink-secondary" />
+              <span className="flex-1 truncate">{t("viewer.selection.ask")}</span>
+              <kbd className="editor-menu-shortcut">{shortcutLabel("composer.focus")}</kbd>
+            </button>
+          )}
           <button
             ref={addButton}
             type="button"

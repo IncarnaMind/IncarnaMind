@@ -3,6 +3,8 @@ import type { Command } from "./registry";
 
 const selected = () => viewerSelectionHandle.current !== null;
 
+const offersAsk = () => viewerSelectionHandle.current?.ask !== undefined;
+
 /** The viewer's selection menu in ⌘K (#101), while text is selected in a Document. */
 export const viewerSelectionCommands: readonly Command[] = [
   {
@@ -11,8 +13,8 @@ export const viewerSelectionCommands: readonly Command[] = [
     group: "main",
     // × on its chip takes it out of the composer.
     reversible: true,
-    when: selected,
-    run: () => viewerSelectionHandle.current?.ask(),
+    when: offersAsk,
+    run: () => viewerSelectionHandle.current?.ask?.(),
   },
   {
     id: "viewer.selection.addToNote",
