@@ -167,6 +167,14 @@ const cases: {
     message: "messages.0.content: [redacted] is not valid here",
   },
   {
+    way: "a refused request (400) that quotes a Question of two lines",
+    model: () =>
+      refusing(400, 'messages.0.content: "Acme plans to buy Beta Corp\nfor 40m" can\'t be taken'),
+    kind: "refused",
+    status: 400,
+    message: "messages.0.content: [redacted]",
+  },
+  {
     way: "a reply that can't be read",
     model: () =>
       breakingModel(

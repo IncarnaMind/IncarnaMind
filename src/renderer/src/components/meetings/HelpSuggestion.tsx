@@ -230,8 +230,8 @@ export function HelpSuggestion({
   const providerId = answer.model?.providerId ?? null;
   const service = useServiceName(providerId);
   const shownModel = useModelNames()(answer.model?.modelId ?? "", providerId);
-  const providerKind = useAnswers(
-    (state) => state.models?.find((group) => group.provider.id === providerId)?.provider.kind,
+  const provider = useAnswers(
+    (state) => state.models?.find((group) => group.provider.id === providerId)?.provider,
   );
   const failed = answer.status === "failed";
   // The panel is its own window: nothing else has loaded the providers that name the service.
@@ -239,10 +239,15 @@ export function HelpSuggestion({
     if (failed) useAnswers.getState().loadModels();
   }, [failed]);
   const why = answer.errorKind
-    ? t(answerProblem(answer.errorKind, providerKind).line, {
-        service,
-        model: answer.model ? shownModel.name : t("answer.error.thisModel"),
-      })
+    ? t(
+        answerProblem(answer.errorKind, provider?.kind, undefined, {
+          ...(provider && { local: provider.service === null }),
+        }).line,
+        {
+          service,
+          model: answer.model ? shownModel.name : t("answer.error.thisModel"),
+        },
+      )
     : (answer.errorMessage ?? "");
   const streaming = answer.status === "streaming";
   const items = shownItems(readHelpReply(answer.text), {

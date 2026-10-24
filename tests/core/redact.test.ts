@@ -10,6 +10,27 @@ describe("What a log keeps of a message", () => {
     ).toBe("Bad input [redacted] for key [redacted]");
   });
 
+  test("leaves nothing of a quote that isn't closed on its first line, or has an apostrophe inside", () => {
+    expect(
+      redactMessage('messages.0.content: "Acme plans to buy Beta Corp\nfor 40m" can\'t be taken'),
+    ).toBe("messages.0.content: [redacted]");
+    expect(
+      redactMessage(
+        "error parsing tool call: raw='Acme's merger with Beta closes in May', err=invalid character 'A'",
+      ),
+    ).toBe("error parsing tool call: raw=[redacted]");
+    expect(redactMessage("内容不合规：“Acme 计划收购\nBeta 公司”")).toBe("内容不合规：[redacted]");
+  });
+
+  test("keeps the apostrophes of ordinary words and the rest of a message with no quote open", () => {
+    expect(redactMessage("The model's reply can't be read: 'bad' field")).toBe(
+      "The model's reply can't be read: [redacted] field",
+    );
+    expect(redactMessage("Your credit balance is too low to access the Anthropic API.")).toBe(
+      "Your credit balance is too low to access the Anthropic API.",
+    );
+  });
+
   describe("given the secrets the run has handled", () => {
     test("takes each out wherever it stands, however short or plain, in or out of quotes", () => {
       const secrets = ["sk-1234", "abcdefghijklmnopqrstuvwxyzabcdef"];

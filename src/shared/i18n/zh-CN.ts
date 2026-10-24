@@ -2691,6 +2691,7 @@ export const zhCN = {
   "answer.error.useLocal": "改用本地模型",
   "answer.error.ollama-not-running": "Ollama 没有在这台电脑上运行",
   "answer.error.too-long": "这个问题太长，超出了模型的上限。请缩短问题。",
+  "answer.error.too-long.hosted": "内容太长，超出了 {model} 的上限",
   "answer.error.no-answer": "模型没有给出回答",
   "answer.error.unknown": "{service} 出了问题，原因不明",
   "answer.error.not-signed-in": "你还没有登录 ChatGPT",

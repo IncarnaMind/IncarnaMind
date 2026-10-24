@@ -356,7 +356,10 @@ export function AnswerError({
   const offered = useRouteOffered(isSignInRoute(provider) ? provider : null);
   const catalog = providerInUse && catalogProviderOf(providerInUse.kind, providerInUse.catalogId);
   const billingUrl = catalog && billingUrlOf(catalog, providerInUse.endpoint);
-  const shown = failedAnswerLine(kind, provider, signInRoute, offered, billingUrl);
+  const shown = failedAnswerLine(kind, provider, signInRoute, offered, {
+    ...(billingUrl && { billingUrl }),
+    ...(providerInUse && { local: providerInUse.service === null }),
+  });
   if (shown.kind === "route") {
     return (
       <RouteProblemLine

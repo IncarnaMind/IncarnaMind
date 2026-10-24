@@ -205,12 +205,35 @@ export function classifyProviderError(error: unknown): ProviderError {
 const OUT_OF_CREDIT =
   /credit balance is too low|insufficient[_ ](?:balance|credits?|funds|quota)|exceeded[_ ]current[_ ]quota|billing[_ ]hard[_ ]limit|out of (?:credits?|balance)|used all (?:of )?(?:its |your )?available credits|(?:add|purchase) more credits|balance (?:is |has )?(?:too low|insufficient|exhausted|not enough)|arrearage|余额不足|欠费/i;
 
-// OpenAI's "Country, region, or territory not supported", Gemini's "User location is not supported", Anthropic's bare 403.
+// OpenAI's "Country, region, or territory not supported" and Gemini's "User location is not supported".
 const NOT_SERVED_HERE =
-  /unsupported_country_region_territory|country, region, or territory not supported|(?:country|region|location|territory) (?:is )?not supported|not available in your (?:country|region|location)|^request not allowed\b/i;
+  /unsupported_country_region_territory|country, region, or territory not supported|(?:country|region|location|territory) (?:is )?not supported|not available in your (?:country|region|location)/i;
+
+// Anthropic's 403 where it isn't available, with nothing more to say: any other words after it are a key's own limits.
+const BARE_FORBIDDEN = /^request not allowed\.?$/i;
 
 const TOO_LONG =
   /context[_ ]length|prompt is too long|maximum context|exceeds? the (?:maximum )?(?:number of )?(?:context|tokens)|exceeds? (?:the )?max(?:imum)? length|input token count|token limit|too many tokens/i;
+
+/**
+ * What a provider says of a failure, for telling its kind: its message and the code and type of
+ * its error, not its whole body, which some servers fill with the request they were sent.
+ */
+function wordsOf(message: string, body: string | undefined): string {
+  let fields: unknown;
+  try {
+    fields = body ? JSON.parse(body) : undefined;
+  } catch {
+    // A body that isn't JSON has no code or type to read.
+    return message;
+  }
+  const error = isRecord(fields) && isRecord(fields.error) ? fields.error : fields;
+  if (!isRecord(error)) return message;
+  const named = [error.code, error.type, error.status].filter(
+    (value): value is string => typeof value === "string",
+  );
+  return [message, ...named].join(" ");
+}
 
 function sortedError(cause: unknown): ProviderError {
   const message = messageOf(cause);
@@ -270,18 +293,22 @@ function sortedError(cause: unknown): ProviderError {
       if (inner.kind === "network") return inner;
     }
     const said = streamed ? message : `${message} ${cause.responseBody ?? ""}`;
+    const words = streamed ? message : wordsOf(message, cause.responseBody);
     // Said with a 402, 429 (OpenAI, Kimi), 400 (Anthropic) or 403 (xAI) alike, so before the key's and the rate limit's.
     if (
       status === 402 ||
-      (status >= 400 && status < 500 && status !== 401 && OUT_OF_CREDIT.test(said))
+      (status >= 400 && status < 500 && status !== 401 && OUT_OF_CREDIT.test(words))
     ) {
       return { kind: "out-of-credit", message };
     }
-    if ([400, 403, 451].includes(status) && NOT_SERVED_HERE.test(said)) {
+    if (
+      ([400, 403, 451].includes(status) && NOT_SERVED_HERE.test(words)) ||
+      (status === 403 && BARE_FORBIDDEN.test(message.trim()))
+    ) {
       return { kind: "region", message };
     }
     if (status === 401 || status === 403) return { kind: "auth", message };
-    if (status === 413 || ([400, 422].includes(status) && TOO_LONG.test(said))) {
+    if (status === 413 || ([400, 422].includes(status) && TOO_LONG.test(words))) {
       return { kind: "too-long", message };
     }
     if (status === 400 && /must have data retention enabled/i.test(said)) {

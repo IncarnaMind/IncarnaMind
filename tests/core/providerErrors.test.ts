@@ -285,6 +285,37 @@ describe("A provider's own words for what went wrong", () => {
     expect(classifyProviderError(said(status, message, type)).kind).toBe(kind);
   });
 
+  test("a 403 with more words than Anthropic's bare one, or a 400 or 451 with the same first words, is not a region", () => {
+    expect(
+      classifyProviderError(said(403, "Request not allowed: this key is restricted to workspace X"))
+        .kind,
+    ).toBe("auth");
+    expect(classifyProviderError(said(400, "Request not allowed for this model")).kind).toBe(
+      "refused",
+    );
+    expect(classifyProviderError(said(451, "Request not allowed")).kind).toBe("refused");
+    expect(classifyProviderError(said(403, "Request not allowed.")).kind).toBe("region");
+  });
+
+  test("a body that repeats the request, with a Document's own words, does not make a kind", () => {
+    const echoed = (status: number, echo: string) =>
+      new APICallError({
+        message: "Input should be a valid string",
+        url: "http://127.0.0.1:8000/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: status,
+        responseBody: JSON.stringify({ detail: [{ type: "string_type", input: echo }] }),
+        isRetryable: false,
+      });
+    expect(classifyProviderError(echoed(422, "Insufficient funds at the bank")).kind).toBe(
+      "refused",
+    );
+    expect(classifyProviderError(echoed(400, "The token limit was raised")).kind).toBe("refused");
+    expect(classifyProviderError(echoed(400, "Country not supported in the treaty")).kind).toBe(
+      "refused",
+    );
+  });
+
   test("a failure of a model on this computer is never out of credit", () => {
     expect(classifyProviderError(new TypeError("fetch failed")).kind).toBe("network");
     expect(classifyProviderError(said(500, "llama runner process has terminated")).kind).toBe(

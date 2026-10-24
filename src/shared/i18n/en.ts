@@ -2811,6 +2811,7 @@ export const en = {
   "answer.error.useLocal": "Use a local model",
   "answer.error.ollama-not-running": "Ollama isn’t running on this computer",
   "answer.error.too-long": "This Question is too long for the model. Shorten it.",
+  "answer.error.too-long.hosted": "This is too long for {model}",
   "answer.error.no-answer": "The model sent no Answer",
   "answer.error.unknown": "Something went wrong with {service}",
   "answer.error.not-signed-in": "You’re not signed in to ChatGPT",

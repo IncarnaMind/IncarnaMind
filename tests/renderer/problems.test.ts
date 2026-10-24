@@ -179,17 +179,53 @@ describe("a failed Answer's problem line", () => {
     expect(billing("kimi", "intl")).toBe("https://platform.kimi.ai/console");
     const url = billing("openai");
     if (!url) throw new Error("OpenAI has a billing page.");
-    const problem = answerProblem("out-of-credit", "openai", false, url);
+    const problem = answerProblem("out-of-credit", "openai", false, { billingUrl: url });
     expect(problem.fix).toEqual({ kind: "link", url, label: "answer.error.addCredit" });
     expect(translate("en", "answer.error.addCredit")).toBe("Add credit");
     expect(translate("zh-CN", "answer.error.addCredit")).toBe("充值");
     // No page known: the only help is another model.
     expect(billing("google")).toBeUndefined();
     expect(answerProblem("out-of-credit", "google")).toBe(ANSWER_PROBLEMS["out-of-credit"]);
-    expect(failedAnswerLine("out-of-credit", "anthropic", null, false, url)).toMatchObject({
+    expect(
+      failedAnswerLine("out-of-credit", "anthropic", null, false, { billingUrl: url }),
+    ).toMatchObject({
       kind: "plain",
       problem: { fix: { kind: "link", url } },
     });
+  });
+
+  test("a model on this computer is never out of credit nor refused by a region; it is refused, and another model may take it", () => {
+    for (const kind of ["out-of-credit", "region"] as const) {
+      expect(answerProblem(kind, "ollama", false, { local: true })).toBe(ANSWER_PROBLEMS.refused);
+      expect(
+        answerProblem(kind, "openai-compatible", false, {
+          local: true,
+          billingUrl: "https://example.com/billing",
+        }),
+      ).toBe(ANSWER_PROBLEMS.refused);
+      expect(answerProblem(kind, "openai", false, { local: false }).line).toBe(
+        `answer.error.${kind}`,
+      );
+    }
+  });
+
+  test("a hosted model's too-long line doesn't blame the Question, and offers another model; a local one keeps Shorten it", () => {
+    const hosted = answerProblem("too-long", "anthropic", false, { local: false });
+    expect(hosted.fix).toEqual({
+      kind: "settings",
+      page: "models",
+      label: "answer.error.chooseModel",
+    });
+    expect(translate("en", hosted.line, { model: "Claude Haiku 5.5" })).toBe(
+      "This is too long for Claude Haiku 5.5",
+    );
+    expect(translate("zh-CN", hosted.line, { model: "Claude Haiku 5.5" })).toBe(
+      "内容太长，超出了 Claude Haiku 5.5 的上限",
+    );
+    expect(answerProblem("too-long", "ollama", false, { local: true })).toBe(
+      ANSWER_PROBLEMS["too-long"],
+    );
+    expect(answerProblem("too-long", "ollama")).toBe(ANSWER_PROBLEMS["too-long"]);
   });
 
   test("what the User can fix in Settings opens the page that fixes it", () => {

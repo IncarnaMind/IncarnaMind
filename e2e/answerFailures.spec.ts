@@ -93,6 +93,13 @@ test("a refused request and an overloaded provider each say why, with the action
   await expect(overloaded).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect(overloaded.getByTestId("answer-error")).toHaveCount(0);
 
+  // A model on this computer has no credit to run out of: whatever its server says, it refused.
+  const local = (await askFailing(window, "Is the account out of credit?")).getByTestId(
+    "answer-error",
+  );
+  await expect(local).toContainText("Ollama refused this request");
+  await expect(local.getByRole("button")).toHaveText("Choose another model");
+
   await expect
     .poll(logOf)
     .toMatch(
