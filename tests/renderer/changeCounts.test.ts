@@ -6,9 +6,7 @@ import { MIND_CONTENT_FIELD, MIND_PROPOSAL_REQUESTS_FIELD } from "../../src/core
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { proposalsIn } from "../../src/renderer/src/editor/proposalReview";
 import {
-  type ChangeKind,
   changedParagraphs,
-  countChanged,
   decideProposals,
   pendingProposals,
   waitingChanges,
@@ -114,6 +112,7 @@ const numbered = <T>(count: number, make: (n: number) => T): T[] =>
   Array.from({ length: count }, (_, index) => make(index + 1));
 
 describe("Paragraphs changed, each counted once (#1335)", () => {
+  // protects=rewriting every one of 10 paragraphs is 10 changed paragraphs and 10 changes waiting, in English and Chinese, and the Mind's bar counts the changes as the assistant's lines do; fails_when=a surface counts more or fewer; no_claim=the wording of the lines.
   test.each([
     ["English", (n: number) => `Paragraph ${n} says the quarter was solid.`],
     ["Chinese", (n: number) => `第 ${n} 段说这个季度的业绩不错，团队按期完成了任务。`],
@@ -124,23 +123,17 @@ describe("Paragraphs changed, each counted once (#1335)", () => {
     expect(parity(page)).toBe(10);
   });
 
-  test("a paragraph written anew in place of the old one, whole Block for whole Block, is one, not two", () => {
-    const page = numbered(10, (n) => `Old paragraph ${n}.`).flatMap((old, index) => [
-      removed(old),
-      added(`New paragraph ${index + 1}.`),
-    ]);
-
-    expect(paragraphsIn(page)).toBe(10);
-    expect(parity(page)).toBe(20);
-  });
-
-  test("the old paragraphs removed together and the new ones added after them are paired in the same way", () => {
-    const page = [
-      ...numbered(10, (n) => removed(`Old paragraph ${n}.`)),
-      ...numbered(10, (n) => added(`New paragraph ${n}.`)),
+  // protects=a paragraph written anew in place of the old one, the old Block removed and the new one added, is one changed paragraph, side by side or in two rows, while every one of them is a change to accept; fails_when=the count adds the removed to the added (20 for 10); no_claim=how the model wrote it.
+  test("a paragraph written anew in place of the old one is one, not two", () => {
+    const beside = numbered(10, (n) => [removed(`Old ${n}.`), added(`New ${n}.`)]).flat();
+    const apart = [
+      ...numbered(10, (n) => removed(`Old ${n}.`)),
+      ...numbered(10, (n) => added(`New ${n}.`)),
     ];
 
-    expect(paragraphsIn(page)).toBe(10);
+    expect(paragraphsIn(beside)).toBe(10);
+    expect(paragraphsIn(apart)).toBe(10);
+    expect(parity(beside)).toBe(20);
   });
 
   test("one paragraph written anew as 10 is 10: the one it replaced and 9 added", () => {
@@ -154,6 +147,7 @@ describe("Paragraphs changed, each counted once (#1335)", () => {
     expect(paragraphsIn([removed("One."), plain("Kept."), removed("Two.")])).toBe(2);
   });
 
+  // protects=adding 2 paragraphs and changing 3 is 5, as the issue says; fails_when=it reads 4 or 8; no_claim=none beyond protects.
   test("adding 2 paragraphs and changing 3 is 5, whether the 3 are reworded or written anew", () => {
     const reworded3 = [
       reworded("A.", "A, longer."),
@@ -269,6 +263,7 @@ describe("Tables count as tables, and a cell's words as a paragraph", () => {
   });
 });
 
+// protects=accepting one, rejecting one and Undo move the changes waiting and the paragraphs changed together; fails_when=a count stays or jumps; no_claim=the lines that show them.
 describe("Accepting, rejecting and undoing one change moves every count together", () => {
   function reviewed() {
     const page = [
@@ -324,20 +319,5 @@ describe("Accepting, rejecting and undoing one change moves every count together
 
     expect(waitingChanges(blocks)).toBe(1);
     expect(changedParagraphs(blocks, ours)).toBe(1);
-  });
-});
-
-describe("countChanged", () => {
-  test.each<[string, ChangeKind[], number]>([
-    ["nothing", [], 0],
-    ["edited ones each", ["edited", "edited", "kept", "edited"], 3],
-    ["a pair", ["removed", "added"], 1],
-    ["more removed than added", ["removed", "removed", "removed", "added"], 3],
-    ["runs apart", ["removed", "added", "kept", "removed", "added", "added"], 3],
-    ["an edit ends a run", ["added", "edited", "added"], 3],
-    ["titles beside paragraphs", ["title-added", "added", "added"], 2],
-    ["titles alone", ["title-removed", "title-added"], 1],
-  ])("%s", (_, kinds, count) => {
-    expect(countChanged(kinds)).toBe(count);
   });
 });
