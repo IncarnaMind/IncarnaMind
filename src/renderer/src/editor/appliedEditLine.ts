@@ -14,6 +14,7 @@ import { relativePositionToAbsolutePosition, ySyncPluginKey } from "@tiptap/y-ti
 import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
+import { type ChangeKind, countChanged } from "../../../shared/proposals";
 import { type ChangeCounts, changeFact } from "../changeFacts";
 import { SPARK_PATH } from "../components/iconPaths";
 import {
@@ -336,28 +337,47 @@ export function appliedChanges(
 
 const COUNTED: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
-/** What an edit's lines count: the paragraphs and headings it changed, and its tables added or removed whole. */
+/** What an edit's lines count: the paragraphs it changed, and its tables added or removed whole. */
 export interface ChangedBlocks {
   paragraphs: number;
   tables: number;
 }
 
+/** Whether a paragraph or heading lies wholly between two positions. */
+function textBetween(doc: ProseMirrorNode, from: number, to: number): boolean {
+  let found = false;
+  if (to > from) {
+    doc.nodesBetween(from, to, (node, pos) => {
+      if (found) return false;
+      if (node.isTextblock) found = pos >= from && pos + node.nodeSize <= to;
+      return !node.isTextblock;
+    });
+  }
+  return found;
+}
+
 /**
  * What the changes shown again are in, as the applied line, its Undo notice
- * and Review changes all count it: a table added or removed whole is one
- * table, not its cells.
+ * and Review changes all count it: paragraphs by `countChanged`, as the core counts them
+ * (`changedParagraphs`), and a table added or removed whole is one table, not its cells.
  */
 export function changedBlocksOf(
   state: EditorState,
   changes: readonly AppliedChange[],
 ): ChangedBlocks {
+  const kinds: ChangeKind[] = [];
   const counted = new Set<number>();
   const tables = new Set<number>();
-  let removed = 0;
   let removedTables = 0;
+  /** Where the last Block added or removed ended: text between it and the next ends their run. */
+  let reached: number | null = null;
   for (const change of changes) {
     const place = placeOfChange(state, change);
     if (!place) continue;
+    if (change.block !== null) {
+      if (reached !== null && textBetween(state.doc, reached, place.from)) kinds.push("kept");
+      reached = place.to;
+    } else reached = null;
     if (change.block === "removed") {
       let blocks = 0;
       let wholeTables = 0;
@@ -366,11 +386,14 @@ export function changedBlocksOf(
           wholeTables++;
           return false;
         }
-        if (COUNTED.has(node.type.name)) blocks++;
+        if (COUNTED.has(node.type.name)) {
+          blocks++;
+          kinds.push(node.type.name === "heading" ? "title-removed" : "removed");
+        }
         return !node.isTextblock;
       });
       removedTables += wholeTables;
-      removed += wholeTables > 0 ? blocks : Math.max(blocks, 1);
+      if (blocks === 0 && wholeTables === 0) kinds.push("removed");
       continue;
     }
     state.doc.nodesBetween(place.from, Math.max(place.to, place.from + 1), (node, pos) => {
@@ -378,11 +401,15 @@ export function changedBlocksOf(
         tables.add(pos);
         return false;
       }
-      if (COUNTED.has(node.type.name)) counted.add(pos);
+      if (COUNTED.has(node.type.name) && !counted.has(pos)) {
+        counted.add(pos);
+        if (change.block === null) kinds.push("edited");
+        else kinds.push(node.type.name === "heading" ? "title-added" : "added");
+      }
       return !node.isTextblock;
     });
   }
-  return { paragraphs: counted.size + removed, tables: tables.size + removedTables };
+  return { paragraphs: countChanged(kinds), tables: tables.size + removedTables };
 }
 
 const changesIn = (t: Translate, { paragraphs, tables }: ChangedBlocks): string => {

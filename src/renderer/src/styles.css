@@ -1045,57 +1045,6 @@
     transition: none;
   }
 
-  /* A line about the tabs, above the sidebar's foot (or the card's corner while the sidebar is hidden). */
-  .tab-notice {
-    position: absolute;
-    bottom: 52px;
-    left: 16px;
-    z-index: 35;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: max(200px, min(320px, calc(var(--sidebar-width) - 16px)));
-    padding: 6px 6px 6px 10px;
-    border-radius: 6px;
-    background: var(--color-sheet);
-    box-shadow: var(--shadow-popover);
-    color: var(--color-ink-secondary);
-    font-size: 12px;
-    line-height: 16px;
-  }
-  .tab-notice-action {
-    flex-shrink: 0;
-    padding: 0 2px;
-    border-radius: 4px;
-    color: var(--color-accent);
-    font-weight: 600;
-
-    &:hover {
-      text-decoration: underline;
-      text-underline-offset: 3px;
-    }
-  }
-  .tab-notice-close {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border-radius: 9999px;
-    color: var(--color-ink-meta);
-
-    > svg {
-      width: 10px;
-      height: 10px;
-      stroke-width: 2.5;
-    }
-    &:hover {
-      background: var(--color-hover);
-      color: var(--color-ink);
-    }
-  }
-
   /*
    * The Mind's column (DESIGN.md, Layout): a 56px left margin for controls
    * (the block handle, a Question's spark and fold chevron), a 680px measure

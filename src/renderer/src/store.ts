@@ -60,10 +60,12 @@ import {
   followLayout,
   groupsMerged,
   type LayoutSlice,
+  type TabNotice,
   WINDOW_ID,
 } from "./layoutSlice";
 import { type LibraryBridge, mindToAskIn } from "./libraryBridges";
 import { NEEDS_REVIEW } from "./libraryFilters";
+import type { WordsInLine } from "./lineNames";
 import { formatCount, folderName as linkedFolderName } from "./linkedFolders";
 import {
   foldersMovedFrom,
@@ -84,6 +86,7 @@ import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
 import { returnFocusAfterTabClose } from "./tabFocus";
+import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
 
 type Status = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string };
@@ -299,6 +302,8 @@ export interface AppState extends LayoutSlice {
   closeTab(tabId: string): void;
   /** ⇧⌘T: reopens the tab closed last, where it was. */
   reopenTab(): void;
+  /** A line about the tabs, in the sidebar foot's one slot: a tab closed, or why a shortcut did nothing. */
+  showTabNotice(notice: TabNotice): void;
   /** Renames a Mind, with Undo. */
   renameMind(id: string, title: string): Promise<void>;
   deleteMind(id: string): Promise<void>;
@@ -1299,8 +1304,41 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     reopenTab() {
       if (!get().layout?.reopenable) return;
-      get().showTabNotice(null);
+      const line = useUndo.getState().line;
+      if (line?.told?.action?.testId === "tab-notice-reopen") useUndo.getState().dismiss();
       void get().changeLayout({ type: "reopen" });
+    },
+
+    showTabNotice(notice) {
+      const says: WordsInLine = (t) => {
+        switch (notice.kind) {
+          case "closed":
+            return notice.count > 1
+              ? t("tabs.notice.closedMany", { count: notice.count })
+              : t("tabs.notice.closed", { title: tabTitle(get(), notice.item, t) });
+          case "pinned":
+            return t("tabs.notice.pinned", { title: tabTitle(get(), notice.item, t) });
+          case "noGroup":
+            return t("tabs.notice.noGroup", { n: notice.group, shortcut: notice.shortcut });
+          case "maxGroups":
+            return t("tabs.notice.maxGroups");
+          case "merged":
+            return t("tabs.notice.merged");
+          case "assistantNarrow":
+            return t("assistant.narrow");
+        }
+      };
+      useUndo.getState().tell({
+        says,
+        ...(notice.kind === "closed" && {
+          action: {
+            label: (t) => t("tabs.notice.reopen"),
+            shortcut: "tab.reopen",
+            testId: "tab-notice-reopen",
+            run: () => get().reopenTab(),
+          },
+        }),
+      });
     },
 
     // The list follows the core's "minds.changed" event, which arrives before these calls return.
