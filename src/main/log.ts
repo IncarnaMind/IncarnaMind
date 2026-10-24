@@ -8,7 +8,8 @@
  * and the oldest beyond `maxFiles` (3 in all) is removed.
  *
  * What is written is kept from the User's content twice over: the core logs
- * only ids, statuses and kinds (src/core/activityLog.ts), and everything here
+ * only ids, statuses and kinds, and a failed Answer's message redacted
+ * (src/core/activityLog.ts); everything here
  * goes through the crash-report scrubber (./crashScrubber) on its way in.
  * Errors keep their type, the first line of their message with anything
  * quoted and anything like a key or hash removed, and their stack's frames;

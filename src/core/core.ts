@@ -486,8 +486,9 @@ export function createCore(adapters: CoreAdapters): Core {
     throw error;
   }
   const events = createEventHub();
+  const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
-  const activity = logActivity(events, adapters.log ?? silentLogger);
+  const activity = logActivity(events, adapters.log ?? silentLogger, knownSecrets);
   /** Logs a failed test of a provider's settings, by the kind of error. */
   const loggingTest =
     (what: Parameters<typeof activity.testFailed>[0]) =>
@@ -598,7 +599,10 @@ export function createCore(adapters: CoreAdapters): Core {
     emit: (batch) => events.emit("documents.batch", batch),
     file: (documentId, groupId) => library.file(documentId, groupId),
   });
-  const secrets = createSecrets(adapters.keychain, settings);
+  const rememberSecret = (secret: string) => {
+    knownSecrets.add(secret);
+  };
+  const secrets = createSecrets(adapters.keychain, settings, rememberSecret);
   const pdfPasswords = createPdfPasswords(secrets, settings);
   const viewing = createViewing();
   /** Forgets the passwords of Documents gone from the Library (#763), and says which are kept. */
@@ -1011,7 +1015,7 @@ export function createCore(adapters: CoreAdapters): Core {
     secrets,
     ...(chatGptStore && {
       sharedStore: {
-        secrets: createSecrets(chatGptStore.keychain, settings),
+        secrets: createSecrets(chatGptStore.keychain, settings, rememberSecret),
         refreshLock: createFileLock(chatGptStore.lockFile),
       },
     }),

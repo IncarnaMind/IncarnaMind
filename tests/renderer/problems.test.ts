@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ChatProviderKind, ProviderErrorKind } from "../../src/core/api";
+import { billingUrlOf, catalogProvider } from "../../src/core/providers/catalog/providers";
 import { SIGN_IN_ROUTES } from "../../src/core/providers/signInRoutes";
 import { readinessKey } from "../../src/renderer/src/components/providers/shared";
 import {
@@ -17,6 +18,9 @@ const KINDS: ProviderErrorKind[] = [
   "rate-limit",
   "network",
   "provider",
+  "refused",
+  "out-of-credit",
+  "region",
   "consent-declined",
   "consent-revoked",
   "local-mode",
@@ -165,6 +169,65 @@ describe("a failed Answer's problem line", () => {
     expect(answerProblem("plan-limit", undefined)).toBe(ANSWER_PROBLEMS["plan-limit"]);
   });
 
+  test("an account out of credit is sent to the provider's own billing page, when the catalog has one, in both languages", () => {
+    const billing = (id: string, endpoint?: string) => {
+      const provider = catalogProvider(id);
+      return provider && billingUrlOf(provider, endpoint);
+    };
+    expect(billing("anthropic")).toBe("https://platform.claude.com/settings/billing");
+    expect(billing("kimi", "cn")).toBe("https://platform.kimi.com/console");
+    expect(billing("kimi", "intl")).toBe("https://platform.kimi.ai/console");
+    const url = billing("openai");
+    if (!url) throw new Error("OpenAI has a billing page.");
+    const problem = answerProblem("out-of-credit", "openai", false, { billingUrl: url });
+    expect(problem.fix).toEqual({ kind: "link", url, label: "answer.error.addCredit" });
+    expect(translate("en", "answer.error.addCredit")).toBe("Add credit");
+    expect(translate("zh-CN", "answer.error.addCredit")).toBe("充值");
+    // No page known: the only help is another model.
+    expect(billing("google")).toBeUndefined();
+    expect(answerProblem("out-of-credit", "google")).toBe(ANSWER_PROBLEMS["out-of-credit"]);
+    expect(
+      failedAnswerLine("out-of-credit", "anthropic", null, false, { billingUrl: url }),
+    ).toMatchObject({
+      kind: "plain",
+      problem: { fix: { kind: "link", url } },
+    });
+  });
+
+  test("a model on this computer is never out of credit nor refused by a region; it is refused, and another model may take it", () => {
+    for (const kind of ["out-of-credit", "region"] as const) {
+      expect(answerProblem(kind, "ollama", false, { local: true })).toBe(ANSWER_PROBLEMS.refused);
+      expect(
+        answerProblem(kind, "openai-compatible", false, {
+          local: true,
+          billingUrl: "https://example.com/billing",
+        }),
+      ).toBe(ANSWER_PROBLEMS.refused);
+      expect(answerProblem(kind, "openai", false, { local: false }).line).toBe(
+        `answer.error.${kind}`,
+      );
+    }
+  });
+
+  test("a hosted model's too-long line doesn't blame the Question, and offers another model; a local one keeps Shorten it", () => {
+    const hosted = answerProblem("too-long", "anthropic", false, { local: false });
+    expect(hosted.fix).toEqual({
+      kind: "settings",
+      page: "models",
+      label: "answer.error.chooseModel",
+    });
+    expect(translate("en", hosted.line, { model: "Claude Haiku 5.5" })).toBe(
+      "This is too long for Claude Haiku 5.5",
+    );
+    expect(translate("zh-CN", hosted.line, { model: "Claude Haiku 5.5" })).toBe(
+      "内容太长，超出了 Claude Haiku 5.5 的上限",
+    );
+    expect(answerProblem("too-long", "ollama", false, { local: true })).toBe(
+      ANSWER_PROBLEMS["too-long"],
+    );
+    expect(answerProblem("too-long", "ollama")).toBe(ANSWER_PROBLEMS["too-long"]);
+  });
+
   test("what the User can fix in Settings opens the page that fixes it", () => {
     expect(ANSWER_PROBLEMS.auth.fix).toMatchObject({ kind: "settings", page: "models" });
     expect(ANSWER_PROBLEMS.model.fix).toMatchObject({ kind: "settings", page: "models" });
@@ -180,6 +243,62 @@ describe("a failed Answer's problem line", () => {
       expect(ANSWER_PROBLEMS[kind].fix.kind).toBe("retry");
     }
     expect(ANSWER_PROBLEMS["too-long"].fix.kind).toBe("none");
+  });
+
+  test("each way an Answer fails says why, with the action that fits, in both languages (#1487)", () => {
+    const service = { model: "claude-haiku-5-5", service: "Anthropic" };
+    const shown = (kind: ProviderErrorKind, language: "en" | "zh-CN") => {
+      const { line, fix } = ANSWER_PROBLEMS[kind];
+      return [
+        translate(language, line, service),
+        fix.kind === "none" ? "" : translate(language, fix.label),
+      ];
+    };
+    expect(shown("network", "en")).toEqual([
+      "Couldn’t reach Anthropic. Check your internet connection",
+      "Try again",
+    ]);
+    expect(shown("rate-limit", "en")).toEqual([
+      "Anthropic is limiting requests right now",
+      "Try again",
+    ]);
+    expect(shown("auth", "en")).toEqual([
+      "The key for claude-haiku-5-5 was refused",
+      "Check the key",
+    ]);
+    expect(shown("refused", "en")).toEqual([
+      "Anthropic refused this request",
+      "Choose another model",
+    ]);
+    expect(shown("out-of-credit", "en")).toEqual([
+      "Anthropic says the credit balance is too low",
+      "Choose another model",
+    ]);
+    expect(shown("region", "en")).toEqual([
+      "Anthropic doesn’t accept requests from your region",
+      "Choose another model",
+    ]);
+    expect(shown("no-answer", "en")).toEqual(["The model sent no Answer", "Try again"]);
+    expect(shown("provider", "en")).toEqual(["Anthropic ran into a problem", "Try again"]);
+    expect(shown("unknown", "en")).toEqual(["Something went wrong with Anthropic", "Try again"]);
+
+    expect(shown("network", "zh-CN")).toEqual(["无法连接 Anthropic，请检查网络连接", "重试"]);
+    expect(shown("rate-limit", "zh-CN")).toEqual(["Anthropic 暂时限制了请求", "重试"]);
+    expect(shown("auth", "zh-CN")).toEqual(["claude-haiku-5-5 的密钥被拒绝了", "检查密钥"]);
+    expect(shown("refused", "zh-CN")).toEqual(["Anthropic 拒绝了这个请求", "换一个模型"]);
+    expect(shown("out-of-credit", "zh-CN")).toEqual(["Anthropic 提示余额不足", "换一个模型"]);
+    expect(shown("region", "zh-CN")).toEqual([
+      "Anthropic 不接受来自你所在地区的请求",
+      "换一个模型",
+    ]);
+    expect(shown("no-answer", "zh-CN")).toEqual(["模型没有给出回答", "重试"]);
+    expect(shown("provider", "zh-CN")).toEqual(["Anthropic 出错了", "重试"]);
+    expect(shown("unknown", "zh-CN")).toEqual(["Anthropic 出了问题，原因不明", "重试"]);
+    expect(ANSWER_PROBLEMS.refused.fix).toEqual({
+      kind: "settings",
+      page: "models",
+      label: "answer.error.chooseModel",
+    });
   });
 
   test("the line is one short sentence in both languages, naming the model where it can", () => {

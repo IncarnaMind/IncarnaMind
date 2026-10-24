@@ -351,7 +351,7 @@ describe("Test connection", () => {
       modelId: "gpt-9",
     });
 
-    expect(result).toEqual({ ok: false, error: { kind, message } });
+    expect(result).toEqual({ ok: false, error: { kind, message, status } });
   });
 
   // protects=a key a provider refuses is not tried with any other provider by itself (#1384); fails_when=a refusal makes a second model, for another service, get the key; no_claim=the key form's own check of whose key it looks like, which keyForms.test.ts and the keyForm smoke test cover.
