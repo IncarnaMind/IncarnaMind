@@ -64,6 +64,21 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     );
   });
 
+  // protects=a User with many Minds sends the names of the 30 most recently changed, each once, as the privacy page says; fails_when=more go, an older one is kept for a newer one, or a name shared by two Minds goes twice; no_claim=none beyond protects.
+  test("name the 30 most recently changed, each name once", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { core, model } = await setUp();
+    for (let day = 1; day <= 32; day++) {
+      vi.setSystemTime(new Date(Date.UTC(2026, 8, day, 9)));
+      await core.createMind({ title: `Mind ${Math.min(day, 31)}` });
+    }
+
+    await ask(core, "What can you do?");
+
+    const newest = Array.from({ length: 30 }, (_, index) => `"Mind ${31 - index}"`);
+    expect(lastSent(model)).toBe(`The User's Minds: ${newest.join(", ")}\n\nWhat can you do?`);
+  });
+
   // protects=Local mode changes nothing about the line: the names go to the model on this computer as to any other; fails_when=the line is left out in Local mode; no_claim=none beyond protects.
   test("go with the Question in Local mode too", async () => {
     const { core, model } = await setUp();
