@@ -6,6 +6,7 @@
  */
 import type { Expected, RepeatSentence } from "./cases";
 import type { Outcome, RepeatResult } from "./repeat";
+import type { WatchedRequest } from "./requests";
 
 export interface RepeatRow extends RepeatResult {
   set: string;
@@ -14,6 +15,8 @@ export interface RepeatRow extends RepeatResult {
   kind: RepeatSentence["kind"];
   expected: Expected;
   knownMiss?: number;
+  /** The model requests of this sentence's check; none in a report written before they were kept. */
+  requests?: readonly WatchedRequest[];
 }
 
 const OUTCOMES: readonly Outcome[] = [
@@ -73,6 +76,35 @@ export interface GroupSummary {
   misses: RepeatRow[];
   /** The results of the sentences a known miss is filed for, apart. */
   known: RepeatRow[];
+  cost: CheckCost;
+}
+
+/** What a sentence's check cost, on average over the checks of a group; the claims request isn't any sentence's. */
+export interface CheckCost {
+  requests: number;
+  searches: number;
+  /** Checks that searched more than once. */
+  searchedAgain: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** The requests' time, end to end, as one after another. */
+  seconds: number;
+}
+
+export function costOf(rows: readonly RepeatRow[]): CheckCost {
+  const mean = (of: (row: RepeatRow) => number) =>
+    rows.length === 0 ? 0 : rows.reduce((total, row) => total + of(row), 0) / rows.length;
+  const sum = (row: RepeatRow, of: (request: WatchedRequest) => number) =>
+    (row.requests ?? []).reduce((total, request) => total + of(request), 0);
+  const searches = (row: RepeatRow) => sum(row, (request) => request.asked.length);
+  return {
+    requests: mean((row) => row.requests?.length ?? 0),
+    searches: mean(searches),
+    searchedAgain: rows.filter((row) => searches(row) > 1).length,
+    inputTokens: mean((row) => sum(row, (request) => request.inputTokens)),
+    outputTokens: mean((row) => sum(row, (request) => request.outputTokens)),
+    seconds: mean((row) => sum(row, (request) => request.ms)) / 1000,
+  };
 }
 
 export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
@@ -143,6 +175,7 @@ export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
             },
       misses: counted.filter((row) => !meetsExpected(row)),
       known: group.filter((row) => row.knownMiss !== undefined),
+      cost: costOf(group),
     };
   });
 }
@@ -196,6 +229,7 @@ export function report(
             `- Genuine conflicts Contradicted: ${group.conflicts.contradicted} of ${group.conflicts.checked}`,
           ]
         : []),
+      `- A sentence's check, on average: ${group.cost.requests.toFixed(2)} requests, ${group.cost.searches.toFixed(2)} searches (more than one in ${group.cost.searchedAgain} of ${group.sentences.reduce((total, each) => total + each.repeats, 0)}), ${Math.round(group.cost.inputTokens)} tokens in, ${Math.round(group.cost.outputTokens)} out, ${group.cost.seconds.toFixed(1)} s of requests`,
       ...knownLines(group.known),
       "",
       ...(group.misses.length > 0
