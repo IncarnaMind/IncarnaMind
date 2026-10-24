@@ -25,7 +25,7 @@ function examplesOver(store: Map<string, unknown>, random: () => number) {
     mindFolder: () => null,
     now: () => "2026-10-14T09:00:00.000Z",
     checksRelyOn: () => false,
-    conversationCitationsRelyOn: () => false,
+    citationsRelyOn: () => false,
     recheck: unused,
     changed: () => undefined,
     random,
