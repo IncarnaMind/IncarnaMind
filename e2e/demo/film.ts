@@ -1,25 +1,41 @@
 /**
- * Films the built app for the README: the window's frames from Chromium's screencast, the
- * pointer and a ring at each click drawn in the page, the captions on a band under the window,
- * and ffmpeg to make the GIF and the MP4. The app is never retouched: a cut only leaves out what
- * happens between two frames.
+ * Films the built app for the README: the window's frames from Chromium's screencast at twice the
+ * pixel density, the pointer and a ring at each click drawn in the page, the captions on a band
+ * under the window, smooth zooms as camera moves over the frames, and ffmpeg to make the master,
+ * the GIF and the MP4. The app is never retouched: a cut only leaves out what happens between two
+ * frames, and a zoom only magnifies the pixels the app drew.
  */
 import { spawn } from "node:child_process";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { chromium, type Locator, type Page } from "@playwright/test";
 
-/** The finished recording is this many pixels wide; the window is filmed wider and scaled down. */
-export const OUTPUT_WIDTH = 880;
+/** The width the captions and the pointer are sized for: the README shows its GIF this wide. */
+export const DESIGN_WIDTH = 880;
+/** The recording is made at twice the pixel density, so text is crisp. */
+export const PIXEL_RATIO = 2;
 /** What the recording is filmed at, as the window's content: the captions have a band under it. */
-export const CAPTION_BAND = 64;
-export const FILMED = { width: 1440, height: 900 - CAPTION_BAND };
+export const CAPTION_BAND = 56;
+export const FILMED = { width: 1100, height: 700 - CAPTION_BAND };
 /** The band's colour: DESIGN.md's `frame`, so a white pill shows on it. */
 const BAND = "F4F5F7";
 /** The accent of DESIGN.md, as the click ring's colour. */
 const ACCENT = "42, 91, 215";
 /** How far the pointer travels in a second, in the window's pixels: slow enough to follow. */
-const POINTER_SPEED = 650;
+const POINTER_SPEED = 500;
+/** The master and the MP4 are made at this many frames a second. */
+const FRAME_RATE = 30;
+/** A zoom eases in and out over this long, and goes no further than this. */
+export const ZOOM = { seconds: 0.6, most: 1.6 };
+/** What a zoom leaves round the part it is onto, in the window's pixels. */
+const MARGIN = 14;
+
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 interface Frame {
   file: string;
@@ -28,21 +44,24 @@ interface Frame {
   speed: number;
 }
 
-export interface Encoding {
-  fps: number;
-  /** Fewer colours make a smaller GIF. */
-  colors?: number;
+interface Zoom {
+  at: number;
+  out: number | null;
+  factor: number;
+  /** The point of the window that stays where it is while the zoom runs, in the window's pixels. */
+  anchor: { x: number; y: number };
 }
 
 const seconds = () => Date.now() / 1000;
 const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
 
 /** The caption pills as pictures with a clear background, by their text, in the app's own fonts. */
 export async function renderPills(texts: readonly string[], folder: string) {
   await mkdir(folder, { recursive: true });
   const fonts = resolve(__dirname, "../../node_modules/@fontsource-variable/source-sans-3/files");
-  // Sizes are given as they read in the finished recording: 15px at 880 wide.
-  const unit = FILMED.width / OUTPUT_WIDTH;
+  // Sizes are given as they read at the GIF's width: 15px at 880 wide.
+  const unit = (FILMED.width * PIXEL_RATIO) / DESIGN_WIDTH;
   const page = `<!doctype html><meta charset="utf-8"><style>
     @font-face { font-family: "Source Sans 3"; font-weight: 200 900;
       src: url("file://${fonts}/source-sans-3-latin-wght-normal.woff2") format("woff2");
@@ -56,7 +75,7 @@ export async function renderPills(texts: readonly string[], folder: string) {
       border-radius: 999px; padding: ${6 * unit}px ${16 * unit}px;
       font: 500 ${15 * unit}px/${22 * unit}px "Source Sans 3", "PingFang SC", "Hiragino Sans GB",
         "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-      box-shadow: 0 ${2 * unit}px ${10 * unit}px rgba(23,25,28,.18), 0 0 0 1px rgba(23,25,28,.08); }
+      box-shadow: 0 ${2 * unit}px ${10 * unit}px rgba(23,25,28,.18), 0 0 0 ${unit}px rgba(23,25,28,.08); }
   </style><div id="frame"><div id="pill"></div></div>`;
   const file = join(folder, "pill.html");
   await writeFile(file, page);
@@ -81,6 +100,9 @@ export async function renderPills(texts: readonly string[], folder: string) {
   return pills;
 }
 
+/** Cubic ease in and out, the same curve in the page's pointer and in the filter. */
+const easeExpression = (u: string) => `if(lt(${u},0.5),4*pow(${u},3),1-pow(-2*${u}+2,3)/2)`;
+
 /**
  * The window's frames as Chromium paints them. Frames are kept only between `keep(true)` and
  * `keep(false)`, so what the model took to answer, or a screen the next scene replaces, is a
@@ -94,7 +116,10 @@ export class Film {
   private since = 0;
   private rate = 1;
   private count = 0;
+  private arrived = 0;
   private readonly captions: { at: number; text: string | null }[] = [];
+  private readonly zooms: Zoom[] = [];
+  private readonly marks = new Map<string, number>();
 
   private constructor(
     private readonly session: Awaited<ReturnType<ReturnType<Page["context"]>["newCDPSession"]>>,
@@ -117,15 +142,16 @@ export class Film {
     });
     await session.send("Page.startScreencast", {
       format: "jpeg",
-      quality: 92,
-      maxWidth: FILMED.width,
-      maxHeight: FILMED.height,
+      quality: 95,
+      maxWidth: FILMED.width * PIXEL_RATIO,
+      maxHeight: FILMED.height * PIXEL_RATIO,
       everyNthFrame: 1,
     });
     return film;
   }
 
   private take(data: string, at: number): void {
+    this.arrived++;
     this.latest = { data, at };
     if (this.keeping && at >= this.since) this.add(data, at);
   }
@@ -136,6 +162,13 @@ export class Film {
     const file = `${String(this.count++).padStart(6, "0")}.jpg`;
     this.frames.push({ file, at, speed: this.rate });
     this.pending.push(writeFile(join(this.folder, file), Buffer.from(data, "base64")));
+  }
+
+  /** Resolves once the page has painted a frame after this call, or after `timeoutMs`. */
+  async nextFrame(timeoutMs: number): Promise<void> {
+    const seen = this.arrived;
+    const until = Date.now() + timeoutMs;
+    while (this.arrived === seen && Date.now() < until) await sleep(15);
   }
 
   /** Starts or stops keeping frames. Starting keeps what is on screen at once. */
@@ -170,8 +203,46 @@ export class Film {
     this.captions.push({ at: this.kept, text });
   }
 
+  /** Names this moment of the recording, so a cut of it can be made between two names. */
+  mark(name: string): void {
+    this.marks.set(name, this.kept);
+  }
+
+  /** Every mark and the second of the recording it names. */
+  markTimes(): Record<string, number> {
+    return Object.fromEntries(this.marks);
+  }
+
+  /**
+   * Starts a zoom onto a part of the window, easing in over `ZOOM.seconds`: the window's pixels
+   * magnified by `factor` (never more than `ZOOM.most`) about the point that keeps `rect` in view.
+   */
+  zoomIn(rect: Rect, factor: number): number {
+    if (this.zooms.at(-1)?.out === null) throw new Error("A zoom is already in.");
+    const { width, height } = FILMED;
+    // Never closer than keeps the whole rectangle, and a margin round it, in the frame.
+    const fits = Math.min(width / (rect.width + 2 * MARGIN), height / (rect.height + 2 * MARGIN));
+    const f = clamp(Math.min(factor, fits), 1.05, ZOOM.most);
+    const left = clamp(rect.x + rect.width / 2 - width / (2 * f), 0, width - width / f);
+    const top = clamp(rect.y + rect.height / 2 - height / (2 * f), 0, height - height / f);
+    this.zooms.push({
+      at: this.kept,
+      out: null,
+      factor: f,
+      anchor: { x: left / (1 - 1 / f), y: top / (1 - 1 / f) },
+    });
+    return f;
+  }
+
+  /** Starts the zoom out, easing over `ZOOM.seconds`. */
+  zoomOut(): void {
+    const open = this.zooms.at(-1);
+    if (open && open.out === null) open.out = this.kept;
+  }
+
   async stop(): Promise<void> {
     this.keep(false);
+    this.zoomOut();
     await this.session.send("Page.stopScreencast").catch(() => undefined);
     await this.session.detach().catch(() => undefined);
     await Promise.all(this.pending);
@@ -204,54 +275,125 @@ export class Film {
     return shown;
   }
 
+  /** The zoompan filter for every zoom of the recording; null when there is none. */
+  private zoomFilter(): string | null {
+    if (this.zooms.length === 0) return null;
+    const time = `(on/${FRAME_RATE})`;
+    const ramps = this.zooms.map((zoom) => {
+      const out = zoom.out ?? this.kept;
+      const rising = `clip((${time}-${zoom.at.toFixed(3)})/${ZOOM.seconds},0,1)`;
+      const falling = `clip((${time}-${out.toFixed(3)})/${ZOOM.seconds},0,1)`;
+      return {
+        zoom,
+        weight: `((${easeExpression(rising)})*(1-(${easeExpression(falling)})))`,
+      };
+    });
+    const factor = `1+${ramps.map(({ zoom, weight }) => `${(zoom.factor - 1).toFixed(4)}*${weight}`).join("+")}`;
+    const anchor = (axis: "x" | "y") =>
+      ramps
+        .map(
+          ({ zoom, weight }) => `${(zoom.anchor[axis] * PIXEL_RATIO).toFixed(2)}*gt(${weight},0)`,
+        )
+        .join("+");
+    return (
+      `zoompan=z='${factor}':x='(${anchor("x")})*(1-1/zoom)':y='(${anchor("y")})*(1-1/zoom)':` +
+      `d=1:s=${FILMED.width * PIXEL_RATIO}x${FILMED.height * PIXEL_RATIO}:fps=${FRAME_RATE}`
+    );
+  }
+
   /**
-   * The frames on a canvas with the caption band, the captions laid over it in their turns, and
-   * scaled to the recording's width, as `finish` ends the filter graph.
+   * The master: every frame, zoomed as the recording asks, on a canvas with the caption band, the
+   * captions laid over it in their turns. The GIF and the MP4 are made from it, so both show the
+   * same pixels. Returns its size in bytes.
    */
-  private async make(
-    output: string,
-    fps: number,
-    finish: string,
-    codec: string[],
-  ): Promise<number> {
+  async master(output: string): Promise<number> {
     const list = await this.list();
     const total = this.kept + 1;
     const shown = [...this.intervals()].flatMap(([text, spans]) => {
       const path = this.pills.get(text);
       return path ? [{ path, spans }] : [];
     });
+    const width = FILMED.width * PIXEL_RATIO;
+    const height = FILMED.height * PIXEL_RATIO;
+    const band = CAPTION_BAND * PIXEL_RATIO;
     const stages = shown.map(({ spans }, index) => {
       const enable = spans.map(([from, to]) => `between(t,${from.toFixed(3)},${to.toFixed(3)})`);
       return (
         `[v${index}][${index + 1}:v]overlay=x=(main_w-overlay_w)/2:` +
-        `y=${FILMED.height}+(${CAPTION_BAND}-overlay_h)/2:shortest=1:enable='${enable.join("+")}'[v${index + 1}]`
+        `y=${height}+(${band}-overlay_h)/2:shortest=1:enable='${enable.join("+")}'[v${index + 1}]`
       );
     });
+    const zoom = this.zoomFilter();
     const graph = [
-      `[0:v]fps=${fps},pad=${FILMED.width}:${FILMED.height + CAPTION_BAND}:0:0:color=0x${BAND}[v0]`,
+      `[0:v]fps=${FRAME_RATE}${zoom ? `,${zoom}` : ""},pad=${width}:${height + band}:0:0:color=0x${BAND}[v0]`,
       ...stages,
-      `[v${shown.length}]scale=${OUTPUT_WIDTH}:-2:flags=lanczos,${finish}`,
+      `[v${shown.length}]format=gbrp[out]`,
     ].join(";");
     await ffmpeg([
       ...["-f", "concat", "-safe", "0", "-i", list],
       ...shown.flatMap(({ path }) => [
-        ...["-loop", "1", "-framerate", String(fps), "-t", total.toFixed(2), "-i", path],
+        ...["-loop", "1", "-framerate", String(FRAME_RATE), "-t", total.toFixed(2), "-i", path],
       ]),
       ...["-filter_complex", graph, "-map", "[out]"],
-      ...codec,
+      ...["-c:v", "libx264rgb", "-preset", "veryfast", "-crf", "6", "-an"],
       output,
     ]);
     return (await stat(output)).size;
   }
+}
 
-  async encodeGif(output: string, { fps, colors = 128 }: Encoding): Promise<number> {
-    return this.make(
-      output,
-      fps,
-      `split[a][b];[a]palettegen=max_colors=${colors}:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle[out]`,
-      ["-loop", "0"],
-    );
-  }
+export interface GifEncoding {
+  fps: number;
+  /** The GIF's width in pixels. */
+  width: number;
+  /** Fewer colours make a smaller GIF. */
+  colors?: number;
+}
+
+/**
+ * The README's GIF: the given spans of the master, one after another with straight cuts, at a
+ * palette made for them. Returns its size in bytes.
+ */
+export async function encodeGif(
+  master: string,
+  output: string,
+  spans: readonly [number, number][],
+  { fps, width, colors = 256 }: GifEncoding,
+): Promise<number> {
+  const pieces = spans.map(
+    ([from, to], index) =>
+      `[0:v]trim=start=${from.toFixed(3)}:end=${to.toFixed(3)},setpts=PTS-STARTPTS[s${index}]`,
+  );
+  const joined = spans.map((_, index) => `[s${index}]`).join("");
+  const graph = [
+    ...pieces,
+    `${joined}concat=n=${spans.length}:v=1:a=0[c]`,
+    `[c]fps=${fps},scale=${width}:-2:flags=lanczos,split[a][b]`,
+    `[a]palettegen=max_colors=${colors}:stats_mode=diff[p]`,
+    `[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle[out]`,
+  ].join(";");
+  await ffmpeg([
+    ...["-i", master],
+    ...["-filter_complex", graph, "-map", "[out]"],
+    ...["-loop", "0"],
+    output,
+  ]);
+  return (await stat(output)).size;
+}
+
+/** The README's full story: H.264, yuv420p, no audio, 1920 px wide, 30 frames a second. Returns its size in bytes. */
+export async function encodeMp4(master: string, output: string, crf = 22): Promise<number> {
+  await ffmpeg([
+    ...["-i", master],
+    ...["-vf", "scale=1920:-2:flags=lanczos:out_color_matrix=bt709:out_range=tv,format=yuv420p"],
+    ...["-r", String(FRAME_RATE)],
+    ...["-c:v", "libx264", "-preset", "slow", "-crf", String(crf), "-profile:v", "high"],
+    ...["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"],
+    ...["-color_range", "tv"],
+    ...["-movflags", "+faststart", "-an"],
+    output,
+  ]);
+  return (await stat(output)).size;
 }
 
 function ffmpeg(args: string[]): Promise<void> {
@@ -267,6 +409,8 @@ function ffmpeg(args: string[]): Promise<void> {
 interface OverlayApi {
   /** Changes a pixel nobody can see, so the page paints a frame now. */
   nudge(): void;
+  /** Keeps the pointer and the click ring the size they read at while the camera zooms. */
+  zoom(to: number, ms: number): void;
   endCard(card: { icon: string; lines: string[] } | null): void;
 }
 
@@ -278,7 +422,7 @@ export async function installOverlay(page: Page): Promise<void> {
   await page.evaluate(
     ({ accent, unit, band }) => {
       if (document.getElementById("demo-overlay")) return;
-      // Sizes are given as they read in the finished recording, 880 wide.
+      // Sizes are given as they read in the GIF, 880 wide.
       const root = document.createElement("div");
       root.id = "demo-overlay";
       root.setAttribute("popover", "manual");
@@ -295,12 +439,19 @@ export async function installOverlay(page: Page): Promise<void> {
         "pointer-events:none",
       ].join(";");
 
+      let zoom = 1;
+      let travel: { from: number; to: number; start: number; ms: number } | null = null;
+      const at = { x: 0, y: 0 };
+
       const pointer = document.createElement("div");
       pointer.style.cssText = `position:absolute;left:0;top:0;width:${16 * unit}px;height:${
         16 * unit
-      }px;display:none;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35))`;
+      }px;display:none;transform-origin:${2.2 * unit}px ${1.2 * unit}px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35))`;
       pointer.innerHTML =
         '<svg viewBox="0 0 16 16" width="100%" height="100%"><path d="M2.2 1.2 L2.2 12.4 L5 9.9 L7 14.4 L9.1 13.5 L7.2 9.1 L10.9 9.1 Z" fill="#17191C" stroke="#fff" stroke-width="1.1" stroke-linejoin="round"/></svg>';
+      const placePointer = () => {
+        pointer.style.transform = `translate(${at.x - 2.2 * unit}px,${at.y - 1.2 * unit}px) scale(${1 / zoom})`;
+      };
 
       const card = document.createElement("div");
       card.style.cssText = [
@@ -339,17 +490,17 @@ export async function installOverlay(page: Page): Promise<void> {
         "mousemove",
         (event) => {
           if (card.style.display !== "none") return;
+          at.x = event.clientX;
+          at.y = event.clientY;
           pointer.style.display = "block";
-          pointer.style.transform = `translate(${event.clientX - 2.2 * unit}px,${
-            event.clientY - 1.2 * unit
-          }px)`;
+          placePointer();
         },
         true,
       );
       document.addEventListener(
         "mousedown",
         (event) => {
-          const size = 24 * unit;
+          const size = (24 * unit) / zoom;
           const ring = document.createElement("div");
           ring.style.cssText = [
             "position:absolute",
@@ -359,7 +510,7 @@ export async function installOverlay(page: Page): Promise<void> {
             `height:${size}px`,
             "border-radius:50%",
             `background:rgba(${accent},.25)`,
-            `border:${2 * unit}px solid rgba(${accent},.25)`,
+            `border:${(2 * unit) / zoom}px solid rgba(${accent},.25)`,
             "box-sizing:border-box",
           ].join(";");
           root.append(ring);
@@ -379,12 +530,26 @@ export async function installOverlay(page: Page): Promise<void> {
         true,
       );
 
+      const ease = (u: number) => (u < 0.5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2);
+      const step = () => {
+        if (!travel) return;
+        const u = Math.min(1, (performance.now() - travel.start) / travel.ms);
+        zoom = travel.from + (travel.to - travel.from) * ease(u);
+        placePointer();
+        if (u < 1) requestAnimationFrame(step);
+        else travel = null;
+      };
+
       const api: OverlayApi = {
         nudge() {
           nudge.style.background =
             nudge.style.background === "rgba(0, 0, 0, 0.006)"
               ? "rgba(0,0,0,.004)"
               : "rgba(0,0,0,.006)";
+        },
+        zoom(to, ms) {
+          travel = { from: zoom, to, start: performance.now(), ms };
+          requestAnimationFrame(step);
         },
         endCard(content) {
           if (content === null) {
@@ -415,7 +580,7 @@ export async function installOverlay(page: Page): Promise<void> {
       };
       (globalThis as unknown as { demoOverlay: OverlayApi }).demoOverlay = api;
     },
-    { accent: ACCENT, unit: FILMED.width / OUTPUT_WIDTH, band: BAND },
+    { accent: ACCENT, unit: FILMED.width / DESIGN_WIDTH, band: BAND },
   );
 }
 
@@ -423,6 +588,7 @@ export async function installOverlay(page: Page): Promise<void> {
 export class Hand {
   private x = 0;
   private y = 0;
+  private zoomed = false;
 
   constructor(
     private readonly window: Page,
@@ -493,11 +659,23 @@ export class Hand {
 
   async click(target: Locator, at?: { x: number; y: number }): Promise<void> {
     await this.moveTo(target, at);
+    await this.press();
+  }
+
+  /** Clicks where the pointer is, as a hand does: a pause, the button down and up. */
+  async press(clicks = 1): Promise<void> {
     await sleep(180);
-    await this.window.mouse.down();
+    await this.window.mouse.down({ clickCount: clicks });
     await sleep(70);
-    await this.window.mouse.up();
+    await this.window.mouse.up({ clickCount: clicks });
     await sleep(120);
+  }
+
+  /** Double-clicks a point of the window, as a hand selects a word. */
+  async doubleClickAt(x: number, y: number): Promise<void> {
+    await this.glide(x, y);
+    await this.press(1);
+    await this.press(2);
   }
 
   /** Types as a hand does: this many milliseconds a character, never quicker than twice a typist's pace. */
@@ -523,15 +701,61 @@ export class Hand {
 
   /** Starts keeping frames from what the page shows now, not from the last frame it painted. */
   async begin(): Promise<void> {
+    const painted = this.film.nextFrame(800);
     await this.window.evaluate(() =>
       (globalThis as unknown as { demoOverlay: OverlayApi }).demoOverlay.nudge(),
     );
-    await sleep(150);
+    await painted;
+    await sleep(60);
     this.film.keep(true);
   }
 
   /** Holds the last frame of a scene, as the recording needs. */
   async hold(ms: number): Promise<void> {
     await sleep(ms);
+  }
+
+  /**
+   * Zooms the camera onto these parts of the window and waits for it to arrive. The pointer
+   * is still while it runs, so it is never called between a pointer's start and its click.
+   */
+  async zoomOn(targets: Locator | readonly Locator[], factor = 1.5): Promise<void> {
+    const list = Array.isArray(targets) ? targets : [targets as Locator];
+    const elements = (await Promise.all(list.map((target) => target.all()))).flat();
+    const boxes = (await Promise.all(elements.map((element) => element.boundingBox()))).filter(
+      (box): box is Rect => box !== null,
+    );
+    if (boxes.length === 0) throw new Error("Nothing to zoom onto is visible.");
+    const left = Math.min(...boxes.map((box) => box.x));
+    const top = Math.min(...boxes.map((box) => box.y));
+    const right = Math.max(...boxes.map((box) => box.x + box.width));
+    const bottom = Math.max(...boxes.map((box) => box.y + box.height));
+    await this.zoomOnRect({ x: left, y: top, width: right - left, height: bottom - top }, factor);
+  }
+
+  /** Zooms the camera onto a part of the window, given as a rectangle, and waits for it to arrive. */
+  async zoomOnRect(rect: Rect, factor = 1.5): Promise<void> {
+    const shown = this.film.zoomIn(rect, factor);
+    this.zoomed = true;
+    await this.window.evaluate(
+      ([to, ms]) => (globalThis as unknown as { demoOverlay: OverlayApi }).demoOverlay.zoom(to, ms),
+      [shown, ZOOM.seconds * 1000] as const,
+    );
+    await sleep(ZOOM.seconds * 1000);
+  }
+
+  /** Zooms back out to the whole window and waits for it. */
+  async zoomOut(): Promise<void> {
+    this.zoomed = false;
+    this.film.zoomOut();
+    await this.window.evaluate(
+      ([to, ms]) => (globalThis as unknown as { demoOverlay: OverlayApi }).demoOverlay.zoom(to, ms),
+      [1, ZOOM.seconds * 1000] as const,
+    );
+    await sleep(ZOOM.seconds * 1000);
+  }
+
+  async zoomOutIfIn(): Promise<void> {
+    if (this.zoomed) await this.zoomOut();
   }
 }

@@ -1,4 +1,5 @@
 import type { MessageKey } from "../../../shared/i18n";
+import { countNow } from "../i18n";
 import type { ObjectRef } from "../objects";
 import { selectedOn, useSelection } from "../selection";
 import { useAppStore } from "../store";
@@ -62,7 +63,7 @@ export const newFolderCommands: readonly Command[] = [
     id: "folder.newWith",
     label: (ctx, t) => {
       const chosen = chosenBy(ctx);
-      return t(labelFor(chosen), { count: countOf(chosen) });
+      return t(labelFor(chosen), { count: countNow(countOf(chosen)) });
     },
     shortcut: { keys: "Ctrl+Cmd+N", macOnly: true, list: true },
     group: "move",
