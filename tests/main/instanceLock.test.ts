@@ -111,19 +111,26 @@ describe("one copy of the app holds a data folder", () => {
       db.exec("BEGIN EXCLUSIVE");
       return db;
     };
-    const ask = (mode = "try") =>
+    const ask = (mode = "try", sawItHeld?: () => void) =>
       new Promise<{ held: boolean; after: number }>((resolve, reject) => {
         const began = Date.now();
         const child = spawn(process.execPath, [bundle, mode, where], {
           stdio: ["ignore", "pipe", "inherit"],
         });
         let out = "";
+        let toldHeld = false;
         child.stdout.on("data", (chunk: Buffer) => {
           out += chunk.toString();
+          if (toldHeld || !out.includes("sawItHeld")) return;
+          toldHeld = true;
+          sawItHeld?.();
         });
         child.on("error", reject);
         // On its exit: it has let the folder go by then.
-        child.on("exit", () => resolve({ ...JSON.parse(out), after: Date.now() - began }));
+        child.on("exit", () => {
+          const last = out.trim().split("\n").at(-1) ?? "";
+          resolve({ ...JSON.parse(last), after: Date.now() - began });
+        });
       });
 
     // Another copy's try: it holds instance.lock for a moment and not instance.owner.
@@ -141,10 +148,10 @@ describe("one copy of the app holds a data folder", () => {
 
     // A copy that took Electron's lock from the holder waits a moment for it to end, then gives up.
     expect((await ask("leaving")).held).toBe(false);
-    const waiting = ask("leaving");
-    await new Promise((done) => setTimeout(done, 1_000));
-    lock.close();
-    owner.close();
+    const waiting = ask("leaving", () => {
+      lock.close();
+      owner.close();
+    });
     expect((await waiting).held).toBe(true);
   });
 

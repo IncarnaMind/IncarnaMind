@@ -42,6 +42,21 @@ describe("a start that reaches a copy while it quits", () => {
     expect(app.relaunch).not.toHaveBeenCalled();
   });
 
+  test("after a quit the User called off, a start shows the window, and a later quit still reopens", () => {
+    const { app, startCame } = quittingApp();
+    const asking = quitEvent();
+    app.emit("before-quit", asking);
+    asking.preventDefault();
+    // The User keeps IncarnaMind open: no quit follows.
+    expect(startCame()).toBe(false);
+    expect(startCame()).toBe(false);
+    expect(app.relaunch).not.toHaveBeenCalled();
+
+    app.emit("before-quit", quitEvent());
+    expect(startCame()).toBe(true);
+    expect(app.relaunch).toHaveBeenCalledOnce();
+  });
+
   test("shows the window when nothing is quitting", () => {
     const { app, startCame } = quittingApp();
     expect(startCame()).toBe(false);

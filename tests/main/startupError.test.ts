@@ -49,7 +49,7 @@ describe("startupDialog", () => {
     });
     expect(startupProblem("zh-CN", "stalled")).toEqual({
       title: "IncarnaMind 无法启动",
-      detail: "IncarnaMind 无法打开窗口：另一个副本仍在退出。数据未改动，请重新打开 IncarnaMind。",
+      detail: "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。",
     });
   });
 });

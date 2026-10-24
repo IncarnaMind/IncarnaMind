@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { lockInstance } from "../../src/main/instanceLock";
+import { heldByAnotherCopy, lockInstance } from "../../src/main/instanceLock";
 
 /**
  * One of the copies in tests/main/instanceLock.test.ts. `race`: asks for the lock at the start of
  * each round, together with the other copy, holds it a moment and says when it did; `hold`: takes
- * it, says so and waits to be killed; `try`: asks once and says what it got, and `leaving` the same
- * as a copy that took Electron's lock from one that may still be ending. `race` with
+ * it, says so and waits to be killed; `try`: asks once and says what it got; `leaving`: the same, as
+ * the app does once it got Electron's lock, saying first when it found the folder held. `race` with
  * `garbage` first writes text into one or both of the lock files, before each round.
  */
 const [mode, folder, ...rest] = process.argv.slice(2);
@@ -20,7 +20,9 @@ const waitUntil = (until: bigint) => {
 };
 
 if (mode === "try" || mode === "leaving") {
-  const lock = lockInstance(folder ?? "", report, { holderMayBeLeaving: mode === "leaving" });
+  const leaving = mode === "leaving" && heldByAnotherCopy(folder ?? "", report);
+  if (leaving) console.log(JSON.stringify({ sawItHeld: true }));
+  const lock = lockInstance(folder ?? "", report, { holderMayBeLeaving: leaving });
   console.log(JSON.stringify({ held: lock.held }));
   lock.release();
 } else if (mode === "hold") {

@@ -34,7 +34,10 @@ export function reopenAfterQuit(
     quit = event;
   });
   return () => {
-    if (!quit || quit.defaultPrevented) return false;
+    // Held back is the only way a quit stops: nothing prevents `will-quit` or a window's close, and
+    // an update that fails never asks to quit.
+    if (quit?.defaultPrevented) quit = null;
+    if (!quit) return false;
     if (!reopening) {
       reopening = true;
       const reopens = canReopen();
