@@ -161,7 +161,8 @@ describe("A provider's own words for what went wrong", () => {
   const QUOTA = "You exceeded your current quota, please check your plan and billing details.";
   const CONTEXT = "This model's maximum context length is 128000 tokens.";
 
-  test.each([
+  type Row = [name: string, status: number, message: string, type?: string];
+  const credit: Row[] = [
     ["Anthropic's 400", 400, "Your credit balance is too low to access the Anthropic API."],
     ["Anthropic's 402 billing error", 402, "There was an issue with your billing information"],
     ["OpenAI's 429 with no quota left", 429, QUOTA, "insufficient_quota"],
@@ -187,7 +188,8 @@ describe("A provider's own words for what went wrong", () => {
       "Access denied, please make sure your account is in good standing.",
       "Arrearage",
     ],
-  ])(
+  ];
+  test.each(credit)(
     "%s: the account is out of credit, not rate limited or refused",
     (_, status, message, type) => {
       const error = said(status, message, type);
@@ -195,7 +197,7 @@ describe("A provider's own words for what went wrong", () => {
     },
   );
 
-  test.each([
+  const others: [...Row, string][] = [
     [
       "OpenAI's per-minute limit",
       429,
@@ -278,7 +280,8 @@ describe("A provider's own words for what went wrong", () => {
       "",
       "too-long",
     ],
-  ])("%s is %s", (_, status, message, type, kind) => {
+  ];
+  test.each(others)("%s keeps or finds its own kind", (_, status, message, type, kind) => {
     expect(classifyProviderError(said(status, message, type)).kind).toBe(kind);
   });
 
