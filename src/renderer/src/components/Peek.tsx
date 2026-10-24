@@ -341,6 +341,9 @@ function PeekCard({ target }: { target: PeekTarget }) {
             void moveIntoFolder({ documentIds: [document.id] }, folderId);
           }
         }}
+        onCreate={(folderName) =>
+          void useAppStore.getState().createFolder({ documentIds: [document.id] }, folderName)
+        }
         onClose={() => setMoving(null)}
       />
     </div>

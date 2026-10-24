@@ -35,13 +35,14 @@ import {
 import { RouteProblemLine } from "../components/providers/RouteProblemLine";
 import { core } from "../core";
 import { formatResetTime } from "../cost";
+import { useDeclineEnded } from "../declineEnded";
 import { useFindSources } from "../findSources";
 import { useLanguage, useT } from "../i18n";
 import { useKeyRefusals, useKeySavedSince } from "../keyRefusals";
 import { requestModelMenu } from "../modelMenu";
 import { useModelNames } from "../modelNames";
 import { useStoppedByPlanLimit } from "../planLimits";
-import { ANSWER_PROBLEMS, failedAnswerLine } from "../problems";
+import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
 import { useRouteOffered } from "../routeSignIn";
 import type { SettingsPage } from "../settingsPages";
 import { skillTitle } from "../skills";
@@ -329,6 +330,10 @@ export function AnswerError({
     : t("answer.error.thisService");
   const [shownAt] = useState(() => new Date().toISOString());
   const keySaved = useKeySavedSince(providerId, failedAt ?? shownAt);
+  const declineEnded = useDeclineEnded(
+    providerInUse?.service?.id ?? null,
+    kind === "consent-declined" && onRetry !== undefined,
+  );
   // Whose plan or sign-in it was decides the line. A sign-in that ends changes readiness, which
   // clears the list, so it is read again then, and not on every error (offline, that only fails).
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -366,7 +371,8 @@ export function AnswerError({
       />
     );
   }
-  const { line, fix } = shown.problem;
+  const { line } = shown.problem;
+  const fix = kind === "consent-declined" && declineEnded ? retry : shown.problem.fix;
   if (fix.kind === "ollama") return <OllamaNotRunningLine details={details} onRetry={onRetry} />;
   if (fix.kind === "local-model") {
     return (

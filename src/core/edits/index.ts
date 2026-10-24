@@ -36,6 +36,7 @@ import {
   proposalRequestOf,
   recordProposalRequest,
   resolveProposals,
+  waitingChanges,
 } from "../../shared/proposals";
 import { topLevelBlocks } from "../answers/blocks";
 import { createWindowBudget } from "../answers/window";
@@ -880,9 +881,8 @@ export function createEdits(options: EditsOptions) {
         return ids;
       });
       if (!blockIds) return nothing({ kind: "changed" });
-      const proposals = content.read(
-        input.mindId,
-        (mind) => pendingProposals(mind).filter((each) => each.request === request).length,
+      const proposals = content.read(input.mindId, (mind) =>
+        waitingChanges(mind, (each) => each.request === request),
       );
       input.written(request, proposals);
       return {

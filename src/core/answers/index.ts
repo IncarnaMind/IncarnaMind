@@ -61,9 +61,9 @@ import {
 } from "../../shared/namedSources";
 import {
   decisionsOn,
-  pendingProposals,
   recordProposalRequest,
   resolveProposals,
+  waitingChanges,
 } from "../../shared/proposals";
 import { filingFolder, hasSearchScope, NO_SCOPE, searchScopeOf } from "../../shared/searchScope";
 import { setTextOrigin } from "../../shared/textOrigins";
@@ -2597,7 +2597,7 @@ export function createAnswers(options: AnswersOptions) {
       return { waiting: 0, accepted: 0, rejected: 0, gone: true };
     }
     return options.content.read(change.mindId, (blocks) => ({
-      waiting: pendingProposals(blocks).filter((each) => each.request === change.request).length,
+      waiting: waitingChanges(blocks, (each) => each.request === change.request),
       ...(blocks.doc ? decisionsOn(blocks.doc, change.request) : { accepted: 0, rejected: 0 }),
     }));
   };

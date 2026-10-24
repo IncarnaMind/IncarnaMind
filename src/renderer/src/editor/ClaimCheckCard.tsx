@@ -16,8 +16,10 @@ import {
   checkAgain,
   closeOpenClaim,
   removeClaimMark,
+  replaceCitation,
   setOpenClaim,
   useChecks,
+  widenCitation,
 } from "../checks";
 import { CountItLine } from "../components/CountItLine";
 import { MetaLine } from "../components/MetaLine";
@@ -39,7 +41,7 @@ import {
   searchedLess,
   uncoveredOf,
 } from "../unsupportedFixes";
-import { alreadyCitedBy, citationsOf } from "./alreadyCited";
+import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
 import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
@@ -69,6 +71,8 @@ const TONE: Record<ClaimMarkState, string> = {
 const sentenceOf = (editor: Editor, claim: ShownClaim) =>
   editor.state.doc.textBetween(claim.sentence.from, claim.sentence.to, " ", " ").trim();
 
+const NO_DECISION: CitationDecision = { kind: "none" };
+
 /**
  * Asks the assistant to look for the sentence on the web (#128), which a model
  * that can search does. The card says so first when web search is off (`ClaimCard`).
@@ -83,11 +87,11 @@ function searchTheWeb(mindId: string, sentence: string): void {
 /**
  * A sentence check's mark in the margin (#96), level with the sentence's
  * first line: a quiet tick with "+" when the Passage found can become its
- * Citation (a plain tick when the sentence already cites it), an amber "!",
- * an outlined red "≠", a grey ring when it wasn't checked, ↻ when it needs a
- * re-check. Hovering or focusing it shows its card, and clicking keeps the
- * card until it is dismissed; Esc closes it. While the card is open, its
- * sentence is outlined.
+ * Citation (a plain tick when the card changes the sentence's own Citation
+ * instead), an amber "!", an outlined red "≠", a grey ring when it wasn't
+ * checked, ↻ when it needs a re-check. Hovering or focusing it shows its card,
+ * and clicking keeps the card until it is dismissed; Esc closes it. While the
+ * card is open, its sentence is outlined.
  */
 export function ClaimMark({
   claim,
@@ -118,9 +122,8 @@ export function ClaimMark({
   const askers = useRef(new Set<string>());
   const timer = useRef<number | undefined>(undefined);
   const open = pinned || peeking;
-  // A figure worked out has inputs, not one Passage to cite.
-  const already = state === "supported" ? alreadyCitedBy(editor.state, claim) : null;
-  const plus = state === "supported" && !claim.check.calculation && !already;
+  const decision = state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
+  const plus = decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
 
   const hold = useCallback((source: string, on: boolean) => {
@@ -143,10 +146,19 @@ export function ClaimMark({
     return state === "contradicted" && !progress?.mistakeSeen && firstOpenOf(progress);
   });
 
-  /** After an action the card goes, and the focus stays in the Mind. */
-  const done = () => {
+  /**
+   * After an action the card goes, and the focus stays in the Mind.
+   * `inNote`: the action changed the note, so the focus goes back once React
+   * has taken the card out, or the removal would take it from the note and
+   * ⌘Z would reach the window's undo instead (#1620).
+   */
+  const done = (inNote = false) => {
     dismiss();
-    if (!editor.isDestroyed && !groupsMerged()) editor.view.focus();
+    const inTheNote = () => {
+      if (!editor.isDestroyed && !groupsMerged()) editor.view.focus();
+    };
+    if (inNote) requestAnimationFrame(inTheNote);
+    else inTheNote();
   };
 
   return (
@@ -216,12 +228,19 @@ export function ClaimMark({
               cited={citationsOf(editor.state, claim)}
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
-              addable={plus}
-              already={already}
+              decision={decision}
               added={added}
               onAdd={() => {
                 addAsCitation(editor, claim);
-                done();
+                done(true);
+              }}
+              onWiden={() => {
+                if (decision.kind === "widen") widenCitation(editor, decision);
+                done(true);
+              }}
+              onReplace={() => {
+                if (decision.kind === "replace") replaceCitation(editor, decision);
+                done(true);
               }}
               onCheckAgain={(allDocuments) => {
                 void checkAgain(editor, mindId, doc, claim, allDocuments);
@@ -339,8 +358,11 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
  * Passage found, the Document and Location with the quote washed in the
  * state's colour, and Add as Citation when it isn't cited yet, or "Already
  * cited" with the Citation's own words and number when the sentence has one on
- * those words; for a contradiction, what the Document says; for a figure
- * worked out, its working and inputs; for nothing found, where it looked, with
+ * those words, or Widen the Citation when the whole clause says more of the
+ * sentence than the Citation quotes, or Replace the Citation when the one the
+ * sentence has doesn't hold (#1620); for a contradiction, what the Document
+ * says; for a figure worked out, its working and inputs; for nothing found,
+ * where it looked, with
  * Search all Documents, Cut it (the whole sentence, never in a Verify Mind) and
  * Keep as my view, or, for a court decision no Document holds, that it
  * can't be checked here, with Remove the mark only; for a sentence with a
@@ -357,10 +379,11 @@ function ClaimCard({
   cited,
   fixes,
   notFound,
-  addable,
-  already,
+  decision,
   added,
   onAdd,
+  onWiden,
+  onReplace,
   onCheckAgain,
   onOpen,
   onFix,
@@ -378,10 +401,11 @@ function ClaimCard({
   cited: readonly NumberedCitation[];
   fixes: boolean;
   notFound: boolean;
-  addable: boolean;
-  already: NumberedCitation | null;
+  decision: CitationDecision;
   added: number;
   onAdd(): void;
+  onWiden(): void;
+  onReplace(): void;
   onCheckAgain(allDocuments?: boolean): void;
   onOpen(): void;
   onFix(): void;
@@ -416,6 +440,7 @@ function ClaimCard({
       : null;
   const evidence = (decided && fromPassage) || differs ? check.evidence : (covers?.quoted ?? null);
   const location = evidence ? citationLocation(evidence) : null;
+  const already = decision.kind === "already" ? decision.citation : null;
   const citedQuote = already?.attributes.quote ? already.attributes : evidence;
   const quote = useReadableQuote(citedQuote);
   const where = location ? formatLocation(location, t) : null;
@@ -496,6 +521,22 @@ function ClaimCard({
             title={savedPageSource(savedFrom, language, t, { compact: false })}
           >
             {savedPageSource(savedFrom, language, t, { compact: true })}
+          </p>
+        )}
+        {decision.kind === "widen" && (
+          <p data-testid="claim-widen-note" className="claim-card-says">
+            {t("claim.widenCitation.note")}{" "}
+            <CitationChip citation={decision.citation} testId="claim-widen-chip" />
+          </p>
+        )}
+        {decision.kind === "replace" && (
+          <p data-testid="claim-replace-note" className="claim-card-says">
+            {t(
+              decision.citation.attributes.check === "not-found"
+                ? "claim.replaceCitation.quoteNotFound"
+                : "claim.replaceCitation.doesntSupport",
+            )}{" "}
+            <CitationChip citation={decision.citation} testId="claim-replace-chip" />
           </p>
         )}
       </div>
@@ -655,7 +696,7 @@ function ClaimCard({
         );
       })}
       <div className="citation-card-actions">
-        {addable && (
+        {decision.kind === "add" && (
           <button
             type="button"
             data-testid="claim-add-citation"
@@ -665,11 +706,35 @@ function ClaimCard({
             {t("claim.addAsCitation")}
           </button>
         )}
+        {decision.kind === "widen" && (
+          <button
+            type="button"
+            data-testid="claim-widen-citation"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onWiden}
+          >
+            {t("claim.widenCitation")}
+          </button>
+        )}
+        {decision.kind === "replace" && (
+          <button
+            type="button"
+            data-testid="claim-replace-citation"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onReplace}
+          >
+            {t("claim.replaceCitation")}
+          </button>
+        )}
         {evidence?.documentId && (
           <button
             type="button"
             data-testid="claim-open"
-            className={`citation-card-action ${addable ? "" : "citation-card-action--primary"}`}
+            className={`citation-card-action ${
+              decision.kind === "none" || decision.kind === "already"
+                ? "citation-card-action--primary"
+                : ""
+            }`}
             onClick={() => {
               if (!evidence.documentId) return;
               openCited(
