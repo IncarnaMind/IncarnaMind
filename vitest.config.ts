@@ -76,3 +76,5 @@ export default defineConfig({
     hookTimeout: 30_000,
   },
 });
+
+# Automated fix for issue #1848: Answers: choosing a working model after a failure leaves no Ask again for the original Question
