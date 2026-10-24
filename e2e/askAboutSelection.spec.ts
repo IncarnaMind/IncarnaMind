@@ -11,11 +11,13 @@ import {
   expectReadyDocuments,
   launchApp,
   newMind,
+  paletteFound,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
   slideSelect,
+  stubClipboard,
 } from "./app";
 
 /**
@@ -165,6 +167,67 @@ test("with no model set, the waiting Question shows its quote, and Set up later 
   await expect(again.window.getByTestId("composer-input")).toHaveValue("What does this mean?");
   await expect(chips(again.window)).toHaveCount(1);
   await again.app.close();
+});
+
+test("while a Question waits for setup, the same words offer no second Ask, by the menu, ⌘/ or ⌘K, and ⌘J asks about none of it", async () => {
+  const { window, layer } = await paperBesideMind({ model: false });
+  await select(window, layer(2), "Margins recover within two quarters");
+  await pointAndClick(window, window.getByTestId("viewer-selection-ask"));
+  await expect(window.getByTestId("composer-input")).toBeFocused();
+  await window.keyboard.type("What does this mean?");
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("model-setup")).toBeVisible();
+
+  await select(window, layer(2), "Margins recover within two quarters");
+  await expect(window.getByTestId("viewer-selection-ask")).toHaveCount(0);
+  await expect(window.getByTestId("viewer-selection-add")).toBeVisible();
+  await expect(window.getByTestId("viewer-selection-copy")).toBeVisible();
+  await window.keyboard.press("ControlOrMeta+/");
+  await expect(window.getByTestId("viewer-selection-add")).toBeFocused();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("viewer-selection-menu")).toHaveCount(0);
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("the selected text");
+  await expect(
+    paletteFound(window).filter({ hasText: "Add the selected text to note" }),
+  ).toHaveCount(1);
+  await expect(
+    paletteFound(window).filter({ hasText: "Copy the selected text with its citation" }),
+  ).toHaveCount(1);
+  await expect(paletteFound(window).filter({ hasText: "Ask about the selected text" })).toHaveCount(
+    0,
+  );
+  await window.keyboard.press("Escape");
+
+  // Another line, so a second Ask would show as a second chip once the setup card goes.
+  await select(window, layer(1), "Grocers studied across the eleven chains");
+  await window.keyboard.press("ControlOrMeta+j");
+  await pointAndClick(window, window.getByTestId("setup-later"));
+  await expect(window.getByTestId("composer-input")).toHaveValue("What does this mean?");
+  await expect(chips(window)).toHaveCount(1);
+  await expect(chips(window)).toContainText("“Margins recover within two quarters”");
+});
+
+test("while a Question waits for setup, Add to note and Copy with citation stay and Copy works, in Chinese", async () => {
+  const { window, layer } = await paperBesideMind({ model: false });
+  await setLanguage(window, "zh-CN");
+  await select(window, layer(2), "Margins recover within two quarters");
+  await pointAndClick(window, window.getByTestId("viewer-selection-ask"));
+  await expect(window.getByTestId("composer-input")).toBeFocused();
+  await window.keyboard.type("这句话是什么意思？");
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("model-setup")).toBeVisible();
+
+  const copied = await stubClipboard(window);
+  await select(window, layer(2), "Margins recover within two quarters");
+  await expect(window.getByTestId("viewer-selection-ask")).toHaveCount(0);
+  await expect(window.getByTestId("viewer-selection-add")).toHaveText("添加到笔记");
+  await expect(window.getByTestId("viewer-selection-copy")).toHaveText("复制（含引用）");
+  await pointAndClick(window, window.getByTestId("viewer-selection-copy"));
+  await expect(window.getByTestId("copied-line")).toContainText("已复制，含引用");
+  expect((await copied())["text/plain"]).toContain("Margins recover within two quarters");
 });
 
 test("a long Document name is cut in the chip and above the Question, its page kept whole and the whole name in a tooltip, in Chinese", async () => {

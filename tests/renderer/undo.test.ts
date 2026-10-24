@@ -317,6 +317,18 @@ describe("the lines follow the interface language", () => {
     expect(change?.name?.(t)).toBe("重命名");
   });
 
+  test("the Edit menu's Undo puts a name the change quotes in ‘ ’, inside its own “ ” (#1405)", () => {
+    language = "zh-CN";
+    const action = (key: MessageKey) => t(key, { name: "交易资料" });
+    expect(t("menu.undo.named", { action: action("undo.name.linkFolder") })).toBe(
+      "撤销“添加同步文件夹‘交易资料’”",
+    );
+    expect(t("menu.undo.named", { action: action("undo.name.move") })).toBe("撤销“移动‘交易资料’”");
+    expect(t("menu.redo.named", { action: action("undo.name.delete") })).toBe(
+      "重做“删除‘交易资料’”",
+    );
+  });
+
   test("a refused undo's reason and fix follow it, and stay for the fix", async () => {
     push({
       said: (t) => t("object.deleted", { name: "Plan" }),
