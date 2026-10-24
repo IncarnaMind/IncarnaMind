@@ -184,7 +184,7 @@ test("typed elsewhere after “make it longer”, the line goes but Review chang
   await setLanguage(window, "zh-CN");
   await expect(undo).toHaveAttribute(
     "title",
-    /^“Summary”之后又改过了。查看改动在 ⋯ 和 (⌘K|Ctrl\+K) 里。$/,
+    /^“Summary”之后又改过了。“查看改动”在 ⋯ 和 (⌘K|Ctrl\+K) 里。$/,
   );
   await expect(review).toHaveText("查看改动");
   await setLanguage(window, "en");

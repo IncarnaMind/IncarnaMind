@@ -598,7 +598,12 @@ export function restoreChange(editor: Editor, index: number): void {
     (a, b) => b.place.from - a.place.from || b.index - a.index,
   );
   for (const { change, place } of lastFirst) tr.replaceWith(place.from, place.to, change.removed);
-  tr.setMeta(appliedLineKey, { ...line });
+  // Until the change reaches the Mind's document its Yjs place is read against the text before it.
+  const restoring = new Set(group.members.map(({ change }) => change));
+  tr.setMeta(appliedLineKey, {
+    ...line,
+    shows: (change: AppliedChange) => !restoring.has(change) && (line.shows?.(change) ?? true),
+  });
   asOneStep(editor, () => editor.view.dispatch(tr));
   const top = undoStackOf(editor)?.undoStack.at(-1);
   const edit = lastApplied.get(editor);
@@ -611,7 +616,7 @@ export function restoreChange(editor: Editor, index: number): void {
   }
   // Placed again now that the change has reached the Mind's document.
   const now = appliedLineIn(editor.state);
-  if (now) setAppliedLine(editor, { ...now });
+  if (now?.kind === "review") setAppliedLine(editor, { ...now, shows: line.shows });
   offerEditorUndo(editor, (t) => t("edit.review.restored.one"));
 }
 

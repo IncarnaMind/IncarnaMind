@@ -247,9 +247,11 @@ function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
     relativePositionToAbsolutePosition(binding.doc, binding.type, relative, binding.mapping);
   const from = at(change.from);
   const inside = at(change.to);
-  const end = inside === null ? null : state.doc.resolve(inside);
+  const end = inside === null || inside > state.doc.content.size ? null : state.doc.resolve(inside);
   const to = change.block !== "added" ? inside : end && end.depth > 0 ? end.after(1) : null;
-  return from === null || to === null || to < from ? null : { from, to };
+  return from === null || to === null || to < from || to > state.doc.content.size
+    ? null
+    : { from, to };
 }
 
 const textOf = (removed: Fragment) => removed.textBetween(0, removed.size, "\n", "￼");
@@ -267,7 +269,8 @@ const asWritten = (doc: ProseMirrorNode, change: AppliedChange, place: Place) =>
 
 // Its place can take in words typed just after it, as its end holds to what follows, and a
 // paragraph written anew is all that paragraph: its own words, there once in its Block, still count.
-function foundAgain(doc: ProseMirrorNode, change: AppliedChange): Place | null {
+// Only where they touch its place, so the same words elsewhere in the Block are never restored.
+function foundAgain(doc: ProseMirrorNode, change: AppliedChange, near: Place | null): Place | null {
   const block = change.blockId === null ? null : blockAt(doc, change.blockId);
   if (!block || change.written.size === 0) return null;
   if (change.block === "added") {
@@ -280,7 +283,8 @@ function foundAgain(doc: ProseMirrorNode, change: AppliedChange): Place | null {
   const found: Place[] = [];
   for (let at = text.indexOf(words); at >= 0; at = text.indexOf(words, at + 1)) {
     const place = { from: block.pos + 1 + at, to: block.pos + 1 + at + change.written.size };
-    if (asWritten(doc, change, place)) found.push(place);
+    const touches = !near || (place.from <= near.to && near.from <= place.to);
+    if (touches && asWritten(doc, change, place)) found.push(place);
   }
   return found.length === 1 ? (found[0] ?? null) : null;
 }
@@ -296,7 +300,7 @@ export function changeNow(
 ): { place: Place; written: boolean } | null {
   const anchored = anchoredPlace(state, change);
   if (anchored && asWritten(state.doc, change, anchored)) return { place: anchored, written: true };
-  const again = foundAgain(state.doc, change);
+  const again = foundAgain(state.doc, change, anchored);
   if (again) return { place: again, written: true };
   return anchored && { place: anchored, written: false };
 }
