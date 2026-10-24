@@ -130,7 +130,7 @@ const foundEvidence = (over: Partial<CitationAttributes>) => {
 };
 
 const QUOTED_WORDS: CitationAttributes["quotedWords"] = {
-  answer: [{ text: "agreed in advance", found: false }],
+  answer: [{ text: "three months", found: false }],
   closest: null,
 };
 
@@ -170,7 +170,7 @@ describe("Widen the Citation and Replace the Citation", () => {
     });
   });
 
-  test("replacing keeps the one Citation, points it at the Passage the check found, and clears what wasn't checked", () => {
+  test("replacing keeps the one Citation, points it at the Passage the check found, and clears the old verdict", () => {
     const { editor } = editorHolding({
       passageId: "passage-OLD",
       check: "not-found",
@@ -203,7 +203,25 @@ describe("Widen the Citation and Replace the Citation", () => {
       check: "found",
       checkReason: null,
       verdict: null,
-      quotedWords: null,
+      quotedWords: QUOTED_WORDS,
+    });
+  });
+
+  test("does not replace with a Passage that doesn't hold the sentence's quoted words", () => {
+    const { editor } = editorHolding({
+      check: "not-found",
+      checkReason: "quoted-words-not-on-pages",
+      quotedWords: { answer: [{ text: "agreed in advance", found: false }], closest: null },
+    });
+    expect(
+      replaceCitation(editor, {
+        citation: onlyCitation(editor.state),
+        evidence: foundEvidence({ quote: "Probation lasts three months." }),
+      }),
+    ).toBe(false);
+    expect(onlyCitation(editor.state).attributes).toMatchObject({
+      check: "not-found",
+      checkReason: "quoted-words-not-on-pages",
     });
   });
 });

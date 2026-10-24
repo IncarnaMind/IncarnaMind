@@ -201,6 +201,18 @@ describe("what a supported sentence's card offers for the Passage its check foun
     });
   });
 
+  test("replaces only with a Passage that holds the sentence's quoted words", () => {
+    const asked = (text: string) => ({ answer: [{ text, found: false }], closest: null });
+    const broken = (quotedWords: CitationAttributes["quotedWords"]) =>
+      state({ check: "not-found", checkReason: "quoted-words-not-on-pages", quotedWords }, null);
+    expect(
+      citationDecision(broken(asked("two days a week")), claimOf(sentence, { quote: LINE })),
+    ).toMatchObject({ kind: "replace", citation: { number: 1 } });
+    expect(
+      citationDecision(broken(asked("a notice period")), claimOf(sentence, { quote: LINE })).kind,
+    ).toBe("already");
+  });
+
   test("already has a valid Citation when a broken one overlaps the same words, and does not replace it", () => {
     const held = state({ check: "not-found", checkReason: "quote-not-on-pages" }, {});
     const both = { from: 1, to: 1 + FIRST.length + 1 + 1 + SECOND.length + 1 };

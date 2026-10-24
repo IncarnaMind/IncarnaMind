@@ -1,6 +1,7 @@
 import type { EditorState } from "@tiptap/pm/state";
 import type { CitationAttributes, CitationCheck } from "../../../core/api";
 import { continuesCitation, overlapsCitation } from "../../../shared/citationOverlap";
+import { quotedWordsFoundIn } from "../../../shared/citations";
 import { type NumberedCitation, numberedCitations } from "./citationNumbers";
 import type { ShownClaim } from "./claimChecks";
 
@@ -37,13 +38,22 @@ export function citationDecision(state: EditorState, claim: ShownClaim): Citatio
     ({ attributes }) =>
       attributes.documentId !== null && attributes.documentId === evidence.documentId,
   );
+  // Replace may write "found" only for what the Passage found shows: the words the sentence put
+  // in quotation marks have to be in its quote too, or the Citation's card would say they are
+  // found when nothing looked for them (#483, #1808).
+  const replaceable = ({ attributes }: NumberedCitation) =>
+    quotedWordsFoundIn(evidence.quote ?? "", attributes.quotedWords);
   const overlapping = cited.filter(({ attributes }) => overlapsCitation(attributes, evidence));
   const valid = overlapping.filter(({ attributes }) => !DOESNT_HOLD.has(attributes.check));
   // A Citation whose own check says it doesn't hold is replaced, never widened: it is broken, not
   // partial. A valid one on the same words comes first, or replacing the broken one would put a
   // second Citation on them.
   const invalid = overlapping.find(({ attributes }) => DOESNT_HOLD.has(attributes.check));
-  if (valid.length === 0 && invalid) return { kind: "replace", citation: invalid, evidence };
+  if (valid.length === 0 && invalid) {
+    return replaceable(invalid)
+      ? { kind: "replace", citation: invalid, evidence }
+      : { kind: "already", citation: invalid };
+  }
   let wider: NumberedCitation | null = null;
   for (const each of valid) {
     if (
@@ -57,7 +67,7 @@ export function citationDecision(state: EditorState, claim: ShownClaim): Citatio
   if (wider) return { kind: "widen", citation: wider, evidence };
   const already = valid[0];
   if (already) return { kind: "already", citation: already };
-  const replace = cited.find(({ attributes }) => DOESNT_HOLD.has(attributes.check));
+  const replace = cited.find((each) => DOESNT_HOLD.has(each.attributes.check) && replaceable(each));
   if (replace) return { kind: "replace", citation: replace, evidence };
   return { kind: "add" };
 }

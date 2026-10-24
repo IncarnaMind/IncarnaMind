@@ -18,6 +18,7 @@ import {
   type ClaimCheckAction,
   type ProviderError,
 } from "../../core/api";
+import { quotedWordsFoundIn } from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
@@ -345,17 +346,20 @@ export function widenCitation(
 /**
  * Points the sentence's Citation that doesn't hold at the Passage the check
  * found instead, again in place (#1620). Only that Passage's quote was
- * checked, so the old verdict and quoted words go with the old quote.
+ * checked: it must hold the words the sentence put in quotation marks for the
+ * Citation to be found, and those words stay on it for the core's re-check.
+ * The old verdict described the old quote, so it goes.
  */
 export function replaceCitation(
   editor: Editor,
   { citation, evidence }: { citation: NumberedCitation; evidence: CitationAttributes },
 ): boolean {
+  if (!quotedWordsFoundIn(evidence.quote ?? "", citation.attributes.quotedWords)) return false;
   return rewriteCitation(editor, citation, {
     ...evidence,
     check: "found",
     checkReason: null,
     verdict: evidence.verdict ?? null,
-    quotedWords: evidence.quotedWords ?? null,
+    quotedWords: evidence.quotedWords ?? citation.attributes.quotedWords ?? null,
   });
 }
