@@ -3,7 +3,7 @@ import type { CommandId, ShortcutKeys } from "../../../shared/commands";
 import { files } from "../core";
 import type { ObjectRef } from "../objects";
 import { useAppStore } from "../store";
-import { typesText } from "../undo";
+import { nextToRedo, nextToUndo, typesText, useUndo } from "../undo";
 import { keysLabel, keysOn, pressed } from "./keys";
 import { menuKinds } from "./menus";
 import {
@@ -60,6 +60,20 @@ const contextAt = (target: EventTarget | null): CommandContext => ({
 
 const dialogOpen = () => document.querySelector("dialog[open]") !== null;
 
+/**
+ * Whether an open dialog keeps a command's keys from the page behind it. ⌘Z and ⇧⌘Z are not kept
+ * from a change whose line the dialog shows (Settings): they do what that line's Undo does.
+ */
+function dialogHolds(id: CommandId): boolean {
+  if (!dialogOpen()) return false;
+  if (id !== "edit.undo" && id !== "edit.redo") return true;
+  const state = useUndo.getState();
+  const place = (id === "edit.undo" ? nextToUndo(state) : nextToRedo(state))?.shownAt;
+  return !(
+    place && document.querySelector(`dialog[open] [data-undo-place="${CSS.escape(place)}"]`)
+  );
+}
+
 const report = (error: unknown) => useAppStore.getState().reportError(error);
 
 /**
@@ -92,7 +106,7 @@ export function runShortcut(
       return true;
     }
     // Only now, for keys that are a shortcut: the search goes through the whole page.
-    if (dialogOpen()) return false;
+    if (dialogHolds(command.id)) return false;
     // A list's own keys act on the row the focus is in.
     const here = shortcut.list ? { ...ctx, focus: ctx.focus ?? objectAt(event.target) } : ctx;
     if (!offered(command, here) || !isEnabled(command, here)) continue;
@@ -119,7 +133,7 @@ export function useKeymap(): void {
       const textsOwn =
         typesText(focus) &&
         (id === "edit.selectAll" || commands.get(id)?.shortcut?.outsideText === true);
-      if (textsOwn || !dialogOpen()) commands.run(id, contextAt(focus)).catch(report);
+      if (textsOwn || !dialogHolds(id)) commands.run(id, contextAt(focus)).catch(report);
     });
     return () => {
       window.removeEventListener("keydown", onKey);

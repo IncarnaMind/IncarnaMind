@@ -9628,8 +9628,17 @@ export interface CoreApi {
   /** Consent requests still waiting for an answer, e.g. for a window that opened after they were raised. */
   listConsentRequests(): Promise<ConsentRequest[]>;
   respondToConsent(requestId: string, accept: boolean): Promise<void>;
-  /** Forgets the User's decision: the next request on the flow asks again. */
-  revokeConsent(flowId: DataFlowId, serviceId: string): Promise<void>;
+  /**
+   * Forgets the User's decision: the next request on the flow asks again. Returns the time it was
+   * forgotten (ISO 8601), for `restoreConsent`; null when there was no decision.
+   */
+  revokeConsent(flowId: DataFlowId, serviceId: string): Promise<string | null>;
+  /**
+   * Brings back the decision `revokeConsent` forgot at `revokedAt`, as it was: no more kinds of
+   * data than were accepted, the date it was made, even for a service the flow no longer goes
+   * to. A decision made since stands, and so does a later forgetting: only the newest comes back.
+   */
+  restoreConsent(flowId: DataFlowId, serviceId: string, revokedAt: string): Promise<void>;
   /**
    * Every registered external data flow, each with the services it goes to,
    * including a flow that sends nothing now: the Privacy page lists them all.
@@ -10573,6 +10582,7 @@ const methods: Record<CoreApiMethod, true> = {
   listConsentRequests: true,
   respondToConsent: true,
   revokeConsent: true,
+  restoreConsent: true,
   listRegisteredDataFlows: true,
   allowDataFlow: true,
   listNetworkTraffic: true,

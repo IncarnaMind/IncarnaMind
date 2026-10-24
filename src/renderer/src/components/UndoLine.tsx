@@ -44,7 +44,7 @@ export function UndoLine() {
 export function UndoLineAt({ place }: { place: string }) {
   const line = useUndo((state) => (state.line?.change?.shownAt === place ? state.line : null));
   return (
-    <div aria-live="polite" data-testid="undo-line-here">
+    <div aria-live="polite" data-testid="undo-line-here" data-undo-place={place}>
       {line && <Line key={line.id} line={line} />}
     </div>
   );
