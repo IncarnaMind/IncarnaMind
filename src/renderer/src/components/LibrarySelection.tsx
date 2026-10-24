@@ -6,7 +6,8 @@ import { keysHere, menuKeysLabel } from "../commands/keymap";
 import { buildMenu, type MenuItem } from "../commands/menus";
 import { type CommandContext, commands, menuLabelOf } from "../commands/registry";
 import { dialogOrMenuOpen } from "../escapeDismiss";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
+import { formatCount } from "../linkedFolders";
 import type { ObjectRef } from "../objects";
 import { useSelectedOn, useSelection } from "../selection";
 import { useAppStore } from "../store";
@@ -77,6 +78,7 @@ export function LibrarySelectBox({ document }: { document: Pick<Document, "id" |
  */
 export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] }) {
   const t = useT();
+  const language = useLanguage();
   const items = useSelectedOn("library");
   const documents = useAppStore(
     useShallow((state) => {
@@ -133,11 +135,12 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
     );
   };
   const [move, ...rest] = named;
+  const count = formatCount(items.length, language);
   return (
     <div
       ref={bar}
       role="toolbar"
-      aria-label={t("library.selected", { count: items.length })}
+      aria-label={t("library.selected", { count })}
       data-testid="library-selection"
       onKeyDown={(event) => {
         // A picker or menu that is open, such as the bar's Tags picker, closes first.
@@ -151,7 +154,7 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
         ref={all}
         type="checkbox"
         data-testid="library-select-all"
-        aria-label={t("library.selectAll", { count: shownIds.length })}
+        aria-label={t("library.selectAll", { count: formatCount(shownIds.length, language) })}
         checked={every}
         onChange={() =>
           every ? useSelection.getState().clear("library") : useSelection.getState().all("library")
@@ -159,7 +162,7 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
         className={boxClass}
       />
       <span role="status" className="mr-2 ml-1 shrink-0 font-semibold whitespace-nowrap text-ink">
-        {t("library.selected", { count: items.length })}
+        {t("library.selected", { count })}
       </span>
       {move && button(move)}
       <SelectionTags
@@ -180,7 +183,7 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
           // Once the menu has closed and given the focus back, so the picker opens beside ⋯.
           "document.moveTo": () => requestAnimationFrame(() => moveBeside("[data-object-menu]")),
         }}
-        label={t("library.selected.more", { count: items.length })}
+        label={t("library.selected.more", { count })}
       />
       <span className="flex-1" />
       <button

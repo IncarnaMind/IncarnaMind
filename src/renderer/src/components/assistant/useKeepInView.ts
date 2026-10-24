@@ -1,4 +1,5 @@
 import { type RefObject, useEffect } from "react";
+import { ANCHORED } from "./useThreadScroll";
 
 /** How near the end counts as being at it. */
 const AT_END_PX = 24;
@@ -30,9 +31,11 @@ export function useKeepInView(thread: RefObject<HTMLElement | null>): void {
       // reports it (a Task tray growing under the thread), so the thread is at its end if
       // it was at the size we last restored for, or is at the size it has now (a clamp).
       const gap = (client: number, content: number) => content - scroller.scrollTop - client;
+      // A Question held at the top has room under it: that isn't the end the Answer follows.
       atEnd =
-        gap(scroller.clientHeight, scroller.scrollHeight) <= AT_END_PX ||
-        (sized.client > 0 && gap(sized.client, sized.content) <= AT_END_PX);
+        !scroller.hasAttribute(ANCHORED) &&
+        (gap(scroller.clientHeight, scroller.scrollHeight) <= AT_END_PX ||
+          (sized.client > 0 && gap(sized.client, sized.content) <= AT_END_PX));
       const top = scroller.getBoundingClientRect().top;
       const turn = [
         ...scroller.querySelectorAll("[data-answer-id], .assistant-question, .task-progress"),
