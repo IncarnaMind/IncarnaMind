@@ -789,7 +789,9 @@ test("a cell whose amount changed scale says what the Document gives, offers Fil
 
   // Fill writes it again; the model changes the scale again, and the cell says so again.
   await pointAndClick(window, table.getByTestId("comparison-fill"));
-  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  const progress = table.getByTestId("comparison-progress");
+  await expect(progress).toBeVisible();
+  await expect(progress).toHaveCount(0, { timeout: 30_000 });
   await expect(table.getByTestId("comparison-fill")).toHaveText("Fill 1 cell");
   expect((await cellTexts(table))[final]?.[0]).toContain("310,000 GBP thousands");
 

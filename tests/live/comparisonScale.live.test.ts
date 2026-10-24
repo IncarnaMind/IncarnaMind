@@ -35,6 +35,8 @@ interface Case {
   draft: { name: string; contents: Uint8Array };
   questions: [string, string];
   instruction: string;
+  /** The first Question's numbers as each Document writes them, with no unit: final, then draft. */
+  written: { final: number[]; draft: number[] };
 }
 
 /** The first Question's amounts in base units: the final row's, then the draft's. */
@@ -63,6 +65,7 @@ const CASES: Case[] = [
       "What profit before tax was reported for Q3 2026, in GBP millions?",
     ],
     instruction: "Keep draft and final distinct, preserve GBP million units, exclude forecasts.",
+    written: { final: [310_000, 95_000], draft: [340, 80] },
   },
   {
     language: "zh",
@@ -86,6 +89,7 @@ const CASES: Case[] = [
       "2026年三季度的税前利润是多少亿元？",
     ],
     instruction: "区分初稿和终稿，以亿元列示，不含预测。",
+    written: { final: [31_000, 9_500], draft: [3.4, 0.8] },
   },
 ];
 
@@ -139,11 +143,27 @@ function worth(figure: Figure): number[] {
 
 const near = (a: number, b: number) => Math.abs(a - b) <= 0.005 * Math.abs(b);
 
-/** Each expected amount at its value ("right"), one 10ⁿ off ("wrong-scale"), or neither. */
-function verdictOf(text: string, expected: readonly number[], language: string) {
-  const amounts = readFigures(text, { language: language === "zh" ? "zh-CN" : "en" })
-    .filter((figure) => figure.unit.kind === "plain" || figure.unit.kind === "currency")
-    .map(worth);
+/**
+ * Each expected amount at its value ("right"), or as its Document writes it with no unit at all
+ * ("as-written"); an amount 10ⁿ off ("wrong-scale"); or neither.
+ */
+function verdictOf(
+  text: string,
+  expected: readonly number[],
+  written: readonly number[],
+  language: string,
+) {
+  const figures = readFigures(text, { language: language === "zh" ? "zh-CN" : "en" }).filter(
+    (figure) => figure.unit.kind === "plain" || figure.unit.kind === "currency",
+  );
+  const bare = (figure: Figure) =>
+    figure.unit.kind === "plain" && figure.scale === 1 && worth(figure)[0] === figure.value;
+  if (
+    figures.length > 0 &&
+    figures.every((figure) => bare(figure) && written.some((each) => near(figure.value, each)))
+  )
+    return "as-written";
+  const amounts = figures.map(worth);
   const offByTen = amounts.some(
     (values) =>
       !values.some((value) => expected.some((amount) => near(value, amount))) &&
@@ -232,7 +252,7 @@ describe.each(CASES.filter((item) => LANGUAGES.includes(item.language)))(
             if (first) {
               const outcome =
                 first.status === "done"
-                  ? verdictOf(first.text, EXPECTED[name], item.language)
+                  ? verdictOf(first.text, EXPECTED[name], item.written[name], item.language)
                   : (first.problem ?? "failed");
               count(`${name}:${outcome}`);
               const message = first.message ? ` [${first.message}]` : "";
@@ -246,9 +266,15 @@ describe.each(CASES.filter((item) => LANGUAGES.includes(item.language)))(
           for (const note of told.slice(before)) {
             // A note about a right amount is a false problem; one about a wrong one is a catch.
             const written = /^Your cell writes (.+?), which is/.exec(note)?.[1] ?? "";
-            const right = [EXPECTED.final, EXPECTED.draft].some(
-              (expected) => verdictOf(written, expected, item.language) === "right",
-            );
+            const right = readFigures(written, {
+              language: item.language === "zh" ? "zh-CN" : "en",
+            })
+              .map(worth)
+              .some((values) =>
+                values.some((value) =>
+                  [...EXPECTED.final, ...EXPECTED.draft].some((amount) => near(value, amount)),
+                ),
+              );
             count(right ? "told:about-a-right-amount" : "told:about-a-changed-scale");
             report.push(`  - told: ${note.split(". Write")[0]}`);
           }
