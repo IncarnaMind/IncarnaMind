@@ -104,7 +104,8 @@ test("⌘J applies the change at once as AI text, with Changed 1 paragraph · Un
   await expect(line).toContainText(/Undo(⌘Z|Ctrl\+Z)/);
   await expect(line.getByTestId("applied-review")).toHaveText("Review changes");
   await expect(line).toHaveAttribute("title", "Why: Changed as you asked.");
-  await expect(window.getByTestId("undo-message")).toHaveText("Changed 1 paragraph");
+  // Its Undo is under the paragraph, not at the sidebar's foot as well.
+  await expect(window.getByTestId("undo-message")).toHaveCount(0);
   // Over the Block it changed.
   const lineBox = await line.boundingBox();
   const noteBox = await note.boundingBox();

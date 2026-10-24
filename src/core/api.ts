@@ -1071,7 +1071,7 @@ export interface MindChange {
   request: string;
   /** How many Proposals it made there. */
   proposals: number;
-  /** How many paragraphs and headings they change, add or remove (`changedParagraphs`). Absent: none. */
+  /** How many paragraphs they change, add or remove, each once (`changedParagraphs`). Absent: none. */
   changed?: number;
   /** How many paragraphs the whole Blocks it wrote hold (a heading or a table holds none). Absent: none. */
   paragraphs?: number;
@@ -4091,6 +4091,15 @@ export type ProviderErrorKind =
   | "rate-limit"
   | "network"
   | "provider"
+  /**
+   * The provider refused the request as it was sent (an HTTP 4xx other than a refused key, an
+   * unknown model, a timeout or a rate limit): sent again, it would be refused again.
+   */
+  | "refused"
+  /** The provider says the account is out of credit (or its billing is stuck): only adding credit, or another model, helps. */
+  | "out-of-credit"
+  /** The provider doesn't serve the country or region the request came from, whatever the key. */
+  | "region"
   | "consent-declined"
   /** The User turned off the flow to the model's service while the work was under way: nothing more was sent. */
   | "consent-revoked"
@@ -4124,6 +4133,8 @@ export interface ProviderError {
   kind: ProviderErrorKind;
   /** The provider's own message, for details. */
   message: string;
+  /** The provider's HTTP status, when it gave one, for the log. */
+  status?: number;
   /** The message as a key of the dictionary, when the core worded it, to say in the interface language. */
   wording?: ErrorWording;
   /**
@@ -4839,6 +4850,7 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "rate-limit": the model's service refused more requests for now.
  * - "cost-cap": it could pass the monthly cap, so nothing was sent.
  * - "plan-limit": the plan's usage limit is reached.
+ * - "out-of-credit": the model's service says the credit balance is too low.
  * - "failed": the model or its service failed otherwise (`detail` says how).
  * - "stopped": the User stopped the check, or IncarnaMind quit, before this sentence was checked.
  * - "too-many": the assistant wrote more sentences with Citations than one write has checked (#1111).
@@ -4854,6 +4866,7 @@ export type ClaimCheckFailure =
   | "rate-limit"
   | "cost-cap"
   | "plan-limit"
+  | "out-of-credit"
   | "failed"
   | "stopped"
   | "too-many"
@@ -9628,8 +9641,17 @@ export interface CoreApi {
   /** Consent requests still waiting for an answer, e.g. for a window that opened after they were raised. */
   listConsentRequests(): Promise<ConsentRequest[]>;
   respondToConsent(requestId: string, accept: boolean): Promise<void>;
-  /** Forgets the User's decision: the next request on the flow asks again. */
-  revokeConsent(flowId: DataFlowId, serviceId: string): Promise<void>;
+  /**
+   * Forgets the User's decision: the next request on the flow asks again. Returns the time it was
+   * forgotten (ISO 8601), for `restoreConsent`; null when there was no decision.
+   */
+  revokeConsent(flowId: DataFlowId, serviceId: string): Promise<string | null>;
+  /**
+   * Brings back the decision `revokeConsent` forgot at `revokedAt`, as it was: no more kinds of
+   * data than were accepted, the date it was made, even for a service the flow no longer goes
+   * to. A decision made since stands, and so does a later forgetting: only the newest comes back.
+   */
+  restoreConsent(flowId: DataFlowId, serviceId: string, revokedAt: string): Promise<void>;
   /**
    * Every registered external data flow, each with the services it goes to,
    * including a flow that sends nothing now: the Privacy page lists them all.
@@ -10573,6 +10595,7 @@ const methods: Record<CoreApiMethod, true> = {
   listConsentRequests: true,
   respondToConsent: true,
   revokeConsent: true,
+  restoreConsent: true,
   listRegisteredDataFlows: true,
   allowDataFlow: true,
   listNetworkTraffic: true,

@@ -16,7 +16,12 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD, MIND_PROPOSAL_REQUESTS_FIELD, type ProposalRef } from "../../core/api";
 import { holdsOnlyItsTitle } from "../../shared/madeMind";
-import { aiUseOfAccepted, decideProposals, pendingProposals } from "../../shared/proposals";
+import {
+  aiUseOfAccepted,
+  decideProposals,
+  pendingProposals,
+  waitingChanges,
+} from "../../shared/proposals";
 import type { ChangedMind } from "./changedMinds";
 import { readMindHandle } from "./commands/handles";
 import { core } from "./core";
@@ -99,8 +104,10 @@ interface WaitingIn {
 function waiting(row: WaitingIn): number | null {
   const doc = held.get(row.mindId)?.doc;
   if (!doc) return null;
-  const pending = pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD));
-  return row.requests ? pending.filter(belongsTo(row.requests)).length : pending.length;
+  return waitingChanges(
+    doc.getXmlFragment(MIND_CONTENT_FIELD),
+    row.requests ? belongsTo(row.requests) : undefined,
+  );
 }
 
 /** How many of a row's changes wait in its Mind: a count, "gone" for a Mind deleted, null until its copy arrives. */
