@@ -41,14 +41,6 @@ const TIMES_FAIL = process.env.CI !== undefined;
 export const KNOWN: readonly Known[] = [
   {
     flow: "first-open",
-    step: "ask a Question",
-    kind: "shift",
-    moved: ["assistant-answer", "assistant-question"],
-    max: 0.0008,
-    issue: 1330,
-  },
-  {
-    flow: "first-open",
     step: "check the Mind",
     kind: "shift",
     moved: ["check-card", "tab-group"],
@@ -60,12 +52,6 @@ export const KNOWN: readonly Known[] = [
     step: "ask for a section",
     kind: "shift",
     moved: [
-      "mind-editor",
-      "assistant-answer",
-      "assistant-question",
-      "proposals-line",
-      "proposals-accept-all",
-      "proposals-reject-all",
       "mind-changes",
       "mind-changes-left",
       "mind-changes-review",
@@ -75,15 +61,6 @@ export const KNOWN: readonly Known[] = [
     max: 0.01,
     sometimes: true,
     issue: 1325,
-  },
-  {
-    flow: "assistant-table",
-    step: "fill the thread",
-    kind: "shift",
-    moved: ["assistant-answer", "assistant-question"],
-    max: 0.006,
-    sometimes: true,
-    issue: 1330,
   },
   {
     flow: "library-2000",

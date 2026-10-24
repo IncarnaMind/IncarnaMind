@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConversationAnswer, ConversationQuestion, Task } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { mindSearchScope } from "../../../../shared/searchScope";
@@ -35,13 +35,12 @@ import { type AnswerKeeping, AssistantAnswer } from "./AssistantAnswer";
 import { MeetingStarters } from "./MeetingStarters";
 import { useReadMindEmpty } from "./readMind";
 import { TaskProgress, type TaskProgressActions } from "./TaskProgress";
+import { useThreadScroll } from "./useThreadScroll";
 
 const TASK_ACTIONS: TaskProgressActions = { plan: togglePlanView, tell: aimAt };
 
 /** How long an Answer a link back led to stays flashed. */
 const SOUGHT_MS = 1600;
-/** How near the foot counts as being at it, so the thread keeps up with an Answer being written. */
-const AT_FOOT_PX = 24;
 
 /**
  * The conversation the assistant shows (#201): the Questions as bubbles at the
@@ -92,30 +91,16 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
     blocks: ReturnType<typeof notesToAdd>;
   } | null>(null);
   const log = useRef<HTMLDivElement>(null);
-  const atFoot = useRef(true);
-
-  // At the foot, it stays there as Answers grow; a scroll up by the User stops that.
-  useEffect(() => {
-    const scroller = log.current?.parentElement;
-    if (!scroller) return;
-    const onScroll = () => {
-      atFoot.current =
-        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= AT_FOOT_PX;
-    };
-    scroller.addEventListener("scroll", onScroll);
-    return () => scroller.removeEventListener("scroll", onScroll);
-  }, []);
   // A Research topic asked, or a Task started, grows it too; a Task's every step doesn't move it.
   const started = tasks.length;
   const askedAt = plan?.askedAt;
   const tipRoomOpen = useTipRoom("add-answer", null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each change to the messages may grow the thread.
-  useLayoutEffect(() => {
-    const scroller = log.current?.parentElement;
-    if (scroller && (atFoot.current || asking) && !sought) {
-      scroller.scrollTop = scroller.scrollHeight;
-    }
-  }, [messages, asking, sought, started, askedAt]);
+  useThreadScroll(log, {
+    asking: asking !== null,
+    holdOff: sought !== null,
+    conversationId: conversation?.id ?? null,
+    changed: [messages, started, askedAt],
+  });
 
   // A link back led here: that Answer comes into view, flashed, once it shows (its conversation's
   // messages may come a moment after it is opened).
