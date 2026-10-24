@@ -31,8 +31,8 @@ export type CommandGroup = (typeof COMMAND_GROUPS)[number];
 export interface Shortcut {
   keys: ShortcutKeys;
   /**
-   * A list's own keys (⌘A, ⌘⌫, Enter, F2, Space): they act only while the
-   * focus is in a list, and never while the User types. Other shortcuts act
+   * A list's own keys (⌘⌫, Enter, F2, Space): they act only while the focus
+   * is in a list, and never while the User types. Other shortcuts act
    * anywhere in the window.
    */
   list?: true;

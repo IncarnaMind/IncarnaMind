@@ -12,6 +12,7 @@ import type { CitationForm } from "../../../shared/citationStyles";
 import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
+import { askedInThisWindow } from "../askedChanges";
 import { checkSentences } from "../checks";
 import {
   citationForm,
@@ -411,7 +412,7 @@ function MindEditorView({
           onAsk: (current, questionId) => void askInEditor(current, mindId, questionId),
         }),
         QuestionFold.configure({ mindId }),
-        ProposalReview.configure({ translate: translateNow }),
+        ProposalReview.configure({ translate: translateNow, asked: askedInThisWindow }),
         ReviewPick,
         ProposalRewrites.configure({ translate: translateNow }),
         AppliedEditLine.configure({

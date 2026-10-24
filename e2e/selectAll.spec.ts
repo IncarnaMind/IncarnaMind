@@ -134,6 +134,47 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const route of ["menu", "keyboard"] as const) {
+  test(`${route} Select All in the Library selects every row and no page text (#1350)`, async () => {
+    const sources = await createDataFolder();
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, 1280, 660);
+      await dismissChatSetup(window);
+      await setLanguage(window, "en");
+      const paths = ["Tides", "Currents", "Waves"].map((name) => join(sources, `${name}.txt`));
+      for (const path of paths) await writeFile(path, "The sea.\n");
+      await addDocuments(window, paths);
+      await window.getByTestId("open-library").click();
+      const library = window.getByTestId("library");
+      const rows = library.getByTestId("library-document");
+      const bar = library.getByTestId("library-selection");
+      await expect(rows).toHaveCount(3);
+      const everyRowSelected = async () => {
+        for (const row of await rows.all()) {
+          await expect(row).toHaveAttribute("aria-selected", "true");
+        }
+      };
+      const textSelected = () => window.evaluate(() => globalThis.getSelection()?.toString() ?? "");
+
+      // A row is ticked, as in the issue, and its checkbox holds the focus.
+      await pointAndClick(window, rows.first().getByTestId("library-select"));
+      await chooseSelectAll(app, window, route);
+      await expect(bar).toContainText("3 selected");
+      await everyRowSelected();
+      expect(await textSelected()).toBe("");
+
+      // The bar's own Select All holds the focus, as Tab reaches it: ⌘A is still the rows'.
+      await library.getByTestId("library-select-all").focus();
+      await chooseSelectAll(app, window, route);
+      await expect(bar).toContainText("3 selected");
+      await everyRowSelected();
+      expect(await textSelected()).toBe("");
+    } finally {
+      await app.close();
+      await removeDataFolder(sources);
+    }
+  });
+
   test(`${route} Select All in a row's name field selects its text, and on a row every row (#1518)`, async () => {
     const sources = await createDataFolder();
     const { app, window } = await launchApp(dataDir);
