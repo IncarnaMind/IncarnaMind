@@ -11,6 +11,7 @@ import {
   citedTextKept,
   closestWordsMessage,
   parseQuotedWords,
+  quotedWordsFoundIn,
   shownDocumentName,
   withShownName,
 } from "../../src/shared/citations";
@@ -339,6 +340,32 @@ describe("The words an Answer put in quotation marks that a Citation's page lack
       "The quoted words",
     );
     expect(translate("zh-CN", "citation.reason.quoted-words-not-on-pages")).toContain("引号");
+  });
+
+  test("quoted words are found only as the sentence wrote them, not piece by piece anywhere", () => {
+    const passage =
+      "The Employee may work from home two days a week, agreed in advance with the manager; the director approves leave.";
+    // The sentence quoted "two days a week, director": the word "director" is on
+    // the page, but not where the sentence put it.
+    expect(
+      quotedWordsFoundIn(passage, {
+        answer: [
+          { text: "two days a week, ", found: true },
+          { text: "director", found: false },
+        ],
+        closest: null,
+      }),
+    ).toBe(false);
+    expect(
+      quotedWordsFoundIn(passage, {
+        answer: [
+          { text: "two days a week, ", found: true },
+          { text: "agreed", found: true },
+        ],
+        closest: null,
+      }),
+    ).toBe(true);
+    expect(quotedWordsFoundIn(passage, null)).toBe(true);
   });
 
   test("stored words are read back whole, or not at all", () => {
