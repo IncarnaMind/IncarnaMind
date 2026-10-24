@@ -3,9 +3,12 @@
  * read "Quote found" all the same (#1798): the Citation check finds the words, not what an amount
  * is worth. So a program compares each amount a cell writes with the amounts its Citations quote,
  * each worth what its Document says once its scale is applied: its own, its row's unit cell, or
- * the unit its line or page states. An amount equal to none of them but 10ⁿ times one is a
- * changed scale. An amount none of them gives at any scale (worked out, or another figure) is
- * left alone, as are percents, multiples and plain counts.
+ * the unit its line or page states. Only the same digits at another power of ten count as a
+ * changed scale, and only against an amount whose scale the Document states in words the reader
+ * knows. Anything less certain is left alone: an amount none of them gives (worked out, a total
+ * or a difference of them, or another figure), an approximate one, a scale stated in a form the
+ * reader doesn't know ("£000", "TEUR"), and percents, multiples and plain counts. A check that
+ * flags a right amount teaches the model to write a wrong one.
  */
 
 import { FIGURE_MARKER } from "../../shared/figureMarkers";
@@ -15,7 +18,6 @@ import {
   type Reading,
   readFigures,
   readStatedUnits,
-  statesScale,
 } from "../../shared/figures";
 import { joinUnits } from "../../shared/locations";
 import type { Language } from "../language";
@@ -83,74 +85,72 @@ function statedIn(where: string, quote: string, start: number, context: FigureCo
   }));
 }
 
-function givenAmounts(quoted: QuotedText, documentText: () => string): Given[] {
+function givenAmounts(quoted: QuotedText): Given[] {
   const context = documentFigureContext(quoted.units);
   const { quote } = quoted.citation;
   const lines = quotedLines(quoted);
-  let elsewhere: boolean | null = null;
   return readFigures(quote, context).flatMap((figure): Given[] => {
     if (!isAmount(figure)) return [];
-    if (figure.scale !== 1) {
-      return ownReadings(figure).map((reading) => ({
+    const own = (scaled: boolean) =>
+      ownReadings(figure).map((reading) => ({
         value: reading.value,
         given: shown(figure.chars),
-        scaled: true,
+        scaled,
       }));
-    }
+    if (figure.scale !== 1) return own(true);
     const row = readOnItsLine(lines, figure, context);
     if (row) return [{ value: row.value, given: shown(row.chars), scaled: true }];
     for (const where of [lines, joinUnits(quoted.units).text]) {
       const stated = statedIn(where, quote, figure.start, context);
-      if (stated.length > 0) return stated;
+      // "$2.15" under "(in millions, except per share data)" may be either: both stand.
+      if (stated.length > 0) return figure.currency ? [...stated, ...own(false)] : stated;
     }
-    // A scale stated elsewhere in the Document may or may not be this number's: it isn't settled.
-    elsewhere ??= statesScale(documentText(), context);
-    if (elsewhere) return [];
-    return ownReadings(figure).map((reading) => ({
-      value: reading.value,
-      given: shown(figure.chars),
-      scaled: false,
-    }));
+    return own(false);
   });
 }
 
+// To the precision the amount is written in: "£310 million" is 310,412 thousand.
 const close = (written: Reading, value: number) =>
   Math.abs(written.value - value) <=
   Math.max(0.5 * 10 ** -written.decimals * written.scale, 1e-9 * Math.abs(value));
 
+const exactly = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), 1);
+
+function workedOut(values: readonly number[]): number[] {
+  const out = [values.reduce((sum, each) => sum + each, 0)];
+  values.forEach((a, at) => {
+    for (const b of values.slice(at + 1)) out.push(a + b, a - b, b - a);
+  });
+  return out;
+}
+
 /**
  * The first amount `text` writes that its Citations (`cited`) give at another scale; null when
- * there is none. `documentText` is the whole text of a Citation's Document version; `language`
- * is the one the text is written in.
+ * there is none. `language` is the one the text is written in.
  */
-export function changedScale<T extends QuotedText>(
+export function changedScale(
   text: string,
-  cited: readonly T[],
-  documentText: (quoted: T) => string,
+  cited: readonly QuotedText[],
   language: Language,
 ): ChangedScale | null {
   if (cited.length === 0) return null;
   const words = text.replace(/\[\^\d{1,4}\]/g, " ").replace(FIGURE_MARKER, " ");
   // A cell is too short to tell its language by, and "95,000" must not read as 95.
-  const own = documentFigureContext([{ text: words }]);
-  const written = readFigures(words, own.language ? own : { ...own, language }).flatMap(
-    (figure) => {
-      const worth = writtenWorth(figure);
-      return worth ? [{ figure, worth }] : [];
-    },
-  );
-  if (written.length === 0) return null;
-  const given = cited.flatMap((quoted) => givenAmounts(quoted, () => documentText(quoted)));
-  for (const { figure, worth } of written) {
-    if (worth.some((reading) => given.some((each) => close(reading, each.value)))) continue;
+  const context = documentFigureContext([{ text: words }]);
+  const written = readFigures(words, context.language ? context : { ...context, language });
+  const given = cited.flatMap(givenAmounts);
+  const sums = workedOut([...new Set(given.map((each) => each.value))]);
+  for (const figure of written) {
+    const worth = writtenWorth(figure);
+    if (!worth || figure.approximate) continue;
+    const matches = (value: number) => worth.some((reading) => close(reading, value));
+    if (given.some((each) => matches(each.value)) || sums.some(matches)) continue;
     for (const reading of worth) {
       for (const each of given) {
-        if (reading.value === 0 || each.value === 0) continue;
+        if (!each.scaled || reading.value === 0 || each.value === 0) continue;
         if (Math.sign(reading.value) !== Math.sign(each.value)) continue;
-        // Neither scale stated: "£1,000" beside a quoted "£100" is likelier worked out than rescaled.
-        if (!each.scaled && reading.scale === 1) continue;
         const power = Math.round(Math.log10(reading.value / each.value));
-        if (power !== 0 && close(reading, each.value * 10 ** power)) {
+        if (power !== 0 && exactly(reading.value, each.value * 10 ** power)) {
           const stated = reading.scale !== figure.scale ? (reading.scaleWord ?? "") : "";
           return {
             written: shown(`${figure.chars} ${stated}`),

@@ -1125,11 +1125,6 @@ export function createAnswers(options: AnswersOptions) {
       changedScale(
         text,
         [...new Set(markersIn(text))].flatMap((marker) => session.quotes.recorded(marker) ?? []),
-        ({ citation }) =>
-          searched
-            .pageTexts(citation.documentId, citation.contentHash, null, null)
-            .map((unit) => unit.text)
-            .join("\n"),
         answerLanguage(context.question),
       );
     /** A Citation marker's node as the text around a figure sees it: none for a marker with no record. */

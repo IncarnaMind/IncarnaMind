@@ -23,14 +23,8 @@ const cited = (quote: string, units: readonly UnitText[]): QuotedText => ({
 });
 const page = (text: string): UnitText[] => [{ page: 1, kind: "page", text }];
 
-/** What the check finds in `text` citing `quotes`, the Document's whole text being its Units'. */
 const check = (text: string, quotes: readonly QuotedText[], language: "en" | "zh-CN" = "en") =>
-  changedScale(
-    text,
-    quotes,
-    (quoted) => quoted.units.map((unit) => unit.text).join("\n"),
-    language,
-  );
+  changedScale(text, quotes, language);
 
 const NET_DEBT = cited("310000", CEDAR);
 const EBITDA = cited("95000", CEDAR);
@@ -98,13 +92,40 @@ describe("A cell's amount against its Citations' amounts", () => {
     );
   });
 
-  // protects=a bare number is compared only when its Document states no scale anywhere; fails_when=a table continued from a page whose heading states its scale is flagged; no_claim=none beyond protects.
-  test("leaves a bare number alone when the Document states a scale elsewhere", () => {
-    const continued = cited("Net debt: 340.", page("Net debt: 340."));
-    const elsewhere = (text: string) =>
-      changedScale(text, [continued], () => "Group results (in millions)\n\nNet debt: 340.", "en");
-    expect(elsewhere("£340 million [^1]")).toBeNull();
-    expect(check("£340 million [^1]", [continued])).toMatchObject({ given: "340", times: 1e6 });
+  // protects=a number whose scale the cited text doesn't state in words the reader knows is never flagged, whatever the cell writes; fails_when=a table continued from a page whose heading states its scale, or one under "£000", "€000", "TEUR" or "(000's omitted)", has a right amount flagged (R55); no_claim=a wrong amount there, which can't be told from a right one.
+  test("never flags against a scale the cited text doesn't state in words the reader knows", () => {
+    expect(
+      check("£340 million [^1]", [cited("Net debt: 340.", page("Net debt: 340."))]),
+    ).toBeNull();
+    for (const heading of ["£000", "€000", "TEUR", "(000's omitted)"]) {
+      const sheet = page(`Group results\nNet debt ${heading}\n310,000`);
+      for (const cell of ["£310m", "€310 million", "£310,000", "£310 billion"]) {
+        expect(check(`${cell} [^1]`, [cited("310,000", sheet)]), `${heading}: ${cell}`).toBeNull();
+      }
+    }
+  });
+
+  // protects=a quoted amount with its own currency under a heading's scale may be either, so a right per-share figure isn't flagged (R55); fails_when="$2.15" earnings per share under "(in millions, except per share data)" is flagged, and the note then gets "$2.15 million" written; no_claim=which of the two the Document means.
+  test("passes a per-share amount under a table's (in millions) heading", () => {
+    const results = cited(
+      "Diluted earnings per share $2.15",
+      page(
+        "Results (in millions, except per share data)\nNet income $1,231\nDiluted earnings per share $2.15",
+      ),
+    );
+    expect(check("$2.15 [^1]", [results])).toBeNull();
+    expect(check("$2,150 [^1]", [results])?.given).toBe("$2.15 in millions");
+  });
+
+  // protects=a total, a difference or a rounded amount is never taken for a changed scale, only the same digits at another power of ten (R55); fails_when="GBP 500 million" for 450 + 50, or "about £1bn" beside £95m, is flagged; no_claim=whether the total is right.
+  test("leaves alone a total, a difference and an approximate or rounded amount", () => {
+    const segments = page("Segment net debt (GBP million)\nUK 450\nIreland 50");
+    const both = [cited("UK 450", segments), cited("Ireland 50", segments)];
+    expect(check("GBP 500 million [^1] [^2]", both)).toBeNull();
+    expect(check("GBP 400 million [^1] [^2]", both)).toBeNull();
+    expect(check("about £1bn [^1]", [EBITDA])).toBeNull();
+    expect(check("£1bn [^1]", [EBITDA])).toBeNull();
+    expect(check("£950m [^1]", [EBITDA])).toMatchObject({ times: 10 });
   });
 
   // protects=万元 and 亿元: a unit in its own cell beside the number applies to it, 万 to 亿 converts, and 10ⁿ off is found; fails_when=31000万元 written as 0.31亿 or 31000亿 passes, or 3.1亿 is flagged; no_claim=none beyond protects.

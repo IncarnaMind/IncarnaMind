@@ -4,9 +4,11 @@
  */
 import { describe, expect, test } from "vitest";
 import { comparisonCellOf } from "../../src/shared/comparisons";
-import { compareCedar, fillEnded, rescalingModel } from "../helpers/comparisons";
+import { setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { compare, compareCedar, fillEnded, rescalingModel } from "../helpers/comparisons";
 import type { MindClient } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
+import { scriptedModel } from "../helpers/models";
 
 /** Each row's net debt cell, as the editor reads it. */
 function netDebtCells(client: MindClient) {
@@ -60,5 +62,47 @@ describe("A cell's amount keeps the scale its Document gives it", () => {
     await ended;
     await client.settled();
     expect(netDebtCells(client)[0]).toMatchObject({ status: "done", text: "GBP 310 million" });
+  });
+
+  // protects=a right amount is never asked about, so the note can't get a model that does as it is told to write it at another scale (R55); fails_when="$2.15" per share under "(in millions…)", or "£310m" under "£000", is asked about and rewritten; no_claim=none beyond protects.
+  test.each([
+    {
+      document:
+        "Results (in millions, except per share data)\nNet income $1,231\nDiluted earnings per share $2.15",
+      quote: "Diluted earnings per share $2.15",
+      right: "$2.15",
+      told: "$2.15 million",
+    },
+    {
+      document: "Group results\nNet debt £000\n310,000",
+      quote: "310,000",
+      right: "£310m",
+      told: "£310,000m",
+    },
+  ])("never asks about a right amount: $right stays", async ({ document, quote, right, told }) => {
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "results" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const [passage] = shownPassages(searches.at(-1)?.text ?? "");
+        const citations = [{ marker: 1, passage: passage?.id, quote }];
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      return { text: `${call.prompt.includes("Your cell writes") ? told : right} [^1]` };
+    });
+    const { core, client, mind, documents } = await setUpWithDocuments(model, [
+      { name: "Results.txt", contents: document },
+    ]);
+    await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.map((each) => each.id),
+      questions: ["What does it give?"],
+    });
+    expect(JSON.stringify(model.doStreamCalls)).not.toContain("Your cell writes");
+    expect(netDebtCells(client)).toEqual([
+      { status: "done", problem: null, message: null, text: right },
+    ]);
   });
 });
