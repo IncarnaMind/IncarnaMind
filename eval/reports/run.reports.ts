@@ -29,6 +29,7 @@ import { plainText } from "../../src/core/mindText";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { pageBlocks } from "../../src/shared/answerBlocks";
 import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
+import { decideProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { heading, note, writeMind } from "../../tests/helpers/minds";
 import { costUsd } from "../harness/harnesses";
@@ -80,7 +81,9 @@ interface Run {
   uncited: string[];
   asText: string[];
   idsAsText: number;
-  footnotes: number | null;
+  footnotes: number;
+  /** The report went into a Mind, as asked or not. */
+  wroteMind: boolean;
   citations: number;
   passed: boolean;
   text: string;
@@ -137,8 +140,12 @@ async function stillStated(
     maxOutputTokens: 512,
     maxRetries: 1,
   });
-  const found = /\{[\s\S]*\}/.exec(text)?.[0] ?? "{}";
-  const stated = (JSON.parse(found) as { stated?: unknown }).stated;
+  let stated: unknown = null;
+  try {
+    stated = (JSON.parse(/\{[\s\S]*\}/.exec(text)?.[0] ?? "{}") as { stated?: unknown }).stated;
+  } catch {
+    // Read as every claim still stated, so a judge's broken reply fails the run rather than passing it.
+  }
   return Array.isArray(stated)
     ? claims.map((_, index) => stated[index] === true)
     : claims.map(() => true);
@@ -278,6 +285,7 @@ test("a cited Mind made a report keeps its Citations", async () => {
       uncited: mine.reduce((sum, run) => sum + run.uncited.length, 0),
       asText: mine.reduce((sum, run) => sum + run.asText.length, 0),
       idsAsTextRuns: mine.filter((run) => run.idsAsText > 0).length,
+      wroteMindRuns: mine.filter((run) => run.wroteMind).length,
     };
   });
   const cost = costUsd(chat, usage);
@@ -308,7 +316,8 @@ async function runCase(
     uncited: [],
     asText: [],
     idsAsText: 0,
-    footnotes: null,
+    footnotes: 0,
+    wroteMind: false,
     citations: 0,
     passed: false,
     text: "",
@@ -350,11 +359,11 @@ async function runCase(
     run.steps = answer.toolCalls.map(
       (call) => `${call.tool} ${JSON.stringify(call.input).slice(0, 80)}`,
     );
+    // Asked for in the Answer, a model may still write it into a Mind: the report is wherever it went.
     const written = answer.toolCalls.flatMap((call) => call.mindChange ?? []).at(-1);
-    const report = each.writes
-      ? written
-        ? await citationNodes(core, written.mindId)
-        : { citations: [], text: "" }
+    run.wroteMind = written !== undefined;
+    const report = written
+      ? await citationNodes(core, written.mindId)
       : { citations: answer.citations, text: answer.text };
     run.text = report.text;
     run.citations = report.citations.length;
@@ -372,10 +381,16 @@ async function runCase(
     const stated = await stillStated(judge, report.text.replace(/\[\^\d+\]/g, ""), lost);
     run.uncited = lost.filter((_, index) => stated[index]);
     run.asText = [...sourcesAsText(report.text, known), ...(report.text.match(IDS) ?? [])];
-    if (!each.writes) {
-      const saved = await core.createMind({ title: "Report" });
+    let saved = written?.mindId;
+    if (saved) {
+      // What the assistant wrote waits as changes until the window applies them, as it does at once.
+      const client = await connectToMind(core, saved);
+      client.doc.transact(() => decideProposals(client.blocks, () => true, "accept"));
+      await client.settled();
+    } else {
+      saved = (await core.createMind({ title: "Report" })).id;
       await core.addToNote({
-        mindId: saved.id,
+        mindId: saved,
         blocks: pageBlocks(answer, each.request),
         origin: {
           from: messageReference(answer.conversationId, answer.id),
@@ -383,16 +398,13 @@ async function runCase(
         },
         model: answer.model,
       });
-      const exported = new TextDecoder().decode(
-        (await core.exportMind(saved.id, { format: "markdown" })).data,
-      );
-      run.footnotes = (exported.match(/^\[\^\d+\]: /gm) ?? []).length;
-      run.asText.push(...sourcesAsText(exported, known), ...(exported.match(IDS) ?? []));
     }
-    run.passed =
-      run.uncited.length === 0 &&
-      run.asText.length === 0 &&
-      (run.footnotes === null || run.footnotes >= run.kept);
+    const exported = new TextDecoder().decode(
+      (await core.exportMind(saved, { format: "markdown" })).data,
+    );
+    run.footnotes = (exported.match(/^\[\^\d+\]: /gm) ?? []).length;
+    run.asText.push(...sourcesAsText(exported, known), ...(exported.match(IDS) ?? []));
+    run.passed = run.uncited.length === 0 && run.asText.length === 0 && run.footnotes >= run.kept;
   } catch (error) {
     run.error = error instanceof Error ? error.message : String(error);
   }

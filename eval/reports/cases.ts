@@ -165,8 +165,6 @@ export interface ReportCase {
   /** The claims the Mind holds, by their place in `CLAIMS`. */
   claims: readonly number[];
   request: string;
-  /** Asked for in a new Mind rather than in the Answer. */
-  writes?: true;
 }
 
 const SIX = [0, 1, 2, 3, 4, 5];
@@ -198,7 +196,6 @@ export const CASES: readonly ReportCase[] = [
     id: "six-en-mind",
     language: "en",
     claims: SIX,
-    writes: true,
     request:
       "Write this Mind up as a short report in a new Mind, keeping the source Citations on its findings and the limitation. Don't add outside sources.",
   },
