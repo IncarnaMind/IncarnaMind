@@ -37,6 +37,8 @@ interface Case {
   instruction: string;
   /** The first Question's numbers as each Document writes them, with no unit: final, then draft. */
   written: { final: number[]; draft: number[] };
+  /** The scale its Questions ask for: 1e6 for millions, 1e8 for 亿. */
+  asked: number;
 }
 
 /** The first Question's amounts in base units: the final row's, then the draft's. */
@@ -66,6 +68,7 @@ const CASES: Case[] = [
     ],
     instruction: "Keep draft and final distinct, preserve GBP million units, exclude forecasts.",
     written: { final: [310_000, 95_000], draft: [340, 80] },
+    asked: 1e6,
   },
   {
     language: "zh",
@@ -90,6 +93,7 @@ const CASES: Case[] = [
     ],
     instruction: "区分初稿和终稿，以亿元列示，不含预测。",
     written: { final: [31_000, 9_500], draft: [3.4, 0.8] },
+    asked: 1e8,
   },
 ];
 
@@ -144,13 +148,15 @@ function worth(figure: Figure): number[] {
 const near = (a: number, b: number) => Math.abs(a - b) <= 0.005 * Math.abs(b);
 
 /**
- * Each expected amount at its value ("right"), or as its Document writes it with no unit at all
- * ("as-written"); an amount 10ⁿ off ("wrong-scale"); or neither.
+ * Each expected amount at its value ("right"); as its Document writes it, or in the scale the
+ * Question asks for, with no unit at all ("as-written", "bare-in-asked-scale"); an amount 10ⁿ off
+ * ("wrong-scale"); or neither.
  */
 function verdictOf(
   text: string,
   expected: readonly number[],
   written: readonly number[],
+  asked: number,
   language: string,
 ) {
   const figures = readFigures(text, { language: language === "zh" ? "zh-CN" : "en" }).filter(
@@ -163,6 +169,13 @@ function verdictOf(
     figures.every((figure) => bare(figure) && written.some((each) => near(figure.value, each)))
   )
     return "as-written";
+  if (
+    figures.length > 0 &&
+    figures.every(
+      (figure) => bare(figure) && expected.some((each) => near(figure.value, each / asked)),
+    )
+  )
+    return "bare-in-asked-scale";
   const amounts = figures.map(worth);
   const offByTen = amounts.some(
     (values) =>
@@ -257,7 +270,13 @@ describe.each(CASES.filter((item) => LANGUAGES.includes(item.language)))(
             if (first) {
               const outcome =
                 first.status === "done"
-                  ? verdictOf(first.text, EXPECTED[name], item.written[name], item.language)
+                  ? verdictOf(
+                      first.text,
+                      EXPECTED[name],
+                      item.written[name],
+                      item.asked,
+                      item.language,
+                    )
                   : (first.problem ?? "failed");
               count(`${name}:${outcome}`);
               const message = first.message ? ` [${first.message}]` : "";
