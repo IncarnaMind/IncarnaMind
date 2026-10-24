@@ -447,6 +447,8 @@ function parseSelectedPart(input: unknown): SelectedPart {
     text: input.text,
     ...(linesBefore !== undefined && { linesBefore }),
     ...(linesAfter !== undefined && { linesAfter }),
+    ...(typeof input.before === "string" && { before: input.before }),
+    ...(typeof input.after === "string" && { after: input.after }),
   };
 }
 

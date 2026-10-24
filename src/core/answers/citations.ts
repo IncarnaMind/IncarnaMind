@@ -474,27 +474,82 @@ function withoutRunningLines(part: SelectedPart, unit: PageText, matching: Match
   return part.text;
 }
 
-// Two places are enough to refuse: counting more would read the rest of the Document again for each.
+// Looked for a window at a time, so a Document's length costs once over, not once for each place.
+const PLACES_WINDOW = 20_000;
+// More places than this are too many to tell apart: they aren't cited.
+const MOST_PLACES = 50;
+
 function placesOf(text: string, quote: string, options: MatchOptions): TextRange[][] {
   const places: TextRange[][] = [];
-  for (let from = 0; from < text.length && places.length < 2; ) {
-    const found = findQuote(text.slice(from), quote, options);
+  const overlap = quote.length * 2 + 200;
+  for (let from = 0; from < text.length && places.length <= MOST_PLACES; ) {
+    const found = findQuote(text.slice(from, from + PLACES_WINDOW + overlap), quote, options);
     const first = found?.[0];
-    if (!found || !first) break;
+    // A place that starts in the overlap is found again from the next window.
+    if (!found || !first || first.start >= PLACES_WINDOW) {
+      from += PLACES_WINDOW;
+      continue;
+    }
     places.push(found.map((range) => ({ start: range.start + from, end: range.end + from })));
     from += first.start + 1;
   }
   return places;
 }
 
+const CONTEXT_LENGTHS = [60, 24, 8, 0];
+
+// The far end may cut a word: it is left out, or a word the page writes whole would never match.
+function contextOf(text: string, length: number, side: "before" | "after"): string {
+  if (length === 0) return "";
+  if (side === "before") {
+    const tail = text.slice(-length);
+    return tail.length < text.length ? tail.replace(/^\S+(?=\s)/u, "") : tail;
+  }
+  const head = text.slice(0, length);
+  return head.length < text.length ? head.replace(/(?<=\s)\S+$/u, "") : head;
+}
+
+function placesIn(
+  units: readonly PageText[],
+  text: string,
+  around: Pick<SelectedPart, "before" | "after">,
+  matching: Matching,
+): TextRange[][] {
+  const joined = joinUnits(units).text;
+  const options = { ...matching, numbers: numbersIn(units) };
+  for (const length of CONTEXT_LENGTHS) {
+    const before = contextOf(around.before ?? "", length, "before");
+    const after = contextOf(around.after ?? "", length, "after");
+    if (length > 0 && before === "" && after === "") continue;
+    const spans = placesOf(joined, `${before}${text}${after}`, options);
+    if (spans.length === 0) continue;
+    return spans.flatMap((span) => {
+      const start = span[0]?.start ?? 0;
+      const end = span.at(-1)?.end ?? 0;
+      const inSpan = joined.slice(start, end);
+      // Matching passes over spacing, so the words before end where they are found, not at their length.
+      const from =
+        before.trim() === "" ? 0 : (findQuote(inSpan, before, options)?.at(-1)?.end ?? 0);
+      const place = placesOf(inSpan, text, options).find((each) => (each[0]?.start ?? -1) >= from);
+      return place
+        ? [place.map((range) => ({ start: range.start + start, end: range.end + start }))]
+        : [];
+    });
+  }
+  return [];
+}
+
 /**
  * Cites what the User selected in a Document's viewer (see
  * `CoreApi.citeSelection`): parts on known Units are checked in those Units
  * alone, which become the Citation's, so it points where the User selected,
- * not at the same words elsewhere; refused, it keeps them. A selection on no
- * known Unit is cited only where the Document has its words in one place. The
- * quote is read as words (`readableQuote`), its radical look-alikes the
- * ideographs they stand for, and is found only as `recheckCitation` finds it.
+ * not at the same words elsewhere; refused, it keeps them. Where the words are
+ * in several places, the words around them tell which, also from the Units
+ * next to the selection's, and they are cited only when every place left gives
+ * one Location (else "in-several-places"); on no known Unit, where the
+ * Document has them in one place. The quote is read as words
+ * (`readableQuote`), its radical look-alikes the ideographs they stand for,
+ * and is found only as `recheckCitation` finds it.
  */
 export function citeSelection(
   documents: RecheckDocuments,
@@ -515,16 +570,66 @@ export function citeSelection(
     ...(range.pageFrom === null && { location: null }),
     quote,
   });
+  const around = { before: input.parts[0]?.before, after: input.parts.at(-1)?.after };
+  const citeAt = (
+    among: readonly PageText[],
+    places: readonly TextRange[][],
+    otherwise: PageRange,
+    text: string,
+  ): CitedSelection => {
+    const { starts } = joinUnits(among);
+    const cited = places.map((place) => {
+      const start = place[0]?.start ?? 0;
+      const end = place.at(-1)?.end ?? 0;
+      const first = among.findIndex(
+        (unit, index) => (starts[index] ?? 0) + unit.text.length > start,
+      );
+      const last = among.findLastIndex((_, index) => (starts[index] ?? 0) < end);
+      const covered = among.slice(first, last + 1);
+      const offset = starts[first] ?? 0;
+      const found = place.map((range) => ({
+        start: range.start - offset,
+        end: range.end - offset,
+      }));
+      return { covered, found, location: JSON.stringify(locationOf(covered, found)) };
+    });
+    const [one] = cited;
+    const unread = foldRadicals(readableQuoteText(text));
+    if (!one) return refused(NOT_ON_PAGES, otherwise, unread);
+    if (places.length > MOST_PLACES || cited.some((each) => each.location !== one.location)) {
+      return refused({ check: "not-found", checkReason: "in-several-places" }, otherwise, unread);
+    }
+    const whole = one.covered[0]?.kind === "text";
+    const pageFrom = whole ? null : (one.covered[0]?.page ?? null);
+    const pageTo = whole ? null : (one.covered.at(-1)?.page ?? null);
+    const range = { pageFrom, pageTo };
+    if (pageFrom !== null && pageTo !== null && pageTo - pageFrom + 1 > MAX_CITED_PAGES) {
+      return refused({ check: "not-found", checkReason: "too-many-pages" }, otherwise, unread);
+    }
+    const quote = foldRadicals(readableQuote(joinUnits(one.covered).text, one.found));
+    // A Citation's quote is checked again as it is stored, cleaned as a model's is.
+    if (!quoteInUnits(one.covered, cleanQuote(quote), matching)) {
+      return refused(NOT_ON_PAGES, otherwise, quote);
+    }
+    return { ...version.result(FOUND, range, quote, one.found), quote };
+  };
   const citeIn = (range: PageRange, text: string): CitedSelection => {
     const covered = inRange(range);
-    const found = quoteInUnits(covered, text, matching);
-    if (!found) return refused(NOT_ON_PAGES, range, foldRadicals(readableQuoteText(text)));
-    const quote = foldRadicals(readableQuote(joinUnits(covered).text, found));
-    // A Citation's quote is checked again as it is stored, cleaned as a model's is.
-    if (!quoteInUnits(covered, cleanQuote(quote), matching)) {
-      return refused(NOT_ON_PAGES, range, quote);
-    }
-    return { ...version.result(FOUND, range, quote), quote };
+    const [head] = covered;
+    if (!head) return refused(NOT_ON_PAGES, range, foldRadicals(readableQuoteText(text)));
+    // The words around a selection at a Unit's edge are in the Unit next to it: they are matched
+    // there too, and only places in the selection's own Units are kept.
+    const at = units.indexOf(head);
+    const from = Math.max(0, at - 1);
+    const wider = units.slice(from, at + covered.length + 1);
+    const start = joinUnits(wider).starts[at - from] ?? 0;
+    const end = start + joinUnits(covered).text.length;
+    const places = placesIn(wider, text, around, matching).flatMap((place) =>
+      (place[0]?.start ?? -1) >= start && (place.at(-1)?.end ?? end + 1) <= end
+        ? [place.map((range) => ({ start: range.start - start, end: range.end - start }))]
+        : [],
+    );
+    return citeAt(covered, places, range, text);
   };
   if (units.every((unit) => unit.text.trim() === "")) {
     return refused({ check: "cant-check", checkReason: "no-text" }, selected);
@@ -532,21 +637,7 @@ export function citeSelection(
   // A whole TXT or Markdown file stored before Units is checked as one text.
   if (units.length === 1 && units[0]?.kind === "text") return citeIn(nowhere, raw);
   if (known.length === 0) {
-    const { text, starts } = joinUnits(units);
-    const places = placesOf(text, raw, { ...matching, numbers: numbersIn(units) });
-    const [only] = places;
-    if (places.length !== 1 || !only) return refused(NOT_ON_PAGES, nowhere);
-    const start = only[0]?.start ?? 0;
-    const end = only.at(-1)?.end ?? 0;
-    const pages = units.flatMap((unit, index) => {
-      const from = starts[index] ?? 0;
-      return unit.page !== null && from < end && from + unit.text.length > start ? [unit.page] : [];
-    });
-    const range = { pageFrom: Math.min(...pages), pageTo: Math.max(...pages) };
-    if (pages.length === 0 || range.pageTo - range.pageFrom + 1 > MAX_CITED_PAGES) {
-      return refused({ check: "not-found", checkReason: "too-many-pages" }, nowhere);
-    }
-    return citeIn(range, raw);
+    return citeAt(units, placesIn(units, raw, around, matching), nowhere, raw);
   }
   if (known.length < input.parts.length) return refused(NOT_ON_PAGES, selected);
   // A page at each end may hold nothing but a running header or footer: more can't be cited.

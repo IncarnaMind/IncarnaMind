@@ -405,6 +405,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await item.filter({ hasText: words.open }).click();
 
       await expect(tabs).toHaveCount(2);
+      // The Mind takes the Question's name, not the table's first cell (#1345).
+      await expect(tabs.nth(1)).toContainText(QUESTIONS[language].table);
       await expect(table.locator("tr")).toHaveCount(10);
       expect(await tableWhenTabShown.jsonValue()).toEqual([0]);
       await expect(answer.getByTestId("answer-added")).toHaveCount(0);

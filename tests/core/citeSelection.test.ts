@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { docxOf } from "../helpers/office";
 import { buildPdf, type PdfPage } from "../helpers/pdf";
 
 const HEADER = "Ferrand and Moss, Rate cuts and retail margins";
@@ -225,6 +226,203 @@ describe("citeSelection", () => {
 
     expect(once).toMatchObject({ check: "found", pageFrom: 4, pageTo: 4 });
     expect(twice).toMatchObject({ check: "not-found", pageFrom: null, pageTo: null });
+  });
+
+  describe("where the view doesn't know the Unit, the words around the selection place it", () => {
+    test("in a Word file with no headings, the paragraph of the second of two same sentences", async () => {
+      const core = startCore(await createTempDataFolder());
+      const said = "The Supplier shall keep the goods insured.";
+      const document = await addPaper(
+        core,
+        docxOf([
+          { text: `Clause 1. ${said}` },
+          { text: "Clause 2. Payment is due within thirty days." },
+          { text: `Clause 3. ${said}` },
+        ]),
+        "Supply terms.docx",
+      );
+
+      const second = await core.citeSelection({
+        documentId: document.id,
+        parts: [{ unit: null, text: said, before: "within thirty days.\nClause 3. ", after: "" }],
+      });
+      const first = await core.citeSelection({
+        documentId: document.id,
+        parts: [{ unit: null, text: said, before: "Clause 1. ", after: "\nClause 2. Payment" }],
+      });
+
+      expect(second).toMatchObject({ check: "found", quote: said });
+      expect(second.location).toMatchObject({ kind: "section", paragraphs: { from: 3, to: 3 } });
+      expect(first.location).toMatchObject({ kind: "section", paragraphs: { from: 1, to: 1 } });
+    });
+
+    test("in a text file, the lines of the second of two same lines, its Unit known", async () => {
+      const core = startCore(await createTempDataFolder());
+      const lines = [
+        "Tides rise twice a day.",
+        "Spring tides are larger.",
+        "Tides rise twice a day.",
+      ];
+      const document = await addPaper(core, Buffer.from(lines.join("\n")), "Tides.txt");
+
+      const cited = await core.citeSelection({
+        documentId: document.id,
+        parts: [{ unit: 1, text: "Tides rise twice a day.", before: "Spring tides are larger.\n" }],
+      });
+
+      expect(cited).toMatchObject({ check: "found", pageFrom: 1 });
+      expect(cited.location).toEqual({ kind: "lines", from: 3, to: 3 });
+    });
+
+    // The words around a selection as the text view sends them: the file's own characters.
+    const aroundLine = (lines: readonly string[], line: number) => {
+      const source = lines.join("\n");
+      const start = lines.slice(0, line - 1).join("\n").length + (line > 1 ? 1 : 0);
+      const end = start + (lines[line - 1] ?? "").length;
+      return {
+        before: source.slice(Math.max(0, start - 80), start),
+        after: source.slice(end, end + 80),
+      };
+    };
+
+    // Matching passes over spacing: blank lines in the words before must not shift the selection
+    // onto the same short line next to it.
+    test("in a text file, a short line the next line repeats, blank lines before it", async () => {
+      const core = startCore(await createTempDataFolder());
+      const lines = ["", "", "Checked", "Checked", "Yes", "Done", "No", "Done", "OK", "OK", ""];
+      const document = await addPaper(core, Buffer.from(lines.join("\n")), "Checks.txt");
+
+      const cited = await core.citeSelection({
+        documentId: document.id,
+        parts: [{ unit: 1, text: "OK", ...aroundLine(lines, 9) }],
+      });
+
+      expect(cited).toMatchObject({ check: "found" });
+      expect(cited.location).toEqual({ kind: "lines", from: 9, to: 9 });
+    });
+
+    test.each([
+      [["", "", "", "OK", "", "OK", "Done", "", "No", "", ""]],
+      [["", "", "", "OK", "OK", "No", "OK", "", "No", "OK", "Yes"]],
+      [["", "", "Yes", "Yes", "OK", "", "Yes", "OK", "OK", "Yes", ""]],
+      [["", "", "OK", "Yes", "", "Done", "", "OK", "Done", "OK", "OK"]],
+    ])(
+      "in a text file of short repeated words, every line cites its own line: %j",
+      async (lines) => {
+        const core = startCore(await createTempDataFolder());
+        const document = await addPaper(core, Buffer.from(lines.join("\n")), "Answers.txt");
+
+        for (const [index, text] of lines.entries()) {
+          if (text === "") continue;
+          const cited = await core.citeSelection({
+            documentId: document.id,
+            parts: [{ unit: 1, text, ...aroundLine(lines, index + 1) }],
+          });
+          expect.soft(cited.location, `line ${index + 1}`).toEqual({
+            kind: "lines",
+            from: index + 1,
+            to: index + 1,
+          });
+        }
+      },
+    );
+
+    // A text file's Units are blocks of 50 lines: at a block's edge, the words around the selection
+    // are in the next block, and a place inside the block with the same nearer words must not win.
+    test.each([50, 51, 100, 101])(
+      "in a text file, the line at a block's edge (line %i), though the same lines are elsewhere in its block",
+      async (line) => {
+        const core = startCore(await createTempDataFolder());
+        const decoy = line <= 50 ? 25 : line <= 100 ? (line === 51 ? 80 : 75) : 130;
+        const lines = Array.from({ length: 150 }, (_, index) => `Shelf ${index + 1} checked.`);
+        for (const at of [line, decoy]) {
+          lines[at - 2] = "Packed by Ana";
+          lines[at - 1] = "Total: 5 boxes";
+          lines[at] = "Signed by Ben";
+        }
+        const document = await addPaper(core, Buffer.from(lines.join("\n")), "Deliveries.txt");
+
+        const cited = await core.citeSelection({
+          documentId: document.id,
+          parts: [
+            {
+              unit: Math.ceil(line / 50),
+              text: "Total: 5 boxes",
+              before: `${lines.slice(line - 5, line - 1).join("\n")}\n`,
+              after: `\n${lines.slice(line, line + 4).join("\n")}`,
+            },
+          ],
+        });
+
+        expect(cited).toMatchObject({ check: "found" });
+        expect(cited.location).toEqual({ kind: "lines", from: line, to: line });
+      },
+    );
+
+    test("words a long file has in many places aren't cited", async () => {
+      const core = startCore(await createTempDataFolder());
+      const lines = Array.from(
+        { length: 3000 },
+        (_, index) => `Reading ${index} rose at the gauge.`,
+      );
+      const document = await addPaper(core, Buffer.from(lines.join("\n")), "Gauge log.txt");
+
+      const cited = await core.citeSelection({
+        documentId: document.id,
+        parts: [{ unit: null, text: "rose at the gauge." }],
+      });
+
+      expect(cited).toMatchObject({ check: "not-found", pageFrom: null });
+    });
+
+    test("in a text file, two same lines that nothing around tells apart aren't cited", async () => {
+      const core = startCore(await createTempDataFolder());
+      const lines = [
+        "Tides rise twice a day.",
+        "Spring tides are larger.",
+        "Tides rise twice a day.",
+      ];
+      const document = await addPaper(core, Buffer.from(lines.join("\n")), "Tides.txt");
+
+      const cited = await core.citeSelection({
+        documentId: document.id,
+        parts: [{ unit: 1, text: "Tides rise twice a day." }],
+      });
+
+      expect(cited).toMatchObject({
+        check: "not-found",
+        checkReason: "in-several-places",
+        pageFrom: 1,
+        pageTo: 1,
+      });
+    });
+
+    test("words around it that tell no place leave words in two places uncited", async () => {
+      const core = startCore(await createTempDataFolder());
+      const document = await addPaper(core);
+
+      const cited = await core.citeSelection({
+        documentId: document.id,
+        parts: [
+          { unit: null, text: REPEATED, before: "Words no page has. ", after: " Nor these." },
+        ],
+      });
+
+      expect(cited).toMatchObject({ check: "not-found", pageFrom: null });
+    });
+
+    test("on a page that has the words twice, either place is the page", async () => {
+      const core = startCore(await createTempDataFolder());
+      const twice = ["Margins recover.", "Prices rise.", "Margins recover."];
+      const document = await addPaper(core, paper([twice, ...BODIES.slice(1)]));
+
+      const cited = await core.citeSelection({
+        documentId: document.id,
+        parts: [{ unit: 1, text: "Margins recover.", linesBefore: 2, linesAfter: 2 }],
+      });
+
+      expect(cited).toMatchObject({ check: "found", pageFrom: 1, pageTo: 1 });
+    });
   });
 
   test("words a long text file has on every line are refused at once, with no Location", async () => {

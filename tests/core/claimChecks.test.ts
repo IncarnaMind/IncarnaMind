@@ -1263,6 +1263,50 @@ describe("A sentence the Documents state only part of, with no Citation", () => 
     expect(plain?.shown).toEqual({ state: "supported" });
   });
 
+  // protects=a Supported reply with a wider scope keeps the partly-supported card quoting the Passage it cited, and no nearest line is judged, in English and Chinese; fails_when=a nearest line judged different replaces that card, or the request is still made; no_claim=how a real model judges the line (eval/repeats README, #1708).
+  test.each([
+    {
+      name: "English",
+      language: "en" as const,
+      sentence: STAFF,
+      quote: MOON,
+      covered: "spring tides at new and full moon",
+      uncovered: "the staff and the harbour wall",
+      document: undefined,
+    },
+    {
+      name: "Chinese",
+      language: "zh-CN" as const,
+      sentence: "职工每周可在家工作两天。",
+      quote: "乙方每周可在家工作两天，须事先与主管商定。",
+      covered: "乙方每周可在家工作两天",
+      uncovered: "所有职工",
+      document: { name: "劳动合同.md", contents: "乙方每周可在家工作两天，须事先与主管商定。" },
+    },
+  ])(
+    "$name: a supported reply with a wider scope keeps its part card, with no nearest line asked about",
+    async ({ language, sentence, quote, covered, uncovered, document }) => {
+      const model = checkingModel({
+        [sentence]: {
+          verdict: "supported",
+          quote,
+          says: `Scope: wider\nSays so for one party.\nCovered: ${covered}\nNot covered: ${uncovered}`,
+          judgement: "conflict",
+        },
+      });
+      const { core, client, check } = await mindWith([sentence], model, document ? [document] : []);
+      await core.updateSettings({ user: { language } });
+
+      await check();
+
+      expect((await shownChecks(core, client))[0]).toMatchObject({
+        shown: { state: "unsupported" },
+        check: { evidence: null, unsupported: { covered, uncovered, quoted: { quote } } },
+      });
+      expect(asked(model, "- conflict: both state a figure")).toBe(0);
+    },
+  );
+
   test("names no part covered when the reply says no Passage is about the sentence's topic", async () => {
     const { core, client, check } = await mindWith(
       [STAFF],

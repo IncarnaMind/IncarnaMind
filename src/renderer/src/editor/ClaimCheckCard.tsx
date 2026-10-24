@@ -44,6 +44,7 @@ import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
+import { claimCardPlace } from "./claimCardPlace";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { isQuietFocus } from "./mistakeMark";
@@ -196,6 +197,7 @@ export function ClaimMark({
           <Popover
             anchor={button}
             placement="bottom-end"
+            middleware={() => claimCardPlace(button)}
             onDismiss={dismiss}
             aria-label={t("claim.card.label", {
               state: t(`claim.state.${state}`),

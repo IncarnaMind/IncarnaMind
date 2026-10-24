@@ -1,16 +1,20 @@
 import { flip, hide, offset, shift, type VirtualElement } from "@floating-ui/dom";
 import { isMacOS } from "@tiptap/core";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Document } from "../../../core/api";
+import type { AskedQuote, Document } from "../../../core/api";
 import { viewerSelectionHandle } from "../commands/handles";
+import { shortcutLabel } from "../commands/keymap";
 import { AddToMindPicker } from "../components/assistant/AddToMindPicker";
-import { CopyLineIcon, PlusLineIcon } from "../components/lineIcons";
+import { ChatLineIcon, CopyLineIcon, PlusLineIcon } from "../components/lineIcons";
+import { holdsQuote, useComposer } from "../composer";
 import { Popover } from "../editor/Popover";
 import { useT } from "../i18n";
+import { useSettingUp } from "../modelSetup";
 import { type SelectionReader, selectionEnd } from "./selectedText";
 import {
   addSelectionToNote,
   addsWithoutAsking,
+  askAboutSelection,
   copySelectionWithCitation,
   type ViewerSelection,
 } from "./selectionActions";
@@ -53,10 +57,11 @@ function drawHeld(range: Range | null): void {
 
 /**
  * The small menu under text selected in a Document's view (#101; DESIGN.md ›
- * Viewer › Selecting to ask), as the view reads it: Add to note and Copy with
- * citation. It shows once the mouse comes up on a selection, or Shift extends
- * one, and goes with it. ⌘/ moves into it, ↑ ↓ go through it, Esc closes it,
- * as the Mind's selection menu does. ⌘K reaches both while the selection lasts.
+ * Viewer › Selecting to ask), as the view reads it: Ask about this, Add to
+ * note and Copy with citation. It shows once the mouse comes up on a selection,
+ * or Shift extends one, and goes with it. ⌘/ moves into it, ↑ ↓ go through it,
+ * Esc closes it, as the Mind's selection menu does. ⌘K reaches all three while
+ * the selection lasts, and ⌘J asks about it.
  */
 export function SelectionMenu({
   document,
@@ -68,15 +73,18 @@ export function SelectionMenu({
   reader: SelectionReader;
 }) {
   const t = useT();
+  const settingUp = useSettingUp();
   const [held, setHeld] = useState<Held | null>(null);
+  const [asked, setAsked] = useState<AskedQuote | null>(null);
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
-  const first = useRef<HTMLButtonElement>(null);
+  const firstAsk = useRef<HTMLButtonElement>(null);
+  const firstAdd = useRef<HTMLButtonElement>(null);
   const [adding, setAdding] = useState<HTMLButtonElement | null>(null);
   const addButton = useCallback((element: HTMLButtonElement | null) => {
-    first.current = element;
     setAdding(element);
+    firstAdd.current = element;
   }, []);
   const focusBeforeMenu = useRef<HTMLElement | null>(null);
   const [focusWanted, setFocusWanted] = useState(false);
@@ -89,19 +97,23 @@ export function SelectionMenu({
     const read = () => {
       const range = rangeIn(section);
       if (!range) return;
-      const parts = reader(range);
+      const { parts, shown } = reader(range);
       setHeld(
-        parts.length > 0 ? { selection: { document, parts }, range: range.cloneRange() } : null,
+        parts.length > 0
+          ? { selection: { document, parts, shown }, range: range.cloneRange() }
+          : null,
       );
       setOpen(parts.length > 0);
       setPicking(false);
       setAway(false);
+      setAsked(null);
     };
     const onDown = (event: PointerEvent) => {
       if (inPopover(event.target)) return;
       pressed = true;
       setOpen(false);
       setHeld(null);
+      setAsked(null);
     };
     const onReleased = () => {
       pressed = false;
@@ -153,7 +165,7 @@ export function SelectionMenu({
       if (!menu.current?.contains(window.document.activeElement)) {
         focusBeforeMenu.current = window.document.activeElement as HTMLElement | null;
       }
-      if (open) first.current?.focus();
+      if (open) (settingUp ? firstAdd : firstAsk).current?.focus();
       else {
         setFocusWanted(true);
         setOpen(true);
@@ -161,7 +173,18 @@ export function SelectionMenu({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [held, open]);
+  }, [held, open, settingUp]);
+
+  // Asked about, the words stay drawn while their chip waits in the composer, and go with it.
+  useEffect(() => {
+    if (!asked) return;
+    return useComposer.subscribe(({ drafts }) => {
+      if (!Object.values(drafts).some((draft) => holdsQuote(draft.quotes ?? [], asked))) {
+        setHeld(null);
+        setAsked(null);
+      }
+    });
+  }, [asked]);
 
   useEffect(() => {
     drawHeld(held && away ? held.range : null);
@@ -190,15 +213,27 @@ export function SelectionMenu({
   // What is selected when the User acts, should Shift have changed it since it was read.
   const heldNow = useCallback((): Held | null => {
     const range = section && rangeIn(section);
-    const parts = range ? reader(range) : [];
+    const { parts, shown } = range ? reader(range) : { parts: [], shown: undefined };
     return range && parts.length > 0
-      ? { selection: { document, parts }, range: range.cloneRange() }
+      ? { selection: { document, parts, shown }, range: range.cloneRange() }
       : null;
   }, [section, reader, document]);
+
+  const ask = useMemo(
+    () =>
+      held && !settingUp
+        ? () => {
+            close();
+            void askAboutSelection((heldNow() ?? held).selection).then(setAsked);
+          }
+        : null,
+    [held, settingUp, close, heldNow],
+  );
 
   const actions = useMemo(
     () =>
       held && {
+        ...(ask && { ask }),
         addToNote: () => {
           const now = heldNow() ?? held;
           if (addsWithoutAsking()) {
@@ -216,7 +251,7 @@ export function SelectionMenu({
           void copySelectionWithCitation((heldNow() ?? held).selection);
         },
       },
-    [held, close, heldNow],
+    [held, ask, close, heldNow],
   );
   // Only while there is a selection: another Document's tab may hold one.
   useEffect(() => {
@@ -254,12 +289,27 @@ export function SelectionMenu({
         role="menu"
         aria-label={t("viewer.selection.label")}
         data-testid="viewer-selection-menu"
-        {...(focusWanted && { initialFocus: first })}
+        {...(focusWanted && { initialFocus: settingUp ? firstAdd : firstAsk })}
         onDismiss={close}
         onKeyDown={onMenuKeyDown}
         className="viewer-selection-menu"
       >
         <div ref={menu} className="editor-menu">
+          {ask && (
+            <button
+              ref={firstAsk}
+              type="button"
+              role="menuitem"
+              data-testid="viewer-selection-ask"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={ask}
+              className="editor-menu-item"
+            >
+              <ChatLineIcon className="size-4 shrink-0 text-ink-secondary" />
+              <span className="flex-1 truncate">{t("viewer.selection.ask")}</span>
+              <kbd className="editor-menu-shortcut">{shortcutLabel("composer.focus")}</kbd>
+            </button>
+          )}
           <button
             ref={addButton}
             type="button"

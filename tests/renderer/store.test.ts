@@ -471,7 +471,7 @@ describe("changes the User can take back", () => {
     expect(named(top())).toBe("移动 2 个文档");
     await useAppStore.getState().deleteMind("m");
     expect(said(top())).toBe("已将“Plan”移到回收站");
-    expect(named(top())).toBe("删除“Plan”");
+    expect(named(top())).toBe("删除‘Plan’");
   });
 });
 

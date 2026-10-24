@@ -282,7 +282,10 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
 
   const scroller = useRef<HTMLDivElement>(null);
   useSelectionReader(
-    useCallback((range) => (scroller.current ? pdfSelection(range, scroller.current) : []), []),
+    useCallback(
+      (range) => (scroller.current ? pdfSelection(range, scroller.current) : { parts: [] }),
+      [],
+    ),
   );
   const pageElements = useRef<(HTMLElement | null)[]>([]);
   /** The page at the top edge of the view, and how far into it: kept through zooms and resizes. */

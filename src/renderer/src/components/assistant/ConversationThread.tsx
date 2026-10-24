@@ -1,5 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ConversationAnswer, ConversationQuestion, Task } from "../../../../core/api";
+import type {
+  AskedQuote,
+  ConversationAnswer,
+  ConversationQuestion,
+  Task,
+} from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { mindSearchScope } from "../../../../shared/searchScope";
 import { type AddTarget, addAnswer, openTable } from "../../addToNote";
@@ -14,6 +19,7 @@ import {
   useOpenConversation,
 } from "../../conversations";
 import { askedAgainCounts } from "../../coverage";
+import { AskedQuoteLines } from "../../editor/AskedQuotes";
 import { useT } from "../../i18n";
 import { isLive, useMeetings } from "../../meetings";
 import { useModelSetup } from "../../modelSetup";
@@ -62,6 +68,7 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
   const waitingQuestion = useModelSetup((state) => state.waiting);
   const modelWorks = useModelSetup((state) => state.ready);
   const askingQuote = useConversations((state) => state.askingQuote);
+  const askingQuotes = useConversations((state) => state.askingQuotes);
   const onItsWay = useAnswerOnItsWay();
   const stopWanted = useConversations((state) => state.stopWanted);
   const sought = useConversations((state) => state.sought);
@@ -209,10 +216,16 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
           />
         );
       })}
-      {asking !== null && <QuestionBubble text={asking} quote={askingQuote} />}
+      {asking !== null && (
+        <QuestionBubble text={asking} quote={askingQuote} quotes={askingQuotes} />
+      )}
       {waitingQuestion && (
         <>
-          <QuestionBubble text={waitingQuestion.text} quote="" />
+          <QuestionBubble
+            text={waitingQuestion.text}
+            quote=""
+            quotes={waitingQuestion.quotes ?? []}
+          />
           {!modelWorks && (
             <p data-testid="assistant-waiting-model" className="assistant-empty">
               {t("setup.waiting")}
@@ -303,11 +316,13 @@ function QuestionBubble({
   question,
   text,
   quote,
+  quotes = [],
   research = false,
 }: {
   question?: ConversationQuestion;
   text?: string;
   quote?: string;
+  quotes?: readonly AskedQuote[];
   research?: boolean;
 }) {
   const t = useT();
@@ -330,6 +345,7 @@ function QuestionBubble({
             <span className="sr-only">{t("assistant.question.quote")}</span>“{about.trim()}”
           </span>
         )}
+        <AskedQuoteLines quotes={question?.quotes ?? quotes} />
         {skill && (
           <span data-testid="assistant-question-skill" className="assistant-question-skill">
             <SparkLineIcon aria-hidden="true" className="size-3" />

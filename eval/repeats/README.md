@@ -19,13 +19,15 @@ The cases are in `cases.ts`; `repeat.ts` checks any Mind's sentences in any core
 
 ## The sets
 
-An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), and six Minds:
+An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), and ten Minds:
 
 | Set | Sentences |
 |---|---|
 | `en`, `zh` | The three sentences of #1608 (notice as a paraphrase; holiday with a wrong figure; "Staff" for "the Employee"), the agreement's own words, a car allowance it doesn't mention, and a near miss that names days it doesn't |
 | `en-control`, `zh-control` | The home-working clause four ways: a paraphrase about the same Employee, the Employee by name, "Staff" (员工) and "Employees" (职工) |
-| `en-conflicts`, `zh-conflicts` | Genuine contradictions of the agreements, one of each kind, each expected Contradicted: a number, a date and a year, a negation, a unit (per month for per year), the parties reversed (who reports to whom, who pays whom, employer and employee, seller and buyer, landlord and tenant), a name, a condition (seven days' notice for 24 hours), a scope word ("only during employment"), a place (the governing law), an entitlement turned off, and "unlimited"; in English also the pension shares swapped; in both, a duty for a permission and the reverse ("must" for "may", 须 for 可) in several sentences, and more parties reversed (who keeps whose secrets, who may pay in lieu of notice, who pays the social insurance, who may call whom in) |
+| `en-conflicts`, `zh-conflicts` | Genuine contradictions of the agreements, one of each kind, each expected Contradicted: a number, a date and a year, a negation, a unit (per month for per year), the parties reversed (who reports to whom, who pays whom, employer and employee, seller and buyer, landlord and tenant), a name, a condition (seven days' notice for 24 hours), a scope word ("only during employment"), a place (the governing law), an entitlement turned off, and "unlimited"; in English also the pension shares swapped; in both, a duty for a permission and the reverse ("must" for "may", 须 for 可) in several sentences, and more parties reversed (who keeps whose secrets, who may pay in lieu of notice, who pays the social insurance, who may call whom in); a duty or permission in words other than must, may, 须 and 可 (shall, should and can for may or must, the Employee "entitled to" what the Company may do; 需, 应, 应当 for 可, 可以 for 须, 不得 for 可); and a figure for another year ("In 2026 … 25 days"), which still contradicts the agreement's yearly figure |
+| `en-paraphrases`, `zh-paraphrases` | A clause's duty or permission in other words, each expected Supported: "shall" for "must", "can" for "may", "is entitled to" for "may" and as the agreement says it; 需, 应, 应当, 必须 for 须, 可以 for 可, 不得泄露 for 须保密 |
+| `en-near-misses`, `zh-near-misses` | Near misses, each expected not Contradicted: a figure or a detail of another person or role than the agreement's (the Director of People, 人力资源总监, Managers, 经理), and "Staff" (员工) with a detail the agreement doesn't give (named days, a condition, bank transfer) |
 
 ## Running it
 
@@ -44,7 +46,7 @@ npm run eval:repeats
 
 **Cost and time:** ten checks of the first four Minds take about 5 minutes and $0.10 on Claude Haiku 5.5, and about 9 minutes and $2.20 on Claude Sonnet 5.5. The two conflict Minds add about 9 minutes and $0.25 on Haiku 5.5, and roughly $4 on Sonnet 5.5 (from the other sets' ratio, not measured), so run them there with fewer checks.
 
-**The conflicts:** a change to a verdict's instructions or to a judgement is measured against the conflicts it loses, not only the near misses it fixes. The report gives "Genuine conflicts Contradicted: n of m", and counts a conflict Supported as a false Supported. A sentence the check misses today is marked with its issue (`knownMiss` in `cases.ts`), stays in its set, and is listed with its counts under a heading of its own, "Known misses (#…)", outside every other count; take the mark off once the issue is fixed. Marked today: the Chinese negation the claims leave out (#1682).
+**The conflicts:** a change to a verdict's instructions or to a judgement is measured against the conflicts it loses, not only the near misses it fixes. The report gives "Genuine conflicts Contradicted: n of m", and counts a conflict Supported as a false Supported. A sentence the check misses today is marked with its issue (`knownMiss` in `cases.ts`), stays in its set, and is listed with its counts under a heading of its own, "Known misses (#…)", outside every other count; take the mark off once the issue is fixed. Marked today: the Chinese negation the claims leave out (#1682), and near misses about another person or role that the check's first verdict calls contradicted (#1718).
 
 ## Scope of a check from a Mind
 
@@ -56,6 +58,33 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_SCOPE_CASES` picks cases by id, `INCARNAMIND_EVAL_SCOPE_BUDGET` stops the run past that many dollars (1), and `INCARNAMIND_EVAL_REPEATS` is the checks a case (10). Ten checks of one case cost $0.02 to $0.05 on Claude Haiku 5.5 and $0.30 to $0.60 on Claude Sonnet 5.5, a Mind in no Folder the most.
 
 ## Results
+
+### 2026-10-24: a Supported reply with a wider scope keeps its partly-supported card (#1708)
+
+Claude Haiku 5.5 on the same Documents, Library and search as below, against `main` measured the same day with the same sentences (main's check, these sets). The change: a Supported reply with a wider scope that names its parts keeps the partly-supported card with the Passage it cited, also when its parts came from the request for them, and no nearest line is asked about. It changes no verdict: only the amber "says something different" card becomes the partly-supported one, and a request goes. In 169 such checks the nearest-line request was made 13 times (where the roles differ), against 130 of 174 on `main`, a median of 0.8 s each.
+
+New sets and members: near misses about another person or role, or "Staff" with a detail the agreement doesn't give (`en-near-misses`, `zh-near-misses`); paraphrases with other duty and permission words (`en-paraphrases`, `zh-paraphrases`); and, in both conflict sets, duties and permissions in other words and a figure for 2026, whose cases change in #1765.
+
+Counts of checks, this version and `main`. The first five rows are of this version; the others were measured with an earlier step of this branch still in it (a nearest line that could make a wider-scope sentence Contradicted, taken out since), which can only have added Contradicted:
+
+| Sentences | Checks | This version | `main` |
+|---|---|---|---|
+| "Staff may work from home on Mondays and Fridays." Contradicted | 40 | 2 | 1 |
+| "Managers are entitled to 30 days of paid holiday per year." Contradicted | 40 | 2 | 7 |
+| "人力资源总监每年享有带薪年休假15天。" Contradicted | 40 | 1 | 2 |
+| "员工的工资于每月最后一个工作日通过银行转账发放。" Supported | 40 | 3 | 5 |
+| "乙方月工资为人民币一万八千元，通过银行转账发放。" Supported | 40 | 4 | 6 |
+| "Employees may work from home two days a week." Supported | 40 | 7 | 4 |
+| 职工, "Staff", 员工 for the Employee (three rows) Supported | 40 each | 0, 0, 1 | 0, 0, 0 |
+| "should" for "may" Supported | 40 | 39 | 39 |
+| Other duties for permissions and the reverse (must, shall, is entitled to, 需, 应当) Supported | 40 each | 1 of 200 | 4 of 200 |
+| The paraphrases, names and own words (eight rows) not Supported | 20 each | 3 of 160 | 2 of 160 |
+| Both conflict Minds, 10 checks of 58 sentences: Contradicted, Supported | 580 | 478, 12 | 484, 16 |
+
+- The prompt is `main`'s, so differences in Supported are draws, not this change: "Employees…" Supported in 7 of 40 here and 4 of 40 on `main` come from first verdicts that call the plural the Employee itself ("Scope: Employees, same").
+- 均可 and 可以 for 须, and 应 for 可, were left out by the claims step in the smaller Minds; in the whole conflicts Mind, 10 checks: Supported 0 and 0, 1 and 1, 1 and 0.
+- Taken back on this branch: the nearest line that could make a wider-scope sentence Contradicted made "Staff may work from home on Mondays and Fridays." Contradicted in 3 of 40 checks through that path, against 1 of 40 on `main`; it can return with a test of the period and the party (#1765). A `Scope` clause counting the Passage's own word in the plural as wider made three Chinese duty-for-permission swaps Supported in 22 of 120 checks against 4 of 120. Two `Roles` wordings made near misses about another person Contradicted at the first verdict.
+- Spend: $11.51 in all over this work, Haiku 5.5 and Sonnet 5.5; this version's measurement $2.45.
 
 ### 2026-10-23: a Mind's chosen scope narrows its check (#1623)
 

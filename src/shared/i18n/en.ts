@@ -946,6 +946,13 @@ export const en = {
   "composer.edit.send": "Change it (Enter)",
   "composer.selection.drop": "Don’t ask about this",
   "assistant.question.quote": "About:",
+  "assistant.question.quoteGone": "(since deleted)",
+  "assistant.quote.leftOut.deleted":
+    "A quote from “{document}” wasn’t sent: the Document has been deleted.",
+  "composer.quote.tooMany":
+    "A Question can be about {count} selections at most: remove one to add this.",
+  "assistant.quote.leftOut":
+    "A quote from “{document}” wasn’t sent: the Document no longer has those words where you selected them.",
   "composer.edit.translateInto": "Translate into ",
   "proposal.region": "Changes from the assistant",
   "proposal.count": "{count} changes from the assistant",
@@ -1144,6 +1151,7 @@ export const en = {
   "viewer.outline.collapse": "Collapse {title}",
   "viewer.outline.untitled": "Untitled",
   "viewer.selection.label": "Selected text",
+  "viewer.selection.ask": "Ask about this",
   "viewer.selection.addToNote": "Add to note",
   "viewer.selection.copy": "Copy with citation",
   "viewer.selection.added": "Added a quote to “{mind}”",
@@ -1155,10 +1163,13 @@ export const en = {
   "viewer.selection.copied": "Copied with its citation",
   "viewer.selection.refused":
     "Couldn’t cite these words: the Document’s text where you selected them doesn’t have them.",
+  "viewer.selection.refused.places":
+    "Couldn’t cite these words: the Document has them in several places. Select a few more words around them.",
   "viewer.selection.refused.pages":
     "Couldn’t cite these words: a Citation covers two pages at most.",
   "viewer.selection.refused.noText":
     "Couldn’t cite these words: the Document has no text there to check them against.",
+  "command.viewer.selection.ask": "Ask about the selected text",
   "command.viewer.selection.addToNote": "Add the selected text to note",
   "command.viewer.selection.copy": "Copy the selected text with its citation",
   "viewer.mark.found": "Citation {number}: quote found",
@@ -3059,6 +3070,8 @@ export const en = {
   "citation.reason.quote-not-on-pages": "The quote isn’t in the text of the place it cites.",
   "citation.reason.pages-outside-passage": "The cited place isn’t in the quote’s Passage.",
   "citation.reason.too-many-pages": "A Citation can cite one place, or two in a row.",
+  "citation.reason.in-several-places":
+    "The words are in several places, and nothing around them tells which.",
   "citation.reason.no-text": "The cited place has no text, e.g. a scan.",
   "citation.reason.document-removed": "The Document has been deleted.",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
@@ -4090,6 +4103,7 @@ export const en = {
   "menu.reopenTab": "Reopen Closed Tab",
   "menu.splitRight": "Split to the Right",
   "menu.closeWindow": "Close Window",
+  "menu.closeAll": "Close All",
   "menu.edit": "Edit",
   "menu.undo": "Undo",
   "menu.redo": "Redo",

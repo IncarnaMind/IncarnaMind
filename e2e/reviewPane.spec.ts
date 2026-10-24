@@ -413,9 +413,15 @@ test("decisions one after another are each taken back by ⌘Z in the pane, an ol
   await window.keyboard.press("ControlOrMeta+z");
   await expect(notice).toHaveAttribute("data-state", "waiting");
   await expect(supply).toHaveAttribute("data-state", "accepted");
+  // The change Undo brought back is selected again, with the focus on it.
+  await expect(notice).toHaveAttribute("data-selected", "true");
+  await expect(notice.locator("[data-review-id]")).toBeFocused();
   await window.keyboard.press("ControlOrMeta+z");
   await expect(supply).toHaveAttribute("data-state", "waiting");
   await expect(notice).toHaveAttribute("data-state", "waiting");
+  // So is the one the second Undo brought back (#1785).
+  await expect(supply).toHaveAttribute("data-selected", "true");
+  await expect(supply.locator("[data-review-id]")).toBeFocused();
   await expect(frontMindName(window)).toHaveText("Northwind supply");
 
   await window.keyboard.press("ControlOrMeta+Shift+z");
@@ -424,6 +430,64 @@ test("decisions one after another are each taken back by ⌘Z in the pane, an ol
   await window.keyboard.press("ControlOrMeta+Shift+z");
   await expect(notice).toHaveAttribute("data-state", "accepted");
   await expect(frontMindName(window)).toHaveText("Northwind supply");
+  // Taken back again after Redo, it is selected again too.
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(notice).toHaveAttribute("data-state", "waiting");
+  await expect(notice).toHaveAttribute("data-selected", "true");
+  await expect(notice.locator("[data-review-id]")).toBeFocused();
+  await app.close();
+});
+
+test("⌘K's Undo with the pane focused is the pane's own history: it takes back the decision and leaves the rename, in English and in Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await setWindowSize(app, window, 1600, 900);
+  await dismissChatSetup(window);
+  await importFile(window, app, "Supply agreement v5.docx", supplyRedline());
+  await window.keyboard.press("ControlOrMeta+Backslash");
+  await expect(window.getByTestId("sidebar-panel")).toHaveAttribute("data-hidden", "true");
+  await pointAndClick(window, window.getByTestId("their-changes-review"));
+  const pane = window.getByTestId("review-pane");
+  const supply = cardsOf(pane).first();
+  const undoRow = () =>
+    window.getByTestId("palette").locator('[data-key="command:edit.undo"] .truncate').first();
+  const accept = async () => {
+    await pointAndClick(window, supply.locator("[data-review-id]"));
+    await pointAndClick(window, supply.getByTestId("review-accept"));
+    await expect(supply).toHaveAttribute("data-state", "accepted");
+  };
+
+  // A rename made after the decision is the app's last change; the decision is still the note's.
+  await accept();
+  await renameInTab(window, "Northwind supply two");
+  await pointAndClick(window, supply.locator("[data-review-id]"));
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("undo");
+  // The undo line names the step ⌘Z would run here, the note's own, never the rename.
+  await expect(undoRow()).toHaveText("Undo");
+  await screenshot(window, "review-undo-palette");
+  await pointAndClick(
+    window,
+    window.getByTestId("palette").locator('[data-key="command:edit.undo"]'),
+  );
+  await expect(supply).toHaveAttribute("data-state", "waiting");
+  await expect(frontMindName(window)).toHaveText("Northwind supply two");
+
+  await setLanguage(window, "zh-CN");
+  await accept();
+  await renameInTab(window, "Northwind supply three");
+  await pointAndClick(window, supply.locator("[data-review-id]"));
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("撤销");
+  await expect(undoRow()).toHaveText("撤销");
+  await screenshot(window, "review-undo-palette-zh");
+  await pointAndClick(
+    window,
+    window.getByTestId("palette").locator('[data-key="command:edit.undo"]'),
+  );
+  await expect(supply).toHaveAttribute("data-state", "waiting");
+  await expect(frontMindName(window)).toHaveText("Northwind supply three");
   await app.close();
 });
 

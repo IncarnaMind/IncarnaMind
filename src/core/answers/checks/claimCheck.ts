@@ -386,9 +386,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const unsupported = async (
       why: UnsupportedReason = { reason: null, covered: null, uncovered: null },
       found: Citation | null = null,
-      skipNearest = false,
+      judgedNearest?: Citation | null,
     ): Promise<ClaimCheckResult> => {
-      const nearest = skipNearest ? null : await nearestDifferent(request, session, signal);
+      const nearest =
+        judgedNearest === undefined
+          ? await nearestDifferent(request, session, signal)
+          : judgedNearest;
       if (signal.aborted) return notChecked("stopped");
       // A card that quotes the Passage covering part of the sentence never says it found nothing.
       // A sentence's own Citations, a court decision no Document holds, or only the User's own
@@ -456,8 +459,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     ) {
       const part = await parts(evidence);
       if (signal.aborted) return notChecked("stopped");
+      // The Passage the check cited states the term's own value, so no nearest line is asked
+      // about: one judged different replaced the partly-supported card of "职工…" (#1708).
+      const nearest = differs ? undefined : null;
       if (part.covered && part.uncovered)
-        return unsupported({ reason: verdict.says, ...part }, evidence);
+        return unsupported({ reason: verdict.says, ...part }, evidence, nearest);
       if (differs) return unsupported();
     }
     if (verdict.verdict === "contradicted") {
@@ -470,9 +476,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         const part = await parts(evidence);
         if (signal.aborted) return notChecked("stopped");
         if (!part.covered || !part.uncovered) return unsupported();
-        // A judgement has just compared this very quote with the sentence.
-        const skipNearest = true;
-        return unsupported({ reason: verdict.says, ...part }, evidence, skipNearest);
+        // A judgement has just compared this very quote with the sentence: no nearest line.
+        return unsupported({ reason: verdict.says, ...part }, evidence, null);
       };
       const first = await compare(request, evidence, session, signal, CONFIRM_INSTRUCTIONS);
       if (signal.aborted) return notChecked("stopped");
