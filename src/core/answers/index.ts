@@ -50,7 +50,7 @@ import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { englishPlace } from "../../shared/locations";
-import { holdsNothing } from "../../shared/madeMind";
+import { holdsNothing, holdsOnlyAiText } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
 import {
@@ -244,6 +244,7 @@ import {
   emptyMindNote,
   exampleNote,
   LISTED_DOCUMENTS,
+  LISTED_MINDS,
   type ListedDocuments,
   languageInstruction,
   loadedSkillText,
@@ -2604,7 +2605,7 @@ export function createAnswers(options: AnswersOptions) {
       mind && earlier.length > 0 ? mind.reading.section(MIND_TOKEN_LIMIT, asking) : mind?.section;
     const documents = options.documents.names();
     const shown = namesOnScreen(onScreen, documentIds);
-    const minds = help ? [] : (options.minds?.list().map((each) => each.name) ?? []);
+    const minds = help ? [] : namedMinds();
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
       documents,
@@ -2722,6 +2723,18 @@ export function createAnswers(options: AnswersOptions) {
     }
     return { quoted, leftOut };
   }
+
+  // A Mind only an Answer wrote in stays out: read_mind still finds it when the User names it.
+  // Peeked, so Minds not open aren't loaded; and only so many, so a big Library doesn't slow a Question.
+  const namedMinds = (): string[] => {
+    const names: string[] = [];
+    for (const mind of options.minds?.list().slice(0, 2 * LISTED_MINDS) ?? []) {
+      if (names.length >= LISTED_MINDS) break;
+      if (names.includes(mind.name) || options.content.peek(mind.id, holdsOnlyAiText)) continue;
+      names.push(mind.name);
+    }
+    return names;
+  };
 
   // One outside the Search scope can't be searched: naming it would point the model at nothing.
   const namesOnScreen = (onScreen: readonly string[], documentIds: readonly string[] | null) =>

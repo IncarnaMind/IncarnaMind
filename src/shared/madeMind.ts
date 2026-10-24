@@ -1,5 +1,7 @@
 import * as Y from "yjs";
+import { GENERATED_MARK, PROPOSAL_ATTRIBUTE, PROPOSAL_INSERT_MARK } from "../core/api";
 import { isRecord } from "../core/errors";
+import { readProposalAttribute } from "./proposals";
 
 const textOfRun = (run: unknown): string =>
   isRecord(run) && typeof run.insert === "string" ? run.insert : "";
@@ -40,4 +42,36 @@ export function holdsOnlyItsTitle(blocks: Y.XmlFragment, title: string): boolean
         ? block.length === 0
         : index === 0 && block.nodeName === "heading" && textOf(block) === title,
     );
+}
+
+const isAiRun = (run: unknown): boolean =>
+  isRecord(run) &&
+  isRecord(run.attributes) &&
+  (run.attributes[GENERATED_MARK] != null || run.attributes[PROPOSAL_INSERT_MARK] != null);
+
+/**
+ * Whether a Mind holds text and all of it is AI text, applied or still waiting: one an Answer made
+ * or filled that the User hasn't written in since. Named to the model, such a Mind drew a later
+ * request for a new piece into it (#1790).
+ */
+export function holdsOnlyAiText(blocks: Y.XmlFragment): boolean {
+  let ai = false;
+  const holdsOwn = (parent: Y.XmlFragment | Y.XmlElement): boolean =>
+    parent.toArray().some((child) => {
+      if (child instanceof Y.XmlText) {
+        return child.toDelta().some((run: unknown) => {
+          if (textOfRun(run) === "") return false;
+          if (!isAiRun(run)) return true;
+          ai = true;
+          return false;
+        });
+      }
+      if (!(child instanceof Y.XmlElement)) return false;
+      if (readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "insert") {
+        ai = true;
+        return false;
+      }
+      return holdsOwn(child);
+    });
+  return !holdsOwn(blocks) && ai;
 }

@@ -9,10 +9,18 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { promptOf, scriptedModels, streamingModel } from "../helpers/models";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
+import {
+  type ModelCall,
+  promptOf,
+  type ScriptedReply,
+  scriptedModel,
+  scriptedModels,
+  streamingModel,
+} from "../helpers/models";
 
-async function setUp() {
-  const model = streamingModel("Noted.");
+async function setUp(model: MockLanguageModelV4 = streamingModel("Noted.")) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
   });
@@ -77,6 +85,37 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
 
     const newest = Array.from({ length: 30 }, (_, index) => `"Mind ${31 - index}"`);
     expect(lastSent(model)).toBe(`The User's Minds: ${newest.join(", ")}\n\nWhat can you do?`);
+  });
+
+  // protects=a Mind only an Answer wrote in stays off the line, so a later request for a new piece isn't drawn into it, and it is back once the User writes in it (#1790); fails_when=the made Mind is named before the User writes in it, or stays off after; no_claim=what a real model does with the line, which eval/everyday measures.
+  test("leave out a Mind only an Answer wrote in, until the User writes in it", async () => {
+    const made = {
+      title: "Launch brief",
+      content: "# Launch brief\n\nThe beta opens on 2 February.",
+    };
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply =>
+        call.results.length === 0 && call.prompt.includes("Write a launch brief")
+          ? { calls: [{ tool: "create_mind", input: made }] }
+          : { text: "Noted." },
+    );
+    const { core } = await setUp(model);
+    const plan = await core.createMind({ title: "Project plan" });
+    const planClient = await connectToMind(core, plan.id);
+    writeMind(planClient, [note("The beta opens on 2 February.")]);
+    await planClient.settled();
+
+    await ask(core, "Write a launch brief.");
+    await ask(core, "What can you do?");
+    expect(lastSent(model)).toBe(`The User's Minds: "Project plan"\n\nWhat can you do?`);
+
+    const brief = (await core.listMinds()).find((mind) => mind.title === "Launch brief");
+    if (!brief) throw new Error("The Answer made no Launch brief.");
+    const briefClient = await connectToMind(core, brief.id);
+    writeMind(briefClient, [note("My own words.")]);
+    await briefClient.settled();
+    await ask(core, "What can you do?");
+    expect(lastSent(model)).toMatch(/^The User's Minds: "Launch brief", "Project plan"\n\n/);
   });
 
   // protects=Local mode changes nothing about the line: the names go to the model on this computer as to any other; fails_when=the line is left out in Local mode; no_claim=none beyond protects.
