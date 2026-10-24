@@ -194,6 +194,8 @@ test("the keys reach the menu: ⌘/ moves into it, the arrows go through it, and
   await expect(menuOf(window)).toBeVisible();
 
   await window.keyboard.press("ControlOrMeta+/");
+  await expect(window.getByTestId("viewer-selection-ask")).toBeFocused();
+  await window.keyboard.press("ArrowDown");
   await expect(window.getByTestId("viewer-selection-add")).toBeFocused();
   await window.keyboard.press("ArrowDown");
   await expect(window.getByTestId("viewer-selection-copy")).toBeFocused();

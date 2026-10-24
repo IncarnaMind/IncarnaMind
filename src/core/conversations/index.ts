@@ -51,7 +51,7 @@ import type {
   SearchScope,
   ThirdPartySource,
 } from "../api";
-import { CLAIMED_CHANGES } from "../api";
+import { CLAIMED_CHANGES, MOST_ASKED_QUOTES } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
@@ -372,8 +372,6 @@ export function parseOnScreen(value: unknown): string[] {
   return [...new Set(value as string[])];
 }
 
-// Each quote goes to the model with the Passages of its pages: more would crowd out the rest.
-const MOST_QUOTES = 10;
 // Two pages of dense text, the most a Citation covers, with room to spare.
 const MOST_QUOTED_CHARACTERS = 50_000;
 
@@ -410,10 +408,10 @@ function parseQuotes(value: unknown): AskedQuote[] {
   if (value === undefined || value === null) return [];
   const unreadable = () => new InvalidInputError({ key: "error.question.quotes" });
   if (!Array.isArray(value)) throw unreadable();
-  if (value.length > MOST_QUOTES) {
+  if (value.length > MOST_ASKED_QUOTES) {
     throw new InvalidInputError({
       key: "error.question.quotes.tooMany",
-      values: { count: MOST_QUOTES },
+      values: { count: MOST_ASKED_QUOTES },
     });
   }
   return value.map((each) => {

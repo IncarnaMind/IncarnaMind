@@ -4518,6 +4518,21 @@
     min-width: 0;
     color: var(--color-ink-meta);
   }
+  .quote-chip--where-first .quote-chip-words {
+    flex: 0 100 auto;
+    min-width: 4em;
+  }
+  .quote-chip--where-first .quote-chip-from {
+    flex: 0 1 auto;
+    min-width: 3em;
+  }
+  .quote-chip-where {
+    flex: 0 0 auto;
+    color: var(--color-ink-meta);
+  }
+  .composer-row > .quote-chip--where-first {
+    max-width: 100%;
+  }
 
   /*
    * A suggestion as the User writes (#282): grey text after the caret, then
@@ -6822,6 +6837,36 @@
     line-height: 16px;
     font-weight: 400;
     color: var(--color-ink-meta);
+  }
+  .assistant-question-asked {
+    display: block;
+    margin-bottom: 4px;
+  }
+  .assistant-question-asked > .assistant-question-quote {
+    margin-bottom: 0;
+  }
+  .assistant-question-quote-source {
+    display: flex;
+    gap: 4px;
+    max-width: 100%;
+    padding-left: 10px;
+    white-space: nowrap;
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 400;
+    color: var(--color-ink-meta);
+  }
+  .assistant-question-quote-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .assistant-question-quote-where {
+    flex-shrink: 0;
+  }
+  button.assistant-question-quote-source:hover {
+    color: var(--color-ink-secondary);
+    text-decoration: underline;
   }
   .assistant-question[data-pending] .assistant-question-bubble {
     color: var(--color-ink-secondary);

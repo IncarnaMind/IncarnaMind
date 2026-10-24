@@ -1718,6 +1718,9 @@ export interface CitedSelection extends CitationRecheck {
   quote: string;
 }
 
+/** At most this many `AskedQuote`s go with a Question: each brings the Passages of its pages. */
+export const MOST_ASKED_QUOTES = 10;
+
 /**
  * Words the User selected in a Document to ask about ("Ask about this", #101), as
  * `citeSelection` found them, kept with the Question.

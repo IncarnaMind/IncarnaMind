@@ -54,7 +54,7 @@ export function useHandle<T>(handle: Handle<T>, value: T): void {
 }
 
 /** The words selected in a Document's viewer (#101), while they are: what its selection menu does with them. */
-export const viewerSelectionHandle: Handle<{ addToNote(): void; copy(): void }> = {
+export const viewerSelectionHandle: Handle<{ ask(): void; addToNote(): void; copy(): void }> = {
   current: null,
 };
 
