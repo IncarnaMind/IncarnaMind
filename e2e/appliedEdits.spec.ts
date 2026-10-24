@@ -8,6 +8,8 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openPageMenu,
+  paletteOffers,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -535,4 +537,92 @@ test("by the keyboard alone: ⌘J, Review changes from ⌘K, ⌘⌫ restores the
     "salt wind on stone",
     "night falls soft",
   ]);
+});
+
+const toTheEnd = process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
+
+test("typed elsewhere after ⌘J, by the keyboard alone: the line goes, Review changes stays in ⌘K through ⌘Z and ⌘⇧Z of the typing, ⌘⌫ restores the change and leaves the typing, one ⌘Z takes the Restore back, and a second edit's Review shows its own change alone", async () => {
+  const { window } = await launch();
+  await useLocalChatModel(window);
+  const { editor, paragraphs } = await mindWith(window, [TIDES, FIRST]);
+  const note = paragraphs.first();
+  const line = lineOf(editor);
+  const POWERFUL = "The tides here are very powerful and really regular.";
+  const TYPED = "Typed by hand.";
+
+  await window.keyboard.press("ControlOrMeta+a");
+  await askToChange(window, "replace strong with powerful");
+  await expect(note).toHaveText(POWERFUL);
+  await expect(line.getByTestId("applied-review")).toBeVisible();
+  await editor.focus();
+  await window.keyboard.press(toTheEnd);
+  await window.keyboard.press("Enter");
+  await window.keyboard.type(TYPED);
+  await expect(paragraphs).toHaveText([POWERFUL, FIRST, TYPED]);
+  await expect(line).toHaveCount(0);
+
+  await expect(async () => {
+    if ((await paragraphs.count()) > 2) await window.keyboard.press("ControlOrMeta+z");
+    await expect(paragraphs).toHaveText([POWERFUL, FIRST]);
+  }).toPass();
+  expect(await paletteOffers(window, "edit.reviewApplied", "Review changes")).toBe(1);
+  await editor.focus();
+  await expect(async () => {
+    if ((await paragraphs.last().textContent()) !== TYPED) {
+      await window.keyboard.press("ControlOrMeta+Shift+z");
+    }
+    await expect(paragraphs).toHaveText([POWERFUL, FIRST, TYPED]);
+  }).toPass();
+
+  await fromPalette(window, "edit.reviewApplied", "Review changes");
+  await expect(line.getByTestId("applied-count")).toHaveText("1 paragraph changed by Edit with AI");
+  await expect(editor.getByTestId("change-restore")).toHaveCount(1);
+  await window.keyboard.press("ControlOrMeta+Backspace");
+  await expect(paragraphs).toHaveText([TIDES, FIRST, TYPED]);
+  await expect(line).toHaveCount(0);
+  await expect(window.getByTestId("undo-message")).toHaveText("Restored the original");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(paragraphs).toHaveText([POWERFUL, FIRST, TYPED]);
+
+  await window.keyboard.press("ControlOrMeta+a");
+  await askToChange(window, "replace regular with steady");
+  const STEADY = "The tides here are very powerful and really steady.";
+  await expect(note).toHaveText(STEADY);
+  await editor.focus();
+  await window.keyboard.press(toTheEnd);
+  await window.keyboard.type(" Again.");
+  await expect(paragraphs.last()).toHaveText(`${TYPED} Again.`);
+  await fromPalette(window, "edit.reviewApplied", "Review changes");
+  await expect(editor.getByTestId("change-restore")).toHaveCount(1);
+  await expect(note.locator(".applied-new")).toHaveText("steady");
+  await window.keyboard.press("ControlOrMeta+Backspace");
+  await expect(paragraphs).toHaveText([POWERFUL, FIRST, `${TYPED} Again.`]);
+});
+
+test("Review changes lives with the Mind's editor: once its tab has shown another Mind and comes back, ⌘K and the Mind's ⋯ no longer offer it", async () => {
+  const { window } = await launch();
+  await useLocalChatModel(window);
+  const { editor, paragraphs } = await mindWith(window, [TIDES]);
+  const POWERFUL = "The tides here are very powerful and really regular.";
+
+  await slideSelect(window, paragraphs.first(), TIDES);
+  await askToChange(window, "replace strong with powerful");
+  await expect(paragraphs.first()).toHaveText(POWERFUL);
+  await editor.focus();
+  await window.keyboard.press(toTheEnd);
+  await window.keyboard.press("Enter");
+  await window.keyboard.type("Typed.");
+  await expect(lineOf(editor)).toHaveCount(0);
+  expect(await paletteOffers(window, "edit.reviewApplied", "Review changes")).toBe(1);
+  const menu = await openPageMenu(window);
+  await expect(menu.getByTestId("page-review-changes")).toHaveText("Review changes");
+  await window.keyboard.press("Escape");
+
+  await newMind(window);
+  await pointAndClick(window, window.getByTestId("mind-tab").first());
+  await expect(paragraphs).toHaveText([POWERFUL, "Typed."]);
+  expect(await paletteOffers(window, "edit.reviewApplied", "Review changes")).toBe(0);
+  const again = await openPageMenu(window);
+  await expect(again.getByTestId("page-style")).toBeVisible();
+  await expect(again.getByTestId("page-review-changes")).toHaveCount(0);
 });

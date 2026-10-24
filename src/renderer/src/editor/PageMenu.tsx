@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import type * as Y from "yjs";
 import { mindName } from "../../../shared/naming";
 import type { Verification } from "../../../shared/verification";
+import { offersReview, reviewApplied } from "../appliedEdits";
 import { ExampleChoices } from "../components/ExamplesMenu";
 import { ChevronRightLineIcon } from "../components/lineIcons";
 import { MindStyleChoices, useStyleValue } from "../components/MindStyle";
@@ -35,8 +36,9 @@ import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin"
  * Page-Clean-Menu): the Mind's menu in the sidebar row's order; Style ›, its
  * choices beside it; "From {file}" with Show in Finder for a Mind imported
  * from Word or made by Verify, which opens the original beside it, and
- * "Review their changes" for one with someone's changes or comments; and at its
- * foot the counts and the switch that shows the count while writing.
+ * "Review their changes" for one with someone's changes or comments; Review
+ * changes for the last AI edit applied, while it can be restored (#1795); and
+ * at its foot the counts and the switch that shows the count while writing.
  */
 export function PageMenu({
   editor,
@@ -113,6 +115,20 @@ export function PageMenu({
                         {styleValue}
                       </span>
                       <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+                    </button>
+                  )}
+                  {!readOnly && offersReview(editor) && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="page-review-changes"
+                      onClick={() => {
+                        close();
+                        requestAnimationFrame(() => reviewApplied(editor, { focus: true }));
+                      }}
+                      className={`${menuItemClass} pl-2`}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{t("edit.applied.review")}</span>
                     </button>
                   )}
                   {origin && (

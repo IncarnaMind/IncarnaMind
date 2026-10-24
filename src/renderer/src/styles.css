@@ -4414,6 +4414,9 @@
       color: var(--color-ink-secondary);
     }
   }
+  .mind-editor .applied-changed {
+    color: var(--color-ink-meta);
+  }
   .mind-editor .applied-kept-line {
     margin-block: 4px;
     color: var(--color-ink-meta);

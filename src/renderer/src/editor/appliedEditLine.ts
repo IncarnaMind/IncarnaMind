@@ -7,10 +7,11 @@
  * `data-applied-restore`. They go once the User edits.
  */
 import { type Editor, Extension, isMacOS } from "@tiptap/core";
-import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { relativePositionToAbsolutePosition, ySyncPluginKey } from "@tiptap/y-tiptap";
+import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { type ChangeCounts, changeFact } from "../changeFacts";
@@ -51,8 +52,8 @@ export interface KeptLine {
   mixed: boolean;
 }
 
-/** One change an applied edit made: where its new words are, as Yjs positions that hold through edits, and the old ones it took out. */
-export interface AppliedChange {
+/** Where one change an applied edit made is: its new words, as Yjs positions that hold through edits, and the old ones it took out. */
+export interface ChangePlace {
   from: unknown;
   to: unknown;
   removed: Fragment;
@@ -63,6 +64,13 @@ export interface AppliedChange {
    * paragraph's text, as the positions before its old words went with them.
    */
   paragraph?: string;
+}
+
+/** One change an applied edit made, and what it wrote: Restore original puts the old words back only over those, as they were (#1795). */
+export interface AppliedChange extends ChangePlace {
+  written: Fragment;
+  /** The Block its new words are in, where they are found again (`changeNow`). */
+  blockId: string | null;
 }
 
 export type AppliedLine = (
@@ -86,6 +94,8 @@ export type AppliedLine = (
       undo?: { available(): boolean; mind: string };
       /** Changes, and sections, whose old text shows, struck (`changeOriginals`). */
       shown?: readonly string[];
+      /** Still shown: not restored since, and the edit not undone. */
+      shows?(change: AppliedChange): boolean;
     }
   | {
       kind: "held";
@@ -155,7 +165,7 @@ function restoreButton(index: number, count: number, t: Translate): HTMLButtonEl
   return each;
 }
 
-function restoreHolder(button: HTMLButtonElement, ownLine: boolean): HTMLElement {
+function restoreHolder(button: HTMLElement, ownLine: boolean): HTMLElement {
   const holder = document.createElement(ownLine ? "div" : "span");
   holder.contentEditable = "false";
   holder.className = ownLine
@@ -221,11 +231,12 @@ function text(className: string, words: string, testId?: string): HTMLSpanElemen
 const waitingOf = (doc: ProseMirrorNode, request: string) =>
   proposalsIn(doc).filter((each) => each.request === request).length;
 
-/** Where a change is in the editor now; null once its words are gone. */
-export function placeOfChange(
-  state: EditorState,
-  change: AppliedChange,
-): { from: number; to: number } | null {
+interface Place {
+  from: number;
+  to: number;
+}
+
+function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
   if (change.paragraph) {
     const found = blockAt(state.doc, change.paragraph);
     return found ? { from: found.pos + 1, to: found.pos + found.node.nodeSize - 1 } : null;
@@ -242,6 +253,82 @@ export function placeOfChange(
 }
 
 const textOf = (removed: Fragment) => removed.textBetween(0, removed.size, "\n", "￼");
+
+function contentAt(doc: ProseMirrorNode, place: Place): Fragment {
+  const $from = doc.resolve(place.from);
+  const $to = doc.resolve(place.to);
+  return $from.sameParent($to)
+    ? $from.parent.content.cut($from.parentOffset, $to.parentOffset)
+    : doc.slice(place.from, place.to).content;
+}
+
+const asWritten = (doc: ProseMirrorNode, change: AppliedChange, place: Place) =>
+  contentAt(doc, place).eq(change.written);
+
+// Its place can take in words typed just after it, as its end holds to what follows, and a
+// paragraph written anew is all that paragraph: its own words, there once in its Block, still count.
+function foundAgain(doc: ProseMirrorNode, change: AppliedChange): Place | null {
+  const block = change.blockId === null ? null : blockAt(doc, change.blockId);
+  if (!block || change.written.size === 0) return null;
+  if (change.block === "added") {
+    const place = { from: block.pos, to: block.pos + change.written.size };
+    return place.to <= doc.content.size && asWritten(doc, change, place) ? place : null;
+  }
+  if (!block.node.isTextblock) return null;
+  const words = textOf(change.written);
+  const text = textOf(block.node.content);
+  const found: Place[] = [];
+  for (let at = text.indexOf(words); at >= 0; at = text.indexOf(words, at + 1)) {
+    const place = { from: block.pos + 1 + at, to: block.pos + 1 + at + change.written.size };
+    if (asWritten(doc, change, place)) found.push(place);
+  }
+  return found.length === 1 ? (found[0] ?? null) : null;
+}
+
+/**
+ * Where a change is in the editor now, and whether it holds what it wrote,
+ * the same words, AI text as they were: the User hasn't touched them since.
+ * Null once its words are gone.
+ */
+export function changeNow(
+  state: EditorState,
+  change: AppliedChange,
+): { place: Place; written: boolean } | null {
+  const anchored = anchoredPlace(state, change);
+  if (anchored && asWritten(state.doc, change, anchored)) return { place: anchored, written: true };
+  const again = foundAgain(state.doc, change);
+  if (again) return { place: again, written: true };
+  return anchored && { place: anchored, written: false };
+}
+
+export const placeOfChange = (state: EditorState, change: AppliedChange): Place | null =>
+  changeNow(state, change)?.place ?? null;
+
+const blockIdOf = (node: ProseMirrorNode | null | undefined): string | null => {
+  const id: unknown = node?.attrs[BLOCK_ID_ATTRIBUTE];
+  return typeof id === "string" ? id : null;
+};
+
+/** The changes as they are once applied: what each wrote, and the Block it is in. */
+export function appliedChanges(
+  state: EditorState,
+  places: readonly ChangePlace[],
+): AppliedChange[] {
+  return places.map((change) => {
+    const place = anchoredPlace(state, change);
+    if (!place) return { ...change, written: Fragment.empty, blockId: null };
+    const $from = state.doc.resolve(place.from);
+    const blockId =
+      change.block === "removed"
+        ? null
+        : change.block === "added"
+          ? blockIdOf(state.doc.nodeAt(place.from))
+          : $from.parent.isTextblock
+            ? blockIdOf($from.parent)
+            : null;
+    return { ...change, written: contentAt(state.doc, place), blockId };
+  });
+}
 
 const COUNTED: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
@@ -391,7 +478,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
     const undo = button("undo-all", t("edit.review.undoAll"));
     if (line.undo && !line.undo.available()) {
       undo.setAttribute("aria-disabled", "true");
-      undo.title = t("mindChanges.undo.changedSince", { mind: line.undo.mind });
+      undo.title = t("mindChanges.undo.changedSince.noReview", { mind: line.undo.mind });
     }
     return lineElement("applied-line", "applied-line", [
       sparkle(),
@@ -466,6 +553,7 @@ interface PlacedChange {
   change: AppliedChange;
   index: number;
   place: { from: number; to: number };
+  written: boolean;
   block: ChangedBlock;
 }
 
@@ -476,6 +564,8 @@ export interface ChangeGroup {
   last: PlacedChange;
   from: number;
   to: number;
+  /** None of it changed since: restoring it takes none of the User's words. */
+  restorable: boolean;
 }
 
 function groupsOf(
@@ -496,16 +586,17 @@ function groupsOf(
       ),
       from: Math.min(...members.map(({ place }) => place.from)),
       to: Math.max(...members.map(({ place }) => place.to)),
+      restorable: members.every(({ written }) => written),
     };
   });
 }
 
 function reviewedBlocks(state: EditorState, changes: readonly AppliedChange[]) {
   const placed = changes.flatMap((change, index): PlacedChange[] => {
-    const place = placeOfChange(state, change);
-    return place
-      ? [{ change, index, place, block: changedBlockOf(state, change, index, place) }]
-      : [];
+    const now = changeNow(state, change);
+    if (!now) return [];
+    const { place, written } = now;
+    return [{ change, index, place, written, block: changedBlockOf(state, change, index, place) }];
   });
   const sections = rewrittenSections(
     state.doc,
@@ -519,6 +610,9 @@ function reviewedBlocks(state: EditorState, changes: readonly AppliedChange[]) {
 export const changeGroupsOf = (state: EditorState, changes: readonly AppliedChange[]) =>
   reviewedBlocks(state, changes).groups;
 
+export const changesLeft = (line: Extract<AppliedLine, { kind: "review" }>) =>
+  line.shows ? line.changes.filter((change) => line.shows?.(change)) : line.changes;
+
 /**
  * What shows the old text of the change shown again that the cursor is in,
  * its section's when it is in one, and whether it shows; null for one not
@@ -527,7 +621,7 @@ export const changeGroupsOf = (state: EditorState, changes: readonly AppliedChan
 export function appliedOriginalAt(state: EditorState): { key: string; shown: boolean } | null {
   const line = appliedLineIn(state);
   if (line?.kind !== "review") return null;
-  const { placed, sections } = reviewedBlocks(state, line.changes);
+  const { placed, sections } = reviewedBlocks(state, changesLeft(line));
   const { from } = state.selection;
   const here = placed.find(({ place }) => place.from <= from && from <= place.to);
   if (!here) return null;
@@ -604,13 +698,19 @@ function changeMarks(
   });
   const restores = groups.flatMap((group, at) => {
     if (!group.members.some(({ index }) => drawn.has(index))) return [];
-    const { last } = group;
+    const { last, restorable } = group;
     const ownLine = last.change.block !== null;
-    const label = t("edit.review.restore");
+    const label = t(restorable ? "edit.review.restore" : "edit.review.changedSince");
     return [
       Decoration.widget(
         last.place.to,
-        () => restoreHolder(restoreButton(at, groups.length, t), ownLine),
+        () =>
+          restoreHolder(
+            restorable
+              ? restoreButton(at, groups.length, t)
+              : text("applied-changed", label, "change-changed-since"),
+            ownLine,
+          ),
         {
           // Widgets at one position draw in order of side: after the group's new words but
           // before the next change's old ones (-1), or, with no new words, after its own old ones.
@@ -629,7 +729,7 @@ function decorations(state: EditorState, line: AppliedLine, options: Options): D
   const { doc } = state;
   const marks: Decoration[] =
     line.kind === "review"
-      ? changeMarks(state, line.changes, new Set(line.shown), options.translate)
+      ? changeMarks(state, changesLeft(line), new Set(line.shown), options.translate)
       : [];
   const at = placeOf(doc, line.blockId);
   const shared = { side: -1, ignoreSelection: true, stopEvent: () => true };
@@ -638,7 +738,7 @@ function decorations(state: EditorState, line: AppliedLine, options: Options): D
       line.kind === "applied"
         ? line.blocks
         : line.kind === "review"
-          ? changedBlocksOf(state, line.changes)
+          ? changedBlocksOf(state, changesLeft(line))
           : { paragraphs: 0, tables: 0 };
     const words = line.kind === "failed" ? line.text : "";
     const count = `${blocks.paragraphs}/${blocks.tables}`;
@@ -697,7 +797,7 @@ export const AppliedEditLine = Extension.create<Options>({
                   (shown.asked?.requests ?? [shown.request]).every(
                     (request) => waitingOf(state.doc, request) === 0,
                   )
-                : shown.kind === "review" && shown.changes.length === 0);
+                : shown.kind === "review" && changesLeft(shown).length === 0);
             const line = gone ? null : shown;
             if (!line) return { line: null, marks: DecorationSet.empty };
             if (line !== value.line || (tr.docChanged && fromDocument(tr))) {
@@ -716,7 +816,7 @@ export const AppliedEditLine = Extension.create<Options>({
                 target?.closest("[data-applied-change]")?.getAttribute("data-applied-change"),
               );
               const line = appliedLineKey.getState(view.state)?.line;
-              const change = line?.kind === "review" ? line.changes[index] : undefined;
+              const change = line?.kind === "review" ? changesLeft(line)[index] : undefined;
               const place = change ? placeOfChange(view.state, change) : null;
               if (!place) return false;
               event.preventDefault();
