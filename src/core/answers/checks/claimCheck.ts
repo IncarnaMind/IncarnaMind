@@ -1,7 +1,7 @@
 /**
  * The claim-check function (#96): one claim checked against the Documents
- * in a check Run, the one way Find support and Check against Documents
- * check a sentence, and later verify (#97) and contradiction watch (#112).
+ * in a check Run, the one way Check against Documents checks a
+ * sentence, and later verify (#97) and contradiction watch (#112).
  *
  * The Run is the Answer engine's Tool-calling loop (ADR-0007) with the check
  * Tool set: the Documents' search and `cite`, nothing else (ADR-0013, #78).
@@ -314,6 +314,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     });
 
     let reply = "";
+    let setAside: readonly string[] = [];
     let failed: ProviderError | null = null;
     let finished = false;
     for await (const event of deps.engine.generate({
@@ -345,6 +346,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     })) {
       if (event.type === "text-delta") reply += event.text;
       else if (event.type === "text-retracted") reply = reply.slice(0, -event.length);
+      else if (event.type === "text-set-aside") setAside = event.texts;
       else if (event.type === "failed") failed = event.error;
       else if (event.type === "finished") finished = true;
     }
@@ -378,10 +380,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ...facts(),
     };
     if (!finished || reply.trim() === "") return byCalculation ?? notChecked("empty");
-    const verdict = readVerdict(reply);
-    if (!verdict) {
-      return byCalculation ?? notChecked(readsAsRefusal(reply) ? "refused" : "malformed");
-    }
+    // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
+    // with no marker, and only the sentence after it: the Answer sets that turn aside as a
+    // preamble (#1673). Only the last such turn with a verdict counts, so another one's preamble
+    // never becomes what the Document says, and a refusal after it is the reply's last word.
+    const refused = readsAsRefusal(reply);
+    const withVerdict = refused
+      ? undefined
+      : setAside.findLast((text) => readVerdict(text) !== null);
+    const verdict =
+      readVerdict(reply) ??
+      (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
+    if (!verdict) return byCalculation ?? notChecked(refused ? "refused" : "malformed");
     if (!searched) return notChecked("unread");
     if (byCalculation && verdict.verdict !== "contradicted") return byCalculation;
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */

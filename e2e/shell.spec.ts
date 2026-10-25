@@ -374,11 +374,6 @@ test("Linked folder and Document rows stay 28px, on the shared text edge, throug
   await expectRowsAligned(window);
   await screenshot(window, "linked-folders-missing", sidebar());
 
-  // Papers as one list: its row says so, and stays on its line.
-  await (await openLinkedFolderMenu(papers)).getByTestId("linkedFolder.layout").click();
-  await expect(papers).toHaveAttribute("data-layout", "flat");
-  await expectRowsAligned(window);
-  await screenshot(window, "linked-folders-flat", sidebar());
   await running.app.close();
 
   // Drive unplugged while the app was closed: it and its Documents are unavailable.

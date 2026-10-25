@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { type CitationStyleId, isCitationStyleId } from "../../shared/citationStyles";
 import { wordingOf } from "../../shared/errorWording";
 import { translate } from "../../shared/i18n";
-import { organizeModelOf, supportsLibraryImages } from "../../shared/libraryModels";
+import {
+  LIBRARY_DEFAULTS,
+  organizeModelOf,
+  supportsLibraryImages,
+} from "../../shared/libraryModels";
 import { libraryPresetKeys } from "../../shared/libraryPresets";
 import type {
   DocumentKind,
@@ -232,7 +236,7 @@ export function createLibrary(options: {
     const stored = settings.readDeviceValue("library");
     const saved = isRecord(stored) ? stored : {};
     return {
-      classifier: taggingClassifierOf(saved.classifier) ?? AUTOMATIC,
+      classifier: taggingClassifierOf(saved.classifier) ?? LIBRARY_DEFAULTS.classifier,
       // Null until the User sets the switch: it follows the model then (see `LibrarySettings.automatic`).
       automatic: typeof saved.automatic === "boolean" ? saved.automatic : null,
       organizeWith: taggingClassifierOf(saved.organizeWith),
@@ -243,10 +247,12 @@ export function createLibrary(options: {
         : [],
     };
   };
-  const getSettings = (): LibrarySettings => {
-    const saved = savedSettings();
-    return { ...saved, automatic: saved.automatic ?? !options.usesCloud(saved) };
-  };
+  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !options.usesCloud(saved);
+  const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => ({
+    ...saved,
+    automatic: saved.automatic ?? defaultAutomatic(saved),
+  });
+  const getSettings = (): LibrarySettings => shownSettings(savedSettings());
   const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
   const automaticOffNotice = (): boolean => {
     const marker = settings.readDeviceValue(AUTOMATIC_OFF_NOTICE);
@@ -803,11 +809,13 @@ export function createLibrary(options: {
           `SELECT ${GROUP_COLUMNS} FROM library_groups WHERE deleted_at IS NOT NULL ORDER BY name COLLATE NOCASE, id`,
         )
         .map(toGroup);
+      const saved = savedSettings();
       return {
         groups: groups(),
         deletedGroups,
         assignments,
-        settings: getSettings(),
+        settings: shownSettings(saved),
+        automaticDefault: defaultAutomatic(saved),
         automaticOffNotice: automaticOffNotice(),
       };
     },

@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
+  type ChangedQuote,
   type CitationAttributes,
   type CitationCheck,
   type CitationRecheck,
@@ -17,6 +18,8 @@ import {
   changedSourceNote,
   citationSource,
   citationState,
+  needsRecheck,
+  newVersionCitation,
   parseQuotedWords,
   quoteStanding,
   versionMoment,
@@ -37,6 +40,7 @@ import { type CommandContext, commands } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { useAnswerBeingWritten } from "../conversations";
+import { nameWithPlace, useDocumentPlace } from "../documentPlaces";
 import { useGap, useLanguage, useT } from "../i18n";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
 import { useBreathing } from "../motion";
@@ -60,10 +64,13 @@ import {
 } from "./citationClusters";
 import { citationNumberOf } from "./citationNumbers";
 import { QuoteWithUnsureWords, ScanLine, useReadableQuote, useScannedQuote } from "./citationScan";
-import { CheckMarkIcon, CheckStateIcon } from "./icons";
+import { sentenceAround } from "./citationSentence";
+import { asOneStep, offerEditorUndo } from "./editorUndo";
+import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import { InFootnoteContext, MindIdContext, RegenerateAnswerContext } from "./mindContext";
 import { Popover } from "./Popover";
 import { onPeek, peekCitation } from "./peek";
+import { isQuietFocus } from "./quietFocus";
 import { StyledRuns, StyledRunView } from "./StyledRuns";
 import { runsText } from "./styledText";
 
@@ -111,12 +118,17 @@ function answerAround(
  * the page would cover the Mind, so the click keeps the card alone and its
  * Open brings the page (#963). When the quote wasn't found, the card offers
  * ways on: open the page anyway, remove the Citation, or regenerate the Answer.
+ * Once its Document has a newer version where its quote isn't as cited, it
+ * needs re-check (#99): its marker and card say so, the card shows the cited
+ * words as they changed, and offers Update the sentence… and Keep citing the
+ * old version, each one step of Undo.
  */
 export function CitationView({
   node,
   editor,
   getPos,
   deleteNode,
+  updateAttributes,
   decorations,
 }: ReactNodeViewProps) {
   const t = useT();
@@ -142,8 +154,15 @@ export function CitationView({
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;
+  const recheckAsked = editor.isEditable && needsRecheck(state, attributes, recheck);
+  // Kept over, or moved to, only the version the card showed: a check still of an older one, or failed, isn't it.
+  const lookedAt =
+    recheck !== null && recheck !== "failed" && recheck.contentHash === liveVersion
+      ? liveVersion
+      : null;
+  const newVersion = editor.isEditable && lookedAt ? newVersionCitation(attributes, recheck) : null;
   const badge = badgeMessage(state, shown, t);
-  const badgeText = t(badge.key, badge.params);
+  const badgeText = recheckAsked ? t("citation.badge.recheck") : t(badge.key, badge.params);
   const number = citationNumberOf(decorations);
   // In a footnote's text it is part of the footnote: it shows where it points, not a number.
   const footnoteId = useContext(InFootnoteContext);
@@ -253,12 +272,47 @@ export function CitationView({
     const place = placeOf();
     if (mindId && place !== null) pinCitation(mindId, place);
   };
+  const keepOldVersion = () => {
+    if (!lookedAt) return;
+    dismiss();
+    asOneStep(editor, () => updateAttributes({ keptOver: lookedAt }));
+    offerEditorUndo(editor, (t) => t("citation.keptOld"));
+    if (!groupsMerged()) editor.view.focus();
+  };
+  const updateSentence = () => {
+    const documentId = state.documentId ?? attributes.documentId;
+    if (!newVersion || !documentId) return;
+    dismiss();
+    asOneStep(editor, () => updateAttributes(newVersion));
+    offerEditorUndo(editor, (t) => t("citation.updated"));
+    const moved = { ...attributes, ...newVersion, documentId };
+    const label = moved.location ? formatLocation(moved.location, t) : null;
+    openCitedPlace(moved, {
+      check: moved.check,
+      withQuote: true,
+      number,
+      label,
+      from: place?.groupId,
+      keep: true,
+    });
+    if (groupsMerged()) return;
+    const at = getPos();
+    const sentence = at === undefined ? null : sentenceAround(editor.state.doc, at);
+    const chain = editor.chain().focus();
+    (sentence ? chain.setTextSelection(sentence) : chain).run();
+  };
   const openFromCardRef = useRef(openFromCard);
   openFromCardRef.current = openFromCard;
+  const choices = {
+    update: recheckAsked && newVersion ? updateSentence : null,
+    keepOld: recheckAsked && lookedAt ? keepOldVersion : null,
+  };
+  const choicesRef = useRef(choices);
+  choicesRef.current = choices;
   // "Open cited page" (a command) opens the Citation whose card shows.
   useEffect(() => {
     if (!open) return;
-    const handle = { open: () => openFromCardRef.current() };
+    const handle = { open: () => openFromCardRef.current(), choices: () => choicesRef.current };
     citationHandle.current = handle;
     return () => {
       if (citationHandle.current === handle) citationHandle.current = null;
@@ -271,6 +325,8 @@ export function CitationView({
     ...(state.reason !== "document-removed" && {
       "citation.open": () => openFromCardRef.current(),
     }),
+    ...(choices.update && { "citation.update": choices.update }),
+    ...(choices.keepOld && { "citation.keepOld": choices.keepOld }),
     // Not where the text can't be changed, such as an Answer in the assistant.
     ...(editor.isEditable && {
       "citation.remove": () => {
@@ -324,6 +380,7 @@ export function CitationView({
         type="button"
         data-testid="citation-chip"
         data-check={state.check}
+        data-recheck={recheckAsked || undefined}
         data-number={number || undefined}
         className={`citation-marker ${
           inFootnote
@@ -346,7 +403,9 @@ export function CitationView({
         // loaded grows and moves up off it, which a Citation that only heard moves took as a leave.
         onPointerOver={(event) => pointAt(markerOfWork(workAt(event.target, inCluster)))}
         onPointerLeave={() => pointAt(null)}
-        onFocus={() => hold("focus", true)}
+        onFocus={(event) => {
+          if (!isQuietFocus(event.currentTarget)) hold("focus", true);
+        }}
         onBlur={() => hold("focus", false)}
         onClick={(event) => {
           const target = markerOfWork(workAt(event.target, inCluster));
@@ -354,7 +413,11 @@ export function CitationView({
           else onClick();
         }}
       >
-        <CheckMarkIcon ref={dot} check={state.check} className="citation-marker-icon" />
+        {recheckAsked ? (
+          <ClaimMarkIcon state="needs-recheck" className="citation-marker-icon" />
+        ) : (
+          <CheckMarkIcon ref={dot} check={state.check} className="citation-marker-icon" />
+        )}
         {inFootnote ? (
           <span>{pointsTo}</span>
         ) : styled.kind === "runs" ? (
@@ -402,8 +465,11 @@ export function CitationView({
               state={state}
               attributes={shown}
               recheck={recheck}
+              recheckAsked={recheckAsked}
               badgeText={badgeText}
               onOpen={openFromCard}
+              onUpdate={choices.update}
+              onKeep={choices.keepOld}
               onRemove={
                 editor.isEditable
                   ? () => {
@@ -543,10 +609,13 @@ function CitationCard({
   state,
   attributes,
   recheck,
+  recheckAsked,
   badgeText,
   inAnswer,
   note,
   onOpen,
+  onUpdate,
+  onKeep,
   onRemove,
   onRegenerate,
   menu,
@@ -556,11 +625,15 @@ function CitationCard({
   state: CitationState;
   attributes: CitationAttributes;
   recheck: CitationRecheck | "failed" | null;
+  recheckAsked: boolean;
   badgeText: string;
   inAnswer: boolean;
   /** In a note style, the note the Citation is written in, as an export will write it. */
   note: readonly StyledRun[] | null;
   onOpen(withQuote: boolean): void;
+  /** Null where it isn't offered; with either, the card offers them in place of Open. */
+  onUpdate: (() => void) | null;
+  onKeep: (() => void) | null;
   /** Null where the text can't be changed, such as an Answer in the assistant. */
   onRemove: (() => void) | null;
   onRegenerate(): void;
@@ -570,11 +643,12 @@ function CitationCard({
   const gap = useGap();
   const live = useAppStore((store) => store.documents.find((each) => each.id === state.documentId));
   const web = live?.web ?? null;
+  const place = useDocumentPlace(state.documentId ?? null);
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;
   const withPdfPage = location ? formatLocationWithPdf(location, t) : null;
   const opens = web ? "web" : openKind(location);
-  const name = attributes.documentName ?? "";
+  const name = nameWithPlace(attributes.documentName ?? "", place);
   // When the version it quotes was fetched: an older one's, if the page changed since.
   const fetchedAt =
     web?.versions.find((each) => each.contentHash === attributes.contentHash)?.fetchedAt ??
@@ -584,7 +658,7 @@ function CitationCard({
   // under the name says the place, so the name stands alone.
   const source =
     checked || withPdfPage
-      ? where
+      ? where || place
         ? name
         : null
       : where
@@ -601,6 +675,7 @@ function CitationCard({
   const scanned = useScannedQuote(attributes);
   const quote = useReadableQuote(attributes);
   const changed = changedSourceNote(state.changedAfterCited, attributes, recheck, t);
+  const words = recheck !== null && recheck !== "failed" ? (recheck.changed ?? null) : null;
   const changedOn = changedOnMessage(
     state.changedAfterCited,
     live ? versionMoment(live) : null,
@@ -610,8 +685,17 @@ function CitationCard({
   return (
     <div className={`citation-card citation-card--${state.check}`} contentEditable={false}>
       <div className="citation-card-head">
-        <p data-testid="citation-badge" data-check={state.check} className="citation-badge">
-          <CheckStateIcon check={state.check} className="citation-badge-icon" />
+        <p
+          data-testid="citation-badge"
+          data-check={state.check}
+          data-recheck={recheckAsked || undefined}
+          className="citation-badge"
+        >
+          {recheckAsked ? (
+            <ClaimMarkIcon state="needs-recheck" className="citation-badge-icon" />
+          ) : (
+            <CheckStateIcon check={state.check} className="citation-badge-icon" />
+          )}
           <span>{badgeText}</span>
         </p>
         {source && <p className="citation-card-source">{source}</p>}
@@ -632,7 +716,7 @@ function CitationCard({
           </p>
         )}
       </div>
-      {attributes.quote && state.check !== "not-found" && (
+      {attributes.quote && state.check !== "not-found" && !words && (
         <figure className="citation-card-quote">
           <figcaption className="sr-only">{t("citation.quote")}</figcaption>
           <blockquote>
@@ -645,11 +729,17 @@ function CitationCard({
       {state.check === "not-found" && <CitationQuotedWords attributes={attributes} />}
       {changed && (
         <div data-testid="citation-changed" className="citation-card-changed">
-          <p className="citation-card-note">{changed.notice}</p>
-          {changed.quote && (
-            <p data-testid="citation-changed-quote" className="citation-card-note">
-              {changed.quote}
-            </p>
+          {words ? (
+            <ChangedWords words={words} />
+          ) : (
+            <>
+              <p className="citation-card-note">{changed.notice}</p>
+              {changed.quote && (
+                <p data-testid="citation-changed-quote" className="citation-card-note">
+                  {changed.quote}
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
@@ -671,8 +761,30 @@ function CitationCard({
         </p>
       )}
       {quotedWords && <p className="citation-card-note">{t("citation.quoted.why")}</p>}
-      {state.check === "found" && <p className="citation-card-note">{t("citation.meaning")}</p>}
+      {state.check === "found" && !recheckAsked && (
+        <p className="citation-card-note">{t("citation.meaning")}</p>
+      )}
       <div className="citation-card-actions">
+        {onUpdate && (
+          <button
+            type="button"
+            data-testid="citation-update"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onUpdate}
+          >
+            {t("citation.update")}
+          </button>
+        )}
+        {onKeep && (
+          <button
+            type="button"
+            data-testid="citation-keep-old"
+            className="citation-card-action"
+            onClick={onKeep}
+          >
+            {t("citation.keepOld")}
+          </button>
+        )}
         {state.check === "not-found" ? (
           <>
             <button
@@ -705,7 +817,7 @@ function CitationCard({
               </button>
             )}
           </>
-        ) : (
+        ) : onUpdate || onKeep ? null : (
           <button
             type="button"
             data-testid="citation-open"
@@ -741,5 +853,26 @@ function CitationCard({
         )}
       </div>
     </div>
+  );
+}
+
+function ChangedWords({ words }: { words: ChangedQuote }) {
+  const t = useT();
+  return (
+    <>
+      <p className="citation-card-note">{t("citation.changed.words")}</p>
+      <figure className="citation-card-quote">
+        <blockquote data-testid="citation-changed-words" className="citation-card-changed-words">
+          {words.parts.map((part, index) => {
+            // biome-ignore lint/suspicious/noArrayIndexKey: parts have no identity but their place.
+            if (part.kind === "removed") return <del key={index}>{part.text}</del>;
+            // biome-ignore lint/suspicious/noArrayIndexKey: parts have no identity but their place.
+            if (part.kind === "added") return <ins key={index}>{part.text}</ins>;
+            // biome-ignore lint/suspicious/noArrayIndexKey: parts have no identity but their place.
+            return <span key={index}>{part.text}</span>;
+          })}
+        </blockquote>
+      </figure>
+    </>
   );
 }

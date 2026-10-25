@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import { HOME_GUARD } from "../../vitest.config";
+import { HOME_GUARD, nodeWorkers } from "../../vitest.config";
 import { evalCache } from "../lib/cache";
 
 /**
@@ -9,6 +9,7 @@ import { evalCache } from "../lib/cache";
  */
 export default defineConfig({
   root: fileURLToPath(new URL("../..", import.meta.url)),
+  plugins: [nodeWorkers()],
   test: {
     include: ["eval/word/**/*.word.ts"],
     environment: "node",
