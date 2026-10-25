@@ -630,3 +630,64 @@ test("Review changes lives with the Mind's editor: once its tab has shown anothe
   await expect(again.getByTestId("page-style")).toBeVisible();
   await expect(again.getByTestId("page-review-changes")).toHaveCount(0);
 });
+
+/** Pastes HTML where the cursor is, as a copy from IncarnaMind arrives: AI text stays AI text. */
+const pasteHtml = (window: Page, html: string) =>
+  window.evaluate((pasted) => {
+    const data = new DataTransfer();
+    data.setData("text/html", pasted);
+    const event = new ClipboardEvent("paste", { clipboardData: data, bubbles: true });
+    document.querySelector(".ProseMirror")?.dispatchEvent(event);
+  }, html);
+
+test("a copy of an AI change pasted beside it is never restored: with the change itself edited, Review changes isn't offered", async () => {
+  const { window } = await launch();
+  await useLocalChatModel(window);
+  const { paragraphs } = await mindWith(window, [TIDES]);
+  const note = paragraphs.first();
+
+  await slideSelect(window, note, TIDES);
+  await askToChange(window, "replace strong with powerful");
+  await expect(note).toHaveText("The tides here are very powerful and really regular.");
+  await slideSelect(window, note, "powerful");
+  await window.keyboard.press("ArrowRight");
+  await pasteHtml(window, "<span data-generated>powerful</span>");
+  await expect(note).toHaveText("The tides here are very powerfulpowerful and really regular.");
+  await slideSelect(window, note, "wer");
+  await window.keyboard.type("x");
+  const edited = "The tides here are very poxfulpowerful and really regular.";
+  await expect(note).toHaveText(edited);
+
+  expect(await paletteOffers(window, "edit.reviewApplied", "Review changes")).toBe(0);
+  await expect(note).toHaveText(edited);
+});
+
+test("after Shorten, a word it took out comes back only while the words either side are as the edit left them: an edited neighbour says “You changed this since”, the untouched one restores, and with its paragraph's words deleted since no Review is offered", async () => {
+  const { window } = await launch();
+  await useLocalChatModel(window);
+  const { editor, paragraphs } = await mindWith(window, [TIDES, FIRST]);
+  const note = paragraphs.first();
+
+  await slideSelect(window, note, TIDES);
+  await pointAndClick(window, window.getByTestId("selection-action-shorten"));
+  await expect(note).toHaveText("The tides here are strong and regular.");
+  await slideSelect(window, note, "regular");
+  await window.keyboard.type("steady");
+  await expect(note).toHaveText("The tides here are strong and steady.");
+
+  await fromPalette(window, "edit.reviewApplied", "Review changes");
+  await expect(note.getByTestId("change-restore")).toHaveCount(1);
+  await expect(note.getByTestId("change-changed-since")).toHaveText("You changed this since");
+  await pointAndClick(window, note.getByTestId("change-restore"));
+  await pointAndClick(window, lineOf(editor).getByTestId("applied-done"));
+  await expect(note).toHaveText("The tides here are very strong and steady.");
+
+  await slideSelect(window, note, "The tides here are very strong and steady.");
+  await pointAndClick(window, window.getByTestId("selection-action-shorten"));
+  await expect(note).toHaveText("The tides here are strong and steady.");
+  await slideSelect(window, note, "The tides here are strong and steady.");
+  await window.keyboard.press("Backspace");
+  await expect(paragraphs).toHaveText(["", FIRST]);
+  expect(await paletteOffers(window, "edit.reviewApplied", "Review changes")).toBe(0);
+  await expect(paragraphs).toHaveText(["", FIRST]);
+});

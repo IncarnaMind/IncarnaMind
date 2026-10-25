@@ -198,6 +198,9 @@ test("typed elsewhere after “make it longer”, the line goes but Review chang
   await pointAndClick(window, line.getByTestId("applied-done"));
   await runCommand(window, "edit.reviewApplied", "Review changes");
   await expect(count).toHaveText("2 paragraphs changed by the assistant");
+  // Changed since, the edit can't be taken back whole: ⌘K doesn't offer it.
+  expect(await paletteOffers(window, "edit.undoApplied", "Undo the AI edit")).toBe(0);
+  await expect(count).toBeVisible();
   await pointAndClick(window, line.getByTestId("applied-done"));
   await pointAndClick(window, review);
   await expect(count).toHaveText("2 paragraphs changed by the assistant");

@@ -10,7 +10,12 @@ import { type Editor, Extension, isMacOS } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { relativePositionToAbsolutePosition, ySyncPluginKey } from "@tiptap/y-tiptap";
+import {
+  absolutePositionToRelativePosition,
+  relativePositionToAbsolutePosition,
+  ySyncPluginKey,
+} from "@tiptap/y-tiptap";
+import * as Y from "yjs";
 import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
@@ -72,6 +77,10 @@ export interface AppliedChange extends ChangePlace {
   written: Fragment;
   /** The Block its new words are in, where they are found again (`changeNow`). */
   blockId: string | null;
+  /** Its first new word's or Block's own Yjs item; null for one that only took words out. */
+  start: unknown;
+  /** Words it only took out: the text either side of where they were, up to the next change in its Block. */
+  around?: { before: string; after: string };
 }
 
 export type AppliedLine = (
@@ -268,26 +277,56 @@ function contentAt(doc: ProseMirrorNode, place: Place): Fragment {
 const asWritten = (doc: ProseMirrorNode, change: AppliedChange, place: Place) =>
   contentAt(doc, place).eq(change.written);
 
+// Whether the Yjs item a position holds to is still there, through Undo and Redo: a change's own
+// first word or Block, never the same words pasted where it was.
+function holds(state: EditorState, relative: unknown): boolean {
+  const store = ySyncPluginKey.getState(state)?.binding?.doc.store;
+  if (!store || !(relative instanceof Y.RelativePosition) || relative.item === null) return true;
+  let item = Y.getItem(store, relative.item);
+  while (item instanceof Y.Item && item.redone) item = Y.getItem(store, item.redone);
+  return item instanceof Y.Item && !item.deleted;
+}
+
 // Its place can take in words typed just after it, as its end holds to what follows, and a
-// paragraph written anew is all that paragraph: its own words, there once in its Block, still count.
-// Only where they touch its place, so the same words elsewhere in the Block are never restored.
-function foundAgain(doc: ProseMirrorNode, change: AppliedChange, near: Place | null): Place | null {
-  const block = change.blockId === null ? null : blockAt(doc, change.blockId);
-  if (!block || change.written.size === 0) return null;
+// paragraph written anew is all that paragraph: its own words still start where they did.
+function foundAgain(state: EditorState, change: AppliedChange): Place | null {
+  const { doc } = state;
   if (change.block === "added") {
-    const place = { from: block.pos, to: block.pos + change.written.size };
-    return place.to <= doc.content.size && asWritten(doc, change, place) ? place : null;
+    const block = change.blockId === null ? null : blockAt(doc, change.blockId);
+    const place = block && { from: block.pos, to: block.pos + change.written.size };
+    return place && place.to <= doc.content.size && asWritten(doc, change, place) ? place : null;
   }
-  if (!block.node.isTextblock) return null;
-  const words = textOf(change.written);
-  const text = textOf(block.node.content);
-  const found: Place[] = [];
-  for (let at = text.indexOf(words); at >= 0; at = text.indexOf(words, at + 1)) {
-    const place = { from: block.pos + 1 + at, to: block.pos + 1 + at + change.written.size };
-    const touches = !near || (place.from <= near.to && near.from <= place.to);
-    if (touches && asWritten(doc, change, place)) found.push(place);
-  }
-  return found.length === 1 ? (found[0] ?? null) : null;
+  const binding = ySyncPluginKey.getState(state)?.binding;
+  const from = binding
+    ? relativePositionToAbsolutePosition(binding.doc, binding.type, change.start, binding.mapping)
+    : null;
+  const place = from === null ? null : { from, to: from + change.written.size };
+  return place && place.to <= doc.content.size && asWritten(doc, change, place) ? place : null;
+}
+
+const textAt = (doc: ProseMirrorNode, from: number, to: number) =>
+  doc.textBetween(from, to, "\n", "\uFFFC");
+
+// Putting back words it only took out is safe while the text either side is as the edit left it.
+function removalNow(
+  state: EditorState,
+  change: AppliedChange,
+  anchored: Place | null,
+): { place: Place; written: boolean } | null {
+  if (!anchored) return null;
+  if (change.block === "removed") return { place: anchored, written: true };
+  const block = change.blockId === null ? null : blockAt(state.doc, change.blockId);
+  if (!block) return null;
+  const start = block.pos + 1;
+  const end = block.pos + block.node.nodeSize - 1;
+  const at = anchored.from;
+  const { before = "", after = "" } = change.around ?? {};
+  const written =
+    start <= at &&
+    at <= end &&
+    textAt(state.doc, start, at).endsWith(before) &&
+    textAt(state.doc, at, end).startsWith(after);
+  return { place: anchored, written };
 }
 
 /**
@@ -300,9 +339,14 @@ export function changeNow(
   change: AppliedChange,
 ): { place: Place; written: boolean } | null {
   const anchored = anchoredPlace(state, change);
-  if (anchored && asWritten(state.doc, change, anchored)) return { place: anchored, written: true };
-  const again = foundAgain(state.doc, change, anchored);
-  if (again) return { place: again, written: true };
+  if (change.written.size === 0) return removalNow(state, change, anchored);
+  if (holds(state, change.start)) {
+    if (anchored && asWritten(state.doc, change, anchored)) {
+      return { place: anchored, written: true };
+    }
+    const again = foundAgain(state, change);
+    if (again) return { place: again, written: true };
+  }
   return anchored && { place: anchored, written: false };
 }
 
@@ -314,24 +358,48 @@ const blockIdOf = (node: ProseMirrorNode | null | undefined): string | null => {
   return typeof id === "string" ? id : null;
 };
 
+// A ProseMirror place's Yjs position holds to the item before it; this one holds to the item at it.
+function itemAt(state: EditorState, pos: number): Y.RelativePosition | null {
+  const binding = ySyncPluginKey.getState(state)?.binding;
+  if (!binding) return null;
+  const before = absolutePositionToRelativePosition(pos, binding.type, binding.mapping);
+  const at = Y.createAbsolutePositionFromRelativePosition(before, binding.doc);
+  return at && Y.createRelativePositionFromTypeIndex(at.type, at.index, 0);
+}
+
 /** The changes as they are once applied: what each wrote, and the Block it is in. */
 export function appliedChanges(
   state: EditorState,
   places: readonly ChangePlace[],
 ): AppliedChange[] {
-  return places.map((change) => {
-    const place = anchoredPlace(state, change);
-    if (!place) return { ...change, written: Fragment.empty, blockId: null };
-    const $from = state.doc.resolve(place.from);
+  const { doc } = state;
+  const placed = places.map((change) => anchoredPlace(state, change));
+  return places.map((change, index) => {
+    const place = placed[index];
+    if (!place) return { ...change, written: Fragment.empty, blockId: null, start: null };
+    const $from = doc.resolve(place.from);
     const blockId =
       change.block === "removed"
         ? null
         : change.block === "added"
-          ? blockIdOf(state.doc.nodeAt(place.from))
+          ? blockIdOf(doc.nodeAt(place.from))
           : $from.parent.isTextblock
             ? blockIdOf($from.parent)
             : null;
-    return { ...change, written: contentAt(state.doc, place), blockId };
+    const written = contentAt(doc, place);
+    if (written.size > 0) return { ...change, written, blockId, start: itemAt(state, place.from) };
+    if (change.block !== null || !$from.parent.isTextblock) {
+      return { ...change, written, blockId, start: null };
+    }
+    let from = $from.start();
+    let to = $from.end();
+    for (const other of placed) {
+      if (!other || other === place) continue;
+      if (other.to <= place.from && other.to > from) from = other.to;
+      if (other.from >= place.from && other.from < to) to = other.from;
+    }
+    const around = { before: textAt(doc, from, place.from), after: textAt(doc, place.from, to) };
+    return { ...change, written, blockId, start: null, around };
   });
 }
 

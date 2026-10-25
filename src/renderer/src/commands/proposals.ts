@@ -164,7 +164,14 @@ const appliedCommand = (
 });
 
 export const proposalCommands: readonly Command[] = [
-  appliedCommand("edit.undoApplied", "command.edit.undoApplied", "undo", ["applied", "review"]),
+  appliedCommand(
+    "edit.undoApplied",
+    "command.edit.undoApplied",
+    "undo",
+    ["applied", "review"],
+    // Changed since, it can't take the edit back: its line says so on Undo all.
+    (line) => line.kind !== "review" || !line.undo || line.undo.available(),
+  ),
   {
     // After the line has gone too, while some of the edit's words are as it wrote them (#1795).
     id: "edit.reviewApplied",
