@@ -15,6 +15,7 @@ import {
   motionSettled,
   newMind,
   pointAndClick,
+  pointAt,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -581,6 +582,20 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
     await expect(editor).toBeFocused();
+
+    // With nothing focused, hovering a mark opens its card without taking the focus either.
+    await window.mouse.move(0, 0);
+    await window.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    });
+    await pointAt(
+      window,
+      window.locator('[data-testid="claim-mark"][data-claim="check-supported"]'),
+    );
+    await expect(card).toBeVisible();
+    await expect(card.locator(":focus")).toHaveCount(0);
+    await window.mouse.move(0, 0);
+    await expect(card).toHaveCount(0);
 
     // A narrow window keeps the card and its focused action in view.
     await setWindowSize(app, window, 900, 900);
