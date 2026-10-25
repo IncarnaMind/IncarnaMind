@@ -484,6 +484,9 @@ export function createComparisons(options: ComparisonsOptions) {
       const said = isNotFoundReply(answer.markdown) ? "" : answer.markdown.trim();
       return { kind: "problem", problem: "not-found", ...(said && { message: said }) };
     }
+    if (answer.changedScale) {
+      return { kind: "problem", problem: "scale-changed", message: answer.changedScale.given };
+    }
     return { kind: "answer", blocks: answer.blocks };
   }
 

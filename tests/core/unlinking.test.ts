@@ -227,15 +227,22 @@ describe("Unlinking a folder keeps the text its Citations quote", { timeout: 30_
     // Still quoted: kept.
     const second = startCore(dataDir);
     expect(await second.listKeptCitationTexts()).toHaveLength(2);
-    // The Answer's Citation goes with its Mind; the Note's stays.
     await second.deleteMind(mind.id);
     second.close();
+
+    // Waiting in Recently deleted, the Mind can come back with its Citation: the text stays.
+    const waiting = startCore(dataDir);
+    expect(await waiting.listKeptCitationTexts()).toHaveLength(2);
+    // The Answer's Citation goes with its Mind, once the Mind is deleted for good; the Note's stays.
+    await waiting.deletePermanently([{ kind: "mind", id: mind.id }]);
+    waiting.close();
 
     const third = startCore(dataDir);
     expect(await third.listKeptCitationTexts()).toEqual([
       { documentId: rivers.id, contentHash: rivers.contentHash, units: [1] },
     ]);
     await third.deleteMind(noted.mind.id);
+    await third.deletePermanently([{ kind: "mind", id: noted.mind.id }]);
     third.close();
 
     const fourth = startCore(dataDir);
