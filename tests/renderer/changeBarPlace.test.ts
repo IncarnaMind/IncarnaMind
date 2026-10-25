@@ -58,6 +58,29 @@ describe("Where a change's card goes", () => {
     expect(changeBarPlace(oneLine(700), 700, short, card, line).kind).toBe("dock");
   });
 
+  test("dock and beside swap at about 300px of room: 299, 300 and 301", () => {
+    const change = oneLine(700);
+    const withRoom = (room: number) => ({ ...change, right: page.right - 8 - room });
+    expect(changeBarPlace(withRoom(299), withRoom(299).right, page, card, line).kind).toBe("dock");
+    expect(changeBarPlace(withRoom(300), withRoom(300).right, page, card, line).kind).toBe(
+      "beside",
+    );
+    expect(changeBarPlace(withRoom(301), withRoom(301).right, page, card, line).kind).toBe(
+      "beside",
+    );
+  });
+
+  test("docked clear of the check badge and the Ask pill at the page's foot", () => {
+    const change = oneLine(page.right - 100);
+    const docked = changeBarPlace(change, change.right, page, card, line, {
+      right: 900,
+      bottom: 700,
+    });
+    expect(docked.kind).toBe("dock");
+    expect(cardBox(docked).right).toBeLessThanOrEqual(900);
+    expect(cardBox(docked).bottom).toBeLessThanOrEqual(700);
+  });
+
   test("never at the window's corner or over the page's edge, however narrow the page", () => {
     const narrow: ChangeBarBox = { left: 256, top: 44, right: 656, bottom: 588 };
     const place = changeBarPlace({ ...oneLine(600), left: 300 }, 600, narrow, card, line);

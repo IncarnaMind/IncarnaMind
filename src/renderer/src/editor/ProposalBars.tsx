@@ -25,6 +25,7 @@ import {
   changeReason,
   clearHovered,
   editorDoc,
+  keepShownChange,
   type PendingProposal,
   pendingAtSelection,
   pendingIn,
@@ -363,9 +364,14 @@ function lineHeightAt(editor: Editor, pos: number): number {
  * card goes past it, so it never covers words the change doesn't.
  */
 function textRightOn(editor: Editor, from: number, to: number, band: ChangeBarBox): number {
-  const last = blockAt(editor, to);
+  const first = blockAt(editor, from);
+  if (!first) return band.right;
+  const all = [...editor.view.dom.querySelectorAll(TEXT_BLOCK)];
+  const start = all.indexOf(first);
+  const found = blockAt(editor, to);
+  const end = found ? all.indexOf(found) : start;
   let right = band.right;
-  for (let block = blockAt(editor, from); block; block = block.nextElementSibling) {
+  for (const block of all.slice(start, Math.max(start, end) + 1)) {
     const range = document.createRange();
     range.selectNodeContents(block);
     for (const rect of range.getClientRects()) {
@@ -373,7 +379,6 @@ function textRightOn(editor: Editor, from: number, to: number, band: ChangeBarBo
       if (rect.top >= band.bottom || rect.bottom <= band.top) continue;
       right = Math.max(right, rect.right);
     }
-    if (!last || block === last) break;
   }
   return right;
 }
@@ -403,11 +408,13 @@ function scrollAboveCard(
  * A change's bar goes beside the change in the page view's right margin when
  * about 300px are free there, and at the page view's foot otherwise, never at
  * the window's corner (#1358, #1826); it follows the change as the Mind scrolls.
+ * Docked, it scrolls the change above it only while the cursor is in the
+ * change: scrolling under a still pointer would move the text out from under it.
  */
 function useBarPlace(
   editor: Editor,
   bar: RefObject<HTMLDivElement | null>,
-  change: { from: number; to: number; end: number } | null,
+  change: { from: number; to: number; end: number; focused: boolean } | null,
 ): void {
   useLayoutEffect(() => {
     const element = bar.current;
@@ -415,13 +422,19 @@ function useBarPlace(
     const place = () => {
       if (editor.isDestroyed) return;
       const box = changeBox(editor, change.from, change.end);
-      const page = editor.view.dom.closest(".mind-tab-page")?.getBoundingClientRect();
+      const pageOf = editor.view.dom.closest(".mind-tab-page");
+      const page = pageOf?.getBoundingClientRect();
       if (!box || !page) return;
       const barOfChanges = editor.view.dom
         .closest(".mind-editor-frame")
         ?.querySelector(".proposals-bar")
         ?.getBoundingClientRect();
-      // Its own width and height, before any cap: a long bar wraps, and its height grows.
+      const pill = editor.view.dom
+        .closest(".workbench")
+        ?.querySelector('[data-testid="ask-pill"]')
+        ?.getBoundingClientRect();
+      const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
+      // Its natural width, before this placement's cap.
       element.style.maxWidth = "";
       const size = { width: element.offsetWidth, height: element.offsetHeight };
       const line = lineHeightAt(editor, change.from);
@@ -436,10 +449,14 @@ function useBarPlace(
         },
         size,
         line,
+        {
+          right: Math.min(page.right, badge ? badge.left - GAP_PX : page.right),
+          bottom: Math.min(page.bottom, pill ? pill.top : page.bottom),
+        },
       );
       element.style.maxWidth = `${at.maxWidth}px`;
       Object.assign(element.style, { left: `${at.x}px`, top: `${at.y}px`, visibility: "visible" });
-      if (at.kind === "dock") scrollAboveCard(editor, box, line, at.y);
+      if (at.kind === "dock" && change.focused) scrollAboveCard(editor, box, line, at.y);
     };
     return autoUpdate(editor.view.dom, element, place);
   }, [editor, bar, change]);
@@ -527,6 +544,7 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       data-proposal-id={shown.id}
       onMouseEnter={() => {
         over.current = true;
+        keepShownChange(editor.view);
       }}
       onMouseLeave={() => {
         over.current = false;

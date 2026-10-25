@@ -20,6 +20,12 @@ export type ChangeBarPlace =
   | { kind: "beside"; x: number; y: number; maxWidth: number }
   | { kind: "dock"; x: number; y: number; maxWidth: number };
 
+/** Where the docked card may not pass: the check badge's left, and the Ask pill's top. */
+export interface DockLimits {
+  right: number;
+  bottom: number;
+}
+
 const clamp = (value: number, low: number, high: number) =>
   Math.max(low, Math.min(value, Math.max(low, high)));
 
@@ -35,7 +41,8 @@ const clamp = (value: number, low: number, high: number) =>
  *
  * `change` is what the change shows, `page` the page view (its `top` under the
  * Mind's bar of changes), `card` the card as it is drawn, and `lineHeight` the
- * text's line box.
+ * text's line box. `limits` keeps the docked card clear of what sits at the
+ * page's foot: the check badge and the Ask pill.
  */
 export function changeBarPlace(
   change: ChangeBarBox,
@@ -43,6 +50,7 @@ export function changeBarPlace(
   page: ChangeBarBox,
   card: { width: number; height: number },
   lineHeight: number,
+  limits?: DockLimits,
 ): ChangeBarPlace {
   const height = change.bottom - change.top;
   const lines = Math.max(1, Math.ceil(height / Math.max(1, lineHeight)));
@@ -59,15 +67,18 @@ export function changeBarPlace(
       maxWidth: Math.min(WIDEST_PX, room),
     };
   }
-  const width = Math.min(card.width, Math.max(0, page.right - page.left - FOOT_PX * 2));
+  const right = Math.min(limits?.right ?? page.right, page.right);
+  const bottom = Math.min(limits?.bottom ?? page.bottom, page.bottom);
+  const span = Math.max(0, right - page.left - FOOT_PX * 2);
+  const width = Math.min(card.width, span);
   return {
     kind: "dock",
     x: clamp(
-      Math.round((page.left + page.right - width) / 2),
+      Math.round((page.left + right - width) / 2),
       page.left + FOOT_PX,
-      page.right - FOOT_PX - width,
+      right - FOOT_PX - width,
     ),
-    y: page.bottom - FOOT_PX - card.height,
-    maxWidth: Math.min(WIDEST_PX, page.right - page.left - FOOT_PX * 2),
+    y: bottom - FOOT_PX - card.height,
+    maxWidth: Math.min(WIDEST_PX, span),
   };
 }

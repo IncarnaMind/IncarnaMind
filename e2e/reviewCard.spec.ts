@@ -1,10 +1,12 @@
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { paragraph, run, wordFile } from "../tests/helpers/word";
 import {
   askInAssistant,
   createDataFolder,
   dismissChatSetup,
   enterContent,
+  importWordFile,
   launchApp,
   newMind,
   pointAndClick,
@@ -82,6 +84,28 @@ const screenshot = async (window: Page, name: string) => {
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 };
 
+const scrolled = (window: Page) =>
+  window.evaluate(() => document.querySelector(".mind-scroller")?.scrollTop ?? 0);
+
+/** A long redline: the last clause carries a whole paragraph Dana added, too wide to sit beside. */
+function longRedline(): Buffer {
+  const dana = 'w:author="Dana Kim" w:date="2026-10-03T10:00:00Z"';
+  const clause = (index: number) =>
+    paragraph(`Clause ${index}: the parties keep the schedule for the works.`);
+  return wordFile({
+    body: [
+      ...Array.from({ length: 24 }, (_, index) => clause(index + 1)),
+      paragraph(
+        `${run("The Landlord insures the building. ")}<w:ins w:id="9" ${dana}>${run(
+          "The Tenant must tell the Landlord of any damage at once, in writing, and the Landlord may inspect the works within ten working days.",
+        )}</w:ins>`,
+      ),
+      clause(25),
+      clause(26),
+    ].join(""),
+  });
+}
+
 let dataDir: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
@@ -147,5 +171,44 @@ test("a change's card sits in the margin beside it, or at the page's foot, never
     expect(bottom(docked)).toBeLessThanOrEqual(bottom(page) + 1);
     expect(bottom(docked)).toBeGreaterThanOrEqual(bottom(page) - 48);
     await screenshot(window, `review-card-dock-${language}-${width}`);
+  }
+});
+
+test("a docked card scrolls its change above it only while the cursor is in the change", async () => {
+  const files = await createDataFolder();
+  try {
+    const { app, window } = await launchApp(dataDir, { home: files });
+    await setWindowSize(app, window, 900, 900);
+    await dismissChatSetup(window);
+    await importWordFile(app, window, files, "Long redline.docx", longRedline());
+    const editor = window.getByTestId("mind-editor");
+    const change = editor.locator("ins.proposal-theirs");
+    await expect(change).toHaveCount(1);
+
+    // The change at the page's foot: its card has nowhere to go but the foot, over it.
+    await change.scrollIntoViewIfNeeded();
+    const page = await boxOf(window.locator(".mind-tab-page:visible"));
+    const below = bottom(page) - 30 - bottom(await boxOf(change));
+    await window.mouse.move(page.x + page.width / 2, page.y + page.height / 2);
+    await window.mouse.wheel(0, -below);
+    await expect
+      .poll(async () => bottom(page) - bottom(await boxOf(change)))
+      .toBeLessThanOrEqual(60);
+
+    // Only pointed at, nothing scrolls under the pointer.
+    const before = await scrolled(window);
+    await change.hover();
+    const card = window.getByTestId("change-bar");
+    await expect(card).toBeVisible();
+    expect(await scrolled(window)).toBe(before);
+
+    // Clicked, the cursor is in the change: the card docks and the change moves above it.
+    // Its centre, which the card at the foot doesn't cover.
+    await pointAndClick(window, change);
+    await expect.poll(async () => bottom(await boxOf(change)) <= (await boxOf(card)).y).toBe(true);
+    expect(await scrolled(window)).toBeGreaterThan(before);
+    expect(overlaps(await boxOf(card), await boxOf(change))).toBe(false);
+  } finally {
+    await removeDataFolder(files);
   }
 });
