@@ -265,12 +265,18 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(runs.map((run) => run.text).join("")).toBe("Spring tides come at new and full moon .");
   });
 
-  // protects=a cut that rewords the sentence, as Kimi K2.6's did ("across all tested crime categories" became "in all cases", #1397), or moves its Citation, isn't used: the sentence lands as the assistant wrote it, marked unsupported, in English and Chinese; fails_when=the cut's words land, or the model is told a part was taken out; no_claim=how often a real model rewords.
+  // protects=a cut that rewords the sentence, as Kimi K2.6's did ("across all tested crime categories" became "in all cases", #1397), moves its Citation, or leaves no claim, isn't used: the sentence lands as the assistant wrote it, marked unsupported, in English and Chinese; fails_when=the cut's words land, or the model is told a part was taken out; no_claim=how often a real model rewords.
   test.each([
     {
       language: "en",
       content: `## Tides\n\n${OVERSTATED} [^1].`,
       cut: "Spring tides come at new and full moon in all cases [1].",
+      written: asChecked(OVERSTATED),
+    },
+    {
+      language: 'en, no claim left, as Claude Haiku 5.5\'s "Crime:"',
+      content: `## Tides\n\n${OVERSTATED} [^1].`,
+      cut: "Spring tides [1].",
       written: asChecked(OVERSTATED),
     },
     {
@@ -286,7 +292,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       written: asCheckedZh(OVERSTATED_ZH),
     },
   ])(
-    "a cut that does more than take words out isn't used, and the sentence lands as written, marked ($language)",
+    "a cut that does more than take a part out isn't used, and the sentence lands as written, marked ($language)",
     async ({ content, cut, written }) => {
       const { model, client } = await write({ content, cut });
 

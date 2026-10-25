@@ -11,8 +11,8 @@
  *   with Edit with AI's own request (`cut-unsupported`); the Citations stay on
  *   what is left, each word keeps its own formatting, and the sentence shows
  *   it needs a check again, as after the card's cut. A cut that would lose
- *   every Citation, or add one, isn't used, nor one that does more than take
- *   words out (#1397): the sentence then lands as written, marked.
+ *   every Citation, add one or leave no claim isn't used, nor one that does
+ *   more than take words out (#1397): the sentence then lands as written, marked.
  * - A sentence still unsupported, or one a Document contradicts, lands with
  *   its check's mark, so Check this Mind doesn't find it again later.
  * - One that couldn't be checked (a failure, a limit, the time limit, or past
@@ -33,7 +33,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
-import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
+import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -312,7 +312,7 @@ function takenOut(passage: string, cut: string): string | null {
   return count > 0 && count < pieces.length ? kept : null;
 }
 
-/** Null when the cut keeps no Citation, adds or repeats one, or says nothing. */
+/** Null when the cut keeps no Citation, adds or repeats one, or leaves no claim of its own (a label, as in "Crime:"). */
 function cutNodes(
   cut: string,
   sentence: readonly number[],
@@ -332,8 +332,7 @@ function cutNodes(
     last = at + match[0].length;
   }
   nodes.push(...wordsWithMarks(cut.slice(last), letters));
-  const said = cut.replace(MARKER, "").trim();
-  return used.size === 0 || !/[\p{L}\p{N}]/u.test(said) ? null : nodes;
+  return used.size === 0 || !isClaim(cut.replace(MARKER, "")) ? null : nodes;
 }
 
 interface Landing {
