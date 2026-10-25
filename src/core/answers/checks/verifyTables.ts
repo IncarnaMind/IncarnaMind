@@ -10,6 +10,7 @@ import { findTables, scannedRows, type TableGrid } from "../../documents/tables"
 import type { NodeJSON } from "../blocks";
 import { paragraphsOf } from "./claims";
 import { cellTexts, type SelectedSentence, textBefore } from "./sentences";
+import { isSection } from "./tableCells";
 
 /** A Block the PDF's text makes, with the page of each of its rows (one for a paragraph). */
 export interface DocumentBlock {
@@ -120,9 +121,6 @@ function tableNode({ headings, rows, numeric }: TableGrid): NodeJSON {
     ],
   };
 }
-
-const isSection = (texts: readonly string[]) =>
-  /[:：]$/.test(texts[0] ?? "") && texts.slice(1).every((text) => text === "");
 
 /**
  * A table's row, as one claim on its first cell: "固定资产 — 期末余额: 9,470; 期初余额: 8,860",

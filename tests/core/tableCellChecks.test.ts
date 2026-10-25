@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { pendingProposals } from "../../src/shared/proposals";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { askAssistant, changesIn } from "../helpers/assistant";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
@@ -239,7 +241,7 @@ const plansOf = (budget: Budget, unit = "") =>
   );
 
 describe("A table the assistant writes is checked cell by cell, each with its row and column", () => {
-  // protects=each cited cell of a written table is checked as "row — column: value" beside the table's caption, headings and its row without the other values, also when a contradiction is confirmed, so right cells land Supported and a wrong one Contradicted (#1459); fails_when=a cell is sent alone, the table isn't sent, or the confirmation judges it without the table; no_claim=how well a real model judges it (tests/live/tableCellChecks.live.test.ts).
+  // protects=each cited cell of a written table is checked as "row — column: value" beside the table's caption, headings and its row without the other values, also when a contradiction is confirmed, so right cells land Supported and a wrong one Contradicted, and the marks stay through accepting, Undo, Redo and reopening (#1459); fails_when=a cell is sent alone, the table isn't sent, the confirmation judges it without the table, or a mark goes; no_claim=how well a real model judges it (tests/live/tableCellChecks.live.test.ts).
   test.each(BUDGETS)(
     "$language: right cells land Supported and the wrong one Contradicted",
     async (budget) => {
@@ -274,8 +276,16 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
       for (const call of confirmed) expect(call.prompt).toContain(tableOf(budget, wrongRow));
       expect(marksIn(client)).toEqual([[budget.wrong, "contradicted"]]);
       expect(changesIn(answer)[0]?.selfCheck).toMatchObject({ cited: 4, sent: 4, checked: 4 });
+      const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });
       await resolveChanges(client, "accept");
       expect(marksIn(client)).toEqual([[budget.wrong, "contradicted"]]);
+      undo.undo();
+      await client.settled();
+      expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
+      expect(marksIn(client)).toEqual([[budget.wrong, "contradicted"]]);
+      undo.redo();
+      await client.settled();
+      expect(pendingProposals(client.blocks)).toHaveLength(0);
       expect(marksIn(await reopen())).toEqual([[budget.wrong, "contradicted"]]);
     },
   );
@@ -387,5 +397,167 @@ describe("Checking a User's own table reads each cell with its row and column", 
     );
     expect(sentenceOf(wrong as ModelCall)).toBe(`Revenue — 2025: 210${unit}`);
     expect(promptOf(wrong)).toContain(tableOf(budget, `Revenue | … | 210${unit}`));
+  });
+});
+
+type Shape = (JSONContent & { pick?: true })[][];
+
+const head = (text: string, colspan = 1, rowspan = 1): JSONContent => ({
+  type: "tableHeader",
+  attrs: { colspan, rowspan },
+  content: [paragraph(text)],
+});
+const body = (text: string, colspan = 1, rowspan = 1): JSONContent => ({
+  type: "tableCell",
+  attrs: { colspan, rowspan },
+  content: [paragraph(text)],
+});
+/** The cell whose check the test reads. */
+const picked = (cell: JSONContent): JSONContent & { pick: true } => ({ ...cell, pick: true });
+
+const SHAPES: {
+  name: string;
+  language: Budget["language"];
+  before?: string;
+  rows: Shape;
+  claim: string;
+  sent: string[];
+  never?: string[];
+}[] = [
+  {
+    name: "a unit column",
+    language: "zh-CN",
+    rows: [
+      [head("项目"), head("2024年"), head("2025年"), head("单位")],
+      [body("收入"), picked(body("100")), body("120"), body("亿元")],
+    ],
+    claim: "收入 — 2024年: 100; 单位: 亿元",
+    sent: ["项目 | 2024年 | 2025年 | 单位\n收入 | 100 | … | 亿元"],
+    never: ["120"],
+  },
+  {
+    name: "a currency column",
+    language: "en",
+    rows: [
+      [head("Item"), head("2024"), head("2025"), head("Currency")],
+      [body("Revenue"), picked(body("100")), body("120"), body("US$ million")],
+    ],
+    claim: "Revenue — 2024: 100; Currency: US$ million",
+    sent: ["Revenue | 100 | … | US$ million"],
+    never: ["120"],
+  },
+  {
+    name: "an index column",
+    language: "zh-CN",
+    rows: [
+      [head("序号"), head("项目"), head("2024年")],
+      [body("1"), body("收入"), picked(body("100"))],
+    ],
+    claim: "收入 — 2024年: 100",
+    sent: ["… | 收入 | 100"],
+  },
+  {
+    name: "section rows",
+    language: "en",
+    rows: [
+      [head("Item"), head("2024"), head("2025")],
+      [body("Revenue:"), body(""), body("")],
+      [body("China"), body("100"), body("120")],
+      [body("Cost:"), body(""), body("")],
+      [body("China"), picked(body("70")), body("78")],
+    ],
+    claim: "Cost: China — 2024: 70",
+    sent: ["China | 70 | …"],
+    never: ["Revenue:", "78"],
+  },
+  {
+    name: "no row labels",
+    language: "en",
+    rows: [
+      [head("Revenue 2024"), head("Revenue 2025")],
+      [body("999"), picked(body("120"))],
+    ],
+    claim: "Revenue 2025: 120",
+    sent: ["… | 120"],
+    never: ["999"],
+  },
+  {
+    name: "a label over two rows",
+    language: "en",
+    rows: [
+      [head("Segment"), head("Region"), head("2024"), head("2025")],
+      [body("Revenue", 1, 2), body("China"), body("100"), body("120")],
+      [body("Overseas"), body("80"), picked(body("90"))],
+    ],
+    claim: "Revenue Overseas — 2025: 90",
+    sent: ["Segment | Region | 2024 | 2025\nRevenue | Overseas | … | 90"],
+    never: ["80"],
+  },
+  {
+    name: "headings over two rows",
+    language: "zh-CN",
+    before: "单位：万元",
+    rows: [
+      [head("项目", 1, 2), head("2024年", 2), head("2025年", 2)],
+      [head("上半年"), head("下半年"), head("上半年"), head("下半年")],
+      [body("收入"), body("40"), picked(body("50")), body("60"), body("70")],
+    ],
+    claim: "收入 — 2024年 下半年: 50",
+    sent: ["单位：万元\n项目 | 2024年 上半年 | 2024年 下半年 | 2025年 上半年 | 2025年 下半年"],
+    never: ["40", "60", "70"],
+  },
+  {
+    name: "a cell under two headings",
+    language: "zh-CN",
+    rows: [
+      [head("项目"), head("2024年"), head("2025年")],
+      [body("收入"), picked(body("100", 2))],
+    ],
+    claim: "收入 — 100",
+    sent: ["收入 | 100"],
+    never: ["2024年: 100", "2025年: 100"],
+  },
+];
+
+describe("A table's cell is read on the table's grid, by what its cells hold", () => {
+  // protects=a cell is said with the cells in words to its left, its section row and its column's headings laid out on the grid, a unit or currency column goes with a figure, and a heading the grid doesn't settle is left out; fails_when=a unit, item or section is dropped, an index or a figure becomes the label, a merged cell takes another column's heading, or another figure of the row is sent; no_claim=how a real model reads them.
+  test.each(SHAPES)("$name ($language)", async (shape) => {
+    const checks: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        checks.push(call);
+        return checkReply(call, {});
+      },
+      { generate: checkGenerate({}) },
+    );
+    const budget = BUDGETS.find((each) => each.language === shape.language) as Budget;
+    const { core, client, mindId } = await budgetMind(budget, model);
+    let pick = "";
+    const rows = shape.rows.map((row) => ({
+      type: "tableRow",
+      content: row.map(({ pick: isPicked, ...cell }) => {
+        if (isPicked) pick = String(cell.content?.[0]?.attrs?.id);
+        return cell;
+      }),
+    }));
+    writeMind(client, [
+      ...(shape.before ? [paragraph(shape.before)] : []),
+      { type: "table", content: rows },
+    ]);
+    await client.settled();
+
+    await core.checkSentences({
+      requestId: randomUUID(),
+      mindId,
+      action: "check-against-documents",
+      from: { blockId: pick, offset: 0 },
+      to: { blockId: pick, offset: 0 },
+    });
+
+    const [sent] = checks.filter((call) => isCheckRun(call) && call.results.length === 0);
+    expect(sentenceOf(sent as ModelCall)).toBe(shape.claim);
+    const told = promptOf(sent).replace(/<sentence>[\s\S]*<\/sentence>/, "");
+    for (const each of shape.sent) expect(told).toContain(each);
+    for (const each of shape.never ?? []) expect(told).not.toContain(each);
   });
 });

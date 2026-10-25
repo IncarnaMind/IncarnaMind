@@ -153,7 +153,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const known = sorted.get(mindId) ?? { claims: new Set<string>(), left: new Set<string>() };
     sorted.set(mindId, known);
     const unsorted = fresh.filter((sentence) => {
-      const key = sentenceKey(sentence.text);
+      const key = sentenceKey(sentence.claim);
       return !known.claims.has(key) && !known.left.has(key);
     });
     if (unsorted.length > 0) {
@@ -165,10 +165,10 @@ export function createMindCheck(options: MindCheckOptions) {
       );
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
-        (found.claims.has(index) ? known.claims : known.left).add(sentenceKey(sentence.text));
+        (found.claims.has(index) ? known.claims : known.left).add(sentenceKey(sentence.claim));
       }
     }
-    const named = (sentence: SelectedSentence) => known.claims.has(sentenceKey(sentence.text));
+    const named = (sentence: SelectedSentence) => known.claims.has(sentenceKey(sentence.claim));
     return {
       kind: "found",
       claims: fresh.filter(named),
@@ -232,7 +232,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const added = mode === "added" ? addedSince(mindId) : null;
     return content.read(mindId, (blocks) => {
       const sentences = everySentence(blocks).filter((sentence) => isClaim(sentence.text));
-      const keys = new Set(sentences.map((sentence) => sentenceKey(sentence.text)));
+      const keys = new Set(sentences.map((sentence) => sentenceKey(sentence.claim)));
       const widened = new Set<SelectedSentence>();
       const marks = markedSentences(blocks);
       const markOf = (sentence: SelectedSentence) =>
@@ -246,7 +246,7 @@ export function createMindCheck(options: MindCheckOptions) {
         for (const sentence of sentences) {
           if (keptAsView(marks, sentence)) continue;
           if (markOf(sentence)) again.push(sentence);
-          else if (!skipped.has(sentenceKey(sentence.text))) fresh.push(sentence);
+          else if (!skipped.has(sentenceKey(sentence.claim))) fresh.push(sentence);
         }
         return { fresh, again, keys, skipped, widened, held: [] };
       }
@@ -275,7 +275,7 @@ export function createMindCheck(options: MindCheckOptions) {
           continue;
         }
         if (!mark) {
-          if (!skipped.has(sentenceKey(sentence.text))) fresh.push(sentence);
+          if (!skipped.has(sentenceKey(sentence.claim))) fresh.push(sentence);
           continue;
         }
         const shown = claimCheckShown(mark.check, {
@@ -355,7 +355,7 @@ export function createMindCheck(options: MindCheckOptions) {
     if (fresh.length > 0) {
       const found = await sort(mindId, fresh, ready.prepared, signal);
       if (found.kind !== "found") return found;
-      for (const sentence of found.left) skipped.add(sentenceKey(sentence.text));
+      for (const sentence of found.left) skipped.add(sentenceKey(sentence.claim));
       claims = [...found.claims, ...again];
     }
 

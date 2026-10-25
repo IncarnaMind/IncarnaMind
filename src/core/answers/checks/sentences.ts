@@ -21,7 +21,7 @@ import {
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks } from "../../proposals/write";
-import { readCell, type TableText } from "./tableCells";
+import { type CellText, readCell, readTable, type TableReading } from "./tableCells";
 
 const BREAK = "hardBreak";
 
@@ -72,40 +72,59 @@ export function textOf(element: Y.XmlElement): string {
 const elementsOf = (parent: Y.XmlElement) =>
   parent.toArray().filter((child) => child instanceof Y.XmlElement);
 
-export const cellTexts = (row: Y.XmlElement): string[] =>
-  elementsOf(row).map((cell) => elementsOf(cell).map(textOf).join(" ").trim());
+const cellText = (cell: Y.XmlElement) => elementsOf(cell).map(textOf).join(" ").trim();
 
-/** The text of the Block before a table, where its caption or unit line is; "" when there is none. */
+export const cellTexts = (row: Y.XmlElement): string[] => elementsOf(row).map(cellText);
+
+/** The text of the paragraph or heading right before a table, where its caption or unit line is; "" when there is none. */
 export function textBefore(table: Y.XmlElement): string {
   const before = table.prevSibling;
-  return before instanceof Y.XmlElement && before.nodeName !== "table" ? textOf(before).trim() : "";
+  return before instanceof Y.XmlElement &&
+    (before.nodeName === "paragraph" || before.nodeName === "heading")
+    ? textOf(before).trim()
+    : "";
 }
 
-type Tables = Map<Y.XmlElement, TableText>;
+const spanOf = (cell: Y.XmlElement, name: string) =>
+  Math.max(Math.trunc(Number(cell.getAttribute(name))) || 1, 1);
 
-function tableText(table: Y.XmlElement, rows: readonly Y.XmlElement[]): TableText {
-  const [first] = rows;
-  return {
-    rows: rows.map(cellTexts),
-    headed:
-      first !== undefined && elementsOf(first).every((each) => each.nodeName === "tableHeader"),
-    before: textBefore(table),
-  };
+interface ReadTable {
+  reading: TableReading;
+  cells: Map<Y.XmlElement, CellText>;
+}
+
+type Tables = Map<Y.XmlElement, ReadTable>;
+
+function tableOf(table: Y.XmlElement): ReadTable {
+  const cells = new Map<Y.XmlElement, CellText>();
+  const rows = elementsOf(table).map((row) =>
+    elementsOf(row).map((element) => {
+      const cell: CellText = {
+        text: cellText(element),
+        header: element.nodeName === "tableHeader",
+        colspan: spanOf(element, "colspan"),
+        rowspan: spanOf(element, "rowspan"),
+      };
+      cells.set(element, cell);
+      return cell;
+    }),
+  );
+  return { reading: readTable(rows, textBefore(table)), cells };
 }
 
 function cellOf(
   paragraph: Y.XmlElement,
   tables: Tables,
-): { table: TableText; row: number; column: number } | null {
+): { reading: TableReading; cell: CellText } | null {
   const cell = paragraph.parent;
   const row = cell instanceof Y.XmlElement ? cell.parent : null;
   const table = row instanceof Y.XmlElement ? row.parent : null;
   if (!(cell instanceof Y.XmlElement) || !(row instanceof Y.XmlElement)) return null;
   if (!(table instanceof Y.XmlElement) || table.nodeName !== "table") return null;
-  const rows = elementsOf(table);
-  const read = tables.get(table) ?? tableText(table, rows);
+  const read = tables.get(table) ?? tableOf(table);
   tables.set(table, read);
-  return { table: read, row: rows.indexOf(row), column: elementsOf(row).indexOf(cell) };
+  const found = read.cells.get(cell);
+  return found ? { reading: read.reading, cell: found } : null;
 }
 
 function sentenceIn(
@@ -124,7 +143,7 @@ function sentenceIn(
     to,
     text: sentence,
     context: text,
-    ...(cell ? readCell(cell.table, cell.row, cell.column, sentence) : { claim: sentence }),
+    ...(cell ? readCell(cell.reading, cell.cell, sentence) : { claim: sentence }),
     cited: citedIn(element, from, to),
   };
 }

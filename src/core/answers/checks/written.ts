@@ -53,7 +53,7 @@ import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { markSentence } from "./sentences";
-import { readCell, type TableText } from "./tableCells";
+import { type CellText, readCell, readTable, type TableReading } from "./tableCells";
 import type { CheckScope } from "./verify";
 
 const CLOUD_SENTENCES_AT_ONCE = 3;
@@ -168,24 +168,27 @@ function quoteOf(node: NodeJSON): CitedQuote | null {
 }
 
 interface InCell {
-  table: TableText;
-  row: number;
-  column: number;
+  reading: TableReading;
+  cell: CellText;
 }
 
 const textOfBlock = (node: NodeJSON | undefined): string =>
-  node && node.type !== "table" ? paragraphText(node.content ?? []) : "";
+  node && (node.type === "paragraph" || node.type === "heading")
+    ? paragraphText(node.content ?? [])
+    : "";
 
-function tableText(table: NodeJSON, before: NodeJSON | undefined): TableText {
-  const rows = table.content ?? [];
-  return {
-    rows: rows.map((row) =>
-      (row.content ?? []).map((cell) => (cell.content ?? []).map(textOfBlock).join(" ").trim()),
-    ),
-    headed: (rows[0]?.content ?? []).every((cell) => cell.type === "tableHeader"),
-    before: textOfBlock(before).trim(),
-  };
-}
+const spanOf = (value: unknown) => Math.max(Math.trunc(Number(value)) || 1, 1);
+
+/** Each of a table's cells as a check reads it, by row. */
+const cellsOf = (table: NodeJSON): CellText[][] =>
+  (table.content ?? []).map((row) =>
+    (row.content ?? []).map((cell) => ({
+      text: (cell.content ?? []).map(textOfBlock).join(" ").trim(),
+      header: cell.type === "tableHeader",
+      colspan: spanOf(cell.attrs?.colspan),
+      rowspan: spanOf(cell.attrs?.rowspan),
+    })),
+  );
 
 function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
@@ -195,14 +198,12 @@ function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
       const here = [...path, index];
       const content = node.content ?? [];
       if (node.type === "table") {
-        const table = tableText(node, nodes[index - 1]);
+        const cells = cellsOf(node);
+        const reading = readTable(cells, textOfBlock(nodes[index - 1]).trim());
         content.forEach((row, rowIndex) => {
           (row.content ?? []).forEach((each, column) => {
-            visit(each.content ?? [], [...here, rowIndex, column], {
-              table,
-              row: rowIndex,
-              column,
-            });
+            const cell = cells[rowIndex]?.[column];
+            visit(each.content ?? [], [...here, rowIndex, column], cell ? { reading, cell } : null);
           });
         });
         return;
@@ -226,7 +227,7 @@ function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
           to: span.to,
           text,
           context,
-          ...(cell ? readCell(cell.table, cell.row, cell.column, text) : { claim: text }),
+          ...(cell ? readCell(cell.reading, cell.cell, text) : { claim: text }),
           cited,
         });
       }
