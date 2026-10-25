@@ -18,6 +18,7 @@ export async function startHeaderMcp(
     redirect?: string;
     endpoint?: string;
     echo?: string;
+    structured?: boolean;
   } = {},
 ) {
   const sessions = new Map<string, StreamableHTTPServerTransport | SSEServerTransport>();
@@ -42,7 +43,9 @@ export async function startHeaderMcp(
     }));
     server.setRequestHandler(CallToolRequestSchema, async () => {
       toolCalls++;
-      return { content: [{ type: "text", text: options.echo ?? "Synthetic tide data." }] };
+      return options.structured
+        ? { content: [], structuredContent: { text: options.echo ?? "Synthetic tide data." } }
+        : { content: [{ type: "text", text: options.echo ?? "Synthetic tide data." }] };
     });
     servers.push(server);
     return server;

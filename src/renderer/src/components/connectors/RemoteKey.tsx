@@ -41,6 +41,7 @@ export function ConnectorKeyFields({
         className={inputClass}
       />
       <span className={hintClass}>{t("remoteConnectors.key.hint")}</span>
+      <span className={hintClass}>{t("remoteConnectors.key.destination")}</span>
     </label>
   );
 }

@@ -304,7 +304,7 @@ function slug(text: string, fallback: string): string {
 }
 
 /** What a Tool call returned, as text for the model. */
-function resultText(result: Record<string, unknown>): string {
+function resultText(result: Record<string, unknown>, redact: (text: string) => string): string {
   const parts: string[] = [];
   const content = Array.isArray(result.content) ? result.content : [];
   for (const item of content) {
@@ -337,7 +337,7 @@ function resultText(result: Record<string, unknown>): string {
   if (parts.length === 0 && result.toolResult !== undefined) {
     parts.push(JSON.stringify(result.toolResult));
   }
-  const text = parts.join("\n\n").trim();
+  const text = redact(parts.join("\n\n").trim());
   if (!text) return "(The Tool returned nothing.)";
   return text.length > MAX_RESULT_CHARS
     ? `${text.slice(0, MAX_RESULT_CHARS)}\n[The rest was cut: the result was too long.]`
@@ -1124,7 +1124,7 @@ export function createConnectors(options: ConnectorsOptions) {
         }
         if (runtime.generation !== generation)
           throw new Error("The Connector stopped before the Tool finished.");
-        const text = runtime.redact(resultText(result));
+        const text = resultText(result, runtime.redact);
         if (result.isError === true) throw new Error(text);
         return text;
       },
@@ -1263,7 +1263,7 @@ export function createConnectors(options: ConnectorsOptions) {
     async signIn(id: unknown): Promise<ConnectorSignInResult> {
       const { row, config } = requireRemote(id);
       if (config.headers.length > 0)
-        throw new InvalidInputError("Change this Connector's key instead.");
+        throw new InvalidInputError({ key: "error.connector.changeKeyInstead" });
       if (row.enabled !== 1) throw new InvalidInputError({ key: "error.connector.off" });
       if (paused(row)) throw new InvalidInputError({ key: "error.connector.localMode" });
       const storage = secrets.status();

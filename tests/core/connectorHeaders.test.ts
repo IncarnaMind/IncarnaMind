@@ -25,78 +25,88 @@ async function setup(options: Parameters<typeof startHeaderMcp>[0] = {}) {
 }
 
 describe("Remote Connector keys and older connections", () => {
-  test("one planted value stays out of preview, bridge events, logs, usage, exports, crash reports and all sync metadata", async () => {
-    const secret = planted();
-    const server = await startHeaderMcp({ header: "X-Key", value: secret, echo: secret });
-    onTestFinished(() => server.close());
-    const outputs: unknown[] = [];
-    const consoleError = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-      outputs.push(args);
-    });
-    onTestFinished(() => consoleError.mockRestore());
-    const dataDir = await createTempDataFolder();
-    const model = scriptedModel((call) =>
-      call.results.length > 0
-        ? { text: call.results.map((result) => result.text).join(" ") }
-        : { calls: [{ tool: "tides__lookup", input: {} }] },
-    );
-    const record = (event: string, fields?: unknown) => {
-      outputs.push({ event, fields });
-    };
-    const core = startCore(dataDir, {
-      createChatModel: scriptedModels(model).createChatModel,
-      log: { info: record, warn: record, error: record },
-      usageData: {
-        service: { id: "https://analytics.example.test", name: "Synthetic analytics" },
-        testerBuild: false,
-        appVersion: "1.0.0",
-        setEnabled: () => {},
-        capture: (message) => {
-          outputs.push(message);
+  test.each([false, true])(
+    "one planted value stays out of preview, bridge events, logs, usage, exports, crash reports and all sync metadata (structured: %s)",
+    async (structured) => {
+      const secret = structured ? `${planted()}"\\` : planted();
+      const server = await startHeaderMcp({
+        header: "X-Key",
+        value: secret,
+        echo: `${"x".repeat(19_970)}${secret}`,
+        structured,
+      });
+      onTestFinished(() => server.close());
+      const outputs: unknown[] = [];
+      const consoleError = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+        outputs.push(args);
+      });
+      onTestFinished(() => consoleError.mockRestore());
+      const dataDir = await createTempDataFolder();
+      const model = scriptedModel((call) =>
+        call.results.length > 0
+          ? { text: call.results.map((result) => result.text).join(" ") }
+          : { calls: [{ tool: "tides__lookup", input: {} }] },
+      );
+      const record = (event: string, fields?: unknown) => {
+        outputs.push({ event, fields });
+      };
+      const core = startCore(dataDir, {
+        createChatModel: scriptedModels(model).createChatModel,
+        log: { info: record, warn: record, error: record },
+        usageData: {
+          service: { id: "https://analytics.example.test", name: "Synthetic analytics" },
+          testerBuild: false,
+          appVersion: "1.0.0",
+          setEnabled: () => {},
+          capture: (message) => {
+            outputs.push(message);
+          },
         },
-      },
-    });
-    await core.updatePrivacySettings({ usageData: true });
-    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-    core.on("connectors.changed", (list) => outputs.push(list));
-    const json = JSON.stringify({
-      mcpServers: { Tides: { url: server.url, headers: { "X-Key": secret } } },
-    });
-    outputs.push(await core.previewConnectorImport(json));
-    expect(server.requests).toHaveLength(0);
-    const result = await core.importConnectors(json);
-    outputs.push(result);
-    const connector = result.added[0];
-    if (!connector) throw new Error("No Connector was imported.");
-    await waitForState(core, connector.id, "ready");
-    const mind = await core.createMind({ title: "Synthetic tides" });
-    const client = await connectToMind(core, mind.id);
-    await askAndFinish(core, client, mind.id, "Look up the synthetic tide.");
-    expect(server.toolCalls).toBe(1);
-    const exported = new TextDecoder().decode(
-      (await core.exportMind(mind.id, { format: "markdown" })).data,
-    );
-    expect(exported).toContain("redacted");
-    outputs.push(exported);
-    server.setKey(planted());
-    await core.restartConnector(connector.id);
-    outputs.push(await waitForState(core, connector.id, "error"));
-    server.setKey(secret);
-    server.setFailure(500);
-    await core.restartConnector(connector.id);
-    outputs.push(await waitForState(core, connector.id, "error"));
-    await core.setConnectorEnabled(connector.id, false);
-    const scrubber = createScrubber({ homeDir: dataDir, dataDir });
-    for (const item of [...outputs])
-      outputs.push(scrubber.event({ type: undefined, message: JSON.stringify(item) }));
-    const tables = queryDatabase<{ name: string }>(
-      dataDir,
-      "SELECT name FROM sqlite_master WHERE type = 'table'",
-    );
-    for (const { name } of tables) outputs.push(queryDatabase(dataDir, `SELECT * FROM "${name}"`));
-    expect(JSON.stringify(outputs).includes(secret)).toBe(false);
-    expect(outputs.length).toBeGreaterThan(tables.length);
-  });
+      });
+      await core.updatePrivacySettings({ usageData: true });
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      core.on("connectors.changed", (list) => outputs.push(list));
+      const json = JSON.stringify({
+        mcpServers: { Tides: { url: server.url, headers: { "X-Key": secret } } },
+      });
+      outputs.push(await core.previewConnectorImport(json));
+      expect(server.requests).toHaveLength(0);
+      const result = await core.importConnectors(json);
+      outputs.push(result);
+      const connector = result.added[0];
+      if (!connector) throw new Error("No Connector was imported.");
+      await waitForState(core, connector.id, "ready");
+      const mind = await core.createMind({ title: "Synthetic tides" });
+      const client = await connectToMind(core, mind.id);
+      await askAndFinish(core, client, mind.id, "Look up the synthetic tide.");
+      expect(server.toolCalls).toBe(1);
+      const exported = new TextDecoder().decode(
+        (await core.exportMind(mind.id, { format: "markdown" })).data,
+      );
+      expect(exported.includes(secret.slice(0, 12))).toBe(false);
+      expect(exported.includes("redacted")).toBe(true);
+      outputs.push(exported);
+      server.setKey(planted());
+      await core.restartConnector(connector.id);
+      outputs.push(await waitForState(core, connector.id, "error"));
+      server.setKey(secret);
+      server.setFailure(500);
+      await core.restartConnector(connector.id);
+      outputs.push(await waitForState(core, connector.id, "error"));
+      await core.setConnectorEnabled(connector.id, false);
+      const scrubber = createScrubber({ homeDir: dataDir, dataDir });
+      for (const item of [...outputs])
+        outputs.push(scrubber.event({ type: undefined, message: JSON.stringify(item) }));
+      const tables = queryDatabase<{ name: string }>(
+        dataDir,
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+      );
+      for (const { name } of tables)
+        outputs.push(queryDatabase(dataDir, `SELECT * FROM "${name}"`));
+      expect(JSON.stringify(outputs).includes(secret)).toBe(false);
+      expect(outputs.length).toBeGreaterThan(tables.length);
+    },
+  );
 
   test.each(["Authorization", "X-API-Key"])(
     "%s connects with the installed SDK, keeping only names and references in stored metadata",

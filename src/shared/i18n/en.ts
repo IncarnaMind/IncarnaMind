@@ -4396,20 +4396,19 @@ export const en = {
   "remoteConnectors.form.urlHint": "Its MCP endpoint, e.g. https://mcp.example.com/mcp",
   "remoteConnectors.form.client": "Use my own OAuth app",
   "remoteConnectors.key.label": "API key or token",
-  "remoteConnectors.key.hint":
-    "Optional. Stored only on this device and sent only to this server. Leave empty to sign in through your browser.",
+  "remoteConnectors.key.hint": "Optional. Leave empty to sign in with your browser.",
+  "remoteConnectors.key.destination": "Stored on this device. Sent only to this server.",
   "remoteConnectors.key.header": "Header name",
-  "remoteConnectors.key.bearer":
-    "Authorization uses Bearer by default. Other headers send the value as entered.",
+  "remoteConnectors.key.bearer": "Authorization uses Bearer; other headers send the entered value.",
   "remoteConnectors.key.options": "More options",
   "remoteConnectors.key.change": "Change key",
   "remoteConnectors.connection.sse": "Older connection (SSE)",
-  "remoteConnectors.import.headers":
-    "Header values are stored on this device and sent only to this server: {names}",
+  "remoteConnectors.import.headers": "Stored here; sent only to this server: {names}",
   "connectors.error.key-refused": "The server refused this key",
   "error.connector.headersInvalid":
     "Check the header names and values. Each name must be unique, and values must stay on one line.",
   "error.connector.authChoice": "Use an API key or an OAuth app for this Connector.",
+  "error.connector.changeKeyInstead": "Change this Connector’s key instead.",
   "error.connector.keyChangeCancelled":
     "The Connector stopped before the key was saved. Try again.",
   "remoteConnectors.key.missing": "This key isn’t available on this device",

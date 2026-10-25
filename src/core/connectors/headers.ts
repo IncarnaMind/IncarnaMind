@@ -23,7 +23,8 @@ export async function saveHeaders(
 
 export function hideHeaders(headers: Record<string, string>): (text: string) => string {
   const hidden = Object.values(headers)
-    .flatMap((value) => [value, value.replace(/^Bearer\s+/i, ""), encodeURIComponent(value)])
+    .flatMap((value) => [value, value.replace(/^Bearer\s+/i, "")])
+    .flatMap((value) => [value, encodeURIComponent(value), JSON.stringify(value).slice(1, -1)])
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);
   return (value) => hidden.reduce((text, secret) => text.split(secret).join("[redacted]"), value);
