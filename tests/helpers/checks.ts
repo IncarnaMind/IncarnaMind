@@ -34,6 +34,7 @@ export interface Plan {
     formula: string;
     as?: string;
     stated: string;
+    relation?: "equals" | "at most" | "at least";
   };
 }
 

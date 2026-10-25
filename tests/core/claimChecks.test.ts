@@ -1036,6 +1036,103 @@ describe("A memo's figure worked out from amounts in brackets (#978)", () => {
   });
 });
 
+describe("A limit the figure stays within, and a cost printed in brackets (#1908)", () => {
+  const RESULTS = {
+    name: "Cedar results.md",
+    contents: [
+      "# Cedar results",
+      "",
+      "Adjusted EBITDA 187.3 (FY2025), 88.0 and 91.5 (H1 2025, H1 2026)",
+      "",
+      "Finance costs (41.2)",
+      "",
+      "Net debt at 30 June 2026 528.9",
+      "",
+      "Net debt to Adjusted EBITDA must not exceed 3.25 to 1",
+    ].join("\n"),
+  };
+  const EBITDA_LINE = "Adjusted EBITDA 187.3 (FY2025), 88.0 and 91.5 (H1 2025, H1 2026)";
+  const ebitda = (name: string, number: string) => ({
+    name,
+    label: `Adjusted EBITDA ${number}`,
+    quote: EBITDA_LINE,
+    number,
+  });
+  const LEVERAGE = {
+    inputs: [
+      { name: "nd", label: "Net debt", quote: "Net debt at 30 June 2026 528.9", number: "528.9" },
+      ebitda("fy", "187.3"),
+      ebitda("h1a", "88.0"),
+      ebitda("h1b", "91.5"),
+    ],
+    formula: "nd / (fy - h1a + h1b)",
+    as: "times",
+  };
+  const COVER = {
+    inputs: [
+      ebitda("fy", "187.3"),
+      { name: "fc", label: "Finance costs", quote: "Finance costs (41.2)", number: "(41.2)" },
+    ],
+    formula: "fy / fc",
+    as: "times",
+  };
+  const INSIDE = (limit: string) =>
+    `Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the ${limit} covenant.`;
+  const COVERED = (times: string) =>
+    `Using finance costs of (41.2) as a stand-in, cover would be ${times}.`;
+
+  // protects=a sentence naming a limit is judged on the comparison the model says it makes, and a cost in brackets on its size; a figure that breaks its limit or a wrong cover is still Contradicted, and a limit given with no relation is still compared as the figure (today's behaviour); fails_when=2.77x "inside a 3.25x covenant" or 4.55x cover from "(41.2)" is Contradicted, or a breach passes; no_claim=that a real model gives relation, which the real-model counts measure.
+  test.each([
+    [INSIDE("3.25x"), { ...LEVERAGE, stated: "3.25x", relation: "at most" }, "supported"],
+    [INSIDE("2.5x"), { ...LEVERAGE, stated: "2.5x", relation: "at most" }, "contradicted"],
+    [INSIDE("3.25x"), { ...LEVERAGE, stated: "3.25x" }, "contradicted"],
+    [
+      "Adjusted EBITDA covers finance costs at least 4x.",
+      { ...COVER, stated: "4x", relation: "at least" },
+      "supported",
+    ],
+    [
+      "Adjusted EBITDA covers finance costs at least 5x.",
+      { ...COVER, stated: "5x", relation: "at least" },
+      "contradicted",
+    ],
+    [COVERED("4.55x"), { ...COVER, stated: "4.55x" }, "supported"],
+    [COVERED("5.55x"), { ...COVER, stated: "5.55x" }, "contradicted"],
+  ] as const)("“%s” is %s", async (claim, calculation, verdict) => {
+    const said = verdict === "supported" ? "contradicted" : "supported";
+    const plans = { [claim]: { verdict: said, calculation } } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans), [RESULTS]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    const result = await setup.core.checkClaim({ claim });
+    expect(result).toMatchObject({ verdict, calculation: { stated: calculation.stated } });
+  });
+
+  // protects=a check is offered relation, saying when to give it; fails_when=the model is never told a limit can be named; no_claim=none beyond protects.
+  test("the check's calculate takes relation for a limit", async () => {
+    const calls: ModelCall[] = [];
+    const claim = INSIDE("3.25x");
+    const plans = {
+      [claim]: { verdict: "supported", calculation: { ...LEVERAGE, stated: "3.25x" } },
+    } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [RESULTS]);
+    await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    await setup.core.checkClaim({ claim });
+    const offered = JSON.stringify(calls[0]?.options.tools);
+    expect(offered).toContain('"at most"');
+    expect(offered).toContain("give relation");
+  });
+});
+
 describe("A count of people in brackets is a count (#1023)", () => {
   const ACCOUNTS = {
     name: "Statement of accounts.md",

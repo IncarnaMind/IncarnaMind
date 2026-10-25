@@ -33,6 +33,7 @@ import type {
   ClaimCheckFailure,
   ClaimCheckResult,
   LeftOutDocument,
+  LimitRelation,
   PassageSearchResult,
   ProviderError,
   RecordAiUseInput,
@@ -208,8 +209,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       quotes: session.quotes,
       language: answerLanguage(request.claim),
     });
-    /** The sentence's number each figure is for, as the model named it, by marker. */
-    const stated = new Map<number, string>();
+    /** The sentence's number each figure is for, as the model named it, and how, by marker. */
+    const stated = new Map<number, { number: string; relation?: LimitRelation }>();
     const tools: AnswerTools = {
       get documentCount() {
         return session.tools.documentCount;
@@ -231,7 +232,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               typeof each === "object" && each !== null ? (each as Record<string, unknown>) : {};
             const marker = whole(fields.marker);
             if (marker !== null && typeof fields.stated === "string" && fields.stated.trim() !== "")
-              stated.set(marker, fields.stated.trim());
+              stated.set(marker, {
+                number: fields.stated.trim(),
+                ...((fields.relation === "at most" || fields.relation === "at least") && {
+                  relation: fields.relation,
+                }),
+              });
           }
           return figures.calculate(givenList(given), options);
         },
@@ -520,20 +526,23 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
 function calculated(
   claim: string,
   figures: CalculationSession,
-  stated: ReadonlyMap<number, string>,
+  stated: ReadonlyMap<number, { number: string; relation?: LimitRelation }>,
   contextOf: (citation: Citation) => FigureContext,
 ): { evidence: Citation; calculation: ClaimCalculation } | null {
   figures.check();
-  for (const [marker, named] of stated) {
+  for (const [marker, { number: named, relation }] of stated) {
     const figure = figures.figure(marker);
     const first = figure?.inputs[0]?.citation;
     if (!figure || !first) continue;
     const number = statedFigure(claim, named, contextOf(first));
     if (!number) continue;
     if (figure.inputs.some((input) => input.citation.check !== "found")) continue;
-    const agrees = agreesWith(number, figure);
+    const agrees = agreesWith(number, figure, relation);
     if (agrees === null) continue;
-    return { evidence: first, calculation: { figure, stated: number.chars, agrees } };
+    return {
+      evidence: first,
+      calculation: { figure, stated: number.chars, agrees, ...(relation && { relation }) },
+    };
   }
   return null;
 }

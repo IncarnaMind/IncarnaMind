@@ -12,7 +12,7 @@ import {
   readFigures,
 } from "../../../shared/figures";
 import type { ResultUnit } from "../../../shared/formula";
-import type { CalculatedFigure } from "../../api";
+import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
 
 /**
@@ -87,19 +87,48 @@ function tolerance(stated: Figure): number {
   return step / 2 + more + 1e-9 * Math.max(1, Math.abs(stated.value));
 }
 
+const BRACKETED = /^[^\d]*[(（]/;
+
+const escaped = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// A minus that comes only from inputs printed in brackets ("Finance costs (41.2)") and only
+// multiplies or divides, for a sentence whose own number has none, is a cost's presentation:
+// its size is meant (#1908). One added or taken off in a sum keeps its sign (#978).
+function bracketsOnly(
+  stated: Figure,
+  figure: Pick<CalculatedFigure, "value" | "inputs" | "formula">,
+): boolean {
+  const negatives = figure.inputs.filter((input) => input.number.value < 0);
+  const summed = (name: string) =>
+    new RegExp(`[+-]\\s*${escaped(name)}\\b|\\b${escaped(name)}\\s*[+-]`, "i").test(figure.formula);
+  return (
+    typeof figure.value === "number" &&
+    figure.value < 0 &&
+    stated.value > 0 &&
+    !/[-−(（]/.test(stated.chars) &&
+    negatives.length > 0 &&
+    negatives.every((input) => BRACKETED.test(input.number.chars) && !summed(input.name))
+  );
+}
+
 /**
  * Whether the sentence's number agrees with the figure worked out for it, to
- * the sentence's rounding: a range agrees when the figure is in it. Null when
- * they measure different things, or the figure is a yes or no.
+ * the sentence's rounding: a range agrees when the figure is in it, and a
+ * limit (`relation`) when the figure stays within it. Null when they measure
+ * different things, or the figure is a yes or no.
  */
 export function agreesWith(
   stated: Figure,
-  figure: Pick<CalculatedFigure, "value" | "unit">,
+  figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
+  relation?: LimitRelation,
 ): boolean | null {
-  const { value } = figure;
-  if (typeof value === "boolean" || !comparable(stated.unit, figure.unit)) return null;
-  const within = tolerance(stated);
+  if (typeof figure.value === "boolean" || !comparable(stated.unit, figure.unit)) return null;
+  const value = bracketsOnly(stated, figure) ? -figure.value : figure.value;
+  // A limit is exact: "at least 5x" isn't met by 4.6x, though 4.6 rounds to 5.
+  const within = relation ? 1e-9 * Math.max(1, Math.abs(stated.value)) : tolerance(stated);
   const low = Math.min(stated.value, stated.rangeTo ?? stated.value) - within;
   const high = Math.max(stated.value, stated.rangeTo ?? stated.value) + within;
+  if (relation === "at most") return value <= high;
+  if (relation === "at least") return value >= low;
   return value >= low && value <= high;
 }
