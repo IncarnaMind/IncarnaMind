@@ -329,6 +329,10 @@ test("an empty Mind of one's own shows the three steps, the example's steps tick
   await expect(guide).toBeVisible();
 
   // The examples fold to one row once a Document of one's own is there (#1944).
+  // Tagging finishes in the background and adds the Tags section above it: wait, so the row holds still.
+  await expect(window.getByTestId("sidebar").getByTestId("sidebar-tags")).toBeVisible({
+    timeout: 30_000,
+  });
   await pointAndClick(window, window.getByTestId("example-open"));
   const checks = window
     .getByTestId("mind-pane")
