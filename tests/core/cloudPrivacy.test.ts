@@ -244,7 +244,7 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     await core.saveChatProvider({
       kind: "qwen",
       endpoint: "intl",
-      apiKey: "sk-qwen-intl-first",
+      apiKey: "intl-first-dummy",
       modelId: "qwen3.7-plus",
     });
     await core.deleteChatProvider(first);
@@ -256,14 +256,14 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     await core.deleteChatProvider(international ?? "");
     await core.saveChatProvider({
       kind: "qwen",
-      apiKey: "sk-qwen-cn-active",
+      apiKey: "cn-active-dummy",
       modelId: "qwen3.7-plus",
     });
     await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
     await core.saveChatProvider({
       kind: "qwen",
       endpoint: "intl",
-      apiKey: "sk-qwen-intl-remaining",
+      apiKey: "intl-remaining-dummy",
       modelId: "qwen3.7-plus",
     });
     await core.stopMeeting(meeting.id);
