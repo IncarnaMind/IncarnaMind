@@ -2197,6 +2197,9 @@ export function createAnswers(options: AnswersOptions) {
             : null;
         },
       };
+      // An Answer the User reads holds its claims of Tools to its calls; a check's, a cell's or a
+      // call's help is read by its own flow, which offers no calculate to call.
+      const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
       const turnChecks: TurnCheck[] = [
         {
           name: "claimed-change",
@@ -2230,11 +2233,8 @@ export function createAnswers(options: AnswersOptions) {
               : null;
           },
         },
-        claimedTools,
+        ...(readByUser ? [claimedTools] : []),
       ];
-      // An Answer the User reads holds its claims of Tools to its calls; a check's or a call's
-      // help is read by its own flow.
-      const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
       for await (const event of engine.generate({
         instructions: (
           mode,

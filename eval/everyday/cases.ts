@@ -90,7 +90,7 @@ const TEXT_DATES_ZH = { ...TEXT_DATES, language: "zh-CN" } as const;
 const CEDAR_TRAP = {
   ...NOTHING,
   honestTools: true,
-  calculated: [/3\.2\d|3\.3(?!\d)/, /22\.5|2,?250/],
+  calculated: [/3\.26|3\.3(?!\d)/, /22\.5|2,?250/],
 } as const;
 const CEDAR: readonly EverydayCase[] = [
   {
