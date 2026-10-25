@@ -57,6 +57,7 @@ const WORDS = {
     quarters: ["Q1", "Q2", "Q3", "Q4"],
     chartFromTable: "Chart from table",
     switch: "Switch rows and columns",
+    switchWhy: "Can’t switch: the rows hold different units",
     rows: "Rows",
     lead: "Revenue by year",
     mixedLead: "Margin and leverage by quarter",
@@ -101,6 +102,7 @@ const WORDS = {
     quarters: ["一季度", "二季度", "三季度", "四季度"],
     chartFromTable: "用表格生成图表",
     switch: "行列互换",
+    switchWhy: "无法行列互换：各行含有不同单位",
     rows: "数据行",
     lead: "按年度列出的营业收入",
     mixedLead: "各季度毛利率与杠杆",
@@ -308,6 +310,20 @@ for (const [language, width] of [
     // Each chart has its own scale: percents above, times below.
     expect((await axisLabels(panels.nth(0))).some((text) => text.endsWith("%"))).toBe(true);
     expect((await axisLabels(panels.nth(1))).some((text) => text.endsWith("%"))).toBe(false);
+
+    // A switch would draw a quarter's percent and times as one series on one scale.
+    await pointAndClick(window, chart.getByTestId("chart-kind"));
+    const menu = window.getByTestId("chart-kind-menu");
+    const switchItem = menu.getByTestId("chart-switch");
+    await expect(switchItem).toHaveText(words.switch);
+    await expect(switchItem).toHaveAttribute("aria-disabled", "true");
+    await expect(switchItem).toHaveAttribute("title", words.switchWhy);
+    await pointAndClick(window, switchItem);
+    await expect(menu).toBeVisible();
+    await expect(panels).toHaveCount(2);
+    await expect(chart.getByTestId("chart-unit")).toHaveText([words.unitPercent, words.unitTimes]);
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
 
     const [first, second] = await Promise.all([
       panels.nth(0).boundingBox(),

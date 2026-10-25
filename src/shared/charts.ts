@@ -688,10 +688,28 @@ export function switchedData(data: ChartData): ChartData | null {
   return matrix.series.length === 0 ? null : cut(matrix);
 }
 
-export const canSwitch = (chart: Pick<ChartAttributes, "data" | "source">): boolean =>
+const switchableData = (chart: Pick<ChartAttributes, "data" | "source">): boolean =>
   chart.source.kind === "table" &&
   chart.data.cutFrom === null &&
   chart.data.rows.length * chart.data.series.length > 1;
+
+function mixesUnits(data: ChartData, series: number): boolean {
+  return seriesUnit(data, series).key.startsWith("mixed:");
+}
+
+/**
+ * Whether the Switch would turn a row of mixed units into one series: their
+ * values would share one scale, and one unit would hide the other (#1392).
+ */
+export function switchMixesUnits(chart: Pick<ChartAttributes, "data" | "source">): boolean {
+  if (!switchableData(chart)) return false;
+  const next = switchedData(chart.data);
+  if (next === null) return false;
+  return next.series.some((_, series) => mixesUnits(next, series));
+}
+
+export const canSwitch = (chart: Pick<ChartAttributes, "data" | "source">): boolean =>
+  switchableData(chart) && !switchMixesUnits(chart);
 
 /**
  * `fromTable`: the table read the other way round, used in place of the chart's own data.

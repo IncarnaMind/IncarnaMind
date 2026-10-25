@@ -21,6 +21,7 @@ import {
   seriesName,
   switchedChart,
   switchedData,
+  switchMixesUnits,
   unitGroups,
   unitlessRows,
 } from "../../src/shared/charts";
@@ -468,6 +469,37 @@ describe("series of different units (#1392)", () => {
     expect(unitGroups(pie)).toEqual([{ series: [1], unit: null }]);
     const scatter = { ...(fromTable(MIXED) as ChartAttributes), kind: "scatter" as const };
     expect(unitGroups(scatter)).toEqual([{ series: [0, 1], unit: null }]);
+  });
+
+  test("a switch that would draw a row's two units as one series can't be made", () => {
+    const chart = fromTable(MIXED) as ChartAttributes;
+    expect(canSwitch(chart)).toBe(false);
+    expect(switchedChart(chart)).toBeNull();
+
+    const sameUnit = fromTable(QUARTERS) as ChartAttributes;
+    expect(canSwitch(sameUnit)).toBe(true);
+  });
+
+  test("says why a mixed-unit chart can't switch, and only that case", () => {
+    expect(switchMixesUnits(fromTable(MIXED) as ChartAttributes)).toBe(true);
+    expect(switchMixesUnits(fromTable(QUARTERS) as ChartAttributes)).toBe(false);
+  });
+
+  test("a chart already drawn as mixed series may still switch to one that keeps them apart", () => {
+    const mixed = fromTable(MIXED) as ChartAttributes;
+    const old = {
+      ...mixed,
+      data: switchedData(mixed.data) as ChartAttributes["data"],
+      source: { kind: "table" as const, blockId: "table-1", switched: true },
+    };
+    expect(unitGroups(old)).toEqual([{ series: [0, 1], unit: null }]);
+    expect(canSwitch(old)).toBe(true);
+    const fixed = switchedChart(old);
+    expect(fixed?.data.series).toEqual(["Gross margin", "Net debt / EBITDA"]);
+    expect(unitGroups({ ...old, ...fixed } as ChartAttributes)).toEqual([
+      { series: [0], unit: { kind: "percent" } },
+      { series: [1], unit: { kind: "times" } },
+    ]);
   });
 });
 

@@ -597,6 +597,7 @@ export const zhCN = {
   "chart.command.pie": "显示为饼图",
   "chart.command.scatter": "显示为散点图",
   "chart.switch": "行列互换",
+  "chart.switch.mixedUnits": "无法行列互换：各行含有不同单位",
   "chart.series.unnamed": "第 {number} 列",
   "chart.series.unnamedRow": "第 {number} 行",
   "chart.series.value": "数值",

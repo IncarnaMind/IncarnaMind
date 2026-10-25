@@ -19,8 +19,8 @@ import {
  * "Make a bar chart of revenue by quarter" (#1091), in English and Chinese: the
  * Mind gets the cited table and a chart drawn from it, right after it, the
  * facts line says both, and one ⌘Z takes both back. A table with a percent
- * column beside a column of times is two charts, one per unit (#1392). The
- * model is the smoke tests' fake.
+ * column beside a column of times is two charts, one per unit, bar or line as
+ * asked (#1392). The model is the smoke tests' fake.
  */
 
 let dataDir: string;
@@ -109,11 +109,13 @@ const MIXED_REPORT = [
   "Net debt to EBITDA in Q4 was 2.9 times.",
 ].join("\n");
 
-for (const [language, request, times] of [
-  ["en", "Make a bar chart of margin and leverage by quarter", "times"],
-  ["zh-CN", "画一个各季度毛利率和净负债的柱状图", "倍"],
+for (const [language, request, kind, times] of [
+  ["en", "Make a bar chart of margin and leverage by quarter", "bar", "times"],
+  ["zh-CN", "画一个各季度毛利率和净负债的柱状图", "bar", "倍"],
+  ["en", "Make a line chart of margin and leverage by quarter", "line", "times"],
+  ["zh-CN", "画一个各季度毛利率和净负债的折线图", "line", "倍"],
 ] as const) {
-  test(`“${request}” draws a percent column beside a column of times as two charts, each labelled with its unit (${language})`, async () => {
+  test(`“${request}” draws a percent column beside a column of times as two ${kind} charts, each labelled with its unit (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -131,6 +133,7 @@ for (const [language, request, times] of [
     await expect(editor.locator("table")).toHaveCount(1);
     const chart = editor.getByTestId("chart");
     await expect(chart).toHaveCount(1);
+    await expect(chart).toHaveAttribute("data-kind", kind);
     await expect(chart.getByTestId("chart-panel")).toHaveCount(2);
     await expect(chart.getByTestId("chart-unit")).toHaveText(["%", times]);
     await expect(chart.getByTestId("chart-panel").nth(0).getByTestId("chart-point")).toHaveCount(4);

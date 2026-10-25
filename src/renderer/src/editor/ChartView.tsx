@@ -19,6 +19,7 @@ import {
   MAX_CHART_VALUES,
   seriesName as nameOfSeries,
   readChart,
+  switchMixesUnits,
   unitGroups,
   unitlessRows,
 } from "../../../shared/charts";
@@ -461,6 +462,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
             fits={(kind) => kindFits(kind, chart.data)}
             onKind={setKind}
             onSwitch={canSwitch(chart) ? switchRowsAndColumns : null}
+            switchWhy={switchMixesUnits(chart) ? t("chart.switch.mixedUnits") : null}
             onSeries={(series) => {
               dismiss();
               change({ drawn: toggledSeries(chart, series) });

@@ -25,10 +25,10 @@
  * "Make a bar chart of revenue by quarter" (画一个各季度收入的柱状图; "line chart",
  * 折线图) searches, cites each quarter's revenue, and adds them as a table with its
  * chart (#1091); "Make a bar chart of margin and leverage by quarter"
- * (各季度毛利率和净负债的柱状图) writes a table of a percent column beside a column
- * of times, which a chart draws as one chart per unit (#1392); "Make a bar chart
- * of rent by lease" does the same with each unit's monthly rent, so Use all can
- * draw it again from every lease.
+ * (各季度毛利率和净负债的柱状图; "line chart", 折线图) writes a table of a percent
+ * column beside a column of times, which a chart draws as one chart per unit
+ * (#1392); "Make a bar chart of rent by lease" does the same with each unit's
+ * monthly rent, so Use all can draw it again from every lease.
  * "Write a short summary of this agreement" (为这份协议写一份简短摘要) calls
  * add_to_mind with it, for the Mind in focus. "Write a short summary of this document"
  * (为这份文件写一份简短摘要) does too, "Written from" the first Document on screen (#1334).
@@ -448,9 +448,9 @@ interface QuarterFigure {
 }
 
 /**
- * "Make a bar chart of margin and leverage by quarter": a table of one percent
- * column beside one column of times, the two units a chart draws as two
- * charts (#1392).
+ * "Make a bar chart of margin and leverage by quarter" ("line chart", 折线图):
+ * a table of one percent column beside one column of times, the two units a
+ * chart draws as two charts (#1392).
  */
 function mixedUnitsChart(prompt: Prompt, question: string): Reply {
   const added = lastResult(prompt, "add_to_mind");
@@ -516,7 +516,7 @@ function mixedUnitsChart(prompt: Prompt, question: string): Reply {
     tool: "add_to_mind",
     input: {
       chart: {
-        kind: "bar",
+        kind: /\bline chart\b|折线图/i.test(question) ? "line" : "bar",
         title: chinese ? "各季度毛利率与净负债" : "Margin and leverage by quarter",
       },
       content: table,

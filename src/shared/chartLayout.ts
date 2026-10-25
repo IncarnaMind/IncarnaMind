@@ -135,8 +135,12 @@ function ticksOf(low: number, high: number, step: number): number[] {
   return ticks;
 }
 
+/** How an axis numbers its values: a share as a percent, a difference of percents in points, or plain. */
+export type AxisUnit = "percent" | "points" | null;
+
 /**
  * A number on an axis: a percent as a percent when every value is one, a
+ * difference of percents in points (2.3 points, not its share 0.023), a
  * large number in short form (1.5B, 1.5亿), others with as many decimals as
  * the step needs.
  */
@@ -144,9 +148,9 @@ export function tickFormat(
   language: string,
   step: number,
   largest: number,
-  percent: boolean,
+  unit: AxisUnit,
 ): (value: number) => string {
-  const decimals = (unit: number) => Math.min(6, Math.max(0, -Math.floor(Math.log10(unit) + 1e-9)));
+  const decimals = (each: number) => Math.min(6, Math.max(0, -Math.floor(Math.log10(each) + 1e-9)));
   let format: Intl.NumberFormat;
   const make = (options: Intl.NumberFormatOptions) => {
     try {
@@ -155,9 +159,16 @@ export function tickFormat(
       return new Intl.NumberFormat("en", options);
     }
   };
-  if (percent) {
-    format = make({ style: "percent", maximumFractionDigits: decimals(step * 100) });
-  } else if (Math.abs(largest) >= 10_000) {
+  if (unit !== null) {
+    const points = unit === "points";
+    format = make({
+      ...(points ? {} : { style: "percent" as const }),
+      maximumFractionDigits: decimals(step * 100),
+    });
+    const scale = points ? 100 : 1;
+    return (value) => format.format(Object.is(value, -0) ? 0 : value * scale);
+  }
+  if (Math.abs(largest) >= 10_000) {
     format = make({ notation: "compact", maximumFractionDigits: 2 });
   } else {
     const places = decimals(step);
@@ -167,6 +178,15 @@ export function tickFormat(
 }
 
 const isPercent = (value: ChartValue) => value.unit?.kind === "percent";
+
+const isPoints = (value: ChartValue) => value.unit?.kind === "points";
+
+function axisUnitOf(values: readonly ChartValue[]): AxisUnit {
+  if (values.length === 0) return null;
+  if (values.every(isPercent)) return "percent";
+  if (values.every(isPoints)) return "points";
+  return null;
+}
 
 function seriesInks(count: number): ChartInk[] {
   if (count === 1) return ["now"];
@@ -246,7 +266,7 @@ function layoutBarsOrLines(
     options.language,
     step,
     Math.max(Math.abs(low), Math.abs(high)),
-    points.length > 0 && points.every((point) => isPercent(point.value)),
+    axisUnitOf(points.map((point) => point.value)),
   );
   const ticks = ticksOf(low, high, step);
   const tickLabels = ticks.map(format);
@@ -348,22 +368,22 @@ function layoutScatter(
   const ys = points.map((point) => point.value.value);
   const [x0, x1, xStep] = niceDomain(xs, 4, false);
   const [y0, y1, yStep] = niceDomain(ys, 4, false);
-  const percentAcross = points.every((point) => {
-    const value = rows[point.row]?.values[across];
-    return value ? isPercent(value) : false;
-  });
-  const percentUp = points.every((point) => isPercent(point.value));
   const formatX = tickFormat(
     options.language,
     xStep,
     Math.max(Math.abs(x0), Math.abs(x1)),
-    percentAcross,
+    axisUnitOf(
+      points.flatMap((point) => {
+        const value = rows[point.row]?.values[across];
+        return value ? [value] : [];
+      }),
+    ),
   );
   const formatY = tickFormat(
     options.language,
     yStep,
     Math.max(Math.abs(y0), Math.abs(y1)),
-    percentUp,
+    axisUnitOf(points.map((point) => point.value)),
   );
   const yTicks = ticksOf(y0, y1, yStep);
   const left = Math.ceil(Math.max(...yTicks.map(formatY).map(measure)) + 16);

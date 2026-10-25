@@ -608,6 +608,7 @@ export const en = {
   "chart.command.pie": "Show as pie chart",
   "chart.command.scatter": "Show as scatter chart",
   "chart.switch": "Switch rows and columns",
+  "chart.switch.mixedUnits": "Can’t switch: the rows hold different units",
   "chart.series.unnamed": "Column {number}",
   "chart.series.unnamedRow": "Row {number}",
   "chart.series.value": "Value",
