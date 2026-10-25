@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { inspectPackage, knownInputProblem, readExtended } from "../../eval/word/corpus";
+import { corpusFailure, inspectPackage, readExtended } from "../../eval/word/corpus";
 import { checkExport } from "../../eval/word/exports";
 import { part, unzip } from "../helpers/docx";
 import { paragraph, run, wordFile } from "../helpers/word";
@@ -22,8 +22,13 @@ test("the pinned unsupported-fields input stays malformed and is classified as a
   });
   const { problems } = await inspectPackage(bytes);
   expect(problems).toEqual(["word/document.xml: NOTEREF \\* points at no bookmark"]);
-  expect(knownInputProblem(entry, "package")).toMatch(/NOTEREF.*bookmark/);
-  expect(knownInputProblem({}, "package")).toBeUndefined();
+  const subject = { name: entry.name, known: entry.known };
+  const reported = corpusFailure(subject, "package", problems.join("; "));
+  expect(reported.known).toMatch(/known: NOTEREF.*bookmark/);
+  expect(reported.failure).toBeUndefined();
+  expect(corpusFailure({ name: entry.name }, "package", problems.join("; "))).toEqual({
+    failure: `${entry.name}: package: ${problems.join("; ")}`,
+  });
 });
 
 test.each([
@@ -38,7 +43,9 @@ test.each([
   "exports with the Citations in a list",
   "list export opens in LibreOffice",
 ])("a known input defect never waives a failure in %s", (step) => {
-  expect(knownInputProblem({ known: "Malformed input package" }, step)).toBeUndefined();
+  expect(
+    corpusFailure({ name: "known.docx", known: "Malformed input package" }, step, "Failed"),
+  ).toEqual({ failure: `known.docx: ${step}: Failed` });
 });
 
 test("an exported NOTEREF passes with its bookmark and fails if its target is changed to a missing bookmark", async () => {
@@ -56,5 +63,11 @@ test("an exported NOTEREF passes with its bookmark and fails if its target is ch
   const broken = buildZip([...parts].map(([name, data]) => ({ name, data })));
   const { problems } = await inspectPackage(broken);
   expect(problems).toEqual(["word/document.xml: NOTEREF MissingBookmark points at no bookmark"]);
-  expect(knownInputProblem({ known: "Malformed input package" }, "exports back")).toBeUndefined();
+  expect(
+    corpusFailure(
+      { name: "export.docx", known: "Malformed input package" },
+      "exports back",
+      problems.join("; "),
+    ),
+  ).toEqual({ failure: `export.docx: exports back: ${problems.join("; ")}` });
 });

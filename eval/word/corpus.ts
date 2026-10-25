@@ -89,8 +89,16 @@ export function extendedCache(): string {
   return process.env.INCARNAMIND_WORD_CACHE ?? join(evalCache(), "word-extended");
 }
 
-export const knownInputProblem = (entry: Pick<CorpusEntry, "known">, step: string) =>
-  step === "package" ? entry.known : undefined;
+export function corpusFailure(
+  subject: { name: string; known?: string },
+  step: string,
+  detail: string,
+): { known?: string; failure?: string } {
+  const line = `${subject.name}: ${step}: ${detail}`;
+  return step === "package" && subject.known
+    ? { known: `  (known: ${subject.known}) ${line}` }
+    : { failure: line };
+}
 
 export interface PackageReport {
   features: Features;

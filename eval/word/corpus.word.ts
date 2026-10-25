@@ -17,9 +17,9 @@ import { describe, expect, it } from "vitest";
 import { paragraph, run, table, wordFile } from "../../tests/helpers/word";
 import {
   type CorpusEntry,
+  corpusFailure,
   extendedCache,
   inspectPackage,
-  knownInputProblem,
   readExtended,
   readManifest,
   WORD_DIR,
@@ -295,10 +295,9 @@ describe("the Word corpus", () => {
         const reported = outcome.ok && step.reports && outcome.detail ? ` (${outcome.detail})` : "";
         cells.push(`${outcome.ok ? "ok" : "FAIL"} ${step.name}${reported}`);
         if (!outcome.ok) {
-          const line = `${subject.name}: ${step.name}: ${outcome.detail}`;
-          const known = knownInputProblem(subject, step.name);
-          if (known) lines.push(`  (known: ${known}) ${line}`);
-          else failures.push(line);
+          const { known, failure } = corpusFailure(subject, step.name, outcome.detail);
+          if (known) lines.push(known);
+          if (failure) failures.push(failure);
         }
       }
       lines.push(`${subject.name}  ${featureKinds(subject.features)} kinds  ${cells.join(", ")}`);
