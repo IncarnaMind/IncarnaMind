@@ -11,9 +11,13 @@ import {
   dragOnto,
   launchApp,
   leaveText,
+  leavingCopies,
+  motionSettled,
   pointAt,
   removeDataFolder,
+  scaleOf,
   setLanguage,
+  setMotionSpeed,
   setWindowSize,
   sidebarFolder,
 } from "./app";
@@ -24,9 +28,10 @@ import {
  * in the sidebar or a Folder's section move there, several at once with
  * their count in the drag's picture, each target saying what its drop would
  * do and lighting only for what it would take; Esc mid-drag cancels; each
- * drop is one ⌘Z. Move to… does the same from the Library (finding a Chinese
- * Folder by its pinyin) and from ⌘K, and files dropped on the window still
- * reach the add. Set INCARNAMIND_SCREENSHOTS to a folder to also save
+ * drop is one ⌘Z; a drop nothing takes ends as the button is let go, its
+ * picture fading there. Move to… does the same from the Library (finding a
+ * Chinese Folder by its pinyin) and from ⌘K, and files dropped on the window
+ * still reach the add. Set INCARNAMIND_SCREENSHOTS to a folder to also save
  * screenshots there.
  */
 
@@ -376,6 +381,152 @@ test("files dropped on the window still reach the add, through the layer, with i
     await app.close();
   }
 });
+
+async function pictureLeaving(window: Page, row: Locator, into: boolean): Promise<boolean> {
+  const box = await row.boundingBox();
+  if (!box) return false;
+  return (await leavingCopies(window)).some(
+    (copy) =>
+      copy.opacity < 1 &&
+      scaleOf(copy.transform) < 1 === into &&
+      copy.box.left < box.x + box.width &&
+      copy.box.left + copy.box.width > box.x &&
+      copy.box.top < box.y + box.height &&
+      copy.box.top + copy.box.height > box.y,
+  );
+}
+
+// The layer reads navigator.platform as a drag moves, so a test can run the macOS path anywhere.
+const reportPlatform = (window: Page, platform: string) =>
+  window.evaluate((value) => {
+    Object.defineProperty(Navigator.prototype, "platform", {
+      get: () => value,
+      configurable: true,
+    });
+  }, platform);
+
+const watchDragOver = (window: Page) =>
+  window.evaluate(() => {
+    const seen = globalThis as { dragOverTaken?: boolean };
+    globalThis.addEventListener("dragover", (event) =>
+      setTimeout(() => {
+        seen.dragOverTaken = event.defaultPrevented;
+      }),
+    );
+  });
+
+const dragOverTaken = (window: Page) =>
+  window.evaluate(() => (globalThis as { dragOverTaken?: boolean }).dragOverTaken);
+
+for (const [system, platform] of [
+  ["macOS", "MacIntel"],
+  ["Windows and Linux", "Win32"],
+] as const) {
+  const macOS = platform === "MacIntel";
+  test(`on ${system}, a drop nothing takes ${macOS ? "ends as the button is let go, its picture fading where it was" : "stays refused, with no picture fading"}, for each kind of row in the sidebar and the Library; one a Folder takes still moves`, async () => {
+    await writeFile(join(sources, "Budget.txt"), "Budget for the harbour project.\n");
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, 1200, 760);
+      await dismissChatSetup(window);
+      await reportPlatform(window, platform);
+      await watchDragOver(window);
+      await (await coreOf(window)).evaluate(
+        async (core: CoreBridge, path) => {
+          await core.createLibraryGroup({ name: "内部文件 Archive", description: "" });
+          const finance = await core.createLibraryGroup({ name: "Finance", description: "" });
+          const plan = await core.createMind({ title: "Plan" });
+          await core.moveToFolder({ mindIds: [plan.id], folderId: finance.id });
+          await core.addDocuments([path]);
+          const [budget] = await core.listDocuments();
+          // A new Library may start with it; the sidebar lists a Tag once a Document has it.
+          const tag =
+            (await core.listTags()).find((each) => each.name === "Contract") ??
+            (await core.createTag({ name: "Contract" }));
+          if (budget) await core.addTagToDocuments([budget.id], tag.id);
+        },
+        join(sources, "Budget.txt"),
+      );
+      await expect(documentRow(window, "Budget")).toBeVisible();
+      await expect(window.locator("html")).toHaveAttribute("data-motion", "on");
+      // Slowed, so the test sees the picture leave; it waits for it to settle, not for a time.
+      await setMotionSpeed(window, 0.1);
+      const label = window.getByTestId("drop-label");
+      const loose = window.getByTestId("not-in-a-folder");
+      const archive = sidebarFolder(window, "内部文件 Archive");
+      const finance = sidebarFolder(window, "Finance");
+
+      await dragOnto(
+        window,
+        documentRow(window, "Budget").getByTestId("row-text"),
+        archive.getByTestId("folder-row"),
+        async () => {
+          await expect(archive).toHaveAttribute("data-drop-target", "true");
+          await expect(label).toHaveText(
+            translate("en", "drop.moveTo", { folder: "内部文件 Archive" }),
+          );
+        },
+      );
+      await expect
+        .poll(() => pictureLeaving(window, archive.getByTestId("folder-row"), true))
+        .toBe(true);
+      await expect
+        .poll(async () => (await where(window)).documents.Budget)
+        .toBe("内部文件 Archive");
+      await expect(loose).toHaveCount(0);
+      await finance.getByTestId("folder-row").click();
+      await expect(window.getByTestId("mind-row").filter({ hasText: "Plan" })).toBeVisible();
+      const before = await where(window);
+
+      await window.getByTestId("open-library").click();
+      const library = window.getByTestId("library");
+      await expect(libraryRow(library, "Budget")).toBeVisible();
+      const openTabs = await window.getByRole("tab").allTextContents();
+      const archiveHead = library
+        .getByTestId("library-section")
+        .filter({
+          has: window.getByTestId("library-section-name").filter({ hasText: "内部文件 Archive" }),
+        })
+        .getByTestId("library-section-head");
+      const contract = tagRow(window, "Contract");
+      const refused: [Locator, Locator, Locator][] = [
+        [
+          documentRow(window, "Budget").getByTestId("row-text"),
+          archive.getByTestId("folder-row"),
+          archive,
+        ],
+        [window.getByTestId("mind-row").filter({ hasText: "Plan" }), contract, contract],
+        [
+          libraryRow(library, "Budget").getByTestId("library-document-name"),
+          archiveHead,
+          archiveHead,
+        ],
+      ];
+      // A refused target never lights or says anything, and letting go changes nothing.
+      for (const [index, [from, onto, lit]] of refused.entries()) {
+        await motionSettled(window);
+        await dragOnto(window, from, onto, async () => {
+          await expect(loose).toBeVisible();
+          await expect(lit).not.toHaveAttribute("data-drop-target", "true");
+          await expect(label).toHaveCount(0);
+        });
+        if (macOS) {
+          await expect.poll(() => pictureLeaving(window, onto, false)).toBe(true);
+          await screenshot(window, `refused-drop-fading-${platform}-${index}`);
+          await expect(loose).toHaveCount(0);
+        }
+        await motionSettled(window);
+        expect(await leavingCopies(window)).toEqual([]);
+        expect(await where(window)).toEqual(before);
+        expect(await window.getByRole("tab").allTextContents()).toEqual(openTabs);
+        await expect.poll(() => dragOverTaken(window)).toBe(macOS);
+        await screenshot(window, `refused-drop-settled-${platform}-${index}`);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+}
 
 test("a list scrolls while a drag rests near its edge", async () => {
   await writeFile(join(sources, "Budget.txt"), "Budget for the harbour project.\n");

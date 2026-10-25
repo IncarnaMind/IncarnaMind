@@ -1469,6 +1469,9 @@ export function motionRunning(window: Page): Promise<number> {
   );
 }
 
+/** The scale a copy's transform says, 1 with none. */
+export const scaleOf = (transform: string) => Number(/^matrix\(([^,]+),/.exec(transform)?.[1] ?? 1);
+
 /** The copies of closed menus and popovers still fading where they were, which nothing else can see. */
 export function leavingCopies(window: Page) {
   return window.evaluate(
