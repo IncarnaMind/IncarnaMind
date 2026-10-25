@@ -300,7 +300,7 @@ describe("the Word corpus", () => {
    * only its indent, so a box is text a User can't tick. The export opens in LibreOffice and
    * imports again with every box and its text.
    */
-  it(
+  it.skipIf(!soffice)(
     "a Mind of to-dos exports to Word, opens in LibreOffice, and imports again with its boxes and text",
     async () => {
       const prose = (text?: string): JSONContent => ({
@@ -352,16 +352,14 @@ describe("the Word corpus", () => {
       await client.settled();
       const exported = await core.exportMind(mind.id, { format: "docx" });
 
-      if (soffice) {
-        const folder = mkdtempSync(join(tmpdir(), "incarnamind-word-todos-"));
-        try {
-          const path = join(folder, exported.fileName);
-          writeFileSync(path, exported.data);
-          const opened = await convertToPdf(soffice, path);
-          expect(opened.opened, opened.problem).toBe(true);
-        } finally {
-          rmSync(folder, { recursive: true, force: true });
-        }
+      const folder = mkdtempSync(join(tmpdir(), "incarnamind-word-todos-"));
+      try {
+        const path = join(folder, exported.fileName);
+        writeFileSync(path, exported.data);
+        const opened = await convertToPdf(soffice as string, path);
+        expect(opened.opened, opened.problem).toBe(true);
+      } finally {
+        rmSync(folder, { recursive: true, force: true });
       }
 
       const pkg = await openWordPackage(exported.data);

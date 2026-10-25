@@ -2849,24 +2849,33 @@
       }
     }
 
-    /*
-     * A checklist: the box sits at the text edge and its text starts 28px in; a nested checklist
-     * steps in by 24px. A done item is struck through.
-     */
+    /* A checklist: the box sits where a bullet does; a done item is struck through. */
     ul:has(> li[data-checked]) {
-      padding-left: 0;
       list-style: none;
-    }
-    &:not(.assistant-answer-text) ul[data-id]:has(> li[data-checked]) {
-      padding-left: 0;
-    }
-    /* A nested checklist starts at its parent's text, 28px in, but its box is 24px in. */
-    li[data-checked] ul:has(> li[data-checked]) {
-      margin-left: -4px;
     }
     li[data-checked] {
       display: flex;
+      gap: 8px;
+      margin-left: -24px;
+    }
+    /*
+     * The Mind's own to-dos: the box sits at the text edge and its text starts 28px in; a nested
+     * to-do steps in by 24px. A checklist in an Answer keeps the browser's.
+     */
+    &:not(.assistant-answer-text) ul[data-id]:has(> li[data-checked]) {
+      padding-left: 0;
+    }
+    &:not(.assistant-answer-text) ul[data-id] > li[data-checked] {
       gap: 12px;
+      margin-left: 0;
+    }
+    /* A to-do's own checklist starts at its text, 28px in, but its box is 24px in. */
+    &:not(.assistant-answer-text)
+      ul[data-id]
+      > li[data-checked]
+      > div
+      > ul[data-id]:has(> li[data-checked]) {
+      margin-left: -4px;
     }
     li[data-checked] > label {
       flex: none;

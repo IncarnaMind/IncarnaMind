@@ -639,7 +639,6 @@ export class DocxWriter {
     return xml;
   }
 
-  /** To-dos: each item a paragraph that starts with its box, at the text edge, and steps in per level. */
   private todos(
     block: Extract<Block, { kind: "list" }>,
     checked: readonly boolean[],
