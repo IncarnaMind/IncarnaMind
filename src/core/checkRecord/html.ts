@@ -1,4 +1,4 @@
-import { unreadCountText, unreadFileText } from "../../shared/unreadFiles";
+import { unreadRecordLines } from "../../shared/unreadFiles";
 import { escapeHtml } from "../exports/printHtml";
 import type { Language } from "../language";
 import type { CheckRecord } from "./index";
@@ -48,13 +48,7 @@ export function renderRecordHtml(record: CheckRecord): string {
     ...(record.unread.length === 0
       ? []
       : [
-          [
-            t("unread.heading"),
-            [
-              unreadCountText(record.unread, t),
-              ...record.unread.map((file) => unreadFileText(file, t)),
-            ],
-          ] as [string, readonly string[]],
+          [t("unread.heading"), unreadRecordLines(record.unread, t)] as [string, readonly string[]],
         ]),
     [t("checkRecord.summary.sentences"), [count(record.sentences)]],
     [t("checkRecord.summary.citations"), [count(record.citations)]],

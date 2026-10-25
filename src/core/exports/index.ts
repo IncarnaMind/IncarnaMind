@@ -23,7 +23,7 @@ import { readableQuoteText } from "../../shared/readableQuote";
 import type { ScopeKind } from "../../shared/searchScope";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
-import { unreadCountText, unreadFileText } from "../../shared/unreadFiles";
+import { unreadCountText, unreadFileNamesOf, unreadFileText } from "../../shared/unreadFiles";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
 import {
@@ -36,6 +36,7 @@ import {
   type FormattedCitations,
   type KeptCitationText,
   MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
   type Mind,
   type MindExport,
   type MindExportPreview,
@@ -163,24 +164,29 @@ function withoutEmptyTitle(blocks: Block[]): Block[] {
 }
 
 /**
- * What an export says it was made without (#740): the count, then each file in the Mind's
- * Search scope with why, as the line beside an Answer says it. Nothing when all was read.
+ * What an export says it was made without (#740): the count, and, when the Mind names them, each
+ * file in its Search scope with why. Count only otherwise: an export usually goes to someone else,
+ * and a file's name can be private. Nothing when all was read.
  */
-function unreadBlocks(unread: readonly UnreadFile[], language: Language): Block[] {
+function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: boolean): Block[] {
   if (unread.length === 0) return [];
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const line = (text: string) => ({ kind: "text" as const, text, marks: NO_MARKS });
   return [
     { kind: "heading", level: 2, content: [line(t("unread.heading"))] },
     { kind: "paragraph", content: [line(unreadCountText(unread, t))] },
-    {
-      kind: "list",
-      ordered: false,
-      start: 1,
-      items: unread.map((file) => [
-        { kind: "paragraph", content: [line(unreadFileText(file, t))] },
-      ]),
-    },
+    ...(names
+      ? [
+          {
+            kind: "list" as const,
+            ordered: false,
+            start: 1,
+            items: unread.map((file) => [
+              { kind: "paragraph" as const, content: [line(unreadFileText(file, t))] },
+            ]),
+          },
+        ]
+      : []),
   ];
 }
 
@@ -248,7 +254,7 @@ export function createExports(deps: ExportsDependencies) {
       comparisonText: (key, params) => translate(language, key, params),
       documentRemoved: (documentId) => !live.has(documentId),
     };
-    const { read, unread, questions, word, theirChanges, trackedChanges } = deps.read(
+    const { read, unread, unreadNames, questions, word, theirChanges, trackedChanges } = deps.read(
       mind.id,
       (fragment) => {
         const { doc } = fragment;
@@ -270,6 +276,7 @@ export function createExports(deps: ExportsDependencies) {
         return {
           read: readBlocks(fragment, readOptions),
           unread: deps.unread(mind.id, doc ? mindScopeOf(doc) : null),
+          unreadNames: doc ? unreadFileNamesOf(doc.getMap(MIND_SETTINGS_FIELD)) : false,
           questions: countQuestions(fragment),
           word: doc && fromWord ? { importing: wordImportProgressOf(doc) !== null } : null,
           theirChanges: fromWord
@@ -283,7 +290,7 @@ export function createExports(deps: ExportsDependencies) {
       },
     );
     const shown = withoutEmptyTitle(read);
-    const withUnread = [...shown, ...unreadBlocks(unread, language)];
+    const withUnread = [...shown, ...unreadBlocks(unread, language, unreadNames)];
     const blocks =
       format !== "docx" && options.theirChanges === "accepted"
         ? withChangesAccepted(withUnread)
@@ -306,6 +313,8 @@ export function createExports(deps: ExportsDependencies) {
       questions,
       fromWord: word !== null,
       theirChanges,
+      unreadFiles: unread.length,
+      unreadFileNames: unreadNames,
     };
     const failed = new Map<string, FailedSentence>();
     for (const { sentence } of piecesOf(blocks)) if (sentence) failed.set(sentence.id, sentence);

@@ -37,6 +37,39 @@ export function unreadFileText(
   })}`;
 }
 
+/** The check record names at most this many files, then says how many more (#740). */
+export const CHECK_RECORD_NAMES = 20;
+
+/**
+ * The lines the check record's summary holds: the count, then each file with why, at most
+ * `CHECK_RECORD_NAMES` of them and a last line for the rest (#740).
+ */
+export function unreadRecordLines(files: readonly UnreadFile[], t: Translate): string[] {
+  const shown = files.slice(0, CHECK_RECORD_NAMES).map((file) => unreadFileText(file, t));
+  const left = files.length - shown.length;
+  return [
+    unreadCountText(files, t),
+    ...shown,
+    ...(left > 0 ? [t("unread.more", { count: left })] : []),
+  ];
+}
+
+/** The Mind settings key that says its exports name the files they couldn't read; absent: count only. */
+const NAMES_KEY = "unreadFileNames";
+
+/** Whether this Mind's exports name the files that couldn't be read, or only count them (#740). */
+export function unreadFileNamesOf(settings: Y.Map<unknown>): boolean {
+  return settings.get(NAMES_KEY) === true;
+}
+
+export function setUnreadFileNames(settings: Y.Map<unknown>, names: boolean): void {
+  if (names) {
+    if (settings.get(NAMES_KEY) !== true) settings.set(NAMES_KEY, true);
+  } else if (settings.has(NAMES_KEY)) {
+    settings.delete(NAMES_KEY);
+  }
+}
+
 const unreadOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_CHECK_UNREAD_FIELD);
 
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);

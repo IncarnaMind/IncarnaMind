@@ -297,11 +297,8 @@ describe("An export", () => {
       {
         heading: "## What couldn’t be read",
         count: "3 files couldn’t be read",
-        files: [
-          "- Contract.doc: Format not read yet (.doc). Convert it to PDF, Word, PowerPoint or Excel.",
-          "- Locked.pdf: Password-protected. Remove the password and add it again.",
-          "- Scan.pdf: A scan with no text that could be recognized (handwriting or a picture, say).",
-        ],
+        names: ["Contract.doc", "Locked.pdf", "Scan.pdf"],
+        reasons: ["Format not read yet", "Password-protected", "A scan with no text"],
       },
     ],
     [
@@ -309,15 +306,12 @@ describe("An export", () => {
       {
         heading: "## 未能读取的文件",
         count: "3 个文件未能读取",
-        files: [
-          "- Contract.doc：暂不支持此格式（.doc）。请转换为 PDF、Word、PowerPoint 或 Excel。",
-          "- Locked.pdf：已设置密码。请去掉密码后重新添加。",
-          "- Scan.pdf：扫描件，未识别出文字（可能是手写内容或图片）。",
-        ],
+        names: ["Contract.doc", "Locked.pdf", "Scan.pdf"],
+        reasons: ["暂不支持此格式", "已设置密码", "扫描件"],
       },
     ],
   ] as const)(
-    "says in the file which files in the Mind's Search scope couldn't be read, with why (%s)",
+    "counts what couldn't be read in the Mind's Search scope, without naming the files (%s)",
     async (language, words) => {
       const { core, folderId } = await withUnreadFiles();
       await core.updateSettings({ user: { language } });
@@ -327,26 +321,53 @@ describe("An export", () => {
 
       expect(markdown).toContain(words.heading);
       expect(markdown).toContain(words.count);
-      for (const line of words.files) expect(markdown).toContain(line);
+      for (const name of words.names) expect(markdown).not.toContain(name);
+      for (const reason of words.reasons) expect(markdown).not.toContain(reason);
 
       const heading = words.heading.replace("## ", "");
       const html = new TextDecoder().decode(
         (await core.exportMind(mind.id, { format: "html" })).data,
       );
       expect(html).toContain(`<h3>${heading}</h3>`);
-      for (const line of words.files) expect(html).toContain(line.slice(2));
+      expect(html).toContain(words.count);
+      for (const name of words.names) expect(html).not.toContain(name);
 
       const docx = await core.exportMind(mind.id, { format: "docx" });
-      const paragraphs = paragraphsOf(
-        unzip(docx.data).get("word/document.xml")?.toString("utf8") ?? "",
-      ).map((each) => each.text);
+      const document = unzip(docx.data).get("word/document.xml")?.toString("utf8") ?? "";
+      const paragraphs = paragraphsOf(document).map((each) => each.text);
       expect(paragraphs).toContain(heading);
       expect(paragraphs).toContain(words.count);
-      for (const line of words.files) expect(paragraphs).toContain(line.slice(2));
+      for (const name of words.names) expect(document).not.toContain(name);
     },
   );
 
-  test("a PDF export prints the same list", async () => {
+  test("names the files when the Mind says so, and keeps that choice for that Mind alone", async () => {
+    const { core, folderId } = await withUnreadFiles();
+    const { mind } = await mindOf(core, folderId, [SUPPORTED]);
+
+    const before = await core.previewMindExport(mind.id, { format: "markdown" });
+    expect(before.unreadFiles).toBe(3);
+    expect(before.unreadFileNames).toBe(false);
+
+    await core.setMindUnreadFileNames(mind.id, true);
+    const named = await markdownOf(core, mind.id);
+    expect(named).toContain("- Contract.doc: Format not read yet (.doc)");
+    expect(named).toContain("- Locked.pdf: Password-protected");
+    expect(named).toContain("- Scan.pdf: A scan with no text");
+    expect((await core.previewMindExport(mind.id, { format: "markdown" })).unreadFileNames).toBe(
+      true,
+    );
+
+    const { mind: other } = await mindOf(core, folderId, [SUPPORTED]);
+    const elsewhere = await markdownOf(core, other.id);
+    expect(elsewhere).toContain("3 files couldn’t be read");
+    expect(elsewhere).not.toContain("Contract.doc");
+
+    await core.setMindUnreadFileNames(mind.id, false);
+    expect(await markdownOf(core, mind.id)).not.toContain("Contract.doc");
+  });
+
+  test("a PDF export prints the count only", async () => {
     const { printed, printer } = fakePrinter();
     const { core, folderId } = await withUnreadFiles({ printer });
     const { mind } = await mindOf(core, folderId, [SUPPORTED]);
@@ -356,17 +377,17 @@ describe("An export", () => {
     const body = printed[0]?.body ?? "";
     expect(body).toContain("What couldn’t be read");
     expect(body).toContain("3 files couldn’t be read");
-    expect(body).toContain("Contract.doc: Format not read yet (.doc)");
-    expect(body).toContain("Locked.pdf: Password-protected");
-    expect(body).toContain("Scan.pdf: A scan with no text");
+    expect(body).not.toContain("Contract.doc");
+    expect(body).not.toContain("Locked.pdf");
+    expect(body).not.toContain("Scan.pdf");
   });
 
   test.each([
-    ["en", "1 file couldn’t be read", "Contract.doc: Format not read yet (.doc)"],
-    ["zh-CN", "1 个文件未能读取", "Contract.doc：暂不支持此格式（.doc）"],
+    ["en", "1 file couldn’t be read"],
+    ["zh-CN", "1 个文件未能读取"],
   ] as const)(
-    "names one unread file with the singular line (%s)",
-    async (language, count, file) => {
+    "says it in the singular for one file, without naming it (%s)",
+    async (language, count) => {
       const { core, folderId } = await linkedFolderWith({ "Old/Contract.doc": "binary" });
       await core.updateSettings({ user: { language } });
       const { mind } = await mindOf(core, folderId, [SUPPORTED]);
@@ -374,7 +395,7 @@ describe("An export", () => {
       const markdown = await markdownOf(core, mind.id);
 
       expect(markdown).toContain(count);
-      expect(markdown).toContain(file);
+      expect(markdown).not.toContain("Contract.doc");
     },
   );
 
@@ -424,6 +445,30 @@ describe("The check record", () => {
     expect(zhRows.find((each) => each[0] === "未能读取的文件")?.[1]).toEqual(
       "3 个文件未能读取; Contract.doc：暂不支持此格式（.doc）。请转换为 PDF、Word、PowerPoint 或 Excel。; Locked.pdf：已设置密码。请去掉密码后重新添加。; Scan.pdf：扫描件，未识别出文字（可能是手写内容或图片）。",
     );
+  });
+
+  test("names at most 20 files, then says how many more there were", async () => {
+    const { printed, printer } = fakePrinter();
+    const out = await createTempDataFolder();
+    const files = Object.fromEntries(
+      Array.from({ length: 22 }, (_, index) => [`Old/Contract ${index + 1}.doc`, "binary"]),
+    );
+    const { core, folderId } = await linkedFolderWith(files, { printer });
+    await core.setOutputLocation(out);
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+
+    const saved = await core.saveCheckRecord(mind.id);
+
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const csvName = readdirSync(out).find((name) => name.endsWith(".csv"));
+    const rows = parseCsv(readFileSync(join(out, csvName ?? ""), "utf8"));
+    const summary = rows.find((each) => each[0] === "What couldn’t be read")?.[1] ?? "";
+    expect(summary).toContain("22 files couldn’t be read");
+    expect(summary).toContain("Contract 20.doc");
+    expect(summary).not.toContain("Contract 21.doc");
+    expect(summary).toContain("and 2 more");
+    expect(printed[0]?.body ?? "").toContain("and 2 more");
   });
 
   test("says nothing when the checks read everything", async () => {

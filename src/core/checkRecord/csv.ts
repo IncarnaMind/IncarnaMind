@@ -1,5 +1,5 @@
 import type { MessageKey } from "../../shared/i18n";
-import { unreadCountText, unreadFileText } from "../../shared/unreadFiles";
+import { unreadRecordLines } from "../../shared/unreadFiles";
 import type { CheckRecord } from "./index";
 import {
   checkedBy,
@@ -88,15 +88,7 @@ export function renderCsv(record: CheckRecord): string {
     [t("checkRecord.summary.models"), record.models.join("; ") || none],
     ...(record.unread.length === 0
       ? []
-      : [
-          [
-            t("unread.heading"),
-            [
-              unreadCountText(record.unread, t),
-              ...record.unread.map((each) => unreadFileText(each, t)),
-            ].join("; "),
-          ],
-        ]),
+      : [[t("unread.heading"), unreadRecordLines(record.unread, t).join("; ")]]),
     [t("checkRecord.summary.sentences"), counts(record.sentences, t) || none],
     [t("checkRecord.summary.citations"), counts(record.citations, t) || none],
     [t("checkRecord.modelNote")],

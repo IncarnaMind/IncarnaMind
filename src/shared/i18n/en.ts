@@ -76,6 +76,7 @@ export const en = {
   "unread.count.one": "1 file couldn’t be read",
   "unread.count": "{count} files couldn’t be read",
   "unread.heading": "What couldn’t be read",
+  "unread.more": "and {count} more",
   "unread.show": "Show",
   "unread.file.reason": ": {reason}",
   "unread.ocr": "Read with OCR",
@@ -3417,6 +3418,9 @@ export const en = {
   "export.citedDocuments.other": "{count} Documents",
   "export.commentFailedChecks": "Comment on checks that failed",
   "export.commentFailedChecks.hint": "Quote not found, Contradicted, Unsupported or Needs re-check",
+  "export.unreadNames": "Name the files",
+  "export.unreadNames.hint":
+    "The note about what couldn’t be read lists the files by name. Off, it says how many.",
   "aiStatement.command": "Export AI use statement",
   "aiStatement.keywords": "AI use disclosure declaration thesis dissertation paper record",
   "aiStatement.title": "AI use statement: {name}",
