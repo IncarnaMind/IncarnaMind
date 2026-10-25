@@ -1788,6 +1788,87 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE chat_menu_models ADD COLUMN in_menu INTEGER NOT NULL DEFAULT 1;
     `,
   },
+  {
+    version: 102,
+    description: "A Meeting's notes filled in from its Transcript after Stop (#142)",
+    // JSON: the fill's state, mode, problem, and the ids of the Blocks it added, for Undo.
+    // NULL before Stop.
+    sql: `
+      ALTER TABLE meetings ADD COLUMN fill TEXT;
+    `,
+  },
+  {
+    version: 103,
+    description: "Tagging and sorting new Documents by themselves is off for a cloud model (#1617)",
+    // The Library setting "automatic" was saved as true by every save of the Tagging setting, so a
+    // true can't tell the User's choice from the old default. It is forgotten, and the switch
+    // follows the model: on for one on this computer, off for a cloud model. Only a false stays.
+    // Where Documents were being tagged by themselves, the Library decides at its first start
+    // whether to say it is off now: only then is the model known (the "pending" value).
+    sql: `
+      INSERT INTO device_settings (id, key, value, created_at, updated_at)
+        SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4'
+            || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (random() & 3), 1)
+            || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+          'libraryAutomaticOffNotice', '"pending"',
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE EXISTS (SELECT 1 FROM documents WHERE deleted_at IS NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM device_settings
+            WHERE key = 'library' AND deleted_at IS NULL
+              AND json_extract(value, '$.automatic') = 0
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM device_settings WHERE key = 'libraryAutomaticOffNotice'
+          );
+      UPDATE device_settings
+        SET value = json_remove(value, '$.automatic'),
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE key = 'library' AND deleted_at IS NULL
+          AND json_extract(value, '$.automatic') = 1;
+    `,
+  },
+  {
+    version: 104,
+    description: "How long each AI request and local step took, by flow (#1624)",
+    // This computer's own measurements, never synced: times in milliseconds from started_at,
+    // tokens, and names, never text. Rows past 30 days are deleted at start rather than marked
+    // with deleted_at: nothing else reads them, and a kept row would only grow the database.
+    sql: `
+      CREATE TABLE ai_timings (
+        id TEXT PRIMARY KEY NOT NULL,
+        kind TEXT NOT NULL,
+        flow TEXT,
+        step TEXT,
+        data_flow TEXT,
+        provider_kind TEXT,
+        model_id TEXT NOT NULL,
+        reasoning TEXT,
+        started_at TEXT NOT NULL,
+        first_byte_ms INTEGER,
+        first_reasoning_ms INTEGER,
+        first_text_ms INTEGER,
+        first_tool_ms INTEGER,
+        end_ms INTEGER NOT NULL,
+        input_tokens INTEGER,
+        cached_input_tokens INTEGER,
+        output_tokens INTEGER,
+        units REAL,
+        outcome TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX ai_timings_by_started_at ON ai_timings (started_at);
+    `,
+  },
+  {
+    version: 105,
+    description: "A Question keeps the words the User selected in Documents to ask about (#101)",
+    // JSON: a Question's quotes, each its Document, words and Location; NULL for none, and for an Answer.
+    sql: `
+      ALTER TABLE conversation_messages ADD COLUMN quotes TEXT;
+    `,
+  },
 ];
 
 /**

@@ -4,6 +4,7 @@ import {
   displayName,
   fileNameOf,
   looksMachineMade,
+  sourceOf,
   titleWithoutSite,
 } from "../../src/shared/documentNames";
 
@@ -83,6 +84,45 @@ describe("the name shown for a Document", () => {
   test("the file's name is the last part of its path", () => {
     expect(fileNameOf("/Users/me/Reports/Q3.xlsx")).toBe("Q3.xlsx");
     expect(fileNameOf("C:\\Users\\me\\Q3.xlsx")).toBe("Q3.xlsx");
+  });
+});
+
+describe("where a Document comes from", () => {
+  test("a file named by machine reads as the Document's name and the file's extension", () => {
+    expect(
+      sourceOf({
+        name: "Transcript · Meeting, 19 October",
+        path: "/data/Transcripts/2896a7b6-5f1e-4039-820a-55725dfb8a17.vtt",
+      }),
+    ).toBe("Transcript · Meeting, 19 October.vtt");
+  });
+
+  test("a Document's name that already ends in the extension keeps one of it", () => {
+    expect(
+      sourceOf({
+        name: "Meeting.vtt",
+        path: "/data/Transcripts/2896a7b6-5f1e-4039-820a-55725dfb8a17.vtt",
+      }),
+    ).toBe("Meeting.vtt");
+    expect(
+      sourceOf({
+        name: "Meeting.VTT",
+        path: "/data/Transcripts/2896a7b6-5f1e-4039-820a-55725dfb8a17.vtt",
+      }),
+    ).toBe("Meeting.VTT");
+  });
+
+  test("a file the User named keeps its own name, and a web page its address", () => {
+    expect(sourceOf({ name: "Copperleaf", path: "/Users/me/DPA - Copperleaf.docx" })).toBe(
+      "DPA - Copperleaf.docx",
+    );
+    expect(
+      sourceOf({
+        name: "Tea",
+        path: "/data/Web/49ed72de-a284-4da6-b515-1ddbb7c0a8f1.html",
+        web: { address: "https://example.org/tea" },
+      }),
+    ).toBe("https://example.org/tea");
   });
 });
 

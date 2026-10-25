@@ -121,6 +121,19 @@ export function withFound(messages: readonly AnswerMessage[], shown: string): An
   return [...messages.slice(0, -1), { ...last, content }];
 }
 
+/** The button's instructions (`meetingHelpInstructions`) after its Question, in its message. */
+export function withHelp(
+  messages: readonly AnswerMessage[],
+  instructions: string,
+): AnswerMessage[] {
+  const last = messages.at(-1);
+  if (last?.role !== "user") return [...messages];
+  return [
+    ...messages.slice(0, -1),
+    { ...last, content: `${last.content}\n\n<help>\n${instructions}\n</help>` },
+  ];
+}
+
 /** The language the newest lines of a live transcript are in, without their times and speakers. */
 export const languageSaid = (heard: readonly WindowedPassage[]): string | null =>
   questionLanguage(

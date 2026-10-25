@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { UnsupportedReason } from "../../../core/api";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
@@ -6,8 +7,8 @@ import { openCited, quoteSaysSo } from "../openCited";
 import type { NumberedCitation } from "./citationNumbers";
 
 /**
- * What a cited sentence's Unsupported card says in place of "Nothing in your
- * Documents says this": what its Citations support and what they don't, or
+ * What a cited sentence's Unsupported card says in place of where the check
+ * looked: what its Citations support and what they don't, or
  * the reason the check gave, or that it gave none; then each Citation's quote,
  * which opens at its place.
  */
@@ -57,52 +58,71 @@ export function UnsupportedCited({
           />
         </div>
       )}
-      {cited.map(({ key, number, attributes }) => {
-        const { documentId, quote } = attributes;
-        const content = (
-          <>
-            {quote && (
-              <span data-testid="claim-cited-quote" className="line-clamp-2 min-w-0">
-                “{quote}”
-              </span>
-            )}
-            <span
-              data-testid="claim-cited-chip"
-              data-check={attributes.check}
-              className="citation-marker claim-card-cited-chip"
-            >
-              {number}
+      {cited.map((citation) => (
+        <OpenCitation key={citation.key} citation={citation} onOpen={onOpen}>
+          {citation.attributes.quote && (
+            <span data-testid="claim-cited-quote" className="line-clamp-2 min-w-0">
+              “{citation.attributes.quote}”
             </span>
-          </>
-        );
-        return documentId ? (
-          <button
-            key={key}
-            type="button"
-            data-testid="claim-cited"
-            className="claim-card-cited"
-            title={quote ?? undefined}
-            aria-label={t("claim.openCitation", { number })}
-            onClick={() => {
-              openCited(
-                { ...attributes, documentId },
-                {
-                  check: attributes.check,
-                  withQuote: quoteSaysSo(attributes.check),
-                  number,
-                },
-              );
-              onOpen();
-            }}
-          >
-            {content}
-          </button>
-        ) : (
-          <div key={key} data-testid="claim-cited" className="claim-card-cited">
-            {content}
-          </div>
-        );
-      })}
+          )}
+          <CitationChip citation={citation} testId="claim-cited-chip" />
+        </OpenCitation>
+      ))}
     </>
+  );
+}
+
+export function CitationChip({
+  citation: { number, attributes },
+  testId,
+}: {
+  citation: NumberedCitation;
+  testId: string;
+}) {
+  return (
+    <span
+      data-testid={testId}
+      data-check={attributes.check}
+      className="citation-marker claim-card-cited-chip"
+    >
+      {number}
+    </span>
+  );
+}
+
+export function OpenCitation({
+  citation: { number, attributes },
+  label,
+  onOpen,
+  children,
+}: {
+  citation: NumberedCitation;
+  label?: string;
+  onOpen(): void;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const { documentId, quote } = attributes;
+  return documentId ? (
+    <button
+      type="button"
+      data-testid="claim-cited"
+      className="claim-card-cited"
+      title={quote ?? undefined}
+      aria-label={label ?? t("claim.openCitation", { number })}
+      onClick={() => {
+        openCited(
+          { ...attributes, documentId },
+          { check: attributes.check, withQuote: quoteSaysSo(attributes.check), number },
+        );
+        onOpen();
+      }}
+    >
+      {children}
+    </button>
+  ) : (
+    <div data-testid="claim-cited" className="claim-card-cited">
+      {children}
+    </div>
   );
 }

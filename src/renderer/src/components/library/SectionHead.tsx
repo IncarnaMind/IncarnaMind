@@ -1,6 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import type { DropEffect, DropProps } from "../../dragDrop";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
+import { formatCount } from "../../linkedFolders";
 import { ChevronDownLineIcon } from "../lineIcons";
 import { dropIntoClass } from "../sidebarRows";
 
@@ -18,6 +19,7 @@ export function SectionHead({
   name,
   count,
   tip,
+  after,
   end,
   testId,
   rowProps,
@@ -32,12 +34,14 @@ export function SectionHead({
   name: ReactNode;
   count: number;
   tip?: string | undefined;
+  after?: ReactNode;
   end?: ReactNode;
   testId: string;
   rowProps?: HTMLAttributes<HTMLDivElement>;
   drop?: { over: DropEffect | null; props: DropProps };
 }) {
   const t = useT();
+  const language = useLanguage();
   return (
     // biome-ignore lint/a11y/useSemanticElements: the head of a group of rows in a grid of sections, not a table.
     // biome-ignore lint/a11y/useFocusableInteractive: its name's button takes the focus.
@@ -71,8 +75,9 @@ export function SectionHead({
         data-testid="library-section-count"
         className="shrink-0 text-[12px] tabular-nums text-ink-meta"
       >
-        {count}
+        {formatCount(count, language)}
       </span>
+      {after}
       <span className="min-w-0 flex-1" />
       {end}
     </div>

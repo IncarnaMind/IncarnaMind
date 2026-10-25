@@ -5,6 +5,9 @@
  * `Retry-After` when it gives one, otherwise after a wait that doubles each
  * time the limit is still reached, or at once when the User asks. It never
  * retries in a loop: one Document tries first when the wait is over.
+ *
+ * A key the provider refuses (HTTP 401 or 403) stops them the same way, with no end of its
+ * own: it holds until a key or model changes (#1505), as `resumeNow` says.
  */
 import { APICallError, RetryError } from "ai";
 import type { ProviderError } from "../api";
@@ -40,6 +43,7 @@ export function createRateLimitPause(options: {
 }) {
   const { timers } = options;
   let until: number | null = null;
+  let refused: ProviderError | null = null;
   let wake: AbortController | null = null;
   let nextWait = RATE_LIMIT_PAUSE.firstWaitMs;
 
@@ -104,6 +108,17 @@ export function createRateLimitPause(options: {
       return ends;
     },
 
+    /** The refusal that holds, or null: nothing is sent while it does. */
+    refusal: (): ProviderError | null => refused,
+
+    /** Stops everything after a request was refused for its key. Returns what to say, or null when `error` isn't a refusal. */
+    refuse(error: unknown): ProviderError | null {
+      const found = classifyProviderError(error);
+      if (found.kind !== "auth") return null;
+      refused = found;
+      return found;
+    },
+
     /** A request went through: the next rate limit starts the backoff again. */
     succeeded(): void {
       nextWait = RATE_LIMIT_PAUSE.firstWaitMs;
@@ -114,9 +129,14 @@ export function createRateLimitPause(options: {
       if (ends > timers.now()) hold(ends);
     },
 
-    /** The pause ends now, for a new model or key or when the User asks, and Documents go on. */
+    /** The pause and a refusal end now, for a new model or key or when the User asks, and Documents go on. */
     resumeNow(): void {
-      if (until === null) return;
+      const held = refused !== null;
+      refused = null;
+      if (until === null) {
+        if (held) options.resumed();
+        return;
+      }
       wake?.abort();
       wake = null;
       until = null;

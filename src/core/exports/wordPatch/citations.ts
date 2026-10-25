@@ -4,14 +4,14 @@
  * every paragraph written and every new Block is styled in one pass, in
  * document order, so numbers and the Bibliography come out as they would in
  * a new document. Numbered makes each Citation a footnote right after the
- * word; a style writes each cluster (Citations side by side) in the text or
- * as a note.
+ * word, or, when the User chose a list at the end, a `[1]` in the text; a style
+ * writes each cluster (Citations side by side) in the text or as a note.
  */
 import type { ResolvedCitationStyle } from "../../../shared/citationStyles";
 import type { SourceContext } from "../../../shared/sources";
 import type { CitationFormatRequest, FormattedCitations } from "../../api";
 import { type Block, type Inline, NO_MARKS as PLAIN } from "../../mindText";
-import { addSources, changeKey, styleCitations } from "../citations";
+import { addSources, changeKey, listCitations, styleCitations } from "../citations";
 import { special, type Token } from "./paragraph";
 
 /** Something the export writes: a paragraph's text, or a new Block's. */
@@ -24,11 +24,15 @@ export interface CitationOptions {
   style: ResolvedCitationStyle;
   /** Whether a Numbered Mind shows its Bibliography. */
   bibliography: boolean;
+  /** Citations as `[1]` and a list at the end, instead of footnotes (#1600). */
+  listed: boolean;
   heading: string;
   sources: SourceContext;
   format(request: CitationFormatRequest): Promise<FormattedCitations>;
   /** The mark after an entry too thin to cite (`ExportLabels.needsDetails`). */
   needsDetails: string;
+  /** The mark after a Location whose quote wasn't found (`ExportLabels.unverified`). */
+  unverified: string;
 }
 
 const isCitation = (token: Token | undefined) =>
@@ -104,7 +108,7 @@ export async function styleWritten(
   written: readonly Written[],
   options: CitationOptions,
 ): Promise<Block[]> {
-  const numbered = options.style.form === "numbered";
+  const numbered = options.style.form === "numbered" && !options.listed;
   for (const each of written) {
     const { tokens } = each;
     if (!tokens) continue;
@@ -125,7 +129,9 @@ export async function styleWritten(
     styled = addSources(blocks, options.sources, options.heading);
     return styled.length > blocks.length ? styled.slice(blocks.length) : [];
   }
-  styled = await styleCitations(blocks, options.style, options.format, options.needsDetails);
+  styled = options.listed
+    ? listCitations(blocks, options.sources, options.heading, options.unverified)
+    : await styleCitations(blocks, options.style, options.format, options.needsDetails);
 
   let at = 0;
   for (const each of written) {

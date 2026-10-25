@@ -13,7 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
-import type { LiveDocument } from "../../shared/citations";
+import { type LiveDocument, liveDocumentOf } from "../../shared/citations";
 import { parseThirdPartySource } from "../../shared/textOrigins";
 import {
   ANSWER_BLOCK,
@@ -30,6 +30,7 @@ import { type ReviewReading, reviewReading } from "../mindText";
 import { attribute, contentMarkdown, textAttribute, toMarkdown } from "./blocks";
 import { answerMarkdown } from "./contextText";
 import type { AnswerMessage } from "./engine";
+import { askedAbout, onScreenLine } from "./prompt";
 import {
   type ChangeStates,
   type MindNames,
@@ -546,7 +547,8 @@ type MindParts = Pick<MindCut, "text" | "selection">;
  * first, as in a Mind. A failed Answer adds nothing. `mind`, what of the Mind in
  * focus it reads (`MindCut`), starts the first message, where a provider's
  * prompt cache keeps it from one Question to the next while it doesn't change
- * (#564); what the User selected in it starts the Question's message. The
+ * (#564); the Documents open on screen (#1334), then what the User selected in it,
+ * start the Question's message. The
  * Citations of earlier Answers name their Documents as `documents` names them now.
  */
 export function conversationContext(
@@ -564,6 +566,8 @@ interface ConversationContextOptions {
   mindNames?: MindNames;
   /** What became of the changes the earlier Answers made: waiting, accepted or rejected. */
   changeStates?: ChangeStates;
+  /** The names of the Documents open on screen, the focused group's first. */
+  onScreen?: readonly string[];
 }
 
 /**
@@ -582,11 +586,17 @@ export function conversationContextOf(
     documents = null,
     mindNames = () => null,
     changeStates,
+    onScreen = [],
   }: ConversationContextOptions = {},
 ): QuestionContextWithOrigins {
   const pieces: Piece[] = earlier.flatMap((message): Piece[] => {
-    if (message.kind === "question")
-      return message.text ? [{ role: "user", text: message.text }] : [];
+    if (message.kind === "question") {
+      // A deleted Document's words go no further than the Question that kept them.
+      const quotes = message.quotes.filter(
+        (quote) => documents === null || liveDocumentOf(quote, documents) !== undefined,
+      );
+      return message.text ? [{ role: "user", text: askedAbout({ ...message, quotes }) }] : [];
+    }
     const record = toolRecord(message.toolCalls, mindNames, message.citations.length, changeStates);
     const text =
       message.status === "failed"
@@ -613,7 +623,10 @@ export function conversationContextOf(
     ];
   });
   const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(question));
-  const asked = mind?.selection ? `${mind.selection}\n\n${question}` : question;
+  // With the Question, not the Mind: opening another Document then never changes what a prompt cache keeps.
+  const asked = [onScreenLine(onScreen), mind?.selection ?? "", question]
+    .filter((part) => part !== "")
+    .join("\n\n");
   return {
     context: { messages: withMind(mind?.text ?? "", kept, asked), question },
     origins: originsOf(kept),

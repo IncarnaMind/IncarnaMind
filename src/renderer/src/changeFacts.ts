@@ -71,6 +71,26 @@ export function changeFact(t: Translate, row: ChangeCounts, name: string | null)
     : t("mindChanges.changed", { mind: name, count });
 }
 
+/**
+ * The panel's line for what the assistant applied in one Mind (#1559): "Wrote “{name}”" for a
+ * Mind it made, "Wrote it into “{name}”" for the empty Mind in front, "Changed {n} paragraphs in
+ * “{name}”" for an edit, else the count `changeFact` gives.
+ */
+export function appliedFact(
+  t: Translate,
+  row: ChangeCounts & { filled: boolean },
+  name: string,
+): string {
+  if (row.created) return t("mindChanges.applied.created", { mind: name });
+  if (row.filled) return t("mindChanges.applied.filled", { mind: name });
+  if (row.changed > 0 && row.wrote === 0 && row.tables === 0 && (row.charts ?? 0) === 0) {
+    return row.changed === 1
+      ? t("mindChanges.applied.changed.one", { mind: name })
+      : t("mindChanges.applied.changed", { mind: name, count: row.changed });
+  }
+  return changeFact(t, row, name);
+}
+
 function tablesFact(t: Translate, row: ChangeCounts, name: string | null): string {
   const tables = tablesText(t, row);
   const count = row.wrote + row.changed;

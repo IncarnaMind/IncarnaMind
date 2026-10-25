@@ -5,6 +5,7 @@ import { useCitationStylePicker } from "../citationStylePicker";
 import { useDragSource } from "../dragDrop";
 import { useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
+import { onMiddleClick } from "../middleClick";
 import { useMindStatus } from "../mindStatus";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
@@ -104,12 +105,7 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
         title={title}
         // A click opens it; ⌘-click and Shift-click select (`useSelectable`).
         onClick={select.onClick}
-        onMouseDown={(event) => {
-          if (event.button === 1) event.preventDefault(); // no autoscroll
-        }}
-        onAuxClick={(event) => {
-          if (event.button === 1) openMind(mind.id, { newTab: true });
-        }}
+        {...onMiddleClick(() => openMind(mind.id, { newTab: true }))}
         onKeyDown={(event) => {
           rename.nameProps.onKeyDown(event);
           onKeyDown(event);

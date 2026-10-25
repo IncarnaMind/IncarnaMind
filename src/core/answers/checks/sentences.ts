@@ -285,14 +285,16 @@ export function keptAsView(
  * Every check in the Mind with the whole sentences its marked text is in, as they read now, and
  * where its mark is (`MarkedSentence`).
  */
-export function checkedSentences(blocks: Y.XmlFragment): (MarkedSentence & { sentence: string })[] {
+export function checkedSentences(
+  blocks: Y.XmlFragment,
+): (MarkedSentence & { sentence: string; cited: CitedQuote[] })[] {
   return markedSentences(blocks).map((marked) => {
     const { element, from, to } = marked;
     const text = textOf(element);
     const touched = sentenceSpans(text).filter((span) => span.from < to && span.to > from);
     const start = Math.min(from, touched[0]?.from ?? from);
     const end = Math.max(to, touched.at(-1)?.to ?? to);
-    return { ...marked, sentence: text.slice(start, end) };
+    return { ...marked, sentence: text.slice(start, end), cited: citedIn(element, start, end) };
   });
 }
 

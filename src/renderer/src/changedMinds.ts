@@ -13,6 +13,8 @@ import type { ChartProblem, ConversationAnswer } from "../../core/api";
 export interface ChangedMind {
   mindId: string;
   created: boolean;
+  /** It was written into while it held nothing: the empty Mind in front (#1559). */
+  filled: boolean;
   requests: readonly string[];
   wrote: number;
   changed: number;
@@ -33,6 +35,7 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
     if (!change) continue;
     const row = rows.get(change.mindId) ?? {
       created: false,
+      filled: false,
       requests: [],
       wrote: 0,
       changed: 0,
@@ -44,6 +47,7 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
       extraCells: 0,
     };
     row.created ||= change.created;
+    row.filled ||= change.filled === true;
     if (change.request && !row.requests.includes(change.request)) row.requests.push(change.request);
     const tables = change.tables ?? 0;
     // Counted by paragraph; an Answer's calls from before that counted Proposals, a table one of them.

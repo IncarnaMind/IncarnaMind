@@ -12,6 +12,7 @@ import {
   DEFAULT_FOLDER_ZH,
   dismissChatSetup,
   enterContent,
+  expectBarOneRow,
   frontMindName,
   launchApp,
   motionSettled,
@@ -717,6 +718,8 @@ test("killed mid-recording, IncarnaMind recovers the audio up to the last part a
   await writeFile(join(dataDir, "meetings", meetingId, "microphone-0000010000.wav.writing"), "");
 
   const { app, window } = await launchApp(dataDir);
+  await expect(window.getByTestId("home")).toBeVisible();
+  await window.getByTestId("mind-tab").click();
   const bar = window.getByTestId("meeting-bar");
   await expect(bar).toHaveAttribute("data-status", "paused");
   // A recovered, paused Meeting opens no call help panel: it would open before the app's window.
@@ -818,8 +821,7 @@ test("recording details: a slow engine, a fallback and a part that can't be save
 
   await setWindowSize(app, window, 900, 700);
   await expect(details).toBeVisible();
-  const controls = await bar.getByTestId("meeting-controls").boundingBox();
-  expect(controls?.height).toBeLessThanOrEqual(28);
+  await expectBarOneRow(bar);
   const barBox = await bar.boundingBox();
   const detailsBox = await details.boundingBox();
   if (!barBox || !detailsBox) throw new Error("The bar isn't drawn.");

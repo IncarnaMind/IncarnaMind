@@ -84,8 +84,14 @@ export function Popover({
         placement,
         strategy: "fixed",
         middleware: placing.current?.() ?? [offset(4), flip(), shift({ padding: 8 })],
-      }).then(({ x, y }) => {
-        Object.assign(element.style, { left: `${x}px`, top: `${y}px`, visibility: "visible" });
+      }).then(({ x, y, middlewareData }) => {
+        // With `hide()` among its middleware, it goes while its anchor is scrolled out of view.
+        const away = middlewareData.hide?.referenceHidden === true;
+        Object.assign(element.style, {
+          left: `${x}px`,
+          top: `${y}px`,
+          visibility: away ? "hidden" : "visible",
+        });
         if (!shown) {
           // Hidden until placed, so it can only grow from its anchor and take the focus now.
           enterFrom(element, anchor.getBoundingClientRect(), {

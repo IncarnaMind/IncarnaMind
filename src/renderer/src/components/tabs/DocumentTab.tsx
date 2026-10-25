@@ -1,10 +1,12 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Document, DocumentPlace, LayoutTab } from "../../../../core/api";
 import { citedTextKept } from "../../../../shared/citations";
 import { useT } from "../../i18n";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
+import { SelectionMenu } from "../../viewer/SelectionMenu";
+import { type SelectionReader, SelectionReaderContext } from "../../viewer/selectedText";
 import { type ViewerFrame, ViewerFrameContext, ViewerHeader } from "../../viewer/ViewerHeader";
 import { DocumentRemoved } from "../../viewer/ViewerMessage";
 
@@ -155,6 +157,9 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const fileKey = useFileKey(document);
   const places = usePlaceMemory(target);
   const [section, setSection] = useState<HTMLElement | null>(null);
+  const [reader, setReader] = useState<SelectionReader | null>(null);
+  // A reader is a function: kept as one, not called as an update.
+  const lendReader = useCallback((lent: SelectionReader | null) => setReader(() => lent), []);
   useKeepOnReading(section, tab.id, tab.preview);
 
   return (
@@ -177,8 +182,13 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
             // Keyed, so another Document, or a new read of its file, starts afresh (the last one
             // goes at once). While its view loads, the header alone: the page comes a moment later.
             <Suspense key={fileKey} fallback={<ViewerHeader />}>
-              <DocumentView document={document} target={target} />
+              <SelectionReaderContext.Provider value={lendReader}>
+                <DocumentView document={document} target={target} />
+              </SelectionReaderContext.Provider>
             </Suspense>
+          )}
+          {document && reader && (
+            <SelectionMenu document={document} section={section} reader={reader} />
           )}
         </PlaceMemoryContext.Provider>
       </ViewerFrameContext.Provider>

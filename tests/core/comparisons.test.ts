@@ -84,6 +84,7 @@ async function cloudSetUp(
     kind: "anthropic",
     modelId: "claude-haiku-5-5",
   },
+  files: readonly { name: string; contents: string }[] = SUPPLIERS,
 ) {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir, {
@@ -96,7 +97,7 @@ async function cloudSetUp(
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   const sources = await createSourceFolder();
   const paths = await Promise.all(
-    SUPPLIERS.map((file) => writeSourceFile(sources, file.name, file.contents)),
+    files.map((file) => writeSourceFile(sources, file.name, file.contents)),
   );
   const documents = await addAndProcess(core, paths);
   const mind = await core.createMind({ title: "Shortlist" });
@@ -276,6 +277,199 @@ describe("Compare Documents", () => {
     expect(await core.listFillingComparisons()).toEqual([]);
     expect(outline(client)).not.toContain("comparisonTable");
     expect((await core.listTasks())[0]?.status).toBe("stopped");
+  });
+
+  describe("a cell as it is written", () => {
+    /** A one-cell table whose cell's last request holds `reply` out until `release` is called. */
+    async function holdLastRequest(reply: string, after: number) {
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const model = cellModel((call) =>
+        call.results.some((result) => result.tool === "cite") || reply === NOT_FOUND
+          ? { text: reply, pause: { after, until: held } }
+          : null,
+      );
+      const setup = await setUpWithDocuments(model, SUPPLIERS);
+      const result = await setup.core.compareDocuments({
+        mindId: setup.mind.id,
+        documentIds: [setup.documents[0]?.id ?? ""],
+        questions: ["Termination notice"],
+      });
+      if (!result.started) throw new Error("The table wasn't made.");
+      return {
+        ...setup,
+        tableId: result.tableId,
+        release,
+        ended: fillEnded(setup.core, result.tableId),
+      };
+    }
+    const NOT_FOUND = "NOT_FOUND";
+    const firstCell = (client: MindClient) => tableIn(client).rows[0]?.cells[0];
+
+    test("its words show as they stream, and its Citation lands checked when it finishes", async () => {
+      const { client, release, ended } = await holdLastRequest("90 days [^1]", 12);
+
+      await vi.waitFor(() => {
+        expect(firstCell(client)).toMatchObject({ status: "writing", text: "90 days" });
+      });
+      expect(firstCell(client)?.citations).toEqual([]);
+
+      release();
+      await ended;
+      await client.settled();
+      const finished = firstCell(client);
+      expect(finished).toMatchObject({ status: "done", text: "90 days" });
+      expect(finished?.citations.map((citation) => citation.check)).toEqual(["found"]);
+    });
+
+    test("words with no marker yet, and NOT_FOUND, are not shown while they stream", async () => {
+      const uncited = await holdLastRequest("90 days", 7);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await uncited.client.settled();
+      expect(firstCell(uncited.client)).toMatchObject({ status: "writing", text: "" });
+      uncited.release();
+      await uncited.ended;
+      await uncited.client.settled();
+      expect(firstCell(uncited.client)).toMatchObject({ status: "done", text: "90 days" });
+
+      const missing = await holdLastRequest(NOT_FOUND, 9);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await missing.client.settled();
+      expect(firstCell(missing.client)).toMatchObject({ status: "writing", text: "" });
+      missing.release();
+      await missing.ended;
+      await missing.client.settled();
+      expect(firstCell(missing.client)).toMatchObject({ status: "failed", problem: "not-found" });
+    });
+
+    test("a cell that streamed ends as the cell written without streaming does", async () => {
+      const shape = (cell: ShownCell | undefined) => ({
+        status: cell?.status,
+        text: cell?.text,
+        citations: cell?.citations.map(
+          ({ check, quote, location, documentName, pageFrom, pageTo }) => ({
+            check,
+            quote,
+            location,
+            documentName,
+            pageFrom,
+            pageTo,
+          }),
+        ),
+      });
+      const held = await holdLastRequest("90 days [^1]", 12);
+      await vi.waitFor(() => expect(firstCell(held.client)?.text).toBe("90 days"));
+      held.release();
+      await held.ended;
+      await held.client.settled();
+
+      const plain = await setUpWithDocuments(cellModel(), SUPPLIERS);
+      await compare(plain.core, plain.client, {
+        mindId: plain.mind.id,
+        documentIds: [plain.documents[0]?.id ?? ""],
+        questions: ["Termination notice"],
+      });
+
+      expect(shape(firstCell(held.client))).toEqual(shape(firstCell(plain.client)));
+      expect(shape(firstCell(plain.client)).citations).toHaveLength(1);
+    });
+
+    test("Chinese words stream as English ones do", async () => {
+      const { client, release, ended } = await holdLastRequest("通知期为 90 天 [^1]", 14);
+      await vi.waitFor(() => {
+        expect(firstCell(client)).toMatchObject({ status: "writing", text: "通知期为 90 天" });
+      });
+      release();
+      await ended;
+      await client.settled();
+      expect(firstCell(client)).toMatchObject({ status: "done", text: "通知期为 90 天" });
+    });
+
+    test("a table of 30 cells shows the words of the cells being written, 4 at a time, and ends with every cell checked", async () => {
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const trees = [
+        "Aspen",
+        "Birch",
+        "Cedar",
+        "Dogwood",
+        "Elder",
+        "Hazel",
+        "Larch",
+        "Maple",
+        "Poplar",
+        "Willow",
+      ];
+      const files = [1, 2, 3].map((number) => ({
+        name: `Supplier ${number}.txt`,
+        contents: [
+          `Supplier ${number}.`,
+          ...trees.map((tree, at) => `${tree} term: ${number}${at} days.`),
+        ].join("\n"),
+      }));
+      const { core, client, mind, documents } = await cloudSetUp(
+        cellModel(undefined, held),
+        undefined,
+        files,
+      );
+      const result = await core.compareDocuments({
+        mindId: mind.id,
+        documentIds: documents.map((document) => document.id),
+        questions: trees,
+      });
+      if (!result.started) throw new Error("The table wasn't made.");
+      const ended = fillEnded(core, result.tableId);
+      const withWords = () =>
+        tableIn(client)
+          .rows.flatMap((row) => row.cells)
+          .filter((cell) => cell.status === "writing" && cell.text !== "").length;
+      await vi.waitFor(() => expect(withWords()).toBe(CLOUD_CELLS_AT_ONCE));
+      await client.settled();
+      expect(withWords()).toBe(CLOUD_CELLS_AT_ONCE);
+
+      release();
+      await ended;
+      await client.settled();
+      const cells = tableIn(client).rows.flatMap((row) => row.cells);
+      expect(cells).toHaveLength(30);
+      for (const cell of cells) {
+        expect(cell.status).toBe("done");
+        expect(cell.citations.map((citation) => citation.check)).toEqual(["found"]);
+      }
+    });
+
+    test("rejecting the table while words stream takes the table out and ends the fill", async () => {
+      const { core, client, release, ended } = await holdLastRequest("90 days [^1]", 12);
+      await vi.waitFor(() => expect(firstCell(client)?.text).toBe("90 days"));
+
+      await resolveChanges(client, "reject");
+      await ended;
+      release();
+      await client.settled();
+
+      expect(await core.listFillingComparisons()).toEqual([]);
+      expect(outline(client)).not.toContain("comparisonTable");
+    });
+
+    test("Stop takes the words not yet finished out of the cell, and a fill writes it again", async () => {
+      const { core, client, mind, tableId, release, ended } = await holdLastRequest(
+        "90 days [^1]",
+        12,
+      );
+      await vi.waitFor(() => expect(firstCell(client)?.text).toBe("90 days"));
+
+      await core.stopComparisonTable({ mindId: mind.id, tableId });
+      await ended;
+      release();
+      await client.settled();
+
+      expect(firstCell(client)).toMatchObject({ status: "waiting", text: "" });
+      expect((await core.listTasks())[0]?.status).toBe("stopped");
+    });
   });
 
   test("on a model off this computer, at most 4 cells are written at once; on one on it, one at a time", async () => {
@@ -658,6 +852,63 @@ describe("Compare Documents", () => {
     expect(
       tableIn(again).rows.flatMap((row) => row.cells.map((cell) => cell.citations.length)),
     ).toEqual([1, 1, 1, 1, 1, 0]);
+  });
+
+  test("quitting while a cell's words show: at the next start no cell is left reading, and the table fills whole", async () => {
+    const held = new Promise<void>(() => {});
+    const model = cellModel((call, asked) =>
+      call.results.some((result) => result.tool === "cite") &&
+      asked.document === "Corvane" &&
+      asked.question === QUESTIONS[0]
+        ? { text: "90 days [^1]", pause: { after: 12, until: held } }
+        : null,
+    );
+    const { core, client, mind, documents, dataDir } = await setUpWithDocuments(model, SUPPLIERS);
+    const result = await core.compareDocuments({
+      mindId: mind.id,
+      documentIds: documents.map((document) => document.id),
+      questions: QUESTIONS,
+    });
+    if (!result.started) throw new Error("The table wasn't made.");
+    await vi.waitFor(() =>
+      expect(tableIn(client).rows[0]?.cells[0]).toMatchObject({
+        status: "writing",
+        text: "90 days",
+      }),
+    );
+    const [task] = await core.listTasks();
+    core.close();
+
+    const reopened = startCore(dataDir, {
+      createChatModel: scriptedModels(cellModel()).createChatModel,
+    });
+    const again = await connectToMind(reopened, mind.id);
+    await vi.waitFor(
+      async () =>
+        expect((await reopened.listTasks()).find((each) => each.id === task?.id)?.status).toBe(
+          "done",
+        ),
+      { timeout: 10_000 },
+    );
+    await again.settled();
+    const cells = tableIn(again).rows.flatMap((row) => row.cells);
+    expect(cells.map((cell) => cell.status)).toEqual([
+      "done",
+      "done",
+      "done",
+      "done",
+      "done",
+      "failed",
+    ]);
+    expect(cells.map((cell) => cell.text)).toEqual([
+      "90 days",
+      "12 months of fees",
+      "6 months",
+      "twice the annual fees",
+      "30 days",
+      "",
+    ]);
+    expect(cells.map((cell) => cell.citations.length)).toEqual([1, 1, 1, 1, 1, 0]);
   });
 
   test("the monthly cap pauses the table's Task; filling again once the cap allows resumes that Task", async () => {

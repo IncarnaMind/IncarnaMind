@@ -20,6 +20,7 @@ import {
   openDocumentTags,
   openSettings,
   removeDataFolder,
+  runFromPalette,
   setLanguage,
   setWindowSize,
   sidebarFolder,
@@ -79,17 +80,28 @@ const documentItem = (window: Page, name: string) =>
 async function pasteKey(window: Page): Promise<void> {
   const settings = await openSettings(window, "models");
   const form = await addProviderForm(settings, "anthropic");
-  await expect(form.getByText("Tagging starts when you save the key.")).toBeVisible();
   await acceptPlainTextKeys(window, form);
   await form.getByLabel(/^API key/).fill("sk-ant-not-a-real-key");
   await form.getByTestId("provider-use-key").click();
   await closeSettings(window);
+  // A cloud model starts with tagging off: the User turns it on.
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+  });
 }
 
 test("the status names where Tagging goes; Stop keeps the Folder's new Documents from going, until Tag with AI", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   const folderId = await createFolder(window, FOLDER);
+  await addToFolder(window, [await slowFile("Opening note")], folderId);
+  await openFolder(window, FOLDER);
+  const footer = window.getByTestId("sidebar-status");
+  await expect(footer.getByTestId("tagging-waiting")).toContainText("No AI model for Tags");
+
+  // Documents added before the key and the switch aren't tagged by it: only those added since.
+  await pasteKey(window);
   await addToFolder(
     window,
     await Promise.all(
@@ -102,11 +114,6 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
     ),
     folderId,
   );
-  await openFolder(window, FOLDER);
-  const footer = window.getByTestId("sidebar-status");
-  await expect(footer.getByTestId("tagging-waiting")).toContainText("No AI model for Tags");
-
-  await pasteKey(window);
   const status = footer.getByTestId("tagging-status");
   await expect(status.getByTestId("status-label")).toHaveText(
     /^Tagging [2-4] Documents with Anthropic · sends names and excerpts$/,
@@ -185,6 +192,7 @@ test("in Chinese, the status names the company, and Stop names the Folder", asyn
       apiKey: "sk-ant-not-a-real-key",
       modelId: "claude-sonnet-5-5",
     });
+    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
   });
   await addToFolder(
     window,
@@ -210,15 +218,6 @@ test("in Chinese, the status names the company, and Stop names the Folder", asyn
   await app.close();
 });
 
-async function runFromPalette(window: Page, label: string): Promise<void> {
-  await window.keyboard.press("ControlOrMeta+k");
-  await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type(label);
-  const item = window.getByTestId("palette-item").filter({ hasText: label }).first();
-  await expect(item).toBeVisible();
-  await item.click();
-}
-
 async function saveAnthropicKey(window: Page): Promise<string> {
   await acceptPlainTextKeys(window);
   return window.evaluate(async () => {
@@ -228,6 +227,7 @@ async function saveAnthropicKey(window: Page): Promise<string> {
       apiKey: "sk-ant-not-a-real-key",
       modelId: "claude-sonnet-5-5",
     });
+    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
     return provider.id;
   });
 }
@@ -332,6 +332,8 @@ test("while Organize runs, the status names the company too, with Stop", async (
       classifier: { kind: "chat", choice: { providerId, modelId: "claude-sonnet-5-5" } },
       automatic: true,
     });
+    // Page images of a scan go only where the User allows them.
+    await core.allowDataFlow("scan-images", "https://api.anthropic.com");
   }, providerId);
   const scan = join(sources, "Scanned receipt.pdf");
   await writeFile(scan, buildPdf([{ image: true }]));

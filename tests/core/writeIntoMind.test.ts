@@ -14,9 +14,9 @@ import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/mo
 /**
  * A request to write something goes into a Mind, and "make it a document"
  * after an Answer puts that Answer in a new one as it is (#1109), through the
- * core's public interface as the assistant asks: the model is told where the
- * text goes, and the Answer's text, Citations and scope come over with no new
- * search. The model's choices are scripted; real models' are checked by hand.
+ * core's public interface as the assistant asks: the model is told where a
+ * piece goes (#1559), and the Answer's text, Citations and scope come over
+ * with no new search. The model's choices are scripted; real models' are checked by hand.
  */
 
 const LEASES = Array.from({ length: 7 }, (_, index) => ({
@@ -28,8 +28,8 @@ const QUOTES = LEASES.map(
 );
 const CITED = QUOTES.map((quote, index) => `${quote} [^${index + 1}].`).join("\n\n");
 
-const NEW_MIND_LINE = "write it into a new Mind with create_mind";
-const AS_A_DOCUMENT = "This request asks for your last Answer as a document";
+const WRITE_COMMAND = "The write command is create_mind for a new Mind";
+const AS_A_DOCUMENT = "To put your last Answer into a Mind as it is";
 
 /** The instructions of the request that offers the Minds' Tools. */
 const withMindTools = (systems: readonly string[]) =>
@@ -79,7 +79,7 @@ async function madeBy(core: Core, answer: Awaited<ReturnType<typeof askAssistant
 }
 
 describe("A request to write something (#1109)", { timeout: 60_000 }, () => {
-  // protects=the owner's "根据我现有的文件帮我写一份summary", and its English, tell the model to write into a new Mind, and the Mind made holds every Document's Citation, checked; fails_when=the model is told nothing, or the Mind made leaves Documents or Citations out; no_claim=that a real model writes it there.
+  // protects=the owner's "根据我现有的文件帮我写一份summary", and its English, tell the model where a piece goes, and the Mind made holds every Document's Citation, checked; fails_when=the model is told nothing, or the Mind made leaves Documents or Citations out; no_claim=that a real model writes it there.
   test.each(["根据我现有的文件帮我写一份summary", "Based on my files, write a summary"])(
     "“%s” goes into a new Mind, every Document cited",
     async (request) => {
@@ -98,46 +98,13 @@ describe("A request to write something (#1109)", { timeout: 60_000 }, () => {
 
       const answer = await askAssistant(core, { text: request, mindId: mind.id });
 
-      expect(withMindTools(systems)).toContain(NEW_MIND_LINE);
+      expect(withMindTools(systems)).toContain(WRITE_COMMAND);
       const made = await madeBy(core, answer);
       expect(checks(made.doc)).toEqual(QUOTES.map(() => "found"));
     },
   );
 
-  // protects=asked for a piece of its own, text added to the User's Mind is refused once with how to make the new Mind, the User's Mind is left as it was, and the new Mind is made (#1109); fails_when=the piece lands in the User's Mind, or the model isn't told to use create_mind; no_claim=that a real model then does.
-  test("added to the User's Mind instead, it is refused once and made a new Mind", async () => {
-    const told: string[] = [];
-    const model = scriptedModel((call) =>
-      citingAll(call, () => {
-        if (!called(call, "add_to_mind")) {
-          return { calls: [{ tool: "add_to_mind", input: { content: CITED } }] };
-        }
-        if (!called(call, "create_mind")) {
-          told.push(call.results.find((each) => each.tool === "add_to_mind")?.text ?? "");
-          return { calls: [{ tool: "create_mind", input: { title: "Summary", content: CITED } }] };
-        }
-        return { text: "Done." };
-      }),
-    );
-    const { core, mind, client } = await setUpWithDocuments(model, LEASES);
-    writeMind(client, [note("Notes on the leases.")]);
-    await client.settled();
-
-    const answer = await askAssistant(core, {
-      text: "根据我现有的文件帮我写一份summary",
-      mindId: mind.id,
-    });
-
-    expect(told[0]).toContain("the User asked for a new Mind for this");
-    expect(told[0]).toContain("Call create_mind");
-    expect(mindCalls(answer)[0]?.mindProblem).toEqual({ kind: "new-mind", mindId: mind.id });
-    await client.settled();
-    expect(readMind(client).textContent).toBe("Notes on the leases.");
-    const made = await madeBy(core, answer);
-    expect(checks(made.doc)).toEqual(QUOTES.map(() => "found"));
-  });
-
-  // protects=in an empty Mind, a request to write fills it rather than making another; fails_when=the model is told to make a new Mind; no_claim=none beyond protects.
+  // protects=in an empty Mind, the model is told it is the page the User is in, where a piece goes; fails_when=it isn't told the Mind is open and empty; no_claim=none beyond protects.
   test("in an empty Mind, it fills that Mind", async () => {
     const systems: string[] = [];
     const model = scriptedModel((call) => {
@@ -149,8 +116,8 @@ describe("A request to write something (#1109)", { timeout: 60_000 }, () => {
 
     await askAssistant(core, { text: "根据我现有的文件帮我写一份summary", mindId: empty.id });
 
-    expect(withMindTools(systems)).toContain("write it there with add_to_mind");
-    expect(withMindTools(systems)).not.toContain(NEW_MIND_LINE);
+    expect(withMindTools(systems)).toContain("The Mind in <mind> is open and still empty");
+    expect(withMindTools(systems)).toContain(WRITE_COMMAND);
   });
 });
 
@@ -195,7 +162,7 @@ describe("“Make it a document” after an Answer (#1109)", { timeout: 60_000 }
 
       expect(withMindTools(systems)).toContain(AS_A_DOCUMENT);
       expect(withMindTools(systems)).toContain(
-        "call create_mind with a short title and answer: true",
+        "give answer: true to add_to_mind for the Mind in <mind>, or to create_mind",
       );
       expect(second.flatMap((call) => call.results.map((each) => each.tool))).not.toContain(
         "search_documents",
@@ -222,8 +189,8 @@ function summaryOfShown(call: ModelCall): ScriptedReply {
   if (!called(call, "cite")) return { calls: [{ tool: "cite", input: { citations } }] };
   if (called(call, "create_mind") || called(call, "add_to_mind")) return { text: "Done." };
   const content = citations.map((each) => `${each.quote} [^${each.marker}].`).join("\n\n");
-  // As a model does, it writes where it is told: there, or into a new Mind.
-  return call.system.includes("write it there with add_to_mind")
+  // As a model does, it writes where it is told: into the empty Mind in front, or into a new Mind.
+  return call.system.includes("The Mind in <mind> is open and still empty")
     ? { calls: [{ tool: "add_to_mind", input: { content } }] }
     : { calls: [{ tool: "create_mind", input: { title: "Summary", content } }] };
 }

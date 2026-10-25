@@ -127,8 +127,13 @@ async function chooseStyle(window: Page, search: string, label: string): Promise
   // the common list's, and Enter may take another's once the rest arrive.
   await expect(field).toHaveAttribute("aria-label", /\d/);
   await window.keyboard.type(search);
-  await expect(picker.getByTestId("citation-style-option-label").first()).toHaveText(label);
-  await window.keyboard.press("Enter");
+  // Results can still be re-ranked after the first match shows ("IEEE Access" above "IEEE"), so the
+  // style is picked by its exact name rather than by Enter on whatever is first at that moment.
+  await picker
+    .getByTestId("citation-style-option-label")
+    .getByText(label, { exact: true })
+    .first()
+    .click();
   await expect(picker).toBeHidden();
 }
 

@@ -7,8 +7,10 @@ import type {
   Logger,
   Meeting,
   MeetingTranscript,
+  SpeakerSeparator,
   Transcriber,
   TranscriptionModelFiles,
+  VoiceTurn,
 } from "../../src/core";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
 import {
@@ -33,6 +35,43 @@ export const NO_TRANSCRIPTION_FILES = {
   model: { baseUrl: "http://127.0.0.1/", files: [] },
   vad: { baseUrl: "http://127.0.0.1/", files: [] },
 } as const;
+
+/** No files to download for the speaker models: the fake separator needs none. */
+export const NO_SPEAKER_FILES = {
+  segmentation: { baseUrl: "http://127.0.0.1/", files: [] },
+  embedding: { baseUrl: "http://127.0.0.1/", files: [] },
+} as const;
+
+/**
+ * A `SpeakerSeparator` that hears one voice per 10-second part of audio, by `voiceOf(the part's
+ * place)`, answering once `holds` (if given) resolves; `fails` rejects as a failed pass does.
+ */
+export function fakeSeparator({
+  voiceOf = (index: number) => index % 2,
+  holds,
+  fails,
+}: {
+  voiceOf?: (index: number) => number;
+  holds?: Promise<void>;
+  fails?: string;
+} = {}) {
+  const requests: Parameters<SpeakerSeparator["separate"]>[0][] = [];
+  const separator: SpeakerSeparator = {
+    async separate(request) {
+      requests.push(request);
+      await holds;
+      if (fails) throw new Error(fails);
+      return request.parts.map(
+        (part, index): VoiceTurn => ({
+          startMs: part.offsetMs,
+          endMs: part.offsetMs + 10_000,
+          voice: voiceOf(index),
+        }),
+      );
+    },
+  };
+  return { separator, requests };
+}
 
 /**
  * A `Transcriber` whose engine (the fake one) runs in this process behind
@@ -111,6 +150,8 @@ export async function transcribingCore(
     log,
     capture: captureOptions,
     keychain,
+    speakerSeparator,
+    speakerModelSource = NO_SPEAKER_FILES,
   }: {
     engine?: FakeTranscriberOptions;
     /** What the fake capture does, e.g. the computer's sound denied. */
@@ -122,10 +163,14 @@ export async function transcribingCore(
     loads?: Promise<void>;
     log?: Logger;
     keychain?: CoreAdapters["keychain"];
+    /** Tells speakers apart after the call (#138); absent, the labels stay where lines came from. */
+    speakerSeparator?: SpeakerSeparator;
+    /** Where the speaker models come from: none to download by default. */
+    speakerModelSource?: CoreAdapters["speakerModelSource"];
   } = {},
 ) {
   const clock = manualClock();
-  const capture = createFakeCapture(captureOptions);
+  const capture = createFakeCapture({ now: () => clock.now().getTime(), ...captureOptions });
   const engineHost = inProcessTranscriber(engine, async () => {
     await loads;
     return createFakeSpeechEngine(engine);
@@ -141,6 +186,7 @@ export async function transcribingCore(
     ...(createChatModel && { createChatModel }),
     ...(log && { log }),
     ...(keychain && { keychain }),
+    ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));

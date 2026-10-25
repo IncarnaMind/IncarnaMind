@@ -328,7 +328,10 @@ function lookOfCell(
       look.extent.columns = Math.min(MAX_LAYOUT_COLUMNS, Math.max(look.extent.columns, column + 1));
     }
   }
-  if (!cell) return;
+  if (!cell) {
+    if (savedNoResult(c)) look.noValue.add(at);
+    return;
+  }
   const format = style?.numberFormat;
   if (cell.number !== undefined) {
     const width = look.columns.get(column)?.width ?? look.defaultColumnWidth;
@@ -387,6 +390,16 @@ async function readSheetExtras(
   }
 }
 
+/**
+ * A formula the file saved no result for, as a script that writes formulas (openpyxl) leaves it:
+ * no number to show, which isn't 0.
+ */
+function savedNoResult(c: XmlElement): boolean {
+  if (!child(c, "f") || (c.attrs.t !== undefined && c.attrs.t !== "n")) return false;
+  const v = child(c, "v");
+  return !v || textOf(v).trim() === "";
+}
+
 /** A cell's value as shown, or null for an empty one. */
 function readCell(
   c: XmlElement,
@@ -407,6 +420,7 @@ function readCell(
     value = shared[sharedIndex] ?? "";
   } else if (type === "inlineStr") value = stringItem(child(c, "is") ?? c);
   else if (type === "b") value = raw === "1" ? "TRUE" : "FALSE";
+  else if (savedNoResult(c)) return null;
   else if (!v) return null;
   else if (type === "n") {
     const parsed = Number(raw);

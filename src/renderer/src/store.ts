@@ -22,6 +22,7 @@ import type {
   Mind,
   PrivacySettings,
   RerankSettings,
+  RestoreRef,
   SearchScope,
   Settings,
   SettingsPatch,
@@ -35,9 +36,11 @@ import { displayName } from "../../shared/documentNames";
 import type { DocumentLocation } from "../../shared/documentViewer";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
+import { filingFolder } from "../../shared/searchScope";
 import { tagLinks } from "../../shared/tagLinks";
 import {
   deleted,
+  documentsAdded,
   folderLinked,
   linkedFolderPaused,
   linkedFolderShown,
@@ -46,19 +49,23 @@ import {
 } from "./changes";
 import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
+import { isSearchable } from "./documentStatus";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
 import { languageNow } from "./i18n";
 import {
   createLayoutSlice,
   currentMindIdOf,
+  focusedGroupOf,
   followLayout,
   groupsMerged,
   type LayoutSlice,
+  type TabNotice,
   WINDOW_ID,
 } from "./layoutSlice";
 import { type LibraryBridge, mindToAskIn } from "./libraryBridges";
 import { NEEDS_REVIEW } from "./libraryFilters";
+import type { WordsInLine } from "./lineNames";
 import { formatCount, folderName as linkedFolderName } from "./linkedFolders";
 import {
   foldersMovedFrom,
@@ -79,6 +86,7 @@ import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
 import { returnFocusAfterTabClose } from "./tabFocus";
+import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
 
 type Status = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string };
@@ -178,9 +186,16 @@ export interface AppState extends LayoutSlice {
   refreshLibrary(): Promise<void>;
   /**
    * Shows the Library (one tab per window), at a Folder's section if given:
-   * its tab where it is open, else a new tab in the focused group, or to the side.
+   * its tab where it is open, else a new tab in the focused group, to the side,
+   * or behind the one shown.
    */
-  openLibrary(filter?: string, options?: { side?: boolean }): void;
+  openLibrary(filter?: string, options?: { side?: boolean; behind?: boolean }): void;
+  /**
+   * Shows Home (one tab per window): its tab where it is open, else a new one
+   * in the focused group; with `first`, as at a launch, just before the tab
+   * that group shows.
+   */
+  openHome(options?: { side?: boolean; first?: boolean }): Promise<void>;
   /** Every Skill, in name order, on or off. Set once loaded, then follows the core's event. */
   skills: Skill[];
   /** The first-run example Mind and its Documents (onboarding). Null until loaded. */
@@ -202,10 +217,10 @@ export interface AppState extends LayoutSlice {
 
   load(): Promise<void>;
   /**
-   * Creates a Mind, in a Folder if given, and opens it in a new tab after the
-   * shown one, in the focused group or `groupId`, with its title focused, or
-   * with a Question started in it (with a Search scope, if given). It says nothing
-   * and leaves nothing to undo: ⌘Z stays the editor's own, and Delete takes the Mind back.
+   * Creates a Mind, in `folderId` if given, else where `filingFolder` says (#1362), and opens it
+   * in a new tab after the shown one, in the focused group or `groupId`, with its title focused,
+   * or with a Question started in it (with a Search scope, if given). It says nothing and leaves
+   * nothing to undo: ⌘Z stays the editor's own, and Delete takes the Mind back.
    */
   createMind(options?: {
     startQuestion?: boolean;
@@ -214,6 +229,7 @@ export interface AppState extends LayoutSlice {
     /** A new Mind to write in: its first line is an empty Heading 1, its title to be typed. */
     titled?: boolean;
     scope?: SearchScope | null;
+    /** Null: in no Folder, whichever Mind is in front. */
     folderId?: string | null;
     groupId?: string;
     /** Runs once it is made and shown, with its id. */
@@ -279,13 +295,15 @@ export interface AppState extends LayoutSlice {
   /**
    * Shows a Mind: its tab where it is open, else a new tab in the focused
    * group after the shown one; with `newTab`, a new tab in the focused group
-   * even where it is open.
+   * even where it is open; with `behind`, a new tab that stays behind the one shown.
    */
-  openMind(id: string, options?: { newTab?: boolean }): void;
+  openMind(id: string, options?: { newTab?: boolean; behind?: boolean }): void;
   /** Closes a tab, offering to reopen it; if it was shown, the tab after it (or else before it) is. */
   closeTab(tabId: string): void;
   /** ⇧⌘T: reopens the tab closed last, where it was. */
   reopenTab(): void;
+  /** A line about the tabs, in the sidebar foot's one slot: a tab closed, or why a shortcut did nothing. */
+  showTabNotice(notice: TabNotice): void;
   /** Renames a Mind, with Undo. */
   renameMind(id: string, title: string): Promise<void>;
   deleteMind(id: string): Promise<void>;
@@ -485,6 +503,20 @@ function readList<T>(list: PushedList, request: Promise<T>, readAt: Map<PushedLi
 const pushedSince = (list: PushedList, readAt: Map<PushedList, number>) =>
   (lastPushed.get(list) ?? 0) > (readAt.get(list) ?? 0);
 
+const LOADED_KEY = "incarnamind.window.loaded";
+
+// A reload of the window (View › Reload) keeps the tab it showed; only a new window opens on Home.
+function windowLoadedBefore(): boolean {
+  try {
+    const before = sessionStorage.getItem(LOADED_KEY) !== null;
+    sessionStorage.setItem(LOADED_KEY, "1");
+    return before;
+  } catch (error) {
+    console.warn("Couldn't tell whether this window loaded before; it opens on Home.", error);
+    return false;
+  }
+}
+
 export const useAppStore = create<AppState>()((set, get) => {
   let libraryRequest = 0;
   /** The interface's words, outside React: for the lines the store writes (Undo's). */
@@ -519,6 +551,23 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
   };
   const push = (change: Undoable) => useUndo.getState().push(change);
+  const removeOwn = async (ids: readonly string[]): Promise<RestoreRef[]> => {
+    // One deleted since, or taken over by a Linked folder, is no longer this add's.
+    const own = new Set(
+      (await core.listDocuments({ linkedFolderId: null })).map((each) => each.id),
+    );
+    const taken: RestoreRef[] = [];
+    for (const id of ids) {
+      if (!own.has(id)) continue;
+      await core.deleteDocument(id);
+      taken.push({ kind: "document", id });
+    }
+    documentUpdates.flush();
+    set((state) => ({
+      documents: state.documents.filter((each) => !taken.some((ref) => ref.id === each.id)),
+    }));
+    return taken;
+  };
   const libraryBefore = async (path: string): Promise<LibraryBefore> => {
     const [documents, linked] = await Promise.all([core.listDocuments(), core.listLinkedFolders()]);
     return {
@@ -752,7 +801,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     documentUpdates.flush();
     const known = new Set(get().documents.map((each) => each.id));
     const result =
-      paths.length > 0 ? await core.addDocuments([...paths]) : { documents: [], skipped: [] };
+      paths.length > 0
+        ? await core.addDocuments([...paths])
+        : { documents: [], skipped: [], added: [] };
     const linkable: LinkingFolder[] = folders.map((path) => ({ path, preview: null, error: null }));
     const skipped = [...notOnDisk];
     for (const { path } of result.skipped) {
@@ -780,6 +831,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       };
     });
     offerLinks(linkable);
+    if (result.added.length === 0) return;
+    push(documentsAdded(result.added.length, () => removeOwn(result.added)));
   };
 
   /** Dropped or picked files' paths, and the names of those that aren't on disk. */
@@ -835,12 +888,33 @@ export const useAppStore = create<AppState>()((set, get) => {
           : {}),
       });
     },
+    openHome: async (options) => {
+      const { layout } = get();
+      const group = layout ? focusedGroupOf(layout) : null;
+      const shown = group?.tabs.find((tab) => tab.id === group.activeTabId);
+      await get().changeLayout({
+        type: "open",
+        item: { kind: "home" },
+        where: options?.side
+          ? { in: "side" }
+          : options?.first && group
+            ? {
+                in: "group",
+                groupId: group.id,
+                // Just before the tab that was in front, so closing Home shows it again.
+                before:
+                  shown && !shown.pinned ? shown.id : group.tabs.find((tab) => !tab.pinned)?.id,
+              }
+            : { in: "place" },
+      });
+    },
     openLibrary: (filter = "all", options) => {
       set({ libraryFilter: filter });
       void get().changeLayout({
         type: "open",
         item: { kind: "library" },
         where: options?.side ? { in: "side" } : { in: "place" },
+        ...(options?.behind && { behind: true }),
       });
     },
     skills: [],
@@ -894,6 +968,13 @@ export const useAppStore = create<AppState>()((set, get) => {
           readList("rerank", core.getRerankSettings(), readAt),
           readList("privacy", core.getPrivacySettings(), readAt),
         ]);
+        const reloaded = windowLoadedBefore();
+        // Minds made before this setting existed count as an earlier launch.
+        const launchedBefore = settings.device.openedBefore || minds.length > 0;
+        // Before the tabs are drawn, so the Mind left in front isn't drawn only to be covered.
+        if (!offered?.mindId && launchedBefore && !reloaded) {
+          await get().openHome({ first: true });
+        }
         // What the core's events brought before this is in the lists just read.
         documentUpdates.flush();
         const read = {
@@ -921,6 +1002,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
           status: { kind: "ready" },
         });
+        if (!settings.device.openedBefore) {
+          void get().updateSettings({ device: { openedBefore: true } });
+        }
         await get().refreshLibrary();
         tickIndexed(connectors.length);
       } catch (error) {
@@ -930,10 +1014,16 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     createMind: async (options) => {
       await attempt(async () => {
+        const { layout, minds } = get();
+        const inFront = minds.find((each) => each.id === currentMindIdOf(layout));
+        const folderId =
+          options?.folderId === undefined
+            ? filingFolder(options?.scope ?? null, inFront?.folderId ?? null)
+            : options.folderId;
         const mind = await core.createMind({
           ...(options?.title && { title: options.title }),
           ...((options?.title || options?.titled) && { headed: true }),
-          ...(options?.folderId && { folderId: options.folderId }),
+          ...(folderId && { folderId }),
         });
         set(
           options?.startQuestion
@@ -1200,7 +1290,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       void get().changeLayout({
         type: "open",
         item: { kind: "mind", mindId: id },
-        where: options?.newTab ? { in: "group" } : { in: "place" },
+        where: options?.newTab || options?.behind ? { in: "group" } : { in: "place" },
+        ...(options?.behind && { behind: true }),
       });
     },
 
@@ -1213,8 +1304,41 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     reopenTab() {
       if (!get().layout?.reopenable) return;
-      get().showTabNotice(null);
+      const line = useUndo.getState().line;
+      if (line?.told?.action?.testId === "tab-notice-reopen") useUndo.getState().dismiss();
       void get().changeLayout({ type: "reopen" });
+    },
+
+    showTabNotice(notice) {
+      const says: WordsInLine = (t) => {
+        switch (notice.kind) {
+          case "closed":
+            return notice.count > 1
+              ? t("tabs.notice.closedMany", { count: notice.count })
+              : t("tabs.notice.closed", { title: tabTitle(get(), notice.item, t) });
+          case "pinned":
+            return t("tabs.notice.pinned", { title: tabTitle(get(), notice.item, t) });
+          case "noGroup":
+            return t("tabs.notice.noGroup", { n: notice.group, shortcut: notice.shortcut });
+          case "maxGroups":
+            return t("tabs.notice.maxGroups");
+          case "merged":
+            return t("tabs.notice.merged");
+          case "assistantNarrow":
+            return t("assistant.narrow");
+        }
+      };
+      useUndo.getState().tell({
+        says,
+        ...(notice.kind === "closed" && {
+          action: {
+            label: (t) => t("tabs.notice.reopen"),
+            shortcut: "tab.reopen",
+            testId: "tab-notice-reopen",
+            run: () => get().reopenTab(),
+          },
+        }),
+      });
     },
 
     // The list follows the core's "minds.changed" event, which arrives before these calls return.
@@ -1691,14 +1815,17 @@ export const allExamples = (state: Pick<AppState, "examples" | "otherExamples">)
 const madeExamples = (state: Pick<AppState, "examples" | "otherExamples">): Examples[] =>
   allExamples(state).filter(isMade);
 
-const exampleMindIds = (state: Pick<AppState, "examples" | "otherExamples">): string[] =>
+export const exampleMindIds = (state: Pick<AppState, "examples" | "otherExamples">): string[] =>
   allExamples(state).flatMap((each) => (each.mindId ? [each.mindId] : []));
 
-/** Ticks "Add your Documents" once there are Documents of the User's own, or Connectors. */
+const readOwnDocument = (document: Document, state: AppState) =>
+  isSearchable(document.status) && isOwnDocument(document, allExamples(state));
+
+/** Ticks "Add your Documents" once a Document of the User's own has been read, or there are Connectors. */
 function tickIndexed(connectors: number): void {
   const state = useAppStore.getState();
   const { documents, updateGettingStarted } = state;
-  if (connectors > 0 || documents.some((each) => isOwnDocument(each, allExamples(state))))
+  if (connectors > 0 || documents.some((each) => readOwnDocument(each, state)))
     updateGettingStarted({ indexed: true });
 }
 
@@ -1725,13 +1852,16 @@ core.on("minds.changed", (minds) => {
   }
 });
 
-followLayout((partial) => useAppStore.setState(partial));
+followLayout(
+  (partial) => useAppStore.setState(partial),
+  (error) => useNotices.getState().showError(error),
+);
 
 // Processing happens in the background: follow each Document's status as the core reports it.
 core.on("document.status", (changed) => {
   documentUpdates.upsert([changed]);
   const state = useAppStore.getState();
-  if (isOwnDocument(changed, allExamples(state))) state.updateGettingStarted({ indexed: true });
+  if (readOwnDocument(changed, state)) state.updateGettingStarted({ indexed: true });
 });
 
 // The examples made, opened again or removed: their Mind and Linked folder show "Example".

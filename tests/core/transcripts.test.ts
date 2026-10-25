@@ -440,3 +440,74 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     expect(alone.every((line) => line.startMs >= 5 * SECOND)).toBe(true);
   });
 });
+
+describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => {
+  const PAUSED_AT = 6 * SECOND;
+  const RESUMED_AT = 14 * SECOND;
+
+  /** A call both sides speak in, whose microphone is paused after six seconds and, if asked, on again after fourteen. */
+  async function pausedCall(dataDir: string, { resumes }: { resumes: boolean }) {
+    const call = await transcribingCore(dataDir);
+    const meeting = await call.core.createMeeting();
+    await call.core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    await until(call.core, meeting.id, (transcript) => transcript.state === "live");
+    call.record(PAUSED_AT);
+    await until(call.core, meeting.id, (transcript) => transcript.lines >= 4);
+    await call.core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
+    call.record(RESUMED_AT - PAUSED_AT);
+    if (resumes) {
+      await call.core.setMeetingMicrophone({ meetingId: meeting.id, paused: false });
+      call.record(6 * SECOND);
+    }
+    return { ...call, meeting };
+  }
+
+  test("no Me line comes for the stretch, the other side's lines go on, and it is marked once the microphone is on again", async () => {
+    const { core, meeting } = await pausedCall(await createTempDataFolder(), { resumes: true });
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const { cues, gaps } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+
+    expect(gaps).toEqual([{ fromMs: PAUSED_AT, toMs: RESUMED_AT, reason: "muted" }]);
+    const mine = cues.filter((cue) => cue.speaker === "Me");
+    const theirs = cues.filter((cue) => cue.speaker === "Them");
+    expect(mine.some((cue) => cue.startMs < PAUSED_AT)).toBe(true);
+    expect(mine.every((cue) => cue.endMs <= PAUSED_AT || cue.startMs >= RESUMED_AT)).toBe(true);
+    expect(mine.some((cue) => cue.startMs >= RESUMED_AT)).toBe(true);
+    expect(
+      theirs.filter((cue) => cue.startMs >= PAUSED_AT && cue.endMs <= RESUMED_AT).length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  test("the stretch is open while it lasts, and stopping closes it at the end of the recording", async () => {
+    const { core, meeting } = await pausedCall(await createTempDataFolder(), { resumes: false });
+    expect((await core.listMeetings())[0]?.microphonePausedAtMs).toBe(PAUSED_AT);
+
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const { gaps } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    expect(gaps).toEqual([{ fromMs: PAUSED_AT, toMs: RESUMED_AT, reason: "muted" }]);
+    expect((await core.listMeetings())[0]?.microphonePausedAtMs).toBeNull();
+  });
+
+  test("quitting with the call paused too marks the stretch up to where the recording stopped", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, meeting } = await pausedCall(dataDir, { resumes: false });
+    await core.pauseMeeting(meeting.id);
+    core.close();
+    const { gaps } = readVtt(
+      readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8"),
+    );
+    expect(gaps).toEqual([{ fromMs: PAUSED_AT, toMs: RESUMED_AT, reason: "muted" }]);
+  });
+
+  test("quitting with it paused marks the stretch up to then", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, meeting } = await pausedCall(dataDir, { resumes: false });
+    core.close();
+    const { gaps } = readVtt(
+      readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8"),
+    );
+    expect(gaps).toEqual([{ fromMs: PAUSED_AT, toMs: RESUMED_AT, reason: "muted" }]);
+  });
+});

@@ -9,6 +9,7 @@ import { citedLocation } from "../../../../shared/citations";
 import { isTranscriptLocation } from "../../../../shared/locations";
 import { HELP_SHAPE, helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
+import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import {
   quoted,
@@ -18,6 +19,8 @@ import {
   shownItems,
 } from "../../helpReply";
 import { useT } from "../../i18n";
+import { useModelNames, useServiceName } from "../../modelNames";
+import { answerProblem } from "../../problems";
 import { CheckLineIcon, DocumentLineIcon } from "../lineIcons";
 
 /** A help Answer, as the core writes it: loaded once, then each write as it streams. */
@@ -224,6 +227,28 @@ export function HelpSuggestion({
   onRetry(): void;
 }) {
   const t = useT();
+  const providerId = answer.model?.providerId ?? null;
+  const service = useServiceName(providerId);
+  const shownModel = useModelNames()(answer.model?.modelId ?? "", providerId);
+  const provider = useAnswers(
+    (state) => state.models?.find((group) => group.provider.id === providerId)?.provider,
+  );
+  const failed = answer.status === "failed";
+  // The panel is its own window: nothing else has loaded the providers that name the service.
+  useEffect(() => {
+    if (failed) useAnswers.getState().loadModels();
+  }, [failed]);
+  const why = answer.errorKind
+    ? t(
+        answerProblem(answer.errorKind, provider?.kind, undefined, {
+          ...(provider && { local: provider.service === null }),
+        }).line,
+        {
+          service,
+          model: answer.model ? shownModel.name : t("answer.error.thisModel"),
+        },
+      )
+    : (answer.errorMessage ?? "");
   const streaming = answer.status === "streaming";
   const items = shownItems(readHelpReply(answer.text), {
     shape: HELP_SHAPE[help.kind],
@@ -259,7 +284,7 @@ export function HelpSuggestion({
       {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}
       {answer.status === "failed" && (
         <p role="alert" data-testid="help-failed" className="help-failed">
-          {t("meetings.help.failed", { message: answer.errorMessage ?? "" })}
+          {t("meetings.help.failed", { message: why })}
           <span aria-hidden="true"> · </span>
           <button type="button" onClick={onRetry} className="panel-link">
             {t("meetings.help.retry")}

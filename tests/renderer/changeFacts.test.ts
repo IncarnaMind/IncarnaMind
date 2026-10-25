@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  appliedFact,
   type ChangeCounts,
   changeFact,
   keptText,
@@ -18,6 +19,32 @@ const row = (counts: Partial<ChangeCounts>): ChangeCounts => ({
   wrote: 0,
   tables: 0,
   ...counts,
+});
+
+describe("The panel's line after the assistant applied a change (#1559)", () => {
+  // protects=the three lines the issue settles, in English and Chinese, and the count's line for any other change; fails_when=a line reads otherwise; no_claim=its Open and Undo.
+  test.each([
+    [{ ...row({ created: true, wrote: 3 }), filled: false }, "Wrote “Q3”", "已写入“Q3”"],
+    [{ ...row({ wrote: 3 }), filled: true }, "Wrote it into “Q3”", "已写入空白的“Q3”"],
+    [
+      { ...row({ changed: 2 }), filled: false },
+      "Changed 2 paragraphs in “Q3”",
+      "已修改“Q3”中的 2 段",
+    ],
+    [
+      { ...row({ changed: 1 }), filled: false },
+      "Changed 1 paragraph in “Q3”",
+      "已修改“Q3”中的 1 段",
+    ],
+    [
+      { ...row({ wrote: 2 }), filled: false },
+      "Wrote 2 paragraphs in “Q3”",
+      "在“Q3”中已写入 2 个段落",
+    ],
+  ])("%o", (counts, english, chinese) => {
+    expect(appliedFact(t("en"), counts, "Q3")).toBe(english);
+    expect(appliedFact(t("zh-CN"), counts, "Q3")).toBe(chinese);
+  });
 });
 
 describe("What an Answer did in a Mind, in words (#880), counted by paragraph (#1028)", () => {
@@ -91,6 +118,7 @@ describe("Why a chart asked for wasn't drawn (#1091)", () => {
     const kept = {
       mindId: "a",
       created: false,
+      filled: false,
       requests: ["r"],
       wrote: 0,
       changed: 0,

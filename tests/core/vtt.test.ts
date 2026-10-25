@@ -94,6 +94,23 @@ describe("Transcripts as WebVTT", () => {
     expect(readVtt(writeVtt(ampersand))).toEqual(ampersand);
   });
 
+  test("a stretch the User paused their microphone is a gap that reads back, and no Unit holds it", async () => {
+    const transcript = {
+      cues: [
+        { startMs: 1000, endMs: 2500, text: "Before.", speaker: "Me" },
+        { startMs: 4000, endMs: 5000, text: "The other side goes on.", speaker: "Them" },
+        { startMs: 12_000, endMs: 13_000, text: "After.", speaker: "Me" },
+      ],
+      gaps: [{ fromMs: 3000, toMs: 11_000, reason: "muted" as const }],
+    };
+    const written = writeVtt(transcript);
+    expect(written).toContain("NOTE gap 00:00:03.000 to 00:00:11.000 muted\n");
+    expect(readVtt(written)).toEqual(transcript);
+    const [unit] = await extractUnits("transcript", new TextEncoder().encode(written));
+    expect(unit?.text).not.toContain("muted");
+    expect(unit?.text.split("\n")).toEqual(["Before.", "The other side goes on.", "After."]);
+  });
+
   // protects=a Transcript lists a gap of a second or more, and a point in time, but not a stretch under a second, and a gap with no audio captured reads back as such; fails_when=a 0 s or 400 ms gap is listed, or the reason is lost on the way through the file; no_claim=how the gap is worded, which the views carry.
   test("a stretch under a second isn't listed, and the reason no audio was recorded is kept", () => {
     const gaps = [

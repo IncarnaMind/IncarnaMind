@@ -17,15 +17,28 @@ import type { EvalDocument } from "../lib/evaluationSet";
 import { openLibrary } from "../lib/library";
 import { createLog, type Log } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
-import { type CaseResult, fetchPapers, judgeOf, reports, runCase } from "./asking";
+import { type CaseResult, fetchPapers, fetchReserves, judgeOf, reports, runCase } from "./asking";
 import { CASES, type EverydayCase, floorOf, type LibraryName } from "./cases";
 import { failureLine, pointsBack, type RequestFailure } from "./checks";
 import { writeDatedDocuments } from "./dated";
+import { type DecisionProvider, decide, forcing } from "./decisions";
 import { languageRates, type RequestRun, rowRates } from "./rates";
 import { watchReasks } from "./reasks";
 import { SUPPORTED_TARGET, supportedShare, supportRates } from "./support";
 
 const ROOT = resolve(__dirname, "../..");
+
+/** Arm C (./decisions): INCARNAMIND_EVAL_EVERYDAY_DECIDE names the decision provider, and INCARNAMIND_EVAL_DECIDE_KEY is its key. */
+function decidingOf(): { provider: DecisionProvider; key: string } | null {
+  const provider = process.env.INCARNAMIND_EVAL_EVERYDAY_DECIDE?.trim();
+  if (!provider) return null;
+  if (provider !== "openai" && provider !== "jev") {
+    throw new Error(`INCARNAMIND_EVAL_EVERYDAY_DECIDE must be openai or jev, not "${provider}".`);
+  }
+  const key = process.env.INCARNAMIND_EVAL_DECIDE_KEY?.trim();
+  if (!key) throw new Error("Set INCARNAMIND_EVAL_DECIDE_KEY to the decision provider's key.");
+  return { provider, key };
+}
 
 async function runModel(
   chat: ChatSettings,
@@ -34,23 +47,33 @@ async function runModel(
   runs: number,
   log: Log,
 ) {
+  const decider = decidingOf();
   const config = readConfig(ROOT);
   const datedFolder = await mkdtemp(join(tmpdir(), "incarnamind-everyday-dated-"));
+  const needed = new Set(cases.map((each) => each.library));
   const sets: Record<LibraryName, EvalDocument[]> = {
-    papers: await fetchPapers(config.cacheDir, log),
-    reports: await reports(),
-    dated: await writeDatedDocuments(datedFolder),
+    papers: needed.has("papers") ? await fetchPapers(config.cacheDir, log) : [],
+    reports: needed.has("reports") ? await reports() : [],
+    dated: needed.has("dated") ? await writeDatedDocuments(datedFolder) : [],
+    reserves: needed.has("reserves") ? await fetchReserves(config.cacheDir, log) : [],
   };
   const judge = createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" });
-  const model = `${chat.kind}/${chat.modelId}`;
+  const model = `${chat.kind}/${chat.modelId}${decider ? ` + ${decider.provider} decisions` : ""}`;
   const results: CaseResult[] = [];
-  for (const name of ["papers", "reports", "dated"] as const) {
+  for (const name of ["papers", "reports", "dated", "reserves"] as const) {
     const wanted = cases.filter((each) => each.library === name);
     if (wanted.length === 0) continue;
     const watch = watchReasks();
+    const forced = forcing();
+    const deciding = decider && {
+      decide: (text: string) => decide(decider.provider, decider.key, text),
+      forcing: forced,
+    };
     const library = await openLibrary({
       name: `everyday-${name}`,
-      chatModels: watch.chatModels,
+      chatModels: decider
+        ? (inner) => forced.chatModels(watch.chatModels(inner))
+        : watch.chatModels,
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
       reranker: createWorkerCrossEncoder(config.rerankOnCpu),
@@ -78,7 +101,10 @@ async function runModel(
         log(`${model} · ${each.id}: ${each.request}`);
         let result: CaseResult;
         try {
-          result = await runCase(library, scoped, judge, model, each, { watch });
+          result = await runCase(library, scoped, judge, model, each, {
+            watch,
+            ...(deciding && { deciding }),
+          });
         } catch (error) {
           result = {
             id: each.id,
@@ -103,6 +129,11 @@ async function runModel(
             support: null,
             claims: null,
           };
+        }
+        if (result.decision) {
+          log(
+            `  decided ${result.decision.choice} at ${result.decision.confidence.toFixed(2)}, ${result.decision.forced} requests forced`,
+          );
         }
         log(
           result.error
@@ -365,6 +396,8 @@ test("everyday requests", async () => {
     if (only === "hard") return each.hard === true;
     if (only === "research") return each.research === true;
     if (only === "dates") return each.library === "dated";
+    if (only === "chinese") return each.language === "zh-CN";
+    if (only === "selected") return each.id.startsWith("selected-");
     return only.split(",").includes(each.id);
   });
   const runs = Number(process.env.INCARNAMIND_EVAL_EVERYDAY_RUNS ?? "3") || 3;

@@ -5,8 +5,11 @@
  * and is never passed through here.
  */
 import type { ResolvedCitationStyle } from "../../shared/citationStyles";
+import { citedLocation } from "../../shared/citations";
+import { translate } from "../../shared/i18n";
+import type { Translate } from "../../shared/locations";
 import { withNeedsDetailsMark } from "../../shared/references";
-import { type SourceContext, sourceEntry, sourcesOf } from "../../shared/sources";
+import { type SourceContext, sourceEntry, sourceKeyOf, sourcesOf } from "../../shared/sources";
 import type { CitationFormatRequest, CitedWork, FormattedCitations, StyledRun } from "../api";
 import { type Block, type Inline, type Pendings, trimTrailingSpace } from "../mindText";
 
@@ -180,7 +183,9 @@ export async function styleCitations(
 /**
  * The Blocks with a Bibliography at the end (#102), for a Numbered Mind that shows one: each
  * Document its Citations cite, once, with the Locations cited. A Citation a pending change
- * adds isn't in the Blocks, so it isn't counted. Blocks with no Citation come back as they were.
+ * adds isn't in the Blocks of a read that leaves pending changes out, so it isn't counted; a
+ * Word export, whose Blocks show them as tracked changes, counts it. Blocks with no Citation
+ * come back as they were.
  */
 export function addSources(
   blocks: readonly Block[],
@@ -205,6 +210,104 @@ export function addSources(
         label: null,
         runs: [{ text: sourceEntry(source, context.language) }],
       })),
+      hangingIndent: false,
+    },
+  ];
+}
+
+/**
+ * The Blocks with their Citations as the numbers of their Documents in square brackets, "[1]",
+ * and at the end a list of those Documents under `heading` (#1600): for a Numbered Mind whose
+ * export puts its Citations in a list instead of footnotes. The Documents are numbered in the
+ * order they are first cited and each is listed once, with the Locations cited; the list is the
+ * Bibliography's entries, and is written whether the Mind shows its Bibliography or not. A
+ * Location whose quote wasn't found keeps the `unverified` mark. A Citation a change still
+ * waiting adds is in the Blocks of a Word export, as a tracked insertion, so it is numbered and
+ * listed with the rest; a PDF's Blocks leave it out. Blocks with no Citation come back as they
+ * were.
+ */
+export function listCitations(
+  blocks: readonly Block[],
+  context: SourceContext,
+  heading: string,
+  unverified: string,
+): Block[] {
+  const cited: Extract<Inline, { kind: "citation" }>[] = [];
+  mapInlines(blocks, (content) => {
+    for (const inline of content) if (inline.kind === "citation") cited.push(inline);
+    return content;
+  });
+  const sources = sourcesOf(
+    cited.map((citation) => citation.work),
+    context,
+    "cited",
+  );
+  if (sources.length === 0) return [...blocks];
+  const numbers = new Map<string, number>();
+  const numberOf = (citation: (typeof cited)[number]) => {
+    const key = sourceKeyOf(citation.work, context);
+    const known = numbers.get(key);
+    if (known !== undefined) return known;
+    numbers.set(key, numbers.size + 1);
+    return numbers.size;
+  };
+  for (const citation of cited) numberOf(citation);
+
+  const styled = mapInlines(blocks, (content) => {
+    const clusters = clustersIn(content);
+    if (clusters.length === 0) return content;
+    const out: Inline[] = [];
+    let at = 0;
+    for (const cluster of clusters) {
+      out.push(...content.slice(at, cluster.start));
+      const [first] = cluster.citations;
+      const failed = cluster.citations.flatMap((citation) =>
+        citation.footnote.failed ? [citation.footnote] : [],
+      );
+      const marker = [...new Set(cluster.citations.map(numberOf))].sort((a, b) => a - b);
+      out.push({
+        kind: "cite",
+        runs: [{ text: `[${marker.join(", ")}]` }],
+        note: false,
+        unverified: false,
+        ...(failed.length > 0 && { failed }),
+        ...(first?.inserted && { inserted: first.inserted }),
+        ...(first?.deleted && { deleted: first.deleted }),
+      });
+      at = cluster.end;
+    }
+    out.push(...content.slice(at));
+    return out;
+  });
+
+  const t: Translate = (key, params) => translate(context.language, key, params);
+  const unverifiedAt = new Map<string, Set<string>>();
+  for (const citation of cited) {
+    if (!citation.footnote.unverified) continue;
+    const key = sourceKeyOf(citation.work, context);
+    const places = unverifiedAt.get(key) ?? new Set<string>();
+    places.add(citedLocation(citation.work, t) ?? "");
+    unverifiedAt.set(key, places);
+  }
+  return [
+    ...styled,
+    {
+      kind: "bibliography",
+      heading,
+      items: sources.map((source, index) => {
+        const places = unverifiedAt.get(source.key);
+        const marked = {
+          ...source,
+          locations: source.locations.map((place) =>
+            places?.has(place) ? `${place} ${unverified}` : place,
+          ),
+        };
+        const entry = sourceEntry(marked, context.language);
+        return {
+          label: [{ text: `[${index + 1}]` }],
+          runs: [{ text: places?.has("") ? `${entry} ${unverified}` : entry }],
+        };
+      }),
       hangingIndent: false,
     },
   ];

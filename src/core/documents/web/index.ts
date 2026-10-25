@@ -70,6 +70,8 @@ export interface WebPagesOptions {
   look?: PageLook;
   /** A save that doesn't say keeps the page as it looks: `UserSettings.keepWebPageLook`. */
   keepLookByDefault: () => boolean;
+  /** "Keep everything on this computer" is on: a page the User names isn't fetched unless they let it. */
+  localOnly?: () => boolean;
   /** Aborted when the core closes: no look is started, and none that finishes late is kept. */
   signal: AbortSignal;
   reportError?: (error: unknown) => void;
@@ -116,9 +118,12 @@ function parseSaveInput(input: unknown): SaveWebPageInput {
   if (!isRecord(input) || typeof input.address !== "string") {
     throw new InvalidInputError("saveWebPage expects an address.");
   }
-  const { address, html, folderId, keepLook } = input;
+  const { address, html, folderId, keepLook, localModeOnce } = input;
   if (keepLook !== undefined && typeof keepLook !== "boolean") {
     throw new InvalidInputError({ key: "error.webPage.keepLookNotBoolean" });
+  }
+  if (localModeOnce !== undefined && typeof localModeOnce !== "boolean") {
+    throw new InvalidInputError({ key: "error.webPage.localModeOnceNotBoolean" });
   }
   if (html !== undefined && typeof html !== "string") {
     throw new InvalidInputError("A web page's HTML must be text.");
@@ -131,6 +136,7 @@ function parseSaveInput(input: unknown): SaveWebPageInput {
     ...(html === undefined ? {} : { html }),
     folderId: folderId ?? null,
     ...(keepLook === undefined ? {} : { keepLook }),
+    ...(localModeOnce === undefined ? {} : { localModeOnce }),
   };
 }
 
@@ -160,6 +166,17 @@ export function createWebPages(options: WebPagesOptions) {
     const started = task().finally(() => underWay.delete(key));
     underWay.set(key, started);
     return started;
+  };
+
+  const heldInLocalMode = (address: string): WebPageResult => {
+    const site = URL.parse(address)?.host ?? address;
+    return failed(
+      address,
+      new WebPageError(
+        "local-mode",
+        `“Keep everything on this computer” is on, so ${site} isn't contacted.`,
+      ),
+    );
   };
 
   const failed = (address: string, error: unknown): WebPageResult => {
@@ -272,6 +289,17 @@ export function createWebPages(options: WebPagesOptions) {
     looks = looks
       .then(async () => {
         if (signal.aborted) return;
+        if (options.localOnly?.()) {
+          recordLook(
+            db,
+            documentId,
+            contentHash,
+            { status: "failed", failure: "local-mode" },
+            now(),
+          );
+          documents.announce(documentId);
+          return;
+        }
         const made = await look.render(address).catch((error: unknown) => ({
           failure: "failed" as const,
           message: error instanceof Error ? error.message : String(error),
@@ -314,9 +342,16 @@ export function createWebPages(options: WebPagesOptions) {
 
   const startLook = (documentId: string, contentHash: string, address: string) => {
     if (!options.look) return;
-    recordLook(db, documentId, contentHash, { status: "saving" }, now());
+    const held = options.localOnly?.() === true;
+    recordLook(
+      db,
+      documentId,
+      contentHash,
+      held ? { status: "failed", failure: "local-mode" } : { status: "saving" },
+      now(),
+    );
     documents.announce(documentId);
-    queueLook(documentId, contentHash, address);
+    if (!held) queueLook(documentId, contentHash, address);
   };
 
   // Looks being made when the app last quit were asked for: they are made now, once. One that
@@ -403,7 +438,7 @@ export function createWebPages(options: WebPagesOptions) {
       fetch?: PageFetch,
       origin: WebPageOrigin = "user",
     ): Promise<WebPageResult> {
-      const { address: typed, html, keepLook } = parseSaveInput(input);
+      const { address: typed, html, keepLook, localModeOnce } = parseSaveInput(input);
       const address = normaliseAddress(typed);
       if (!address) {
         return Promise.resolve(
@@ -423,6 +458,9 @@ export function createWebPages(options: WebPagesOptions) {
       };
       const known = documentAtAddress(db, address);
       if (known) return Promise.resolve(claimed(saved(known)));
+      if (options.localOnly?.() && html === undefined && !fetch && !localModeOnce) {
+        return Promise.resolve(heldInLocalMode(address));
+      }
       return once(address, async () => {
         try {
           return await withPage(await pageFor(address, html, fetch), async (page) => {
@@ -446,7 +484,7 @@ export function createWebPages(options: WebPagesOptions) {
     },
 
     /** See `CoreApi.fetchWebPageAgain`. */
-    fetchAgain(documentId: unknown): Promise<WebPageResult> {
+    fetchAgain(documentId: unknown, fetchOptions?: unknown): Promise<WebPageResult> {
       if (typeof documentId !== "string" || documentId === "") {
         throw new InvalidInputError("A Document id is required.");
       }
@@ -455,6 +493,9 @@ export function createWebPages(options: WebPagesOptions) {
       if (document.kind !== "web" || !info) {
         throw new InvalidInputError("Only a web page can be fetched again.");
       }
+      const letThrough = isRecord(fetchOptions) && fetchOptions.localModeOnce === true;
+      if (options.localOnly?.() && !letThrough)
+        return Promise.resolve(heldInLocalMode(info.address));
       return once(`document:${document.id}`, async () => {
         try {
           return await withPage(await pageFor(info.address, undefined), async (page) => {

@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from "react";
+import type { MouseEvent, ReactNode, Ref } from "react";
 import { ExclamationIcon } from "../viewer/icons";
 import { MetaLine } from "./MetaLine";
 
@@ -19,16 +19,29 @@ export function ProblemMark({ className = "mr-1.5 inline align-[-2px]" }: { clas
 /** The one action a problem offers. */
 export interface ProblemAction {
   label: string;
+  /** What a screen reader says, where the label alone doesn't name what it acts on ("Change"). */
+  ariaLabel?: string;
+  /** More on hover, such as where the action sends something. */
+  title?: string;
   onClick(event: MouseEvent<HTMLButtonElement>): void;
   testId?: string;
   /** Not while it is already running. */
   disabled?: boolean;
 }
 
-export function LineAction({ action }: { action: ProblemAction }) {
+export function LineAction({
+  action,
+  ref,
+}: {
+  action: ProblemAction;
+  ref?: Ref<HTMLButtonElement>;
+}) {
   return (
     <button
+      ref={ref}
       type="button"
+      aria-label={action.ariaLabel}
+      title={action.title}
       data-testid={action.testId}
       disabled={action.disabled}
       onClick={action.onClick}
@@ -53,6 +66,7 @@ export function ProblemLine({
   action,
   also,
   details = [],
+  disclosure,
   role = "alert",
   testId,
   title,
@@ -64,6 +78,8 @@ export function ProblemLine({
   also?: ProblemAction | undefined;
   /** More parts of the line between its words and its actions, such as a run's estimate. */
   details?: readonly string[];
+  /** Details the User opens: their toggle after the actions, their panel under the line. */
+  disclosure?: { toggle: ReactNode; panel: ReactNode } | undefined;
   role?: "alert" | "status";
   testId?: string;
   /** More to read on hover, such as the provider's own words. */
@@ -86,8 +102,10 @@ export function ProblemLine({
           children,
           ...details,
           ...buttons.map((each) => <LineAction key={each.label} action={each} />),
+          disclosure?.toggle,
         ]}
       />
+      {disclosure?.panel}
     </div>
   );
 }

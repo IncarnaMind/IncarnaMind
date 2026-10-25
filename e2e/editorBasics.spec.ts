@@ -7,8 +7,10 @@ import {
   addDocuments,
   afterEditorFocus,
   assistantAnswers,
+  clickEndOf,
   createDataFolder,
   dismissChatSetup,
+  focusSettled,
   interceptOpenExternal,
   launchApp,
   newMind,
@@ -20,6 +22,7 @@ import {
   slideSelect,
   urlsOpened,
   useLocalChatModel,
+  wordsBox,
 } from "./app";
 
 /*
@@ -201,6 +204,79 @@ test('"/" finds the new items by their Chinese names', async () => {
   await expect(editor.locator("ul:has(> li[data-checked])")).toHaveCount(1);
 });
 
+// While the selection menu isn't shown (put away with Esc, or never shown over all of the Mind),
+// what is in it isn't on the page, where a popover can't open (#1461).
+for (const [how, language, width] of [
+  ["Esc", "en", 900],
+  ["Esc", "zh-CN", 1600],
+  ["⌘A", "en", 1600],
+  ["⌘A", "zh-CN", 900],
+] as const) {
+  test(`⌘K on a selection whose menu isn't shown (${how}) opens the link field beside it, at ${width} px (${language})`, async () => {
+    const { window, editor } = await startMind(language, width);
+    const errors: string[] = [];
+    window.on("pageerror", (error) => errors.push(error.message));
+    const sentence = "Read the Tides paper today and the Moon one tomorrow";
+    await window.keyboard.type(sentence);
+    const line = editor.locator("p").first();
+    const menu = window.getByTestId("selection-menu");
+    const words = how === "Esc" ? "Tides paper" : sentence;
+    if (how === "Esc") {
+      await slideSelect(window, line, words);
+      await expect(menu).toBeVisible();
+      await window.keyboard.press("Escape");
+      await expect(menu).toBeHidden();
+    } else {
+      await window.keyboard.press("ControlOrMeta+a");
+    }
+    await window.keyboard.press("ControlOrMeta+K");
+
+    const field = window.getByTestId("link-field");
+    await expect(field).toBeFocused();
+    // Beside the words and inside the window: not over the words, and no selection menu over it.
+    const panel = await window.locator('[popover]:has([data-testid="link-field"])').boundingBox();
+    const lineBox = await line.boundingBox();
+    const text = await wordsBox(line, words);
+    const view = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    if (!panel || !lineBox) throw new Error("The field or the line isn't on the page.");
+    const right = panel.x + panel.width;
+    const bottom = panel.y + panel.height;
+    expect(panel.x).toBeGreaterThanOrEqual(0);
+    expect(panel.y).toBeGreaterThanOrEqual(0);
+    expect(right).toBeLessThanOrEqual(view.width);
+    expect(bottom).toBeLessThanOrEqual(view.height);
+    expect(panel.x).toBeLessThan(text.right);
+    expect(right).toBeGreaterThan(text.left);
+    const under = panel.y > text.y && panel.y < lineBox.y + 2 * lineBox.height;
+    const over = bottom < text.y && bottom > lineBox.y - lineBox.height;
+    expect(under || over).toBe(true);
+    await expect(menu).toBeHidden();
+
+    // Esc goes back to the text with the words still selected, and ⌘K opens the field again.
+    await window.keyboard.press("Escape");
+    await expect(field).toHaveCount(0);
+    await expect
+      .poll(() => window.evaluate(() => globalThis.getSelection()?.toString().trim()))
+      .toBe(words);
+    await focusSettled(window, editor);
+    await window.keyboard.press("ControlOrMeta+K");
+    await expect(field).toBeFocused();
+    await window.keyboard.type("example.com/tides");
+    await window.keyboard.press("Enter");
+    const link = line.locator("a");
+    await expect(link).toHaveText(words);
+    await expect(link).toHaveAttribute("href", "https://example.com/tides");
+
+    // Undo takes the link back as one step, and Redo puts it back.
+    await expect(editor).toBeFocused();
+    await window.keyboard.press("ControlOrMeta+Z");
+    await expect(link).toHaveCount(0);
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(link).toHaveAttribute("href", "https://example.com/tides");
+    expect(errors).toEqual([]);
+  });
+}
+
 test("a link: added with the button or ⌘K on a selection, edited, opened and removed in place, each undone", async () => {
   const { app, window, editor } = await startMind();
   await interceptOpenExternal(app);
@@ -214,6 +290,8 @@ test("a link: added with the button or ⌘K on a selection, edited, opened and r
   await expect(menu).toBeVisible();
   await window.keyboard.press("ControlOrMeta+K");
   await expect(field).toBeFocused();
+  // The menu stays, with the field by its link button.
+  await expect(menu).toBeVisible();
   await window.keyboard.type("example.com/tides");
   await window.keyboard.press("Enter");
   await expect(line.locator("a")).toHaveText("Tides paper");
@@ -241,13 +319,20 @@ test("a link: added with the button or ⌘K on a selection, edited, opened and r
   const bubble = window.getByTestId("link-bubble-address");
   await expect(bubble).toHaveText("https://example.com/moon");
   // The address and the three buttons sit in one row.
-  const rows = await Promise.all(
-    ["link-bubble-address", "link-open", "link-edit", "link-remove"].map(async (id) => {
-      const box = await window.getByTestId(id).boundingBox();
-      return Math.round(((box?.y ?? -100) + (box?.height ?? 0) / 2) / 8);
-    }),
-  );
-  expect(new Set(rows).size).toBe(1);
+  await expect
+    .poll(() =>
+      window.evaluate(
+        (ids) => {
+          const middles = ids.map((id) => {
+            const box = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
+            return box ? box.y + box.height / 2 : Number.NaN;
+          });
+          return Math.max(...middles) - Math.min(...middles);
+        },
+        ["link-bubble-address", "link-open", "link-edit", "link-remove"],
+      ),
+    )
+    .toBeLessThan(8);
   await window.getByTestId("link-open").hover();
   await window.getByTestId("link-open").click();
   await expect.poll(() => urlsOpened(app)).toEqual(["https://example.com/moon"]);
@@ -287,7 +372,9 @@ test("a link: added with the button or ⌘K on a selection, edited, opened and r
   await field.press("Enter");
   await expect(line.locator("a")).toHaveCount(0);
 
-  // With nothing selected and the cursor outside a link, ⌘K does nothing here.
+  // With nothing selected and the cursor outside a link, ⌘K does nothing here. The words the link
+  // was on stay selected, so the cursor goes to the end of the line first.
+  await clickEndOf(window, line);
   await window.keyboard.press("ControlOrMeta+K");
   await expect(field).toHaveCount(0);
 });
@@ -354,6 +441,7 @@ for (const [language, titles] of [
     await expect(items).toHaveCount(0);
     await expect(editor).toBeFocused();
     await window.keyboard.press("ControlOrMeta+Alt+L");
+    await expect(items.first()).toBeFocused();
     await window.keyboard.press("ArrowDown");
     await expect(items.nth(1)).toBeFocused();
     await window.keyboard.press("Enter");

@@ -254,7 +254,7 @@ describe("What a write's check left to do", () => {
         checked("Ferries leave on the hour.", { id: "e", request: "w1", state: "not-checked" }),
       ],
     });
-    const { claims } = claimsOf(doc, { versions: null, folderId: null });
+    const { claims } = claimsOf(doc, { versions: null, folderId: null, scope: null });
     const left = leftToCheck(claims, "w1");
 
     expect(left.map(({ from, to }) => doc.textBetween(from, to))).toEqual([

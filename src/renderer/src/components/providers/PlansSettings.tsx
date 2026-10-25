@@ -13,6 +13,7 @@ import {
 import { ChatGptPlanRow } from "./ChatGptPlanSettings";
 import { ClaudePlanRow } from "./ClaudePlan";
 import { CopilotPlanRow } from "./CopilotPlan";
+import { LocalModeUnavailable } from "./LocalModeUnavailable";
 
 const GOOGLE_CREDITS = "https://developers.google.com/program";
 
@@ -37,6 +38,7 @@ export function PlansSettings() {
   return (
     <section data-testid="plans-settings">
       <h4 className={`mb-2 ${sectionTitleClass}`}>{t("plans.title")}</h4>
+      <LocalModeUnavailable className="mb-2" />
       <ul className={ruledListClass}>
         <ChatGptPlanRow />
         <ClaudePlanRow />

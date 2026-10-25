@@ -57,8 +57,12 @@ const EVERYDAY: readonly [string, Persona][] = [
 function fromEveryday([id, persona]: readonly [string, Persona]): HarnessCase {
   const found = CASES.find((each) => each.id === id);
   if (!found) throw new Error(`No everyday request "${id}".`);
+  const { library } = found;
+  if (library === "reserves")
+    throw new Error(`"${id}" needs the reserves table, which the bake-off has no library for.`);
   return {
     ...found,
+    library,
     mind: null,
     persona,
     group: found.research ? "research" : found.library === "dated" ? "dated" : "everyday",

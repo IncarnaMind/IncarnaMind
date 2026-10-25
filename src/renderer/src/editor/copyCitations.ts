@@ -10,7 +10,7 @@ import { languageNow } from "../i18n";
 import { useAppStore } from "../store";
 import { addFootnotes, citationsIn, copiedText, wordFootnoteHtml } from "./copyNotes";
 
-function sourceContext(): SourceContext {
+export function sourceContext(): SourceContext {
   return { language: languageNow(), documents: useAppStore.getState().documents };
 }
 

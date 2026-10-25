@@ -689,13 +689,13 @@ test("an empty conversation says once what it reads and searches, following focu
   await expect(reads).toHaveText("Searches All Documents");
   await screenshot(window, "steps-empty-en");
 
-  // Asked: the line goes; under the Answer, only Copy · Add to note.
+  // Asked: the line goes; under the Answer, only Add to note (naming the empty Mind) and Copy.
   await pointAndClick(window, window.getByTestId("mind-list-item").filter({ hasText: "Beta" }));
   const answer = await ask(window, "When do spring tides happen?");
   await expect(reads).toHaveCount(0);
   await window.mouse.move(10, 10);
   const actions = answer.getByTestId("answer-actions");
-  await expect(actions).toHaveText("CopyAdd to note");
+  await expect(actions).toHaveText("Add to “Beta”Copy");
   await expect(actions).not.toContainText(MODEL_NAME);
   await expect(answer.getByTestId("answer-copy")).toHaveCSS("font-size", "13px");
   await expect(answer.getByTestId("answer-copy")).toHaveCSS("font-weight", "400");
@@ -820,5 +820,226 @@ test("a Connector call waiting for approval: the line says so, its card waits ou
     "data-approval",
     "allowed",
   );
+  await app.close();
+});
+
+interface StepsFrame {
+  rows: { step: string | null; running: boolean; title: string | null; reasoning: string | null }[];
+  summary: string | null;
+  elapsed: string | null;
+}
+
+/** The open steps and the live line's summary, each time they change, from now on. */
+async function watchSteps(window: Page): Promise<() => Promise<StepsFrame[]>> {
+  await window.evaluate(() => {
+    const frames: StepsFrame[] = [];
+    (globalThis as unknown as { stepFrames: StepsFrame[] }).stepFrames = frames;
+    const record = () => {
+      const assistant = document.querySelector('[data-testid="assistant"]');
+      const rows = [
+        ...(assistant?.querySelectorAll(
+          '[data-testid="answer-timeline"] > [data-testid="answer-step"]',
+        ) ?? []),
+      ].map((row) => ({
+        step: row.getAttribute("data-step"),
+        running:
+          row.hasAttribute("data-running") || row.querySelector('[data-status="running"]') !== null,
+        title: row.querySelector(".answer-step-title")?.textContent ?? null,
+        reasoning: row.querySelector('[data-testid="answer-reasoning"]')?.textContent ?? null,
+      }));
+      const summary =
+        assistant?.querySelector('[data-testid="answer-steps-summary"]')?.textContent ?? null;
+      const elapsed =
+        assistant?.querySelector('[data-testid="answer-steps-elapsed"]')?.textContent ?? null;
+      const last = frames.at(-1);
+      if (last && JSON.stringify(last) === JSON.stringify({ rows, summary, elapsed })) return;
+      frames.push({ rows, summary, elapsed });
+    };
+    new MutationObserver(record).observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+    });
+  });
+  return () =>
+    window.evaluate(() => (globalThis as unknown as { stepFrames: StepsFrame[] }).stepFrames);
+}
+
+const QUESTION_WITH_A_SLOW_CALL = "When do spring tides happen? Please lookup_tide slowly";
+
+test("the steps open while the Answer is written: the thinking row grows with its summary, a running call is marked, rows are only added at the end, and they stay open to the end", async () => {
+  const { app, window } = await start();
+  await addTideConnector(window);
+  await core(window).mind("Lit review: tides");
+  const frames = await watchSteps(window);
+
+  await askSlowly(window, QUESTION_WITH_A_SLOW_CALL);
+  // What a Connector's call finds goes to the model only when the User allows it, once.
+  const consent = window.getByTestId("consent-dialog");
+  await expect(consent).toBeVisible({ timeout: 15_000 });
+  await pointAndClick(window, consent.getByTestId("consent-allow"));
+  const answer = assistantAnswers(window).last();
+  const toggle = answer.getByTestId("answer-steps");
+  await expect(answer).toHaveAttribute("data-status", "streaming");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await pointAndClick(window, toggle);
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  const timeline = answer.getByTestId("answer-timeline");
+  await expect(timeline).toBeVisible();
+  // The model's row is first from the start, and the call it makes is marked while it runs.
+  await expect(timeline.getByTestId("answer-step").first()).toHaveAttribute(
+    "data-step",
+    "reasoning",
+  );
+  await expect(
+    timeline.locator('[data-testid="answer-connector-call"][data-status="running"]'),
+  ).toBeVisible();
+  await screenshot(window, "steps-open-running-en");
+
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+  // Opened mid-run, they are open still, and the Answer's folded line is the one that opens them.
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(timeline).toBeVisible();
+  await expect(toggle).toContainText("Searched");
+
+  const seen = await frames();
+  const opened = seen.filter((frame) => frame.rows.length > 0);
+  const kinds = opened.map((frame) => frame.rows.map((row) => row.step));
+  // Only ever added to at the end: each state starts with the rows of the one before.
+  for (const [index, now] of kinds.entries()) {
+    const before = kinds[index - 1] ?? [];
+    expect(now.slice(0, before.length)).toEqual(before);
+  }
+  expect(kinds[0]?.[0]).toBe("reasoning");
+  expect(kinds.at(-1)).toEqual(
+    expect.arrayContaining(["reasoning", "read", "call", "search", "check"]),
+  );
+  // The model's row pulses while it thinks (the scripted model reasons before its search), and
+  // the line counts the seconds of a step that takes over two: the call takes three.
+  expect(opened.some((frame) => frame.rows[0]?.running)).toBe(true);
+  expect(seen.some((frame) => /^\d+s$/.test(frame.elapsed ?? ""))).toBe(true);
+  // The call is a row while it runs, and the same row once it is done.
+  const callAt = (frame: StepsFrame) => frame.rows.findIndex((row) => row.step === "call");
+  const running = opened.find((frame) =>
+    frame.rows.some((row) => row.step === "call" && row.running),
+  );
+  expect(running).toBeDefined();
+  expect(opened.at(-1)?.rows[running ? callAt(running) : 0]?.running).toBe(false);
+  // The summary grows: every state is the one before with more.
+  const summaries = opened
+    .map((frame) => frame.rows.find((row) => row.step === "reasoning")?.reasoning ?? "")
+    .filter((text, index, all) => text !== "" && text !== all[index - 1]);
+  expect(summaries.length).toBeGreaterThan(1);
+  for (const [index, text] of summaries.entries()) {
+    expect(text.startsWith(summaries[index - 1] ?? "")).toBe(true);
+  }
+  await app.close();
+});
+
+test("the live line shows the latest of the summary beside the step, out of the screen reader's way; folding the steps mid-run keeps them folded, and the line takes the keyboard", async () => {
+  const { app, window } = await start();
+  await core(window).mind("Lit review: tides");
+  const frames = await watchSteps(window);
+
+  await askSlowly(window, "When do spring tides happen? Answer slowly.");
+  const answer = assistantAnswers(window).last();
+  const live = answer.getByTestId("answer-steps-live");
+  const toggle = answer.getByTestId("answer-steps");
+  await expect(answer.getByTestId("answer-steps-summary")).toContainText("Answer slowly");
+  await expect(live).toHaveAttribute("data-step", "thinking");
+  await expect(live).toContainText("Thinking·");
+  await expect(answer.getByTestId("answer-steps-summary")).toHaveAttribute("aria-hidden", "true");
+  await expect(live).toHaveAttribute("role", "status");
+  await screenshot(window, "steps-live-summary-en");
+
+  // From the keyboard: Enter opens, Space folds, Enter opens again.
+  await toggle.focus();
+  await window.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(answer.getByTestId("answer-timeline")).toBeVisible();
+  await window.keyboard.press("Space");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(answer.getByTestId("answer-timeline")).toHaveCount(0);
+  await window.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+  // The focus goes with it when the Answer is written.
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await window.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(answer.getByTestId("answer-timeline")).toHaveCount(0);
+
+  // The summary line changed with the summary, and was never longer than the summary.
+  const lines = (await frames())
+    .map((frame) => frame.summary)
+    .filter((text): text is string => text !== null);
+  expect(lines.length).toBeGreaterThan(0);
+  await app.close();
+});
+
+test("in Chinese, the live line and the thinking row say so, and the summary is the model's own", async () => {
+  const { app, window } = await start();
+  await core(window).mind("Lit review: tides");
+  await core(window).language("zh-CN");
+  const frames = await watchSteps(window);
+
+  await askSlowly(window, "春潮什么时候出现？ Answer slowly.");
+  const answer = assistantAnswers(window).last();
+  await expect(answer.getByTestId("answer-steps-live")).toContainText("正在思考·");
+  await pointAndClick(window, answer.getByTestId("answer-steps"));
+  await expect(answer.getByTestId("answer-timeline")).toBeVisible();
+  await screenshot(window, "steps-open-running-zh");
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+
+  const first = (await frames())
+    .map((frame) => frame.rows[0])
+    .filter((row) => row?.step === "reasoning");
+  expect(first.some((row) => row?.running && row.title === "正在思考…")).toBe(true);
+  expect(first.some((row) => row?.reasoning?.includes("春潮什么时候出现"))).toBe(true);
+  await expect(
+    answer.getByTestId("answer-timeline").getByTestId("answer-step").first(),
+  ).toContainText("思考了");
+  await app.close();
+});
+
+test("a long Answer written with its steps opened stays where its reader is: at the foot", async () => {
+  const { app, window } = await start();
+  await core(window).mind("Lit review: tides");
+  await setWindowSize(app, window, 1440, 760);
+  await window.evaluate(() => {
+    const scroller = document.querySelector('[data-testid="assistant-log"]')?.parentElement;
+    const jumps: number[] = [];
+    (globalThis as unknown as { jumps: number[] }).jumps = jumps;
+    let before = scroller?.scrollTop ?? 0;
+    scroller?.addEventListener("scroll", () => {
+      jumps.push(before - scroller.scrollTop);
+      before = scroller.scrollTop;
+    });
+  });
+
+  await askSlowly(window, "What do tides do with forty citations");
+  const answer = assistantAnswers(window).last();
+  // A click gives the button the focus, which goes to the folded line when the Answer is written.
+  await pointAndClick(window, answer.getByTestId("answer-steps"));
+  await expect(answer.getByTestId("answer-timeline")).toBeVisible();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+  await expect(answer.getByTestId("answer-steps")).toBeFocused();
+
+  const thread = await window.evaluate(() => {
+    const scroller = document.querySelector('[data-testid="assistant-log"]')?.parentElement;
+    return {
+      fromFoot:
+        (scroller?.scrollHeight ?? 0) - (scroller?.scrollTop ?? 0) - (scroller?.clientHeight ?? 0),
+      overflow: (scroller?.scrollHeight ?? 0) - (scroller?.clientHeight ?? 0),
+      jumps: (globalThis as unknown as { jumps: number[] }).jumps,
+    };
+  });
+  // It overflowed, so there was a foot to be taken from, and the Answer's end is in view.
+  expect(thread.overflow).toBeGreaterThan(200);
+  expect(thread.fromFoot).toBeLessThanOrEqual(2);
+  expect(Math.max(...thread.jumps)).toBeLessThan(100);
   await app.close();
 });

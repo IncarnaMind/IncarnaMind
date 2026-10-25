@@ -578,7 +578,7 @@ test("a Linked folder that moved is located from its menu, and its Document and 
     }),
   ).toEqual(before);
 
-  // Its Mind is open again in its tab: the Citation is still found, and opens its page.
+  await window.getByTestId("mind-tab").click();
   const citation = window.getByTestId("mind-editor").getByTestId("citation");
   await expect(citation).toHaveAttribute("data-check", "found");
   await citation.getByTestId("citation-chip").click();

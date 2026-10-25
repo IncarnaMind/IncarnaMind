@@ -34,5 +34,5 @@ export function appliedEditReply(passage: string, asked: string): string | null 
   return null;
 }
 
-/** Asked of the assistant, "replace X with Y" is its own change to the Mind, which waits for the User. */
+/** Asked of the assistant, "replace X with Y" is an edit of the Mind, with edit_mind. */
 export const ASSISTANT_REPLACES = /^replace\s+.+\s+with\s+/i;

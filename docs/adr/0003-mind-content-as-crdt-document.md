@@ -88,3 +88,12 @@ The User sets a paragraph's alignment, indents, spacing and line spacing, and te
 ## Amendment: a check the User keeps as their own view (2026-10-18, #1111)
 
 Keep as my view, on the card of a cited sentence found unsupported, sets `kept: true` on that sentence's `claimCheck` mark. While its words stay as they were checked, the sentence shows no mark, isn't counted in the Mind's health, and no check runs on it again (Check this Mind in every mode, contradiction watch); editing the words ends it. It stays on the mark, beside the result, so ⌘Z takes it back with the words' other changes in one step. An older version's editor strips mark attributes it doesn't know, so it would drop `kept`, and the `unsupported` reason a check gives (#1072), and count and check the sentence again: the content schema version is 25. Nothing older is rewritten.
+
+## Amendment: a Mind's chosen Search scope, and the scope a check looked in (2026-10-23, #1623)
+
+The Search scope the User sets for a Mind in its composer is where its Questions search and its checks look. "Ask about this Document" and text added from an Answer asked of one Document set it too.
+
+- **The scope is Mind content.** It is a `scope` key in the Mind's settings map (`MIND_SETTINGS_FIELD`), beside its model, so it goes wherever the Mind goes, syncs with it and survives a restart. A Mind with no key has no scope of its own and is checked as before: in its Folder while that holds a Document, else in every Document.
+- **One whole value.** The key holds the scope's Folders, Tags and Documents as one value. A narrowed scope also holds where one click takes it back: `before: "all"` when it narrowed every Document, chosen; nothing when it narrowed the Mind's own. When two devices set it at once, one device's value wins whole, with its own way back, and no other key of the settings map is lost.
+- **A check records where it looked.** The `claimCheck` mark's `scope` gains `chosen`, the scope searched when it was the Mind's own choice, so the card, the Word comment and the check record name it, and a check made in another scope than the Mind's now needs a re-check. An older version's editor would strip `chosen` and read such a check as made in the Mind's Folder, and it could write over the scope key without knowing it, so the content schema version is 26: an older version opens a Mind written since read-only. Nothing older is rewritten.
+- **No table, no migration.** Nothing outside the Mind's Yjs document changes.

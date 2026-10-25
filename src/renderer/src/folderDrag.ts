@@ -23,13 +23,16 @@ export const itemsOfRefs = (refs: readonly ObjectRef[]): MoveItems => ({
 const folderNow = (folderId: string | null) =>
   useAppStore.getState().library?.groups.find((group) => group.id === folderId)?.name ?? "";
 
+/** Where a Document waiting in a Suggested Folder is: in none yet, so a move into that Folder accepts it. */
+const WAITING = Symbol("waiting");
+
 interface Index {
   minds: readonly Mind[];
   library: LibrarySnapshot | null;
   documents: readonly Document[];
   refs: readonly ObjectRef[];
   folderOfMind: Map<string, string | null>;
-  folderOfDocument: Map<string, string | null>;
+  folderOfDocument: Map<string, string | null | typeof WAITING>;
   documentById: Map<string, Document>;
   moves: Map<string | null, boolean>;
   tagged: Map<string, string[]>;
@@ -49,7 +52,10 @@ function indexFor(refs: readonly ObjectRef[]): Index {
       refs,
       folderOfMind: new Map(minds.map((mind) => [mind.id, mind.folderId])),
       folderOfDocument: new Map(
-        library?.assignments.map((each) => [each.documentId, each.groupId]),
+        library?.assignments.map((each) => [
+          each.documentId,
+          each.suggested ? WAITING : each.groupId,
+        ]),
       ),
       documentById: new Map(documents.map((document) => [document.id, document])),
       moves: new Map(),

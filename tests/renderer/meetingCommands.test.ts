@@ -175,6 +175,90 @@ describe("the meeting commands", () => {
   });
 });
 
+describe("Pause my mic", () => {
+  const micOf = (status: Meeting["status"], microphonePausedAtMs: number | null) =>
+    ({ id: "m1", mindId: "mind-1", status, microphonePausedAtMs }) as Meeting;
+
+  test("is named in English and Chinese, says which it will do, and is undone by itself", () => {
+    canRecord();
+    const mic = command("meeting.microphone");
+    stores.useMeetings.setState({ meetings: [micOf("recording", null)] });
+    expect(labelOf(mic, IN_MIND, en)).toBe("Pause my mic");
+    expect(labelOf(mic, IN_MIND, zh)).toBe("暂停我的麦克风");
+    stores.useMeetings.setState({ meetings: [micOf("recording", 12_000)] });
+    expect(labelOf(mic, IN_MIND, en)).toBe("Resume my mic");
+    expect(labelOf(mic, IN_MIND, zh)).toBe("恢复我的麦克风");
+    expect(mic.reversible).toBe(true);
+  });
+
+  test("shows the global shortcut the meeting holds for it: ⌃⌥M by default on macOS, none elsewhere until one is set", () => {
+    const settings = {
+      device: { meetingHelpKeys: {} },
+      meetingAudio: "both",
+    } as unknown as Settings;
+    stores.useAppStore.setState({ settings });
+    expect(command("meeting.microphone").globalKeys?.()).toBe(
+      process.platform === "darwin" ? "⌃⌥M" : null,
+    );
+    stores.useAppStore.setState({
+      settings: {
+        ...settings,
+        device: { ...settings.device, meetingHelpKeys: { mic: "Ctrl+Alt+F8" } },
+      } as Settings,
+    });
+    expect(command("meeting.microphone").globalKeys?.()).toMatch(/F8/);
+    stores.useAppStore.setState({
+      settings: {
+        ...settings,
+        device: { ...settings.device, meetingHelpKeys: { mic: "" } },
+      } as Settings,
+    });
+    expect(command("meeting.microphone").globalKeys?.()).toBeNull();
+  });
+
+  test("shows no key the window binds itself, which works only over another app", () => {
+    const window = process.platform === "darwin" ? "Cmd+Alt+L" : "Ctrl+Alt+L";
+    stores.useAppStore.setState({
+      settings: {
+        device: { meetingHelpKeys: { mic: window, panel: "Ctrl+Alt+F8" } },
+        meetingAudio: "both",
+      } as unknown as Settings,
+    });
+    expect(command("meeting.microphone").globalKeys?.()).toBeNull();
+    expect(command("meeting.panel").globalKeys?.()).toMatch(/F8/);
+  });
+
+  test("is offered where this copy can record, and works while a meeting records or is paused", () => {
+    const mic = command("meeting.microphone");
+    canRecord(false);
+    expect(offered(mic, IN_MIND)).toBe(false);
+
+    canRecord();
+    expect(offered(mic, IN_MIND)).toBe(true);
+    expect(mic.enabled?.(IN_MIND)).toEqual({ reason: "meetings.command.noneLive" });
+    stores.useMeetings.setState({ meetings: [micOf("ready", null)] });
+    showing("mind-1");
+    expect(isEnabled(mic, IN_MIND)).toBe(false);
+    stores.useMeetings.setState({ meetings: [micOf("recording", null)] });
+    expect(isEnabled(mic, IN_MIND)).toBe(true);
+    stores.useMeetings.setState({ meetings: [micOf("paused", null)] });
+    expect(isEnabled(mic, IN_MIND)).toBe(true);
+  });
+
+  test("pauses the microphone of the meeting in view, or resumes it when it is paused", async () => {
+    canRecord();
+    const setMicrophonePaused = vi.fn(async () => {});
+    stores.useMeetings.setState({ setMicrophonePaused, meetings: [micOf("recording", null)] });
+    showing("mind-1");
+    await commands.run("meeting.microphone", IN_MIND);
+    expect(setMicrophonePaused).toHaveBeenLastCalledWith("m1", true);
+
+    stores.useMeetings.setState({ meetings: [micOf("recording", 4000)] });
+    await commands.run("meeting.microphone", IN_MIND);
+    expect(setMicrophonePaused).toHaveBeenLastCalledWith("m1", false);
+  });
+});
+
 describe("Mark (#139)", () => {
   test("is ⌘D on macOS and Ctrl+D elsewhere, a window-wide key, named in both languages", () => {
     const mark = command("meeting.mark");

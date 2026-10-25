@@ -70,6 +70,13 @@ export class RefreshFailedError extends Error {
   override name = "RefreshFailedError";
 }
 
+/** Local mode is on and the sign-in's server is on another computer: nothing was sent, and the tokens are kept. */
+export class HeldBackError extends Error {
+  override name = "HeldBackError";
+}
+
+const HELD_BACK = "Everything stays on this computer, so nothing is sent.";
+
 /** Whether `error`, or what caused it, is `type`: the SDK sometimes passes errors on wrapped. */
 export function causedBy<T extends Error>(
   error: unknown,
@@ -239,6 +246,8 @@ export interface ConnectorAuthOptions {
   manualClientId: () => string | null;
   /** The sign-in changed: signed in, renewed, expired or signed out. */
   onChange(): void;
+  /** Whether Local mode is on and this address isn't on this computer: no request goes there. */
+  heldBack?(url: string): boolean;
   fetch?: FetchLike;
 }
 
@@ -246,7 +255,14 @@ export type ConnectorAuth = ReturnType<typeof createConnectorAuth>;
 
 export function createConnectorAuth(options: ConnectorAuthOptions) {
   const { connectorId, secrets, now } = options;
-  const fetch = sharingRefreshes(options.fetch ?? globalThis.fetch);
+  const send = options.fetch ?? globalThis.fetch;
+  /** Requests Local mode stopped: the SDK sometimes swallows the error, so callers count them too. */
+  let heldBackRequests = 0;
+  const fetch = sharingRefreshes((url, init) => {
+    if (!options.heldBack?.(String(url))) return send(url, init);
+    heldBackRequests++;
+    return Promise.reject(new HeldBackError(HELD_BACK));
+  });
   let tokenRecord: TokenRecord | null = null;
   let client: ClientRecord = {};
   let loaded: Promise<void> | null = null;
@@ -503,14 +519,23 @@ export function createConnectorAuth(options: ConnectorAuthOptions) {
       const stored = tokenRecord;
       if (!hasTokens(stored) || !stored.tokens.refresh_token || stored.expiresAt === null) return;
       if (stored.expiresAt - now() > REFRESH_WINDOW_MS) return;
+      const before = heldBackRequests;
       refreshing ??= import("./sdk")
         .then(({ auth }) => auth(provider(null), { serverUrl: options.url, fetchFn: fetch }))
         .then(() => undefined)
         .finally(() => {
           refreshing = null;
         });
-      await refreshing;
+      try {
+        await refreshing;
+      } catch (error) {
+        if (heldBackRequests > before) throw new HeldBackError(HELD_BACK);
+        throw error;
+      }
     },
+
+    /** How many requests Local mode has stopped: a caller compares it before and after what it did. */
+    heldBackCount: () => heldBackRequests,
 
     /** Signing out: the tokens are deleted. The registration stays, for signing in again. */
     async signOut(): Promise<void> {

@@ -211,15 +211,20 @@ test("each row's Next goes through its sentences in order and round to the first
   await pointAndClick(window, card.getByTestId("mind-check-ask").getByTestId("mind-check-check"));
   const marks = window.getByTestId("claim-mark");
   await expect(marks.and(window.locator('[data-check="unsupported"]'))).toHaveCount(2);
-  const unsupported = (await checkCard(window)).getByTestId("health-unsupported");
-  await expect(unsupported).toContainText("2 unsupported");
-  await pointAndClick(window, unsupported);
+  const unsupported = async () => (await checkCard(window)).getByTestId("health-unsupported");
+  await expect(await unsupported()).toContainText("2 unsupported");
+  // Each Next ends as a click on the sentence's mark does: its card open, the badge's card closed.
+  const sentenceCard = window.getByTestId("claim-card");
+  await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(0);
-  await pointAndClick(window, unsupported);
+  await expect(sentenceCard).toHaveAttribute("data-check", "unsupported");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
+  await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(first.length + 1);
-  await pointAndClick(window, unsupported);
+  await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(0);
   await window.keyboard.press("Escape");
+  await expect(sentenceCard).toHaveCount(0);
 
   // A sentence the scripted model checks slowly: the badge counts, and Stop ends the run.
   await editor.click();

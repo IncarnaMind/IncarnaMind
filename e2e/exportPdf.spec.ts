@@ -459,7 +459,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await expect(sheet.getByTestId("export-pending-note")).toHaveText(
     "Changes waiting for you go in as IncarnaMind’s tracked changes.",
   );
-  await expect(sheet.getByTestId("export-mark-ai-text")).toBeChecked();
+  await expect(sheet.getByTestId("export-mark-ai-text-mark")).toBeChecked();
   await expect(sheet.getByTestId("export-comment-failed-checks")).toBeChecked();
   await expect(sheet.getByTestId("export-track-changes")).toHaveCount(0);
   await expect(sheet.getByTestId("export-save-to")).toHaveText(
@@ -537,7 +537,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
     "尚未接受的修订会以 IncarnaMind 的修订写入。",
   );
   await expect(sheet.getByTestId("export-mark-ai-text")).toHaveAccessibleName(
-    "为 AI 生成的文字添加批注",
+    "标出 IncarnaMind 写的内容？",
   );
   const [sheetBox, windowWidth] = await Promise.all([
     sheet.boundingBox(),

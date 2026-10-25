@@ -47,6 +47,8 @@ export interface Prediction {
   images: boolean;
   /** What its model calls used, for a route that counts them. */
   tokens?: TokenCount;
+  /** A decision model's probability for every Tag, applied or not. */
+  scores?: Record<string, number>;
 }
 
 export interface Summary {
@@ -126,7 +128,7 @@ export function summarise(pairs: readonly { doc: Labelled; prediction: Predictio
   for (const { doc, prediction } of pairs) {
     if (prediction.error !== null) summary.errors++;
     else times.push(prediction.ms);
-    if (prediction.tokens) {
+    if (prediction.tokens && prediction.tokens.input > 0) {
       summary.counted++;
       summary.tokens.input += prediction.tokens.input;
       summary.tokens.output += prediction.tokens.output;
@@ -177,6 +179,32 @@ export function breakdown<T extends Labelled>(
   return [...groups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, group]) => [key, summarise(group)]);
+}
+
+/**
+ * Tag precision, recall and F1 if a Tag applied from each threshold, for the predictions
+ * that carry every Tag's probability. A failed request applies no Tag.
+ */
+export function thresholdSweep(
+  pairs: readonly { doc: Labelled; prediction: Prediction }[],
+  thresholds: readonly number[],
+): { threshold: number; p: number; r: number; f1: number }[] {
+  return thresholds.map((threshold) => {
+    const counts = { tp: 0, fp: 0, fn: 0 };
+    for (const { doc, prediction } of pairs) {
+      const applied =
+        prediction.error === null && prediction.scores
+          ? Object.entries(prediction.scores)
+              .filter(([, score]) => score >= threshold)
+              .map(([key]) => key)
+          : [];
+      const hits = applied.filter((key) => doc.tags.includes(key)).length;
+      counts.tp += hits;
+      counts.fp += applied.length - hits;
+      counts.fn += doc.tags.length - hits;
+    }
+    return { threshold, p: precision(counts), r: recall(counts), f1: f1(counts) };
+  });
 }
 
 /** Each Tag's own counts: how often it was right, wrongly applied and missed. */

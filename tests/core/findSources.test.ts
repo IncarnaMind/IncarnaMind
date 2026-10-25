@@ -283,6 +283,29 @@ describe("Find sources: consent and local mode", () => {
     ]);
   });
 
+  test("Undo of stopping a provider searched before brings it back, though no search goes to it now (#1463)", async () => {
+    const { core } = await setUp();
+    const asked = answerConsent(core);
+    await core.findSources({ query: "CRISPR off-target detection", providers: ["arxiv"] });
+    const arxiv = { id: "https://export.arxiv.org", name: "arXiv" };
+    const arxivDecision = async () =>
+      (await core.listDataFlows()).find(
+        (each) => each.flow.id === "find-sources" && each.flow.service.id === arxiv.id,
+      );
+    const before = await arxivDecision();
+    expect(before).toMatchObject({ consent: "accepted" });
+
+    const revokedAt = await core.revokeConsent("find-sources", arxiv.id);
+    expect(await arxivDecision()).toBeUndefined();
+    if (!revokedAt) throw new Error("There was no decision to revoke.");
+    await core.restoreConsent("find-sources", arxiv.id, revokedAt);
+
+    expect(await arxivDecision()).toEqual(before);
+    const asking = asked.length;
+    await core.findSources({ query: "base editing", providers: ["arxiv"] });
+    expect(asked).toHaveLength(asking);
+  });
+
   test("local mode blocks every provider: nothing is asked or sent, and nothing can be added", async () => {
     const { core, services } = await setUp();
     const asked = answerConsent(core);

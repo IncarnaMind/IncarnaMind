@@ -1,12 +1,14 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-import type {
-  CoreEventName,
-  CoreEvents,
-  Document,
-  DocumentGroupAssignment,
-  Folder,
-  LibrarySnapshot,
-  Mind,
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  type CoreEventName,
+  type CoreEvents,
+  DEFAULT_ASSISTANT,
+  type Document,
+  type DocumentGroupAssignment,
+  type Folder,
+  type LibrarySnapshot,
+  type Mind,
+  type WindowLayout,
 } from "../../src/core/api";
 import type { Translate } from "../../src/renderer/src/objects";
 import { isFreed } from "../helpers/freed";
@@ -469,7 +471,7 @@ describe("changes the User can take back", () => {
     expect(named(top())).toBe("移动 2 个文档");
     await useAppStore.getState().deleteMind("m");
     expect(said(top())).toBe("已将“Plan”移到回收站");
-    expect(named(top())).toBe("删除“Plan”");
+    expect(named(top())).toBe("删除‘Plan’");
   });
 });
 
@@ -516,6 +518,73 @@ describe("making a Mind", () => {
     expect(method("deleteMind")).not.toHaveBeenCalled();
   });
 
+  describe("its Folder, when none is given (#1362)", () => {
+    const inFolder = { ...made, id: "m", folderId: "contracts" };
+    const alone = (folderId: string) => ({ folderIds: [folderId], tagIds: [], documentIds: [] });
+    const front = (mind: Mind | null) =>
+      useAppStore.setState({
+        minds: mind ? [mind] : [],
+        layout: {
+          groups: [
+            {
+              id: "group",
+              tabs: mind
+                ? [
+                    {
+                      id: "tab",
+                      item: { kind: "mind", mindId: mind.id },
+                      preview: false,
+                      pinned: false,
+                      place: null,
+                      opened: 0,
+                    },
+                  ]
+                : [],
+              activeTabId: mind ? "tab" : null,
+              width: 1,
+            },
+          ],
+          focusedGroupId: "group",
+          reopenable: 0,
+          assistant: DEFAULT_ASSISTANT,
+        } satisfies WindowLayout,
+      });
+    const madeIn = () => method("createMind").mock.lastCall?.[0];
+
+    afterEach(() => useAppStore.setState({ layout: null }));
+
+    test("it is the Folder of the Mind in front, and no Folder when none is", async () => {
+      front(inFolder);
+      await useAppStore.getState().createMind({ titled: true });
+      expect(madeIn()).toEqual({ headed: true, folderId: "contracts" });
+
+      front(null);
+      await useAppStore.getState().createMind({ titled: true });
+      expect(madeIn()).toEqual({ headed: true });
+    });
+
+    test("it is the one Folder a scope names, over the Folder of the Mind in front", async () => {
+      front(inFolder);
+      await useAppStore.getState().createMind({ startQuestion: true, scope: alone("board") });
+      expect(madeIn()).toEqual({ folderId: "board" });
+
+      front(inFolder);
+      await useAppStore
+        .getState()
+        .createMind({ startQuestion: true, scope: { ...alone("board"), tagIds: ["urgent"] } });
+      expect(madeIn()).toEqual({ folderId: "contracts" });
+    });
+
+    test("a Folder given, or none (null), is kept, whichever Mind is in front", async () => {
+      front(inFolder);
+      await useAppStore.getState().createMind({ titled: true, folderId: "board" });
+      expect(madeIn()).toEqual({ headed: true, folderId: "board" });
+
+      await useAppStore.getState().createMind({ titled: true, folderId: null });
+      expect(madeIn()).toEqual({ headed: true });
+    });
+  });
+
   test("a Mind made leaves the line of the change before it, and that change, as they were", async () => {
     const before = { said: () => "Moved “Quarterly” to Finance", undo: async () => undefined };
     useUndo.getState().push(before);
@@ -546,8 +615,11 @@ describe("making a Mind", () => {
 });
 
 describe("Get started's Add your Documents", () => {
-  const inFolder = (id: string, linkedFolderId: string | null) =>
-    ({ ...doc(id), linkedFolderId }) as Document;
+  const inFolder = (
+    id: string,
+    linkedFolderId: string | null,
+    status: Document["status"] = "ready",
+  ) => ({ ...doc(id), linkedFolderId, status }) as Document;
   const example = (linkedFolderId: string) =>
     ({
       group: "credit",
@@ -570,6 +642,7 @@ describe("Get started's Add your Documents", () => {
             started: true,
             hidden: false,
             citationChecked: false,
+            mistakeSeen: false,
             indexed: false,
             askedOwn: false,
             askedReady: false,
@@ -585,6 +658,25 @@ describe("Get started's Add your Documents", () => {
     expect(ticked()).toBe(false);
 
     emit("document.status", inFolder("mine", "theirs"));
+    expect(ticked()).toBe(true);
+  });
+
+  test("a Document the User adds ticks it once it has been read, not while it is read or when it can't be (#1457)", () => {
+    for (const status of ["queued", "extracting", "failed", "no-text"] as const) {
+      emit("document.status", inFolder("mine", null, status));
+      expect(ticked()).toBe(false);
+    }
+    emit("document.status", inFolder("mine", null, "waiting-for-model"));
+    expect(ticked()).toBe(true);
+  });
+
+  test("the Documents already there tick it only when one of the User's own has been read (#1457)", () => {
+    useAppStore.setState({ documents: [inFolder("a", "old"), inFolder("mine", null, "failed")] });
+    emit("connectors.changed", []);
+    expect(ticked()).toBe(false);
+
+    useAppStore.setState({ documents: [inFolder("a", "old"), inFolder("mine", null)] });
+    emit("connectors.changed", []);
     expect(ticked()).toBe(true);
   });
 });
@@ -868,6 +960,7 @@ describe("making a Folder", () => {
 
 describe("loading keeps a list the core pushed after reading it", () => {
   beforeEach(() => {
+    method("listMinds").mockResolvedValue([]);
     method("getSettings").mockResolvedValue({ device: { gettingStarted: { askedOwn: false } } });
     method("getExamples").mockResolvedValue({
       group: "credit",
@@ -1134,5 +1227,55 @@ describe("an undo line keeps only what it shows", () => {
     const change = await stopTagging();
     await freedOnceReplaced(held);
     expect(said(change)).toBe("Stopped Tagging Documents in “Research” and not in a Folder");
+  });
+});
+
+describe("Get started's Ask a question", () => {
+  const finished = (answerId: string, status: "done" | "stopped") =>
+    emit("answer.finished", { answerId, status } as CoreEvents["answer.finished"]);
+  const asked = () => useAppStore.getState().settings?.device.gettingStarted.askedOwn;
+
+  beforeEach(() => {
+    useAppStore.setState({
+      examples: {
+        group: "credit",
+        available: true,
+        mindId: "m",
+        linkedFolderId: "f",
+        answerId: "example",
+        more: [],
+        ready: null,
+      } satisfies CoreEvents["examples.changed"],
+      otherExamples: [],
+      settings: {
+        device: {
+          gettingStarted: {
+            started: true,
+            hidden: false,
+            citationChecked: false,
+            mistakeSeen: false,
+            indexed: false,
+            askedOwn: false,
+            askedReady: false,
+          },
+        },
+      } as unknown as NonNullable<ReturnType<typeof useAppStore.getState>["settings"]>,
+    });
+  });
+
+  test("it ticks once an Answer to the User's own Question arrives, not when it fails, is stopped or is the example's", () => {
+    emit("answer.failed", { answerId: "own" } as CoreEvents["answer.failed"]);
+    finished("own", "stopped");
+    finished("example", "done");
+    expect(asked()).toBe(false);
+
+    finished("own", "done");
+    expect(asked()).toBe(true);
+  });
+
+  test("a later failed Answer doesn't take the tick back", () => {
+    finished("own", "done");
+    emit("answer.failed", { answerId: "again" } as CoreEvents["answer.failed"]);
+    expect(asked()).toBe(true);
   });
 });

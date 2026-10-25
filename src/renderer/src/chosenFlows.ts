@@ -6,8 +6,6 @@ const FLOW_LINES = {
   checks: "providers.sends.checks",
   suggestions: "providers.sends.suggestions",
   edits: "providers.sends.edits",
-  tagging: "providers.sends.tagging",
-  classification: "providers.sends.tagging",
 } as const satisfies Record<ChosenProviderFlow, MessageKey>;
 
 const linesOf = (lines: Record<ChosenProviderFlow, MessageKey>): MessageKey[] => [

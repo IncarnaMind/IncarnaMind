@@ -256,3 +256,30 @@ describe("how a workbook looks, for the sheet preview", () => {
     });
   });
 });
+
+describe("a formula the file saved no result for (#1514)", () => {
+  // protects=a cell whose formula has no saved result, as openpyxl writes it, isn't read as 0 or indexed, and the preview is told to say "No saved value" for it; a cell with a saved 0 stays 0; fails_when=the empty result reads as 0; no_claim=the viewer's wording.
+  test("isn't 0: it has no value of its own, and the layout says so", async () => {
+    const sheet = [
+      `<sheetData>`,
+      `<row r="1"><c r="A1" t="inlineStr"><is><t>Shipments</t></is></c><c r="B1"><v>128400</v></c></row>`,
+      `<row r="2"><c r="A2" t="inlineStr"><is><t>Total</t></is></c><c r="B2"><f>SUM(B1:B1)</f><v></v></c><c r="C2"><f>SUM(B1:B1)</f></c><c r="D2"><f>SUM(B1:B1)</f><v>0</v></c><c r="E2" t="str"><f>"x"</f><v></v></c></row>`,
+      `</sheetData>`,
+    ].join("");
+    const { sheets } = await readWorkbook(
+      xlsxPackage({ sheets: [{ name: "Totals", xml: sheet }], styles: STYLES }),
+      undefined,
+      {},
+    );
+    const cells = sheets[0]?.cells ?? [];
+    const at = (column: number) => cells.find((each) => each.row === 2 && each.column === column);
+    // No number, so nothing for an Answer to quote as 0.
+    expect(at(1)).toBeUndefined();
+    expect(at(2)).toBeUndefined();
+    // A saved 0 is a 0, and a text result that is empty is the empty text it saved.
+    expect(at(3)?.value).toBe("0");
+    expect(at(4)).toBeUndefined();
+    const look = sheets[0]?.layout;
+    expect([...(look?.noValue ?? [])].sort()).toEqual([cellIndex(2, 1), cellIndex(2, 2)].sort());
+  });
+});

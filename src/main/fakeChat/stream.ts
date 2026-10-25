@@ -27,6 +27,7 @@ import { answerReply, CITED_ANSWER, skillNamed } from "./answers";
 import { asksReply } from "./asks";
 import { CHECK_RUN, checkReply } from "./checks";
 import { commandsReply } from "./commands";
+import { fillReply } from "./meetingFill";
 import { helpReply } from "./meetingHelp";
 import { mindRead, mindsReply } from "./minds";
 import { passagesIn, recordsFor } from "./passages";
@@ -114,6 +115,8 @@ function nextReply(prompt: Prompt, tools: readonly OfferedTool[]): Reply {
   if (CHECK_RUN.test(systemOf(prompt))) return checkReply(prompt, names);
   const help = helpReply(prompt, names);
   if (help) return help;
+  const fill = fillReply(prompt, names);
+  if (fill) return fill;
   const question = lastQuestion(prompt);
   if (/blank reply/i.test(question)) return { text: "" };
   /** What the calls made first said, in order. */

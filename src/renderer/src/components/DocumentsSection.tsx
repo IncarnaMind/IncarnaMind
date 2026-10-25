@@ -2,7 +2,7 @@ import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, us
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
-import { documentStatusText } from "../documentStatus";
+import { documentStatusText, isProcessing } from "../documentStatus";
 import { useDragSource } from "../dragDrop";
 import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
@@ -31,6 +31,7 @@ import { LinkedFolderRows } from "./LinkedFolderRows";
 import { LinkFolderDialog } from "./LinkFolderDialog";
 import { DocumentLineIcon, MoreLineIcon } from "./lineIcons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
+import { SidebarHome } from "./SidebarHome";
 import { SidebarMoveTo } from "./SidebarMoveTo";
 import { SidebarSearch } from "./SidebarSearch";
 import { SidebarSection } from "./SidebarSection";
@@ -62,15 +63,8 @@ const shortStatusMessages: Record<DocumentStatus, MessageKey | null> = {
 
 const NO_DOCUMENTS: readonly Document[] = [];
 
-/** Still being processed: the row is muted until it's done. */
-const isProcessing = (status: DocumentStatus) =>
-  status === "queued" ||
-  status === "extracting" ||
-  status === "waiting-for-model" ||
-  status === "embedding";
-
 /**
- * The sidebar's tree, the same on every screen: Search and the Library, then
+ * The sidebar's tree, the same on every screen: Home, Search and the Library, then
  * the sections, each shown once it has something in it: the Folders, each
  * with its Minds and Documents, and Not in a Folder (see `LibraryFolders`),
  * the Linked folders (see `LinkedFolderRows`), and the Tags in
@@ -155,6 +149,7 @@ export function DocumentsSection() {
         className="hidden"
         onChange={addPicked}
       />
+      <SidebarHome />
       <SidebarSearch />
       {!quiet && (
         <div className={rowClass(libraryOpen)}>
@@ -174,7 +169,7 @@ export function DocumentsSection() {
             <span className="min-w-0 flex-1 truncate">{t("library.title")}</span>
             <span
               data-testid="library-row-count"
-              className="text-[12px] tabular-nums text-ink-meta"
+              className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
             >
               {formatCount(documentCount, language)}
             </span>

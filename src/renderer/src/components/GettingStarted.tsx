@@ -91,7 +91,7 @@ export function ExampleBanner({ mindId }: { mindId: string }) {
   );
 }
 
-export function OtherExamples({ mindId }: { mindId: string }) {
+function OtherExamples({ mindId }: { mindId: string }) {
   const t = useT();
   const gap = useGap();
   const openExample = useAppStore((state) => state.openExample);

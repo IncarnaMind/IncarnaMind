@@ -11,7 +11,7 @@ import {
   type TheirChangesShown,
   type WordExportPreferences,
 } from "../../../core/api";
-import { hasQuestionsOption } from "../../../shared/exportOptions";
+import { hasCitationPlace, hasQuestionsOption } from "../../../shared/exportOptions";
 import type { MessageKey } from "../../../shared/i18n";
 import { useCitationStylePicker, useStyleLabel } from "../citationStylePicker";
 import { shortcutLabel } from "../commands/keymap";
@@ -21,7 +21,9 @@ import { exportPreferences, FORMAT_LABELS } from "../exports";
 import { useT } from "../i18n";
 import { chooseOutputLocation, outputFolderLabel } from "../outputFiles";
 import { useAppStore } from "../store";
+import { CitationPlaceRow } from "./CitationPlace";
 import { ChevronDownLineIcon, CloseLineIcon } from "./lineIcons";
+import { MarkAiTextRow } from "./MarkAiText";
 import { ProblemLine } from "./ProblemLine";
 import { SharePageContents } from "./SharePageContents";
 import {
@@ -140,12 +142,9 @@ function WordReviewRows({
           testId="export-track-changes"
         />
       )}
-      <SwitchRow
-        label={t("export.markAiText")}
-        hint={t("export.markAiText.hint")}
-        checked={draft.markAiText}
+      <MarkAiTextRow
+        value={draft.markAiText}
         onChange={(markAiText) => onChange({ ...draft, markAiText })}
-        testId="export-mark-ai-text"
       />
       <SwitchRow
         label={t("export.commentFailedChecks")}
@@ -244,18 +243,11 @@ function TheirChangesRow({
   );
 }
 
-/**
- * The Mind's citation style (#289), which its export is written in, with the button that
- * changes it: the same picker as the References block's. It changes at once, not on Save.
- * A Mind that hasn't chosen and isn't Numbered follows the Chinese default (GB/T 7714), which the
- * row says.
- */
-function CitationStyleRow({ mindId }: { mindId: string }) {
-  const t = useT();
+/** The Mind's citation style, read again once the picker closes, since the User may have chosen another. */
+function useMindCitationStyle(mindId: string): MindCitationStyle | null {
   const [style, setStyle] = useState<MindCitationStyle | null>(null);
   const picking = useCitationStylePicker((state) => state.open?.mindId === mindId);
   useEffect(() => {
-    // Read again once the picker closes: the User may have chosen another.
     if (picking) return;
     let current = true;
     core.getMindCitationStyle(mindId).then(
@@ -268,6 +260,18 @@ function CitationStyleRow({ mindId }: { mindId: string }) {
       current = false;
     };
   }, [mindId, picking]);
+  return style;
+}
+
+/**
+ * The Mind's citation style (#289), which its export is written in, with the button that
+ * changes it: the same picker as the References block's. It changes at once, not on Save.
+ * A Mind that hasn't chosen and isn't Numbered follows the Chinese default (GB/T 7714), which the
+ * row says.
+ */
+function CitationStyleRow({ mindId }: { mindId: string }) {
+  const t = useT();
+  const style = useMindCitationStyle(mindId);
   const byDefault = style !== null && !style.chosen && style.style !== "numbered";
   const label = useStyleLabel(style?.style);
   return (
@@ -406,6 +410,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
 
   const { includeQuestions, checkedLine } = draft["share-page"];
   const theirChanges = draft.theirChanges ?? "shown";
+  const citationStyle = useMindCitationStyle(mind.id);
 
   useEffect(() => {
     if (!wantsShared) return;
@@ -594,6 +599,14 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
             draft={draft.docx}
             fromWord={counts?.fromWord ?? false}
             onChange={(docx) => setDraft({ ...draft, docx })}
+          />
+        )}
+
+        {hasCitationPlace(format) && citationStyle && (
+          <CitationPlaceRow
+            value={draft.citationPlace}
+            byStyle={citationStyle.style !== "numbered"}
+            onChange={(citationPlace) => setDraft({ ...draft, citationPlace })}
           />
         )}
 

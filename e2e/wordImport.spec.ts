@@ -221,11 +221,11 @@ test("someone else's tracked changes wait in place with who made them and when: 
   await dialog.getByTestId("word-import-confirm").click();
   await expect(dialog).toBeHidden();
 
-  // Their changes, struck and underlined in place, and a line for each person's at the top.
+  // Their changes, struck and underlined in place, and one line at the top saying whose they are.
   const editor = window.getByTestId("mind-editor");
   const bar = window.getByTestId("proposals-bar");
   const counts = bar.getByTestId("their-changes-count");
-  await expect(counts).toHaveText(["2 changes from Priya Nair", "2 changes from Lars Berg"]);
+  await expect(counts).toHaveText("4 changes from Priya Nair and Lars Berg");
   await expect(editor.locator("del.proposal-theirs")).toHaveText([" by cheque", "one month"]);
   await expect(editor.locator("ins.proposal-theirs")).toHaveText([" monthly", "three months"]);
   // Their words are in the User's ink, not the AI's grey.
@@ -246,7 +246,7 @@ test("someone else's tracked changes wait in place with who made them and when: 
   // Accepted by its bar: the words are the Mind's, unmarked; the others wait.
   await pointAndClick(window, changeBar.getByTestId("change-accept"));
   await expect(editor.locator("p", { hasText: "Notice is" })).toHaveText("Notice is three months.");
-  await expect(counts).toHaveText(["2 changes from Priya Nair", "1 change from Lars Berg"]);
+  await expect(counts).toHaveText("3 changes from Priya Nair and Lars Berg");
 
   // Rejected by the keyboard, with the cursor in it: Priya's word goes.
   await pointAndClick(window, editor.locator("ins.proposal-theirs", { hasText: "monthly" }));
@@ -255,12 +255,12 @@ test("someone else's tracked changes wait in place with who made them and when: 
   await expect(editor.locator("p", { hasText: "The Tenant" })).toHaveText(
     "The Tenant pays rent in advance by cheque.",
   );
-  await expect(counts).toHaveText(["1 change from Priya Nair", "1 change from Lars Berg"]);
+  await expect(counts).toHaveText("2 changes from Priya Nair and Lars Berg");
 
   // In Chinese.
   await setLanguage(window, "zh-CN");
-  await expect(counts).toHaveText(["Priya Nair 的 1 处修订", "Lars Berg 的 1 处修订"]);
-  await expect(bar.getByTestId("their-changes-reject-all").first()).toHaveText("全部拒绝");
+  await expect(counts).toHaveText("来自 Priya Nair 和 Lars Berg 的 2 处修订");
+  await expect(bar.getByTestId("their-changes-review")).toHaveText("审阅");
   await motionSettled(window);
   await screenshot(window, "their-changes-zh");
   // A narrow window: each line stays inside the Mind, its buttons whole.
@@ -275,21 +275,31 @@ test("someone else's tracked changes wait in place with who made them and when: 
   await setWindowSize(app, window, 1600, 660);
   await setLanguage(window, "en");
 
-  // All of one person's: Lars's paragraph goes, Priya's change waits.
-  const lars = bar.getByTestId("their-changes-line").filter({ hasText: "Lars Berg" });
-  await expect(lars.getByTestId("their-changes-reject-all")).toHaveAccessibleName(
-    "Reject all changes from Lars Berg",
-  );
-  await pointAndClick(window, lars.getByTestId("their-changes-reject-all"));
+  // All of one person's, from the reviewing pane's ⋯ menu: Lars's paragraph goes, Priya's change waits.
+  await pointAndClick(window, bar.getByTestId("their-changes-review"));
+  const review = window.getByTestId("review-pane");
+  const waiting = review.locator('[data-testid="review-change"][data-state="waiting"]');
+  await expect(waiting).toHaveCount(2);
+  const rejectLars = async () => {
+    await pointAndClick(window, review.getByTestId("review-more"));
+    const reject = window
+      .getByTestId("review-reject-author")
+      .filter({ hasText: "Reject all changes from Lars Berg" });
+    await pointAndClick(window, reject);
+  };
+  await rejectLars();
   await expect(editor).not.toContainText("The Landlord insures the building.");
-  await expect(counts).toHaveText(["1 change from Priya Nair"]);
+  await expect(waiting).toHaveCount(1);
   // Undo brings it back, waiting as it was; rejected again, it goes.
   await expect(window.getByTestId("undo-message")).toHaveText("Rejected 1 change");
   await pointAndClick(window, window.getByTestId("undo-action"));
-  await expect(counts).toHaveText(["1 change from Priya Nair", "1 change from Lars Berg"]);
+  await expect(waiting).toHaveCount(2);
   await expect(editor).toContainText("The Landlord insures the building.");
-  await pointAndClick(window, lars.getByTestId("their-changes-reject-all"));
-  await expect(counts).toHaveText(["1 change from Priya Nair"]);
+  await rejectLars();
+  await expect(waiting).toHaveCount(1);
+  await pointAndClick(window, review.getByTestId("review-close"));
+  await expect(review).toHaveCount(0);
+  await expect(counts).toHaveText("1 change from Priya Nair");
 
   // Export: what was resolved leaves no trace; what waits is in the file as it was.
   await exportFromMenu(window);

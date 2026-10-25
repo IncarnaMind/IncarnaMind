@@ -6,7 +6,7 @@ import { clockTime } from "../../meetingTime";
 import { useMindStatus } from "../../mindStatus";
 import { useAppStore } from "../../store";
 import { tabTitle } from "../../tabs";
-import { DocumentLineIcon, LooseDocumentsLineIcon, MindLineIcon } from "../lineIcons";
+import { DocumentLineIcon, HomeLineIcon, LooseDocumentsLineIcon, MindLineIcon } from "../lineIcons";
 
 /** The tab a piece of UI is in, and its group: a Citation in a Mind opens beside that group. */
 export interface TabPlace {
@@ -33,6 +33,7 @@ export function TabIcon({ item }: { item: TabItem }) {
   );
   if (item.kind === "mind") return <MindIcon mindId={item.mindId} />;
   if (item.kind === "library") return <LooseDocumentsLineIcon />;
+  if (item.kind === "home") return <HomeLineIcon />;
   return <DocumentLineIcon kind={kind ?? "pdf"} />;
 }
 

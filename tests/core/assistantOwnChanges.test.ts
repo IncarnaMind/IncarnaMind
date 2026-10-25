@@ -411,7 +411,7 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     expect(shownWithChanges(client).slice(-2)).toEqual(["+ Risks", "+ The supplier is late."]);
   });
 
-  // protects=a reply that still claims a change no call made is shown flagged; fails_when=it is shown as if the change were made; no_claim=none beyond protects.
+  // protects=a reply that still claims a change no call made is shown flagged, for the line under it (#1559); fails_when=it is shown as if the change were made, or is lost; no_claim=how the line reads.
   test("still claiming it, the reply is flagged", async () => {
     const model = scriptedModel((): ScriptedReply => ({ text: CLAIM }));
     const { core, mind } = await setUp(model);
@@ -827,7 +827,7 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
         requested: "edit",
       });
       expect(lastResult(model)).toContain("applies in the Mind at once");
-      expect(lastResult(model)).toContain("don't describe it");
+      expect(lastResult(model)).toContain("don't repeat the new text");
       expect(shownWithChanges(client).slice(-2)).toEqual([`- ${summary}`, `+ ${longer}`]);
       client.doc.transact(() => resolveProposals(client.blocks, () => true, "accept"));
       await client.settled();
@@ -836,6 +836,54 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
         "The quarter was very good, and sales were really strong.",
         longer,
       ]);
+    },
+  );
+
+  // protects=a summary written anew over the one added from an Answer counts each paragraph once: the old one removed and the new one added are one change of the paragraph, in the Answer's record as in the Mind; fails_when=the count is the Proposals (20 for 10 paragraphs written anew); no_claim=how many of the Proposals wait, which is the number Accept all acts on (#1335).
+  test.each([
+    ["10 paragraphs written anew", 10, 10, 10, 22],
+    ["10 paragraphs written anew as 12", 10, 12, 12, 24],
+    ["one paragraph written anew as 10", 1, 10, 10, 13],
+    ["10 paragraphs written anew as 8", 10, 8, 10, 20],
+  ])(
+    "%s is %i → %i, changed %i, with %i changes to accept",
+    async (_, before, after, changed, waiting) => {
+      const paragraphs = (count: number, say: string) =>
+        Array.from({ length: count }, (_, index) => `${say} ${index + 1}.`);
+      const old = paragraphs(before, "The quarter went to plan, as paragraph");
+      const longer = paragraphs(after, "The quarter went to plan and then some, as paragraph");
+      const model = scriptedModel((call): ScriptedReply => {
+        if (call.results.length > 0) return { text: "Done." };
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Tide notes", content: `## Tide notes\n\n${longer.join("\n\n")}` },
+            },
+          ],
+        };
+      });
+      const { core, mind, client } = await setUp(model);
+      await core.addToNote({
+        mindId: mind.id,
+        blocks: [
+          { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Tide notes" }] },
+          ...old.map((words) => ({ type: "paragraph", content: [{ type: "text", text: words }] })),
+        ],
+        origin: null,
+        model: null,
+      });
+      await client.settled();
+
+      const answer = await askAssistant(core, {
+        text: "Make the summary longer.",
+        mindId: mind.id,
+      });
+
+      await client.settled();
+      const [change] = changesIn(answer);
+      expect(change).toMatchObject({ changed, proposals: waiting });
+      expect(waitingFrom(client, change?.request ?? "")).toBe(waiting);
     },
   );
 

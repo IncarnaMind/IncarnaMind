@@ -106,9 +106,12 @@ export interface LibrarySettings {
    */
   organizeWith: TaggingClassifier | null;
   /**
-   * Organize new and changed Documents by itself, once a classifier is chosen.
-   * Off, automatic tagging still tags them and only the moves into Folders wait
-   * for Organize. On until the User turns it off.
+   * Tag and sort new and changed Documents by itself, once a model is chosen
+   * (#1617). Until the User sets it, it is on for a model on this computer
+   * and off for a cloud model, since each Document's name and an excerpt go
+   * to it. Off, nothing is sent by itself: what the User starts by hand
+   * (Organize, a re-tag) still goes. A Document added while it is off isn't
+   * tagged or sorted when it is turned on.
    */
   automatic: boolean;
   /**
@@ -173,6 +176,11 @@ export interface LibrarySnapshot {
   deletedGroups: LibraryGroup[];
   assignments: DocumentGroupAssignment[];
   settings: LibrarySettings;
+  /**
+   * Automatic tagging and sorting was turned off for a cloud model once (#1617), since it sent
+   * each Document's name and an excerpt: the Library says so once, until the User closes the line.
+   */
+  automaticOffNotice?: boolean;
 }
 
 export interface LibraryGroupInput {

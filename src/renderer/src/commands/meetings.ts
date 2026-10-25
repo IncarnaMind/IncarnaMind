@@ -3,6 +3,7 @@ import { writingTime } from "../../../shared/blockTimes";
 import { markNow, noteOf } from "../editor/meetingNotes";
 import { translateNow } from "../i18n";
 import { currentMindIdOf } from "../layoutSlice";
+import { helpKeysLabel } from "../meetingHelp";
 import { canRecordMeetings, isLive, useMeetings } from "../meetings";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
@@ -117,6 +118,24 @@ export const meetingCommands: readonly Command[] = [
       if (!meeting) return;
       const { pause, resume } = useMeetings.getState();
       return meeting.status === "recording" ? pause(meeting.id) : resume(meeting.id);
+    },
+  },
+  {
+    id: "meeting.microphone",
+    label: (_ctx, t) =>
+      t(liveMeeting()?.microphonePausedAtMs != null ? "meetings.mic.resume" : "meetings.mic.pause"),
+    group: "main",
+    // Pressed again, it undoes itself.
+    reversible: true,
+    when: meetingsOn,
+    enabled: whileLive,
+    globalKeys: () => helpKeysLabel("mic", useAppStore.getState().settings),
+    run() {
+      const meeting = liveMeeting();
+      if (!meeting) return;
+      return useMeetings
+        .getState()
+        .setMicrophonePaused(meeting.id, meeting.microphonePausedAtMs === null);
     },
   },
   {

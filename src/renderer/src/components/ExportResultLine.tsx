@@ -30,6 +30,7 @@ import {
 } from "../outputFiles";
 import { saveFailureReason } from "../problems";
 import { useAppStore } from "../store";
+import { ExportAsks } from "./ExportAsks";
 import { CloseLineIcon, ExportLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { WordExportReview } from "./WordExportReview";
@@ -45,6 +46,7 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.unverified === 0 &&
   result.needsDetails.length === 0 &&
   result.kept.length === 0 &&
+  result.failures.length === 0 &&
   unmarkedChecks(result.checks, t) === null;
 
 /**
@@ -53,7 +55,8 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
  * Open · Show in Finder", with a second line when quotes weren't found ("1 quote not found,
  * marked unverified · Show"), or the problem and its one fix. A plain "Saved" goes by itself
  * after a while, and not back when the Mind is opened again after that; a problem stays until
- * it is dismissed, or the next export replaces it.
+ * it is dismissed, or the next export replaces it. Before a Word or PDF export the User hasn't
+ * answered for, it holds the question instead, and Esc or ✕ leaves nothing exported.
  */
 export function ExportResultLine({ mindId }: { mindId: string }) {
   const t = useT();
@@ -282,6 +285,11 @@ function ResultBody({
                     )}
               </ProblemLine>
             )}
+            {result.failures.map(({ format, reason }) => (
+              <ProblemLine key={format} role="status" testId={`export-failed-${format}`}>
+                {t(`checkRecord.failed.${format}`, { reason: reasonOf(reason, t) })}
+              </ProblemLine>
+            ))}
             {error && <ProblemLine testId="export-problem">{error}</ProblemLine>}
           </>
         ) : result.state === "empty" ? (
@@ -290,6 +298,8 @@ function ResultBody({
           </ProblemLine>
         ) : result.state === "review" ? (
           <WordExportReview result={result} />
+        ) : result.state === "ask" ? (
+          <ExportAsks result={result} />
         ) : (
           <ProblemLine testId="export-problem" action={fix()} className="py-1">
             {t("export.failed.save", {
@@ -374,14 +384,19 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
       data-testid="export-done"
       title={result.path}
       aria-label={
-        name === result.name ? undefined : t("export.doneIn", { name: result.name, folder })
+        name === result.name
+          ? undefined
+          : t(result.withCsv ? "export.record.doneIn" : "export.doneIn", {
+              name: result.name,
+              folder,
+            })
       }
       className={`flex min-w-0 items-start gap-2 text-[14px] leading-5 text-ink-secondary ${
         withFile.length > 0 ? "grow basis-75" : ""
       }`}
     >
       <CheckIcon />
-      <SavedName name={name} folder={folder} withFile={withFile} />
+      <SavedName name={name} withCsv={result.withCsv} folder={folder} withFile={withFile} />
     </p>
   );
 }
@@ -394,15 +409,17 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
  */
 function SavedName({
   name,
+  withCsv,
   folder,
   withFile,
 }: {
   name: string;
+  withCsv: boolean;
   folder: string;
   withFile: SavedWithFile;
 }) {
   const t = useT();
-  const said = t("export.doneIn", { name: "\u0000", folder });
+  const said = t(withCsv ? "export.record.doneIn" : "export.doneIn", { name: "\u0000", folder });
   const [before = "", after = ""] = said.split("\u0000");
   const saved = (
     <span data-testid="export-saved" className="min-w-0 break-words">

@@ -29,11 +29,11 @@ export const useCardWidth = create<{ width: number | null }>()(() => ({ width: n
  */
 export const groupsMerged = () => groupsMergedAt(window.innerWidth, useCardWidth.getState().width);
 
-/** A line about the tabs, shown for a moment where the sidebar ends. */
+/** A line about the tabs, shown in the sidebar foot's one slot. */
 export type TabNotice =
   | { kind: "closed"; item: TabItem; count: number }
   | { kind: "maxGroups" }
-  | { kind: "noGroup"; group: number }
+  | { kind: "noGroup"; group: number; shortcut: string }
   | { kind: "pinned"; item: TabItem }
   | { kind: "merged" }
   /** A side dock chosen in a narrow window: it stays at the bottom until the window is wider. */
@@ -42,7 +42,6 @@ export type TabNotice =
 export interface LayoutSlice {
   /** Null until loaded. */
   layout: WindowLayout | null;
-  tabNotice: TabNotice | null;
   /** The tab whose name is being typed in it, if any. */
   renamingTabId: string | null;
   /** Reads the window's layout from the core, as it was left. */
@@ -54,7 +53,6 @@ export interface LayoutSlice {
    * through the core (and put back as the core has it if it refuses).
    */
   placeAssistant(place: Partial<AssistantPlace>): Promise<void>;
-  showTabNotice(notice: TabNotice | null): void;
   /** Starts typing a tab's name in it, or stops (null). */
   renameTab(tabId: string | null): void;
 }
@@ -72,14 +70,17 @@ export function createLayoutSlice(
 ): LayoutSlice {
   return {
     layout: null,
-    tabNotice: null,
     renamingTabId: null,
     async loadLayout() {
       set({ layout: await core.getLayout(WINDOW_ID) });
     },
     async changeLayout(change) {
+      const asked = placings;
       try {
-        const layout = await core.changeLayout(WINDOW_ID, change);
+        const answered = await core.changeLayout(WINDOW_ID, change);
+        // The answer's assistant is older than a placing made since, which is shown already.
+        const shown = get().layout?.assistant;
+        const layout = placings === asked || !shown ? answered : { ...answered, assistant: shown };
         set({ layout });
         return layout;
       } catch (error) {
@@ -101,9 +102,6 @@ export function createLayoutSlice(
         if (placing === placings) await get().loadLayout().catch(report);
       }
     },
-    showTabNotice(notice) {
-      set({ tabNotice: notice });
-    },
     renameTab(tabId) {
       set({ renamingTabId: tabId });
     },
@@ -111,9 +109,16 @@ export function createLayoutSlice(
 }
 
 /** Follows the core's word on this window's layout, e.g. when a deleted Mind's tab closes. */
-export function followLayout(set: Set): void {
-  core.on("layout.changed", ({ windowId, layout }) => {
-    if (windowId === WINDOW_ID) set({ layout });
+export function followLayout(set: Set, report: (error: unknown) => void): void {
+  core.on("layout.changed", ({ windowId }) => {
+    if (windowId !== WINDOW_ID) return;
+    // The event can reach the window after the answers to placings already shown, so the layout
+    // is read afresh. It is applied only if no placing of the assistant started after the event:
+    // that placing is shown already, and its own answer brings the core's word.
+    const asked = placings;
+    core.getLayout(WINDOW_ID).then((layout) => {
+      if (placings === asked) set({ layout });
+    }, report);
   });
 }
 
@@ -146,6 +151,12 @@ export function currentMindIdOf(layout: WindowLayout | null): string | null {
   return mind?.kind === "mind" ? mind.mindId : null;
 }
 
+function tabsOnScreenOf(layout: WindowLayout, merged: boolean): (LayoutTab | null)[] {
+  const focused = focusedGroupOf(layout);
+  const shown = [focused, ...visibleGroupsOf(layout, merged).filter((group) => group !== focused)];
+  return shown.map((group) => activeTabOf(group));
+}
+
 /**
  * The Mind tab the assistant reads and asks in: the focused group's shown
  * tab when it is a Mind, else the first group on screen that shows a Mind
@@ -153,9 +164,15 @@ export function currentMindIdOf(layout: WindowLayout | null): string | null {
  */
 export function assistantTabOf(layout: WindowLayout | null, merged: boolean): LayoutTab | null {
   if (!layout) return null;
-  const focused = focusedGroupOf(layout);
-  const shown = [focused, ...visibleGroupsOf(layout, merged).filter((group) => group !== focused)];
-  return shown.map((group) => activeTabOf(group)).find((tab) => tab?.item.kind === "mind") ?? null;
+  return tabsOnScreenOf(layout, merged).find((tab) => tab?.item.kind === "mind") ?? null;
+}
+
+/** The Documents shown on screen, by id, the focused group's first: what "this document" means (#1334). */
+export function documentsOnScreenOf(layout: WindowLayout | null, merged: boolean): string[] {
+  if (!layout) return [];
+  return tabsOnScreenOf(layout, merged).flatMap((tab) =>
+    tab?.item.kind === "document" ? [tab.item.documentId] : [],
+  );
 }
 
 export function frontTabOfMind(

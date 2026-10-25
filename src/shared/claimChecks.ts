@@ -18,8 +18,10 @@ import {
   claimCheckActions,
   type EvidenceExclusion,
   type LeftOutDocument,
+  type SearchScope,
   type UnsupportedReason,
 } from "../core/api";
+import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
 import { comparableSentence } from "./sentences";
 
 /** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
@@ -38,9 +40,11 @@ const FAILURES: readonly ClaimCheckFailure[] = [
   "malformed",
   "empty",
   "no-evidence",
+  "unread",
   "rate-limit",
   "cost-cap",
   "plan-limit",
+  "out-of-credit",
   "failed",
   "stopped",
   "too-many",
@@ -97,12 +101,24 @@ function unsupportedOf(value: unknown): UnsupportedReason | null {
     reason: text(value.reason),
     covered: text(value.covered),
     uncovered: text(value.uncovered),
+    ...(isRecord(value.quoted) && { quoted: value.quoted as unknown as CitationAttributes }),
   };
 }
 
 function scopeOf(value: unknown): ClaimCheckScope {
   if (!isRecord(value)) return { folderId: null, widened: false };
-  return { folderId: text(value.folderId), widened: value.widened === true };
+  const chosen = storedSearchScope(value.chosen);
+  return {
+    folderId: text(value.folderId),
+    widened: value.widened === true,
+    ...(chosen && hasSearchScope(chosen) && { chosen }),
+  };
+}
+
+/** Where a check looked: the Mind's chosen scope, else its Folder; null for every Document. */
+export function checkedScope(scope: ClaimCheckScope): SearchScope | null {
+  if (scope.chosen) return scope.chosen;
+  return !scope.widened && scope.folderId !== null ? folderScope(scope.folderId) : null;
 }
 
 /** A check's attributes as a mark holds them, or null when they aren't one's. Unknown values read safely. */
@@ -140,10 +156,15 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
 /**
  * Why a check no longer holds: its sentence was edited (an accepted change
  * or a restored Checkpoint edits it too), a Document it read has a new
- * version, one its result rests on was deleted, or the Mind moved to another
- * Folder.
+ * version, one its result rests on was deleted, the Mind moved to another
+ * Folder ("scope"), or the Search scope the User set for the Mind changed.
  */
-export type RecheckReason = "edited" | "new-version" | "document-removed" | "scope";
+export type RecheckReason =
+  | "edited"
+  | "new-version"
+  | "document-removed"
+  | "scope"
+  | "search-scope";
 
 /** A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows nothing. */
 export type ClaimCheckShown =
@@ -161,18 +182,47 @@ export interface ClaimCheckNow {
   versions: ReadonlyMap<string, string> | null;
   /** The Mind's Folder now; null for none. */
   folderId: string | null;
+  /** The Search scope the User set for the Mind now (`mindScopeOf`); null for none. */
+  scope: SearchScope | null;
 }
 
-/** What a check's result rests on: its evidence, and the quotes a worked-out figure read its numbers from. */
+function scopeChanged(searched: ClaimCheckScope, now: ClaimCheckNow): boolean {
+  const chosen = now.scope && !sameScope(now.scope, folderScope(now.folderId)) ? now.scope : null;
+  if (searched.chosen) return !chosen || !sameScope(chosen, searched.chosen);
+  return chosen !== null && (hasSearchScope(chosen) || searched.folderId !== null);
+}
+
+/**
+ * The part of an unsupported sentence a Passage the check quoted states, that
+ * quote, and the part it doesn't; null unless the check quoted one.
+ */
+export function coveredPart(
+  why: UnsupportedReason | null,
+): { covered: string; uncovered: string; quoted: CitationAttributes; quote: string } | null {
+  return why?.covered && why.uncovered && why.quoted?.quote
+    ? {
+        covered: why.covered,
+        uncovered: why.uncovered,
+        quoted: why.quoted,
+        quote: why.quoted.quote,
+      }
+    : null;
+}
+
+/**
+ * What a check's result rests on: its evidence, the Passage quoted for the part of an
+ * unsupported sentence it covers, and the quotes a worked-out figure read its numbers from.
+ */
 export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Citation)[] {
   const inputs = check.calculation?.figure.inputs ?? [];
   return [
     check.evidence,
+    check.unsupported?.quoted ?? null,
     ...inputs.flatMap((input) => [input.citation, input.unitStatement?.citation ?? null]),
   ].filter((each): each is CitationAttributes | Citation => each !== null);
 }
 
-/** How a check shows, given the sentence, the Documents and the Mind's Folder as they are now. */
+/** How a check shows, given the sentence, the Documents and the Mind's Folder and scope as they are now. */
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (check.state === "checking") return { state: "checking" };
   if (comparableSentence(now.text) !== comparableSentence(check.text)) {
@@ -192,8 +242,16 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
       }
     }
   }
-  if (!check.scope.widened && check.scope.folderId !== now.folderId) {
+  if (!check.scope.widened && !check.scope.chosen && check.scope.folderId !== now.folderId) {
     return { state: "needs-recheck", why: "scope" };
+  }
+  // Contradiction watch looks in the Mind's Folder whatever the Mind's own scope is.
+  if (
+    !check.scope.widened &&
+    check.action !== "contradiction-watch" &&
+    scopeChanged(check.scope, now)
+  ) {
+    return { state: "needs-recheck", why: "search-scope" };
   }
   if (check.state === "not-checked")
     return { state: "not-checked", reason: check.reason ?? "failed" };

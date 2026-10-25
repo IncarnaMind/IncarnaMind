@@ -26,7 +26,7 @@ export function tablesOf(doc: ProseMirrorNode): NodeJSON[] {
 }
 
 /**
- * A slot after each top-level table of the Answer's editor, drawn there only: it is not in the
+ * A slot before each top-level table of the Answer's editor, drawn there only: it is not in the
  * document, so it is never copied or added to a note.
  */
 export const AnswerTableSlots = Extension.create({
@@ -42,7 +42,7 @@ export const AnswerTableSlots = Extension.create({
               if (node.type.name !== "table") return;
               const index = slots.length;
               slots.push(
-                Decoration.widget(offset + node.nodeSize, () => slotFor(index), {
+                Decoration.widget(offset, () => slotFor(index), {
                   // The same slot as the Answer grows, so the button in it stays where it is.
                   key: `table-slot:${index}`,
                   stopEvent: () => true,

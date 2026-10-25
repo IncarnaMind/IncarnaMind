@@ -60,7 +60,11 @@ function focusRow(from: HTMLElement | null): void {
  */
 export function useObjectMenu(target: ObjectRef) {
   const key = keyOf(target);
-  const open = (row: HTMLElement, buttons: number, at: { x: number; y: number }): boolean => {
+  const open = (
+    row: HTMLElement,
+    buttons: number,
+    at: { x: number; y: number; above?: number },
+  ): boolean => {
     const button = row.querySelector<HTMLButtonElement>(`[data-object-menu="${CSS.escape(key)}"]`);
     if (!button) return false;
     openMenuFromRightClick(button, buttons, at);
@@ -86,7 +90,7 @@ export function useObjectMenu(target: ObjectRef) {
         const field = event.target;
         if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return;
         const box = event.currentTarget.getBoundingClientRect();
-        if (open(event.currentTarget, 0, { x: box.left + 24, y: box.bottom })) {
+        if (open(event.currentTarget, 0, { x: box.left + 24, y: box.bottom, above: box.top })) {
           event.preventDefault();
           event.stopPropagation();
         }

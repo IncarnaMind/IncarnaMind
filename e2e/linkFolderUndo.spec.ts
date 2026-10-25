@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import {
-  addDocuments,
   confirmLink,
   coreOf,
   createDataFolder,
@@ -110,7 +109,13 @@ test("Undo of a link keeps a Document added on its own, also after Redo links it
   await leaveText(window);
   await window.keyboard.press("ControlOrMeta+z");
   await expect(linkedFolderRow(window, "Deals")).toHaveCount(0);
-  await addDocuments(window, [join(folder, "Teaser.md")]);
+  // Added another way (by the core), not by the sidebar's picker, whose step would end what ⇧⌘Z can redo.
+  const teaserPath = join(folder, "Teaser.md");
+  await (await coreOf(window)).evaluate(
+    async (core, path) => core.addDocuments([path]),
+    teaserPath,
+  );
+  await expect.poll(async () => (await library(window)).documents).toHaveLength(1);
   const teaser = (await library(window)).documents[0];
 
   await leaveText(window);

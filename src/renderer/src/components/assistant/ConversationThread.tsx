@@ -1,5 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ConversationAnswer, ConversationQuestion, Task } from "../../../../core/api";
+import { useEffect, useRef, useState } from "react";
+import type {
+  AskedQuote,
+  ConversationAnswer,
+  ConversationQuestion,
+  Task,
+} from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { mindSearchScope } from "../../../../shared/searchScope";
 import { type AddTarget, addAnswer, openTable } from "../../addToNote";
@@ -14,6 +19,7 @@ import {
   useOpenConversation,
 } from "../../conversations";
 import { askedAgainCounts } from "../../coverage";
+import { AskedQuoteLines } from "../../editor/AskedQuotes";
 import { useT } from "../../i18n";
 import { isLive, useMeetings } from "../../meetings";
 import { useModelSetup } from "../../modelSetup";
@@ -25,21 +31,22 @@ import { useAppStore } from "../../store";
 import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
+import { useTipRoom } from "../../tips";
 import { SearchIcon } from "../icons";
 import { PlanLineIcon, SearchLineIcon, SparkLineIcon } from "../lineIcons";
 import { AddToMindPicker } from "./AddToMindPicker";
-import { WritingLine } from "./AnswerActions";
+import { TipRoom, WritingLine } from "./AnswerActions";
 import { LiveLine } from "./AnswerSteps";
 import { type AnswerKeeping, AssistantAnswer } from "./AssistantAnswer";
 import { MeetingStarters } from "./MeetingStarters";
+import { useReadMindEmpty } from "./readMind";
 import { TaskProgress, type TaskProgressActions } from "./TaskProgress";
+import { useThreadScroll } from "./useThreadScroll";
 
 const TASK_ACTIONS: TaskProgressActions = { plan: togglePlanView, tell: aimAt };
 
 /** How long an Answer a link back led to stays flashed. */
 const SOUGHT_MS = 1600;
-/** How near the foot counts as being at it, so the thread keeps up with an Answer being written. */
-const AT_FOOT_PX = 24;
 
 /**
  * The conversation the assistant shows (#201): the Questions as bubbles at the
@@ -60,6 +67,7 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
   const waitingQuestion = useModelSetup((state) => state.waiting);
   const modelWorks = useModelSetup((state) => state.ready);
   const askingQuote = useConversations((state) => state.askingQuote);
+  const askingQuotes = useConversations((state) => state.askingQuotes);
   const onItsWay = useAnswerOnItsWay();
   const stopWanted = useConversations((state) => state.stopWanted);
   const sought = useConversations((state) => state.sought);
@@ -74,6 +82,7 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
   const focusedMindName = focusedMindId
     ? (focusedMind && mindName(focusedMind)) || t("mind.untitled")
     : null;
+  const mindEmpty = useReadMindEmpty(focusedMindId);
   const nextScope = useNextScope(focusedMindId);
   // While the Mind's meeting records, the assistant listens to its live transcript (#144).
   const listening = useMeetings((state) =>
@@ -89,29 +98,16 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
     blocks: ReturnType<typeof notesToAdd>;
   } | null>(null);
   const log = useRef<HTMLDivElement>(null);
-  const atFoot = useRef(true);
-
-  // At the foot, it stays there as Answers grow; a scroll up by the User stops that.
-  useEffect(() => {
-    const scroller = log.current?.parentElement;
-    if (!scroller) return;
-    const onScroll = () => {
-      atFoot.current =
-        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= AT_FOOT_PX;
-    };
-    scroller.addEventListener("scroll", onScroll);
-    return () => scroller.removeEventListener("scroll", onScroll);
-  }, []);
   // A Research topic asked, or a Task started, grows it too; a Task's every step doesn't move it.
   const started = tasks.length;
   const askedAt = plan?.askedAt;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each change to the messages may grow the thread.
-  useLayoutEffect(() => {
-    const scroller = log.current?.parentElement;
-    if (scroller && (atFoot.current || asking) && !sought) {
-      scroller.scrollTop = scroller.scrollHeight;
-    }
-  }, [messages, asking, sought, started, askedAt]);
+  const tipRoomOpen = useTipRoom("add-answer", null);
+  useThreadScroll(log, {
+    asking: asking !== null,
+    holdOff: sought !== null,
+    conversationId: conversation?.id ?? null,
+    changed: [messages, started, askedAt],
+  });
 
   // A link back led here: that Answer comes into view, flashed, once it shows (its conversation's
   // messages may come a moment after it is opened).
@@ -135,11 +131,15 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
     void addAnswer({ answer, conversation, blocks }, target, focusedMindId === null);
   const keeping: AnswerKeeping = {
     focusedMindName,
+    mindEmpty,
     add(answer) {
       if (focusedMindId) add(answer, { kind: "mind", mindId: focusedMindId });
     },
     pick(answer, anchor) {
       setPicking({ answer, anchor, blocks: notesToAdd(answer) });
+    },
+    newMind(answer) {
+      add(answer, { kind: "new" });
     },
     openTable(answer, table) {
       void openTable({ answer, conversation, blocks: [table] });
@@ -201,10 +201,16 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
           />
         );
       })}
-      {asking !== null && <QuestionBubble text={asking} quote={askingQuote} />}
+      {asking !== null && (
+        <QuestionBubble text={asking} quote={askingQuote} quotes={askingQuotes} />
+      )}
       {waitingQuestion && (
         <>
-          <QuestionBubble text={waitingQuestion.text} quote="" />
+          <QuestionBubble
+            text={waitingQuestion.text}
+            quote=""
+            quotes={waitingQuestion.quotes ?? []}
+          />
           {!modelWorks && (
             <p data-testid="assistant-waiting-model" className="assistant-empty">
               {t("setup.waiting")}
@@ -260,6 +266,7 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
               ) : undefined
             }
           />
+          {focusedMindId !== null && tipRoomOpen && <TipRoom />}
         </div>
       )}
       {picking && (
@@ -294,11 +301,13 @@ function QuestionBubble({
   question,
   text,
   quote,
+  quotes = [],
   research = false,
 }: {
   question?: ConversationQuestion;
   text?: string;
   quote?: string;
+  quotes?: readonly AskedQuote[];
   research?: boolean;
 }) {
   const t = useT();
@@ -321,6 +330,7 @@ function QuestionBubble({
             <span className="sr-only">{t("assistant.question.quote")}</span>“{about.trim()}”
           </span>
         )}
+        <AskedQuoteLines quotes={question?.quotes ?? quotes} />
         {skill && (
           <span data-testid="assistant-question-skill" className="assistant-question-skill">
             <SparkLineIcon aria-hidden="true" className="size-3" />

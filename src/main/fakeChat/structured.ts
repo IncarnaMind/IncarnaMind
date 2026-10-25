@@ -35,24 +35,27 @@ const organizeInput = (options: GenerateOptions): string => {
     : "";
 };
 
-/** Tagging, or Organize, takes a moment for a Document whose text says "slowly". */
-export const tagsSlowly = (options: GenerateOptions): boolean => {
+const organizes = (options: GenerateOptions): boolean => {
   const format = options.responseFormat;
-  const schema = format?.type === "json" ? format.schema : undefined;
-  if (schema?.properties?.groupId) return SLOWLY.test(organizeInput(options));
-  return SLOWLY.test(taggingExcerpt(options) ?? "");
+  return format?.type === "json" && !!format.schema?.properties?.groupId;
 };
+
+/** Tagging, or Organize, takes a moment for a Document whose text says "slowly". */
+export const tagsSlowly = (options: GenerateOptions): boolean =>
+  SLOWLY.test(organizes(options) ? organizeInput(options) : (taggingExcerpt(options) ?? ""));
 
 /** How many times each Document has found the model unreachable. */
 const unreached = new Map<string, number>();
 
 /**
  * A Document whose text says "unreachable" finds the model unreachable the first time it is
- * tagged, and again on the quick retry that follows, as offline.
+ * tagged or organized, and again on the quick retry that follows, as offline; one that says "stays
+ * unreachable" every time.
  */
 export function tagsUnreachable(options: GenerateOptions): boolean {
-  const excerpt = taggingExcerpt(options);
+  const excerpt = taggingExcerpt(options) ?? (organizes(options) ? organizeInput(options) : null);
   if (!excerpt || !/\bunreachable\b/i.test(excerpt)) return false;
+  if (/\bstays unreachable\b/i.test(excerpt)) return true;
   const times = unreached.get(excerpt) ?? 0;
   if (times >= 2) return false;
   unreached.set(excerpt, times + 1);

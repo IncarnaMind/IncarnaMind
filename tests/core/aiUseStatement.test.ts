@@ -571,6 +571,10 @@ describe("The AI use statement", () => {
       );
     expect(counts(chinese.parts)).toEqual(counts(english.parts));
     expect(chinese.title).toBe("AI 使用声明：Thesis");
+    expect(paragraphsOf(english.parts)).toContain(
+      "Sentences the author had checked against the Documents, with Find support or Check against Documents, by result:",
+    );
+    expect(paragraphsOf(chinese.parts)).toContain("以下是“查找出处”或“对照文档核对”的结果：");
   });
 
   test("refuses a Mind that isn't there", async () => {

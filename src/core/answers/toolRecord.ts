@@ -6,7 +6,7 @@
  * and a reply that claims a change no call made is asked again with it
  * (./claimedChanges). In English, as the rest of the instructions are.
  */
-import type { AnswerToolCall, MindChange, MindProblem } from "../api";
+import type { AnswerToolCall, CommandDone, MindChange, MindProblem } from "../api";
 import { COMMAND_TOOLS } from "../tools";
 
 /** A Mind's name now, by its id; null for one deleted or unknown. */
@@ -21,6 +21,8 @@ export interface ChangeState {
   accepted: number;
   rejected: number;
   gone?: boolean;
+  /** Read in its own turn: it applies in the Mind at once, as the window takes it in (#1559). */
+  applied?: boolean;
 }
 
 /** What became of a call's change, if known: read from its Mind as it is now. */
@@ -133,6 +135,7 @@ function decisions(total: number, accepted: number, rejected: number): string {
 function fateOf(proposals: number, state: ChangeState | null): string {
   if (!state) return "waiting for the User";
   if (state.gone) return GONE;
+  if (state.applied) return "applied in the Mind at once, with Undo";
   const { waiting, accepted, rejected } = state;
   if (waiting >= proposals) return "waiting for the User";
   const did =
@@ -247,8 +250,32 @@ function commandLine(call: AnswerToolCall): string {
     )
     .join(", ");
   const into = done.into ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
-  const file = done.file ? `, saved as ${quoted(done.file.name)} in ${done.file.folder}` : "";
+  const where = done.inOutputLocation === false ? "" : "the Output location, ";
+  const file = done.file
+    ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(call, done)}`
+    : "";
   return `run_command ${done.command}: ${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}`;
+}
+
+/** What a Word export did about marking the text IncarnaMind wrote, and why, as its result said. */
+function markingOf(call: AnswerToolCall, done: CommandDone): string {
+  const { marking } = done;
+  if (!marking) return "";
+  const leaves =
+    marking.choice === "mark"
+      ? "the text IncarnaMind wrote is marked with comments"
+      : "the text IncarnaMind wrote is left unmarked";
+  const chose = call.asked?.answer?.skipped === false ? call.asked.answer.chosen.map(quoted) : [];
+  switch (marking.how) {
+    case "kept":
+      return chose.length > 0
+        ? `; ${leaves}: the User was asked in the tray and answered ${chose.join(" and ")}, a choice now saved for every Word export`
+        : `; ${leaves}: the User's request named it, a choice now saved for every Word export`;
+    case "this-file":
+      return `; ${leaves}, as the User's request named it for this file, their saved choice unchanged`;
+    case "earlier":
+      return `; ${leaves}, following the choice the User saved earlier for Word exports`;
+  }
 }
 
 export function toolRecordLines(

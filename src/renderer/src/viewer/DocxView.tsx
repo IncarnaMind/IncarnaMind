@@ -18,10 +18,24 @@ import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import "./officeFonts.css";
 import { CitationMark, quoteMarkOf, quoteTone } from "./quoteMark";
+import { domSelection, useSelectionReader } from "./selectedText";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import { confirmDrawn, type DrawnTarget, drawnTargetOf } from "./wordPlaces";
+
+// A footnote's number, set as a superscript in the text, isn't in the text a quote is checked against.
+function withoutFootnoteNumbers<T>(body: HTMLElement, read: () => T): T {
+  const numbers = [...body.querySelectorAll<HTMLElement>("sup")].filter((sup) =>
+    /^\s*\d{1,3}\s*$/.test(sup.textContent ?? ""),
+  );
+  for (const sup of numbers) sup.dataset.quoteSkip = "";
+  try {
+    return read();
+  } finally {
+    for (const sup of numbers) delete sup.dataset.quoteSkip;
+  }
+}
 
 /** docx-preview's class prefix: a paragraph in style "Heading2" is `p.docx_heading2`. */
 const CLASS_NAME = "docx";
@@ -108,6 +122,16 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
   const content = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const styles = useRef<HTMLDivElement>(null);
+  // A comment's note in the margin is read alone; its text isn't the page's.
+  useSelectionReader(
+    useCallback((range) => {
+      const body = host.current;
+      if (!body) return { parts: [] };
+      const at = range.commonAncestorContainer;
+      const note = (at instanceof Element ? at : at.parentElement)?.closest(".docx-note");
+      return withoutFootnoteNumbers(body, () => domSelection(range, note ?? body));
+    }, []),
+  );
   const [rendered, setRendered] = useState<"no" | "yes" | "failed">("no");
   const [failure, setFailure] = useState("");
   const [zoom, setZoom] = useState(1);
@@ -288,16 +312,7 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
         markQuote(textNodes(body), quote) ??
         inNotes(comments.current);
       found = find();
-      if (!found) {
-        // A footnote's number in the text isn't in the text a quote is checked
-        // against: read on across numbers set as superscripts, and try again.
-        const numbers = [...body.querySelectorAll<HTMLElement>("sup")].filter((sup) =>
-          /^\s*\d{1,3}\s*$/.test(sup.textContent ?? ""),
-        );
-        for (const sup of numbers) sup.dataset.quoteSkip = "";
-        found = find();
-        for (const sup of numbers) delete sup.dataset.quoteSkip;
-      }
+      if (!found) found = withoutFootnoteNumbers(body, find);
     }
     setMarks(found ?? []);
     if (section?.heading) setCurrent(headingElements().indexOf(section.heading));

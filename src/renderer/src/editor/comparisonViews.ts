@@ -67,10 +67,10 @@ export const comparisonRowView: NodeViewRenderer = ({ node: first }) => {
 
 /**
  * A comparison table's cell: its Answer, Citations and all, never typed in;
- * "Waiting…" while it waits or is being written, its Task going or paused
- * (#126); once its fill has ended without
- * it, "stopped"; or, with no Answer, a "!" and why ("not found", "not
- * checked: cost cap"…), the provider's own words in its tooltip.
+ * "Waiting…" until its turn, "Reading…" once it is being written, then its
+ * words as they arrive, its Task going or paused (#126); once its fill has
+ * ended without it, "stopped"; or, with no Answer, a "!" and why ("not
+ * found", "not checked: cost cap"…), the provider's own words in its tooltip.
  */
 export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
   let node: ProseMirrorNode = first;
@@ -83,6 +83,8 @@ export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
   contentDOM.contentEditable = "false";
   const running = document.createElement("span");
   running.className = "comparison-cell-running";
+  const reading = document.createElement("span");
+  reading.className = "comparison-cell-reading";
   const stopped = document.createElement("span");
   stopped.className = "comparison-cell-stopped";
   const problem = document.createElement("span");
@@ -94,12 +96,20 @@ export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
   mark.textContent = "!";
   const reason = document.createElement("span");
   problem.append(mark, reason);
-  for (const each of [running, stopped, problem]) each.contentEditable = "false";
-  dom.append(contentDOM, running, stopped, problem);
+  for (const each of [running, reading, stopped, problem]) each.contentEditable = "false";
+  dom.append(contentDOM, running, reading, stopped, problem);
 
   const draw = () => {
     const cell = comparisonCellOf(node.attrs);
     dom.dataset.status = cell.status;
+    if (cell.status === "writing") {
+      dom.setAttribute("aria-busy", "true");
+      if (node.textContent.trim() !== "") dom.dataset.streaming = "true";
+      else delete dom.dataset.streaming;
+    } else {
+      dom.removeAttribute("aria-busy");
+      delete dom.dataset.streaming;
+    }
     if (cell.problem) dom.dataset.problem = cell.problem;
     else delete dom.dataset.problem;
     running.setAttribute(
@@ -109,9 +119,10 @@ export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
       ),
     );
     running.textContent = translateNow("comparison.cell.waitingText");
+    reading.textContent = translateNow("comparison.cell.readingText");
     stopped.textContent = translateNow("comparison.cell.stopped");
     if (cell.problem) {
-      const { key, params } = cellProblemMessage(cell.problem);
+      const { key, params } = cellProblemMessage(cell.problem, cell.message);
       reason.textContent = translateNow(key, params);
     } else reason.textContent = "";
     problem.title = cell.message ?? "";

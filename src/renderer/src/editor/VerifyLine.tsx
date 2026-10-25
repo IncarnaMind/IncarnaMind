@@ -17,10 +17,14 @@ import {
 } from "../components/providers/ChatReadinessNotice";
 import { UnreadFilesLine } from "../components/UnreadFilesLine";
 import { buttonStyle } from "../components/ui";
+import { useComposer } from "../composer";
 import { core } from "../core";
 import { type EstimateLine, estimateLine, runStopParts } from "../cost";
+import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
+import { useModelInUse } from "../modelInUse";
 import { enter } from "../motion";
+import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import {
@@ -33,7 +37,7 @@ import {
 import { AnswerError } from "./AnswerView";
 import { coverageOf, type ShownClaim, sameCoverage, shownClaims } from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
-import { useMindModel, useRunModel } from "./ModelChip";
+import { useRunModel } from "./ModelChip";
 import { Counted } from "./NoteHealth";
 import { ReferencesLine } from "./ReferencesLine";
 import { UncoveredLine } from "./UncoveredLine";
@@ -105,7 +109,7 @@ export function useVerifyState(
 ) {
   const t = useT();
   const language = useLanguage();
-  const model = useMindModel(doc);
+  const model = useModelInUse(doc);
   const running = useVerify((state) =>
     state.running?.mindId === mindId ? state.running.phase : null,
   );
@@ -197,6 +201,9 @@ export function VerifyCard({
   );
   const unread = useCheckUnread(editor, doc);
   const { running, outcome, marks, claims, total, estimate } = state;
+  const emptyScope = useEmptyScopeLine(
+    outcome?.kind === "no-documents" ? (outcome.chosen ?? null) : null,
+  );
 
   // The counts fade in once, as the run that made them finishes.
   const doneRef = useRef<HTMLDivElement>(null);
@@ -237,6 +244,35 @@ export function VerifyCard({
           total: format(marks.marked),
         })}
       </p>
+    );
+  } else if (outcome?.kind === "no-documents" && emptyScope !== null) {
+    body = (
+      <div className="check-card-ask">
+        <p data-testid="verify-empty">{emptyScope}</p>
+        <div className="check-card-ask-actions">
+          {claims !== null && total > 0 && (
+            <button
+              type="button"
+              data-testid="verify-check-all"
+              className={buttonStyle("secondary", "sm")}
+              onClick={() => void checkClaims(mindId, doc, true)}
+            >
+              {t("checks.checkAll")}
+            </button>
+          )}
+          <button
+            type="button"
+            data-testid="verify-change-scope"
+            className={buttonStyle("secondary", "sm")}
+            onClick={() => {
+              dismissVerifyOutcome(mindId);
+              useComposer.getState().requestScope();
+            }}
+          >
+            {t("checks.changeScope")}
+          </button>
+        </div>
+      </div>
     );
   } else if (outcome?.kind === "no-documents") {
     body = (
@@ -423,7 +459,7 @@ export function VerifyCard({
               void (claims === null ? findClaims(mindId, doc) : checkClaims(mindId, doc)),
           }}
         >
-          {t("verify.problem.error", { message: outcome.message })}
+          {t("verify.problem.error", { message: errorMessage(outcome.error, t) })}
         </ProblemLine>
       )}
       {running === null && <ReferencesLine editor={editor} mindId={mindId} />}

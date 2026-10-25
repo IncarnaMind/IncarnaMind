@@ -22,6 +22,7 @@ import { translate } from "../../shared/i18n";
 import { formatLocation } from "../../shared/locations";
 import { mindName } from "../../shared/naming";
 import { focusComposer } from "./commands/assistant";
+import { placeAt } from "./commands/edit";
 import { placeHere } from "./commands/here";
 import { menuKeysLabel, objectAt, surfaceOf } from "./commands/keymap";
 import {
@@ -71,7 +72,12 @@ function acting(
   const targets = on.selection.length > 0 ? on.selection : on.focus ? [on.focus] : [];
   const moveTo = () => moveFromPalette(targets);
   const here = target && placeHere(target, active);
-  return { ...NOTHING, ...on, here: { "mind.moveTo": moveTo, "document.moveTo": moveTo, ...here } };
+  return {
+    ...NOTHING,
+    ...on,
+    place: placeAt(active),
+    here: { "mind.moveTo": moveTo, "document.moveTo": moveTo, ...here },
+  };
 }
 
 /**

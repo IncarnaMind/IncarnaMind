@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { EmbeddingModelSource } from "../adapters";
 import type { EmbeddingModelError, EmbeddingModelStatus } from "../api";
 import { downloadModel, isModelDownloaded, ModelDownloadError } from "./download";
+import type { ModelSources } from "./modelSources";
 
 /** Progress events are at most this often, apart from state changes. */
 const PROGRESS_INTERVAL_MS = 250;
@@ -43,6 +44,8 @@ export interface DownloadableModelOptions<Files> {
   /** What the runner loads, from the model's folder (an absolute path). */
   runnerFiles(directory: string): Files;
   source: EmbeddingModelSource;
+  /** Where else its files may come from (#1578). */
+  sources?: ModelSources;
   dataDir: string;
   /** Loads the downloaded files into the runner; rejects if the model can't start. */
   loadRunner(files: Files): Promise<void>;
@@ -89,6 +92,7 @@ export function createDownloadableModel<Files>(
     void downloadModel({
       directory,
       source,
+      ...(options.sources && { sources: options.sources }),
       signal: lifetime.signal,
       onProgress(downloadedBytes) {
         status = { ...status, downloadedBytes };
@@ -113,8 +117,13 @@ export function createDownloadableModel<Files>(
       (error: unknown) => {
         downloading = false;
         if (lifetime.signal.aborted) return;
-        if (error instanceof ModelDownloadError) fail({ kind: error.kind, message: error.message });
-        else
+        if (error instanceof ModelDownloadError) {
+          fail({
+            kind: error.kind,
+            message: error.message,
+            ...(error.sources && { sources: error.sources }),
+          });
+        } else
           fail({
             kind: "storage",
             message: error instanceof Error ? error.message : String(error),

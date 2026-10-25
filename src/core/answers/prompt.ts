@@ -1,12 +1,10 @@
 /** The instructions every Answer is written with. Kept short: every word is sent with every Question. */
-import type { ChartKind } from "../../shared/charts";
 import { figureContextOf, readFigures } from "../../shared/figures";
 import { CJK, nameKey } from "../../shared/text";
 import type { CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import type { LoadedSkill, SkillSummary } from "../skills";
-import type { RequestRoute } from "./routeRequest";
 
 const CJK_CHARACTERS = new RegExp(`[${CJK}]`, "gu");
 const LATIN_WORDS = /\p{Script=Latin}{2,}/gu;
@@ -43,7 +41,7 @@ export function answerInstructions(): string {
     "- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.",
     '- Never send the reader to an earlier Answer for part of what you write ("covered in my earlier answer", "as above", "见上一条回答", "见上文"): someone who never saw this conversation may read it on a page, so write that part out.',
     "- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.",
-    "- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.",
+    "- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.",
   ].join("\n");
 }
 
@@ -123,6 +121,48 @@ export function commandInstructions(offered: boolean): string {
   ].join("\n");
 }
 
+const ON_SCREEN = "On screen now:";
+
+/** The line just before the Question when Documents are open on screen (#1334); "" for none. */
+export function onScreenLine(names: readonly string[]): string {
+  if (names.length === 0) return "";
+  return `${ON_SCREEN} ${names.map((name) => `"${listedName(name)}"`).join(", ")}`;
+}
+
+/**
+ * What "this document" and a short piece mean in the assistant (#1334), told once: given only
+ * the Documents in scope, models summarised every one, at length.
+ */
+export const THIS_DOCUMENT_RULE = [
+  `A line "${ON_SCREEN} …" before the Question names the Documents the User has open.`,
+  '- "This document", "this contract", "这份文件", "这份合同" and the like mean the Document the User\'s selection cites, else the one on screen, else the one the words name. Answer or write about that Document alone, from its own text: don\'t mention or compare the others, even one that disagrees with it (comparing Documents that disagree is for a Question about several), unless the User asks about them too. When two or more fit, two on screen among them, and nothing tells which, ask which one with ask_user before writing anything.',
+  "- When the User asks for it short, keep it to five lines at most in all: a heading, a paragraph and each list item each count as one.",
+].join("\n");
+
+const inAttribute = (text: string) => listedName(text).replace(/"/g, "'");
+
+const selected = (quote: { documentName: string; quote: string }, place: string | null) =>
+  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.quote}\n</selected>`;
+
+/**
+ * Words the User selected in their Documents to ask about (#101), each followed by the Passages
+ * it is in as the model reads them (`shown`), to cite it from.
+ */
+export function selectedTextBlock(
+  quotes: readonly { documentName: string; quote: string; place: string | null; shown: string }[],
+): string {
+  const each = quotes.map((quote) => `${selected(quote, quote.place)}\n\n${quote.shown}`);
+  return `<selected-text>\nThe User selected these words in their Documents to ask about them, in <selected>: "this", "it", "这段", "这句" and the like in the Question mean them. Answer about them, and cite them before anything else, from the Passage that follows them, at the location their <selected> gives.\n\n${each.join("\n\n")}\n</selected-text>`;
+}
+
+/** An earlier Question as its conversation's context reads it: the words it asked about, then its text. */
+export function askedAbout(question: {
+  text: string;
+  quotes: readonly { documentName: string; quote: string }[];
+}): string {
+  return [...question.quotes.map((quote) => selected(quote, null)), question.text].join("\n\n");
+}
+
 /** The Document the Mind in focus is the working copy of (#1036), by name; empty for none. */
 export function workingCopyNote(original: string | null): string {
   if (original === null) return "";
@@ -145,7 +185,11 @@ export function exampleNote(documents: readonly string[] | null): string {
  * notes their text calls for: dates, the User's own workings, amounts in
  * brackets, and Documents that couldn't be read.
  */
-export function withPassageNotes(passages: string, unread: readonly UnreadFile[]): string {
+export function withPassageNotes(
+  passages: string,
+  unread: readonly UnreadFile[],
+  reading: readonly { name: string }[] = [],
+): string {
   return [
     passages,
     datedDocumentsNote(passages),
@@ -153,64 +197,60 @@ export function withPassageNotes(passages: string, unread: readonly UnreadFile[]
     notCitedNote(passages),
     bracketedAmountsNote(passages),
     unreadDocumentsNote(unread),
+    stillReadingNote(reading),
   ]
     .filter((part) => part !== "")
     .join("\n\n");
 }
 
 const NO_MIND_TOOLS =
-  "You can't change the User's Minds (their notes) or make new ones in this chat. When the User asks you to write into a Mind or to change one, write the text in your reply, and never say or promise that you wrote, added, changed or made anything in a Mind: IncarnaMind tells the User that you can't, and lets them add your reply to a Mind.";
+  "You can't change the User's Minds (their notes) or make new ones in this chat. When the User asks you to write into a Mind or to change one, write the text in your reply, and never say or promise that you wrote, added, changed or made anything in a Mind: the User can put your reply into a Mind themselves.";
 
 /**
- * The Minds' Tools, when offered (#202): the User's words decide whether the
- * Answer answers, changes a Mind or makes one, and `route` says how
- * IncarnaMind read them. IncarnaMind, not the reply, reports what changed,
- * from the calls; the reply never repeats the new text.
+ * The rule each turn in the assistant follows (#1559), in the agreed words, with the Chinese
+ * words for each kind of request beside the English: the model reads both, as the User may
+ * write either, or a mix.
  */
-export function mindInstructions(offered: boolean, route: RequestRoute | null = null): string {
-  if (!offered) return route ? NO_MIND_TOOLS : "";
+const TURN_RULE = [
+  "You work beside the User's page (a Mind). Each turn, decide:",
+  "- A piece of writing to keep: they ask you to write, draft, summarise, prepare or put together something (写、起草、整理、总结、准备一份), such as a summary, report, memo, notes, plan or letter (总结、报告、备忘录、笔记、计划、信). Write it into a Mind with the write command: into the empty Mind in front if there is one, otherwise into a new Mind. Start the piece with a title line (a Heading 1; 以一行标题开头), which names the Mind. Never put the piece itself in your reply.",
+  "- A change to their text: shorten, expand, fix, rewrite, translate, add or remove a part (缩短、扩写、修正、改写、翻译、增加或删去一部分). Make it in place with the edit command. Don't repeat the new text in your reply.",
+  "- A question, an explanation, an opinion or ideas (提问、解释、征求意见或想法): answer in your reply and change nothing.",
+  "- Unsure: if the request names something to produce, write it into a Mind (it can be undone); otherwise answer.",
+  "After a write or an edit, reply in one short sentence saying what you did and where. Never say you wrote or changed anything unless the command ran.",
+].join("\n");
+
+/**
+ * The Minds' Tools, when offered (#202), on every turn in the assistant: the
+ * model decides, by the turn's rule, whether the Answer answers, changes a
+ * Mind or makes one (#1559). IncarnaMind, not the reply, shows the new text.
+ * `inAssistant`: the Answer is the assistant's, so a model that can't call
+ * the Tools is told it can't write; `lastAnswer`: the conversation has an
+ * Answer before, which can go into a Mind as it is.
+ */
+export function mindInstructions(
+  offered: boolean,
+  { inAssistant = false, lastAnswer = false }: { inAssistant?: boolean; lastAnswer?: boolean } = {},
+): string {
+  if (!offered) return inAssistant ? NO_MIND_TOOLS : "";
   return [
-    "You can also change the User's Minds (their notes) and make new ones, with read_mind, edit_mind, add_to_mind and create_mind. What you write into a Mind arrives there as changes the User accepts or rejects; what the User asked you to write or change applies at once, with Undo, unless it would take out most of their own text. Each call's result says which.",
-    '- The User\'s words decide. A Question (what, why, how, compare, find, explain…) is answered in your reply and changes no Mind. A request to write or change something in a Mind ("shorten the summary", "add a risks section", "fix the typos", "把这段改短") changes that Mind. A request for a new note ("make notes on these papers", "summarise this into a new Mind", "新建一篇笔记") makes one.',
-    "- A <tool-record> is IncarnaMind's record of what an earlier Answer's Tools really did, and what the User did with the changes since: trust it over that Answer's words, and never write one. A change the User rejected is gone: don't bring it back or say it is still there. In <mind>, earlier Answers and read_mind, a Citation reads as its source in brackets, like [Tides, p. 3].",
-    "- The Mind is the one in <mind>, unless the User names another, or means a page your <tool-record> says you made or changed earlier in this conversation: then give that Mind's name in mind. If they ask to change a Mind but none is in <mind> and they name none, change nothing: say so, and that they can open one or ask for a new Mind.",
+    TURN_RULE,
+    "",
+    "The write command is create_mind for a new Mind, or add_to_mind for the empty Mind in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Mind the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
+    "- A <tool-record> is IncarnaMind's record of what an earlier Answer's Tools really did, and what the User did with the changes since: trust it over that Answer's words, and never write one. A change the User undid or rejected is gone: don't bring it back or say it is still there. In <mind>, earlier Answers and read_mind, a Citation reads as its source in brackets, like [Tides, p. 3].",
+    "- The Mind to change is the one in <mind>, unless the User names another, or means a page your <tool-record> says you made or changed earlier in this conversation: then give that Mind's name in mind. If they ask to change their text but none is in <mind> and they name none, change nothing: say so, and that they can open one or ask for a new Mind.",
     "- In <mind> and read_mind, [waiting change, adds: …] and [waiting change, removes: …] mark changes still waiting for the User, often your own. To change text that waits (make it longer or shorter, reword it, remove part of it), call edit_mind on it, naming its heading in part: that revises the waiting text itself. Never add a second copy. To add more from the Documents, search and cite first, then give edit_mind the section's whole new text as content.",
     "- edit_mind's rewrite reads only the text it changes: it can't search or cite. To add facts from the Documents to the User's text, a table of them too, search and cite first, then add them with add_to_mind, cited in each table cell as in a paragraph. To make text you wrote longer from the Documents, a summary added from an Answer among it, search and cite first, then give edit_mind its whole new text as content: it replaces that text, so the Mind never holds two versions. Never write a source into a Mind as text, like [Tides, p. 3]: record it with cite before the call and write its marker, like [^3]. Text with a source written out is refused.",
+    '- A chart ("make a bar chart of revenue by quarter", "画一个各季度收入的柱状图"): search and cite the figures, then write them as a table into a Mind, each cell cited, and give chart with the kind the User named and a short title from their words: IncarnaMind draws it from that table, right after it. For a table already in the Mind, call add_to_mind with chart and content empty. Chart only figures the Documents state: for a series they don\'t state, say you can chart only the figures the Documents state.',
+    ...(lastAnswer
+      ? [
+          '- To put your last Answer into a Mind as it is ("add this to my notes", "make it a document", "put that in this page", "把这个加到我的笔记里", "做成文档"), give answer: true to add_to_mind for the Mind in <mind>, or to create_mind when there is none or the User asks for a new one, and nothing else: it goes in with its Citations and every Document it covered, so don\'t search again or write it anew. Write new notes about Documents only when the User asks for notes about them.',
+        ]
+      : []),
     "- If a Tool says nothing was changed, say that first, in one sentence, with why, and don't make the change another way.",
     "- What you write into a Mind follows the same rules as your replies: the language of the Question, and quotation marks only around a Document's own words.",
-    "- Don't say what you changed or made in a Mind, nor repeat its new text: IncarnaMind writes under your reply what each call changed, and how much. Once the Tools are done, reply in a sentence or two, with no Citation markers, with only what that line can't say: why, what you left out, or plainly what you couldn't do and why. A Tool that asks you to give its text in your reply instead is the exception.",
-    routeLine(route),
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function chartLine(newMind: boolean, chart: { kind: ChartKind | null; existing?: true }): string {
-  const asked = chart.kind ? `kind "${chart.kind}"` : "no kind, as the User named none";
-  if (chart.existing) {
-    return `- This request asks for a chart of a table already in the Mind: call add_to_mind with chart, ${asked} and a short title from the User's words, and content empty. IncarnaMind draws it from the table the User's cursor is in, or the Mind's only table, right after it: never write the table again.`;
-  }
-  const tool = newMind ? "a new Mind with create_mind" : "the Mind with add_to_mind";
-  return `- This request asks for a chart: search and cite the figures, then write them as a table into ${tool}, each cell cited, and give chart with ${asked} and a short title from the User's words. IncarnaMind draws the chart from that table, right after it. Chart only figures the Documents state, or ones calculate gives: for a series they don't state, say you can chart only the figures the Documents state.`;
-}
-
-function routeLine(route: RequestRoute | null): string {
-  switch (route?.kind) {
-    case "write":
-      if (route.fromAnswer) {
-        return route.newMind
-          ? "- This request asks for your last Answer as a document: call create_mind with a short title and answer: true, and nothing else. It puts in that Answer as it is, with its Citations and every Document it covered: don't search again or write it anew."
-          : "- This request asks for your last Answer as a document: the Mind in <mind> is empty, so call add_to_mind with answer: true, and nothing else. It puts in that Answer as it is, with its Citations and every Document it covered: don't search again or write it anew.";
-      }
-      if (route.chart) return chartLine(route.newMind, route.chart);
-      return route.newMind
-        ? "- This request asks for a new page or note: write it into a new Mind with create_mind, not in your reply and not into the Mind in <mind>."
-        : "- This request asks for text in a Mind: write it there with add_to_mind, not in your reply. If text of yours still waiting already covers it, revise that with edit_mind instead of writing it again.";
-    case "edit":
-      return "- This request asks to change text in a Mind: change it there with edit_mind, not in your reply, and in place: never add a new version beside it with add_to_mind. Text you wrote, an Answer added with Add to note among it, takes its whole new text as content, cited.";
-    default:
-      return "";
-  }
+    "- Your reply after a write or an edit has no Citation markers and none of the new text, unless a Tool asks you to give its text in your reply instead.",
+  ].join("\n");
 }
 
 /**
@@ -368,6 +408,7 @@ const CALCULATE = [
   'Never work out a number yourself, not even a simple one: for any number the Answer gives that isn\'t written in a Passage (a difference, sum, average, ratio, share, growth rate, CAGR, change in percentage points, conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number\'s place, with no number or unit beside it: "grew [=1] in 2025", not "grew 20.4% [=1]".',
   '- Name each input\'s number as it is written in its quote, labelled with what it is and its period; give a table heading\'s unit line ("单位：万元", "in millions") as unitQuote. Inputs come in base units with that scale applied: give scale ("亿", "billion") to show another, never convert in the formula.',
   "- A number copied as it is from a Passage is cited with [^n]; calculate is only for numbers you work out.",
+  "- If calculate refuses a figure, fix what its reply says and call it again; never write that you couldn't calculate a number whose inputs you cited.",
 ].join("\n");
 
 /** Structured output's `calculations`, for a model offered them: what `CALCULATE` is to the Tool loop. */
@@ -435,6 +476,18 @@ export function unreadDocumentsNote(unread: readonly UnreadFile[]): string {
     .map((file) => `"${listedName(file.name)}" (${UNREAD_WORDS[file.reason](file.pages)})`);
   const more = unread.length - named.length;
   return `IncarnaMind couldn't read the text of some Documents in the search, so no Passage comes from that text: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. If the Passages don't clearly answer the Question and it may be about one of them, say in one sentence that it couldn't be read, so the answer may be there, rather than taking another Document's figure for it.`;
+}
+
+/**
+ * A reminder after a search's Passages when Documents in the Search scope are still being read
+ * (#1503): no search finds anything in them yet, so a model that finds nothing says they are
+ * being read, never that a Document isn't there.
+ */
+export function stillReadingNote(reading: readonly { name: string }[]): string {
+  if (reading.length === 0) return "";
+  const named = reading.slice(0, NAMED_UNREAD).map((file) => `"${listedName(file.name)}"`);
+  const more = reading.length - named.length;
+  return `IncarnaMind is still reading ${reading.length === 1 ? "a Document" : `${reading.length} Documents`} in the search: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. No Passage comes from ${reading.length === 1 ? "it" : "them"} yet. If the Passages don't clearly answer the Question and it may be about ${reading.length === 1 ? "it" : "one of them"}, say that ${reading.length === 1 ? "it is" : "they are"} still being read and to ask again when ${reading.length === 1 ? "it's" : "they're"} ready. Never say ${reading.length === 1 ? "it doesn't exist or wasn't added" : "they don't exist or weren't added"}, and never take another Document's figure for what ${reading.length === 1 ? "it" : "they"} would say.`;
 }
 
 /**

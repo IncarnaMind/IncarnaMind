@@ -36,6 +36,7 @@ import {
   proposalRequestOf,
   recordProposalRequest,
   resolveProposals,
+  waitingChanges,
 } from "../../shared/proposals";
 import { topLevelBlocks } from "../answers/blocks";
 import { createWindowBudget } from "../answers/window";
@@ -87,6 +88,7 @@ import {
 import type { PreparedChatModel } from "../providers/chat";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
+import { inFlow } from "../timing/flows";
 import { asksToRemove, waitsForUser } from "./applies";
 import {
   EDIT_INSTRUCTIONS,
@@ -393,15 +395,17 @@ async function streamEdit(
   let failure: unknown = null;
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   try {
-    const result = streamText({
-      model: prepared.model,
-      instructions: call.instructions,
-      prompt: call.prompt,
-      maxOutputTokens: call.maxOutputTokens,
-      maxRetries: 1,
-      abortSignal: AbortSignal.any([signal, timeout]),
-      onError: () => undefined,
-    });
+    const result = inFlow("edit-with-ai", () =>
+      streamText({
+        model: prepared.model,
+        instructions: call.instructions,
+        prompt: call.prompt,
+        maxOutputTokens: call.maxOutputTokens,
+        maxRetries: 1,
+        abortSignal: AbortSignal.any([signal, timeout]),
+        onError: () => undefined,
+      }),
+    );
     for await (const part of result.fullStream) {
       if (part.type === "error") throw part.error;
       if (part.type === "abort") {
@@ -877,9 +881,8 @@ export function createEdits(options: EditsOptions) {
         return ids;
       });
       if (!blockIds) return nothing({ kind: "changed" });
-      const proposals = content.read(
-        input.mindId,
-        (mind) => pendingProposals(mind).filter((each) => each.request === request).length,
+      const proposals = content.read(input.mindId, (mind) =>
+        waitingChanges(mind, (each) => each.request === request),
       );
       input.written(request, proposals);
       return {

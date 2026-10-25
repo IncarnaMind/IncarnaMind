@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { ChatProvider, ChatReadiness, ProviderErrorKind } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
+import type { Endpoint } from "../../../../core/providers/catalog";
 import {
   catalogProvider,
   catalogProviderOf,
@@ -15,6 +16,9 @@ import { checkApiKey } from "../../../../shared/apiKey";
 import type { MessageKey, MessageParams } from "../../../../shared/i18n";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
+
+/** Where an undo line of a change made in Settings › Models shows: the sidebar's is behind it. */
+export const MODELS_UNDO_PLACE = "settings:models";
 
 /** What a failed connection test means, in words. The ChatGPT plan's own kinds live under `chatgpt.`. */
 export function testErrorKey(kind: ProviderErrorKind): MessageKey {
@@ -39,7 +43,7 @@ export function readinessKey(readiness: Extract<ChatReadiness, { ready: false }>
 
 export const catalogIdOf = (provider: ChatProvider) => provider.catalogId ?? provider.kind;
 
-/** The region a click on a catalog entry means: the one asked for, else the interface language's own (Kimi), else its first. */
+/** The region a click on a catalog entry means: the one asked for, else the interface language's own, else its first. */
 export function regionFor(
   catalogId: string,
   endpoint: string | null,
@@ -90,9 +94,8 @@ export function providerLabel(provider: ChatProvider, t: Translate, language: La
     const value = first && fieldValueOf(first, provider.baseUrl);
     if (value) return `${kind} · ${value}`;
     if (catalog.endpoints.length === 1) return kind;
-    return provider.endpoint === "cn" || provider.endpoint === "intl"
-      ? `${kind} · ${t(`providers.region.${provider.endpoint}`)}`
-      : kind;
+    const region = catalog.endpoints.find((each) => each.id === provider.endpoint);
+    return region ? `${kind} · ${regionName(region, t, language)}` : kind;
   }
   // Ollama's default model can be a cloud model, which runs on ollama.com, not here.
   if (provider.kind === "ollama" && provider.service?.id === OLLAMA_CLOUD.id) {
@@ -105,9 +108,22 @@ export function providerLabel(provider: ChatProvider, t: Translate, language: La
 export const serviceName = (provider: ChatProvider, t: Translate, language: Language) =>
   provider.service?.name ?? providerLabel(provider, t, language);
 
-/** A Kimi key belongs to the region it was made in: the interface's language says which. */
-export const defaultRegion = (catalogId: string, language: Language): string =>
-  catalogId === "kimi" ? (language === "zh-CN" ? "cn" : "intl") : "";
+/** The region a provider with both China and International opens on: the interface language's. */
+export function defaultRegion(catalogId: string, language: Language): string {
+  const ids = catalogProvider(catalogId)?.endpoints.map((each) => each.id) ?? [];
+  const own = language === "zh-CN" ? "cn" : "intl";
+  return ids.includes("cn") && ids.includes("intl") ? own : "";
+}
+
+/** The regions as the form lists them, "International / China", whatever order the catalog keeps them in. */
+export const regionsListed = (endpoints: readonly Endpoint[]): Endpoint[] =>
+  endpoints.toSorted((a, b) => Number(b.id === "intl") - Number(a.id === "intl"));
+
+/** A region as the form says it: "China" or "International"; any other by its own label. */
+export const regionName = (endpoint: Endpoint, t: Translate, language: Language): string =>
+  endpoint.id === "cn" || endpoint.id === "intl"
+    ? t(`providers.region.${endpoint.id}`)
+    : endpoint.label[language === "zh-CN" ? "zh" : "en"];
 
 /** The host of a server address, or null while it isn't one yet. */
 function hostOf(baseUrl: string): string | null {
