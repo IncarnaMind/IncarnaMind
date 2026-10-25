@@ -11,6 +11,7 @@ import { chromium, expect, type Page, test } from "@playwright/test";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 import { coreOf, createDataFolder, dismissChatSetup, launchApp, removeDataFolder } from "./app";
+import { startAnotherCopy } from "./secondCopy";
 
 /*
  * One copy of the app to a data folder (#1352): a second start brings the first window forward and
@@ -45,12 +46,7 @@ test("a second start on the same data folder shows the first window and quits; a
   await core.evaluate(async (api) => api.createMind({ title: "Kept" }));
 
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide());
-  const { execPath, argv, env } = await app.evaluate(() => ({
-    execPath: process.execPath,
-    argv: process.argv.slice(1),
-    env: { ...process.env } as Record<string, string>,
-  }));
-  const again = spawn(execPath, argv, { env, stdio: "ignore" });
+  const again = await startAnotherCopy(app);
   const [code] = await exited(again);
   expect(code).toBe(0);
 
@@ -100,12 +96,7 @@ test("lock files that aren't databases are emptied, and the folder is locked all
   await writeFile(join(dataDir, "instance.owner"), text);
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  const { execPath, argv, env } = await app.evaluate(() => ({
-    execPath: process.execPath,
-    argv: process.argv.slice(1),
-    env: { ...process.env } as Record<string, string>,
-  }));
-  const again = spawn(execPath, argv, { env, stdio: "ignore" });
+  const again = await startAnotherCopy(app);
   const [code] = await exited(again);
   expect(code).toBe(0);
   expect(app.windows()).toHaveLength(1);
@@ -142,7 +133,7 @@ function startCopy(
   return spawn(
     electronPath,
     [...KEYCHAIN_ARGS, "--no-sandbox", ...args, resolve(__dirname, ".."), ...APP_ARGS],
-    { env, stdio: "ignore" },
+    { env, stdio: "ignore", detached: true },
   );
 }
 
@@ -301,6 +292,7 @@ const killAll = (pids: number[]) => {
 async function startWhileQuitting(
   how: "quit" | "quit-twice" | "crash" | "after-release",
   starts: number,
+  { startedAgain = false, language = "en-US" } = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
   const boxes = join(home, "error-boxes.jsonl");
@@ -308,18 +300,26 @@ async function startWhileQuitting(
   const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
   const ports: number[] = [];
   const late = how === "after-release";
-  const start = async (extraEnv: Record<string, string> = {}) => {
+  const spawned: ChildProcess[] = [];
+  const start = async (extraEnv: Record<string, string> = {}, again = false) => {
     const port = await freePort();
     ports.push(port);
-    return startCopy(
+    const copy = startCopy(
       home,
       [
         tag,
+        ...(again ? ["--started-again-after-stall"] : []),
         `--remote-debugging-port=${port}`,
         ...["-r", join(__dirname, "errorBoxes.cjs"), "-r", join(__dirname, "startDuringQuit.cjs")],
       ],
-      { INCARNAMIND_TEST_ERROR_BOXES: boxes, ...extraEnv },
+      {
+        INCARNAMIND_TEST_ERROR_BOXES: boxes,
+        INCARNAMIND_TEST_ERROR_LANGUAGE: language,
+        ...extraEnv,
+      },
     );
+    spawned.push(copy);
+    return copy;
   };
   const left = async () => ({
     copies: copiesWith(tag).length,
@@ -336,10 +336,31 @@ async function startWhileQuitting(
       });
     }
     for (let index = 0; index < starts; index += 1) {
-      await start({
-        INCARNAMIND_TEST_QUIT_MARK: mark,
-        ...(late && { INCARNAMIND_TEST_QUIT_AFTER_RELEASE: "1" }),
-      });
+      await start(
+        {
+          INCARNAMIND_TEST_QUIT_MARK: mark,
+          ...(late && { INCARNAMIND_TEST_QUIT_AFTER_RELEASE: "1" }),
+        },
+        startedAgain,
+      );
+    }
+    if (startedAgain) {
+      await expect.poll(left, { timeout: 20_000 }).toEqual({ copies: 0, windows: 0 });
+      const shown = (await readFile(boxes, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(shown).toEqual([
+        {
+          title: language === "zh-CN" ? "IncarnaMind 无法启动" : "IncarnaMind couldn’t start",
+          content:
+            language === "zh-CN"
+              ? "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。"
+              : "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
+          ready: false,
+        },
+      ]);
+      return;
     }
     await expect
       .poll(left, { timeout: late ? 20_000 : 90_000, message: "one copy is left, with a window" })
@@ -375,6 +396,7 @@ async function startWhileQuitting(
         .poll(
           () => {
             killAll(copiesWith(tag, true));
+            killAll(spawned.flatMap((copy) => (copy.pid ? [-copy.pid] : [])));
             return copiesWith(tag, true);
           },
           { timeout: 30_000 },
@@ -416,3 +438,17 @@ test("a start after data-lock release during quit opens a usable window with the
     await next.app.close();
   }
 });
+
+for (const language of ["en-US", "zh-CN"]) {
+  test(`a second native startup stall shows a plain problem and frees the data folder (${language})`, async () => {
+    test.skip(process.platform !== "darwin", "the native ready stall is specific to macOS");
+    await startWhileQuitting("after-release", 1, { startedAgain: true, language });
+    const next = await launchApp(dataDir);
+    try {
+      const minds = await (await coreOf(next.window)).evaluate((api) => api.listMinds());
+      expect(minds.map((mind) => mind.title)).toEqual(["Kept during quit"]);
+    } finally {
+      await next.app.close();
+    }
+  });
+}

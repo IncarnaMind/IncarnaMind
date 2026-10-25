@@ -37,7 +37,11 @@ import { isPanelWindow, serveMeetingPanel } from "./meetings/panel";
 import { installAppMenu } from "./menu";
 import { createSystemNotifications } from "./notifications";
 import { chooseExecutor, createElectronAdapters, homeFolder, systemBrowser } from "./platform";
-import { reopenAfterQuit, startAgainIfStalled } from "./startDuringQuit";
+import {
+  electronInstanceWasPresent,
+  reopenAfterQuit,
+  startAgainIfStalled,
+} from "./startDuringQuit";
 import { DOWNLOAD_BUTTON, RELEASES_PAGE, startupDialog, startupProblem } from "./startupError";
 import { realHomeProblem } from "./testHome";
 import { reportFullScreen, titleBarOptions } from "./titleBar";
@@ -66,6 +70,7 @@ const logger = startLogging(app.getPath("userData"));
 const reportLock = (what: string, error: unknown) => logger.exception(what, error);
 const systemLanguage = () => resolveLanguage("system", app.getPreferredSystemLanguages());
 const folderHeldBefore = heldByAnotherCopy(app.getPath("userData"), reportLock);
+const electronInstanceBefore = electronInstanceWasPresent(app.getPath("userData"), reportLock);
 
 // One copy to a data folder: a second would write the same database. Electron's lock is asked
 // first: a copy it refuses never reaches `ready`, so it quits at once, and the running copy's
@@ -94,7 +99,7 @@ if (instanceLock?.timedOut) {
 }
 const releaseDataFolder = () => instanceLock?.release();
 app.on("quit", releaseDataFolder);
-if (instanceLock) {
+if (instanceLock && (folderHeldBefore || electronInstanceBefore)) {
   startAgainIfStalled(
     app,
     releaseDataFolder,

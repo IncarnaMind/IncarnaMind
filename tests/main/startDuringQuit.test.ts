@@ -1,6 +1,13 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { reopenAfterQuit, startAgainIfStalled } from "../../src/main/startDuringQuit";
+import {
+  electronInstanceWasPresent,
+  reopenAfterQuit,
+  startAgainIfStalled,
+} from "../../src/main/startDuringQuit";
 
 const quitEvent = () => ({
   defaultPrevented: false,
@@ -159,5 +166,39 @@ describe("a copy that took Electron’s single-instance lock", () => {
     app.emit("before-quit", quitEvent());
     startCame();
     expect(app.relaunch).toHaveBeenCalledWith({ args: argv.slice(1) });
+  });
+});
+
+describe("the Electron lock before a new start", () => {
+  let folder: string;
+  beforeEach(() => {
+    folder = mkdtempSync(join(tmpdir(), "incarnamind-singleton-"));
+  });
+  afterEach(() => {
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  test("an ordinary start has no previous Electron owner", () => {
+    const report = vi.fn();
+    expect(electronInstanceWasPresent(folder, report)).toBe(false);
+    expect(report).not.toHaveBeenCalled();
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "a native lock symlink still identifies an exiting owner after the data lock is released",
+    () => {
+      symlinkSync("host-12345", join(folder, "SingletonLock"));
+      const report = vi.fn();
+      expect(electronInstanceWasPresent(folder, report)).toBe(true);
+      expect(report).not.toHaveBeenCalled();
+    },
+  );
+
+  test("an unreadable lock location is reported and keeps recovery enabled", () => {
+    const file = join(folder, "file");
+    writeFileSync(file, "");
+    const report = vi.fn();
+    expect(electronInstanceWasPresent(file, report)).toBe(true);
+    expect(report).toHaveBeenCalledWith("app.singleInstanceLockCheckFailed", expect.any(Error));
   });
 });
