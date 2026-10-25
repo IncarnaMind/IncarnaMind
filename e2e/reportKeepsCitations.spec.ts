@@ -62,7 +62,7 @@ test("a cited Mind made a report in the Answer keeps its Citations, in a new Min
   await expect(text.getByTestId("citation").first()).toHaveAttribute("data-check", "found");
   await expect(text).not.toContainText(/C\d|\[Tides/);
 
-  await pointAndClick(window, report.getByTestId("answer-new-mind"));
+  await pointAndClick(window, report.getByTestId("answer-write-note"));
   await expect(window.getByTestId("mind-tab")).toHaveCount(2);
   await expect(editor.getByTestId("citation").first()).toHaveAttribute("data-check", "found");
   await expect(editor).not.toContainText(/C\d|\[Tides/);
