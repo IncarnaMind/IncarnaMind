@@ -294,6 +294,14 @@ const insideRange = (prefix: string) => {
   return [folder, `${folder.slice(0, -1)}${next}`] as const;
 };
 
+/** A Linked folder's id, as the API takes it. */
+function parseLinkedFolderId(idInput: unknown): string {
+  if (typeof idInput !== "string" || idInput === "") {
+    throw new InvalidInputError("A Linked folder id is required.");
+  }
+  return idInput;
+}
+
 export function createLibrary(options: LibraryOptions) {
   const { db, now, folders, hooks } = options;
   /** The data folder as given, then with links resolved, as the files added from it are. */
@@ -1409,10 +1417,7 @@ export function createLibrary(options: LibraryOptions) {
   }
 
   const getRow = (idInput: unknown): LinkedFolderRow => {
-    if (typeof idInput !== "string" || idInput === "") {
-      throw new InvalidInputError("A Linked folder id is required.");
-    }
-    const row = folderRow(idInput);
+    const row = folderRow(parseLinkedFolderId(idInput));
     if (!row) throw new NotFoundError({ key: "error.linkedFolder.notFound" });
     return row;
   };
@@ -1596,6 +1601,37 @@ export function createLibrary(options: LibraryOptions) {
       watchSingles(); // a file added on its own inside it is watched by itself now
       if (foldersChanged) hooks.foldersChanged();
       announceFolders();
+    },
+
+    /**
+     * Brings back a Linked folder the User unlinked, as Undo after Remove the examples
+     * does (#1292), and reads its files again: the Documents that left the index with
+     * it, which the caller restores, and the folder. Refused when there is no such folder.
+     */
+    restore(idInput: unknown): { folder: LinkedFolder; went: string[] } {
+      const row = db.get<LinkedFolderRow & { deleted_at: string | null }>(
+        `SELECT ${FOLDER_COLUMNS}, deleted_at FROM linked_folders WHERE id = ?`,
+        [parseLinkedFolderId(idInput)],
+      );
+      if (!row) throw new NotFoundError({ key: "error.linkedFolder.notFound" });
+      if (row.deleted_at === null) return { folder: toLinkedFolder(row), went: [] };
+      // The Documents that went with it, by the unlink's own moment: one deleted earlier stays deleted.
+      const went = db
+        .all<{ id: string }>(
+          "SELECT id FROM documents WHERE linked_folder_id = ? AND deleted_at = ?",
+          [row.id, row.deleted_at],
+        )
+        .map((each) => each.id);
+      db.run("UPDATE linked_folders SET deleted_at = NULL, updated_at = ? WHERE id = ?", [
+        now(),
+        row.id,
+      ]);
+      statuses.set(row.id, "scanning");
+      request({ folders: [row.id] });
+      announceFolders();
+      const live = folderRow(row.id);
+      if (!live) throw new Error("The Linked folder wasn't saved.");
+      return { folder: toLinkedFolder(live), went };
     },
 
     /**
