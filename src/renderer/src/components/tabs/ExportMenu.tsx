@@ -1,13 +1,17 @@
-import { type ReactNode, useEffect } from "react";
+import { Fragment, type ReactNode, useEffect } from "react";
 import { type DocumentKind, EXPORT_FORMATS, type ExportFormat } from "../../../../core/api";
 import type { CommandId } from "../../../../shared/commands";
+import { useChecks } from "../../checks";
 import { useMindFormatting } from "../../citationFormatting";
 import { useCitationStylePicker, useStyleLabel } from "../../citationStylePicker";
 import { shortcutLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
+import { ClaimMarkIcon } from "../../editor/icons";
 import { takeExportMenuRequest, useExportMenuRequests } from "../../exportMenuRequest";
 import { FORMAT_LABELS, useExports } from "../../exports";
+import { useMindNoteStates } from "../../home";
 import { useT } from "../../i18n";
+import { startCheckThisMind } from "../../mindCheck";
 import { useAppStore } from "../../store";
 import {
   ChevronRightLineIcon,
@@ -84,6 +88,11 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   const formatting = useMindFormatting(mindId);
   const styleName = useStyleLabel(formatting?.style, formatting?.formatted?.unavailable === true);
   const { shown, more } = exportChoices(last);
+  // Where the note stands (D266), read only while its menu is open.
+  const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId) ?? null);
+  const states = useMindNoteStates(menu.open && mind ? [mind] : []);
+  const noteState = mind ? (states.get(mind.id) ?? null) : null;
+  const running = useChecks((state) => state.running[mindId] !== undefined);
 
   // "Export…" in a Mind's menus: this Mind's button opens its menu, as if it had been clicked.
   const asked = useExportMenuRequests((state) => state.request);
@@ -134,9 +143,30 @@ export function ExportMenu({ mindId }: { mindId: string }) {
       >
         {menu.open && (
           <>
-            {shown.map((format, index) =>
-              formatItem(format, index === 0 ? shortcutLabel("mind.export") : undefined),
-            )}
+            {shown.map((format, index) => (
+              <Fragment key={format}>
+                {formatItem(format, index === 0 ? shortcutLabel("mind.export") : undefined)}
+                {format === "docx" &&
+                  !running &&
+                  noteState !== null &&
+                  noteState.kind !== "checked" && (
+                    // Under Word, one entry that starts Check; it never blocks the export (D266).
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="export-check-first"
+                      className={`${tallMenuItemClass} pl-2 text-[13px] leading-5 text-ink-secondary`}
+                      onClick={() => {
+                        menu.close();
+                        startCheckThisMind(mindId).catch(useAppStore.getState().reportError);
+                      }}
+                    >
+                      <ClaimMarkIcon state="not-checked" className="size-4 shrink-0" />
+                      <span className="flex-1">{t("export.checkFirst")}</span>
+                    </button>
+                  )}
+              </Fragment>
+            ))}
             <button
               {...submenu.itemProps}
               type="button"

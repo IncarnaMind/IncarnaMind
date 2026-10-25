@@ -45,7 +45,7 @@
   --color-accent-wash: #e7edfb;
   /* A selection in a field that has lost the focus, as macOS draws one in a window not in front. */
   --color-selection-inactive: #dde1e7;
-  /* Citation checks only (and the same green on a found quote in the viewer). */
+  /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state (D266). */
   --color-success: #166534;
   --color-success-wash: #dcf3e4;
   --color-warning: #9a4a06;
@@ -1627,6 +1627,38 @@
     font-weight: 400;
     color: var(--color-ink-secondary);
   }
+  /* A note's three resting states (D266), in the check colours the margin uses. */
+  .check-badge[data-tone="success"] .check-badge-words {
+    font-weight: 600;
+    color: var(--color-success);
+  }
+  .check-badge[data-tone="warning"] .check-badge-words {
+    font-weight: 600;
+    color: var(--color-warning);
+  }
+  .check-badge[data-tone="error"] .check-badge-words {
+    font-weight: 600;
+    color: var(--color-danger);
+  }
+  .check-badge[data-tone="neutral"] .mind-health-icon {
+    color: var(--color-ink-meta);
+  }
+  .check-badge[data-tone="success"] .mind-health-icon {
+    color: var(--color-success);
+  }
+  .check-badge-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .check-badge-unread {
+    font-weight: 400;
+    color: var(--color-ink-meta);
+  }
+  .check-badge-short {
+    display: none;
+    font-variant-numeric: tabular-nums;
+  }
   .check-badge-sep {
     color: var(--color-rule-strong);
   }
@@ -1829,8 +1861,12 @@
     }
   }
   @container group (width < 400px) {
-    .check-badge-words {
+    .check-badge-words,
+    .check-badge-more {
       display: none;
+    }
+    .check-badge-short {
+      display: inline;
     }
   }
   .mind-count-button {

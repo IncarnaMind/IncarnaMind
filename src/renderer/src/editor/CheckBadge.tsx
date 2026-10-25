@@ -3,6 +3,7 @@ import type { Editor } from "@tiptap/core";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type * as Y from "yjs";
+import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { useTabPlace } from "../components/tabs/tabItems";
@@ -12,7 +13,9 @@ import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import { startCheckThisMind, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { useFade } from "../motion";
+import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
+import { useCheckUnread } from "../unreadFiles";
 import { useGroupsMerged } from "../useWindowWidth";
 import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
@@ -20,7 +23,6 @@ import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
 import { useCardPlace } from "./checkPlace";
-import { shownClaims } from "./claimChecks";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, useMindCheckProgress } from "./MindCheckLine";
 import { HealthCard, PartMark, useHealth } from "./NoteHealth";
@@ -96,34 +98,32 @@ function MindBadge({
   const skippedKeys = checkedAll?.skipped.join(" ") ?? "";
   const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
   const health = useHealth(editor, skipped);
+  const unread = useCheckUnread(editor, doc);
   useWatchAddedDocuments(editor, mindId);
   const running = useChecks((state) => state.running[mindId]);
   const problem = useChecks((state) => state.problems[mindId] !== undefined);
   const askingMind = useMindCheck((state) => state.asking[mindId] !== undefined);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
-  const checked = useJustChecked(editor, running?.requestId ?? null, (finished) =>
-    problem || editor.isDestroyed
-      ? 0
-      : shownClaims(editor.state).filter((each) => each.check.request === finished).length,
-  );
+  const state = noteStateOf(health, unread.length);
   const input: BadgeInput = {
     marks: {
       contradicted: health.contradicted.length,
       unsupported: health.unsupported.length,
       notFound: health.notFound.length,
     },
+    checkable: health.checkable,
     toCheck: health.toCheck.length,
-    citable: health.citable.length,
     running: running !== undefined,
     asking: askingMind || askingContradictions,
     problem,
-    checked: running ? null : checked,
+    checked: null,
     quiet,
   };
   return (
     <BadgeFrame
       mindId={mindId}
       badge={badgeOf(input)}
+      state={running ? null : state}
       ask={input.asking || problem}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
@@ -229,8 +229,8 @@ function VerifyBadge({
       unsupported: rows.unsupported.length,
       notChecked: rows.notChecked.length,
     },
+    checkable: state.total,
     toCheck,
-    citable: toCheck,
     running: state.running !== null,
     asking: state.asking,
     problem: state.problem || nothing,
@@ -241,6 +241,7 @@ function VerifyBadge({
     <BadgeFrame
       mindId={mindId}
       badge={badgeOf(input)}
+      state={null}
       ask={input.asking || input.problem}
       running={
         state.running === "finding" ? (
@@ -285,6 +286,7 @@ function VerifyBadge({
 function BadgeFrame({
   mindId,
   badge,
+  state,
   ask,
   running,
   onStop,
@@ -293,6 +295,8 @@ function BadgeFrame({
 }: {
   mindId: string;
   badge: Badge | null;
+  /** A Mind's resting state (D266); null for a Verify run, which shows its own marks. */
+  state: NoteState | null;
   ask: boolean;
   running: ReactNode;
   onStop(): void;
@@ -323,6 +327,7 @@ function BadgeFrame({
       {badge ? (
         <BadgePill
           badge={badge}
+          state={state}
           open={open}
           running={running}
           onToggle={() => setCheckCardOpen(place, !open)}
@@ -382,8 +387,27 @@ const placing = () => [
   }),
 ];
 
+/** The state's mark, as the margin draws the worst thing it found (D266). */
+function StateMark({ state }: { state: NoteState }) {
+  switch (state.mark) {
+    case "checked":
+      return <CheckMarkIcon check="found" className="mind-health-icon" />;
+    case "contradicted":
+      return <ClaimMarkIcon state="contradicted" className="mind-health-icon" />;
+    case "unsupported":
+      return <ClaimMarkIcon state="unsupported" className="mind-health-icon" />;
+    case "notFound":
+      return <CheckMarkIcon check="not-found" className="mind-health-icon" />;
+    case "recheck":
+      return <ClaimMarkIcon state="needs-recheck" className="mind-health-icon" />;
+    case "notChecked":
+      return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
+  }
+}
+
 function BadgePill({
   badge,
+  state,
   open,
   running,
   onToggle,
@@ -391,6 +415,7 @@ function BadgePill({
   anchorRef,
 }: {
   badge: Badge;
+  state: NoteState | null;
   open: boolean;
   running: ReactNode;
   onToggle(): void;
@@ -403,7 +428,8 @@ function BadgePill({
   useFade(ref);
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const parts: ReactNode[] = [];
-  const said = [
+  const resting = state === null ? null : noteStateParts(state, t, language);
+  const said = resting ?? [
     ...badge.marks.map(({ part, count }) => {
       const shown = { count: format(count) };
       switch (part) {
@@ -437,6 +463,27 @@ function BadgePill({
       <span key="running" className="check-badge-running">
         <span className="check-badge-dot" aria-hidden="true" />
         {running}
+      </span>,
+    );
+  } else if (state && resting) {
+    parts.push(
+      <span key="state" className="check-badge-mark" data-part={state.mark} data-tone={state.tone}>
+        <StateMark state={state} />
+        <span className="check-badge-words">{resting[0]}</span>
+        {state.kind === "needs-look" && (
+          <span className="check-badge-short">{format(state.look)}</span>
+        )}
+        {state.kind === "checked" && state.checkedAt !== null && (
+          <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>
+        )}
+        {resting.slice(1).map((part) => (
+          <span key={part} className="check-badge-more">
+            <span className="check-badge-sep" aria-hidden="true">
+              ·
+            </span>
+            <span className="check-badge-unread">{part}</span>
+          </span>
+        ))}
       </span>,
     );
   } else {
@@ -474,7 +521,13 @@ function BadgePill({
     }
   }
   return (
-    <div ref={ref} className="check-badge" data-testid="check-badge">
+    <div
+      ref={ref}
+      className="check-badge"
+      data-testid="check-badge"
+      data-state={state?.kind}
+      data-tone={state?.tone}
+    >
       <button
         ref={anchorRef}
         type="button"

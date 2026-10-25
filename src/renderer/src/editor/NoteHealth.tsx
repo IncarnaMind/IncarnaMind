@@ -30,7 +30,6 @@ import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
-import { originOf } from "./blockOrigins";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
@@ -51,10 +50,13 @@ const NO_HEALTH: Health = {
   unsupported: [],
   contradicted: [],
   toCheck: [],
+  failed: [],
+  recheck: [],
+  kept: [],
   tableCells: [],
-  citable: [],
   noCitation: [],
   checkable: 0,
+  checkedAt: null,
 };
 
 /** A count's words with the number in bold, as the badge shows it: "**3** claims not checked yet". */
@@ -108,7 +110,6 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
             citationState(attributes, documents, kept).check,
           skipped,
           kept: keptSpans(editor.state),
-          writtenByAnswer: (blockId) => originOf(editor.state, blockId) !== null,
         }),
       );
     };
@@ -258,6 +259,13 @@ export function HealthCard({
         {rows.map(row)}
         {health.noCitation.length > 0 && row("noCitation")}
       </div>
+      {health.kept.length > 0 && (
+        <p data-testid="health-kept" className="mind-health-line">
+          {t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
+            count: format(health.kept.length),
+          })}
+        </p>
+      )}
       {health.tableCells.length > 0 && (
         <p data-testid="health-table-cells" className="mind-health-line">
           {t("health.tableCells", { count: format(health.tableCells.length) })}

@@ -89,6 +89,7 @@ import {
   type MeetingHelpKind,
   type Mind,
   type MindCitationStyle,
+  type MindContentSnapshot,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
@@ -3595,6 +3596,24 @@ export function createCore(adapters: CoreAdapters): Core {
         const text = lineUnderName(leading.get(mind.id) ?? [], mindName(mind));
         return text ? [{ mindId: mind.id, text }] : [];
       });
+    },
+    readMindContents: async (mindIds) => {
+      if (!Array.isArray(mindIds)) {
+        throw new InvalidInputError("A list of Mind ids must be an array.");
+      }
+      const found: MindContentSnapshot[] = [];
+      for (const mindId of mindIds) {
+        if (typeof mindId !== "string") {
+          throw new InvalidInputError("A Mind id must be text.");
+        }
+        try {
+          minds.get(mindId);
+          found.push({ mindId, state: content.storedState(mindId) });
+        } catch {
+          // A Mind deleted since Home listed it has no state to show.
+        }
+      }
+      return found;
     },
     searchDocumentText: async (query, options) => documents.searchText(query, options),
     renameConversation: async (conversationId, title) => {

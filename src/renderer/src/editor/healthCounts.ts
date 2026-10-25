@@ -43,10 +43,12 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
 
 /**
  * Where each part's sentences or Citations are, top to bottom: its count is
- * how many. `toCheck`: every claim no check covers now; `tableCells` and
- * `citable` are the parts of that count a table holds and that a Citation or
- * an Answer's words make (#1194, #1909); `checkable`: every claim a check
- * reads, to check or covered.
+ * how many. `toCheck`: every claim no check covers now, `failed` and
+ * `recheck` the parts of that count whose check failed or no longer holds;
+ * `kept`: the sentences the User keeps as their own view, which count as
+ * handled; `tableCells` are the parts of `toCheck` a table holds (#1194);
+ * `checkable`: every claim a check reads, to check or covered; `checkedAt`:
+ * the newest check among the claims one covers, for "Checked {time}" (D266).
  */
 export interface NoteHealth {
   found: number[];
@@ -54,10 +56,13 @@ export interface NoteHealth {
   unsupported: number[];
   contradicted: number[];
   toCheck: number[];
+  failed: number[];
+  recheck: number[];
+  kept: number[];
   tableCells: number[];
-  citable: number[];
   noCitation: number[];
   checkable: number;
+  checkedAt: string | null;
 }
 
 /** Blocks whose text isn't counted. */
@@ -81,8 +86,6 @@ export interface SentenceInput {
   skipped?: ReadonlySet<string>;
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
-  /** Whether an Answer wrote the block with this id. */
-  writtenByAnswer?: (blockId: unknown) => boolean;
 }
 
 export interface NoteHealthInput extends SentenceInput {
@@ -98,10 +101,8 @@ export interface SentencePlace {
   text: string;
   claim: ShownClaim | null;
   citations: { attributes: CitationAttributes; at: number; pos: number }[];
-  /** Its top-level Block's id: the one an Answer's origin names. */
+  /** Its top-level Block's id: what a write's "Check the rest" scopes itself to (#1909). */
   blockId: unknown;
-  /** An Answer wrote its block. */
-  answered: boolean;
   /** It is in a table cell. */
   inTable: boolean;
   state: CheckedSentence;
@@ -122,13 +123,11 @@ function eachSentence(
 ): void {
   const skipped = input.skipped ?? new Set<string>();
   const kept = input.kept ?? [];
-  const writtenByAnswer = input.writtenByAnswer ?? (() => false);
   doc.descendants((node, pos) => {
     if (UNCOUNTED.has(node.type.name) || proposed(node)) return false;
     if (!node.isTextblock) return true;
     if (node.type.name !== "paragraph") return false;
     const blockId = doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE];
-    const answered = writtenByAnswer(blockId);
     const { text, starts, ends, inline } = paragraphPlaces(node, pos, proposed);
     const citations = inline.flatMap(({ node: child, at, pos: place }) =>
       child.type.name === CITATION_NODE
@@ -154,7 +153,6 @@ function eachSentence(
         claim,
         citations: citations.filter((each) => each.at >= span.from && each.at < span.to),
         blockId,
-        answered,
         inTable: table,
         state,
       });
@@ -170,12 +168,15 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     unsupported: [],
     contradicted: [],
     toCheck: [],
+    failed: [],
+    recheck: [],
+    kept: [],
     tableCells: [],
-    citable: [],
     noCitation: [],
     checkable: 0,
+    checkedAt: null,
   };
-  eachSentence(doc, input, ({ from, text, claim, citations, answered, inTable: table, state }) => {
+  eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state }) => {
     for (const citation of citations) {
       const check = input.citationCheck(citation.attributes);
       if (check === "found") health.found.push(citation.pos);
@@ -184,13 +185,25 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     if (state.kind === "to-check") {
       health.checkable++;
       health.toCheck.push(from);
+      if (state.why === "failed") health.failed.push(from);
+      else if (state.why === "recheck") health.recheck.push(from);
       if (table) health.tableCells.push(from);
-      // A Citation, an Answer's words, or a check that failed or no longer holds shows the badge (#1194).
-      if (citations.length > 0 || answered || state.why !== "none") health.citable.push(from);
+      return;
+    }
+    if (state.kind === "kept") {
+      health.kept.push(from);
       return;
     }
     if (state.kind !== "covered" || !claim) return;
     health.checkable++;
+    const checkedAt = claim.check.checkedAt;
+    if (
+      checkedAt !== "" &&
+      !Number.isNaN(Date.parse(checkedAt)) &&
+      (health.checkedAt === null || Date.parse(checkedAt) > Date.parse(health.checkedAt))
+    ) {
+      health.checkedAt = checkedAt;
+    }
     if (claim.shown.state === "unsupported") health.unsupported.push(from);
     else if (claim.shown.state === "contradicted") health.contradicted.push(from);
     else if (isClaim(text) && citations.length === 0) health.noCitation.push(from);
@@ -198,7 +211,11 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
   return health;
 }
 
-/** Whether the card can say everything is checked: a sentence was checked, none is left, and no unsupported or contradicted sentence shows (#1909). */
+/**
+ * Whether the card can say everything is checked: a sentence was checked, none
+ * is left, and no unsupported, contradicted or not-found Citation shows
+ * (#1909; D266: the green says the same).
+ */
 export function everythingChecked(
   health: NoteHealth,
   { running, problem }: { running: boolean; problem: boolean },
@@ -209,7 +226,8 @@ export function everythingChecked(
     health.checkable > 0 &&
     health.toCheck.length === 0 &&
     health.unsupported.length === 0 &&
-    health.contradicted.length === 0
+    health.contradicted.length === 0 &&
+    health.notFound.length === 0
   );
 }
 
