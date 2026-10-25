@@ -118,7 +118,7 @@ import {
   type WebPageCall,
 } from "../api";
 import type { CallToDecide, ToolCallToApprove } from "../approvals";
-import type { AnswerRead, AnswerWrite, QuestionInput, Turn } from "../conversations";
+import type { AddedTurn, AnswerRead, AnswerWrite, QuestionInput, Turn } from "../conversations";
 import type { WindowedPassage } from "../documents/search";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
@@ -225,11 +225,18 @@ import type {
   GatedCall,
   ToolSet,
 } from "./engine";
-import { listenedTokens, newestWithin, withBeforeQuestion, withTranscript } from "./liveTranscript";
+import {
+  type LiveTranscript,
+  listenedTokens,
+  newestWithin,
+  withBeforeQuestion,
+  withTranscript,
+} from "./liveTranscript";
 import { markdownToBlocks } from "./markdown";
 import {
   FOUND_TOKEN_LIMIT,
   foundWithin,
+  LIVE_TEXT_BEHIND_NOTE,
   languageSaid,
   meetingHelpInstructions,
   newestSaid,
@@ -352,7 +359,12 @@ export interface AnswerConversations {
     input: Omit<QuestionInput, "onScreen">,
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
-  ): Turn;
+    emit?: boolean,
+  ): AddedTurn;
+  /** Emits a turn added with `emit: false`, once its Question can be asked. */
+  publish(turn: Turn): void;
+  /** Discards a turn added with `emit: false` when its Question can't be asked. */
+  discard(added: AddedTurn): void;
   /** The Question of an Answer, and the Tool calls it made, to write the Answer again; what is on screen now. */
   questionOf(input: unknown): {
     answerId: string;
@@ -367,6 +379,7 @@ export interface AnswerConversations {
     answerId: string,
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
+    emit?: boolean,
   ): Turn;
   /** Writes an Answer as it stands; false when it is gone: its conversation was deleted. */
   writeAnswer(answerId: string, write: AnswerWrite): boolean;
@@ -452,15 +465,18 @@ export interface AnswersOptions {
   readableMindName(mindId: string): string | null;
   /**
    * The live Transcript of the Meeting a Mind records now (#144), indexed up to now: its
-   * Passages in reading order; null when the Mind's Meeting isn't recording or has no lines yet.
+   * Passages in reading order, none while it has no line, and whether it is behind; null when the
+   * Mind's Meeting isn't recording.
    */
-  liveTranscript(mindId: string): Promise<WindowedPassage[] | null>;
+  liveTranscript(mindId: string): Promise<LiveTranscript | null>;
   /**
    * The help button a Question in a conversation is, asked from a Mind whose Meeting
    * records or is paused: its text is the button's name. Null for any other Question.
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
   providerExists(providerId: string): boolean;
+  /** The default model, before its readiness is checked. */
+  defaultModel(): ChatModelChoice | null;
   /** Whether Questions can be asked with this model (the default one when undefined). */
   readiness(choice: ChatModelChoice | undefined): Promise<ChatReadiness>;
   /** The model, once the User has accepted its data flow (see `Core.prepareChatModel`). */
@@ -498,6 +514,13 @@ export interface AnswersOptions {
   exampleDocuments?(mindId: string): string[] | null;
   /** What an Answer says when its Question's Search scope has no Documents to search. */
   emptyScopeAnswer(): string;
+  /**
+   * The line a help button's Answer starts with while its Meeting's live text is behind (#1366),
+   * in the User's language: that none of the call is written yet, or, with `lines`, that it rests
+   * on the lines so far. With no line there is nothing to answer from, so it is the whole Answer
+   * and the model isn't asked.
+   */
+  liveTextBehind(lines: boolean): string;
   /** The User's Skills. */
   skills: AnswerSkills;
   /** The assistant's conversations, which Answers are written into too. */
@@ -879,7 +902,7 @@ export function createAnswers(options: AnswersOptions) {
      * Asked from a Mind whose Meeting may be recording (#144): its live Transcript, indexed up
      * to now, to go with the Question. Absent: none.
      */
-    listening?: () => Promise<WindowedPassage[] | null>;
+    listening?: () => Promise<LiveTranscript | null>;
     /**
      * A Meeting's saved Transcript to fill its notes in from (#142): shown with the Question as
      * `listening` is, as much of it as fits half the model's window.
@@ -959,6 +982,8 @@ export function createAnswers(options: AnswersOptions) {
     let mindRequest = input.mind?.request;
     /** It listened to a meeting's live transcript: the Question went with it. */
     let listening = false;
+    /** Help asked while its Meeting's live text was behind (#1366). */
+    let textBehind = false;
     /** The Documents whose whole text went with the Question; null until the assistant's request is built. */
     let sentDocuments: Set<string> | null = null;
     /** The Documents the live transcript came from: the "listened" step names them. */
@@ -1059,6 +1084,7 @@ export function createAnswers(options: AnswersOptions) {
         ...(unbackedClaims.length > 0 && { unbackedClaims: [...unbackedClaims] }),
         ...(coverage && { coverage }),
         ...(writtenFrom && wroteNewText() && { writtenFrom }),
+        ...(textBehind && { textBehind: true as const }),
         ...(reading && { stillReading: reading }),
         ...(sentDocuments && {
           sent: {
@@ -1716,14 +1742,26 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       if (input.listening) {
-        let heard: WindowedPassage[] | null = null;
+        let heard: LiveTranscript | null = null;
         try {
           heard = await input.listening();
         } catch (error) {
           options.reportError(error);
         }
         if (finished) return;
-        const kept = newestWithin(heard ?? [], listenedTokens(prepared.window));
+        const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
+        if (help && heard?.behind) {
+          textBehind = true;
+          const text = options.liveTextBehind(kept.length > 0);
+          if (kept.length === 0) {
+            markdown = text;
+            announce("answer.delta", { ...place, answerId, text });
+            finish({ status: "done" });
+            return;
+          }
+          markdown = `${text}\n\n`;
+          announce("answer.delta", { ...place, answerId, text: markdown });
+        }
         if (kept.length > 0) {
           messages = withTranscript(messages, session.show(kept));
           listening = true;
@@ -2213,11 +2251,14 @@ export function createAnswers(options: AnswersOptions) {
         messages: help
           ? withHelp(
               messages,
-              meetingHelpInstructions(help, {
-                found: foundAhead,
-                language: options.interfaceLanguage(),
-                callLanguage,
-              }),
+              [
+                meetingHelpInstructions(help, {
+                  found: foundAhead,
+                  language: options.interfaceLanguage(),
+                  callLanguage,
+                }),
+                ...(textBehind ? [LIVE_TEXT_BEHIND_NOTE] : []),
+              ].join("\n\n"),
             )
           : messages,
         ...(mindRequest && { mind: mindRequest }),
@@ -2915,31 +2956,57 @@ export function createAnswers(options: AnswersOptions) {
     },
 
     /**
-     * Asks a Question in a conversation (see `CoreApi.askInConversation`): nothing is
-     * kept unless it can be asked.
+     * Asks a Question in a conversation (see `CoreApi.askInConversation`). Its turn is
+     * committed before model readiness is awaited, so a quit can't lose it. A turn whose
+     * model or Skill can't be asked is discarded without being published.
      */
     async askInConversation(question: QuestionInput): Promise<ConversationAskResult> {
-      const ready = await readyModel(question.model, question.forcedSkill);
-      if ("asked" in ready) return ready;
-      // From here on nothing awaits, so the conversation and the Mind can't change underneath.
       const scope = options.searchedScope(question.scope, question.mind?.id ?? null);
-      const { documentIds, emptyScope } = scopeNow(scope, question.mind?.id ?? null);
       const mind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
       const quotes = checkQuotes(question.quotes);
-      const turn = options.conversations.add(
+      const answerModel =
+        question.model && options.providerExists(question.model.providerId)
+          ? question.model
+          : options.defaultModel();
+      const added = options.conversations.add(
         { ...question, scope, quotes: quotes.quoted.map((each) => each.quote) },
-        ready.model,
+        answerModel,
         readOf(mind),
+        false,
       );
-      return startInConversation(
-        turn,
-        ready,
-        documentIds,
-        emptyScope,
-        mind,
-        question.onScreen,
-        quotes,
-      );
+      const { turn } = added;
+      let published = false;
+      try {
+        const ready = await readyModel(question.model, question.forcedSkill);
+        if ("asked" in ready) {
+          options.conversations.discard(added);
+          return ready;
+        }
+        const readyMind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
+        // The Documents can change while readiness waits: search and quote them as they are now.
+        const { documentIds, emptyScope } = scopeNow(scope, question.mind?.id ?? null);
+        const checked = checkQuotes(question.quotes);
+        const readyTurn = options.conversations.restartAnswer(
+          turn.answer.id,
+          ready.model,
+          readOf(readyMind),
+          false,
+        );
+        options.conversations.publish(readyTurn);
+        published = true;
+        return startInConversation(
+          readyTurn,
+          ready,
+          documentIds,
+          emptyScope,
+          readyMind,
+          question.onScreen,
+          checked,
+        );
+      } catch (error) {
+        if (!published) options.conversations.discard(added);
+        throw error;
+      }
     },
 
     /** Writes an Answer of a conversation again, in place (see `CoreApi.regenerateConversationAnswer`). */

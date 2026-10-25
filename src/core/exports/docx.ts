@@ -35,6 +35,7 @@ import type { ExportLabels } from "./labels";
 import { latexToOmml, MATH_NAMESPACE } from "./math";
 import { changedElement, formatChanges } from "./paragraphFormat";
 import {
+  bookmarked,
   COMMENTS_CONTENT_TYPE,
   COMMENTS_RELATIONSHIP,
   type CommentStyles,
@@ -44,6 +45,8 @@ import {
   footnote,
   footnoteReference,
   footnotesPart,
+  noteBookmark,
+  noteNumber,
   R_NAMESPACE,
   type RunFormat,
   run,
@@ -105,6 +108,18 @@ const RELATIONSHIP = {
 
 const MAIN_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml";
 
+/**
+ * Stand in for a cross-reference's number until `DocxWriter.finish` knows it. XML can't hold
+ * these two characters, so `escapeXml` takes them out of the User's text: nothing they wrote can
+ * look like a mark, and `finish` replaces nothing but its own.
+ */
+const NUMBER_OPEN = "\u0001";
+const NUMBER_CLOSE = "\u0002";
+const NUMBER_MARK = new RegExp(`${NUMBER_OPEN}(\\d+)${NUMBER_CLOSE}`, "g");
+/** A note's mark in the text, as `footnoteReference` writes it. */
+const NOTE_MARK =
+  /<w:r><w:rPr><w:rStyle w:val="[^"]*"\/><\/w:rPr><w:footnoteReference w:id="(\d+)"\/><\/w:r>/g;
+
 /** One level of a list, or of a quote, indents this much (half an inch). */
 const INDENT = 720;
 /** A list item's number or bullet hangs this far left of its text. */
@@ -126,11 +141,12 @@ export function renderDocx(
   const writer = new DocxWriter(options.labels, paper.width - 2 * MARGIN, target, review);
   const body = writer.body(blocks);
 
-  const document =
+  const document = writer.finish(
     `${XML_DECLARATION}<w:document xmlns:w="${NS.w}" xmlns:r="${NS.r}" xmlns:wp="${NS.wp}" xmlns:a="${NS.a}" xmlns:pic="${NS.pic}" xmlns:m="${NS.m}"><w:body>` +
-    body +
-    `<w:sectPr><w:pgSz w:w="${paper.width}" w:h="${paper.height}"/><w:pgMar w:top="${MARGIN}" w:right="${MARGIN}" w:bottom="${MARGIN}" w:left="${MARGIN}" w:header="${HEADER_AND_FOOTER_DISTANCE}" w:footer="${HEADER_AND_FOOTER_DISTANCE}" w:gutter="0"/></w:sectPr>` +
-    "</w:body></w:document>";
+      body +
+      `<w:sectPr><w:pgSz w:w="${paper.width}" w:h="${paper.height}"/><w:pgMar w:top="${MARGIN}" w:right="${MARGIN}" w:bottom="${MARGIN}" w:left="${MARGIN}" w:header="${HEADER_AND_FOOTER_DISTANCE}" w:footer="${HEADER_AND_FOOTER_DISTANCE}" w:gutter="0"/></w:sectPr>` +
+      "</w:body></w:document>",
+  );
 
   const comments = review?.comments ?? [];
   const relationships = [
@@ -243,6 +259,8 @@ export interface DocxTarget {
   picture(picture: NewPicture): { id: string; name: string };
   /** A numbering instance for a list at `level` that starts at `start`: its numId. */
   list(ordered: boolean, level: number, start: number): number;
+  /** The bookmark around a note's mark that later Citations refer to: a name the file doesn't have. */
+  noteBookmark(note: number): string;
 }
 
 /** A new document: links, pictures and lists numbered from 1, in the order they are written. */
@@ -288,6 +306,10 @@ class NewDocxTarget implements DocxTarget {
     this.lists.push({ ordered, level, start });
     return this.lists.length;
   }
+
+  noteBookmark(note: number): string {
+    return noteBookmark(note);
+  }
 }
 
 /** Where Blocks are being written. */
@@ -306,12 +328,19 @@ interface Context {
   align: TableAlign;
   /** In a footnote's text, whose links are the footnotes part's. */
   note?: boolean;
+  /** In a Block a change still waiting gives or takes away, whose Citations share no note. */
+  pending?: boolean;
 }
 
 export interface List {
   ordered: boolean;
   level: number;
   start: number;
+}
+
+/** The context of a Block a change still waiting gives or takes away: its Citations share no note. */
+function pendingContext(block: Block, context: Context): Context {
+  return block.inserted || block.deleted ? { ...context, pending: true } : context;
 }
 
 /**
@@ -322,6 +351,7 @@ export interface List {
 export class DocxWriter {
   readonly footnotes: string[] = [];
   private readonly styles: DocxStyles;
+  private readonly notes = new Map<string, { id: number; text: string; reused: boolean }>();
 
   constructor(
     private readonly labels: ExportLabels,
@@ -378,7 +408,7 @@ export class DocxWriter {
   private blocks(blocks: readonly Block[], context: Context): string {
     let xml = "";
     for (const block of blocks) {
-      const next = this.tracked(this.block(block, context), block, true);
+      const next = this.tracked(this.block(block, pendingContext(block, context)), block, true);
       // Two tables in a row would merge into one.
       if (xml.endsWith("</w:tbl>") && next.startsWith("<w:tbl>")) xml += "<w:p/>";
       xml += next;
@@ -532,10 +562,20 @@ export class DocxWriter {
   private cite(item: Extract<Inline, { kind: "cite" }>, context: Context): string {
     const marker = item.unverified ? run(` ${this.labels.unverified}`, { bold: true }) : "";
     if (!item.note || context.note) return this.styled(item.runs, context.note) + marker;
+    const shared = item.of !== undefined && !item.inserted && !item.deleted && !context.pending;
+    const key = shared ? `style\n${item.of}` : null;
+    const text = item.runs.map((each) => each.text).join("") + marker;
+    const first = key === null ? undefined : this.notes.get(key);
+    // A style's own form for a repeat ("Id.", a short note) differs from the first note's: it wins.
+    if (first?.text === text) {
+      first.reused = true;
+      return this.noteNumber(first.id);
+    }
     const id = this.target.ids.take("footnote");
     this.footnotes.push(
       footnote(id, run(" ") + this.styled(item.runs, true) + marker, this.styles.footnote),
     );
+    if (key !== null && !first) this.notes.set(key, { id, text, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
 
@@ -554,17 +594,27 @@ export class DocxWriter {
     for (const item of block.items) {
       const [first, ...rest] = item;
       if (first?.kind === "paragraph")
-        xml += this.tracked(numbered(this.inline(first.content, context)), first, true);
+        xml += this.tracked(
+          numbered(this.inline(first.content, pendingContext(first, context))),
+          first,
+          true,
+        );
       else xml += numbered("");
       for (const child of first?.kind === "paragraph" ? rest : item) {
         xml += this.tracked(
           child.kind === "list"
-            ? this.list(child, { ...context, listDepth: context.listDepth + 1 })
-            : this.block(child, {
-                ...context,
-                indent: textIndent,
-                style: this.styles.listParagraph,
-              }),
+            ? this.list(
+                child,
+                pendingContext(child, { ...context, listDepth: context.listDepth + 1 }),
+              )
+            : this.block(
+                child,
+                pendingContext(child, {
+                  ...context,
+                  indent: textIndent,
+                  style: this.styles.listParagraph,
+                }),
+              ),
           child,
           true,
         );
@@ -609,6 +659,7 @@ export class DocxWriter {
               bold: each.header,
               width: column * each.colspan,
               align: each.align,
+              pending: context.pending,
             });
         // A cell ends with a paragraph.
         xml += cell(
@@ -697,7 +748,12 @@ export class DocxWriter {
             const apart = before?.kind === "text" && /\S$/.test(before.text);
             xml += this.source(item.footnote, apart ? " " : "");
           } else {
-            const reference = this.footnote(item.footnote);
+            const reference = this.footnote(
+              item.footnote,
+              !item.inserted && !item.deleted && !context.pending,
+              item.work.documentId,
+              item.work.contentHash ?? null,
+            );
             xml += this.review ? this.review.failed(reference, [item.footnote]) : reference;
           }
           break;
@@ -719,11 +775,62 @@ export class DocxWriter {
     return xml;
   }
 
-  /** A Citation's footnote, and the reference to it in the text. */
-  private footnote(citation: Footnote): string {
+  private footnote(
+    citation: Footnote,
+    shared: boolean,
+    documentId: string | null,
+    version: string | null,
+  ): string {
+    const key = shared
+      ? `numbered\n${documentId ?? ""}\n${version ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}`
+      : null;
+    const first = key === null ? undefined : this.notes.get(key);
+    if (first) {
+      first.reused = true;
+      return this.noteNumber(first.id);
+    }
     const id = this.target.ids.take("footnote");
     this.footnotes.push(footnote(id, this.source(citation, " "), this.styles.footnote));
+    if (key !== null) this.notes.set(key, { id, text: "", reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
+  }
+
+  private noteNumber(id: number): string {
+    return noteNumber(
+      this.target.noteBookmark(id),
+      `${NUMBER_OPEN}${id}${NUMBER_CLOSE}`,
+      this.styles.footnote.reference,
+    );
+  }
+
+  /**
+   * The document part once everything is written: the notes that later Citations refer to get
+   * their bookmark, and each cross-reference shows its note's number in the text as Word will
+   * count it. A note whose mark isn't in the document is an error: a reference to it would
+   * show Word's "Error! Reference source not found."
+   */
+  finish(document: string): string {
+    const reused = new Set<number>();
+    for (const note of this.notes.values()) if (note.reused) reused.add(note.id);
+    if (reused.size === 0) return document;
+    const bookmarkedNotes = new Set<number>();
+    const out = document.replace(NOTE_MARK, (found, id: string) => {
+      const note = Number(id);
+      if (!reused.has(note) || bookmarkedNotes.has(note)) return found;
+      bookmarkedNotes.add(note);
+      return bookmarked(this.target.ids.take("annotation"), this.target.noteBookmark(note), found);
+    });
+    for (const id of reused) {
+      if (!bookmarkedNotes.has(id)) {
+        throw new Error(`The footnote ${id} isn't in the document it is cited from.`);
+      }
+    }
+    const numbers = new Map<number, number>();
+    for (const found of out.matchAll(/<w:footnoteReference\b[^>]*\bw:id="(\d+)"/g)) {
+      const id = Number(found[1]);
+      if (!numbers.has(id)) numbers.set(id, numbers.size + 1);
+    }
+    return out.replaceAll(NUMBER_MARK, (_, id: string) => String(numbers.get(Number(id)) ?? id));
   }
 
   /** A Citation's source, after `before`, e.g. "Tides, p. 2", and "[unverified]" in bold. */

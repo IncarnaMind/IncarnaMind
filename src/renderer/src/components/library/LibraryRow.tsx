@@ -3,7 +3,7 @@ import type { Document, ReferenceField, ReferenceRecord } from "../../../../core
 import { displayName, sourceOf } from "../../../../shared/documentNames";
 import { missingDetails, needsCheck } from "../../../../shared/references";
 import { commands } from "../../commands/registry";
-import { useDragSource } from "../../dragDrop";
+import { useDraggedRef, useDragSource } from "../../dragDrop";
 import { useLanguage, useT } from "../../i18n";
 import { FORMAT_LABELS } from "../../libraryFilters";
 import { addedLabel, foundLine, type SearchMatch } from "../../libraryPage";
@@ -24,7 +24,7 @@ import { LibrarySelectBox } from "../LibrarySelection";
 import { DocumentLineIcon, FolderLineIcon } from "../lineIcons";
 import { Marked } from "../Marked";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
-import { rowActionButtonClass } from "../sidebarRows";
+import { draggedRowClass, rowActionButtonClass } from "../sidebarRows";
 import { ReviewRing } from "../TagColour";
 import { useTabPlace } from "../tabs/tabItems";
 import { DocumentFix } from "./DocumentFix";
@@ -53,12 +53,15 @@ export const COLUMN_CLASSES = {
 
 /**
  * A row of the page: 40px folded, washed when pointed at, its focus ring
- * around the whole row, as while its Tags or its menu are open over it.
+ * around the whole row, as while its Tags or its menu are open over it; one
+ * a drag carries is quieter and not washed.
  */
-export const pageRowClass = (selected: boolean) =>
+export const pageRowClass = (selected: boolean, dragged = false) =>
   `group/row relative border-b border-rule ${
-    selected ? "bg-accent-wash" : "hover:bg-frame"
-  } has-[[data-row-main]:focus-visible]:shadow-[inset_0_0_0_2px_var(--color-accent)] has-[:popover-open]:shadow-[inset_0_0_0_2px_var(--color-accent)]`;
+    selected ? "bg-accent-wash" : dragged ? "" : "hover:bg-frame"
+  } has-[[data-row-main]:focus-visible]:shadow-[inset_0_0_0_2px_var(--color-accent)] has-[:popover-open]:shadow-[inset_0_0_0_2px_var(--color-accent)] ${
+    dragged ? draggedRowClass : ""
+  }`;
 
 /** Keeps the preview showing a Document, if one does. */
 function keepPreviewOf(documentId: string): void {
@@ -190,6 +193,7 @@ export const LibraryRow = memo(function LibraryRow({
   };
   const menuButton = () => row.current?.querySelector<HTMLElement>("[data-object-menu]") ?? null;
   const dragSource = useDragSource(() => rowDrag({ kind: "document", id: doc.id }, "library"));
+  const dragged = useDraggedRef({ kind: "document", id: doc.id });
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     objectMenu.rowProps.onKeyDown(event);
@@ -227,6 +231,7 @@ export const LibraryRow = memo(function LibraryRow({
       data-testid={review ? "library-review-document" : "library-document"}
       data-document-id={doc.id}
       data-suggested={suggestedIn !== null ? "" : undefined}
+      data-dragging={dragged || undefined}
       role="row"
       {...select.rowProps}
       {...peek.rowProps}
@@ -246,7 +251,7 @@ export const LibraryRow = memo(function LibraryRow({
         if (target?.closest(OWN_CLICKS) || target?.closest("[data-row-cell=tags]")) return;
         select.onClick(event);
       }}
-      className={`${pageRowClass(select.selected)} cursor-default`}
+      className={`${pageRowClass(select.selected, dragged)} cursor-default`}
     >
       <LibrarySelectBox document={doc} />
       <div

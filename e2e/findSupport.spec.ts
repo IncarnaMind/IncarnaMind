@@ -181,6 +181,43 @@ test("Find support on two sentences: one is supported and its Citation is added,
   await expect(editor).toContainText("Gulls nest on the harbour cliffs.");
 });
 
+test("a card opened while its sentence is still checking stays open when the result arrives, until Esc, and a click after it opens it again", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  // "slowly" makes the scripted check report slowly, so the card is opened while it checks.
+  const { line } = await mindWithSentences(window, [`${UNSUPPORTED.slice(0, -1)} slowly.`]);
+  await setWindowSize(app, window, 1440, 900);
+  await checkAll(window, line, "Penguins", "slowly.", "find-support");
+
+  // Clicked while it checks, its card opens.
+  const checking = marks(window).and(window.locator('[data-check="checking"]'));
+  await expect(checking).toHaveCount(1);
+  await pointAndClick(window, checking);
+  const card = window.getByTestId("claim-card");
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute("data-check", "checking");
+
+  // The result arriving keeps the card open, showing it.
+  const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
+  await expect(unsupported).toHaveCount(1);
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute("data-check", "unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-nothing")).toHaveText(
+    "I didn’t find this in “All Documents”.",
+  );
+
+  // Esc closes it; a click after the check opens it again, and Esc closes that too.
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+  await pointAndClick(window, unsupported);
+  await expect(card).toHaveAttribute("data-check", "unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+  await app.close();
+});
+
 test("In Chinese and a narrow window: Check against Documents marks a contradiction and a sentence it couldn't check", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);

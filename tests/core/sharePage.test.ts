@@ -352,7 +352,7 @@ describe("a web page to share (#72)", { timeout: 60_000 }, () => {
     expect(document.querySelector("main")?.textContent).toContain("Leverage was 3.1×1.");
 
     const note = document.getElementById("note-1")?.textContent?.replace(/↩︎/, "");
-    expect(note).toBe(`Northwind results, p. 2 · “${QUOTES.pdf}”`);
+    expect(note).toBe(`1 · Northwind results, p. 2 · “${QUOTES.pdf}”`);
     expect(document.getElementById("note-10")?.textContent).toContain(
       "“Gross margin rose to 44%” · Quote not found in § Results",
     );
@@ -370,6 +370,41 @@ describe("a web page to share (#72)", { timeout: 60_000 }, () => {
     expect(document.querySelector(".shared-foot")?.textContent).toBe(
       "Made with IncarnaMind · Checked on 13 Oct 2026: 9 of 11 quotes found on their pages. Each other Citation’s card says why.",
     );
+  });
+
+  test("the notes list is compact: each line numbered, in the page's small sans, and linked back to its Citation", () => {
+    const en = pageOf([card("found"), card("found")]);
+    const styles = en.document.querySelector("style")?.textContent ?? "";
+    const ruleOf = (selector: string) =>
+      [...styles.matchAll(new RegExp(`${selector}\\{([^}]*)\\}`, "g"))]
+        .map((match) => match[1] ?? "")
+        .find((rule) => rule.includes("font-size:12px")) ?? "";
+    const rule = ruleOf("\\.notes");
+    expect(rule).toContain("font-family:var(--sans)");
+    expect(rule).toContain("font-size:12px");
+    expect(rule).toContain("color:var(--ink-meta)");
+    const heading = ruleOf("\\.notes h2");
+    expect(heading).toContain("font-size:12px");
+    expect(heading).toContain("color:var(--ink-meta)");
+    expect(en.document.querySelector(".notes")?.getAttribute("class")).toBe("notes notes-compact");
+    expect(en.document.querySelector(".notes h2")?.textContent).toBe("Notes");
+    const lines = [...en.document.querySelectorAll(".notes li")];
+    expect(lines.map((line) => line.textContent?.replace(/↩︎/, ""))).toEqual([
+      "1 · Tides · “Spring tides come twice a month”",
+      "2 · Tides · “Spring tides come twice a month”",
+    ]);
+    lines.forEach((line, index) => {
+      const number = index + 1;
+      expect(line.getAttribute("id")).toBe(`note-${number}`);
+      expect(line.querySelector("a.backref")?.getAttribute("href")).toBe(`#ref-${number}`);
+      const marker = en.document.querySelector(`main a.cite[href="#note-${number}"]`);
+      expect(marker?.getAttribute("href")).toBe(`#note-${number}`);
+      expect(marker?.getAttribute("data-card")).toBe(String(number));
+    });
+
+    const zh = pageOf([card("found")], { language: "zh-CN" });
+    expect(zh.document.querySelector(".notes h2")?.textContent).toBe("注释");
+    expect(zh.document.querySelector(".notes li")?.textContent).toContain("1 · Tides · “");
   });
 
   test("a quote not found, a contradicted claim and a deleted Document each say so", async () => {
