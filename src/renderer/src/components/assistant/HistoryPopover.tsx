@@ -6,6 +6,7 @@ import { conversationName, mindName } from "../../../../shared/naming";
 import { useConversations } from "../../conversations";
 import { Popover } from "../../editor/Popover";
 import { useLanguage, useT } from "../../i18n";
+import { noteRememberedFor } from "../../noteChats";
 import { useShownPages } from "../../shownPages";
 import { useAppStore } from "../../store";
 import { CloseLineIcon, HistoryLineIcon } from "../lineIcons";
@@ -70,7 +71,8 @@ export function HistoryPopover({ anchor, onClose }: { anchor: Element; onClose()
         ) : (
           <ul aria-label={t("assistant.history")} className="assistant-history-list">
             {conversations.map((conversation) => {
-              const noteId = noteOf.get(conversation.id);
+              // The open note's own link first: it is what the note says now.
+              const noteId = noteOf.get(conversation.id) ?? noteRememberedFor(conversation.id);
               const note = noteId ? minds.find((each) => each.id === noteId) : undefined;
               const name =
                 (note && mindName(note)) ||

@@ -51,6 +51,7 @@ import { core } from "./core";
 import { flashBlocks } from "./editor/blockOrigins";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { notePlace } from "./editor/notePlace";
+import { rememberNoteChat } from "./noteChats";
 import { exampleMindIds, useAppStore } from "./store";
 import { answerUndoPlace, useUndo } from "./undo";
 
@@ -142,6 +143,7 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
   };
   const ids = addInEditor(editor, checked, read.cursorInMind(), bringScope);
   if (!ids) return true;
+  rememberNoteChat(mindId, added.answer.conversationId);
   setOrigins(doc, ids, originOf(added));
   flashBlocks(editor, ids);
   const { model } = added.answer;
@@ -175,6 +177,7 @@ async function addToOtherMind(added: AddedAnswer, mindId: string, openIt: boolea
     origin: originOf(added),
     model: added.answer.model,
   });
+  rememberNoteChat(mindId, added.answer.conversationId);
   const mind = nameOfMind(mindId, added.blocks);
   useUndo.getState().push({
     said: (t) => t("answer.added", { mind: mind || t("mind.untitled") }),
@@ -227,6 +230,7 @@ async function addToNewMind(added: AddedAnswer): Promise<void> {
   const taken = useAppStore.getState().minds.map((mind) => mindName(mind));
   const mind = await newMindFor(added, numberedName(named, taken) ?? given);
   const { blockIds } = await putIn(mind.id, added);
+  rememberNoteChat(mind.id, added.answer.conversationId);
   await openBeside(mind.id);
   const name = nameOfMind(mind.id, added.blocks);
   useUndo.getState().push({

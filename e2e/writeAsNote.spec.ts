@@ -216,6 +216,12 @@ for (const language of LANGUAGES) {
     await expect(menu).toHaveCount(0);
     await expect(window.getByTestId("assistant-question").last()).toContainText(w.question);
 
+    // The note closed, its title stays in History: the note's chat is remembered on this computer.
+    await pointAndClick(
+      window,
+      window.getByRole("tab", { selected: true }).getByTestId("tab-close"),
+    );
+    await expect(window.getByTestId("mind-tab")).toHaveCount(0);
     await pointAndClick(window, window.getByTestId("assistant-title"));
     const rows = window
       .getByTestId("assistant-history-popover")

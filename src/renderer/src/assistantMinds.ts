@@ -5,6 +5,7 @@
  * conversation leave their tabs as they are.
  */
 import { core } from "./core";
+import { rememberNoteChat } from "./noteChats";
 import { useAppStore } from "./store";
 
 /** Answers to Questions asked in this window, still being written. */
@@ -23,7 +24,9 @@ core.on("conversation.message", (message) => {
     // As soon as it is made: its text may still be coming in (#202).
     const made =
       call.status !== "failed" && call.mindChange?.created ? call.mindChange.mindId : null;
-    if (!made || opened.has(made)) continue;
+    if (!made) continue;
+    rememberNoteChat(made, message.conversationId);
+    if (opened.has(made)) continue;
     opened.add(made);
     useAppStore
       .getState()
