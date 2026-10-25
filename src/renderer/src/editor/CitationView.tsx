@@ -557,7 +557,7 @@ function CitationCard({
   // under the name says the place, so the name stands alone.
   const source =
     checked || withPdfPage
-      ? where
+      ? where || place
         ? name
         : null
       : where

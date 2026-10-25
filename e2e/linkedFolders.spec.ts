@@ -345,7 +345,7 @@ test("two files with one name show where each is, and a Linked folder's row open
     const api = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     const documents = await api.listDocuments();
     const idAt = (place: string) =>
-      documents.find((document) => document.path.endsWith(place))?.id ?? "";
+      documents.find((document) => document.path.replace(/\\/g, "/").endsWith(place))?.id ?? "";
     return {
       report2025: idAt("same-name/2025/Annual-Report.md"),
       report2026: idAt("same-name/2026/Annual-Report.md"),

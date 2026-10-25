@@ -275,11 +275,51 @@ export const OTHER_DOCUMENTS = "other";
 /** What the Library asks for to show one Linked folder's Documents: its row's click (#1507). */
 export const sourceRequest = (linkedFolderId: string) => `source:${linkedFolderId}`;
 
+/**
+ * Each Linked folder's name, with enough of the path above it to tell apart folders whose names
+ * are alike, as two "Reading" folders are.
+ */
+function sourceNames(
+  linkedFolders: readonly Pick<LinkedFolder, "id" | "path">[],
+): Map<string, string> {
+  const names = new Map<string, string>();
+  const byName = new Map<string, Pick<LinkedFolder, "id" | "path">[]>();
+  for (const linked of linkedFolders) {
+    const name = fileNameOf(linked.path);
+    const group = byName.get(name);
+    if (group) group.push(linked);
+    else byName.set(name, [linked]);
+  }
+  const foldersOf = (path: string) => path.split(/[\\/]/).filter(Boolean).slice(0, -1);
+  for (const [name, group] of byName) {
+    const only = group[0];
+    if (group.length === 1 && only) {
+      names.set(only.id, name);
+      continue;
+    }
+    const places = group.map((linked) => foldersOf(linked.path));
+    let deepest = 0;
+    for (const place of places) deepest = Math.max(deepest, place.length);
+    const label = (place: string[], upTo: number) => place.slice(-upTo).join(" / ");
+    let depth = 1;
+    while (
+      depth < deepest &&
+      new Set(places.map((place) => label(place, depth))).size < group.length
+    )
+      depth++;
+    group.forEach((linked, at) => {
+      const place = label(places[at] ?? [], depth);
+      names.set(linked.id, place ? `${place} / ${name}` : name);
+    });
+  }
+  return names;
+}
+
 /** By Source location (#1507): each Linked folder, by its folder's name, then Other Documents. */
 export function sourceFacet(
   linkedFolders: readonly Pick<LinkedFolder, "id" | "path">[],
 ): LibraryFacet<Document> {
-  const names = new Map(linkedFolders.map((linked) => [linked.id, fileNameOf(linked.path)]));
+  const names = sourceNames(linkedFolders);
   const order = [...linkedFolders.map((linked) => linked.id), OTHER_DOCUMENTS];
   return {
     id: "source",

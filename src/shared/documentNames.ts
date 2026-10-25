@@ -137,13 +137,20 @@ export function whereShown(documents: readonly NamedDocument[]): Map<string, str
     const most = distinct(deepest);
     let depth = 1;
     while (depth < deepest && distinct(depth) < most) depth++;
+    const twins = new Map<string, number>();
+    for (const place of places) {
+      const key = label(place, depth);
+      twins.set(key, (twins.get(key) ?? 0) + 1);
+    }
     const seen = new Map<string, number>();
     group.forEach((document, index) => {
       const place = label(places[index] ?? [], depth);
       const count = (seen.get(place) ?? 0) + 1;
       seen.set(place, count);
-      const twins = places.filter((other) => label(other, depth) === place).length;
-      where.set(document.id, twins > 1 ? (count > 1 ? `${place} (${count})` : place) : place);
+      where.set(
+        document.id,
+        (twins.get(place) ?? 0) > 1 ? (count > 1 ? `${place} (${count})` : place) : place,
+      );
     });
   }
   return where;
