@@ -273,7 +273,7 @@ jobs:
         run: |
           trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
           for number in 98 99; do
-            Xvfb ":$number" -screen 0 1920x1080x24 -nolisten tcp &
+            Xvfb ":$number" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
             for _ in $(seq 100); do [ -S "/tmp/.X11-unix/X$number" ] && break; sleep 0.2; done
             test -S "/tmp/.X11-unix/X$number"
           done
