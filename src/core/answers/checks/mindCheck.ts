@@ -159,7 +159,7 @@ export function createMindCheck(options: MindCheckOptions) {
     if (unsorted.length > 0) {
       const found = await claimsAmong(
         prepared,
-        unsorted.map((sentence) => sentence.text),
+        unsorted.map((sentence) => sentence.claim),
         "own",
         signal,
       );
@@ -395,8 +395,9 @@ export function createMindCheck(options: MindCheckOptions) {
         return [
           {
             id: mark.id,
-            claim: sentence.text,
+            claim: sentence.claim,
             context: sentence.context,
+            table: sentence.table,
             cited: options.citedNow(sentence.cited),
             scope: within.scope,
           },

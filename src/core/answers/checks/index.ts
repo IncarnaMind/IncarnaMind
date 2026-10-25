@@ -463,8 +463,9 @@ export function createChecks(options: ChecksOptions) {
         markSentence(sentence.element, sentence.from, sentence.to, check);
         return {
           id: check.id,
-          claim: sentence.text,
+          claim: sentence.claim,
           context: sentence.context,
+          table: sentence.table,
           cited: sentence.cited,
         };
       });
@@ -481,6 +482,7 @@ export function createChecks(options: ChecksOptions) {
       const result = await claimCheck({
         claim: sentence.claim,
         context: sentence.context,
+        table: sentence.table,
         cited: input.action === "check-against-documents" ? citedNow(sentence.cited) : [],
         scope: evidenceScope,
         model: ready.prepared,

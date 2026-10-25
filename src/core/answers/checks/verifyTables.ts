@@ -9,7 +9,7 @@ import type { PagePart } from "../../documents/extract";
 import { findTables, scannedRows, type TableGrid } from "../../documents/tables";
 import type { NodeJSON } from "../blocks";
 import { paragraphsOf } from "./claims";
-import { type SelectedSentence, textOf } from "./sentences";
+import { cellTexts, type SelectedSentence, textBefore } from "./sentences";
 
 /** A Block the PDF's text makes, with the page of each of its rows (one for a paragraph). */
 export interface DocumentBlock {
@@ -121,12 +121,6 @@ function tableNode({ headings, rows, numeric }: TableGrid): NodeJSON {
   };
 }
 
-const cellsOf = (row: Y.XmlElement) =>
-  row.toArray().map((each) => {
-    const paragraph = each instanceof Y.XmlElement ? each.toArray()[0] : null;
-    return paragraph instanceof Y.XmlElement ? textOf(paragraph).trim() : "";
-  });
-
 const isSection = (texts: readonly string[]) =>
   /[:：]$/.test(texts[0] ?? "") && texts.slice(1).every((text) => text === "");
 
@@ -143,7 +137,7 @@ export function tableClaim(
   const table = row instanceof Y.XmlElement ? row.parent : null;
   if (!(cell instanceof Y.XmlElement && row instanceof Y.XmlElement)) return null;
   if (!(table instanceof Y.XmlElement && table.nodeName === "table")) return null;
-  const texts = cellsOf(row);
+  const texts = cellTexts(row);
   const anchor = texts.findIndex((text) => text !== "");
   if (cell.nodeName === "tableHeader" || row.toArray().indexOf(cell) !== anchor) {
     return "not-a-claim";
@@ -155,7 +149,7 @@ export function tableClaim(
     first instanceof Y.XmlElement && first.toArray()[0] instanceof Y.XmlElement
       ? (first.toArray()[0] as Y.XmlElement).nodeName === "tableHeader"
       : false;
-  const headings = headed && first ? cellsOf(first) : [];
+  const headings = headed && first ? cellTexts(first) : [];
   const label = anchor === 0 ? texts[0] : "";
   const values = texts.flatMap((text, column) => {
     if (text === "" || (label && column === 0)) return [];
@@ -163,10 +157,8 @@ export function tableClaim(
     return [heading ? `${heading}: ${text}` : text];
   });
   if (values.length === 0) return "not-a-claim";
-  const section = rows.slice(0, rows.indexOf(row)).reverse().map(cellsOf).find(isSection)?.[0];
-  const before = table.prevSibling;
-  const caption =
-    before instanceof Y.XmlElement && before.nodeName !== "table" ? textOf(before).trim() : "";
+  const section = rows.slice(0, rows.indexOf(row)).reverse().map(cellTexts).find(isSection)?.[0];
+  const caption = textBefore(table);
   const claim = `${label ? `${label} — ` : ""}${values.join("; ")}`;
   const context = [caption, section].filter((each) => each).join("\n");
   return { claim, context: context || claim };

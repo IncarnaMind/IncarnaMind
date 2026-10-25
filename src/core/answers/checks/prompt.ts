@@ -115,23 +115,33 @@ export function checkInstructions(
   }
 }
 
-/** The message a check Run is given: the sentence, its paragraph, and what it already cites. */
+// Read alone, a cell such as "100" was Unsupported for naming no item, year or unit (#1459).
+const tableAround = (table: string, intro: string) => [intro, `<table>\n${table}\n</table>`, ""];
+
+/** The message a check Run is given: the sentence, its paragraph or table, and what it already cites. */
 export function claimPrompt(input: {
   claim: string;
   context?: string;
+  table?: string;
   cited?: readonly { documentName: string; quote: string }[];
   language: Language;
 }): string {
   const context = input.context?.trim();
+  const table = input.table?.trim();
   const cited = input.cited ?? [];
   return [
-    ...(context && context !== input.claim.trim()
-      ? [
-          "The paragraph it is in, for what its words refer to:",
-          `<paragraph>\n${context}\n</paragraph>`,
-          "",
-        ]
-      : []),
+    ...(table
+      ? tableAround(
+          table,
+          "The sentence is a cell of a table in the User's text, said with its row's label and its column's heading. Below is the table around it, also the User's text: the line before the table, its headings and the cell's row. Read the sentence as the table states it: a unit, scale or period the table gives for the cell is part of what the sentence says. Check only the sentence: the row's other cells are checked on their own.",
+        )
+      : context && context !== input.claim.trim()
+        ? [
+            "The paragraph it is in, for what its words refer to:",
+            `<paragraph>\n${context}\n</paragraph>`,
+            "",
+          ]
+        : []),
     ...(cited.length > 0
       ? [
           "The User cites this for it. Check the claim itself, not only that the quote is there:",
@@ -251,10 +261,22 @@ export function readPart(reply: string): { covered: string | null; uncovered: st
   return { covered: phrase(COVERED), uncovered: phrase(NOT_COVERED) };
 }
 
-/** The request to confirm a contradiction: the sentence, the quote, and the Passage it is in. */
-export function confirmPrompt(input: { claim: string; quote: string; passage: string }): string {
+/** The request to confirm a contradiction: the sentence (with the table it is a cell of), the quote, and the Passage it is in. */
+export function confirmPrompt(input: {
+  claim: string;
+  quote: string;
+  passage: string;
+  table?: string;
+}): string {
+  const table = input.table?.trim();
   return [
     `<sentence>\n${input.claim.trim()}\n</sentence>`,
+    ...(table
+      ? tableAround(
+          table,
+          "The sentence is a cell of the User's table, below. Read it as the table states it: a unit, scale or period the table gives for the cell is part of what the sentence says. The row's other cells aren't judged here.",
+        )
+      : []),
     `<quote>\n${input.quote.trim()}\n</quote>`,
     "The Passage it is quoted from, for what its words refer to:",
     `<passage>\n${input.passage.trim()}\n</passage>`,

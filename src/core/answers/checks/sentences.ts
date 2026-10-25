@@ -21,6 +21,7 @@ import {
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks } from "../../proposals/write";
+import { readCell, type TableText } from "./tableCells";
 
 const BREAK = "hardBreak";
 
@@ -41,6 +42,10 @@ export interface SelectedSentence {
   text: string;
   /** Its paragraph's text, for what its words refer to. */
   context: string;
+  /** What its check sends as the claim: `text`, or in a table's cell, said with its row and column (./tableCells). */
+  claim: string;
+  /** In a table's cell, the table around it, for what its words refer to. */
+  table?: string;
   /** What its Citations quote. */
   cited: CitedQuote[];
 }
@@ -62,6 +67,66 @@ export function textOf(element: Y.XmlElement): string {
           : INLINE_NODE,
     )
     .join("");
+}
+
+const elementsOf = (parent: Y.XmlElement) =>
+  parent.toArray().filter((child) => child instanceof Y.XmlElement);
+
+export const cellTexts = (row: Y.XmlElement): string[] =>
+  elementsOf(row).map((cell) => elementsOf(cell).map(textOf).join(" ").trim());
+
+/** The text of the Block before a table, where its caption or unit line is; "" when there is none. */
+export function textBefore(table: Y.XmlElement): string {
+  const before = table.prevSibling;
+  return before instanceof Y.XmlElement && before.nodeName !== "table" ? textOf(before).trim() : "";
+}
+
+type Tables = Map<Y.XmlElement, TableText>;
+
+function tableText(table: Y.XmlElement, rows: readonly Y.XmlElement[]): TableText {
+  const [first] = rows;
+  return {
+    rows: rows.map(cellTexts),
+    headed:
+      first !== undefined && elementsOf(first).every((each) => each.nodeName === "tableHeader"),
+    before: textBefore(table),
+  };
+}
+
+function cellOf(
+  paragraph: Y.XmlElement,
+  tables: Tables,
+): { table: TableText; row: number; column: number } | null {
+  const cell = paragraph.parent;
+  const row = cell instanceof Y.XmlElement ? cell.parent : null;
+  const table = row instanceof Y.XmlElement ? row.parent : null;
+  if (!(cell instanceof Y.XmlElement) || !(row instanceof Y.XmlElement)) return null;
+  if (!(table instanceof Y.XmlElement) || table.nodeName !== "table") return null;
+  const rows = elementsOf(table);
+  const read = tables.get(table) ?? tableText(table, rows);
+  tables.set(table, read);
+  return { table: read, row: rows.indexOf(row), column: elementsOf(row).indexOf(cell) };
+}
+
+function sentenceIn(
+  element: Y.XmlElement,
+  blockId: string,
+  text: string,
+  { from, to }: { from: number; to: number },
+  tables: Tables,
+): SelectedSentence {
+  const sentence = text.slice(from, to);
+  const cell = cellOf(element, tables);
+  return {
+    element,
+    blockId,
+    from,
+    to,
+    text: sentence,
+    context: text,
+    ...(cell ? readCell(cell.table, cell.row, cell.column, sentence) : { claim: sentence }),
+    cited: citedIn(element, from, to),
+  };
 }
 
 function changesIn(element: Y.XmlElement, from: number, to: number): string[] {
@@ -123,6 +188,7 @@ export function selectedSentences(
   const sentences: SelectedSentence[] = [];
   const waiting: WaitingSentences = { sentences: [], changeIds: [] };
   const seen = new Set<string>();
+  const tables: Tables = new Map();
   for (const { from, to } of stretches) {
     const first = all.findIndex(({ element }) => idOf(element) === from.blockId);
     const last = all.findIndex(({ element }) => idOf(element) === to.blockId);
@@ -151,15 +217,7 @@ export function selectedSentences(
           waiting.changeIds.push(...changes.filter((id) => !waiting.changeIds.includes(id)));
           continue;
         }
-        sentences.push({
-          element,
-          blockId,
-          from: span.from,
-          to: span.to,
-          text: text.slice(span.from, span.to),
-          context: text,
-          cited: citedIn(element, span.from, span.to),
-        });
+        sentences.push(sentenceIn(element, blockId, text, span, tables));
       }
     }
   }
@@ -170,6 +228,7 @@ export function selectedSentences(
 
 /** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
 export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
+  const tables: Tables = new Map();
   return textBlocks(blocks).flatMap(({ element, busy }) => {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (busy || element.nodeName !== "paragraph" || typeof blockId !== "string") return [];
@@ -177,17 +236,7 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
     return sentenceSpans(text).flatMap((span) =>
       changesIn(element, span.from, span.to).length > 0
         ? []
-        : [
-            {
-              element,
-              blockId,
-              from: span.from,
-              to: span.to,
-              text: text.slice(span.from, span.to),
-              context: text,
-              cited: citedIn(element, span.from, span.to),
-            },
-          ],
+        : [sentenceIn(element, blockId, text, span, tables)],
     );
   });
 }

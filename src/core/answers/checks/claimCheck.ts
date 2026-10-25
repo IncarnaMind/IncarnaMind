@@ -97,6 +97,11 @@ export interface ClaimCheckDependencies {
 export interface ClaimCheckRequest {
   claim: string;
   context?: string;
+  /**
+   * For a sentence in a table's cell, the table around it (./tableCells): sent in place of
+   * `context`, and with the sentence wherever it is judged.
+   */
+  table?: string;
   cited?: readonly { documentName: string; quote: string }[];
   scope: EvidenceScope;
   model: PreparedChatModel;
@@ -599,6 +604,7 @@ async function compare(
         claim: request.claim,
         quote: quoted.quote,
         passage: passage?.text ?? quoted.quote,
+        table: request.table,
       }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
       maxOutputTokens: 300,

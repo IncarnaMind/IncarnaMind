@@ -132,6 +132,8 @@ interface Claim {
   blockId: string;
   text: string;
   context: string;
+  claim: string;
+  table?: string;
   scope: EvidenceScope;
 }
 
@@ -175,6 +177,8 @@ export function createContradictionWatch(options: WatchOptions) {
           blockId: sentence.blockId,
           text: sentence.text,
           context: sentence.context,
+          claim: sentence.claim,
+          table: sentence.table,
           scope,
         },
       ];
@@ -268,8 +272,9 @@ export function createContradictionWatch(options: WatchOptions) {
       (claim) =>
         currentTask.run(runId, async () => {
           const result = await options.claimCheck({
-            claim: comparableSentence(claim.text),
+            claim: comparableSentence(claim.claim),
             context: claim.context,
+            table: claim.table,
             scope: claim.scope,
             model: prepared,
             cacheKey: mindId,
@@ -362,8 +367,9 @@ export function createContradictionWatch(options: WatchOptions) {
             );
             const checking = currentTask.run(runId, () =>
               options.claimCheck({
-                claim: comparableSentence(claim.text),
+                claim: comparableSentence(claim.claim),
                 context: claim.context,
+                table: claim.table,
                 scope: claim.scope,
                 model: prepared,
                 cacheKey: mindId,

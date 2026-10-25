@@ -24,6 +24,7 @@ export interface QueuedClaim {
   id: string;
   claim: string;
   context: string;
+  table?: string;
   cited?: ClaimCheckRequest["cited"];
   /** Where it is checked, when not where the run's other claims are. */
   scope?: ClaimCheckRequest["scope"];
@@ -77,6 +78,7 @@ export async function runChecks(
       const result = await options.claimCheck({
         claim: claim.claim,
         context: claim.context,
+        table: claim.table,
         ...(claim.cited && { cited: claim.cited }),
         scope: claim.scope ?? run.scope,
         model: prepared,

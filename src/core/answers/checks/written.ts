@@ -52,6 +52,7 @@ import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { markSentence } from "./sentences";
+import { readCell, type TableText } from "./tableCells";
 import type { CheckScope } from "./verify";
 
 const CLOUD_SENTENCES_AT_ONCE = 3;
@@ -130,6 +131,9 @@ interface Sentence {
   /** As checks read it: an inline node as U+FFFC, a line break as "\n". */
   text: string;
   context: string;
+  /** What its check sends as the claim, and in a table's cell the table around it (./tableCells). */
+  claim: string;
+  table?: string;
   cited: CitedQuote[];
 }
 
@@ -162,15 +166,48 @@ function quoteOf(node: NodeJSON): CitedQuote | null {
   };
 }
 
+interface InCell {
+  table: TableText;
+  row: number;
+  column: number;
+}
+
+const textOfBlock = (node: NodeJSON | undefined): string =>
+  node && node.type !== "table" ? paragraphText(node.content ?? []) : "";
+
+function tableText(table: NodeJSON, before: NodeJSON | undefined): TableText {
+  const rows = table.content ?? [];
+  return {
+    rows: rows.map((row) =>
+      (row.content ?? []).map((cell) => (cell.content ?? []).map(textOfBlock).join(" ").trim()),
+    ),
+    headed: (rows[0]?.content ?? []).every((cell) => cell.type === "tableHeader"),
+    before: textOfBlock(before).trim(),
+  };
+}
+
 function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
-  const visit = (nodes: readonly NodeJSON[], path: number[]) => {
+  const visit = (nodes: readonly NodeJSON[], path: number[], cell: InCell | null) => {
     nodes.forEach((node, index) => {
       if (UNCHECKED.has(node.type)) return;
       const here = [...path, index];
       const content = node.content ?? [];
+      if (node.type === "table") {
+        const table = tableText(node, nodes[index - 1]);
+        content.forEach((row, rowIndex) => {
+          (row.content ?? []).forEach((each, column) => {
+            visit(each.content ?? [], [...here, rowIndex, column], {
+              table,
+              row: rowIndex,
+              column,
+            });
+          });
+        });
+        return;
+      }
       if (node.type !== "paragraph") {
-        visit(content, here);
+        visit(content, here, cell);
         return;
       }
       const context = paragraphText(content);
@@ -181,18 +218,20 @@ function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
           return quoteOf(inline) ?? [];
         });
         if (cited.length === 0) continue;
+        const text = context.slice(span.from, span.to);
         found.push({
           path: here,
           from: span.from,
           to: span.to,
-          text: context.slice(span.from, span.to),
+          text,
           context,
+          ...(cell ? readCell(cell.table, cell.row, cell.column, text) : { claim: text }),
           cited,
         });
       }
     });
   };
-  visit(blocks, []);
+  visit(blocks, [], null);
   return found;
 }
 
@@ -471,8 +510,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     );
     const replied = await Promise.race([
       options.claimCheck({
-        claim: sentence.text,
+        claim: sentence.claim,
         context: sentence.context,
+        table: sentence.table,
         cited: options.citedNow(sentence.cited),
         scope: scope.scope,
         model: prepared,
