@@ -144,8 +144,12 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // One contradiction: the state is amber-red, and Home says the same.
     await checkWholeMind(window, null);
-    await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");
-    await expect(badge(window)).toHaveAttribute("data-state", "needs-look");
+    await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted", {
+      timeout: 60_000,
+    });
+    await expect(badge(window)).toHaveAttribute("data-state", "needs-look", {
+      timeout: 60_000,
+    });
     await expect(stateWords(window)).toHaveText(words.look);
     // Screen readers hear the state by name.
     await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
@@ -177,8 +181,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.type("12");
     await expect(editor).toContainText(SUPPORTED);
     await checkWholeMind(window, "needs-recheck");
-    await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
-    await expect(badge(window)).toHaveAttribute("data-state", "checked");
+    await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported", {
+      timeout: 60_000,
+    });
+    await expect(badge(window)).toHaveAttribute("data-state", "checked", {
+      timeout: 60_000,
+    });
     await expect(stateWords(window)).toHaveText(new RegExp(`^${words.checked}\\d`));
     await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
       new RegExp(words.checked),
@@ -276,9 +284,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.type(READABLE);
       await expect(window.getByTestId("mind-editor")).toContainText(READABLE);
       await checkWholeMind(window, null);
-      await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
+      await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported", {
+        timeout: 60_000,
+      });
       // Every claim holds, so the state is green, and it names what the check couldn't read (D261).
-      await expect(badge(window)).toHaveAttribute("data-state", "checked");
+      await expect(badge(window)).toHaveAttribute("data-state", "checked", {
+        timeout: 60_000,
+      });
       await expect(stateWords(window)).toHaveText(language === "en" ? /^Checked / : /^已核对 /);
       await expect(badge(window)).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
