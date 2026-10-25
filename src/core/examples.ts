@@ -144,9 +144,13 @@ export function createExamples(options: ExamplesOptions) {
   /**
    * The examples removed since the app started, so Undo can bring back the same
    * Mind and Documents (#1292). The undo stack lives in the window, which goes
-   * with this process, so nothing here is kept on disk.
+   * with this process, so nothing here is kept on disk. A Mind the User had
+   * deleted before the removal stays in Recently deleted: it wasn't the removal's.
    */
-  const removed = new Map<ExampleGroup, { legacy: boolean; stored: StoredExamples }>();
+  const removed = new Map<
+    ExampleGroup,
+    { legacy: boolean; hadMind: boolean; stored: StoredExamples }
+  >();
 
   const everyExample = (): StoredExamples[] =>
     [...GROUPS.map(stored), read(LEGACY_VALUE)].flatMap((each) => (each ? [each] : []));
@@ -428,7 +432,11 @@ export function createExamples(options: ExamplesOptions) {
     const old = group === DEFAULT_GROUP ? legacy() : null;
     const examples = old ?? stored(group);
     if (!examples) return;
-    removed.set(group, { legacy: old !== null, stored: examples });
+    removed.set(group, {
+      legacy: old !== null,
+      hadMind: options.mindExists(examples.mindId),
+      stored: examples,
+    });
     if (options.mindExists(examples.mindId)) options.deleteMind(examples.mindId);
     await discardFiles(examples);
     options.writeValue(old ? LEGACY_VALUE : valueKey(group), null);
@@ -450,7 +458,7 @@ export function createExamples(options: ExamplesOptions) {
       return status(group);
     }
     const examples = gone.stored;
-    options.restoreMind(examples.mindId);
+    if (gone.hadMind) options.restoreMind(examples.mindId);
     if (gone.legacy) {
       options.writeValue(LEGACY_VALUE, examples);
       options.writeValue(OFFERED_VALUE, true);

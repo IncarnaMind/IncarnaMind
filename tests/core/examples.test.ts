@@ -324,6 +324,21 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     expect(await core.listLinkedFolders()).toEqual([]);
   });
 
+  test("Undo after the examples were removed, their Mind deleted before, brings back the Documents and leaves the User's own delete alone (#1292)", async () => {
+    const { core } = await startWithExamples();
+    const made = await core.createExamples();
+    await core.deleteMind(made.mindId as string);
+
+    await core.removeExamples();
+    const back = await core.restoreExamples();
+    expect(back).toMatchObject({ mindId: null, linkedFolderId: made.linkedFolderId });
+    // Their own delete still waits in Recently deleted, to restore or not.
+    expect((await core.listDeleted()).map((item) => item.id)).toEqual([made.mindId]);
+    await vi.waitFor(async () => {
+      expect(await core.listDocuments({ linkedFolderId: made.linkedFolderId })).toHaveLength(2);
+    });
+  });
+
   test("deleting the example Mind on its own leaves its Linked folder marked, and making them again starts afresh", async () => {
     const { core } = await startWithExamples();
     const made = await core.createExamples();
