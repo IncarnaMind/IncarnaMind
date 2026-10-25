@@ -7,9 +7,11 @@ import type { ShownClaim } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { startMindCheck } from "../mindCheck";
 import {
+  applyFigure,
   contradictedAt,
   cutSentence,
   cutUnsupported,
+  figureAt,
   fixesFree,
   keepAsView,
   notFoundAt,
@@ -136,6 +138,18 @@ export const checkCommands: readonly Command[] = [
     run() {
       const at = withKeepable();
       if (at) keepAsView(at.editor, at.claim);
+    },
+  },
+  {
+    id: "check.useFigure",
+    label: "claim.useFigure.command",
+    group: "main",
+    // Applied as one step of the Mind's Undo, which brings back the check it had.
+    reversible: true,
+    when: () => withClaim(figureAt) !== null,
+    run() {
+      const at = withClaim(figureAt);
+      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim);
     },
   },
 ];

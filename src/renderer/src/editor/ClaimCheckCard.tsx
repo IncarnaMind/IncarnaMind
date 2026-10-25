@@ -33,12 +33,14 @@ import { openCited } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
+  applyFigure,
   cutSentence,
   cutUnsupported,
   keepAsView,
   offersFixes,
   offersKeepAsView,
   offersNotFound,
+  offersUseFigure,
   searchedLess,
   uncoveredOf,
 } from "../unsupportedFixes";
@@ -285,6 +287,11 @@ export function ClaimMark({
                 keepAsView(editor, claim);
                 done();
               }}
+              use={offersUseFigure(editor, claim)}
+              onUse={() => {
+                applyFigure(editor, mindId, doc, claim);
+                done(true);
+              }}
             />
           </Popover>,
           document.body,
@@ -363,17 +370,18 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
  * those words, or Widen the Citation when the whole clause says more of the
  * sentence than the Citation quotes, or Replace the Citation when the one the
  * sentence has doesn't hold (#1620); for a contradiction, what the Document
- * says and Keep as my view; for a figure worked out, its working and inputs;
- * for nothing found, where it looked, with
- * Search all Documents, Cut it (the whole sentence, never in a Verify Mind) and
- * Keep as my view, or, for a court decision no Document holds, that it
- * can't be checked here, with Remove the mark only; for a sentence with a
- * Citation, the part the Citation doesn't cover, with its quote, and Cut the
- * unsupported part, Search all Documents and Keep as my view (#1111); for one
- * without, the Passage the check quoted for part of it, with what that part is
- * and what it doesn't cover; otherwise why, with Check again. A Passage from a
- * saved web page names the page. Every verdict says where the check looked (#1623).
- * Documents IncarnaMind wrote that matched are named, with Count it.
+ * says and Keep as my view; for a figure worked out, its working and inputs,
+ * and Use {figure} when they disagree (#1247); for nothing found, where it
+ * looked, with Search all Documents, Cut it (the whole sentence, never in a
+ * Verify Mind) and Keep as my view, or, for a court decision no Document
+ * holds, that it can't be checked here, with Remove the mark only; for a
+ * sentence with a Citation, the part the Citation doesn't cover, with its
+ * quote, and Cut the unsupported part, Search all Documents and Keep as my
+ * view (#1111); for one without, the Passage the check quoted for part of it,
+ * with what that part is and what it doesn't cover; otherwise why, with Check
+ * again. A Passage from a saved web page names the page. Every verdict says
+ * where the check looked (#1623). Documents IncarnaMind wrote that matched are
+ * named, with Count it.
  */
 function ClaimCard({
   claim,
@@ -397,6 +405,8 @@ function ClaimCard({
   onCut,
   onCutSentence,
   onKeep,
+  use,
+  onUse,
 }: {
   claim: ShownClaim;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
@@ -420,6 +430,8 @@ function ClaimCard({
   onCut(): void;
   onCutSentence(): void;
   onKeep(): void;
+  use: boolean;
+  onUse(): void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -730,12 +742,22 @@ function ClaimCard({
             {t("claim.replaceCitation")}
           </button>
         )}
+        {use && calculation && (
+          <button
+            type="button"
+            data-testid="claim-use-figure"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onUse}
+          >
+            {t("claim.useFigure", { figure: calculation.figure.shown })}
+          </button>
+        )}
         {evidence?.documentId && (
           <button
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              decision.kind === "none" || decision.kind === "already"
+              !use && (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}

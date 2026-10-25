@@ -680,6 +680,11 @@ export const en = {
   "claim.calculated.stated": "The sentence says {stated}.",
   "claim.calculated.inputs": "Worked out from",
   "claim.calculated.negative": "counted as negative",
+  "claim.useFigure": "Use {figure}",
+  "claim.useFigure.command": "Use the calculated figure",
+  "claim.useFigure.done": "Changed to {figure}",
+  "claim.useFigure.moved":
+    "Nothing was changed: the sentence isn’t where its check marked it. Check it again.",
   "claim.cited": "Cited in this sentence",
   "claim.unsupported.notFound": "I didn’t find this in “{scope}”.",
   "claim.unsupported.notFound.more": "I didn’t find this in “{scope}” or {count} more.",

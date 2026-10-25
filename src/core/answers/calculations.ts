@@ -32,6 +32,7 @@ import {
   type Figure,
   type FigureContext,
   figureContextOf,
+  figureLanguageTag,
   type Reading,
   readFigures,
   readStatedUnits,
@@ -92,20 +93,6 @@ export function answerLanguage(question: string): Language {
   return detectLanguage(question) === "Chinese" ? "zh-CN" : "en";
 }
 
-/** A Document's language as the figure reader takes it, from the name `detectLanguage` gives. */
-const LANGUAGE_TAGS: Readonly<Record<string, string>> = {
-  English: "en",
-  Chinese: "zh",
-  Japanese: "ja",
-  Korean: "ko",
-  French: "fr",
-  German: "de",
-  Spanish: "es",
-  Italian: "it",
-  Portuguese: "pt",
-  Dutch: "nl",
-};
-
 /**
  * How a Document version writes its numbers (its language, separators and
  * "¥"), from all of its Units' text: what an input's number is read with, and
@@ -113,8 +100,7 @@ const LANGUAGE_TAGS: Readonly<Record<string, string>> = {
  */
 export function documentFigureContext(units: readonly { text: string }[]): FigureContext {
   const all = units.map((unit) => unit.text).join("\n");
-  const name = detectLanguage(all.slice(0, 20_000));
-  return figureContextOf(all, name ? (LANGUAGE_TAGS[name] ?? null) : null);
+  return figureContextOf(all, figureLanguageTag(detectLanguage(all.slice(0, 20_000))));
 }
 
 const SHOW_AS: readonly ShowAs[] = ["number", "percent", "points", "currency", "times", "yes-no"];
