@@ -19,8 +19,9 @@ const CALCULATION_TOOL =
   /\b(?:calculat(?:ion|e|ing|or)|comput(?:ation|e|ing)|math|maths|arithmetic)\s+(?:tool|function)s?\b|\b(?:the|a|my|IncarnaMind['’]s)\s+calculator\b|\bIncarnaMind['’]s\s+calculations?\b(?!\s+(?:tool|function)s?\b)/gi;
 // A Tool named is a claim only when it is said to have done something, or was used for a result.
 const ACT =
-  /\b(?:confirm(?:s|ed)?|show(?:s|ed)?|give(?:s|n)?|gave|return(?:s|ed)?|produce[sd]?|yield(?:s|ed)?|calculate[sd]|compute[sd]|verif(?:y|ies|ied)|check(?:s|ed)|found|output(?:s|ted)?|results?|says|reports?|reported|agrees?|match(?:es|ed)?)\b|=/i;
-const USED_FOR = /\b(?:using|used|with|via|through|by|from|ran|called)\s+(?:the\s+|my\s+|a\s+)?$/i;
+  /\b(?:confirm(?:s|ed)?|show(?:s|ed)?|give(?:s|n)?|gave|got|return(?:s|ed)?|produce[sd]?|yield(?:s|ed)?|calculate[sd]|compute[sd]|verif(?:y|ies|ied)|check(?:s|ed)|found|output(?:s|ted)?|results?|says|reports?|reported|agrees?|match(?:es|ed)?)\b|=/i;
+const USED_FOR =
+  /(?:\b(?:using|used|with|via|through|by|from|ran|run|running|called|according to|based on|per|into)\s+(?:the\s+|my\s+|a\s+)?(?:IncarnaMind['’]s\s+)?|\(\s*)$/i;
 // "Northbank's covenant calculator", "the vendor calculation tool": someone else's.
 const NAMED_OWNER =
   /\b(?!(?:IncarnaMind|That|It|What|There|Here|Who|He|She|Let)['’]s)[A-Z][\w&.-]*['’]s\s+(?:[\w-]+\s+){0,3}$/;
@@ -36,7 +37,7 @@ const UNREAL_AFTER = /^\W*(?:would|could|might|can|should|will|may|must)\b/i;
 const REPORTED_BEFORE =
   /\b(?:I|we)\s+(?:had\s+|have\s+)?(?:said|wrote|claimed|stated|told you|mentioned)\b|\b(?:my|the|an)\s+(?:earlier|previous|first|last)\s+(?:claim|answer|reply|statement|response)\b|\b(?:earlier|previously)\b/i;
 const REPORTS_A_DOCUMENT =
-  /\baccording to (?:the|its|their|this|that) (?:report|agreement|document|certificate|letter|memo|note|spreadsheet|workbook|draft|file|amendment|minutes)\b|\b(?:the|this|that|its|their) (?:report|agreement|document|certificate|letter|memo|note|spreadsheet|workbook|draft|file|amendment|minutes|auditors?|lenders?|agent|borrower|vendor)\s+(?:says|said|states|stated|shows|showed|notes|noted|describes|described|calculates|calculated|confirms|confirmed|reports|reported|records|recorded|sets out)\b|\b(?:described|set out|as stated|mentioned) in\b|\bper the\b|\bdescribes?\b|\brefers? to\b/i;
+  /\baccording to (?:the|its|their|this|that) (?:report|agreement|document|certificate|letter|memo|note|spreadsheet|workbook|draft|file|amendment|minutes)\b|\b(?:the|this|that|its|their) (?:report|agreement|document|certificate|letter|memo|note|spreadsheet|workbook|draft|file|amendment|minutes|auditors?|lenders?|agent|borrower|vendor)\s+(?:says|said|states|stated|shows|showed|notes|noted|describes|described|calculates|calculated|confirms|confirmed|reports|reported|records|recorded|sets out)\b|\b(?:described|set out|as stated|mentioned) in\b|\bper the (?:[\w-]+\s+){0,2}(?:report|agreement|document|certificate|letter|memo|note|spreadsheet|workbook|draft|file|amendment|minutes|schedule)\b|\bdescribes?\b|\brefers? to\b/i;
 const EARLIER =
   /\b(?:earlier|previously|previous|last time|first answer)\b|之前|此前|先前|上次|上一条|前面/i;
 
@@ -70,8 +71,8 @@ const SEARCH_DID =
   /\b(?:(?:the|my|a|IncarnaMind['’]s)\s+(?:document\s+|documents\s+|web\s+)?search(?:es)?|search results?)\s+(?:also\s+|only\s+)?(?:found|returned|turned up|showed|shows|show|gave|confirms?|confirmed|came back|surfaced|brought up)\b/i;
 
 const ZH_TOOL = /计算工具|计算器|计算功能/g;
-const ZH_ACT = /确认|显示|得出|算出|计算|核实|核对|复核|核算|验证|给出|结果|表明|证实|=/;
-const ZH_USED_FOR = /(?:经过?|使用|用|通过|借助|调用了?|利用)\s*(?:IncarnaMind\s*的\s*)?$/;
+const ZH_ACT = /运行|确认|显示|得出|算出|计算|核实|核对|复核|核算|验证|给出|结果|表明|证实|=/;
+const ZH_USED_FOR = /(?:经过?|使用|用|通过|借助|调用了?|利用|根据|按照|依据|[（(])\s*(?:IncarnaMind\s*的\s*)?$/;
 const ZH_NEGATION = /不可用|用不了|无法|不能|没有|没|未|并未|尚未|不可|不支持|不是/;
 const ZH_NOT_BEFORE =
   /(?:没有|没|未|无法|不能|不可|并未|尚未|不是|不用|不使用|未使用|无|不)[^，。！？；：]{0,16}$/;
