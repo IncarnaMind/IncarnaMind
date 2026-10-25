@@ -3605,6 +3605,7 @@ export const zhCN = {
   "error.document.nameEmpty": "文档名称不能为空。",
   "error.document.nameTooLong": "文档名称不能超过 {max} 个字符。",
   "error.document.notCitedChoice": "是否将文档作为引用来源只能是 true 或 false。",
+  "error.mind.unreadFileNames": "是否在导出中列出文件名只能是 true 或 false。",
   "error.document.fileMissing": "找不到这个文档的文件。",
   "error.verify.request": "无法读取这个核对文档的请求。",
   "error.verify.notVerifying": "这个 Mind 没有在核对文档。",
