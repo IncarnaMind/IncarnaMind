@@ -4,9 +4,9 @@
  * together, so the first character of each syllable in that order is enough to
  * tell any character's. The table lists those first characters, then the
  * syllables they start (ü written v), then where pinyin ends: what sorts after
- * it has no reading. A character with several readings has the one it sorts by.
- * Derived once from a pinyin dictionary; right for 99.95% of the 3,755 most
- * common characters.
+ * it has no reading. A character with several readings sorts by one of them,
+ * which is the first `pinyinReadings` gives. Derived once from a pinyin
+ * dictionary; right for 99.95% of the 3,755 most common characters.
  */
 
 const STARTS = Array.from(
@@ -45,8 +45,31 @@ const SYLLABLES = (
   "n zhuo zi zong zou zu zuan zui zun zuo"
 ).split(" ");
 
+/**
+ * Characters read more than one way, besides the reading the collation gives
+ * them (#1416): a person types "chongming" for 重命名, whose 重 sorts as "zhong".
+ * The common ones a name or an action is likely to hold; a rarer reading isn't
+ * worth a table of its own.
+ */
+const OTHER_READINGS: Readonly<Record<string, readonly string[]>> = {
+  重: ["chong"],
+  行: ["hang"],
+  长: ["chang"],
+  乐: ["yue"],
+  了: ["liao"],
+  还: ["huan"],
+  都: ["du"],
+  得: ["dei"],
+  着: ["zhao", "zhuo"],
+  调: ["tiao"],
+  没: ["mo"],
+  朝: ["zhao"],
+  差: ["chai", "ci"],
+};
+
 const collator = new Intl.Collator("zh-CN-u-co-pinyin");
 const known = new Map<string, string | null>();
+const readings = new Map<string, readonly string[]>();
 
 /** A Chinese character's pinyin syllable, without its tone, or null for any other character. */
 export function pinyinOf(character: string): string | null {
@@ -68,4 +91,17 @@ export function pinyinOf(character: string): string | null {
   }
   known.set(character, syllable);
   return syllable;
+}
+
+/**
+ * A Chinese character's pinyin syllables, without tones: the one it sorts by
+ * first, then any other common reading (#1416); none for any other character.
+ */
+export function pinyinReadings(character: string): readonly string[] {
+  const cached = readings.get(character);
+  if (cached) return cached;
+  const first = pinyinOf(character);
+  const all = first === null ? [] : [first, ...(OTHER_READINGS[character] ?? [])];
+  readings.set(character, all);
+  return all;
 }

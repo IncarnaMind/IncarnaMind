@@ -82,7 +82,7 @@ const answerOf = async (core: Core, conversationId: string, answerId: string) =>
 };
 
 describe("Asking about words selected in a Document", { timeout: 30_000 }, () => {
-  // protects=the selected words reach the model right before the Question, with where they are and the Passage of their page to cite, and the Answer's Citation of them is found on that page (#101); fails_when=they are left out, the Passage of the other page that has the same words is given, or the Citation moves; no_claim=what a real model makes of them, which the everyday evaluation measures.
+  // protects=the selected words reach the model right before the Question (the line of the Minds' names between), with where they are and the Passage of their page to cite, and the Answer's Citation of them is found on that page (#101); fails_when=they are left out, the Passage of the other page that has the same words is given, or the Citation moves; no_claim=what a real model makes of them, which the everyday evaluation measures.
   test("go right before the Question, with the Passage of their page, and are cited there", async () => {
     const { core, model, mind, selectedOn } = await setUp();
     const quote = await selectedOn(2);
@@ -100,7 +100,9 @@ describe("Asking about words selected in a Document", { timeout: 30_000 }, () =>
     ]);
     expect(passages.length).toBeGreaterThan(0);
     for (const passage of passages) expect(passage.pages).toMatch(/^(?:2|1-2|2-3)$/);
-    expect(sent).toMatch(/<\/selected-text>\n\nWhat does this mean\?$/);
+    expect(sent).toMatch(
+      /<\/selected-text>\n\nThe User's Minds: "Tides"\n\nWhat does this mean\?$/,
+    );
     const answer = await answerOf(core, asked.conversation.id, asked.answerId);
     expect(answer.citations).toMatchObject([
       { check: "found", pageFrom: 2, pageTo: 2, quote: REPEATED },

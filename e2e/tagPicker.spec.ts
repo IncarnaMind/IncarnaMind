@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
   createDataFolder,
@@ -502,6 +503,62 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
       "0 个文档",
     );
     await screenshot(window, "manage-tags-zh");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Chinese Tag is found by its pinyin and initials in the picker and in Find a Tag, in English and Chinese (#1363)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await addTextDocuments(window, {
+      "March invoice.txt": "Invoice 2026-03 for consulting. Total due: 1,200.",
+    });
+    await (await bridge(window)).evaluate(async (core) => {
+      await core.createTag({ name: "财务", description: "预算与账单" });
+    });
+    await slideAndClick(window, window.getByTestId("open-library"));
+    const library = window.getByTestId("library");
+    const invoice = rowOf(library, "March invoice");
+    await slideTo(window, invoice);
+    await slideAndClick(window, invoice.getByTestId("document-tags-menu"));
+    const picker = invoice.getByTestId("document-tags-popover");
+    const field = picker.getByTestId("tag-picker-input");
+    await expect(field).toBeFocused();
+    // The pinyin and the initials find it, chosen first, as ⌘K finds a name.
+    for (const typed of ["caiwu", "cw"]) {
+      await field.fill(typed);
+      await expect(picker.getByTestId("tag-option")).toHaveCount(1);
+      await expect(picker.getByTestId("tag-option")).toContainText("财务");
+      await expect(picker.getByTestId("tag-option")).toHaveAttribute("data-active", "true");
+    }
+    await window.keyboard.press("Enter");
+    await expect(tokens(picker)).toHaveText(["财务"]);
+    await window.keyboard.press("Escape");
+    await expect(picker).toBeHidden();
+
+    // "Find a Tag": the same words match, in the interface's own language.
+    for (const language of ["en", "zh-CN"] as const) {
+      await (await bridge(window)).evaluate(
+        (core, language) => core.updateSettings({ user: { language } }),
+        language,
+      );
+      await openManageTags(window, language);
+      const dialog = window.getByTestId("tags-dialog");
+      const search = dialog.getByTestId("tag-search");
+      await expect(search).toBeVisible();
+      for (const typed of ["caiwu", "cw"]) {
+        await search.fill(typed);
+        await expect(dialog.getByTestId("tag-row")).toHaveCount(1);
+        await expect(dialog.getByTestId("tag-row")).toContainText("财务");
+      }
+      await slideAndClick(
+        window,
+        dialog.getByRole("button", { name: translate(language, "tags.dialog.done") }),
+      );
+      await expect(dialog).toBeHidden();
+    }
   } finally {
     await app.close();
   }

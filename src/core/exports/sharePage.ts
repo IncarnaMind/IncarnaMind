@@ -38,6 +38,10 @@ a.cite[aria-expanded=true]{outline:2px solid var(--accent);outline-offset:1px}
 a.cite:focus-visible,.card-close:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .card:focus{outline:none}
 .date{white-space:nowrap}
+.notes{margin-top:1.6rem;padding-top:.75rem;font-family:var(--sans);font-size:12px;line-height:18px;color:var(--ink-meta)}
+.notes h2{margin:.75rem 0 .4rem;font-family:var(--sans);font-size:12px;line-height:18px;font-weight:600;color:var(--ink-meta)}
+.notes ol{margin:0;padding:0;list-style:none}
+.notes li{margin:0 0 6px}
 .shared-foot{max-width:42rem;margin:0 auto;padding:0 1.25rem 3rem;font-family:var(--sans);font-size:.72rem;line-height:1.5;color:var(--ink-meta)}
 .shared-foot p{margin:0 0 .3rem}
 .scrim{position:fixed;inset:0;z-index:9;background:rgba(23,25,28,.25)}
@@ -284,7 +288,7 @@ export function renderSharePage(page: SharePage): string {
   ].join("");
   const body = [
     `<main>${head}${withTableBodies(printed.body)}</main>`,
-    notesSection(printed.notes, labels),
+    notesSection(printed.notes, labels, { compact: true, title: t("share.page.notes") }),
     `<footer class="shared-foot">${foot}</footer>`,
     '<div class="scrim" hidden></div>',
     picturesHtml(page.pictures),
