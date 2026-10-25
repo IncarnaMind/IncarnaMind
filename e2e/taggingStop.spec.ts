@@ -2,12 +2,14 @@
  * Tagging says where it goes, and can be stopped per Folder: once a key
  * is saved, the sidebar's status names the company the Documents go to, with
  * Stop. Stop keeps that Folder's new Documents from being sent, across a
- * restart, until "Tag with AI" in the Folder's ⋯ menu turns it back on.
- * Set INCARNAMIND_SCREENSHOTS to a folder to keep screenshots of each step.
+ * restart, until "Tag with AI" in the Folder's ⋯ menu turns it back on. The
+ * status stays on one line, with what is sent in its popover, so the tree
+ * above it never moves (#1021). Set INCARNAMIND_SCREENSHOTS to a folder to
+ * keep screenshots of each step.
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -116,7 +118,7 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
   );
   const status = footer.getByTestId("tagging-status");
   await expect(status.getByTestId("status-label")).toHaveText(
-    /^Tagging [2-4] Documents with Anthropic · sends names and excerpts$/,
+    /^Tagging [2-4] Documents with Anthropic$/,
   );
   await expect(footer.getByTestId("tagging-waiting")).toHaveCount(0);
   const stop = status.getByTestId("tagging-stop");
@@ -165,13 +167,12 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
   await expect(again.window.getByTestId("undo-message")).toHaveText(
     `Tagging Documents in “${FOLDER}” with AI again`,
   );
-  // The Folder has been told what is sent: from now on the short line.
   await expect(
     again.window
       .getByTestId("sidebar-status")
       .getByTestId("tagging-status")
       .getByTestId("status-label"),
-  ).toHaveText(/^Tagging [1-6] Documents? with Anthropic…$/);
+  ).toHaveText(/^Tagging [1-6] Documents? with Anthropic$/);
   await expect(documentItem(again.window, "Expert report")).not.toHaveAttribute(
     "data-tagging",
     "stopped",
@@ -204,7 +205,7 @@ test("in Chinese, the status names the company, and Stop names the Folder", asyn
   await openFolder(window, FOLDER);
   const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
   await expect(status.getByTestId("status-label")).toHaveText(
-    /^正在用 Anthropic 给 [2-4] 个文档打标签 · 会发送名称和摘录$/,
+    /^正在用 Anthropic 为 [2-4] 个文档打标签$/,
   );
   const stop = status.getByTestId("tagging-stop");
   await expect(stop).toHaveText("停止");
@@ -345,11 +346,11 @@ test("while Organize runs, the status names the company too, with Stop", async (
     ]);
   const progress = window.getByTestId("sidebar-status").getByTestId("organization-progress");
   await expect(progress.getByTestId("status-label")).toHaveText(
-    /^Organizing [2-5] Documents with Anthropic · sends names and excerpts \(page images for scans\)$/,
+    /^Organizing [2-5] Documents with Anthropic…$/,
   );
-  await expect(progress).toHaveAttribute(
-    "title",
-    /^Organizing [2-5] Documents with Anthropic: each one’s name, outline and short excerpts are sent \(page images for scans\)$/,
+  await progress.getByTestId("status-label").click();
+  await expect(window.getByTestId("status-sends")).toHaveText(
+    "Each Document’s name, outline and short excerpts go to Anthropic. Page images of scans are included.",
   );
   await screenshot(window, "organize-status-stop-en");
   await progress.getByTestId("tagging-stop").click();
@@ -359,3 +360,155 @@ test("while Organize runs, the status names the company too, with Stop", async (
   await expect(progress).toHaveCount(0);
   await app.close();
 });
+
+async function saveLocalTagger(window: Page): Promise<void> {
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await core.saveChatProvider({ kind: "ollama", modelId: "fake-model" });
+    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+  });
+}
+
+const setTagging = (window: Page, folderId: string, on: boolean) =>
+  window.evaluate(
+    async ([folderId, on]) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.setTaggingWithAi(folderId, on);
+    },
+    [folderId, on] as const,
+  );
+
+interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+async function boxOf(locator: Locator): Promise<Box> {
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  return box as Box;
+}
+
+const sameBox = (before: Box, during: Box) => {
+  expect(Math.abs(during.x - before.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(during.y - before.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(during.width - before.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(during.height - before.height)).toBeLessThanOrEqual(1);
+};
+
+const LINES = {
+  en: {
+    cloud: /^Tagging \d+ Documents? with Anthropic$/,
+    local: /^Tagging \d+ Documents?$/,
+    cloudSends: "Each Document’s name, outline and short excerpts go to Anthropic.",
+    localSends: "Each Document’s name, outline and short excerpts stay on this computer.",
+  },
+  "zh-CN": {
+    cloud: /^正在用 Anthropic 为 \d+ 个文档打标签$/,
+    local: /^正在为 \d+ 个文档打标签$/,
+    cloudSends: "每个文档的名称、目录和简短摘录都会发送到 Anthropic。",
+    localSends: "每个文档的名称、目录和简短摘录都留在这台电脑上。",
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const cloud of [true, false] as const) {
+    test(`the Tagging status is one line, with what is sent in its popover (${language}, ${cloud ? "a service" : "this computer"})`, async () => {
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      await setWindowSize(app, window, 1440, 900);
+      await setLanguage(window, language);
+      const folderId = await createFolder(window, FOLDER);
+      // Enough Minds that the tree scrolls, so anything that grows the footer moves it.
+      await window.evaluate(
+        async ([folderId, count]) => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          for (let index = 1; index <= count; index++) {
+            await core.createMind({ title: `Matter note ${index}`, folderId });
+          }
+        },
+        [folderId, 30] as const,
+      );
+      await openFolder(window, FOLDER);
+      if (cloud) await saveAnthropicKey(window);
+      else await saveLocalTagger(window);
+      await setTagging(window, folderId, false);
+      await addToFolder(
+        window,
+        await Promise.all(
+          ["Supply contract", "Purchase order", "Delivery log", "Draft brief"].map(slowFile),
+        ),
+        folderId,
+      );
+      const status = window.getByTestId("sidebar-status");
+      await expect(status.getByTestId("tagging-stopped")).toBeVisible({ timeout: 20_000 });
+
+      for (const width of [1440, 1100] as const) {
+        await setWindowSize(app, window, width, 900);
+        const tree = window.getByTestId("sidebar-tree");
+        await tree.evaluate((element) => {
+          element.scrollTop = element.scrollHeight;
+        });
+        const folderRow = sidebarFolder(window, FOLDER).getByTestId("folder-row");
+        const before = {
+          tree: await boxOf(tree),
+          footer: await boxOf(window.getByTestId("sidebar-footer")),
+          folder: await boxOf(folderRow),
+        };
+
+        await setTagging(window, folderId, true);
+        const tagging = status.getByTestId("tagging-status");
+        await expect(tagging).toBeVisible({ timeout: 20_000 });
+        const label = tagging.getByTestId("status-label");
+        await expect(label).toHaveText(cloud ? LINES[language].cloud : LINES[language].local);
+        sameBox(before.tree, await boxOf(tree));
+        sameBox(before.footer, await boxOf(window.getByTestId("sidebar-footer")));
+        sameBox(before.folder, await boxOf(folderRow));
+
+        // Cut with an ellipsis before Stop, never after it.
+        expect(await label.evaluate((element) => getComputedStyle(element).textOverflow)).toBe(
+          "ellipsis",
+        );
+        if (cloud) {
+          expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+            true,
+          );
+        }
+        const labelBox = await boxOf(label);
+        const stop = tagging.getByTestId("tagging-stop");
+        const stopBox = await boxOf(stop);
+        const rowBox = await boxOf(tagging);
+        expect(stopBox.x).toBeGreaterThanOrEqual(labelBox.x + labelBox.width - 1);
+        expect(stopBox.x + stopBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
+        expect(stopBox.width).toBeGreaterThanOrEqual(28);
+        expect(stopBox.height).toBeGreaterThanOrEqual(28);
+
+        const tip = window.getByTestId("status-sends");
+        await label.hover();
+        await expect(tip).toBeVisible();
+        await expect(tip).toHaveText(
+          cloud ? LINES[language].cloudSends : LINES[language].localSends,
+        );
+        await window.mouse.move(600, 300);
+        await expect(tip).toBeHidden();
+        await label.click();
+        await expect(tip).toBeVisible();
+        await window.mouse.move(600, 300);
+        await expect(tip).toBeVisible();
+        await window.keyboard.press("Escape");
+        await expect(tip).toBeHidden();
+
+        await stop.click();
+        await expect(tagging).toHaveCount(0);
+        await window.keyboard.press("Escape");
+        await expect(window.getByTestId("undo-message")).toHaveCount(0);
+        await setTagging(window, folderId, false);
+        await addToFolder(window, [await slowFile(`Expert report ${width}`)], folderId);
+        await expect(status.getByTestId("tagging-stopped")).toBeVisible();
+      }
+      await app.close();
+    });
+  }
+}

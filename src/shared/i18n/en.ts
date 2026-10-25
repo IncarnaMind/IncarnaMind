@@ -125,13 +125,6 @@ export const en = {
   "library.progress.other": "Organizing {count} Documents…",
   "library.progressWith.one": "Organizing 1 Document with {service}…",
   "library.progressWith.other": "Organizing {count} Documents with {service}…",
-  "library.progressSends.one": "Organizing 1 Document with {service} · sends its name and excerpts",
-  "library.progressSends.other":
-    "Organizing {count} Documents with {service} · sends names and excerpts",
-  "library.progressSends.full.one":
-    "Organizing 1 Document with {service}: its name, outline and short excerpts are sent",
-  "library.progressSends.full.other":
-    "Organizing {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
   "library.waiting": "{count} Documents can’t be organized yet. Show why",
   "library.count": "{count} Documents",
   "library.count.one": "1 Document",
@@ -1484,18 +1477,14 @@ export const en = {
   "status.scans.other": "Reading {count} scans…",
   "status.scansWaiting.one": "Reading 1 scan, {waiting} waiting",
   "status.scansWaiting.other": "Reading {count} scans, {waiting} waiting",
-  "status.tagging.one": "Tagging 1 Document…",
-  "status.tagging.other": "Tagging {count} Documents…",
-  "status.taggingWith.one": "Tagging 1 Document with {service}…",
-  "status.taggingWith.other": "Tagging {count} Documents with {service}…",
-  "status.taggingSends.one": "Tagging 1 Document with {service} · sends its name and excerpts",
-  "status.taggingSends.other":
-    "Tagging {count} Documents with {service} · sends names and excerpts",
-  "status.taggingSends.full.one":
-    "Tagging 1 Document with {service}: its name, outline and short excerpts are sent",
-  "status.taggingSends.full.other":
-    "Tagging {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
-  "status.sendsScans": " (page images for scans)",
+  "status.tagging.one": "Tagging 1 Document",
+  "status.tagging.other": "Tagging {count} Documents",
+  "status.taggingWith.one": "Tagging 1 Document with {service}",
+  "status.taggingWith.other": "Tagging {count} Documents with {service}",
+  "status.sends": "Each Document’s name, outline and short excerpts go to {service}.",
+  "status.sends.onThisComputer":
+    "Each Document’s name, outline and short excerpts stay on this computer.",
+  "status.sends.scans": "Page images of scans are included.",
   "status.taggingWaiting": "No AI model for Tags",
   "status.taggingPermission": "Tags need your OK",
   "status.taggingFailed.one": "1 Document couldn’t be tagged",
