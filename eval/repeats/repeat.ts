@@ -7,10 +7,11 @@
  * Documents will do: the cases are the caller's.
  */
 import * as Y from "yjs";
-import type { ChatModelChoice, ClaimCheckAttributes, Core } from "../../src/core";
+import type { ChatModelChoice, ClaimCheckAttributes, Core, SearchScope } from "../../src/core";
 import { MIND_CONTENT_FIELD } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { coveredPart } from "../../src/shared/claimChecks";
+import { setMindScope } from "../../src/shared/mindScope";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, readMind, writeMind } from "../../tests/helpers/minds";
 
@@ -62,6 +63,9 @@ async function marksOf(core: Core, mindId: string) {
 
 export interface RepeatOptions {
   mind: string;
+  folderId?: string | null;
+  /** The Search scope the User set for the Mind, as its composer keeps it; none: its own. */
+  scope?: SearchScope;
   sentences: readonly string[];
   repeats: number;
   model: ChatModelChoice;
@@ -71,12 +75,16 @@ export interface RepeatOptions {
 
 /** Makes the Mind, then checks it `repeats` times. */
 export async function repeatChecks(core: Core, options: RepeatOptions): Promise<RepeatResult[]> {
-  const { id: mindId } = await core.createMind({ title: options.mind });
+  const { id: mindId } = await core.createMind({
+    title: options.mind,
+    folderId: options.folderId ?? null,
+  });
   const client = await connectToMind(core, mindId);
   writeMind(
     client,
     options.sentences.map((sentence) => note(sentence)),
   );
+  if (options.scope) setMindScope(client.doc, options.scope);
   await client.settled();
   const all: RepeatResult[] = [];
   for (let repeat = 1; repeat <= options.repeats; repeat++) {

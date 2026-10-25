@@ -30,6 +30,7 @@ import {
 import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
+  type CheckSentencesResult,
   type ClaimCheckAttributes,
   type ClaimCheckResult,
   type Document,
@@ -87,12 +88,7 @@ export interface VerifyOptions {
   createMind(title: string, folderId: string | null): Mind;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
-  /** Where the Mind's claims are checked: no Documents, or how many, and the scope. */
-  evidenceScope(
-    mindId: string,
-    allDocuments: boolean,
-    verification: Verification,
-  ): { searchable: number; folderId: string | null; check: CheckScope };
+  evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult(
     check: ClaimCheckAttributes,
@@ -118,6 +114,17 @@ export interface CheckScope {
   scope: ClaimCheckRequest["scope"];
   marked: ClaimCheckAttributes["scope"];
   wanted: SearchScope | null;
+}
+
+export type NoDocuments = Extract<CheckSentencesResult, { kind: "no-documents" }>;
+
+/** Where a Mind's claims are checked: how many Documents there, and the scope. */
+export interface MindCheckScope {
+  searchable: number;
+  folderId: string | null;
+  /** What a check gives back when there are none; null while there are. */
+  empty: NoDocuments | null;
+  check: CheckScope;
 }
 
 function parseRequest(input: unknown) {
@@ -198,8 +205,8 @@ export function createVerify(options: VerifyOptions) {
     signal: AbortSignal,
   ): Promise<FindClaimsResult> {
     const verification = verificationOf(mindId);
-    const { searchable, folderId } = options.evidenceScope(mindId, false, verification);
-    if (searchable === 0) return { kind: "no-documents", folderId };
+    const { empty } = options.evidenceScope(mindId, false, verification);
+    if (empty) return empty;
     const ready = await options.prepare(model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
@@ -238,12 +245,8 @@ export function createVerify(options: VerifyOptions) {
     const { mindId, requestId } = input;
     const verification = verificationOf(mindId);
     if (!verification.claims || verification.claims.length === 0) return { kind: "nothing" };
-    const { searchable, folderId, check } = options.evidenceScope(
-      mindId,
-      input.allDocuments,
-      verification,
-    );
-    if (searchable === 0) return { kind: "no-documents", folderId };
+    const { empty, check } = options.evidenceScope(mindId, input.allDocuments, verification);
+    if (empty) return empty;
     const ready = await options.prepare(input.model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };

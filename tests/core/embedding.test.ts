@@ -176,7 +176,8 @@ describe("The built-in embedding model", { timeout: 30_000 }, () => {
 
     expect(failed.error).toEqual({
       kind: "integrity",
-      message: expect.stringContaining("tokenizer.json doesn't match its recorded SHA-256"),
+      message: expect.stringContaining("tokenizer.json from 127.0.0.1"),
+      sources: [{ source: "huggingface", message: expect.stringContaining("recorded SHA-256") }],
     });
     const folder = await readdir(modelFolder(dataDir), { recursive: true });
     expect(folder).not.toContain("tokenizer.json");

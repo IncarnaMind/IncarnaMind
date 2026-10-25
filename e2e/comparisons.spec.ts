@@ -187,6 +187,99 @@ test("Compare Documents from “/”: 3 Documents × 2 Questions fill as a chang
   expect(await cellTexts(window.getByTestId("comparison-table"))).toHaveLength(3);
 });
 
+/** A one-Question table asked "slowly", so each cell can be watched being written. */
+async function makeSlowTable(window: Page): Promise<Locator> {
+  const sheet = await openSheetFromSlash(window);
+  await typeQuestions(window, ["Termination notice (slowly)"]);
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
+  const table = window.getByTestId("comparison-table");
+  await expect(table).toBeVisible();
+  return table;
+}
+
+test("a cell reads, then shows its words as they arrive and its checked Citation when it ends; the status line speaks only when a cell finishes; Stop takes half-written words away", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 860);
+  await acceptPlainTextKeys(window);
+  await bridge(window).cloudModel();
+  await addSuppliers(window);
+  const table = await makeSlowTable(window);
+  const cells = table.getByTestId("comparison-cell");
+  const progress = table.getByTestId("comparison-progress");
+
+  // At once, every cell being written says so; none sits as an empty box or as "Waiting…".
+  await expect(cells.first()).toHaveAttribute("data-status", "writing");
+  await expect(cells.first().locator(".comparison-cell-reading")).toHaveText("Reading…");
+  await expect(cells.first()).toHaveAttribute("aria-busy", "true");
+  const readingHeight = (await cells.first().boundingBox())?.height;
+
+  // Then its words, with the status line unchanged and no Citation yet.
+  await expect(cells.first()).toHaveAttribute("data-streaming", "true");
+  await expect(cells.first().locator(".comparison-cell-content")).toContainText("90 days");
+  await expect(cells.first().locator(".comparison-cell-reading")).toBeHidden();
+  await expect(cells.first().locator(".citation-marker")).toHaveCount(0);
+  // The row holds its height as the label gives way to words.
+  expect((await cells.first().boundingBox())?.height).toBe(readingHeight);
+  await expect(progress).toHaveAttribute("role", "status");
+  await expect(progress).toContainText("0 of 3 cells");
+
+  // Stop while they stream: the words not finished go, and the cells say they stopped.
+  await pointAndClick(window, table.getByTestId("comparison-stop"));
+  await expect(progress).toHaveCount(0);
+  for (const cell of await cells.all()) {
+    await expect(cell).not.toHaveAttribute("data-streaming", "true");
+    await expect(cell.locator(".comparison-cell-content")).toBeHidden();
+    await expect(cell.locator(".comparison-cell-stopped")).toBeVisible();
+  }
+  await expect(table.getByTestId("comparison-fill")).toHaveText("Fill 3 cells");
+
+  // Filling again writes them whole: the Citation lands checked, the status line counts them.
+  await pointAndClick(window, table.getByTestId("comparison-fill"));
+  await expect(progress).toBeVisible();
+  await expect(progress).toHaveCount(0, { timeout: 60_000 });
+  await expect(table.locator('.citation-marker[data-check="found"]')).toHaveCount(3);
+  expect(await cellTexts(table)).toEqual([["90 days 1"], ["6 months 2"], ["30 days 3"]]);
+  for (const cell of await cells.all()) {
+    await expect(cell).toHaveAttribute("data-status", "done");
+    await expect(cell).not.toHaveAttribute("aria-busy", "true");
+  }
+  expect((await cells.first().boundingBox())?.height).toBe(readingHeight);
+});
+
+test("in Chinese, at a narrow width and with reduced motion, a cell reads without a pulse and its words stay inside it", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await bridge(window).language("zh-CN");
+  await setWindowSize(app, window, 900, 860);
+  await window.emulateMedia({ reducedMotion: "reduce" });
+  await acceptPlainTextKeys(window);
+  await bridge(window).cloudModel();
+  await addSuppliers(window);
+  const sheet = await openSheetFromSlash(window);
+  await typeQuestions(window, ["Termination notice (slowly)"]);
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
+  const table = window.getByTestId("comparison-table");
+  const cell = table.getByTestId("comparison-cell").first();
+
+  const reading = cell.locator(".comparison-cell-reading");
+  await expect(reading).toHaveText("正在阅读…");
+  expect(
+    await reading.evaluate((element) => getComputedStyle(element, "::before").animationName),
+  ).toBe("none");
+
+  await expect(cell).toHaveAttribute("data-streaming", "true");
+  const content = cell.locator(".comparison-cell-content");
+  await expect(content).toContainText("90 days");
+  await expect(cell.locator(".comparison-cell-reading")).toBeHidden();
+  const [inside, outside] = await Promise.all([content.boundingBox(), cell.boundingBox()]);
+  expect(inside && outside && inside.x + inside.width <= outside.x + outside.width + 1).toBe(true);
+  expect(await window.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+    true,
+  );
+  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 60_000 });
+});
+
 test("“+ Question” adds a column that fills; Expand fills the card with the Document column held; a deleted Document's row says so; it is there after a reload and in the export", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -589,8 +682,6 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   for (const index of [1, 2, 3, 4, 5]) await pointAndClick(window, boxes.nth(index));
   await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("6 of 12");
   await expect(estimate).toContainText("18 model calls");
-  await pointAndClick(window, sheet.getByTestId("compare-sheet-select-all"));
-  await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("0 of 12");
   const frames = await window.evaluate(() => {
     const { sampler } = globalThis as unknown as {
       sampler: { running: boolean; frames: { estimate: boolean; height: number }[] };
@@ -601,6 +692,10 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   expect(frames.length).toBeGreaterThan(10);
   expect(frames.every((frame) => frame.estimate)).toBe(true);
   expect(new Set(frames.map((frame) => frame.height)).size).toBe(1);
+
+  // With nothing ticked the sheet shows its hint again, so this step is outside the sampled frames.
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-select-all"));
+  await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("0 of 12");
   await expect(estimate).toBeHidden();
 });
 

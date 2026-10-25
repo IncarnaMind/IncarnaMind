@@ -103,6 +103,7 @@ import type {
   RunWindow,
   TokenUsage,
 } from "../runs/engine";
+import { inStep } from "../timing/flows";
 import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { asksForFixes } from "./citations";
@@ -1185,7 +1186,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           small ??= smallCallModel(request, temperature());
           return small;
         };
-        const rewrite = await searchQuery(request, smallModel);
+        const rewrite = await inStep("search-rewrite", () => searchQuery(request, smallModel));
         if (rewrite.usage) yield { type: "usage", usage: rewrite.usage };
         const query = rewrite.value;
         signal.throwIfAborted();
@@ -1194,7 +1195,9 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           request.documents.documentLanguages ?? [],
         );
         const translation = language
-          ? await translatedQuery(request, query, language, smallModel)
+          ? await inStep("search-translation", () =>
+              translatedQuery(request, query, language, smallModel),
+            )
           : null;
         if (translation?.usage) yield { type: "usage", usage: translation.usage };
         const translated = translation?.value ?? null;
