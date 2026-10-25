@@ -1383,7 +1383,13 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     const at = blocks.findLastIndex((block) => block.type === "table");
     const table = blocks[at];
     const tableId = writer.ids[at];
-    if (!table || !tableId) {
+    // A later call of the Answer may have revised the table away before `cite` recorded its markers.
+    const there =
+      tableId !== undefined &&
+      minds.read(writer.mind.id, (note) =>
+        topLevelBlocks(note).some((each) => idOf(each) === tableId),
+      );
+    if (!table || !tableId || !there) {
       return {
         problem: "noTable",
         said: "No chart was drawn: content holds no table. Say so in your reply; to chart figures, write them as a cited table with chart.",
@@ -1548,15 +1554,22 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         }
         return found;
       });
-      // A later call revised what this one wrote: counted now, it would read as having written
-      // nothing, and a chart would have no table to follow. Its card keeps what it wrote.
-      if (there < each.ids.length) {
-        options.changed(toolCallId, { ...each.sent, ...citedIn({ cited, unrecorded }) });
-        continue;
-      }
       const drawn = each.chart?.(blocks) ?? null;
+      const charted = drawn !== null && !drawn.problem;
+      // A later call revised some of what this one wrote: counted now, it would read as having
+      // written less, or nothing. Its card keeps what it wrote, and the chart drawn now.
+      const counts =
+        there < each.ids.length
+          ? {
+              ...each.sent,
+              ...(charted && {
+                proposals: each.sent.proposals + 1,
+                charts: (each.sent.charts ?? 0) + 1,
+              }),
+            }
+          : each.change();
       options.changed(toolCallId, {
-        ...each.change(),
+        ...counts,
         ...citedIn({ cited, unrecorded }),
         ...someTableNotes(notes),
         ...(drawn?.problem && { chartNotDrawn: drawn.problem }),

@@ -258,6 +258,25 @@ describe("A new Mind the assistant revised in the same Answer", { timeout: 30_00
     expect(shownWithChanges(client)).toEqual(before);
   });
 
+  // protects=Reject all in the review pane's ⋯ menu, which rejects the changes it lists, takes back the first version too, and ⌘Z brings back the revised text waiting; fails_when=create_mind's version comes back waiting; no_claim=none beyond protects.
+  test("Reject all in the review pane leaves nothing waiting, and Undo brings it back", async () => {
+    const core = await setUp(madeThenRevised([UNMARKED]));
+    const answer = await askAssistant(core, ASKED);
+    const client = await connectToMind(core, madeIn(answer));
+    const before = shownWithChanges(client);
+    const listed = new Set(pendingProposals(client.blocks).map((each) => each.id));
+    const editor = boundEditor(client);
+
+    resolveInEditor(editor, listed, "reject");
+
+    expect(pendingProposals(client.blocks)).toHaveLength(0);
+    expect(shownWithChanges(client).join("")).toBe("");
+
+    editor.commands.undo();
+
+    expect(shownWithChanges(client)).toEqual(before);
+  });
+
   // protects=Regenerate takes back a Mind the Answer made and then revised before writing again; fails_when=the Mind stays with create_mind's text waiting; no_claim=what the Answer written again does.
   test("Regenerate takes it back before writing again", async () => {
     let again = false;
@@ -279,32 +298,25 @@ describe("A new Mind the assistant revised in the same Answer", { timeout: 30_00
   });
 });
 
-describe("A Mind that was there, revised twice in one Answer", { timeout: 30_000 }, () => {
+describe("A Mind that was there, its waiting text revised by a later Answer", {
+  timeout: 30_000,
+}, () => {
   const RISKS = [
     "## Risks\n\nLegal review may take longer than planned.",
     "## Risks\n\nThe legal review may take two weeks longer than planned.",
   ];
 
-  // protects=Reject all on an Answer that revised an earlier Answer's waiting text twice brings that text back exactly, still waiting, and leaves the Mind; fails_when=the first revision comes back waiting instead, or the Mind goes; no_claim=none beyond protects.
-  test("Reject all brings back the earlier Answer's text, still waiting", async () => {
+  /** An earlier Answer's waiting risks in the Project plan, which a second Answer revises `times` times. */
+  async function revised(times: 1 | 2) {
     let revising = false;
     const core = await setUp((call) => {
       if (!revising) {
+        const content = "## Risks\n\nLegal review may take longer.";
         return ran(call, "add_to_mind") === 0
-          ? {
-              calls: [
-                {
-                  tool: "add_to_mind",
-                  input: {
-                    mind: "Project plan",
-                    content: "## Risks\n\nLegal review may take longer.",
-                  },
-                },
-              ],
-            }
+          ? { calls: [{ tool: "add_to_mind", input: { mind: "Project plan", content } }] }
           : { text: "Added the risks." };
       }
-      const content = RISKS[ran(call, "edit_mind")];
+      const content = RISKS.slice(0, times)[ran(call, "edit_mind")];
       return content === undefined
         ? { text: "Said more about the legal review." }
         : {
@@ -314,18 +326,39 @@ describe("A Mind that was there, revised twice in one Answer", { timeout: 30_000
     const first = await askAssistant(core, { text: "Add the risks to the Project plan" });
     const planId = changedMinds(first)[0]?.mindId ?? "";
     const before = await shown(core, planId);
+    expect(before).toContain("+ Legal review may take longer.");
     revising = true;
     const second = await askAssistant(core, {
       text: "Say more about the legal review",
       conversationId: first.conversationId,
     });
-    expect(await shown(core, planId)).toContain(
-      "+ The legal review may take two weeks longer than planned.",
-    );
+    const last = RISKS[times - 1]?.split("\n\n")[1] ?? "";
+    expect(await shown(core, planId)).toContain(`+ ${last}`);
+    return { core, planId, before, second };
+  }
+
+  // protects=Reject all on an Answer that revised an earlier Answer's waiting text twice brings that text back exactly, still waiting, and leaves the Mind; fails_when=the first revision comes back waiting instead, or the Mind goes; no_claim=none beyond protects.
+  test("revised twice, Reject all on the card brings back the earlier Answer's text, still waiting", async () => {
+    const { core, planId, before, second } = await revised(2);
 
     await decideAll(core, changedMinds(second), "reject");
 
     expect(await shown(core, planId)).toEqual(before);
-    expect(before).toContain("+ Legal review may take longer.");
   });
+
+  // protects=Reject all on the Mind's bar, as ⌘K's, takes back the later Answer's revisions and leaves the earlier Answer's text waiting, as it was; fails_when=the earlier Answer's text is thrown away too, or a revision in between comes back; no_claim=none beyond protects.
+  test.each([
+    ["once", 1],
+    ["twice", 2],
+  ] as const)(
+    "revised %s, Reject all on the Mind's bar brings back the earlier Answer's text, still waiting",
+    async (_, times) => {
+      const { core, planId, before } = await revised(times);
+      const client = await connectToMind(core, planId);
+
+      resolveInEditor(boundEditor(client), "all", "reject");
+
+      expect(shownWithChanges(client)).toEqual(before);
+    },
+  );
 });
