@@ -317,13 +317,20 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     },
   );
 
-  // protects=only the part the cut takes out goes: every other word, mark, space and Citation lands byte for byte as the assistant wrote it, whatever spaces the model's reply has inside what it kept, in English and Chinese (#1397); fails_when=any other byte of the sentence changes; no_claim=none beyond protects.
+  // protects=only the part the cut takes out goes: every other word, mark, space and Citation lands byte for byte as the assistant wrote it, whatever spaces the model's reply has inside what it kept, and with its own full stop when the reply leaves it out, in English and Chinese (#1397); fails_when=any other byte of the sentence changes; no_claim=none beyond protects.
   test.each([
     {
       language: "en",
       content: `## Tides\n\n${OVERSTATED} [^1].`,
       cut: "Spring tides  come at new and full\nmoon [1].",
       written: asChecked(OVERSTATED),
+      part: ", and they flood the harbour every year",
+    },
+    {
+      language: "en, its full stop left out, with a sentence after it",
+      content: `## Tides\n\n${OVERSTATED} [^1]. Neap tides come between.`,
+      cut: "Spring tides come at new and full moon [1]",
+      written: `${asChecked(OVERSTATED)} Neap tides come between.`,
       part: ", and they flood the harbour every year",
     },
     {

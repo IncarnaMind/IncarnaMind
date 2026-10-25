@@ -307,9 +307,9 @@ function citationsKeepTheirWords(pieces: readonly string[], kept: ReadonlySet<nu
 /**
  * The passage with only what the cut left out taken out (#1397): each word,
  * mark and marker it keeps, and the spaces between them, as the passage has
- * them; where words went, a space if the cut has one there. Null when the cut
- * rewords, reorders or adds anything, keeps a Citation but none of its words,
- * or takes nothing out.
+ * them; where words went, a space if the cut has one there; and its own full
+ * stop. Null when the cut rewords, reorders or adds anything, keeps a Citation
+ * but none of its words, or takes nothing out.
  */
 function takenOut(passage: string, cut: string): string | null {
   const pieces = [...passage.matchAll(PIECE)];
@@ -333,6 +333,16 @@ function takenOut(passage: string, cut: string): string | null {
     last = at;
     keptAt.add(at);
     cutAt = wanted.index + text.length;
+  }
+  const end = pieces.length - 1;
+  const ending = pieces[end];
+  // The sentence keeps its own full stop, so it never runs into the next one.
+  if (keptAt.size > 0 && ending && !keptAt.has(end) && /^[.!?。！？]$/u.test(ending[0])) {
+    const before = pieces[last];
+    if (before && last === end - 1)
+      kept += passage.slice(before.index + before[0].length, ending.index);
+    kept += ending[0];
+    keptAt.add(end);
   }
   if (keptAt.size === 0 || keptAt.size === pieces.length) return null;
   return citationsKeepTheirWords(
