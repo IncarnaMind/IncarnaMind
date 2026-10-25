@@ -1,5 +1,5 @@
-import { autoUpdate, computePosition, flip, offset, shift } from "@floating-ui/dom";
-import { type Editor, isMacOS, posToDOMRect } from "@tiptap/core";
+import { autoUpdate } from "@floating-ui/dom";
+import { type Editor, isMacOS } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
 import {
   type MouseEvent as ReactMouseEvent,
@@ -20,11 +20,12 @@ import {
   redrawAppliedLine,
   toggleAppliedOriginal,
 } from "./appliedEditLine";
-import { type BarRoom, roomForBar } from "./barRoom";
+import { type ChangeBarBox, changeBarPlace, GAP_PX } from "./changeBarPlace";
 import {
   changeReason,
   clearHovered,
   editorDoc,
+  keepShownChange,
   type PendingProposal,
   pendingAtSelection,
   pendingIn,
@@ -34,8 +35,6 @@ import {
 } from "./proposalReview";
 import { redrawProposalRewrites, toggleProposalOriginal } from "./proposalRewrites";
 import { madeByLine, namesList } from "./theirChanges";
-
-const GAP_PX = 6;
 
 /** How long the bar stays once the pointer leaves its change, so it can reach the bar. */
 const LEAVE_MS = 300;
@@ -56,8 +55,9 @@ const spokenText = (text: string) => {
  *   for other people's changes from a Word file (#108), "4 changes from Dana
  *   Kim and Luis Ortega · Review", which opens the reviewing pane (#697) and
  *   goes while it is open;
- * - over the change the pointer or the cursor is on, its own bar: "Change 1
- *   of 3 · Accept · Reject" (⌘↵, ⌘⌫), with who made someone's change and
+ * - beside the change the pointer or the cursor is on, in the page's right
+ *   margin, or, when there is no room, docked at the page's foot, its own bar:
+ *   "Change 1 of 3 · Accept · Reject" (⌘↵, ⌘⌫), with who made someone's change and
  *   when, and when it would remove a Citation, that it does, or when a
  *   Document it cites has been deleted, "Source removed" (#94); why the
  *   assistant made it, as a tooltip, and as a line under the bar when the
@@ -141,12 +141,6 @@ export function ProposalBars({ editor, mindId }: { editor: Editor; mindId: strin
       <Spoken editor={editor} mindId={mindId} />
     </>
   );
-}
-
-function barRoom(editor: Editor): BarRoom {
-  const card = editor.view.dom.closest(".app-card")?.getBoundingClientRect() ?? null;
-  const dock = document.querySelector<HTMLElement>("[data-assistant]")?.dataset.dock;
-  return roomForBar(card, dock, { width: window.innerWidth, height: window.innerHeight });
 }
 
 /** The second click of a double click: it does nothing more. */
@@ -322,71 +316,149 @@ interface Shown {
   focused: boolean;
 }
 
-function textUnder(editor: Editor, x: number, y: number, size: DOMRect): boolean {
-  return [8, size.width / 2, size.width - 8].some((across) =>
-    document
-      .elementsFromPoint(x + across, y + size.height / 2)
-      .some(
-        (found) =>
-          found !== editor.view.dom &&
-          editor.view.dom.contains(found) &&
-          (found.textContent ?? "").trim() !== "",
-      ),
-  );
+/** Every line the words of a change show, as one box; null when none of it shows. */
+function changeBox(editor: Editor, from: number, to: number): ChangeBarBox | null {
+  const start = editor.view.domAtPos(from);
+  const end = editor.view.domAtPos(to);
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  let box: ChangeBarBox | null = null;
+  for (const rect of range.getClientRects()) {
+    if (rect.width < 1 || rect.height < 1) continue;
+    box = box
+      ? {
+          left: Math.min(box.left, rect.left),
+          top: Math.min(box.top, rect.top),
+          right: Math.max(box.right, rect.right),
+          bottom: Math.max(box.bottom, rect.bottom),
+        }
+      : { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+  }
+  return box;
+}
+
+const TEXT_BLOCK = "p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, figcaption, td, th";
+
+/** The text Block at a position, from either side of a Block boundary. */
+function blockAt(editor: Editor, pos: number): Element | null {
+  for (const at of [pos, pos + 1, pos - 1]) {
+    if (at < 0 || at > editor.state.doc.content.size) continue;
+    const found = editor.view.domAtPos(at);
+    const node = found.node instanceof Element ? found.node : found.node.parentElement;
+    const block = node?.closest(TEXT_BLOCK);
+    if (block) return block;
+  }
+  return null;
+}
+
+/** The line box of the text at `pos`: how far down a card placed beside it may reach. */
+function lineHeightAt(editor: Editor, pos: number): number {
+  const block = blockAt(editor, pos) ?? editor.view.dom;
+  const line = Number.parseFloat(getComputedStyle(block).lineHeight);
+  return Number.isFinite(line) && line > 0 ? line : 26;
 }
 
 /**
- * A change's bar sits over the first line of its change, following it as the Mind scrolls; under
- * its last line instead when it would cover text above and nothing below (#1358).
+ * Where the text on a change's lines ends, across the Blocks it spans: the
+ * card goes past it, so it never covers words the change doesn't.
  */
-function useBarOver(
+function textRightOn(editor: Editor, from: number, to: number, band: ChangeBarBox): number {
+  const first = blockAt(editor, from);
+  if (!first) return band.right;
+  const all = [...editor.view.dom.querySelectorAll(TEXT_BLOCK)];
+  const start = all.indexOf(first);
+  const found = blockAt(editor, to);
+  const end = found ? all.indexOf(found) : start;
+  let right = band.right;
+  for (const block of all.slice(start, Math.max(start, end) + 1)) {
+    const range = document.createRange();
+    range.selectNodeContents(block);
+    for (const rect of range.getClientRects()) {
+      if (rect.width < 1 || rect.height < 1) continue;
+      if (rect.top >= band.bottom || rect.bottom <= band.top) continue;
+      right = Math.max(right, rect.right);
+    }
+  }
+  return right;
+}
+
+/**
+ * Scrolls the Mind so a docked card's change, and the line after it, stay
+ * above the card, and the change's first line stays in view.
+ */
+function scrollAboveCard(
+  editor: Editor,
+  change: ChangeBarBox,
+  lineHeight: number,
+  cardTop: number,
+): void {
+  const scroller = editor.view.dom.closest<HTMLElement>(".mind-scroller");
+  if (!scroller) return;
+  const view = scroller.getBoundingClientRect();
+  let down = change.bottom + lineHeight + GAP_PX - cardTop;
+  if (down <= 0) return;
+  down = Math.min(down, Math.max(0, change.top - view.top - GAP_PX));
+  const most = scroller.scrollHeight - scroller.clientHeight;
+  const next = Math.min(most, scroller.scrollTop + down);
+  if (next > scroller.scrollTop) scroller.scrollTop = next;
+}
+
+/**
+ * A change's bar goes beside the change in the page view's right margin when
+ * about 300px are free there, and at the page view's foot otherwise, never at
+ * the window's corner (#1358, #1826); it follows the change as the Mind scrolls.
+ * Docked, it scrolls the change above it only while the cursor is in the
+ * change: scrolling under a still pointer would move the text out from under it.
+ */
+function useBarPlace(
   editor: Editor,
   bar: RefObject<HTMLDivElement | null>,
-  change: { from: number; to: number; end: number } | null,
+  change: { from: number; to: number; end: number; focused: boolean } | null,
 ): void {
   useLayoutEffect(() => {
     const element = bar.current;
     if (!change || !element || editor.isDestroyed) return;
-    const reference = {
-      getBoundingClientRect: () => posToDOMRect(editor.view, change.from, change.to),
-      contextElement: editor.view.dom,
-    };
     const place = () => {
       if (editor.isDestroyed) return;
-      // Never over the Mind's bar of changes, which stays at the top as the Mind scrolls, nor an
-      // applied edit's line above the change: under the change's line then.
-      const covered = editor.view.dom
+      const box = changeBox(editor, change.from, change.end);
+      const pageOf = editor.view.dom.closest(".mind-tab-page");
+      const page = pageOf?.getBoundingClientRect();
+      if (!box || !page) return;
+      const barOfChanges = editor.view.dom
         .closest(".mind-editor-frame")
         ?.querySelector(".proposals-bar")
-        ?.getBoundingClientRect().bottom;
-      const changeTop = reference.getBoundingClientRect().top;
-      const lines = [...editor.view.dom.querySelectorAll(".applied-line")]
-        .map((line) => line.getBoundingClientRect().bottom)
-        .filter((bottom) => bottom <= changeTop + 1);
-      const top = Math.max(8, covered ?? 0, ...lines);
-      const size = element.getBoundingClientRect();
-      const first = reference.getBoundingClientRect();
-      const whole = posToDOMRect(editor.view, change.from, change.end);
-      const below =
-        textUnder(editor, first.left, first.top - GAP_PX - size.height, size) &&
-        !textUnder(editor, first.left, whole.bottom + GAP_PX, size);
-      void computePosition(
-        below ? { ...reference, getBoundingClientRect: () => whole } : reference,
-        element,
+        ?.getBoundingClientRect();
+      const pill = editor.view.dom
+        .closest(".workbench")
+        ?.querySelector('[data-testid="ask-pill"]')
+        ?.getBoundingClientRect();
+      const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
+      // Its natural width, before this placement's cap.
+      element.style.maxWidth = "";
+      const size = { width: element.offsetWidth, height: element.offsetHeight };
+      const line = lineHeightAt(editor, change.from);
+      const at = changeBarPlace(
+        box,
+        textRightOn(editor, change.from, change.end, box),
         {
-          placement: below ? "bottom-start" : "top-start",
-          strategy: "fixed",
-          middleware: [
-            offset(GAP_PX),
-            flip({ padding: { top } }),
-            shift({ padding: 8, rootBoundary: barRoom(editor) }),
-          ],
+          left: page.left,
+          top: Math.max(page.top, barOfChanges?.bottom ?? page.top),
+          right: page.right,
+          bottom: page.bottom,
         },
-      ).then(({ x, y }) => {
-        Object.assign(element.style, { left: `${x}px`, top: `${y}px`, visibility: "visible" });
-      });
+        size,
+        line,
+        {
+          right: Math.min(page.right, badge ? badge.left - GAP_PX : page.right),
+          bottom: Math.min(page.bottom, pill ? pill.top : page.bottom),
+        },
+      );
+      element.style.maxWidth = `${at.maxWidth}px`;
+      Object.assign(element.style, { left: `${at.x}px`, top: `${at.y}px`, visibility: "visible" });
+      if (at.kind === "dock" && change.focused) scrollAboveCard(editor, box, line, at.y);
     };
-    return autoUpdate(reference, element, place);
+    return autoUpdate(editor.view.dom, element, place);
   }, [editor, bar, change]);
 }
 
@@ -448,7 +520,7 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
     };
   }, [editor]);
 
-  useBarOver(editor, bar, shown);
+  useBarPlace(editor, bar, shown);
 
   if (!shown) return null;
   const removedSources = sourcesRemoved(shown, documents, kept);
@@ -472,6 +544,7 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       data-proposal-id={shown.id}
       onMouseEnter={() => {
         over.current = true;
+        keepShownChange(editor.view);
       }}
       onMouseLeave={() => {
         over.current = false;
