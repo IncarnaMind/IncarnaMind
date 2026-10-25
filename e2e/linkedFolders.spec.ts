@@ -25,6 +25,7 @@ import {
   pointAndClick,
   previewLink,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
   showSourceLocations,
   useLocalChatModel,
@@ -348,6 +349,20 @@ test("two files with one name show where each is, and a Linked folder's row open
       ).sort(),
     )
     .toEqual(["2025", "2026"]);
+  for (const language of ["en", "zh-CN"] as const) {
+    await setLanguage(window, language);
+    for (const width of [900, 1600]) {
+      await setWindowSize(app, window, width, 760);
+      await expect
+        .poll(() =>
+          library
+            .getByTestId("library-document-place")
+            .evaluateAll((places) => places.map((place) => place.scrollWidth <= place.clientWidth)),
+        )
+        .toEqual([true, true, true, true]);
+    }
+  }
+  await setLanguage(window, "en");
   await screenshot(window, "same-name-library");
 
   const twins = await window.evaluate(async () => {

@@ -302,6 +302,7 @@ export const LibraryRow = memo(function LibraryRow({
                     {where && (
                       <span
                         data-testid="library-document-place"
+                        data-fit-name=""
                         className="min-w-0 truncate text-[12px] text-ink-meta"
                       >
                         {where}
