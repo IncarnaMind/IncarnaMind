@@ -222,6 +222,30 @@ describe("A reply that says a Tool ran when none did", { timeout: 60_000 }, () =
     expect(answer.steps?.askedAgainFor).toEqual(["calculate"]);
   });
 
+  // protects=a model in the Tool loop that has no calculation Tool, saying one confirmed its figures, is asked once and told it has none, and its honest reply keeps no line; fails_when=it isn't told, or a line stays; no_claim=that a real model then writes honestly.
+  test("in the Tool loop without the calculation Tool, is told it has none", async () => {
+    const asks: ModelCall[] = [];
+    const model = scriptedModel((call) => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "Cedar leverage" } }] };
+      }
+      if (!call.prompt.includes("no call in the record did")) return { text: CLAIM };
+      asks.push(call);
+      return {
+        text: "This model can't use IncarnaMind's calculation Tool: 310 / 95 ≈ 3.26 is my own working.",
+      };
+    });
+    const core = await setUp(model, { kind: "ollama", modelId: "local-model" });
+
+    const answer = await ask(core, ASKED);
+
+    expect(asks).toHaveLength(1);
+    expect(asks[0]?.prompt).toContain("IncarnaMind has no calculation Tool for this model");
+    expect(answer.text).toContain("can't use IncarnaMind's calculation Tool");
+    expect(answer.steps?.askedAgainFor).toEqual(["calculate"]);
+    expect(answer.steps).not.toHaveProperty("unrunTools");
+  });
+
   // protects=a model without Tools (structured output) is told it has no calculation Tool, and a reply that says one confirmed its figures keeps a line saying this model can't use it, with no second request; fails_when=it isn't told, isn't flagged, or is asked again; no_claim=that a real small model obeys.
   test("without Tools, is told there is no calculation Tool, and flagged", async () => {
     const answers: ModelCall[] = [];
