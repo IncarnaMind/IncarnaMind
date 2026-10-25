@@ -43,6 +43,9 @@ export function markdownToBlocks(markdown: string, options: MarkdownOptions = {}
 }
 
 const PARTIAL_MARKER = /^[ \t]*(?:[-*+_]{1,2}|\d{1,9}[.)]?|#{1,6}|>|[`~]{1,2}|\$|\\)$/;
+
+/** The level the export writes above a list that starts a level deeper, which its indent alone can't say. */
+const START_LEVEL = /^<!-- start-level: ([1-8]) -->$/;
 const FENCE = /^( {0,3})(`{3,}|~{3,})[ \t]*([^\s`]*)[^`]*$/;
 const MATH_BLOCK = /^ {0,3}(\$\$|\\\[)(.*)$/;
 const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
@@ -54,7 +57,9 @@ const PIPE_ROW = /^ {0,3}\|/;
 const PARTIAL_DELIMITER = /^[ \t|:-]*$/;
 /** A line break written into a table cell, where a row can't break. */
 const BREAK_TAG = /<br[ \t]*\/?>/gi;
-const LIST_ITEM = /^( {0,3})([-*+]|\d{1,9}[.)])(?:([ \t]+)(.*))?$/;
+// Up to three spaces, as CommonMark; a numbered list indented three spaces a level more starts at that
+// level, as the Markdown export writes one (#1419).
+const LIST_ITEM = /^( {0,3}|(?: {3}){1,8} {0,2})([-*+]|\d{1,9}[.)])(?:([ \t]+)(.*))?$/;
 /** Holding back an unclosed formula or link stops after this many characters: it was plain text after all. */
 const MAX_PENDING = 300;
 
@@ -119,6 +124,10 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
   while (i < lines.length) {
     const line = lines[i] as string;
     if (isBlank(line)) {
+      i++;
+      continue;
+    }
+    if (START_LEVEL.test(line.trim())) {
       i++;
       continue;
     }
@@ -418,10 +427,15 @@ function parseList(
     }
   }
 
+  const declared = START_LEVEL.exec(((lines[start - 1] as string | undefined) ?? "").trim())?.[1];
+  const startLevel = declared ? Number(declared) : 0;
   const block: NodeJSON = ordered
     ? {
         type: "orderedList",
-        attrs: { start: Number.parseInt(firstMarker.marker, 10) || 1 },
+        attrs: {
+          start: Number.parseInt(firstMarker.marker, 10) || 1,
+          ...(startLevel > 0 && { startLevel }),
+        },
         content: items,
       }
     : { type: "bulletList", content: items };
