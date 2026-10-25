@@ -19,10 +19,14 @@ const rowTones: Record<RowTone, string> = {
   muted: "text-ink-meta",
 };
 
+/** A row a drag carries: quieter than the rest, so it reads as what moves rather than a target. */
+export const draggedRowClass = "opacity-45";
+
 /**
  * A row's container. Pointed at it's washed; selected it's on the sheet with
  * an inset rule and weight 600, or, one of several selected, on the accent's
- * wash. Its actions (`rowActionsClass`) sit on its right end and take its
+ * wash; one a drag carries is quieter and not washed. Its actions
+ * (`rowActionsClass`) sit on its right end and take its
  * background. Names of Documents and Folders are a shade darker than the
  * app's own rows. A row's words can't be selected, so a right-click never
  * selects them. `--row-bg` is the row's fill while selected, for a mark that
@@ -30,14 +34,21 @@ const rowTones: Record<RowTone, string> = {
  * is washed). The focus ring (DESIGN.md, Focus) is the row's, just inside its
  * edge, while its main button (`rowButtonClass`) has the focus.
  */
-export const rowClass = (selected: boolean, tone: RowTone = "app", oneOfMany = false) =>
+export const rowClass = (
+  selected: boolean,
+  tone: RowTone = "app",
+  oneOfMany = false,
+  dragged = false,
+) =>
   `group relative flex h-7 shrink-0 items-center rounded-md text-ui select-none has-[.row-main:focus-visible]:outline-2 has-[.row-main:focus-visible]:-outline-offset-2 has-[.row-main:focus-visible]:outline-accent ${
     selected && oneOfMany
       ? "bg-accent-wash text-ink [--row-bg:var(--color-accent-wash)]"
       : selected
         ? "bg-sheet font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule)] [--row-bg:var(--color-sheet)]"
-        : `${rowTones[tone]} hover:bg-hover has-[:focus-visible]:bg-hover`
-  }`;
+        : dragged
+          ? rowTones[tone]
+          : `${rowTones[tone]} hover:bg-hover has-[:focus-visible]:bg-hover`
+  } ${dragged ? draggedRowClass : ""}`;
 
 export const dropIntoClass = "bg-accent-wash shadow-[inset_0_0_0_2px_var(--color-accent)]";
 

@@ -241,3 +241,33 @@ for (const [language, width] of [
     }
   });
 }
+
+for (const [language, width] of [
+  ["en", 1440],
+  ["zh-CN", 900],
+] as const) {
+  test(`Move to… finds a Chinese Folder by either reading of a character (#1416, ${language}, ${width}px)`, async () => {
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, width, 760);
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      await (await coreOf(window)).evaluate(async (core: CoreBridge) => {
+        await core.createLibraryGroup({ name: "重命名", description: "" });
+        await core.createMind({ title: "Plan" });
+      });
+
+      await mindRow(window, "Plan").getByTestId("mind-list-item").focus();
+      await window.keyboard.press("ControlOrMeta+Shift+KeyM");
+      await expect(field(window)).toBeFocused();
+      for (const typed of ["chongming", "chongmingming", "cmm", "zhongming"]) {
+        await field(window).fill(typed);
+        await expect(options(window).first()).toHaveText("重命名");
+      }
+      await window.keyboard.press("Enter");
+      await expect.poll(() => folderOfMind(window, "Plan")).not.toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+}
