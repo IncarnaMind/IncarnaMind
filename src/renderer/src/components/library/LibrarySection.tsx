@@ -50,6 +50,7 @@ export function LibrarySection({
   matches,
   suggestedOf,
   notSortedOf,
+  sortFailedOf,
 }: {
   section: Section;
   narrowing: boolean;
@@ -59,6 +60,8 @@ export function LibrarySection({
   suggestedOf(documentId: string): string | null;
   /** Why Organize couldn't sort a Document, by its id, if it couldn't. */
   notSortedOf(documentId: string): string | null;
+  /** Why a Suggested Folder's latest run failed, by a Document's id, if it did. */
+  sortFailedOf(documentId: string): string | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -90,6 +93,7 @@ export function LibrarySection({
             doc={doc}
             suggestedIn={suggestedOf(doc.id)}
             notSorted={notSortedOf(doc.id)}
+            sortFailed={sortFailedOf(doc.id)}
             match={matches?.get(doc.id) ?? null}
             path={matches && section.folder ? section.folder.name : null}
           />

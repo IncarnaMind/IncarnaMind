@@ -171,6 +171,15 @@ export function LibraryPane() {
     },
     [assignments, t],
   );
+  const sortFailedOf = useCallback(
+    (documentId: string) => {
+      const item = assignments.get(documentId);
+      if (!item?.suggested || item.groupId === null || item.status !== "failed") return null;
+      const said = item.error ? providerErrorText(item.error, t) : "";
+      return said || t("library.notSorted.noReason");
+    },
+    [assignments, t],
+  );
   const unsortedIds = useMemo(() => {
     const ids = new Set<string>();
     for (const item of snapshot?.assignments ?? []) if (isNotSorted(item)) ids.add(item.documentId);
@@ -424,6 +433,7 @@ export function LibraryPane() {
                     notSorted={notSorted}
                     suggestedIn={suggestedOf}
                     notSortedOf={notSortedOf}
+                    sortFailedOf={sortFailedOf}
                   />
                 )}
                 {sections.map((section) => (
@@ -434,6 +444,7 @@ export function LibraryPane() {
                     matches={matches}
                     suggestedOf={suggestedOf}
                     notSortedOf={notSortedOf}
+                    sortFailedOf={sortFailedOf}
                   />
                 ))}
               </div>

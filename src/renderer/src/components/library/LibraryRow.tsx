@@ -143,6 +143,7 @@ export const LibraryRow = memo(function LibraryRow({
   suggestedIn,
   review = false,
   notSorted,
+  sortFailed,
   match,
   path,
 }: {
@@ -152,6 +153,8 @@ export const LibraryRow = memo(function LibraryRow({
   review?: boolean;
   /** Why Organize couldn't sort it, if it couldn't. */
   notSorted: string | null;
+  /** Why a Suggested Folder's latest run failed, if it did. */
+  sortFailed: string | null;
   /** How it matches the search, while there is one. */
   match: SearchMatch | null;
   /** Its Folder, shown under it while searching. */
@@ -331,6 +334,15 @@ export const LibraryRow = memo(function LibraryRow({
                     className="min-w-0 max-w-60 shrink truncate text-label font-semibold text-ink-meta"
                   >
                     {t("library.notSorted.reason", { reason: notSorted })}
+                  </span>
+                )}
+                {sortFailed !== null && (
+                  <span
+                    data-testid="library-sort-failed"
+                    title={t("library.sortAgain.title", { reason: sortFailed })}
+                    className="min-w-0 max-w-60 shrink truncate text-label font-semibold text-ink-meta"
+                  >
+                    {t("library.sortAgain.reason", { reason: sortFailed })}
                   </span>
                 )}
                 {suggestedIn !== null && !review && (

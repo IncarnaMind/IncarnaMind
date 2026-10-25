@@ -1,6 +1,5 @@
 import type { DocumentGroupAssignment, TaggingState } from "../../core/api";
 
-/** What a saved assignment says about Organize for one Document. */
 type Held = Pick<DocumentGroupAssignment, "status" | "groupId" | "source" | "suggested">;
 
 /**

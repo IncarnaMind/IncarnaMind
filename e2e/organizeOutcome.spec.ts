@@ -11,7 +11,9 @@ import {
   decisionServer,
   dismissChatSetup,
   launchApp,
+  leaveText,
   pointAndClick,
+  pointAt,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -321,26 +323,77 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
         { timeout: 30_000 },
       )
       .toEqual(["failed", true]);
-    await (await coreOf(window)).evaluate(async (core) => {
-      const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
-      if (!note) throw new Error("No Document named Note 1.");
-      await core.rejectAssignments([note.id]);
-    });
-    failing = false;
+    const noteRow = review
+      .getByTestId("library-review-document")
+      .filter({ has: window.getByRole("button", { name: "Note 1", exact: true }) });
+    await expect(noteRow).toHaveCount(1);
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
+      `Couldn’t sort again: ${DECISION_FAILURE}`,
+    );
+    await pointAt(window, noteRow);
+    await pointAndClick(window, noteRow.getByTestId("document-file-menu"));
+    await pointAndClick(window, window.getByTestId("document.reject"));
+    // Settled by the renderer itself: the row, its reason and the re-run's line leave as the click
+    // returns, before the core's list is read again.
+    expect(await review.getByTestId("library-review-document").count()).toBe(0);
+    expect(await window.getByTestId("library-not-sorted-count").count()).toBe(0);
+    expect(await library.getByTestId("library-sort-failed").count()).toBe(0);
+    expect(await looseNow.getByTestId("library-organize-failed").count()).toBe(0);
+    expect(await looseNow.getByTestId("library-not-sorted").count()).toBe(0);
+    await expect(window.getByTestId("undo-line")).toContainText("Kept “Note 1” out of Reports");
     await expect(window.getByTestId("library-not-sorted-count")).toHaveCount(0);
     await expect(library.getByTestId("library-review-unsorted")).toHaveCount(0);
+    await expect(looseNow.getByTestId("library-organize-failed")).toHaveCount(0);
     await expect(looseNow.getByTestId("library-not-sorted")).toHaveCount(0);
-    const settled = await (await coreOf(window)).evaluate(async (core) => {
-      const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
-      const { assignments } = await core.getLibrary();
-      return assignments.find((each) => each.documentId === note?.id) ?? null;
+    const noteNow = async () =>
+      (await coreOf(window)).evaluate(async (core) => {
+        const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
+        const { assignments, groups } = await core.getLibrary();
+        const held = assignments.find((each) => each.documentId === note?.id) ?? null;
+        return {
+          held,
+          folder: groups.find((each) => each.id === held?.groupId)?.name ?? null,
+        };
+      });
+    expect(await noteNow()).toMatchObject({
+      held: { groupId: null, suggested: false, status: "classified", error: null },
     });
-    expect(settled).toMatchObject({
-      groupId: null,
-      suggested: false,
-      status: "classified",
-      error: null,
+    // ⌘Z puts the Suggested Folder back as the failed re-run left it: reported, with Try again, and
+    // still not one Organize couldn't sort, which takes no Folder. ⇧⌘Z turns it down again.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(noteRow).toHaveCount(1);
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
+      `Couldn’t sort again: ${DECISION_FAILURE}`,
+    );
+    await expect(looseNow.getByTestId("library-organize-failed")).toContainText(
+      "Organize couldn’t sort 1 Document",
+    );
+    await expect(library.getByTestId("library-not-sorted-count")).toHaveCount(0);
+    await expect(library.getByTestId("library-review-unsorted")).toHaveCount(0);
+    await expect(looseNow.getByTestId("library-not-sorted")).toHaveCount(0);
+    await expect(sidebarFolder(window, "Reports").getByTestId("browse-count")).toHaveText(
+      "19 · 1 suggested",
+    );
+    expect(await noteNow()).toMatchObject({
+      folder: "Reports",
+      held: {
+        suggested: true,
+        status: "failed",
+        error: { kind: "provider", message: DECISION_FAILURE },
+      },
     });
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(noteRow).toHaveCount(0);
+    await expect(library.getByTestId("library-sort-failed")).toHaveCount(0);
+    await expect(looseNow.getByTestId("library-organize-failed")).toHaveCount(0);
+    await expect(window.getByTestId("library-not-sorted-count")).toHaveCount(0);
+    await expect(looseNow.getByTestId("library-not-sorted")).toHaveCount(0);
+    await expect(sidebarFolder(window, "Reports").getByTestId("browse-count")).toHaveText("18");
+    expect(await noteNow()).toMatchObject({
+      held: { groupId: null, suggested: false, status: "classified", error: null },
+    });
+    failing = false;
   } finally {
     server.close();
     await app.close();

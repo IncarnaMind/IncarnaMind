@@ -23,12 +23,14 @@ export function ToReview({
   notSorted,
   suggestedIn,
   notSortedOf,
+  sortFailedOf,
 }: {
   review: Review;
   /** The Documents Organize couldn't sort, in the page's order. */
   notSorted: readonly Document[];
   suggestedIn(documentId: string): string | null;
   notSortedOf(documentId: string): string | null;
+  sortFailedOf(documentId: string): string | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -147,6 +149,7 @@ export function ToReview({
                   review
                   suggestedIn={suggestedIn(doc.id)}
                   notSorted={null}
+                  sortFailed={sortFailedOf(doc.id)}
                   match={null}
                   path={null}
                 />
@@ -181,6 +184,7 @@ export function ToReview({
               review
               suggestedIn={null}
               notSorted={notSortedOf(doc.id)}
+              sortFailed={null}
               match={null}
               path={null}
             />

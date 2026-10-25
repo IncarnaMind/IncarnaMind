@@ -18,7 +18,6 @@ const held = (over: Partial<Held> = {}): Held => ({
   ...over,
 });
 
-/** Both answers for one Document, as the row and the title line give them. */
 const says = (item: Held | undefined, tagging: TaggingState = "tagged") => ({
   notSorted: isNotSorted(item),
   sorted: isSorted(item, tagging),
@@ -40,6 +39,13 @@ describe("what Organize says of a Document", () => {
 
   test("a Folder Organize suggested still waits: neither sorted nor one it couldn't sort", () => {
     expect(says(held({ groupId: "finance", suggested: true }))).toEqual({
+      notSorted: false,
+      sorted: false,
+    });
+  });
+
+  test("a Suggested Folder whose re-run failed still waits, not one it couldn't sort", () => {
+    expect(says(held({ groupId: "finance", suggested: true, status: "failed" }))).toEqual({
       notSorted: false,
       sorted: false,
     });
