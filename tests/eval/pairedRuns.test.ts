@@ -51,6 +51,18 @@ describe("the guards", () => {
     expect(cited).toMatchObject({ baseline: 2, candidate: 1, lost: 1, gained: 0, holds: false });
   });
 
+  test("a margin of one in 30 lets 30 items lose one", () => {
+    const rows = Array.from({ length: 30 }, (_, index) =>
+      row({}, index === 0 ? { cited: false } : {}, `en-${index}`),
+    );
+    expect(guards(rows).find((each) => each.name === "Expected Passages cited")?.holds).toBe(false);
+    expect(guards(rows, 1).find((each) => each.name === "Expected Passages cited")).toMatchObject({
+      lost: 1,
+      allowed: 1,
+      holds: true,
+    });
+  });
+
   test("one lost and one gained hold the rate", () => {
     const right = named(
       [row({}, { grade: "partly" }), row({ grade: "wrong" }, {}, "en-02")],

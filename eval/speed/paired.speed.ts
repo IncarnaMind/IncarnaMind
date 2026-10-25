@@ -164,6 +164,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   const each = env("EACH") ? Number(env("EACH")) : null;
   const runs = Number(env("RUNS") ?? "1") || 1;
   const stopUsd = Number(env("STOP_USD") ?? "12");
+  const margin = Number(env("MARGIN") ?? "0");
   const judge = judgeOf(models);
   const switcher = armSwitch();
   const reranker = createWorkerCrossEncoder(config.rerankOnCpu);
@@ -273,7 +274,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   const sections = groups.flatMap((group) => [
     `## ${group.title} (${group.rows.length} items)`,
     "",
-    pairedSection(group.rows, names),
+    pairedSection(group.rows, names, margin),
     "",
   ]);
   const items = groups.flatMap((group) => [
@@ -289,7 +290,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "",
     `This computer: ${cpus()[0]?.model ?? "unknown CPU"}, ${cpus().length} cores, ${Math.round(totalmem() / 2 ** 30)} GB; one-minute load ${loads.length ? `${Math.min(...loads).toFixed(1)} to ${Math.max(...loads).toFixed(1)}, median ${(percentile(loads, 0.5) ?? 0).toFixed(1)}` : "–"}. Spent: $${spent.toFixed(2)} (the judge $${judge.spent().toFixed(2)}).${stopped ? ` ${stopped}` : ""}`,
     "",
-    "Times are from the User's action, median / 90th percentile. A guard counts the items both arms finished; lost: right with the first arm and not the second, gained: the other way round.",
+    `Times are from the User's action, median / 90th percentile. A guard counts the items both arms finished; lost: right with the first arm and not the second, gained: the other way round. Cited, judged right and every Citation found hold with up to ${margin} fewer items in 30.`,
     "",
     ...sections,
     "## Item by item",

@@ -29,18 +29,24 @@ export interface Guard {
   /** Items the baseline had right and the candidate not, and the other way round. */
   lost: number;
   gained: number;
+  /** How many fewer items the candidate may have and still hold. */
+  allowed: number;
   holds: boolean;
 }
 
 type Flag = (run: ArmRun) => boolean;
 
-/** A guard over the items both arms finished that it applies to (`counted`). */
+/**
+ * A guard over the items both arms finished that it applies to (`counted`). One where more is
+ * better holds with up to `margin` fewer items in 30; one where more is worse, with none new.
+ */
 function guard(
   name: string,
   rows: readonly PairedRow[],
   good: Flag,
   counted: Flag,
   higherIsBetter: boolean,
+  margin = 0,
 ): Guard | null {
   const both = rows.filter(
     (row) =>
@@ -62,22 +68,25 @@ function guard(
       ? !good(row.baseline) && good(row.candidate)
       : good(row.baseline) && !good(row.candidate),
   ).length;
+  const allowed = higherIsBetter ? Math.floor((both.length * margin) / 30) : 0;
   return {
     name,
     baseline,
     candidate,
     lost,
     gained,
-    holds: higherIsBetter ? candidate >= baseline : lost === 0,
+    allowed,
+    holds: higherIsBetter ? candidate >= baseline - allowed : lost === 0,
   };
 }
 
 /**
- * The plan's gate on the items both arms finished: no lower share of items citing their
- * expected Passages, judged right, or with every Citation found; no new false Supported,
- * duplicate Answer or change claimed that no Tool made; and no more items failing to run.
+ * The plan's gate on the items both arms finished: no fewer items citing their expected
+ * Passages, judged right, or with every Citation found than `margin` in 30 allows (none by
+ * default); no new false Supported, duplicate Answer or change claimed that no Tool made; and no
+ * more items failing to run.
  */
-export function guards(rows: readonly PairedRow[]): Guard[] {
+export function guards(rows: readonly PairedRow[], margin = 0): Guard[] {
   const all: Flag = () => true;
   const found: Flag = (run) => run.citations > 0 && run.found === run.citations;
   return [
@@ -87,6 +96,7 @@ export function guards(rows: readonly PairedRow[]): Guard[] {
       (run) => run.cited === true,
       (run) => run.cited !== null,
       true,
+      margin,
     ),
     guard(
       "Judged right",
@@ -94,8 +104,9 @@ export function guards(rows: readonly PairedRow[]): Guard[] {
       (run) => run.grade === "right",
       (run) => run.grade !== null,
       true,
+      margin,
     ),
-    guard("Every Citation found", rows, found, (run) => run.citations > 0, true),
+    guard("Every Citation found", rows, found, (run) => run.citations > 0, true, margin),
     guard("False Supported", rows, (run) => run.falseSupported > 0, all, false),
     guard("Duplicate Answer", rows, (run) => run.duplicate, all, false),
     guard(
@@ -122,6 +133,7 @@ export function guards(rows: readonly PairedRow[]): Guard[] {
       gained: rows.filter(
         (row) => row.baseline.status === "failed" && row.candidate.status === "done",
       ).length,
+      allowed: 0,
       holds:
         rows.filter((row) => row.candidate.status === "failed").length <=
         rows.filter((row) => row.baseline.status === "failed").length,
@@ -157,7 +169,11 @@ function paired(rows: readonly PairedRow[], pick: (run: ArmRun) => number | null
   return `${difference <= 0 ? "−" : "+"}${seconds(Math.abs(difference))}, sooner in ${sooner} of ${pairs.length}`;
 }
 
-export function pairedSection(rows: readonly PairedRow[], names: [string, string]): string {
+export function pairedSection(
+  rows: readonly PairedRow[],
+  names: [string, string],
+  margin = 0,
+): string {
   const [a, b] = names;
   const of = (pick: (run: ArmRun) => number | null) =>
     `| ${spread(rows.map((row) => pick(row.baseline)))} | ${spread(rows.map((row) => pick(row.candidate)))} | ${paired(rows, pick)} |`;
@@ -172,7 +188,7 @@ export function pairedSection(rows: readonly PairedRow[], names: [string, string
   const found = (run: (row: PairedRow) => ArmRun) =>
     `${rows.reduce((sum, row) => sum + run(row).found, 0)} of ${rows.reduce((sum, row) => sum + run(row).citations, 0)}`;
   const rule = (each: Guard) =>
-    `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${each.holds ? "yes" : "**no**"} |`;
+    `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""} |`;
   return [
     `| | ${a} | ${b} | ${b} against ${a}, item by item |`,
     "|---|---|---|---|",
@@ -185,7 +201,7 @@ export function pairedSection(rows: readonly PairedRow[], names: [string, string
     "",
     `| Guard, items both finished | ${a} | ${b} | lost / gained | holds |`,
     "|---|---|---|---|---|",
-    ...guards(rows).map(rule),
+    ...guards(rows, margin).map(rule),
   ].join("\n");
 }
 
