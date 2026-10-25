@@ -149,7 +149,7 @@ export interface TaggingOptions {
   ollamaUrl: string;
   /** The models Ollama on this computer has installed, at an address; none when it can't be reached. */
   localModels(baseUrl: string): Promise<readonly string[]>;
-  /** Until when tagging on the ChatGPT plan waits for its limit to reset (ISO 8601), or null. */
+  /** Until when tagging on a plan (ChatGPT's or Claude's) waits for its limit to reset (ISO 8601), or null. */
   planPausedUntil(): string | null;
   now(): number;
 }
