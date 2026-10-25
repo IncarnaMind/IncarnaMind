@@ -46,7 +46,7 @@ const RETIRED_NOTE: readonly { readonly key: MessageKey; readonly notes: number 
   { key: "skills.make.empty", notes: 1 },
 ];
 
-/** A Meeting's notes, whose word the design owner decides in a later slice. */
+/** A Meeting's notes, whose word a later slice decides. */
 const MEETING_NOTE: readonly { readonly key: MessageKey; readonly chinese: boolean }[] = [
   { key: "consent.data.live-transcript", chinese: true },
   { key: "library.preset.meetings", chinese: false },
@@ -167,7 +167,7 @@ describe("the retired Block-level Note", () => {
     );
   });
 
-  test("a Meeting's notes keep their word on both sides until the owner decides", () => {
+  test("a Meeting's notes keep their word on both sides until a later slice", () => {
     for (const { key, chinese } of MEETING_NOTE) {
       expect(NOTE.test(en[key]), key).toBe(true);
       expect(HAS_NOTES.test(zhCN[key]), key).toBe(chinese);
