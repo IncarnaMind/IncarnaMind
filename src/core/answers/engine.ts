@@ -744,12 +744,32 @@ const checkCalculationsSchema = {
     ...calculationsSchema.items,
     properties: {
       ...calculationsSchema.items.properties,
+      inputs: {
+        ...calculationsSchema.items.properties.inputs,
+        items: {
+          ...calculationsSchema.items.properties.inputs.items,
+          properties: {
+            ...calculationsSchema.items.properties.inputs.items.properties,
+            bracketedCost: {
+              type: "boolean",
+              description:
+                'True when the number is a cost or deduction printed in brackets ("Finance costs (41.2)", "财务费用 (41.2)"), so its size is meant. Never for a loss or another result in brackets.',
+            },
+          },
+        },
+      },
       stated: {
         type: "string",
         description: 'The number as the sentence to check writes it: "1.1x", "12%".',
       },
+      relation: {
+        type: "string",
+        enum: ["equals", "at most", "at least"],
+        description:
+          'How the figure stands to stated: "equals" when stated is the figure; "at most" or "at least" when stated is a limit the sentence says the figure stays within or above ("inside a 3.25x covenant", "不超过3.25倍", "至少5倍").',
+      },
     },
-    required: [...calculationsSchema.items.required, "stated"],
+    required: [...calculationsSchema.items.required, "stated", "relation"],
   },
 } as const;
 
@@ -1459,7 +1479,7 @@ export function documentTools(
           ...own(DOCUMENT_TOOLS.calculate),
           description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. The formula is in Excel's syntax over the inputs' names. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025", "inputs": [{"name": "r24", "label": "Revenue 2024", "citation": 1, "number": "$1,231.0 million"}, {"name": "r25", "label": "Revenue 2025", "citation": 1, "number": "$1,482.6 million"}], "formula": "r25 / r24 - 1", "as": "percent"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale ("单位：万元", "in millions") applied, so give scale ("亿", "billion") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction off by adding it, never by subtracting it. ${
             checking
-              ? "Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it."
+              ? 'Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above ("leverage inside the 3.25x covenant"), give relation "at most" or "at least".'
               : "Write the figure's marker, such as [=1], in the number's place; never write the number yourself."
           }`,
           inputSchema: {
