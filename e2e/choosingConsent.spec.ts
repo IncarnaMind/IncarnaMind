@@ -20,6 +20,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  openAdvancedModels,
   openSettings,
   removeDataFolder,
   setLanguage,
@@ -132,7 +133,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
     window.getByTestId("document-list-item").filter({ hasText: "Invoice 40" }),
   ).toHaveAttribute("data-tagging", "off");
   const models = await openSettings(window, "models");
-  const tagging = models.getByTestId("tagging-settings");
+  const tagging = await openAdvancedModels(models);
   await tagging.scrollIntoViewIfNeeded();
   const automatic = tagging.getByRole("checkbox", {
     name: /^Tag and sort new Documents automatically/,
