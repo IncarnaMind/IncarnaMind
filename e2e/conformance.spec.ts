@@ -827,6 +827,12 @@ const STAGES: Record<Staged, Stage> = {
     inNote: true,
     make: ({ window }) => mindWithComparison(window),
     show: ({ window }, key) => showInNote(window, key, "comparisonColumn"),
+    // Its key is the Mind's; the first column's heading is the one its menu acts on.
+    name: ({ window }) =>
+      window
+        .locator('[data-testid="comparison-question"] .comparison-question-label')
+        .first()
+        .innerText(),
   },
 };
 
