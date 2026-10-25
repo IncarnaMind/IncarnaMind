@@ -19,7 +19,7 @@ One issue per theme, not one per finding. A theme is one screen, one flow or one
 
 - **Before filing,** search the open issues for the theme (`gh issue list --state open --search "<words> in:title"`). If one fits and has the same priority tier and difficulty, add the finding to it as a checklist line with its criteria, and say so in a comment, instead of opening a new issue.
 - **A new issue** that covers several findings has a line on the theme, then a checklist with one line per part, each with its acceptance criteria, then the criteria that hold for all of them (Undo, keyboard and ⌘K, English and Chinese, real-model numbers for AI behaviour).
-- **Split** only when parts differ in priority tier or difficulty, when a part is a different screen or flow, or when one issue would need more than one pull request of about 600 lines; then a tracker issue lists the parts.
+- **Split** only when parts differ in priority tier, or when a part is a different screen or flow. Size is never a reason: one feature is one pull request. Then a tracker issue lists the parts.
 - **P0 and a lone P1** are filed on their own the day they are found, so nothing waits for a theme to fill.
 - Issues filed before this rule stay as they are; the work items below group them for building.
 
@@ -48,7 +48,7 @@ Run `gh issue view <number> --comments`.
 A work item is an issue that lists small issues one agent should do together, so the agent reads the context once and opens one pull request.
 
 - **Title and labels:** "Work item: <theme>" with `work-item`, the group's `priority:` label and the highest `complexity:` of its members (`complexity:simple` or `complexity:medium`). Members keep their own labels. All members share one priority tier, and no member is hard.
-- **Body:** a line on the theme and the files or screens it touches, then a checklist with one link per member: `- [ ] #1350 Library: ⌘A also highlights the page's text`. Add "Split if over 600 lines" and name the split when it is known.
+- **Body:** a line on the theme and the files or screens it touches, then a checklist with one link per member: `- [ ] #1350 Library: ⌘A also highlights the page's text`.
 - **Taking it:** claim the work item, read each member once, and build them in one branch and one pull request that closes the work item and every member ("Closes #1350, closes #1354"). Use `Closes`, not `Part of`, for a member that is done.
 - **Dropping a member:** one that turns out hard, blocked or undecided comes off the list with a comment saying why, and stays open on its own.
 - **P0 and P1 never wait for a batch to fill:** a stray P1 starts the day it is ready, with or without a work item.
