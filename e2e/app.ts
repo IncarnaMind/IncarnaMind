@@ -661,6 +661,21 @@ export async function runCommand(window: Page, id: string, label: string): Promi
   await pointAndClick(window, item);
 }
 
+/** How many times ⌘K lists the command, once its words are typed (0 or 1); then Esc closes it. */
+export async function paletteOffers(window: Page, id: string, words: string): Promise<number> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(`>${words}`);
+  const palette = window.getByTestId("palette");
+  await expect(
+    palette.locator('[data-testid="palette-item"], [data-testid="palette-empty"]').first(),
+  ).toBeVisible();
+  const count = await palette.locator(`[data-key="command:${id}"]`).count();
+  await window.keyboard.press("Escape");
+  await expect(palette).toBeHidden();
+  return count;
+}
+
 /** A Folder's row in the sidebar's Folders view, with what is listed in it, by its name. */
 export const sidebarFolder = (window: Page, name: string) =>
   window
@@ -866,6 +881,19 @@ export async function addProviderPage(settings: Locator, catalogId: string): Pro
   const page = settings.getByTestId("provider-add");
   await expect(page).toHaveAttribute("data-catalog-id", catalogId);
   return page;
+}
+
+/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+export async function openAdvancedModels(settings: Locator): Promise<Locator> {
+  const advanced = settings.getByTestId("models-advanced");
+  const toggle = advanced.getByTestId("models-advanced-toggle");
+  await expect(toggle).toBeVisible();
+  await expect(advanced).not.toHaveAttribute("open");
+  await toggle.click();
+  await expect(advanced).toHaveAttribute("open", "");
+  const tagging = advanced.getByTestId("tagging-settings");
+  await expect(tagging).toBeVisible();
+  return tagging;
 }
 
 /** As `addProviderPage`, returning that page's key form. */

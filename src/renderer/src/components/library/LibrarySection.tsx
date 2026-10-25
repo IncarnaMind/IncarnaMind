@@ -435,7 +435,7 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
           data-testid="library-organize-set-up"
           onClick={() => {
             close();
-            useAppStore.getState().openSettings("models");
+            useAppStore.getState().openSettings("models", "tagging");
           }}
           className={quietButtonClass}
         >
