@@ -4,7 +4,8 @@
  * holds every run to the checks in ./checks. It writes a report and fails when
  * a request is under the bar.
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import { OUT_OF_CREDIT, spendOf } from "../../scripts/nightlyRealModel";
@@ -15,7 +16,7 @@ import { commitOf } from "../lib/commit";
 import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
 import { openLibrary } from "../lib/library";
 import { createLog, type Log } from "../lib/log";
-import { CASES, type MindsCase, WORKSPACES } from "./cases";
+import { CASES, DOCUMENTS, type MindsCase, SOURCES, WORKSPACES } from "./cases";
 import { examine } from "./examine";
 import { unbackedIn } from "./judge";
 import { createRecorder, type Tokens } from "./record";
@@ -58,14 +59,21 @@ async function runOne(
   const judge = recorder.counted(
     createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" }),
   );
-  const library = await openLibrary({
-    name: "minds",
-    embedder: createFakeEmbedder(),
-    documents: [],
-    keep: keepData,
-    embeddings: false,
-    chatModels: recorder.chatModels,
-    log: () => undefined,
+  const folder = each.documents ? await mkdtemp(join(tmpdir(), "incarnamind-eval-minds-")) : null;
+  const removeFolder = () =>
+    folder ? rm(folder, { recursive: true, force: true }) : Promise.resolve();
+  const library = await (async () =>
+    openLibrary({
+      name: "minds",
+      embedder: createFakeEmbedder(),
+      documents: folder ? await writeDocuments(folder, each.language) : [],
+      keep: keepData,
+      embeddings: false,
+      chatModels: recorder.chatModels,
+      log: () => undefined,
+    }))().catch(async (error: unknown) => {
+    await removeFolder();
+    throw error;
   });
   const empty = {
     id: each.id,
@@ -89,7 +97,11 @@ async function runOne(
       );
     });
     await core.saveChatProvider(chatProviderOf(chat));
-    await seedWorkspace(core, WORKSPACES[each.language]);
+    await seedWorkspace(
+      core,
+      WORKSPACES[each.language],
+      each.sources ? { titles: SOURCES[each.language], by: each.sources } : null,
+    );
     const before = await readWorkspace(core);
     const open = each.open === null ? null : before.find((mind) => mind.title === each.open);
     if (each.open !== null && !open) throw new Error(`No Mind “${each.open}” to open.`);
@@ -130,7 +142,18 @@ async function runOne(
     };
   } finally {
     await library.close();
+    await removeFolder();
   }
+}
+
+async function writeDocuments(folder: string, language: MindsCase["language"]) {
+  return Promise.all(
+    DOCUMENTS[language].map(async ({ file, text }) => {
+      const path = join(folder, file);
+      await writeFile(path, text);
+      return { key: file, path };
+    }),
+  );
 }
 
 function selected(only: string | undefined): readonly MindsCase[] {
