@@ -17,21 +17,29 @@ const KEEP_AFTER_SCROLL_PX = 120;
  * What the viewer shows of a Document's file, as a key that changes when
  * there is something new to show, so the view reads the file again: a new
  * version, once it is indexed (its `contentHash`), or the file back after it
- * went missing or out of reach. A file that goes while it is shown leaves
+ * went missing or out of reach, or a PDF recovers with its last good bytes (#1954).
+ * A file that goes while it is shown leaves
  * what was read of it on screen. A Transcript reads its file again itself as
  * lines arrive, so a new version doesn't start it afresh (#136).
  */
 function useFileKey(document: Document | undefined): string {
   const id = document?.id;
   const available = document?.fileStatus === "available";
+  const ready = document?.kind === "pdf" && document.status === "ready";
+  const version = document?.kind === "transcript" ? "" : document?.contentHash;
   const [returns, setReturns] = useState(0);
-  const last = useRef({ id, available });
+  const last = useRef({ id, available, ready, version });
   useEffect(() => {
     const before = last.current;
-    if (before.id === id && available && !before.available) setReturns((count) => count + 1);
-    last.current = { id, available };
-  }, [id, available]);
-  const version = document?.kind === "transcript" ? "" : document?.contentHash;
+    if (
+      before.id === id &&
+      available &&
+      (!before.available || (ready && !before.ready && version === before.version))
+    ) {
+      setReturns((count) => count + 1);
+    }
+    last.current = { id, available, ready, version };
+  }, [id, available, ready, version]);
   return `${id}:${version}:${returns}`;
 }
 

@@ -9,8 +9,12 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { CLAIM_CHECK_MARK, type ClaimCheckAttributes, type SearchScope } from "../../../core/api";
-import { type ClaimCheckShown, claimCheckShown, readClaimCheck } from "../../../shared/claimChecks";
-import { sentenceKey } from "../../../shared/mindCheck";
+import {
+  type ClaimCheckShown,
+  claimCheckShown,
+  type KeptMark,
+  readClaimCheck,
+} from "../../../shared/claimChecks";
 import { sameScope } from "../../../shared/searchScope";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 
@@ -159,8 +163,8 @@ export interface ShownClaim extends ClaimSpan {
 interface ClaimState {
   context: ClaimContext;
   claims: readonly ShownClaim[];
-  /** The sentences the User keeps as their own view (#1111), by `sentenceKey`. */
-  kept: ReadonlySet<string>;
+  /** The marks the User keeps as their own view (#1111), at their places. */
+  kept: readonly KeptMark[];
   decorations: DecorationSet;
 }
 
@@ -177,11 +181,12 @@ export function claimsOf(
   context: ClaimContext,
 ): Pick<ClaimState, "claims" | "kept"> {
   const claims: ShownClaim[] = [];
-  const kept = new Set<string>();
+  const kept: KeptMark[] = [];
   for (const span of claimSpans(doc)) {
     const shown = claimCheckShown(span.check, { ...context, text: span.sentence.text });
-    if (shown.state === "kept") kept.add(sentenceKey(span.sentence.text));
-    else claims.push({ ...span, shown });
+    if (shown.state === "kept") {
+      kept.push({ from: span.from, to: span.to, text: span.sentence.text });
+    } else claims.push({ ...span, shown });
   }
   return { claims, kept };
 }
@@ -254,10 +259,10 @@ export function shownClaims(state: EditorState): readonly ShownClaim[] {
   return claimsKey.getState(state)?.claims ?? [];
 }
 
-const NONE_KEPT: ReadonlySet<string> = new Set();
+const NONE_KEPT: readonly KeptMark[] = [];
 
-/** The sentences the User keeps as their own view, by `sentenceKey`: not counted. */
-export function keptSentences(state: EditorState): ReadonlySet<string> {
+/** The marks the User keeps as their own view, at their places: not counted. */
+export function keptSpans(state: EditorState): readonly KeptMark[] {
   return claimsKey.getState(state)?.kept ?? NONE_KEPT;
 }
 
