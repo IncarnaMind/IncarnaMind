@@ -18,7 +18,7 @@ import {
 } from "../../../core/api";
 import { readChart } from "../../../shared/charts";
 import { translate } from "../../../shared/i18n";
-import { type SourceContext, sourceText } from "../../../shared/sources";
+import { type SourceContext, sourceKeyOf, sourceText } from "../../../shared/sources";
 import { tableText } from "./tableText";
 
 type Cited = Partial<CitationAttributes>;
@@ -42,7 +42,7 @@ export function noteNumbers(citations: readonly Cited[], context: SourceContext)
   const numbered = new Map<string, number>();
   return citations.map((citation) => {
     const { text, link } = sourceText(citation, context);
-    const key = `${text}\n${link ?? ""}`;
+    const key = `${sourceKeyOf(citation, context)}\n${text}\n${link ?? ""}`;
     const known = numbered.get(key);
     if (known !== undefined) return known;
     numbered.set(key, numbered.size + 1);

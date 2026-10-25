@@ -290,6 +290,29 @@ describe("the writer's notes", () => {
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([2]);
   });
 
+  test("a Citation in a Block a change still waiting adds or removes shares no note either", () => {
+    const change = { id: "b1", at: null };
+    const { footnotes, document } = render([
+      { ...paragraph(cited("Tides, p. 2")), inserted: change },
+      { ...paragraph(cited("Tides, p. 2")), deleted: change },
+      paragraph(cited("Tides, p. 2"), cited("Tides, p. 2")),
+    ]);
+    expect(Object.values(footnotes)).toEqual(["Tides, p. 2", "Tides, p. 2", "Tides, p. 2"]);
+    expect(crossReferences(document).results.map((each) => each.shows)).toEqual([3]);
+  });
+
+  test("two Documents with one name have a note each", () => {
+    const { footnotes, document } = render([
+      paragraph(
+        cited("Notes", false, { work: work("a") }),
+        cited("Notes", false, { work: work("b") }),
+        cited("Notes", false, { work: work("a") }),
+      ),
+    ]);
+    expect(Object.values(footnotes)).toEqual(["Notes", "Notes"]);
+    expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1]);
+  });
+
   test("a citation style's own form for a repeat is a note of its own; the same form again is a reference", () => {
     const { document, footnotes } = render([
       paragraph(

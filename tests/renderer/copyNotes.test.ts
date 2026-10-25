@@ -14,12 +14,12 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 const schema = getSchema(noteExtensions());
 const context = { language: "en" as const, documents: [{ id: "tides", contentHash: "h1" }] };
 
-const cite = (pageFrom: number): JSONContent => ({
+const cite = (pageFrom: number, documentId = "tides", contentHash = "h1"): JSONContent => ({
   type: CITATION_NODE,
   attrs: {
-    documentId: "tides",
+    documentId,
     documentName: "Tides",
-    contentHash: "h1",
+    contentHash,
     pageFrom,
     pageTo: pageFrom,
   },
@@ -57,6 +57,18 @@ describe("copying Citations as text", () => {
     expect(copied).toBe(
       "Spring[1]\n\nNeap[2]\n\nSpring again[1]\n\nLater[3]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 5\n[3] Tides, p. 7",
     );
+  });
+
+  test("two Documents with one name take a number each", () => {
+    const copied = copiedText(
+      fragmentOf(
+        paragraph(text("Spring"), cite(2)),
+        paragraph(text("Spring too"), cite(2, "tides-2", "h2")),
+      ),
+      schema,
+      { ...context, documents: [...context.documents, { id: "tides-2", contentHash: "h2" }] },
+    );
+    expect(copied).toBe("Spring[1]\n\nSpring too[2]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 2");
   });
 
   test("in Chinese", () => {

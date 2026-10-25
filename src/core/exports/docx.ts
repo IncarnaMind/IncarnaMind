@@ -322,12 +322,19 @@ interface Context {
   align: TableAlign;
   /** In a footnote's text, whose links are the footnotes part's. */
   note?: boolean;
+  /** In a Block a change still waiting gives or takes away, whose Citations share no note. */
+  pending?: boolean;
 }
 
 export interface List {
   ordered: boolean;
   level: number;
   start: number;
+}
+
+/** The context of a Block a change still waiting gives or takes away: its Citations share no note. */
+function pendingContext(block: Block, context: Context): Context {
+  return block.inserted || block.deleted ? { ...context, pending: true } : context;
 }
 
 /**
@@ -395,7 +402,7 @@ export class DocxWriter {
   private blocks(blocks: readonly Block[], context: Context): string {
     let xml = "";
     for (const block of blocks) {
-      const next = this.tracked(this.block(block, context), block, true);
+      const next = this.tracked(this.block(block, pendingContext(block, context)), block, true);
       // Two tables in a row would merge into one.
       if (xml.endsWith("</w:tbl>") && next.startsWith("<w:tbl>")) xml += "<w:p/>";
       xml += next;
@@ -549,7 +556,7 @@ export class DocxWriter {
   private cite(item: Extract<Inline, { kind: "cite" }>, context: Context): string {
     const marker = item.unverified ? run(` ${this.labels.unverified}`, { bold: true }) : "";
     if (!item.note || context.note) return this.styled(item.runs, context.note) + marker;
-    const shared = item.of !== undefined && !item.inserted && !item.deleted;
+    const shared = item.of !== undefined && !item.inserted && !item.deleted && !context.pending;
     const key = shared ? `style\n${item.of}` : null;
     const text = item.runs.map((each) => each.text).join("") + marker;
     const first = key === null ? undefined : this.notes.get(key);
@@ -581,17 +588,27 @@ export class DocxWriter {
     for (const item of block.items) {
       const [first, ...rest] = item;
       if (first?.kind === "paragraph")
-        xml += this.tracked(numbered(this.inline(first.content, context)), first, true);
+        xml += this.tracked(
+          numbered(this.inline(first.content, pendingContext(first, context))),
+          first,
+          true,
+        );
       else xml += numbered("");
       for (const child of first?.kind === "paragraph" ? rest : item) {
         xml += this.tracked(
           child.kind === "list"
-            ? this.list(child, { ...context, listDepth: context.listDepth + 1 })
-            : this.block(child, {
-                ...context,
-                indent: textIndent,
-                style: this.styles.listParagraph,
-              }),
+            ? this.list(
+                child,
+                pendingContext(child, { ...context, listDepth: context.listDepth + 1 }),
+              )
+            : this.block(
+                child,
+                pendingContext(child, {
+                  ...context,
+                  indent: textIndent,
+                  style: this.styles.listParagraph,
+                }),
+              ),
           child,
           true,
         );
@@ -636,6 +653,7 @@ export class DocxWriter {
               bold: each.header,
               width: column * each.colspan,
               align: each.align,
+              pending: context.pending,
             });
         // A cell ends with a paragraph.
         xml += cell(
@@ -724,7 +742,11 @@ export class DocxWriter {
             const apart = before?.kind === "text" && /\S$/.test(before.text);
             xml += this.source(item.footnote, apart ? " " : "");
           } else {
-            const reference = this.footnote(item.footnote, !item.inserted && !item.deleted);
+            const reference = this.footnote(
+              item.footnote,
+              !item.inserted && !item.deleted && !context.pending,
+              item.work.documentId,
+            );
             xml += this.review ? this.review.failed(reference, [item.footnote]) : reference;
           }
           break;
@@ -746,9 +768,9 @@ export class DocxWriter {
     return xml;
   }
 
-  private footnote(citation: Footnote, shared: boolean): string {
+  private footnote(citation: Footnote, shared: boolean, documentId: string | null): string {
     const key = shared
-      ? `numbered\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}`
+      ? `numbered\n${documentId ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}`
       : null;
     const first = key === null ? undefined : this.notes.get(key);
     if (first) {
