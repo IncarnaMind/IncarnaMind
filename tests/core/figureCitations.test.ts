@@ -195,6 +195,30 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
     expect(answer.citations).toHaveLength(1);
   });
 
+  // protects=a figure whose sentence cites a Citation of the Mind by the id it was shown with keeps that one Citation (#1800); fails_when=the figure's input is cited beside it again; no_claim=none beyond protects.
+  test("and not again when its sentence cites a Citation by its id", async () => {
+    let id = "";
+    const model = calculatingModel((call) => {
+      id = /\[[^\]]*· C\d+\]/.exec(call.prompt)?.[0] ?? "";
+      return { text: `Net debt was [=1] ${id} at Q3.` };
+    });
+    const { core, documents, mind, client } = await setUp(model);
+    const [cedar] = documents;
+    if (!cedar) throw new Error("No Document.");
+    const cited = await core.citeSelection({
+      documentId: cedar.id,
+      parts: [{ unit: 1, text: "Net debt: 310,000." }],
+    });
+    const block = note("Net debt was 310,000");
+    block.content?.push({ type: "citation", attrs: { ...cited, documentId: cedar.id } });
+    writeMind(client, [block]);
+    await client.settled();
+    const answer = await askAssistant(core, { text: "What was net debt?", mindId: mind.id });
+    expect(id).not.toBe("");
+    expect(answer.text.match(/\[\^\d+\]/g)).toHaveLength(1);
+    expect(answer.citations).toMatchObject([{ quote: "Net debt: 310,000." }]);
+  });
+
   // protects=a figure the assistant writes into a Mind carries its input's Citation there, checked; fails_when=the Mind holds the figure's number with no Citation; no_claim=the reply, which only says what was done.
   test("in a Mind the assistant writes", async () => {
     const model = calculatingModel(

@@ -20,6 +20,7 @@ import {
   expectReadyDocuments,
   launchApp,
   leaveText,
+  openAdvancedModels,
   openFolderInLibrary,
   openSettings,
   placeAssistant,
@@ -43,10 +44,16 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-/** The Tagging section in Settings → Models. */
-async function taggingSettings(window: Page) {
+/**
+ * The Tagging section in Settings → Models → Advanced: opened by hand on the defaults, or open by
+ * itself once a model was chosen.
+ */
+async function taggingSettings(window: Page, { chosen = false } = {}) {
   const settings = await openSettings(window, "models");
-  const section = settings.getByTestId("tagging-settings");
+  if (chosen) await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
+  const section = chosen
+    ? settings.getByTestId("tagging-settings")
+    : await openAdvancedModels(settings);
   await section.scrollIntoViewIfNeeded();
   return section;
 }
@@ -279,7 +286,7 @@ test("Organize suggests a Folder and Tags, keeps corrections and survives reopen
     const library = reopened.window.getByTestId("library");
     const row = rowOf(section(library, "Not in a Folder"), "Research notes");
     await expect(row.getByTestId("document-tags")).toContainText("Membrane");
-    const settings = await taggingSettings(reopened.window);
+    const settings = await taggingSettings(reopened.window, { chosen: true });
     await expect(settings.getByTestId("tagging-other")).toContainText("small-classifier");
     await expect(settings.getByLabel("Model name", { exact: true })).toHaveValue(
       "small-classifier",
@@ -650,7 +657,7 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
     );
     await organized(scan, /clef-flash/);
     // Explicit Clef override can include or omit PDF images; the choice persists.
-    settings = await taggingSettings(window);
+    settings = await taggingSettings(window, { chosen: true });
     const form = settings.getByTestId("tagging-other-form");
     await expect(form.getByLabel("Connection", { exact: true })).toHaveValue("auto");
     const images = form.getByRole("checkbox", { name: /Up to 3 PDF page images/ });
@@ -660,11 +667,11 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
       await images.check();
     });
     await closeSettings(window);
-    settings = await taggingSettings(window);
+    settings = await taggingSettings(window, { chosen: true });
     await expect(images).toBeChecked();
     await chooseOtherModel(settings, () => images.uncheck());
     await closeSettings(window);
-    settings = await taggingSettings(window);
+    settings = await taggingSettings(window, { chosen: true });
     await expect(images).not.toBeChecked();
     await closeSettings(window);
   } finally {
