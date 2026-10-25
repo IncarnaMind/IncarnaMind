@@ -60,15 +60,20 @@ async function runOne(
     createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" }),
   );
   const folder = each.documents ? await mkdtemp(join(tmpdir(), "incarnamind-eval-minds-")) : null;
-  const documents = folder ? await writeDocuments(folder, each.language) : [];
-  const library = await openLibrary({
-    name: "minds",
-    embedder: createFakeEmbedder(),
-    documents,
-    keep: keepData,
-    embeddings: false,
-    chatModels: recorder.chatModels,
-    log: () => undefined,
+  const removeFolder = () =>
+    folder ? rm(folder, { recursive: true, force: true }) : Promise.resolve();
+  const library = await (async () =>
+    openLibrary({
+      name: "minds",
+      embedder: createFakeEmbedder(),
+      documents: folder ? await writeDocuments(folder, each.language) : [],
+      keep: keepData,
+      embeddings: false,
+      chatModels: recorder.chatModels,
+      log: () => undefined,
+    }))().catch(async (error: unknown) => {
+    await removeFolder();
+    throw error;
   });
   const empty = {
     id: each.id,
@@ -133,7 +138,7 @@ async function runOne(
     };
   } finally {
     await library.close();
-    if (folder) await rm(folder, { recursive: true, force: true });
+    await removeFolder();
   }
 }
 

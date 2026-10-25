@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { MIND_CONTENT_FIELD } from "../../src/core/api";
-import { holdsNothing } from "../../src/shared/madeMind";
+import { GENERATED_MARK, MIND_CONTENT_FIELD, PROPOSAL_INSERT_MARK } from "../../src/core/api";
+import { holdsNothing, holdsOnlyAiText } from "../../src/shared/madeMind";
+import { recordProposalRequest } from "../../src/shared/proposals";
 
 type Child = { node: string; text?: string; children?: Child[] };
 
@@ -47,5 +48,50 @@ describe("A Mind that holds nothing yet (#1559)", () => {
     ["a heading after a line", [paragraph(), heading("Risks")]],
   ])("one holding %s isn't", (_name, blocks) => {
     expect(holdsNothing(mindOf(blocks))).toBe(false);
+  });
+});
+
+/** A Mind of one line whose runs carry these marks, and the requests its waiting text belongs to. */
+function lineOf(
+  runs: readonly { text: string; generated?: true; waiting?: "answer" | "word" }[],
+): Y.XmlFragment {
+  const doc = new Y.Doc();
+  const fragment = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  const line = new Y.XmlElement("paragraph");
+  const content = new Y.XmlText();
+  line.insert(0, [content]);
+  fragment.insert(0, [line]);
+  recordProposalRequest(doc, "answer", {
+    source: "answer-added",
+    providerId: "anthropic",
+    modelId: "claude-haiku-5-5",
+    createdAt: "2026-10-24T09:00:00.000Z",
+  });
+  recordProposalRequest(doc, "word", { source: "word-change", author: "Priya", date: null });
+  for (const run of runs) {
+    content.insert(content.length, run.text, {
+      ...(run.generated && { [GENERATED_MARK]: {} }),
+      ...(run.waiting && { [PROPOSAL_INSERT_MARK]: { id: run.text, request: run.waiting } }),
+    });
+  }
+  return fragment;
+}
+
+describe("A Mind only an Answer wrote in (#1790)", () => {
+  // protects=a Mind whose text is all AI text, applied or still waiting, counts as the assistant's, so the Minds line leaves it out; fails_when=it counts as the User's; no_claim=how the window marks text it applies.
+  test.each([
+    ["applied AI text", [{ text: "The beta opens in February.", generated: true as const }]],
+    ["an Answer's waiting text", [{ text: "The beta opens.", waiting: "answer" as const }]],
+  ])("one holding %s is", (_name, runs) => {
+    expect(holdsOnlyAiText(lineOf(runs))).toBe(true);
+  });
+
+  // protects=a Mind with any word the User or a Word file's author wrote, or with no text at all, counts as the User's, so it stays on the Minds line; fails_when=it is taken for the assistant's and left out; no_claim=none beyond protects.
+  test.each([
+    ["the User's own words", [{ text: "Mine." }, { text: " Added.", generated: true as const }]],
+    ["a Word file's tracked insertion", [{ text: "From Word.", waiting: "word" as const }]],
+    ["no text at all", []],
+  ])("one holding %s isn't", (_name, runs) => {
+    expect(holdsOnlyAiText(lineOf(runs))).toBe(false);
   });
 });

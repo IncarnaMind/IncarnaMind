@@ -625,11 +625,11 @@ export function conversationContextOf(
       ...recorded,
     ];
   });
-  const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(question));
   // With the Question, not the Mind: opening another Document or changing a Mind then never changes what a prompt cache keeps.
   const asked = [mindsLine(minds), onScreenLine(onScreen), mind?.selection ?? "", question]
     .filter((part) => part !== "")
     .join("\n\n");
+  const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(asked));
   return {
     context: { messages: withMind(mind?.text ?? "", kept, asked), question },
     origins: originsOf(kept),

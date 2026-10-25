@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import { GENERATED_MARK, PROPOSAL_ATTRIBUTE, PROPOSAL_INSERT_MARK } from "../core/api";
 import { isRecord } from "../core/errors";
-import { readProposalAttribute } from "./proposals";
+import { proposalRequestOf, readProposalAttribute, readProposalRef } from "./proposals";
 
 const textOfRun = (run: unknown): string =>
   isRecord(run) && typeof run.insert === "string" ? run.insert : "";
@@ -44,10 +44,17 @@ export function holdsOnlyItsTitle(blocks: Y.XmlFragment, title: string): boolean
     );
 }
 
-const isAiRun = (run: unknown): boolean =>
+// A Word file's tracked insertions wait as Proposals too, but someone wrote them.
+const byAi = (doc: Y.Doc | null, request: string | undefined): boolean => {
+  const made = doc && request !== undefined ? proposalRequestOf(doc, request) : null;
+  return made !== null && made.source !== "word-change";
+};
+
+const isAiRun = (run: unknown, doc: Y.Doc | null): boolean =>
   isRecord(run) &&
   isRecord(run.attributes) &&
-  (run.attributes[GENERATED_MARK] != null || run.attributes[PROPOSAL_INSERT_MARK] != null);
+  (run.attributes[GENERATED_MARK] != null ||
+    byAi(doc, readProposalRef(run.attributes[PROPOSAL_INSERT_MARK])?.request));
 
 /**
  * Whether a Mind holds text and all of it is AI text, applied or still waiting: one an Answer made
@@ -61,13 +68,14 @@ export function holdsOnlyAiText(blocks: Y.XmlFragment): boolean {
       if (child instanceof Y.XmlText) {
         return child.toDelta().some((run: unknown) => {
           if (textOfRun(run) === "") return false;
-          if (!isAiRun(run)) return true;
+          if (!isAiRun(run, blocks.doc)) return true;
           ai = true;
           return false;
         });
       }
       if (!(child instanceof Y.XmlElement)) return false;
-      if (readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "insert") {
+      const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
+      if (proposal?.kind === "insert" && byAi(blocks.doc, proposal.request)) {
         ai = true;
         return false;
       }
