@@ -124,6 +124,11 @@ const NOTE_MARK =
 const INDENT = 720;
 /** A list item's number or bullet hangs this far left of its text. */
 const HANGING = 360;
+/** A to-do's box is at the text edge, its text 28px in; a nested to-do steps in 24px, as in the editor. */
+const TODO_TEXT = 420;
+const TODO_STEP = 360;
+/** Word has no to-do: one is a paragraph that starts with this box and a tab. */
+const BOX = { open: "\u2610", done: "\u2612" } as const;
 /** EMUs (DrawingML's unit) per twip, and per CSS pixel at 96 dpi. */
 const EMU_PER_TWIP = 635;
 const EMU_PER_PIXEL = 9525;
@@ -326,6 +331,11 @@ interface Context {
   width: number;
   /** How their paragraphs are aligned, e.g. in a table's cell; null: as the text flows. */
   align: TableAlign;
+  /**
+   * How far in to-dos they are, from 0: a nested to-do steps in 24px, where a list's levels step
+   * in 48px, so the two are counted apart.
+   */
+  todo?: number;
   /** In a footnote's text, whose links are the footnotes part's. */
   note?: boolean;
   /** In a Block a change still waiting gives or takes away, whose Citations share no note. */
@@ -581,6 +591,7 @@ export class DocxWriter {
 
   /** A Word list: the first paragraph of each item carries its number or bullet. */
   private list(block: Extract<Block, { kind: "list" }>, context: Context): string {
+    if (block.checked) return this.todos(block, block.checked, context);
     const level = Math.min(context.listDepth, 8);
     const numbering = { id: this.target.list(block.ordered, level, block.start), level };
     const textIndent = context.indent + INDENT * (level + 1);
@@ -605,7 +616,12 @@ export class DocxWriter {
           child.kind === "list"
             ? this.list(
                 child,
-                pendingContext(child, { ...context, listDepth: context.listDepth + 1 }),
+                pendingContext(child, {
+                  ...context,
+                  listDepth: context.listDepth + 1,
+                  // A checklist starts at the text of the bullet or number it hangs under.
+                  ...(child.checked && { indent: textIndent }),
+                }),
               )
             : this.block(
                 child,
@@ -620,6 +636,64 @@ export class DocxWriter {
         );
       }
     }
+    return xml;
+  }
+
+  private todos(
+    block: Extract<Block, { kind: "list" }>,
+    checked: readonly boolean[],
+    context: Context,
+  ): string {
+    const depth = context.todo ?? 0;
+    const textAt = context.indent + TODO_STEP * depth + TODO_TEXT;
+    const written = (content: string, at: number) =>
+      paragraph(
+        { style: this.styles.listParagraph, indent: textAt, hanging: TODO_TEXT },
+        // A tab is a run of its own: the schema has no bare <w:tab/> under <w:p>.
+        run(checked[at] ? BOX.done : BOX.open) + "<w:r><w:tab/></w:r>" + content,
+      );
+
+    let xml = "";
+    block.items.forEach((item, at) => {
+      const [first, ...rest] = item;
+      if (first?.kind === "paragraph")
+        xml += this.tracked(
+          written(this.inline(first.content, pendingContext(first, context)), at),
+          first,
+          true,
+        );
+      else xml += written("", at);
+      for (const child of first?.kind === "paragraph" ? rest : item) {
+        xml += this.tracked(
+          child.kind === "list" && child.checked
+            ? this.todos(
+                child,
+                child.checked,
+                pendingContext(child, { ...context, todo: depth + 1 }),
+              )
+            : child.kind === "list"
+              ? this.list(
+                  child,
+                  pendingContext(child, {
+                    ...context,
+                    indent: textAt,
+                    listDepth: 0,
+                    todo: undefined,
+                  }),
+                )
+              : this.block(
+                  child,
+                  pendingContext(child, {
+                    ...context,
+                    indent: textAt,
+                    style: this.styles.listParagraph,
+                  }),
+                ),
+          child,
+          true,
+        );
+      }
+    });
     return xml;
   }
 
