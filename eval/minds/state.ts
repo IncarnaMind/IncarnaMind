@@ -12,6 +12,7 @@ import {
   type Core,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
+  MIND_ORIGINS_FIELD,
   MIND_PROPOSAL_REQUESTS_FIELD,
   type ProposalRef,
 } from "../../src/core";
@@ -165,7 +166,11 @@ export async function decideAll(
     if (!pendingProposals(client.blocks).some(picked)) continue;
     const origin = { decided: row.mindId };
     const manager = new Y.UndoManager(
-      [client.blocks, client.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD)],
+      [
+        client.blocks,
+        client.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD),
+        client.doc.getMap(MIND_ORIGINS_FIELD),
+      ],
       { trackedOrigins: new Set([origin]) },
     );
     client.doc.transact(() => {

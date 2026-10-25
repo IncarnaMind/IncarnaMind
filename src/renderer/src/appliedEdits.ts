@@ -14,6 +14,7 @@ import {
   type EditWithAiResult,
   type LeftOutPart,
   MIND_CONTENT_FIELD,
+  MIND_ORIGINS_FIELD,
   type ProposalRef,
 } from "../../core/api";
 import { waitsForUser } from "../../shared/askedChanges";
@@ -170,6 +171,8 @@ function beginEdit(editor: Editor, mindId: string, requestId: string): Applying 
   setAppliedLine(editor, null);
   stack.addTrackedOrigin(EDIT_FROM_CORE);
   stack.addTrackedOrigin(AcceptingEdit);
+  // A change written over Blocks gives them its origin, which its Undo takes back.
+  stack.addToScope(doc.getMap(MIND_ORIGINS_FIELD));
   const popped = ({ stackItem }: { stackItem: UndoStep }) => {
     if (edit.steps.includes(stackItem) && latest.get(editor) === edit) setAppliedLine(editor, null);
   };

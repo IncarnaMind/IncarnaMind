@@ -411,6 +411,14 @@ export const MIND_PROPOSAL_REQUESTS_FIELD = "proposalRequests";
 export const MIND_REVISIONS_FIELD = "revisions";
 
 /**
+ * The name of the Y.Map, beside a Mind's Blocks, that keeps by request the origin
+ * (`MIND_ORIGINS_FIELD`) each Block had before that request's change gave it its own: a change
+ * written over Blocks keeps their ids, so rejecting it in a Block puts that origin back
+ * (`restoreOrigins`). An older version leaves it as it is and keeps the new origin.
+ */
+export const MIND_REPLACED_ORIGINS_FIELD = "replacedOrigins";
+
+/**
  * What a change the assistant made in a Mind was (#880, #1559): text changed
  * ("make it longer") or written ("write a summary page"); such a change applies
  * at once, with Undo. Absent: one that waits for the User, such as a revision
