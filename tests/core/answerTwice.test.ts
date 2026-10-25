@@ -69,4 +69,31 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
     expect(citationsIn(client, answerId).map((citation) => citation.quote)).toEqual([SPRING]);
     expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
   });
+
+  // protects=an Answer shows neither the text before its search nor the text beside cite with no marker in it, only the Answer after them; fails_when=a preamble shows in the Answer; no_claim=none beyond protects.
+  test("text before the search and beside cite with no marker in it isn't shown", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched) {
+        return {
+          text: "Let me look that up.",
+          calls: [{ tool: "search_documents", input: { query: "spring tides" } }],
+        };
+      }
+      if (call.results.some((result) => result.tool === "cite")) return { text: ANSWER };
+      const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+      return {
+        text: "I'll note where that comes from.",
+        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+      };
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Tides.md", contents: TIDES_MD },
+    ]);
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(citationsIn(client, answerId).map((citation) => citation.quote)).toEqual([SPRING]);
+    expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
+  });
 });
