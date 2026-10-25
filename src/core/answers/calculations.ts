@@ -433,8 +433,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       }));
     });
     const inQuote = readFigures(quoted.citation.quote, context);
+    // A bracketed number's sign comes from the page around it, which a cell read alone lacks: the cell is found by its digits, and its stored number settles the sign.
     const close = (value: number) =>
-      Math.abs(value - figure.value) <= 1e-9 * Math.max(1, Math.abs(figure.value));
+      Math.abs(Math.abs(value) - Math.abs(figure.value)) <=
+      1e-9 * Math.max(1, Math.abs(figure.value));
     let cell =
       cells.length === inQuote.length
         ? cells[inQuote.findIndex((each) => each.start === figure.start)]

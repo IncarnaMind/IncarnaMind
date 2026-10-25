@@ -685,13 +685,16 @@ test("⌘⌫ (Delete on Windows and Linux) moves the row to Recently deleted wit
     expect(seen.length).toBeGreaterThan(0);
     expect(seen).not.toContain(false);
     await expect(line).toBeVisible();
+    await expect(rows.last()).toBeFocused();
     await window.keyboard.press("ControlOrMeta+z");
     await expect(rows).toHaveCount(count - 1);
     await window.keyboard.press("ControlOrMeta+z");
     await expect(rows).toHaveCount(count);
 
     // A held key deletes one row only: the press does, its repeats don't.
+    await expect(row(window, names.folders[1])).toBeFocused();
     await window.keyboard.press("End");
+    await expect(rows.last()).toBeFocused();
     await window.keyboard.press("ControlOrMeta+Backspace");
     await expect(rows).toHaveCount(count - 1);
     await expect.poll(() => inTree(window)).toBe(true);

@@ -13,6 +13,7 @@ import {
   createAiSdkChatModel,
 } from "../../src/core";
 import { DATABASE_FILE } from "../../src/core/core";
+import { CHAT_FLOW_SENDS } from "../../src/core/providers/chat";
 import { planResetTime, shapePlanRequest } from "../../src/core/providers/chatgpt/planEndpoint";
 import { classifyProviderError } from "../../src/core/providers/providerErrors";
 import { migrate, migrations, openDatabase } from "../../src/core/storage";
@@ -923,7 +924,7 @@ describe("Consent and Local mode", () => {
     expect(request.flow).toEqual({
       id: "chat",
       service: CHATGPT_SERVICE,
-      sends: ["blocks", "passages"],
+      sends: [...CHAT_FLOW_SENDS],
     });
     expect(fake.responses()).toEqual([]);
 

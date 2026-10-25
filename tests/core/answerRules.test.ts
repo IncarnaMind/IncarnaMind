@@ -177,6 +177,17 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
     for (const rule of RULES) expect(system).toContain(rule);
   });
 
+  test("ask for a table's cells of about eight words, with a quote in its Citation, as the panel is narrow (#1382)", async () => {
+    const seen: Seen = { system: [], results: [] };
+    const { core, client, mind } = await setUp(searchingModel(seen));
+
+    await askAndFinish(core, client, mind.id, "Compare the three Documents in a table.");
+
+    expect(seen.system[0]).toContain(
+      "the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell",
+    );
+  });
+
   test.each(["tools", "structured-output", "none"] as const)(
     "have both rules when answering with %s, with markers only where the Answer cites",
     (mode) => {

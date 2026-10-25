@@ -8,10 +8,12 @@
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app, type BrowserWindow, dialog, type SaveDialogOptions } from "electron";
+import { app, type BrowserWindow, type SaveDialogOptions } from "electron";
 import type { Core, UnsavedChanges } from "../core";
+import { quitCopyOptions } from "../shared/exportOptions";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { systemReason } from "../shared/systemReasons";
+import { showMessageBox, showSaveDialog } from "./systemDialogs";
 
 type Choice = "saveCopy" | "quitAnyway" | "keepOpen";
 
@@ -30,18 +32,16 @@ export async function saveMindCopy(
   window: BrowserWindow | null,
   mindId: string,
 ): Promise<boolean> {
-  const [{ language }, minds] = await Promise.all([core.getSettings(), core.listMinds()]);
+  const [{ language, user }, minds] = await Promise.all([core.getSettings(), core.listMinds()]);
   const title = minds.find((mind) => mind.id === mindId)?.title ?? "";
   const options: SaveDialogOptions = {
     title: translate(language, "unsaved.saveCopy.title"),
     defaultPath: join(app.getPath("documents"), `${fileNameOf(title)}.docx`),
     filters: [{ name: "Word", extensions: ["docx"] }],
   };
-  const { canceled, filePath } = window
-    ? await dialog.showSaveDialog(window, options)
-    : await dialog.showSaveDialog(options);
+  const { canceled, filePath } = await showSaveDialog(window, options);
   if (canceled || !filePath) return false;
-  const { data } = await core.exportMind(mindId, { format: "docx" });
+  const { data } = await core.exportMind(mindId, quitCopyOptions(user.exportOptions));
   await writeFile(filePath, data);
   return true;
 }
@@ -89,9 +89,7 @@ export function guardQuit(
       cancelId: choices.indexOf("keepOpen"),
       noLink: true,
     };
-    const { response } = window
-      ? await dialog.showMessageBox(window, options)
-      : await dialog.showMessageBox(options);
+    const { response } = await showMessageBox(window, options);
     return { choice: choices[response] ?? "keepOpen", window };
   };
   /** True once nothing waits, or the User chose to quit anyway or saved copies; false if they keep the app open. */

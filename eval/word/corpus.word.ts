@@ -2,7 +2,7 @@
  * `npm run eval:word` (eval/word/README.md): for each file of the Word corpus, its checks, each a
  * step in `STEPS`: the package, the import as a Mind (#104), opening in LibreOffice, the
  * round-trip back into the file (#105), the export for review (#107), and someone's changes
- * accepted and rejected (#108), each export opened in LibreOffice too. Last, a file exported for review has every change accepted in LibreOffice,
+ * accepted and rejected (#108), and the Citations in a list at the end (#1600), each export opened in LibreOffice too. Last, a file exported for review has every change accepted in LibreOffice,
  * which must show the text accepting every change in IncarnaMind does.
  *
  * INCARNAMIND_WORD_SET picks the files: "core" (the committed files, the default), "extended"
@@ -23,7 +23,7 @@ import {
   readManifest,
   WORD_DIR,
 } from "./corpus";
-import { checkExport, checkReview, checkTheirChanges } from "./exports";
+import { checkExport, checkListExport, checkReview, checkTheirChanges } from "./exports";
 import { type Features, featureKinds } from "./features";
 import { checkImport } from "./imports";
 import { acceptAllChanges, convertToPdf, findLibreOffice } from "./libreoffice";
@@ -58,6 +58,7 @@ const wanted = process.env.INCARNAMIND_WORD_SET ?? "core";
 const exported = new Map<string, Uint8Array>();
 const reviewed = new Map<string, Uint8Array>();
 const resolved = new Map<string, Uint8Array>();
+const listed = new Map<string, Uint8Array>();
 
 /** Opens an export in LibreOffice, keeping its PDF as `suffix` says for a person to look at. */
 async function openExport(subject: Subject, data: Uint8Array | undefined, suffix: string) {
@@ -154,6 +155,23 @@ const STEPS: Step[] = [
     async run(subject) {
       const outcome = await openExport(subject, resolved.get(subject.name), "-resolved");
       resolved.delete(subject.name);
+      return outcome;
+    },
+  },
+  {
+    name: "exports with the Citations in a list",
+    reports: true,
+    async run(subject, bytes) {
+      const outcome = await checkListExport(bytes);
+      if (outcome.exported) listed.set(subject.name, outcome.exported);
+      return outcome;
+    },
+  },
+  {
+    name: "list export opens in LibreOffice",
+    async run(subject) {
+      const outcome = await openExport(subject, listed.get(subject.name), "-list");
+      listed.delete(subject.name);
       return outcome;
     },
   },

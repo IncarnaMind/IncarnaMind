@@ -392,7 +392,7 @@ describe("sentences whose check isn't good", () => {
     expect(commentsOn(exported)).toEqual([
       { comment: `Contradicted: ${says}`, on: "Halden held cash of £192.9m." },
       {
-        comment: "Unsupported: nothing in your Documents says this.",
+        comment: "Unsupported: I didn’t find this in “All Documents”.",
         on: "Margins widened in 2026.",
       },
       {
@@ -410,7 +410,7 @@ describe("sentences whose check isn't good", () => {
 
     expect(commentsOn(exported).map((each) => each.comment)).toEqual([
       `与文档矛盾：${says}`,
-      "无依据：你的文档里没有这样写。",
+      "无依据：未在“全部文档”中找到。",
       "需重新核对：核对后已修改。",
     ]);
   });

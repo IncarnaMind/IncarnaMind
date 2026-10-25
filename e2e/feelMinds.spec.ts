@@ -12,6 +12,8 @@ import {
   removeDataFolder,
   setWindowSize,
   showCountWhileWriting,
+  startSamples,
+  stopSamples,
   useLocalChatModel,
 } from "./app";
 import { endFeel, startFeel } from "./feel";
@@ -188,6 +190,53 @@ test("the assistant writes into the Mind, then Undo", async () => {
     await pointAndClick(window, editorOf(window).getByText("The quarter was good."));
     await window.keyboard.press("ControlOrMeta+z");
     await expect(editorOf(window)).not.toContainText("The supplier is late.");
+  });
+
+  await endFeel(run);
+});
+
+test("an Answer with a table wider than the panel, written to the end", async () => {
+  test.setTimeout(150_000);
+  await writeFile(
+    join(sources, "Tides.pdf"),
+    buildPdf([{ lines: ["Harbour times", "Spring tides come at new moon and at full moon."] }]),
+  );
+  const run = await startFeel(dataDir, "assistant-table", { fakeChat: true });
+  const { app, window, feel } = run;
+  await setWindowSize(app, window, 1440, 760);
+  await feel.step("set up", async () => {
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await addDocuments(window, [join(sources, "Tides.pdf")]);
+    await pointAndClick(window, window.getByTestId("plus-menu"));
+    await pointAndClick(window, window.getByTestId("plus-new-mind"));
+    await expect(editorOf(window)).toBeFocused();
+  });
+  // The thread has to be full first: in a short one the Question rises as each Answer grows (#1330).
+  await feel.step("fill the thread", async () => {
+    for (const day of ["Monday", "Tuesday", "Wednesday", "Thursday"]) {
+      await askInAssistant(window, `What do tides do on ${day}`);
+    }
+  });
+
+  await feel.step("ask for a table", async () => {
+    const answer = await askInAssistant(window, "What do tides do in nine rows");
+    await expect(answer.locator("table tr")).toHaveCount(10);
+    const expand = answer.getByTestId("answer-open-table");
+    await expect(expand).toBeVisible();
+    await expect(expand).not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  await feel.step("ask for a table that widens as it is written", async () => {
+    await startSamples(window);
+    const answer = await askInAssistant(window, "What do tides do, narrow then wide");
+    await expect(answer.locator("table tr")).toHaveCount(8);
+    await expect(answer.getByTestId("answer-open-table")).toBeVisible();
+    // The check's sum also holds the columns re-fitting sideways as the table widens: the table
+    // itself, frame by frame, must stay where it is.
+    const samples = await stopSamples(window);
+    expect(samples.some((sample) => sample.button === null)).toBe(true);
+    expect(new Set(samples.map((sample) => Math.round(sample.top))).size).toBe(1);
   });
 
   await endFeel(run);

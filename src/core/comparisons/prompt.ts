@@ -38,3 +38,6 @@ export function saysNotFound(markdown: string, citations: readonly MarkedCitatio
 export function isNotFoundReply(markdown: string): boolean {
   return markdown.replace(/\[\^\d+\]|[\s*_`"'“”.。!！-]/g, "").toUpperCase() === "NOTFOUND";
 }
+
+// Streaming keeps a marker at the end of the text out of the Blocks, so the text itself says whether a reply cites.
+export const hasMarker = (markdown: string): boolean => /\[\^\d{1,4}\]/.test(markdown);

@@ -55,6 +55,7 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "a",
         created: false,
+        filled: false,
         requests: ["r1", "r3"],
         wrote: 1,
         changed: 2,
@@ -68,6 +69,7 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "b",
         created: true,
+        filled: false,
         requests: ["r2", "r4"],
         wrote: 3,
         changed: 0,
@@ -91,6 +93,7 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "c",
         created: true,
+        filled: false,
         requests: [],
         wrote: 0,
         changed: 0,
@@ -124,6 +127,7 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "a",
         created: false,
+        filled: false,
         requests: ["r1"],
         wrote: 3,
         changed: 0,
@@ -151,6 +155,7 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "a",
         created: false,
+        filled: false,
         requests: ["r1"],
         wrote: 0,
         changed: 0,
@@ -196,6 +201,7 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "a",
         created: false,
+        filled: false,
         requests: ["r1"],
         wrote: 0,
         changed: 4,
@@ -209,6 +215,7 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "b",
         created: false,
+        filled: false,
         requests: ["r2"],
         wrote: 0,
         changed: 0,
@@ -222,6 +229,7 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "c",
         created: false,
+        filled: false,
         requests: ["r3"],
         wrote: 0,
         changed: 0,

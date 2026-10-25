@@ -122,3 +122,60 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+test("Settings help shown for the keyboard goes as soon as the focus moves on, with the pointer resting where it shows; pointed at, it stays", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    const settings = await openSettings(window, "general");
+    await setWindowSize(app, window, 1440, 900);
+    await showSettingsPage(window, "general");
+    const tooltip = window.getByRole("tooltip");
+    const cap = settings.getByTestId("spending-cap-settings");
+    const help = cap.getByRole("button", { name: "More information", exact: true });
+    const toggle = cap.getByTestId("spending-cap-switch");
+    await window.mouse.move(0, 0);
+    await tabTo(window, help);
+    await expect(tooltip).toBeVisible();
+    await motionSettled(window);
+    const box = await tooltip.boundingBox();
+    if (!box) throw new Error("The help isn't visible.");
+    await window.keyboard.press("Escape");
+    await expect(tooltip).toHaveCount(0);
+
+    // The pointer rests where the help shows, and the keyboard brings it up under it.
+    const resting = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await window.mouse.move(resting.x, resting.y, { steps: 6 });
+    await window.keyboard.press("Shift+Tab");
+    await window.keyboard.press("Tab");
+    await expect(help).toBeFocused();
+    await expect(tooltip).toBeVisible();
+    await motionSettled(window);
+    await expect
+      .poll(() =>
+        tooltip.evaluate(
+          (element, at) => element.contains(document.elementFromPoint(at.x, at.y)),
+          resting,
+        ),
+      )
+      .toBe(true);
+    await window.keyboard.press("Tab");
+    await expect(toggle).toBeFocused();
+    await expect(tooltip).toHaveCount(0);
+
+    // Pointed at, by a pointer that moves onto it, it stays as the focus moves on, until the pointer leaves.
+    await window.keyboard.press("Shift+Tab");
+    await expect(help).toBeFocused();
+    await expect(tooltip).toBeVisible();
+    await motionSettled(window);
+    await window.mouse.move(resting.x + 4, resting.y, { steps: 2 });
+    await window.keyboard.press("Tab");
+    await expect(toggle).toBeFocused();
+    await motionSettled(window);
+    await expect(tooltip).toBeVisible();
+    await window.mouse.move(0, 0, { steps: 4 });
+    await expect(tooltip).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});

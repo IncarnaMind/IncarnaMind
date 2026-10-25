@@ -13,6 +13,7 @@ import type {
   ProcessLauncher,
   SkillScriptApprovalRequest,
 } from "../../src/core";
+import { CHAT_FLOW_SENDS } from "../../src/core/providers/chat";
 import { createProcessLauncher } from "../../src/main/processes";
 import { answerEnded, askNew } from "../helpers/citations";
 import { isRunning } from "../helpers/connectors";
@@ -716,23 +717,23 @@ describe("The chat flow with Skill scripts", { timeout: 30_000 }, () => {
     const skill = await importSkill(core, await writeFolder(sources, "toolbox", TOOLBOX));
 
     expect(await readiness).toMatchObject({ ready: true, consent: "needed" });
-    expect(await sends()).toEqual(["blocks", "passages", "tool-results"]);
+    expect(await sends()).toEqual([...CHAT_FLOW_SENDS, "tool-results"]);
     // Scripts turned off: chat sends only what the User accepted, and asks nothing.
     await core.updateSettings({ device: { skillScriptsEnabled: false } });
-    expect(await sends()).toEqual(["blocks", "passages"]);
+    expect(await sends()).toEqual([...CHAT_FLOW_SENDS]);
     expect(await core.getChatReadiness()).toMatchObject({ consent: "accepted" });
     await core.updateSettings({ device: { skillScriptsEnabled: true } });
-    expect(await sends()).toEqual(["blocks", "passages", "tool-results"]);
+    expect(await sends()).toEqual([...CHAT_FLOW_SENDS, "tool-results"]);
     // So does the Skill with scripts turned off.
     await core.setSkillEnabled(skill.id, false);
-    expect(await sends()).toEqual(["blocks", "passages"]);
+    expect(await sends()).toEqual([...CHAT_FLOW_SENDS]);
     await core.setSkillEnabled(skill.id, true);
 
     // The next request asks for the new kind only, and goes once it is accepted.
     const again = nextEvent(core, "consent.requested");
     const prepared = core.prepareChatModel();
     const request = await again;
-    expect(request.flow.sends).toEqual(["blocks", "passages", "tool-results"]);
+    expect(request.flow.sends).toEqual([...CHAT_FLOW_SENDS, "tool-results"]);
     expect(request.newKinds).toEqual(["tool-results"]);
     await core.respondToConsent(request.requestId, true);
     await prepared;
@@ -749,6 +750,6 @@ describe("The chat flow with Skill scripts", { timeout: 30_000 }, () => {
     );
 
     const chat = (await core.listRegisteredDataFlows()).find((flow) => flow.id === "chat");
-    expect(chat?.sends).toEqual(["blocks", "passages"]);
+    expect(chat?.sends).toEqual([...CHAT_FLOW_SENDS]);
   });
 });

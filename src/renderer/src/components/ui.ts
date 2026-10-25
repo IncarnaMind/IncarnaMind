@@ -188,9 +188,13 @@ export const segmentClass =
 
 // Menus ----------------------------------------------------------------------
 
-/** A popover menu's element, but its width: a picker that needs more room sets its own. */
+/**
+ * A popover menu's element, but its width: a picker that needs more room sets its own. It is as
+ * tall as its rows need, up to the window less its edges; past that it scrolls, a shadow at the cut
+ * edge saying so (`.menu-scrolls`).
+ */
 export const menuFrameClass =
-  "inset-auto m-0 max-h-[60vh] overflow-y-auto rounded-lg border-0 bg-sheet p-1 text-ui font-normal text-ink shadow-popover";
+  "menu-scrolls inset-auto m-0 max-h-[calc(100vh-16px)] overflow-y-auto rounded-lg border-0 bg-sheet p-1 text-ui font-normal text-ink shadow-popover";
 
 /** A popover menu's element. */
 export const menuClass = `${menuFrameClass} w-max max-w-72 min-w-48`;

@@ -204,6 +204,7 @@ test("Tagging paused by a rate limit shows in the footer on the first open, with
   await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await bridge.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
+    await bridge.saveLibrarySettings({ ...(await bridge.getLibrary()).settings, automatic: true });
   });
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();

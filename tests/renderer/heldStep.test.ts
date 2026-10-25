@@ -10,7 +10,7 @@ import { holdSteps, MIN_STEP_MS, takeOver } from "../../src/renderer/src/heldSte
 const MIND = { mindId: "m1", name: "Notes", deleted: false };
 const reading: LiveStep = { kind: "reading", mind: MIND };
 const searching: LiveStep = { kind: "searching" };
-const thinking: LiveStep = { kind: "thinking" };
+const thinking: LiveStep = { kind: "thinking", summary: "" };
 const writing: LiveStep = { kind: "writing" };
 const checking = (count: number): LiveStep => ({ kind: "checking", count });
 const waiting: LiveStep = { kind: "waiting" };

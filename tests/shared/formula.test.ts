@@ -233,11 +233,20 @@ describe("worked examples in English", () => {
     expect(shown("AVERAGE(q1, q2, q3, q4)", quarters)).toBe("$370.7 million");
   });
 
-  test("scales are converted, and the result is shown in the inputs' smaller scale", () => {
+  test("scales are converted, and the result is shown in the larger scale with one decimal more than its input has when that loses no digits, else in the smaller (#1482)", () => {
     const big = input("big", "$1.2 billion");
     const small = input("small", "$350 million");
     expect(worked("big + small", [big, small]).value).toBe(1550000000);
-    expect(shown("big + small", [big, small])).toBe("$1,550 million");
+    expect(shown("big + small", [big, small])).toBe("$1.55 billion");
+    expect(shown("big + s", [big, input("s", "$383 million")])).toBe("$1,583 million");
+    expect(shown("a + b", [input("a", "£2bn"), input("b", "£500m")])).toBe("£2.5bn");
+    expect(shown("a + b", [input("a", "£1.2bn"), input("b", "£350m")])).toBe("£1.55bn");
+    expect(shown("a + b", [input("a", "£2bn"), input("b", "£512m")])).toBe("£2,512m");
+    expect(shown("a + b", [input("a", "£1.2bn"), input("b", "£383m")])).toBe("£1,583m");
+    // The extra decimal isn't shown when it is a zero, and the input's own decimals stay.
+    expect(shown("a + b", [input("a", "£1.2bn"), input("b", "£300m")])).toBe("£1.5bn");
+    expect(shown("a + b", [input("a", "£1.2bn"), input("b", "£800m")])).toBe("£2.0bn");
+    expect(shown("a + b", [input("a", "£2bn"), input("b", "£1bn")])).toBe("£3bn");
     expect(shown("big - big * 60%", [big])).toBe("$480 million");
     expect(shown("big + small", [big, small], { scale: "billion", decimals: 2 })).toBe(
       "$1.55 billion",
@@ -284,11 +293,25 @@ describe("worked examples in Chinese", () => {
     expect(shown("y2025 - y2024", [y2025, y2024], zh)).toBe("30,457.36万元");
   });
 
-  test("亿 and 万 are converted", () => {
+  test("亿 and 万 are converted, the result in 亿 with one decimal more than its input has when that loses no digits, else in 万 (#1482)", () => {
     const yi = input("yi", "1.2亿元", ZH);
     const wan = input("wan", "3,500万元", ZH);
     expect(worked("yi + wan", [yi, wan]).value).toBe(155000000);
-    expect(shown("yi + wan", [yi, wan], zh)).toBe("15,500万元");
+    expect(shown("yi + wan", [yi, wan], zh)).toBe("1.55亿元");
+    expect(shown("a + b", [input("a", "2亿元", ZH), input("b", "5,000万元", ZH)], zh)).toBe(
+      "2.5亿元",
+    );
+    expect(shown("a + b", [input("a", "2亿元", ZH), input("b", "5,120万元", ZH)], zh)).toBe(
+      "25,120万元",
+    );
+    expect(shown("yi + w", [yi, input("w", "3,830万元", ZH)], zh)).toBe("15,830万元");
+    expect(shown("yi + w", [yi, input("w", "3,000万元", ZH)], zh)).toBe("1.5亿元");
+    expect(shown("yi + w", [yi, input("w", "8,000万元", ZH)], zh)).toBe("2.0亿元");
+    expect(shown("a + b", [input("a", "2亿元", ZH), input("b", "1亿元", ZH)], zh)).toBe("3亿元");
+    // Asked for decimals, the digits asked for are the ones judged: a whole number of 亿 loses 3,000万.
+    expect(shown("yi + w", [yi, input("w", "3,000万元", ZH)], { ...zh, decimals: 0 })).toBe(
+      "15,000万元",
+    );
     expect(shown("yi + wan", [yi, wan], { ...zh, scale: "亿", decimals: 2 })).toBe("1.55亿元");
   });
 

@@ -17,6 +17,7 @@ import {
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { core } from "../core";
 import { useT } from "../i18n";
+import { turnOffLocalMode } from "../localMode";
 import { useModelInUse } from "../modelInUse";
 import { useModelMenuRequests } from "../modelMenu";
 import { useModelNames } from "../modelNames";
@@ -335,6 +336,30 @@ export function ModelChip({
                   </div>
                 );
               })}
+              {localMode &&
+                offered.some((each) =>
+                  each.models.some(
+                    (id) => groupOf(each.provider, each.cloud.includes(id)) !== "local",
+                  ),
+                ) && (
+                  <p data-testid="composer-model-local-mode" className="model-menu-intro">
+                    {t("composer.model.localModeOff")}
+                    <span aria-hidden="true"> · </span>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="composer-model-local-off"
+                      onClick={() =>
+                        turnOffLocalMode().catch((error: unknown) =>
+                          useAppStore.getState().reportError(error),
+                        )
+                      }
+                      className="model-menu-link"
+                    >
+                      {t("localMode.turnOff")}
+                    </button>
+                  </p>
+                )}
               {groups === null || groups.length === 0 ? (
                 <p className="model-menu-intro">{t("composer.model.loading")}</p>
               ) : wanted !== "" &&

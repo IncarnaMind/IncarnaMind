@@ -103,6 +103,7 @@ import type {
   RunWindow,
   TokenUsage,
 } from "../runs/engine";
+import { inStep } from "../timing/flows";
 import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { asksForFixes } from "./citations";
@@ -349,10 +350,11 @@ export interface AnswerRequest {
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
   /**
-   * The quick-tasks model, for the calls that don't write the Answer:
-   * rewriting a follow-up Question into a search query, and translating the
-   * query. Asked for only when one is made; without it, or when it can't be
-   * had (e.g. its flow was declined), the Answer's model makes them.
+   * The model for the calls that don't write the Answer: rewriting a
+   * follow-up Question into a search query, and translating the query. Asked
+   * for only when one is made, and already asked to skip thinking, which
+   * would fill their few tokens. Without it, or when it can't be had (e.g. its
+   * flow was declined), the Answer's model makes them.
    */
   quickModel?(): Promise<ChatLanguageModel>;
   /** Searching and citing the Documents: the Documents' Tools, and the search of a model without Tools. */
@@ -432,8 +434,6 @@ export interface AnswerRequest {
 export type AnswerEngineEvent =
   /** How the model gives Citations, once its provider has accepted the request. */
   | { type: "support"; support: CitationSupport }
-  /** The Answer is written without Tools: its model can't call them, so it can't change a Mind. */
-  | { type: "without-tools" }
   /**
    * What the Answer is doing now: searching the Documents, the model's turn,
    * or asking the model once more for exact quotes (see ./quoteRetry).
@@ -838,7 +838,7 @@ interface SmallCallResult<T> {
 }
 
 /**
- * The quick-tasks model, else the Answer's (see `AnswerRequest.quickModel`).
+ * The model for the small calls, else the Answer's (see `AnswerRequest.quickModel`).
  * Another model than the Answer's runs at its provider's own temperature.
  */
 async function smallCallModel(
@@ -848,7 +848,9 @@ async function smallCallModel(
   if (request.quickModel) {
     try {
       const quick = await request.quickModel();
-      if (quick !== request.model) return { model: quick, temperature: undefined };
+      const sameModel =
+        quick.provider === request.model.provider && quick.modelId === request.model.modelId;
+      return { model: quick, temperature: sameModel ? temperature : undefined };
     } catch (error) {
       if (!request.signal.aborted) {
         console.error(`The quick-tasks model couldn't be used: ${messageOf(error)}`);
@@ -856,6 +858,17 @@ async function smallCallModel(
     }
   }
   return { model: request.model, temperature };
+}
+
+function logEmptySmallCall(
+  call: string,
+  model: ChatLanguageModel,
+  finishReason: string,
+  instead: string,
+) {
+  console.error(
+    `The ${call} came back empty from ${model.provider} ${model.modelId} (finish reason: ${finishReason}); ${instead}.`,
+  );
 }
 
 /**
@@ -875,7 +888,7 @@ async function searchQuery(
   if (!earlier) return { value: question, usage: null };
   try {
     const { model, temperature } = await small();
-    const { text, usage } = await generateText({
+    const { text, usage, finishReason } = await generateText({
       model,
       instructions: SEARCH_QUERY_INSTRUCTIONS,
       prompt: searchQueryPrompt(earlier, question),
@@ -886,7 +899,16 @@ async function searchQuery(
       maxRetries: 0,
       abortSignal: signal,
     });
-    return { value: queryIn(text) || question, usage: tokenUsageOf(usage) };
+    const query = queryIn(text);
+    if (!query) {
+      logEmptySmallCall(
+        "search rewrite",
+        model,
+        finishReason,
+        "searching for the Question as it was asked",
+      );
+    }
+    return { value: query || question, usage: tokenUsageOf(usage) };
   } catch (error) {
     if (!signal.aborted) {
       console.error(`The Question couldn't be rewritten for search: ${messageOf(error)}`);
@@ -960,7 +982,7 @@ async function translatedQuery(
 ): Promise<SmallCallResult<string | null>> {
   try {
     const { model, temperature } = await small();
-    const { text, usage } = await generateText({
+    const { text, usage, finishReason } = await generateText({
       model,
       instructions: TRANSLATE_QUERY_INSTRUCTIONS,
       prompt: translateQueryPrompt(query, language),
@@ -971,6 +993,14 @@ async function translatedQuery(
       abortSignal: request.signal,
     });
     const translated = queryIn(text);
+    if (!translated) {
+      logEmptySmallCall(
+        "search query's translation",
+        model,
+        finishReason,
+        "searching in the Question's language only",
+      );
+    }
     return {
       value: translated && translated !== query ? translated : null,
       usage: tokenUsageOf(usage),
@@ -1137,7 +1167,6 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           }
           if (!unsupported || signal.aborted) return;
         }
-        yield { type: "without-tools" };
         for await (const event of onePass("no-documents")) {
           if (event.type === "unsupported") return;
           yield event;
@@ -1157,7 +1186,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           small ??= smallCallModel(request, temperature());
           return small;
         };
-        const rewrite = await searchQuery(request, smallModel);
+        const rewrite = await inStep("search-rewrite", () => searchQuery(request, smallModel));
         if (rewrite.usage) yield { type: "usage", usage: rewrite.usage };
         const query = rewrite.value;
         signal.throwIfAborted();
@@ -1166,7 +1195,9 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           request.documents.documentLanguages ?? [],
         );
         const translation = language
-          ? await translatedQuery(request, query, language, smallModel)
+          ? await inStep("search-translation", () =>
+              translatedQuery(request, query, language, smallModel),
+            )
           : null;
         if (translation?.usage) yield { type: "usage", usage: translation.usage };
         const translated = translation?.value ?? null;
@@ -1260,7 +1291,6 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           if (!announced && event.type !== "failed") {
             announced = true;
             yield { type: "support", support };
-            if (support !== "tools") yield { type: "without-tools" };
           }
           yield event;
         }

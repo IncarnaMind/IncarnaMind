@@ -15,6 +15,7 @@ import {
   recall,
   type Summary,
   summarise,
+  thresholdSweep,
 } from "./scoring";
 import { formatOf, type SetDocument, type Split } from "./set";
 
@@ -179,6 +180,21 @@ export function markdownReport(
           `| ${result.route} | ${mistake.id} (${doc?.language}, ${doc ? formatOf(doc) : ""}) | ${folderName(mistake.expectedFolder)}${mistake.alsoFolder ? ` / ${mistake.alsoFolder}` : ""} → ${folderName(mistake.folder)} | ${mistake.expectedTags.join(", ") || "–"} → ${mistake.error ? `error: ${mistake.error.slice(0, 80)}` : tagList(mistake.tags)} |`,
         );
       }
+  }
+  for (const result of results) {
+    const pairs = paired(documents, result);
+    if (!pairs.some(({ prediction }) => prediction.scores)) continue;
+    lines.push(
+      "",
+      `## ${result.route}: Tags if applied from each probability (all ${pairs.length} Documents)`,
+      "",
+      "| From | Tag P | Tag R | Tag F1 |",
+      "|---:|---:|---:|---:|",
+      ...thresholdSweep(pairs, [0.1, 0.3, 0.5, 0.7, 0.9, 0.95]).map(
+        (each) =>
+          `| ${each.threshold} | ${decimal(each.p)} | ${decimal(each.r)} | ${decimal(each.f1)} |`,
+      ),
+    );
   }
   return `${lines.join("\n")}\n`;
 }

@@ -1,14 +1,17 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
+import { paragraph, run, tracked, wordFile } from "../tests/helpers/word";
 import {
   acceptPlainTextKeys,
   addDocuments,
   checkCard,
   createDataFolder,
   dismissChatSetup,
+  importWordFromMenu,
+  interceptOpenDialog,
   launchApp,
   motionSettled,
   newMind,
@@ -128,7 +131,7 @@ test("Find support on two sentences: one is supported and its Citation is added,
   const card = window.getByTestId("claim-card");
   await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
-    "Nothing in your Documents says this.",
+    "I didn’t find this in “All Documents”.",
   );
   await window.keyboard.press("Escape");
   await expect(card).toBeHidden();
@@ -388,21 +391,39 @@ test("A supported sentence's card names the Document as it is named now, after a
 const PENGUINS_A = "Penguins nest on a harbour cliffs.";
 const HARBOURS_A = "Harbours publish a times of high water every 6 months.";
 
-/** Asks the assistant to change "the" to "a": its changes, in the two sentences with "the", wait as the assistant's do. */
-async function askForTwoChanges(window: Page, line: Locator) {
-  await window.keyboard.press("ControlOrMeta+j");
-  await expect(window.getByTestId("composer-input")).toBeFocused();
-  await window.keyboard.type("replace the with a");
-  await window.keyboard.press("Enter");
-  await expect(line.locator("ins.proposal-insert")).toHaveText(["a", "a"], { timeout: 15_000 });
+// The assistant's own changes apply at once (#1559): what waits is someone's tracked changes in a
+// Word file, here "the" to "a" in each sentence that has it.
+async function mindWithTheirChanges(
+  app: ElectronApplication,
+  window: Page,
+  sentences: readonly string[],
+) {
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  let id = 0;
+  const runs = sentences.map((sentence, index) => {
+    const space = index < sentences.length - 1 ? " " : "";
+    const [before, after] = sentence.split(" the ");
+    if (after === undefined) return run(`${sentence}${space}`);
+    id += 2;
+    return `${run(`${before} `)}${tracked("del", id - 1, "Dana Kim", "the")}${tracked("ins", id, "Dana Kim", "a")}${run(` ${after}${space}`)}`;
+  });
+  const path = join(sources, "Tide notes.docx");
+  await writeFile(path, wordFile({ body: paragraph(runs.join("")) }));
+  await interceptOpenDialog(app, path);
+  const dialog = await importWordFromMenu(window);
+  await dialog.getByTestId("word-import-add-original").uncheck();
+  await dialog.getByTestId("word-import-confirm").click();
+  await expect(dialog).toBeHidden();
+  const line = window.getByTestId("mind-editor").locator(":scope > p").first();
+  await expect(line.locator("ins.proposal-insert")).toHaveText(["a", "a"]);
+  return { line };
 }
 
 test("A check reads the text as it stands and says which sentences with changes waiting it left out; Accept all and check checks them, and Undo takes the accept back, in English and Chinese", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
-  const { line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
+  const { line } = await mindWithTheirChanges(app, window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
   await setWindowSize(app, window, 1440, 900);
-  await askForTwoChanges(window, line);
 
   await checkAll(window, line, "Spring tides", "6 months.", "find-support");
 
@@ -429,7 +450,7 @@ test("A check reads the text as it stands and says which sentences with changes 
   await window.keyboard.press("ControlOrMeta+z");
   await expect(line.locator("ins.proposal-insert")).toHaveText(["a", "a"]);
   await expect(line.locator("del.proposal-delete")).toHaveText(["the", "the"]);
-  await expect(bar.getByTestId("proposals-count")).toHaveText(/2/);
+  await expect(bar.getByTestId("their-changes-count")).toHaveText("来自 Dana Kim 的 2 处修订");
 });
 
 /**
@@ -465,14 +486,13 @@ for (const [language, width] of [
     const { app, window } = await launchWithTides();
     await useLocalChatModel(window);
     if (language === "zh-CN") await setLanguage(window, language);
-    const { line } = await mindWithSentences(window, [
+    const { line } = await mindWithTheirChanges(app, window, [
       SUPPORTED,
       UNSUPPORTED,
       CONTRADICTED,
       LIGHTHOUSES,
     ]);
     await setWindowSize(app, window, width, 900);
-    await askForTwoChanges(window, line);
     const places = await notePlaces(window, "checks-accept-and-check");
 
     await checkAll(window, line, "Spring tides", "at night.", "find-support");
@@ -489,9 +509,8 @@ for (const [language, width] of [
 test("Check against Documents on sentences that all have changes waiting sends nothing and says so; Accept all and check checks them against the Documents", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
-  const { line } = await mindWithSentences(window, [UNSUPPORTED, CONTRADICTED]);
+  const { line } = await mindWithTheirChanges(app, window, [UNSUPPORTED, CONTRADICTED]);
   await setWindowSize(app, window, 1440, 900);
-  await askForTwoChanges(window, line);
 
   await checkAll(window, line, "Penguins", "6 months.", "check-against-documents");
 
@@ -511,9 +530,8 @@ test("Check against Documents on sentences that all have changes waiting sends n
 test("After the User accepts one change by hand and goes to another tab and back, Accept all and check accepts the rest and checks every sentence the check left out", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
-  const { line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
+  const { line } = await mindWithTheirChanges(app, window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
   await setWindowSize(app, window, 1440, 900);
-  await askForTwoChanges(window, line);
   await checkAll(window, line, "Spring tides", "6 months.", "find-support");
   const waiting = window.getByTestId("checks-waiting");
   await expect(waiting).toContainText("2 sentences with changes waiting weren’t checked");

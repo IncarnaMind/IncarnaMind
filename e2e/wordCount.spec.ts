@@ -10,7 +10,6 @@ import {
   launchApp,
   nameMind,
   newMind,
-  pointAndClick,
   removeDataFolder,
   setWindowSize,
   showCountWhileWriting,
@@ -211,7 +210,7 @@ const COUNTS = {
 } as const;
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`text the assistant wrote is counted once accepted, and not before, and Undo takes it back (${language})`, async () => {
+  test(`text the assistant wrote is counted once it applies, and Undo and Redo count within 100 ms (${language})`, async () => {
     const { empty, written, ask, unit } = COUNTS[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
@@ -227,29 +226,19 @@ for (const language of ["en", "zh-CN"] as const) {
     const total = words(written);
 
     await askInAssistant(window, ask);
-    const bar = window.getByTestId("proposals-bar");
-    await expect(bar.getByTestId("proposals-count")).toBeVisible();
-    // Waiting text isn't the Mind's yet.
-    await expect(button).toHaveText(empty);
+    await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
+    await expect(button).toHaveText(`${total} ${unit}`);
 
-    // An Accept is waited on, so its count comes within 100 ms, not after the pause typing gets.
-    const accepted = await countShownAfter(window, `${total} ${unit}`, () =>
-      pointAndClick(window, bar.getByTestId("proposals-accept-all")),
-    );
-    expect(accepted).toBeLessThan(100);
-    await expect(bar).toHaveCount(0);
-
+    // Undo is waited on, so its count comes within 100 ms, not after the pause typing gets.
     await window.getByTestId("mind-editor").click();
     const undone = await countShownAfter(window, empty, () =>
       window.keyboard.press("ControlOrMeta+z"),
     );
     expect(undone).toBeLessThan(100);
-    await expect(bar.getByTestId("proposals-accept-all")).toBeVisible();
-
-    // Accepting one change counts that change's words.
-    await window.getByTestId("mind-editor").locator("p").first().click();
-    await pointAndClick(window, window.getByTestId("change-accept"));
-    await expect(button).toHaveText(`${words(written.slice(0, 1))} ${unit}`);
+    const redone = await countShownAfter(window, `${total} ${unit}`, () =>
+      window.keyboard.press("ControlOrMeta+Shift+z"),
+    );
+    expect(redone).toBeLessThan(100);
     await app.close();
   });
 }

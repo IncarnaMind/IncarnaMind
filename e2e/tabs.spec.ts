@@ -166,14 +166,14 @@ test("tabs close, reopen, move and switch by mouse and keyboard; a deleted Mind'
   await expect(titlesOf(window)).toHaveText(["Alpha"]);
   await expect(activeTab(window)).toContainText("Alpha");
   expect(window.isClosed()).toBe(false);
-  const notice = window.getByTestId("tab-notice");
-  await expect(notice).toContainText("Closed “Gamma”");
+  const line = window.getByTestId("undo-line");
+  await expect(line.getByTestId("undo-message")).toHaveText("Closed “Gamma”");
   // ⇧⌘T reopens it where it was; the line's Reopen does the same.
   await window.keyboard.press("ControlOrMeta+Shift+t");
   await expect(titlesOf(window)).toHaveText(["Alpha", "Gamma"]);
   await expect(activeTab(window)).toContainText("Gamma");
   await window.keyboard.press("ControlOrMeta+w");
-  await notice.getByTestId("tab-notice-reopen").click();
+  await line.getByTestId("tab-notice-reopen").click();
   await expect(titlesOf(window)).toHaveText(["Alpha", "Gamma"]);
 
   // Deleting a Mind closes its tab.
@@ -430,6 +430,15 @@ async function chooseMenuItem(app: ElectronApplication, label: string): Promise<
 const menuTitles = (app: ElectronApplication) =>
   app.evaluate(({ Menu }) => (Menu.getApplicationMenu()?.items ?? []).map((item) => item.label));
 
+/** The labels of the File menu's items, without its separators. */
+const fileMenuLabels = (app: ElectronApplication) =>
+  app.evaluate(({ Menu }) => {
+    const file = Menu.getApplicationMenu()?.items.find((item) => item.label === "文件");
+    return (file?.submenu?.items ?? [])
+      .filter((item) => item.type !== "separator")
+      .map((item) => item.label);
+  });
+
 test("the application menu makes a new Mind, opens Settings, and closes, reopens and splits tabs, in the interface's language", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
@@ -456,6 +465,11 @@ test("the application menu makes a new Mind, opens Settings, and closes, reopens
     await bridge.updateSettings({ user: { language: "zh-CN" } });
   });
   await expect.poll(() => menuTitles(app)).toContain("文件");
+  // The File menu is all Chinese, Close All included: the app's own item, not macOS's (#1346).
+  const fileLabels = await fileMenuLabels(app);
+  expect(fileLabels).toContain("关闭窗口");
+  expect(fileLabels).toContain("关闭全部");
+  expect(fileLabels.filter((label) => !/\p{Script=Han}/u.test(label))).toEqual([]);
   await chooseMenuItem(app, "新建 Mind");
   await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
   await chooseMenuItem(app, "向右拆分");

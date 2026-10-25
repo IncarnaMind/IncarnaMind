@@ -4,13 +4,11 @@ import { useLanguage, useT } from "../../i18n";
 import type { KeyRefusal } from "../../keyRefusals";
 import { SettingsBackLink } from "../SettingsBackLink";
 import { KeepLocalChoice } from "./KeepLocalChoice";
+import { LocalModeUnavailable } from "./LocalModeUnavailable";
 import { OllamaAction, OllamaProgress, ollamaDescription, useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { ProviderLogo } from "./ProviderLogo";
-import { keyProviderName } from "./shared";
-
-/** Where an undo line of a change made in Settings › Models shows: the sidebar's is behind it. */
-export const MODELS_UNDO_PLACE = "settings:models";
+import { keyProviderName, MODELS_UNDO_PLACE } from "./shared";
 
 export function AddProvider({
   catalogId,
@@ -25,10 +23,12 @@ export function AddProvider({
   providers: readonly ChatProvider[];
   refused: KeyRefusal | null;
   onBack(): void;
-  onAdded(provider: ChatProvider): void;
+  onAdded(provider: ChatProvider, keyNotChecked?: boolean): void;
 }) {
   const t = useT();
   const language = useLanguage();
+  const group = catalogProvider(catalogId)?.group;
+  const hosted = group === "international" || group === "china";
   const name =
     catalogId === "openai-compatible"
       ? t("providers.form.title.server")
@@ -46,6 +46,7 @@ export function AddProvider({
           {name}
         </h4>
       </header>
+      {hosted && <LocalModeUnavailable />}
       {catalogId === "ollama" ? (
         <AddOllama onAdded={onAdded} />
       ) : (
@@ -56,7 +57,6 @@ export function AddProvider({
           providers={providers}
           refused={refused}
           onSaved={onAdded}
-          withMoreProviders
           keepDefault
         />
       )}

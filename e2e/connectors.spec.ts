@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { startFakeRegistry } from "../tests/helpers/fakeRegistry";
 import { type FakeRemote, startFakeRemote } from "../tests/helpers/remoteMcp";
@@ -13,6 +13,7 @@ import {
   openSettings,
   removeDataFolder,
   setLanguage,
+  setWindowSize,
   showSettingsPage,
   urlsOpened,
 } from "./app";
@@ -165,6 +166,59 @@ test("in Local mode a Connector on another computer is paused and says why, in E
   }
 });
 
+test("in Local mode a Connector on this computer whose sign-in is on another waits and says why, in English and Chinese; its page offers no sign-in", async () => {
+  // The service is on this computer, but its metadata names a sign-in server on another one.
+  const fake = await startFakeRemote();
+  fake.authorizationServer = "https://auth.example.test";
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await window.evaluate(async (url) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.setLocalOnly(true);
+      await bridge.addConnector({ name: "Wiki", url });
+    }, fake.url);
+
+    await openSettings(window, "connectors");
+    const page = window.getByTestId("settings-page-connectors");
+    const row = page.getByTestId("connected-connector");
+    await expect(row).toHaveAttribute("data-state", "needs-sign-in");
+    await expect(row.getByTestId("connected-connector-state")).toHaveText(
+      "Not used while everything stays on this computer",
+    );
+    await setLanguage(window, "zh-CN");
+    await expect(row.getByTestId("connected-connector-state")).toHaveText(
+      "所有内容都留在这台电脑上时不会使用",
+    );
+    await setLanguage(window, "en");
+
+    // Its page says why, and offers no sign-in to a server that would hear of it.
+    await row.getByTestId("connector-manage").click();
+    const connector = page.getByTestId("connector");
+    await expect(connector.getByTestId("connector-state")).toHaveText(
+      "Not used while everything stays on this computer",
+    );
+    const why = connector.getByTestId("connector-sign-in-held-back");
+    await expect(why).toContainText("Paused: its sign-in server is on another computer.");
+    await why.getByTestId("connector-sign-in-held-back-details").click();
+    await expect(why.getByTestId("connector-sign-in-held-back-list")).toContainText(
+      "“Keep everything on this computer” is on",
+    );
+    await setLanguage(window, "zh-CN");
+    await expect(why).toContainText("已暂停：它的登录服务在另一台电脑上。");
+    await expect(why.getByTestId("connector-sign-in-held-back-list")).toContainText(
+      "已开启“所有内容都留在这台电脑上”",
+    );
+    await expect(connector.getByTestId("connector-sign-in")).toHaveCount(0);
+
+    // Nothing reached the sign-in server, or its address.
+    expect(fake.requests.filter((request) => request.path.startsWith("auth:"))).toEqual([]);
+  } finally {
+    await app.close();
+    await fake.close();
+  }
+});
+
 test("a remote Connector added by URL needs a sign-in, which goes through the browser", async () => {
   // A local stand-in for the service: an OAuth authorization server and an MCP server.
   const fake = await startFakeRemote();
@@ -216,6 +270,118 @@ test("a remote Connector added by URL needs a sign-in, which goes through the br
     await app.close();
   } finally {
     await fake.close();
+  }
+});
+
+/** Marks a field Chromium would show its own bubble for: one whose `invalid` event nothing handled. */
+async function markBrowserBubble(field: Locator): Promise<void> {
+  await field.evaluate((element) =>
+    element.addEventListener("invalid", (event) => {
+      if (!event.defaultPrevented) element.setAttribute("data-browser-bubble", "");
+    }),
+  );
+}
+
+test("an empty or wrong field of a custom Connector says why under it in the interface's language, not the system's, and the focus goes to the first, in English and Chinese (#1456)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await openSettings(window, "connectors");
+    const page = window.getByTestId("settings-page-connectors");
+    await page.getByTestId("connector-add-custom").click();
+    await setLanguage(window, "zh-CN");
+    const form = page.getByTestId("connector-form");
+    const name = form.getByLabel(/^名称/);
+    const url = form.getByLabel(/^服务器 URL/);
+    await markBrowserBubble(name);
+    await markBrowserBubble(url);
+
+    await form.getByRole("button", { name: "添加连接器" }).click();
+    await expect(name).toBeFocused();
+    await expect(name).toHaveAttribute("aria-invalid", "true");
+    await expect(name).toHaveAccessibleDescription("连接器名称不能为空。");
+    await expect(url).toHaveAttribute("aria-invalid", "true");
+    await expect(url).toHaveAccessibleDescription("输入服务器 URL。");
+
+    // A line goes once its field is right; Enter takes the focus to the field still wrong.
+    await name.fill("Wiki");
+    await expect(name).not.toHaveAttribute("aria-invalid");
+    await url.fill("wiki.example.test");
+    await expect(url).toHaveAccessibleDescription("“wiki.example.test”不是有效的 URL。");
+    await name.press("Enter");
+    await expect(url).toBeFocused();
+    await setLanguage(window, "en");
+    const urlInEnglish = form.getByLabel(/^Server URL/);
+    await expect(urlInEnglish).toHaveAccessibleDescription(
+      "“wiki.example.test” isn’t a valid URL.",
+    );
+    await urlInEnglish.fill("https://wiki.example.test/mcp");
+    await expect(urlInEnglish).not.toHaveAttribute("aria-invalid");
+    await expect(form.getByRole("alert")).toHaveCount(0);
+    await expect(urlInEnglish).not.toHaveAttribute("data-browser-bubble");
+    await expect(form.getByLabel(/^Name/)).not.toHaveAttribute("data-browser-bubble");
+
+    await page.getByRole("tab", { name: "Command" }).click();
+    const localName = form.getByLabel(/^Name/);
+    const command = form.getByLabel(/^Command/);
+    await markBrowserBubble(localName);
+    await markBrowserBubble(command);
+    await form.getByRole("button", { name: "Add Connector" }).click();
+    await expect(localName).toBeFocused();
+    await expect(localName).toHaveAccessibleDescription("A Connector’s name can’t be empty.");
+    await expect(command).toHaveAttribute("aria-invalid", "true");
+    await expect(command).toHaveAccessibleDescription(
+      "Enter the command that starts the Connector.",
+    );
+    await expect(localName).not.toHaveAttribute("data-browser-bubble");
+    await expect(command).not.toHaveAttribute("data-browser-bubble");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a long address in a Connector's URL problem is cut in the middle, and the line's mark shares a line with its words at the narrowest window, in English and Chinese (#1456)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 900, 760);
+    await dismissChatSetup(window);
+    await openSettings(window, "connectors");
+    const page = window.getByTestId("settings-page-connectors");
+    await page.getByTestId("connector-add-custom").click();
+    const form = page.getByTestId("connector-form");
+    const address = `wiki.example.test/${"a-long-path/".repeat(8)}end`;
+    await form.getByLabel(/^Name/).fill("Wiki");
+    await form.getByLabel(/^Server URL/).fill(address);
+    await form.getByRole("button", { name: "Add Connector" }).click();
+
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(window, language);
+      const line = form.getByRole("alert");
+      await expect(line).toHaveCount(1);
+      await expect(line).toContainText(/wiki\.example\.test\/\S*…\S*end/);
+      await expect(line).not.toContainText(address);
+      const shape = await line.evaluate((element) => {
+        const mark = element.querySelector("svg")?.getBoundingClientRect();
+        const words = Array.from(element.childNodes).find((node) => node.nodeType === 3);
+        if (!mark || !words) return null;
+        const range = document.createRange();
+        range.selectNodeContents(words);
+        const first = range.getClientRects()[0];
+        if (!first) return null;
+        return {
+          markMiddle: mark.top + mark.height / 2,
+          firstTop: first.top,
+          firstBottom: first.bottom,
+          rows: element.getBoundingClientRect().height / first.height,
+        };
+      });
+      expect(shape, `${language}: the line has a mark and words`).not.toBeNull();
+      expect(shape?.markMiddle).toBeGreaterThan(shape?.firstTop ?? Infinity);
+      expect(shape?.markMiddle).toBeLessThan(shape?.firstBottom ?? -Infinity);
+      expect(shape?.rows).toBeLessThan(2);
+    }
+  } finally {
+    await app.close();
   }
 });
 

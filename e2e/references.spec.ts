@@ -5,7 +5,7 @@
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   type ReferenceServices,
@@ -54,6 +54,51 @@ async function writeSources(): Promise<string[]> {
 
 const row = (window: Page, name: string) =>
   window.getByTestId("library-document").filter({ hasText: name });
+
+test("⌘-click and Shift-click anywhere on a row, its Needs details chip included, only change the selection, and Cite as opens from its own chip (#1509)", async () => {
+  const session = await launchApp(dataDir, { fakeChat: true });
+  try {
+    const { app, window } = session;
+    await setWindowSize(app, window, 1400, 800);
+    await dismissChatSetup(window);
+    await addDocuments(window, await writeSources());
+    await window.getByTestId("open-library").click();
+    const paper = row(window, "s41586-020-2649-2");
+    const contract = row(window, "Aldermoor MSA");
+    const chip = paper.getByTestId("cite-as-toggle");
+    await expect(chip).toHaveText("Needs details");
+    const selected = (target: Locator) => expect(target).toHaveAttribute("aria-selected", "true");
+    const opensNothing = async () => {
+      await expect(window.getByTestId("cite-as")).toHaveCount(0);
+      await expect(window.getByRole("listbox")).toHaveCount(0);
+    };
+
+    // ⌘-click on the chip selects the row, and opens no panel.
+    await chip.click({ modifiers: ["ControlOrMeta"] });
+    await selected(paper);
+    await opensNothing();
+
+    // A second ⌘-click, on the other row's name, adds it; neither opens anything.
+    await contract.getByTestId("library-document-name").click({ modifiers: ["ControlOrMeta"] });
+    await selected(paper);
+    await selected(contract);
+    await opensNothing();
+
+    // ⌘-click on the chip again takes its row out; Shift-click on it selects it from the anchor.
+    await chip.click({ modifiers: ["ControlOrMeta"] });
+    await expect(paper).toHaveAttribute("aria-selected", "false");
+    await selected(contract);
+    await chip.click({ modifiers: ["Shift"] });
+    await selected(paper);
+    await opensNothing();
+
+    // Its own click opens it.
+    await chip.click();
+    await expect(paper.getByTestId("cite-as")).toBeVisible();
+  } finally {
+    await session.app.close();
+  }
+});
 
 test("Needs details opens Cite as at the first missing field, and each field is edited in place", async () => {
   let session = await launchApp(dataDir);

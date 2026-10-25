@@ -12,6 +12,7 @@ import { vi } from "vitest";
 import * as Y from "yjs";
 import {
   type AnswerUsage,
+  type AskedQuote,
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
   CITATION_NODE,
@@ -48,6 +49,7 @@ import {
 } from "./checks";
 import { DATED_TEXTS } from "./dated";
 import { citedClaims } from "./dates";
+import { type Decision, decisionInput, type Forcing, type Route } from "./decisions";
 import { judgeClaims } from "./judge";
 import type { Asks, ReaskWatch } from "./reasks";
 import { checkCitedSentences, type SentenceSupport } from "./support";
@@ -171,9 +173,15 @@ export interface CaseResult {
   support: SentenceSupport[] | null;
   /** A summary: its sentences outside headings that make a claim, and how many carry a Citation; null for the others. */
   claims: { claims: number; cited: number } | null;
+  /** Arm C (./decisions): what the decision model chose for the request, and how many of its model requests were forced; absent in arms A and B. */
+  decision?: { choice: Route; confidence: number; forced: number };
 }
 
-/** Asks in the assistant and resolves with the Answer as stored once it has ended. */
+/**
+ * Asks in the assistant and resolves with the Answer as stored once it has ended. When it asks
+ * the User which (ask_user), the option naming `choose` is chosen; without one, the User reads
+ * the question and the Answer waits for them, so it is stopped there and `stopped` is told.
+ */
 export async function ask(
   core: Core,
   input: {
@@ -181,15 +189,52 @@ export async function ask(
     mindId: string | null;
     conversationId: string | null;
     focus: MindFocus | null;
+    onScreen?: string[];
+    quotes?: AskedQuote[];
   },
+  { choose, stopped }: { choose?: string; stopped?: () => void } = {},
 ): Promise<ConversationAnswer> {
   const asked = await core.askInConversation(input);
   if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+  const answering = core.on("question.asked", (request) => {
+    if (request.answerId !== asked.answerId) return;
+    const wanted = choose?.toLocaleLowerCase();
+    const option = wanted
+      ? request.question.options.find((each) =>
+          `${each.label} ${each.description}`.toLocaleLowerCase().includes(wanted),
+        )
+      : undefined;
+    if (option) {
+      void core.answerUserQuestion(request.requestId, {
+        skipped: false,
+        chosen: [option.label],
+        wrote: null,
+      });
+      return;
+    }
+    stopped?.();
+    void core.stopConversationAnswer({
+      conversationId: asked.conversation.id,
+      answerId: asked.answerId,
+    });
+  });
+  try {
+    return await answerOf(core, asked.conversation.id, asked.answerId);
+  } finally {
+    answering();
+  }
+}
+
+async function answerOf(
+  core: Core,
+  conversationId: string,
+  answerId: string,
+): Promise<ConversationAnswer> {
   const ended = await new Promise<boolean>((done) => {
     const timer = setTimeout(() => end(false), ANSWER_TIMEOUT_MS);
     const stops = [
-      core.on("answer.finished", ({ answerId }) => answerId === asked.answerId && end(true)),
-      core.on("answer.failed", ({ answerId }) => answerId === asked.answerId && end(true)),
+      core.on("answer.finished", (event) => event.answerId === answerId && end(true)),
+      core.on("answer.failed", (event) => event.answerId === answerId && end(true)),
     ];
     function end(inTime: boolean) {
       clearTimeout(timer);
@@ -198,14 +243,11 @@ export async function ask(
     }
   });
   if (!ended) {
-    await core.stopConversationAnswer({
-      conversationId: asked.conversation.id,
-      answerId: asked.answerId,
-    });
+    await core.stopConversationAnswer({ conversationId, answerId });
     throw new Error(`No Answer within ${ANSWER_TIMEOUT_MS / 60_000} minutes.`);
   }
-  const { messages } = await core.getConversation(asked.conversation.id);
-  const answer = messages.find((message) => message.id === asked.answerId);
+  const { messages } = await core.getConversation(conversationId);
+  const answer = messages.find((message) => message.id === answerId);
   if (answer?.kind !== "answer") throw new Error("No Answer was kept.");
   return answer;
 }
@@ -265,6 +307,25 @@ function citedDocuments(doc: Y.Doc): string[] {
   return found;
 }
 
+/** The words a request asks about, cited where they were selected as the viewer cites them (#101). */
+async function quoteOf(
+  core: Core,
+  scoped: readonly { id: string; name: string }[],
+  { document, page, words }: NonNullable<EverydayCase["quote"]>,
+): Promise<AskedQuote> {
+  const found = scoped.find((each) => each.name === document);
+  if (!found) throw new Error(`No Document “${document}” to select words in.`);
+  const cited = await core.citeSelection({
+    documentId: found.id,
+    parts: [{ unit: page, text: words }],
+  });
+  if (cited.check !== "found") {
+    throw new Error(`“${words}” isn't on p. ${page} of “${document}”: ${cited.checkReason}.`);
+  }
+  const { quote, pageFrom, pageTo, location } = cited;
+  return { documentId: found.id, documentName: found.name, quote, pageFrom, pageTo, location };
+}
+
 export async function runCase(
   library: Library,
   scoped: { id: string; name: string }[],
@@ -274,11 +335,14 @@ export async function runCase(
   {
     watch,
     checkModel = null,
+    deciding,
   }: {
     /** Watches the app's own asks inside the Answer; none watched without it. */
     watch?: ReaskWatch;
     /** The model the cited sentences are checked on; null: the default chat model. */
     checkModel?: ChatModelChoice | null;
+    /** Arm C: decides each request first, and forces the chat model's requests as the decision says. */
+    deciding?: { decide(text: string): Promise<Decision>; forcing: Forcing };
   } = {},
 ): Promise<CaseResult> {
   const { core } = library;
@@ -309,7 +373,11 @@ export async function runCase(
     writeMind(
       client,
       each.mind.blocks.map((line) =>
-        line.startsWith("## ") ? heading(2, line.slice(3)) : note(line),
+        line.startsWith("## ")
+          ? heading(2, line.slice(3))
+          : line.startsWith("# ")
+            ? heading(1, line.slice(2))
+            : note(line),
       ),
     );
     await client.settled();
@@ -322,22 +390,62 @@ export async function runCase(
             block instanceof Y.XmlElement ? String(block.getAttribute(BLOCK_ID_ATTRIBUTE)) : "",
           )
       : [];
+  const onScreen = (each.onScreen ?? []).map((name) => {
+    const found = scoped.find((document) => document.name === name);
+    if (!found) throw new Error(`No Document “${name}” to open on screen.`);
+    return found.id;
+  });
+  if (each.selectNote && mind && client) {
+    const noted = await ask(core, {
+      text: each.selectNote,
+      mindId: mind.id,
+      conversationId: null,
+      focus: null,
+    });
+    await core.addToNote({
+      mindId: mind.id,
+      blocks: pageBlocks(noted, each.selectNote),
+      origin: { from: messageReference(noted.conversationId, noted.id), question: each.selectNote },
+      model: noted.model,
+    });
+    await client.settled();
+  }
   let ids = idsNow();
   let before = client ? acceptedTexts(client.doc, new Set()) : new Map<string, string>();
   const focus: MindFocus | null =
-    each.selectAll && client
+    (each.selectAll || each.selectNote) && client
       ? { selection: [...before.values()].join("\n\n"), blockIds: ids }
       : null;
   let conversationId: string | null = example?.conversationId ?? null;
   const earlierCalls: ConversationAnswer["toolCalls"] = [];
   let last: ConversationAnswer | null = null;
+  const pageOf = (): "empty" | "text" | "none" =>
+    client
+      ? idsNow().length === 0 ||
+        [...acceptedTexts(client.doc, new Set()).values()].every((text) => text.trim() === "")
+        ? "empty"
+        : "text"
+      : "none";
+  const asked: string[] = [];
+  const decided: { last: Decision | null } = { last: null };
+  const decideFirst = async (text: string) => {
+    if (!deciding) return;
+    decided.last = await deciding.decide(
+      decisionInput({ request: text, page: pageOf(), earlier: asked }),
+    );
+    deciding.forcing.begin(decided.last);
+  };
+
   for (const earlier of each.before ?? []) {
     const fromExample = each.beforeInExample === true;
+    await decideFirst(earlier);
+    asked.push(earlier);
     const answer = await ask(core, {
       text: earlier,
       mindId: (fromExample ? example?.mindId : mind?.id) ?? null,
       conversationId,
       focus: fromExample ? null : focus,
+      onScreen,
     });
     conversationId = answer.conversationId;
     earlierCalls.push(...answer.toolCalls);
@@ -360,15 +468,26 @@ export async function runCase(
     addedBlocks = ids.flatMap((id, block) => (earlier.has(id) ? [] : [block]));
     before = acceptedTexts(client.doc, new Set());
   }
+  const quoted = each.quote ? await quoteOf(core, scoped, each.quote) : null;
   watch?.begin(each.firstReply ?? null);
-  const answer = await ask(core, {
-    text: each.request,
-    mindId: mind?.id ?? null,
-    conversationId,
-    focus,
-  });
+  await decideFirst(each.request);
+  const stoppedAtAsk = { last: false };
+  const answer = await ask(
+    core,
+    {
+      text: each.request,
+      mindId: mind?.id ?? null,
+      conversationId,
+      focus,
+      onScreen,
+      ...(quoted && { quotes: [quoted] }),
+    },
+    { choose: each.answerAsk, stopped: () => (stoppedAtAsk.last = true) },
+  );
   const answeredSeconds = (Date.now() - started) / 1000;
   const asks = watch ? { ...watch.end() } : { again: 0, citations: 0 };
+  const forced = deciding ? deciding.forcing.end() : 0;
+  const decision = decided.last;
   counting();
   const minds = await core.listMinds();
   const names = (id: string) => minds.find((each) => each.id === id)?.title ?? null;
@@ -422,6 +541,7 @@ export async function runCase(
     expected: each.expected,
     answer,
     verdict,
+    askedFrom: mind?.id ?? null,
     citedInMinds,
     changedBlocks,
     addedBlocks,
@@ -432,6 +552,8 @@ export async function runCase(
     askedAgain: asks.again > 0,
     scoped,
     texts: each.expected.textDates ? DATED_TEXTS : undefined,
+    stoppedAtAsk: stoppedAtAsk.last,
+    ...(quoted && { quoted }),
   };
   const failures = requestFailures(outcome);
   return {
@@ -456,6 +578,9 @@ export async function runCase(
     asks,
     support,
     claims: each.summary ? citedClaims(answer.text) : null,
+    ...(decision && {
+      decision: { choice: decision.choice, confidence: decision.confidence, forced },
+    }),
   };
 }
 

@@ -22,6 +22,7 @@ import type {
   Mind,
   PrivacySettings,
   RerankSettings,
+  RestoreRef,
   SearchScope,
   Settings,
   SettingsPatch,
@@ -37,9 +38,17 @@ import { type MessageKey, type MessageParams, translate } from "../../shared/i18
 import { mindName } from "../../shared/naming";
 import { filingFolder } from "../../shared/searchScope";
 import { tagLinks } from "../../shared/tagLinks";
-import { deleted, folderLinked, linkedFolderPaused, renamed, retagged } from "./changes";
+import {
+  deleted,
+  documentsAdded,
+  folderLinked,
+  linkedFolderPaused,
+  renamed,
+  retagged,
+} from "./changes";
 import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
+import { isSearchable } from "./documentStatus";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
 import { languageNow } from "./i18n";
@@ -50,10 +59,12 @@ import {
   followLayout,
   groupsMerged,
   type LayoutSlice,
+  type TabNotice,
   WINDOW_ID,
 } from "./layoutSlice";
 import { type LibraryBridge, mindToAskIn } from "./libraryBridges";
 import { NEEDS_REVIEW } from "./libraryFilters";
+import type { WordsInLine } from "./lineNames";
 import { formatCount, folderName as linkedFolderName } from "./linkedFolders";
 import {
   foldersMovedFrom,
@@ -74,6 +85,7 @@ import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
 import { returnFocusAfterTabClose } from "./tabFocus";
+import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
 
 type Status = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string };
@@ -289,6 +301,8 @@ export interface AppState extends LayoutSlice {
   closeTab(tabId: string): void;
   /** ⇧⌘T: reopens the tab closed last, where it was. */
   reopenTab(): void;
+  /** A line about the tabs, in the sidebar foot's one slot: a tab closed, or why a shortcut did nothing. */
+  showTabNotice(notice: TabNotice): void;
   /** Renames a Mind, with Undo. */
   renameMind(id: string, title: string): Promise<void>;
   deleteMind(id: string): Promise<void>;
@@ -531,6 +545,23 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
   };
   const push = (change: Undoable) => useUndo.getState().push(change);
+  const removeOwn = async (ids: readonly string[]): Promise<RestoreRef[]> => {
+    // One deleted since, or taken over by a Linked folder, is no longer this add's.
+    const own = new Set(
+      (await core.listDocuments({ linkedFolderId: null })).map((each) => each.id),
+    );
+    const taken: RestoreRef[] = [];
+    for (const id of ids) {
+      if (!own.has(id)) continue;
+      await core.deleteDocument(id);
+      taken.push({ kind: "document", id });
+    }
+    documentUpdates.flush();
+    set((state) => ({
+      documents: state.documents.filter((each) => !taken.some((ref) => ref.id === each.id)),
+    }));
+    return taken;
+  };
   const libraryBefore = async (path: string): Promise<LibraryBefore> => {
     const [documents, linked] = await Promise.all([core.listDocuments(), core.listLinkedFolders()]);
     return {
@@ -764,7 +795,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     documentUpdates.flush();
     const known = new Set(get().documents.map((each) => each.id));
     const result =
-      paths.length > 0 ? await core.addDocuments([...paths]) : { documents: [], skipped: [] };
+      paths.length > 0
+        ? await core.addDocuments([...paths])
+        : { documents: [], skipped: [], added: [] };
     const linkable: LinkingFolder[] = folders.map((path) => ({ path, preview: null, error: null }));
     const skipped = [...notOnDisk];
     for (const { path } of result.skipped) {
@@ -792,6 +825,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       };
     });
     offerLinks(linkable);
+    if (result.added.length === 0) return;
+    push(documentsAdded(result.added.length, () => removeOwn(result.added)));
   };
 
   /** Dropped or picked files' paths, and the names of those that aren't on disk. */
@@ -1263,8 +1298,41 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     reopenTab() {
       if (!get().layout?.reopenable) return;
-      get().showTabNotice(null);
+      const line = useUndo.getState().line;
+      if (line?.told?.action?.testId === "tab-notice-reopen") useUndo.getState().dismiss();
       void get().changeLayout({ type: "reopen" });
+    },
+
+    showTabNotice(notice) {
+      const says: WordsInLine = (t) => {
+        switch (notice.kind) {
+          case "closed":
+            return notice.count > 1
+              ? t("tabs.notice.closedMany", { count: notice.count })
+              : t("tabs.notice.closed", { title: tabTitle(get(), notice.item, t) });
+          case "pinned":
+            return t("tabs.notice.pinned", { title: tabTitle(get(), notice.item, t) });
+          case "noGroup":
+            return t("tabs.notice.noGroup", { n: notice.group, shortcut: notice.shortcut });
+          case "maxGroups":
+            return t("tabs.notice.maxGroups");
+          case "merged":
+            return t("tabs.notice.merged");
+          case "assistantNarrow":
+            return t("assistant.narrow");
+        }
+      };
+      useUndo.getState().tell({
+        says,
+        ...(notice.kind === "closed" && {
+          action: {
+            label: (t) => t("tabs.notice.reopen"),
+            shortcut: "tab.reopen",
+            testId: "tab-notice-reopen",
+            run: () => get().reopenTab(),
+          },
+        }),
+      });
     },
 
     // The list follows the core's "minds.changed" event, which arrives before these calls return.
@@ -1727,11 +1795,14 @@ const madeExamples = (state: Pick<AppState, "examples" | "otherExamples">): Exam
 export const exampleMindIds = (state: Pick<AppState, "examples" | "otherExamples">): string[] =>
   allExamples(state).flatMap((each) => (each.mindId ? [each.mindId] : []));
 
-/** Ticks "Add your Documents" once there are Documents of the User's own, or Connectors. */
+const readOwnDocument = (document: Document, state: AppState) =>
+  isSearchable(document.status) && isOwnDocument(document, allExamples(state));
+
+/** Ticks "Add your Documents" once a Document of the User's own has been read, or there are Connectors. */
 function tickIndexed(connectors: number): void {
   const state = useAppStore.getState();
   const { documents, updateGettingStarted } = state;
-  if (connectors > 0 || documents.some((each) => isOwnDocument(each, allExamples(state))))
+  if (connectors > 0 || documents.some((each) => readOwnDocument(each, state)))
     updateGettingStarted({ indexed: true });
 }
 
@@ -1758,13 +1829,16 @@ core.on("minds.changed", (minds) => {
   }
 });
 
-followLayout((partial) => useAppStore.setState(partial));
+followLayout(
+  (partial) => useAppStore.setState(partial),
+  (error) => useNotices.getState().showError(error),
+);
 
 // Processing happens in the background: follow each Document's status as the core reports it.
 core.on("document.status", (changed) => {
   documentUpdates.upsert([changed]);
   const state = useAppStore.getState();
-  if (isOwnDocument(changed, allExamples(state))) state.updateGettingStarted({ indexed: true });
+  if (readOwnDocument(changed, state)) state.updateGettingStarted({ indexed: true });
 });
 
 // The examples made, opened again or removed: their Mind and Linked folder show "Example".
