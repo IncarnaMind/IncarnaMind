@@ -110,7 +110,6 @@ async function openTabMenu(window: Page, tab: Locator): Promise<Locator> {
   return menu;
 }
 
-/** Opens a tab's right-click menu and chooses an item. */
 async function chooseFromTabMenu(window: Page, tab: Locator, item: string): Promise<void> {
   const menu = await openTabMenu(window, tab);
   await menu.getByRole("menuitem", { name: item, exact: true }).click();
@@ -573,7 +572,6 @@ test("a tab moves a place earlier or later in its group from its menu, its keys 
   await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta", "Epsilon"]);
   await window.keyboard.press("Control+Shift+PageUp");
   await expect(titlesIn(first)).toHaveText(titles);
-  // The new keys leave the groups' and the strip's keys working.
   await window.keyboard.press("ControlOrMeta+1");
   await expect(first).toHaveAttribute("data-focused", "true");
   await window.keyboard.press("Control+Tab");
@@ -656,6 +654,43 @@ test("Undo says why it can't put back a moved tab that has closed", async () => 
   await window.keyboard.press("ControlOrMeta+z");
   await expect(window.getByTestId("undo-problem")).toBeVisible();
   await expect(window.getByTestId("undo-problem")).toContainText("the tab has closed");
+  await app.close();
+});
+
+test("Undo keeps a Pin made after the move, saying why it can't put the move back", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  const beta = await openTabMenu(window, tabNamed(window, "Beta"));
+  await beta.getByTestId("tab.moveLater").click();
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta"]);
+  await chooseFromTabMenu(window, tabNamed(window, "Beta"), "Pin");
+  await expect(tabNamed(window, "Beta")).toHaveAttribute("data-pinned", "true");
+
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("undo-problem")).toContainText(
+    "the pinned tabs have changed since",
+  );
+  await expect(tabNamed(window, "Beta")).toHaveAttribute("data-pinned", "true");
+  await app.close();
+});
+
+test("Undo says why it can't put back a move of a tab that has gone to another group", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  const alpha = await openTabMenu(window, tabNamed(window, "Alpha"));
+  await alpha.getByTestId("tab.moveLater").click();
+  await expect(titlesIn(first)).toHaveText(["Beta", "Alpha", "Gamma", "Delta"]);
+  const moved = await openTabMenu(window, tabNamed(window, "Alpha"));
+  await moved.getByTestId("tab.moveRight").click();
+  await expect(groupsOf(window)).toHaveCount(2);
+
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("undo-problem")).toContainText("the tab is in another group now");
+  await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Delta"]);
   await app.close();
 });
 

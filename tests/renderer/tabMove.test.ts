@@ -58,12 +58,12 @@ afterEach(() => {
 
 const english: Translate = (key, params) => translate("en", key, params);
 
-/** A window whose first group's tabs are these Minds, in order, with what the tests do to them. */
 async function windowOf(titles: readonly string[]) {
   core = startCore(await createTempDataFolder());
   const names = new Map<string, string>();
+  const groups = () => store.useAppStore.getState().layout?.groups ?? [];
   const group = () => {
-    const first = store.useAppStore.getState().layout?.groups[0];
+    const first = groups()[0];
     if (!first) throw new Error("The window has no first group.");
     return first;
   };
@@ -77,27 +77,51 @@ async function windowOf(titles: readonly string[]) {
     await store.useAppStore.getState().loadLayout();
   };
   for (const title of titles) await open(title);
-  const idOf = (title: string) => {
-    const tab = group().tabs.find(
-      (each) => each.item.kind === "mind" && names.get(each.item.mindId) === title,
-    );
-    if (!tab) throw new Error(`No tab is named ${title}.`);
-    return tab.id;
+  const tabNamed = (title: string) => {
+    for (const each of groups()) {
+      const tab = each.tabs.find(
+        (one) => one.item.kind === "mind" && names.get(one.item.mindId) === title,
+      );
+      if (tab) return tab;
+    }
+    throw new Error(`No tab is named ${title}.`);
   };
-  /** Closes a tab as a click on it does, this window following the core. */
+  const idOf = (title: string) => tabNamed(title).id;
   const close = async (title: string) => {
     await running().changeLayout("main", { type: "close", tabId: idOf(title) });
+    await store.useAppStore.getState().loadLayout();
+  };
+  const show = async (title: string) => {
+    await running().changeLayout("main", { type: "show", tabId: idOf(title) });
+    await store.useAppStore.getState().loadLayout();
+  };
+  const pin = async (title: string) => {
+    await running().changeLayout("main", { type: "pin", tabId: idOf(title), pinned: true });
+    await store.useAppStore.getState().loadLayout();
+  };
+  const toItsOwnGroup = async (title: string) => {
+    await running().changeLayout("main", {
+      type: "split",
+      tabId: idOf(title),
+      side: "right",
+      copy: false,
+    });
     await store.useAppStore.getState().loadLayout();
   };
   const order = () =>
     group().tabs.map((tab) =>
       tab.item.kind === "mind" ? (names.get(tab.item.mindId) ?? "?") : tab.item.kind,
     );
-  const show = async (title: string) => {
-    await running().changeLayout("main", { type: "show", tabId: idOf(title) });
-    await store.useAppStore.getState().loadLayout();
+  return {
+    open,
+    idOf,
+    pinnedOf: (title: string) => tabNamed(title).pinned,
+    close,
+    order,
+    pin,
+    toItsOwnGroup,
+    show,
   };
-  return { open, idOf, close, order, show };
 }
 
 async function moveLater(tabId: string): Promise<void> {
@@ -167,4 +191,28 @@ test("Undo refuses when the tabs either side of the moved one have both closed",
 
   await undo.useUndo.getState().undo();
   expect(problem()?.reason(english)).toBe("the tabs either side of it have closed");
+});
+
+test("Undo keeps a Pin made after the move, refusing a place that would take it away", async () => {
+  const window = await windowOf(["Alpha", "Beta", "Gamma", "Delta"]);
+  await moveLater(window.idOf("Beta"));
+  await window.pin("Beta");
+  const withPin = window.order();
+  expect(withPin).toEqual(["Beta", "Alpha", "Gamma", "Delta"]);
+
+  await undo.useUndo.getState().undo();
+  expect(problem()?.reason(english)).toBe("the pinned tabs have changed since");
+  expect(window.order()).toEqual(withPin);
+  expect(window.pinnedOf("Beta")).toBe(true);
+});
+
+test("Undo refuses when the tab has gone to another group, rather than change nothing quietly", async () => {
+  const window = await windowOf(["Alpha", "Beta", "Gamma", "Delta"]);
+  await moveLater(window.idOf("Alpha"));
+  await window.toItsOwnGroup("Alpha");
+  expect(window.order()).toEqual(["Beta", "Gamma", "Delta"]);
+
+  await undo.useUndo.getState().undo();
+  expect(problem()?.reason(english)).toBe("the tab is in another group now");
+  expect(window.order()).toEqual(["Beta", "Gamma", "Delta"]);
 });

@@ -363,6 +363,8 @@ export const zhCN = {
   "undo.tabMovedRight": "已将“{name}”右移",
   "undo.tabClosed": "标签页已关闭",
   "undo.tabNeighboursClosed": "两侧的标签页都已关闭",
+  "undo.tabInAnotherGroup": "标签页已在另一栏",
+  "undo.tabPinnedSince": "置顶的标签页已改变",
   "undo.tabMoveRefused": "未能移动标签页",
   "object.renamed": "已重命名为“{name}”",
   "object.deleted": "已将“{name}”移到回收站",

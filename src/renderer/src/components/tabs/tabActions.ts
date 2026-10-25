@@ -58,25 +58,33 @@ export async function moveToGroup(tabId: string, direction: -1 | 1): Promise<voi
   if (next) focusTab(tabId);
 }
 
-/** The tabs either side of a tab in its group, by ID. */
-interface Neighbours {
+interface TabPlace {
+  groupId: string;
   left: string | null;
   right: string | null;
 }
 
-function neighboursOf(group: LayoutGroup, tab: LayoutTab): Neighbours {
+function placeOf(group: LayoutGroup, tab: LayoutTab): TabPlace {
   const place = group.tabs.indexOf(tab);
-  return { left: group.tabs[place - 1]?.id ?? null, right: group.tabs[place + 1]?.id ?? null };
+  return {
+    groupId: group.id,
+    left: group.tabs[place - 1]?.id ?? null,
+    right: group.tabs[place + 1]?.id ?? null,
+  };
 }
 
 /**
- * A neighbour that has closed gives way to the other one; with both gone the place is gone too,
- * so Undo refuses rather than put the tab somewhere else.
+ * A neighbour that has closed gives way to the other one. With neither left, the tab in another
+ * group, or its place on the other side of the pinned line than its Pin now is, the move can't be
+ * put back as it was, so Undo says why rather than count it done.
  */
-async function moveTabBetween(tabId: string, place: Neighbours): Promise<void> {
+async function moveTabBetween(tabId: string, place: TabPlace): Promise<void> {
   const store = useAppStore.getState();
   const at = groupOfTab(store.layout, tabId);
-  if (!at) throw new UndoRefused((t) => t("undo.tabClosed"), null);
+  const tab = at?.group.tabs.find((each) => each.id === tabId);
+  if (!at || !tab) throw new UndoRefused((t) => t("undo.tabClosed"), null);
+  if (at.group.id !== place.groupId)
+    throw new UndoRefused((t) => t("undo.tabInAnotherGroup"), null);
   const others = at.group.tabs.filter((each) => each.id !== tabId);
   const right = others.findIndex((each) => each.id === place.right);
   const left = others.findIndex((each) => each.id === place.left);
@@ -86,6 +94,13 @@ async function moveTabBetween(tabId: string, place: Neighbours): Promise<void> {
   else if (place.left === null) before = others[0]?.id ?? null;
   else if (place.right === null) before = null;
   else throw new UndoRefused((t) => t("undo.tabNeighboursClosed"), null);
+  // The core sets a tab's Pin from where it lands, so a place across the line would undo a Pin the
+  // User made since the move.
+  const index = before === null ? others.length : others.findIndex((each) => each.id === before);
+  const pinnedCount = others.filter((each) => each.pinned).length;
+  if (tab.pinned ? index > pinnedCount : index < pinnedCount) {
+    throw new UndoRefused((t) => t("undo.tabPinnedSince"), null);
+  }
   const next = await store.changeLayout({ type: "move", tabId, groupId: at.group.id, before });
   if (!next) throw new UndoRefused((t) => t("undo.tabMoveRefused"), null);
 }
@@ -110,7 +125,7 @@ export async function moveWithinGroup(tabId: string, step: -1 | 1): Promise<Undo
   const neighbour = neighbourInRun(tabs, tab, step);
   if (!neighbour) return;
   const before = step === -1 ? neighbour.id : (tabs[place + 2]?.id ?? null);
-  const from = neighboursOf(at.group, tab);
+  const from = placeOf(at.group, tab);
   const next = await store.changeLayout({ type: "move", tabId, groupId: at.group.id, before });
   if (!next) return;
   const movedAt = groupOfTab(next, tabId);
@@ -124,7 +139,7 @@ export async function moveWithinGroup(tabId: string, step: -1 | 1): Promise<Undo
       }),
     name: (t) => t("undo.name.tabMove"),
     undo: () => moveTabBetween(tabId, from),
-    redo: () => moveTabBetween(tabId, neighboursOf(movedAt.group, moved)),
+    redo: () => moveTabBetween(tabId, placeOf(movedAt.group, moved)),
   };
 }
 

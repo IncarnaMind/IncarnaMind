@@ -372,6 +372,8 @@ export const en = {
   "undo.tabMovedRight": "Moved “{name}” right",
   "undo.tabClosed": "the tab has closed",
   "undo.tabNeighboursClosed": "the tabs either side of it have closed",
+  "undo.tabInAnotherGroup": "the tab is in another group now",
+  "undo.tabPinnedSince": "the pinned tabs have changed since",
   "undo.tabMoveRefused": "the tabs couldn’t be changed",
   "object.renamed": "Renamed to “{name}”",
   "object.deleted": "Moved “{name}” to Recently deleted",
