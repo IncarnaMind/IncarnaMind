@@ -104,7 +104,11 @@ export function ViewerHeader({
   const changed = citedState
     ? changedSourceNote(
         changedState,
-        { pageFrom: target?.pageFrom ?? null, pageTo: target?.pageTo ?? null },
+        {
+          pageFrom: target?.pageFrom ?? null,
+          pageTo: target?.pageTo ?? null,
+          location: cited?.location ?? null,
+        },
         recheck,
         t,
       )

@@ -652,6 +652,59 @@ describe("A Citation whose Document changed after it was cited", () => {
     ).toBeNull();
   });
 
+  test("tells a quote that moved to another rows or paragraph range of the same Unit", () => {
+    const rows = {
+      ...found,
+      pageFrom: 2,
+      pageTo: 2,
+      location: { kind: "rows" as const, sheet: "Revenue", from: 12, to: 14 },
+    };
+    expect(
+      quoteStanding(
+        rows,
+        rechecked({
+          pageFrom: 2,
+          pageTo: 2,
+          location: { kind: "rows", sheet: "Revenue", from: 12, to: 14 },
+        }),
+      ),
+    ).toBe("found");
+    expect(
+      quoteStanding(
+        rows,
+        rechecked({
+          pageFrom: 2,
+          pageTo: 2,
+          location: { kind: "rows", sheet: "Revenue", from: 20, to: 21 },
+        }),
+      ),
+    ).toBe("moved");
+    // A Citation that doesn't say where in the Unit it points is compared by Unit.
+    expect(quoteStanding({ ...rows, location: null }, rechecked({ pageFrom: 2, pageTo: 2 }))).toBe(
+      "found",
+    );
+    const section = {
+      ...found,
+      pageFrom: 1,
+      pageTo: 1,
+      location: {
+        kind: "section" as const,
+        heading: "Budget",
+        paragraphs: { from: 3, to: 3 },
+      },
+    };
+    expect(
+      quoteStanding(
+        section,
+        rechecked({
+          pageFrom: 1,
+          pageTo: 1,
+          location: { kind: "section", heading: "Budget", paragraphs: { from: 4, to: 4 } },
+        }),
+      ),
+    ).toBe("moved");
+  });
+
   test("says the Document changed and how the quote stands, in English and Chinese", () => {
     const note = (patch: Partial<CitationRecheck>, language: Language) =>
       changedSourceNote(true, found, rechecked(patch), in_(language));
@@ -679,6 +732,11 @@ describe("A Citation whose Document changed after it was cited", () => {
     });
     // Changed, but the new version can't be checked: the notice alone.
     expect(note({ check: "cant-check", checkReason: "no-text" }, "en")).toEqual({
+      notice: "The Document changed after this was cited.",
+      quote: null,
+    });
+    // Changed, but the re-check couldn't run: the notice alone too.
+    expect(changedSourceNote(true, found, "failed", in_("en"))).toEqual({
       notice: "The Document changed after this was cited.",
       quote: null,
     });

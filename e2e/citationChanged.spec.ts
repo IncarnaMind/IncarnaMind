@@ -13,6 +13,7 @@ import {
   motionSettled,
   newMind,
   pointAndClick,
+  pointAt,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -55,6 +56,18 @@ const VERSION_C = [
   "# Budget",
   "",
   "Version A: the approved refurbishment budget is GBP 80,000.",
+  "",
+].join("\n");
+
+/** The quoted line back at its Location, with only another line changed. */
+const VERSION_D = [
+  "# Versioned source",
+  "",
+  "Version A: the approved refurbishment budget is GBP 80,000.",
+  "",
+  "Approved on 14 October 2026.",
+  "",
+  "Reviewed on 1 November 2026.",
   "",
 ].join("\n");
 
@@ -121,13 +134,13 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     const changed = window.getByTestId("citation-changed");
     const changedQuote = window.getByTestId("citation-changed-quote");
     const hideCard = async () => {
-      await window.mouse.move(0, 0);
-      await chip.evaluate((element: HTMLElement) => element.blur());
+      await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
     };
     const showCard = async () => {
-      await hideCard();
-      await chip.focus();
+      if ((await card.count()) > 0) await hideCard();
+      await window.mouse.move(0, 0);
+      await pointAt(window, chip);
       await expect(card).toBeVisible();
     };
 
@@ -196,6 +209,23 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await showCard();
     await expect(changedQuote).toHaveText("Its quote is now at § Budget.");
     await screenshot(window, "card-narrow-en");
+    const versionC = await contentHashOf(window, note);
+    // A merged window shows the Mind's group: bring the Document's tab to the front.
+    await window.getByRole("tab", { name: "Versioned note" }).click();
+    await expect(viewer.getByTestId("viewer-text")).toBeVisible();
+
+    // The quoted line back at its Location, with only another line changed: the text at the
+    // Location is unchanged, so neither the card nor the viewer says anything.
+    await writeFile(note, VERSION_D);
+    await expect.poll(() => contentHashOf(window, note), { timeout: 15_000 }).not.toBe(versionC);
+    await expect(viewer.getByTestId("viewer-text")).toContainText("Reviewed on 1 November 2026");
+    await expect(viewer.locator("[data-quote-highlight]")).toHaveText(
+      "Version A: the approved refurbishment budget is GBP 80,000.",
+    );
+    await showCard();
+    await expect(card.getByTestId("citation-badge")).toContainText("§ Versioned source");
+    await expect(changed).toHaveCount(0);
+    await expect(notice).toHaveCount(0);
   } finally {
     await app.close();
   }

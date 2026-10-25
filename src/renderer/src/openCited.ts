@@ -42,6 +42,7 @@ export function openCited(
         ...(how.number && how.number > 0 ? { number: how.number } : {}),
         ...(how.label ? { label: how.label } : {}),
         ...(citation.contentHash ? { contentHash: citation.contentHash } : {}),
+        ...(citation.location ? { location: citation.location } : {}),
       },
     },
     { as: "citation", ...(how.from && { from: how.from }), ...(how.keep && { keep: true }) },

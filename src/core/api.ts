@@ -2268,6 +2268,8 @@ export interface TabCitation {
    * tells whether that text was kept because its Linked folder was unlinked.
    */
   contentHash?: string;
+  /** Where in the Document it points, as it shows ("Revenue, rows 12–14"): its label, narrower than the Units. */
+  location?: CitationLocation;
 }
 
 /** Where in its Document a Document tab was opened: a Citation's Units and quote. */

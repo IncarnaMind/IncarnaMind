@@ -226,7 +226,7 @@ export type QuoteStanding = "found" | "moved" | "gone";
  * version isn't checked, and when it can't be checked.
  */
 export function quoteStanding(
-  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo">>,
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
   recheck: CitationRecheck | null,
 ): QuoteStanding | null {
   if (recheck === null || recheck.check === "cant-check") return null;
@@ -234,7 +234,15 @@ export function quoteStanding(
   const from = cited.pageFrom ?? null;
   const to = cited.pageTo ?? from;
   const now = recheck.pageFrom;
-  return now === from && (recheck.pageTo ?? now) === to ? "found" : "moved";
+  if (now !== from || (recheck.pageTo ?? now) !== to) return "moved";
+  // The same Units, but a sheet's rows or a Word section's paragraphs can narrow to
+  // another place inside them, which the Citation's own label names.
+  if (cited.location && recheck.location) {
+    return englishPrintedLocation(cited.location) === englishPrintedLocation(recheck.location)
+      ? "found"
+      : "moved";
+  }
+  return "found";
 }
 
 /** What a Citation's card and the viewer say once its Document changed after it was cited. */
@@ -250,18 +258,22 @@ export interface ChangedSource {
  * it was cited: that it changed, and where its quote stands in the new
  * version. Null while the Document is unchanged, and while the quote is still
  * at its Location in the new version: the text it quotes didn't change, so
- * nothing is said.
+ * nothing is said. A re-check that couldn't run still says the Document
+ * changed, with no result.
  */
 export function changedSourceNote(
   changed: boolean,
-  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo">>,
-  recheck: CitationRecheck | null,
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
+  recheck: CitationRecheck | "failed" | null,
   t: Translate,
 ): ChangedSource | null {
-  if (!changed || recheck === null) return null;
+  if (!changed) return null;
+  const notice = t("citation.changedAfterCited");
+  // The Document changed, but where the quote stands couldn't be read: the notice alone.
+  if (recheck === "failed") return { notice, quote: null };
+  if (recheck === null) return null;
   const standing = quoteStanding(cited, recheck);
   if (standing === "found") return null;
-  const notice = t("citation.changedAfterCited");
   if (standing === "gone") return { notice, quote: t("citation.changed.gone") };
   if (standing === null) return { notice, quote: null };
   const where = recheck.location ? formatLocation(recheck.location, t) : null;
