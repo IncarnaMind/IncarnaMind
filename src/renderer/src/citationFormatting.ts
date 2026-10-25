@@ -31,7 +31,7 @@ import {
   citationStylePromptDismissed,
   resolvedCitationStyle,
 } from "../../shared/mindCitationStyle";
-import { isCitableWork } from "../../shared/references";
+import { isPaperOrBook } from "../../shared/references";
 import { core } from "./core";
 import { citationClusters, citedWorkOf } from "./editor/citationClusters";
 import { errorMessage } from "./errors";
@@ -131,7 +131,7 @@ const citedDocuments = (editor: Editor) =>
     .sort()
     .join(" ");
 
-/** Whether the Mind cites a paper or a book: a reference record of a known type, with authors or a year. */
+/** Whether the Mind cites a paper or a book: a reference record of one of those kinds, with authors or a year. */
 export function useCitesWorks(editor: Editor): boolean {
   const cited = useEditorState({
     editor,
@@ -141,7 +141,7 @@ export function useCitesWorks(editor: Editor): boolean {
     if (cited === "") return false;
     const ids = new Set(cited.split(" "));
     return state.documents.some(
-      (document) => ids.has(document.id) && isCitableWork(document.reference),
+      (document) => ids.has(document.id) && isPaperOrBook(document.reference),
     );
   });
 }

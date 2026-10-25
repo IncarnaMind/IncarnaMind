@@ -19,7 +19,6 @@ export function wrappedFocus(index: number, count: number, backward: boolean): n
   return index < 0 || index >= count - 1 ? 0 : null;
 }
 
-/** What a card's Tab key handler needs from a key press. */
 export interface TabPress {
   key: string;
   shiftKey: boolean;

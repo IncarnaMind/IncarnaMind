@@ -88,7 +88,7 @@ for (const value of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "Harbours publish", { line, words: "6 months." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     const mark = window.getByTestId("claim-mark");
     await expect(mark).toHaveAttribute("data-check", "supported");

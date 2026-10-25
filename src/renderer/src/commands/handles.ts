@@ -23,7 +23,7 @@ export const noteHandle: Handle<{
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
-  /** The tab it is drawn in, else the Mind: where its check card opens (as `useCardPlace`). */
+  /** The tab it is drawn in, else the Mind: where its check card opens. */
   place: string;
 }> = {
   current: null,
