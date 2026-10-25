@@ -133,7 +133,7 @@ export function claimPrompt(input: {
     ...(table
       ? tableAround(
           table,
-          "The sentence is a cell of a table in the User's text, said with its row's label and its column's heading. Below is the table around it, also the User's text: the line before the table, its headings and the cell's row. Read the sentence as the table states it: a unit, scale or period the table gives for the cell is part of what the sentence says. Check only the sentence: the row's other cells are checked on their own.",
+          "The sentence is a cell of a table in the User's text, said with its row's label and its column's heading. Below are the line before the table and its headings, also the User's text. Read the sentence as the table states it: a unit, scale or period they give for the cell is part of what the sentence says.",
         )
       : context && context !== input.claim.trim()
         ? [
@@ -274,7 +274,7 @@ export function confirmPrompt(input: {
     ...(table
       ? tableAround(
           table,
-          "The sentence is a cell of the User's table, below. Read it as the table states it: a unit, scale or period the table gives for the cell is part of what the sentence says. The row's other cells aren't judged here.",
+          "The sentence is a cell of the User's table, said with its row's label and its column's heading. Below are the line before the table and its headings: a unit, scale or period they give for the cell is part of what the sentence says.",
         )
       : []),
     `<quote>\n${input.quote.trim()}\n</quote>`,

@@ -1,9 +1,9 @@
 /**
  * A sentence in a table's cell, read as a User reads the table (#1459): said with its row's label
- * and its column's heading, beside the table around it (the line before the table, its headings
- * and the cell's row) for what its words refer to, such as their unit or period. Every check of a
- * Mind's own sentences reads a cell this way; Verify reads a PDF's tables by the row
- * (./verifyTables).
+ * and its column's heading, beside the line before the table and its headings, for what its words
+ * refer to, such as their unit or period. The row's other values stay out: shown them, Claude
+ * Haiku 5.5 called a right cell Contradicted for a wrong one beside it. Every check of a Mind's own
+ * sentences reads a cell this way; Verify reads a PDF's tables by the row (./verifyTables).
  */
 import { comparableSentence } from "../../../shared/sentences";
 
@@ -16,7 +16,7 @@ export interface TableText {
 
 const line = (cells: readonly string[]) => cells.map(comparableSentence).join(" | ");
 
-/** What a check sends for a sentence of the cell at `row`, `column`: the claim, and the table around it. */
+/** What a check sends for a sentence of the cell at `row`, `column`: the claim, and what the table says of it. */
 export function readCell(
   table: TableText,
   row: number,
@@ -30,11 +30,7 @@ export function readCell(
   const heading = comparableSentence(headings[column] ?? "");
   return {
     claim: `${label ? `${label} — ` : ""}${heading ? `${heading}: ` : ""}${sentence}`,
-    table: [
-      comparableSentence(table.before),
-      headings.length > 0 ? line(headings) : "",
-      line(cells),
-    ]
+    table: [comparableSentence(table.before), line(headings)]
       .filter((each) => each !== "")
       .join("\n"),
   };
