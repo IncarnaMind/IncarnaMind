@@ -31,9 +31,7 @@ function release(turn: { current: unknown }, scroller: HTMLElement): void {
 // The room the newest Question needs under its turn to stay at the top of the panel: what the
 // panel holds under it, less what its Answer fills so far.
 function roomUnder(scroller: HTMLElement, log: HTMLElement): number {
-  const last = [...log.children]
-    .filter((child) => !child.matches('[data-testid="add-to-picker"]'))
-    .at(-1);
+  const last = [...log.children].filter((child) => !child.matches(".add-to-picker")).at(-1);
   const question = newestQuestion(log);
   if (!last || !question) return 0;
   const filled = last.getBoundingClientRect().bottom - question.getBoundingClientRect().top;

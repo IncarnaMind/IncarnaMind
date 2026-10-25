@@ -787,23 +787,25 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
 });
 
 describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_000 }, () => {
-  // protects=“make the summary longer” after Add to note replaces the added summary with the longer one, tagged as asked so it applies, in English and Chinese; fails_when=the longer text goes in beside the old one, or the change isn't asked for; no_claim=that a real model chooses content over instruction.
+  // protects=“make the summary longer” after Add to note writes the longer summary over the added one, its new words added where they go, tagged as asked so it applies, in English and Chinese; fails_when=the longer text goes in beside the old one, the old one is removed whole, or the change isn't asked for; no_claim=that a real model chooses content over instruction.
   test.each([
     [
       "Make the summary longer.",
       "The paper is",
       "The paper is about spring tides.",
       "The paper is about spring tides, which come at new and full moon, when the tide rises highest.",
+      "The paper is about spring tides{+, which come at new and full moon, when the tide rises highest+}.",
     ],
     [
       "把摘要写长一点。",
       "这篇论文讲的是",
       "这篇论文讲的是大潮。",
       "这篇论文讲的是大潮：大潮出现在新月和满月前后，这时潮水涨得最高。",
+      "这篇论文讲的是大潮{+：大潮出现在新月和满月前后，这时潮水涨得最高+}。",
     ],
   ])(
-    "“%s” replaces the summary added from an Answer, never adding a second",
-    async (request, part, summary, longer) => {
+    "“%s” writes over the summary added from an Answer, never adding a second",
+    async (request, part, summary, longer, shown) => {
       const model = scriptedModel((call): ScriptedReply => {
         if (call.results.length > 0) return { text: "Done." };
         return {
@@ -828,7 +830,10 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
       });
       expect(lastResult(model)).toContain("applies in the Mind at once");
       expect(lastResult(model)).toContain("don't repeat the new text");
-      expect(shownWithChanges(client).slice(-2)).toEqual([`- ${summary}`, `+ ${longer}`]);
+      expect(shownWithChanges(client).slice(-2)).toEqual([
+        "The quarter was very good, and sales were really strong.",
+        shown,
+      ]);
       client.doc.transact(() => resolveProposals(client.blocks, () => true, "accept"));
       await client.settled();
       expect(shownWithChanges(client)).toEqual([
@@ -839,12 +844,12 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
     },
   );
 
-  // protects=a summary written anew over the one added from an Answer counts each paragraph once: the old one removed and the new one added are one change of the paragraph, in the Answer's record as in the Mind; fails_when=the count is the Proposals (20 for 10 paragraphs written anew); no_claim=how many of the Proposals wait, which is the number Accept all acts on (#1335).
+  // protects=a summary written anew over the one added from an Answer changes each paragraph where it stands and counts each once, in the Answer's record as in the Mind, the heading it keeps left as it is; fails_when=a paragraph is removed and added again, or counted twice (20 for 10 paragraphs written anew); no_claim=how a real model writes it (#1335, #1488).
   test.each([
-    ["10 paragraphs written anew", 10, 10, 10, 22],
-    ["10 paragraphs written anew as 12", 10, 12, 12, 24],
-    ["one paragraph written anew as 10", 1, 10, 10, 13],
-    ["10 paragraphs written anew as 8", 10, 8, 10, 20],
+    ["10 paragraphs written anew", 10, 10, 10, 10],
+    ["10 paragraphs written anew as 12", 10, 12, 12, 12],
+    ["one paragraph written anew as 10", 1, 10, 10, 10],
+    ["10 paragraphs written anew as 8", 10, 8, 10, 10],
   ])(
     "%s is %i → %i, changed %i, with %i changes to accept",
     async (_, before, after, changed, waiting) => {

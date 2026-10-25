@@ -108,7 +108,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "Spring tides", { line, words: "harbour cliffs." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     const marks = window.getByTestId("claim-mark");
     await expect(marks.and(window.locator("[data-check=supported]"))).toHaveCount(1);

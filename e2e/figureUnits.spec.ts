@@ -64,7 +64,7 @@ for (const [language, width] of [
       // The sentence as the Document writes it is supported, and cited with Add as Citation.
       await slideSelect(window, line, "The annual", { line, words: "arrears." });
       const menu = window.getByTestId("selection-menu");
-      await pointAndClick(window, menu.getByTestId("selection-action-find-support"));
+      await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
       const mark = window.getByTestId("claim-mark");
       await expect(mark).toHaveAttribute("data-check", "supported");
       await pointAndClick(window, mark);
