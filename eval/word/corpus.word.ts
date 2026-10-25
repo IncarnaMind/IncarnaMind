@@ -13,7 +13,15 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import type { JSONContent } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
+import { readWordDocument } from "../../src/core/documents/formats/docxImport";
+import { openWordPackage, reviewOf } from "../../src/core/documents/formats/docxPackage";
+import { child, descendants, textOf } from "../../src/core/documents/formats/xml";
+import type { NodeJSON } from "../../src/shared/blockJson";
+import { createTempDataFolder, manualClock, startCore } from "../../tests/helpers/core";
+import { connectToMind } from "../../tests/helpers/mindClient";
+import { writeMind } from "../../tests/helpers/minds";
 import { paragraph, run, table, wordFile } from "../../tests/helpers/word";
 import {
   type CorpusEntry,
@@ -179,6 +187,17 @@ const wordsOf = (lines: readonly string[]) =>
     )
     .filter((line) => line !== "");
 
+function paragraphLines(blocks: readonly NodeJSON[]): string[] {
+  const lines: string[] = [];
+  const visit = (node: NodeJSON) => {
+    if (node.type === "paragraph")
+      lines.push((node.content ?? []).map((each) => each.text ?? "").join(""));
+    for (const each of node.content ?? []) visit(each);
+  };
+  for (const block of blocks) visit(block);
+  return lines;
+}
+
 /** The file LibreOffice accepts every change in: headings, paragraphs and a table, edited every way. */
 const ACCEPT_FIXTURE = wordFile({
   body:
@@ -256,6 +275,91 @@ describe("the Word corpus", () => {
       } finally {
         rmSync(folder, { recursive: true, force: true });
       }
+    },
+    5 * 60_000,
+  );
+
+  /**
+   * Word has no to-do: a to-do is a paragraph starting with ☐ or ☒ and a tab, and its nesting is
+   * only its indent, so a box is text a User can't tick. The export opens in LibreOffice and
+   * imports again with every box and its text.
+   */
+  it.skipIf(!soffice)(
+    "a Mind of to-dos exports to Word, opens in LibreOffice, and imports again with its boxes and text",
+    async () => {
+      const prose = (text?: string): JSONContent => ({
+        type: "paragraph",
+        content: text === undefined ? [] : [{ type: "text", text }],
+      });
+      const task = (checked: boolean, ...content: JSONContent[]): JSONContent => ({
+        type: "taskItem",
+        attrs: { checked },
+        content,
+      });
+      const item = (...content: JSONContent[]): JSONContent => ({ type: "listItem", content });
+
+      const core = startCore(await createTempDataFolder(), { now: manualClock().now });
+      const mind = await core.createMind({ title: "To-dos" });
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [
+        prose("Before."),
+        {
+          type: "taskList",
+          content: [
+            task(
+              false,
+              prose("核查清单项"),
+              {
+                type: "taskList",
+                content: [
+                  task(true, prose("已核对"), {
+                    type: "taskList",
+                    content: [task(false, prose("Deeper"))],
+                  }),
+                ],
+              },
+              { type: "bulletList", content: [item(prose("Supporting note"))] },
+            ),
+            task(true, prose()),
+          ],
+        },
+        {
+          type: "bulletList",
+          content: [
+            item(prose("Ordinary bullet"), {
+              type: "taskList",
+              content: [task(false, prose("Under bullet"))],
+            }),
+          ],
+        },
+      ]);
+      await client.settled();
+      const exported = await core.exportMind(mind.id, { format: "docx" });
+
+      const folder = mkdtempSync(join(tmpdir(), "incarnamind-word-todos-"));
+      try {
+        const path = join(folder, exported.fileName);
+        writeFileSync(path, exported.data);
+        const opened = await convertToPdf(soffice as string, path);
+        expect(opened.opened, opened.problem).toBe(true);
+      } finally {
+        rmSync(folder, { recursive: true, force: true });
+      }
+
+      const pkg = await openWordPackage(exported.data);
+      const document = await readWordDocument(pkg, await reviewOf(pkg));
+      const boxes = descendants(document.root, "w:p")
+        .map((each) => ({
+          text: textOf(each),
+          indent: child(child(each, "w:pPr") ?? each, "w:ind")?.attrs["w:left"],
+        }))
+        .filter((each) => /^[☐☒]/u.test(each.text));
+      expect(boxes.map((each) => each.indent)).toEqual(["420", "780", "1140", "420", "1140"]);
+      expect(
+        paragraphLines(document.structure.blocks).filter((line) => /^[☐☒]/u.test(line)),
+      ).toEqual(["☐\t核查清单项", "☒\t已核对", "☐\tDeeper", "☒\t", "☐\tUnder bullet"]);
+      // A box is text in Word: the import makes a paragraph of it, not a to-do the User can tick.
+      expect(JSON.stringify(document.structure.blocks)).not.toContain('"taskList"');
     },
     5 * 60_000,
   );

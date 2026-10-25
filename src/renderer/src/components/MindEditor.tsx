@@ -77,6 +77,7 @@ import {
   MindIdContext,
   PageSlotsContext,
 } from "../editor/mindContext";
+import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
@@ -784,6 +785,7 @@ function MindEditorView({
         {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
         <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
         {!readOnly && <TableMenu editor={editor} />}
+        {!readOnly && <ListMenu editor={editor} />}
         <FootnoteArea editor={editor} citationView={citationView} />
         {(style !== "numbered" || styleChoice.bibliography) && (
           <ReferencesBlock
