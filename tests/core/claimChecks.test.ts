@@ -1791,3 +1791,49 @@ describe("Why a sentence is unsupported", () => {
     });
   });
 });
+
+describe("A quote that starts with a figure (#1969)", () => {
+  const RESULTS_ZH = {
+    name: "雪松业绩.md",
+    contents: [
+      "# 雪松业绩",
+      "",
+      "调整后EBITDA 187.3（2025财年），88.0 和 91.5（2025年上半年、2026年上半年）",
+      "",
+      "2026年6月30日净负债 528.9",
+    ].join("\n"),
+  };
+  const H1 = "88.0 和 91.5（2025年上半年、2026年上半年）";
+
+  // protects=a check whose input quotes "88.0 和 91.5（…）" from the middle of a line reads 88.0 as a figure, so a right Chinese ratio sentence is Supported by calculate; fails_when=calculate says the quote has no 88.0 and the model's own Unsupported stands; no_claim=none beyond protects.
+  test("is Supported by calculate when the sentence is right", async () => {
+    const claim = "2026年6月30日净负债为528.9，是近十二个月调整后EBITDA的2.77倍。";
+    const calculation = {
+      inputs: [
+        { name: "nd", label: "净负债", quote: "2026年6月30日净负债 528.9", number: "528.9" },
+        { name: "fy", label: "2025财年", quote: "调整后EBITDA 187.3（2025财年）", number: "187.3" },
+        { name: "h1a", label: "2025年上半年", quote: H1, number: "88.0" },
+        { name: "h1b", label: "2026年上半年", quote: H1, number: "91.5" },
+      ],
+      formula: "nd / (fy - h1a + h1b)",
+      as: "times",
+      stated: "2.77倍",
+    };
+    const calls: ModelCall[] = [];
+    const plans = { [claim]: { verdict: "unsupported", calculation } } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [RESULTS_ZH]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    const result = await setup.core.checkClaim({ claim });
+    const replies = calls
+      .flatMap((call) => call.results)
+      .filter((each) => each.tool === "calculate");
+    expect(replies.at(-1)?.text).toMatch(/^Recorded \[=1\] = 2\.77倍/);
+    expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+  });
+});

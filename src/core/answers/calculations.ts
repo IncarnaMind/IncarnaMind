@@ -493,13 +493,20 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return all.slice(Math.max(1, own.length));
   }
 
-  function lineBefore(quoted: Quoted, figure: Figure): string {
+  /** The quote's page and where the quote starts on it; the quote alone when it isn't there word for word. */
+  function onPage(quoted: Quoted): { text: string; at: number } {
     const { quote } = quoted.citation;
     const page = quoted.units.map((unit) => unit.text).join("\n");
     const at = page.indexOf(quote);
-    const text = at < 0 ? quote : page;
-    const figureAt = (at < 0 ? 0 : at) + figure.start;
-    return text.slice(text.lastIndexOf("\n", figureAt - 1) + 1, figureAt);
+    return at < 0 ? { text: quote, at: 0 } : { text: page, at };
+  }
+
+  /** What stands before `at` on its line of `text`. */
+  const lineTo = (text: string, at: number) => text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
+
+  function lineBefore(quoted: Quoted, figure: Figure): string {
+    const { text, at } = onPage(quoted);
+    return lineTo(text, at + figure.start);
   }
 
   /** Reads one input; or says why it can't be read. */
@@ -523,7 +530,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       unit = line;
     }
 
-    const figures = readFigures(quote, context);
+    const page = onPage(quoted);
+    // A quote from the middle of a line ("…，88.0 和 91.5") starts with no list's or heading's number.
+    const quoteContext = { ...context, midLine: lineTo(page.text, page.at).trim() !== "" };
+    const figures = readFigures(quote, quoteContext);
     const has =
       figures.length === 0
         ? "it has no number"
@@ -553,7 +563,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       return `"${figure.chars}" could be ${either(codes)} here; quote the line that names its currency as unitQuote.`;
     }
 
-    const cell = cellOf(quoted, figure, context);
+    const cell = cellOf(quoted, figure, quoteContext);
     const base: Reading = figure;
     let reading: Reading = base;
     let chosen: number | null = null;
@@ -600,7 +610,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
       const readings = row
         ? [row]
-        : statedReading(quote, figure.start, context, unit.citation.quote);
+        : statedReading(quote, figure.start, quoteContext, unit.citation.quote);
       const scales = new Set(readings.filter((each) => each.scale !== 1).map((each) => each.scale));
       if (scales.size > 1)
         return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
@@ -616,7 +626,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const row = onLine(lines);
       if (row) found.push({ statement: lines, reading: row });
       for (const statement of readStatedUnits(page, context)) {
-        for (const each of statedReading(quote, figure.start, context, statement.chars)) {
+        for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
           if (each.value === base.value) continue;
           if (!found.some((other) => other.reading.value === each.value))
             found.push({ statement: statement.chars, reading: each });
