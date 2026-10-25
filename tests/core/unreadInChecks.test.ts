@@ -361,6 +361,23 @@ describe("An export", () => {
     expect(body).toContain("Scan.pdf: A scan with no text");
   });
 
+  test.each([
+    ["en", "1 file couldn’t be read", "Contract.doc: Format not read yet (.doc)"],
+    ["zh-CN", "1 个文件未能读取", "Contract.doc：暂不支持此格式（.doc）"],
+  ] as const)(
+    "names one unread file with the singular line (%s)",
+    async (language, count, file) => {
+      const { core, folderId } = await linkedFolderWith({ "Old/Contract.doc": "binary" });
+      await core.updateSettings({ user: { language } });
+      const { mind } = await mindOf(core, folderId, [SUPPORTED]);
+
+      const markdown = await markdownOf(core, mind.id);
+
+      expect(markdown).toContain(count);
+      expect(markdown).toContain(file);
+    },
+  );
+
   test("says nothing when everything in the Mind's Search scope was read", async () => {
     const { core, folderId } = await linkedFolderWith({});
     const { mind } = await mindOf(core, folderId, [SUPPORTED]);
@@ -394,6 +411,18 @@ describe("The check record", () => {
     const rows = parseCsv(readFileSync(join(out, csvName ?? ""), "utf8"));
     expect(rows.find((each) => each[0] === "What couldn’t be read")?.[1]).toEqual(
       "3 files couldn’t be read; Contract.doc: Format not read yet (.doc). Convert it to PDF, Word, PowerPoint or Excel.; Locked.pdf: Password-protected. Remove the password and add it again.; Scan.pdf: A scan with no text that could be recognized (handwriting or a picture, say).",
+    );
+
+    // The same record in Chinese, with the whole explanations.
+    const chinese = await createTempDataFolder();
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await core.setOutputLocation(chinese);
+    const again = await core.saveCheckRecord(mind.id);
+    if (again.status !== "saved") throw new Error(`Not saved: ${again.status}`);
+    const zhName = readdirSync(chinese).find((name) => name.endsWith(".csv"));
+    const zhRows = parseCsv(readFileSync(join(chinese, zhName ?? ""), "utf8"));
+    expect(zhRows.find((each) => each[0] === "未能读取的文件")?.[1]).toEqual(
+      "3 个文件未能读取; Contract.doc：暂不支持此格式（.doc）。请转换为 PDF、Word、PowerPoint 或 Excel。; Locked.pdf：已设置密码。请去掉密码后重新添加。; Scan.pdf：扫描件，未识别出文字（可能是手写内容或图片）。",
     );
   });
 
