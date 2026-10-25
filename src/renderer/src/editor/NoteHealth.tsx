@@ -64,6 +64,31 @@ export function Counted({ text, count }: { text: string; count: string }) {
   );
 }
 
+/**
+ * A part's words, with its count as `shown`. Unsupported sentences "need a look", as Verify counts
+ * them, whether their card says not found or unsupported (#1608).
+ */
+export function partLabel(
+  t: ReturnType<typeof useT>,
+  part: HealthPart,
+  count: number,
+  shown: string,
+): string {
+  const params = { count: shown };
+  switch (part) {
+    case "found":
+      return count === 1 ? t("health.found.one") : t("health.found", params);
+    case "notFound":
+      return count === 1 ? t("health.notFound.one") : t("health.notFound", params);
+    case "unsupported":
+      return count === 1 ? t("health.needLook.one") : t("health.needLook", params);
+    case "recheck":
+      return count === 1 ? t("health.recheck", params) : t("health.recheck.other", params);
+    default:
+      return t(`health.${part}`, params);
+  }
+}
+
 /** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
 export function PartMark({ part }: { part: HealthPart }) {
   switch (part) {
@@ -174,19 +199,7 @@ export function HealthCard({
   );
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
 
-  const label = (part: HealthPart, count: number) => {
-    const shown = { count: format(count) };
-    switch (part) {
-      case "found":
-        return count === 1 ? t("health.found.one") : t("health.found", shown);
-      case "notFound":
-        return count === 1 ? t("health.notFound.one") : t("health.notFound", shown);
-      case "recheck":
-        return count === 1 ? t("health.recheck", shown) : t("health.recheck.other", shown);
-      default:
-        return t(`health.${part}`, shown);
-    }
-  };
+  const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
 
   /**
    * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just

@@ -244,12 +244,16 @@ A number in an Answer that is neither in a quote of its sentence's Citations nor
 _Avoid_: hallucinated number, unsupported (a claim check's result)
 
 **Quote not found**:
-The result of a Citation check when the Citation's quote, or words its sentence puts in quotation marks, are not in the text at its Location. It says nothing about whether the claim is true. "Not found" is used only for this.
+The result of a Citation check when the Citation's quote, or words its sentence puts in quotation marks, are not in the text at its Location. It says nothing about whether the claim is true. Said in full, "Quote not found" (未找到引文), so it never reads as Not found, which is about a sentence.
 _Avoid_: broken, invalid, failed
 
 **Unsupported**:
-The result for a sentence when Find support, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
-_Avoid_: not found, unverified, false
+The result for a sentence when Find support, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. Its card is headed Unsupported when Passages about it were found and don't back it, and Not found when nothing in the scope states it. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
+_Avoid_: unverified, false
+
+**Not found**:
+The heading of an unsupported sentence's card when nothing in the check's scope states it, after the check searched a second time with other words: "I didn't find this in “{scope}”" (未在“{scope}”中找到). Absence is a fact about the search, never a finding that the sentence is wrong. Its mark is the same amber "!" as Unsupported, and the Mind's health counts both as need a look. Not the same as Quote not found, which is about a Citation's quote.
+_Avoid_: nothing says this, missing, not in your Documents
 
 **Contradicted**:
 The result for a sentence when Verify or contradiction watch finds a Passage that says the opposite. It is not the same as unsupported, where nothing is found either way.

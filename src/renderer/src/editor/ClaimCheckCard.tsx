@@ -33,6 +33,7 @@ import { openCited } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
+  checkStateKey,
   cutSentence,
   cutUnsupported,
   keepAsView,
@@ -126,6 +127,7 @@ export function ClaimMark({
   const decision = state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
   const plus = decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
+  const heading = t(checkStateKey(editor, claim));
 
   const hold = useCallback((source: string, on: boolean) => {
     if (on) askers.current.add(source);
@@ -213,7 +215,7 @@ export function ClaimMark({
             middleware={() => claimCardPlace(button)}
             onDismiss={dismiss}
             aria-label={t("claim.card.label", {
-              state: t(`claim.state.${state}`),
+              state: heading,
               sentence: comparableSentence(claim.sentence.text),
             })}
             data-testid="claim-card"
@@ -225,6 +227,7 @@ export function ClaimMark({
           >
             <ClaimCard
               claim={claim}
+              heading={heading}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
               fixes={offersFixes(editor, claim)}
@@ -377,6 +380,7 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
  */
 function ClaimCard({
   claim,
+  heading,
   verified,
   cited,
   fixes,
@@ -399,6 +403,7 @@ function ClaimCard({
   onKeep,
 }: {
   claim: ShownClaim;
+  heading: string;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
   verified: string | null;
   cited: readonly NumberedCitation[];
@@ -487,7 +492,7 @@ function ClaimCard({
         <p data-testid="claim-badge" data-check={state} className="citation-badge">
           <ClaimMarkIcon state={state} className="citation-badge-icon" />
           <span>
-            {decisionMissing ? t("claim.courtDecision.title") : t(`claim.state.${state}`)}
+            {decisionMissing ? t("claim.courtDecision.title") : heading}
           </span>
         </p>
         {sentence && (

@@ -80,6 +80,7 @@ import {
   readVerdict,
   STRICT_INSTRUCTIONS,
 } from "./prompt";
+import { searchAgain } from "./searchAgain";
 import { unitNotStated } from "./units";
 
 export interface ClaimCheckDependencies {
@@ -164,7 +165,7 @@ const SEARCH_FIRST =
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
     const { scope, signal } = request;
-    let searched = false;
+    let searches = 0;
     const read = new Map<string, string>();
     const excluded = new Map<string, LeftOutDocument>();
     const decisions = caseCitations(request.claim);
@@ -217,7 +218,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
-        searched = true;
+        searches++;
         return session.tools.searchDocuments(query, searchSignal, options);
       },
       cite: (records, options) => session.tools.cite(records, options),
@@ -338,8 +339,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         {
           name: "search-first",
           check: (text) =>
-            !searched && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
+            searches === 0 && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
+        searchAgain(() => searches),
       ],
       signal,
     })) {
@@ -382,7 +384,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (!verdict) {
       return byCalculation ?? notChecked(readsAsRefusal(reply) ? "refused" : "malformed");
     }
-    if (!searched) return notChecked("unread");
+    if (searches === 0) return notChecked("unread");
     if (byCalculation && verdict.verdict !== "contradicted") return byCalculation;
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (

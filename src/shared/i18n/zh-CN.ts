@@ -654,6 +654,7 @@ export const zhCN = {
   "claim.state.contradicted": "与文档矛盾",
   "claim.state.not-checked": "未核对",
   "claim.state.needs-recheck": "需重新核对",
+  "claim.state.notFound": "未找到",
   "claim.mark.label": "句子核对：{state}",
   "claim.card.label": "句子核对：{state}。{sentence}",
   "claim.sentence": "“{sentence}”",
@@ -734,7 +735,8 @@ export const zhCN = {
   "health.found": "{count} 处引用已找到",
   "health.notFound.one": "1 处引用未找到",
   "health.notFound": "{count} 处引用未找到",
-  "health.unsupported": "{count} 条无依据",
+  "health.needLook.one": "1 处需要留意",
+  "health.needLook": "{count} 处需要留意",
   "health.contradicted": "{count} 条与文档矛盾",
   "health.noCitation": "{count} 条没有引用",
   "health.recheck": "{count} 条需重新核对",
@@ -3479,8 +3481,8 @@ export const zhCN = {
   "export.comment.sentence.contradicted.worked":
     "与文档矛盾：根据文档算出 {shown}，句子里写的是 {stated}。",
   "export.comment.sentence.contradicted.plain": "与文档矛盾。",
-  "export.comment.sentence.unsupported": "无依据：未在“{scope}”中找到。",
-  "export.comment.sentence.unsupported.more": "无依据：未在“{scope}”等 {total} 项中找到。",
+  "export.comment.sentence.unsupported": "未找到：未在“{scope}”中找到。",
+  "export.comment.sentence.unsupported.more": "未找到：未在“{scope}”等 {total} 项中找到。",
   "export.comment.sentence.citedCaseUnchecked": "所引判决尚未核对：不在文档中。",
   "export.comment.sentence.ownWorkings": "无依据：只有你自己的工作文件这样写。",
   "export.comment.sentence.unsupported.citation":

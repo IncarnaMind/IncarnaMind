@@ -12,7 +12,8 @@ import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
 import { CLAIM_CHECK_MARK } from "../../core/api";
-import { checkedScope } from "../../shared/claimChecks";
+import { checkedScope, coveredPart } from "../../shared/claimChecks";
+import type { MessageKey } from "../../shared/i18n";
 import { INLINE_NODE } from "../../shared/sentences";
 import { checkAgain, useChecks } from "./checks";
 import { makeMine } from "./editor/aiText";
@@ -56,6 +57,27 @@ export function offersNotFound(editor: Editor, claim: ShownClaim): boolean {
     citationsOf(editor.state, claim).length === 0
   );
 }
+
+/**
+ * Whether a check's card says nothing in its scope states the sentence (#1608): unsupported, with no
+ * Citation, and no line quoted that says something different or states part of it. A court decision
+ * no Document holds and the User's own workings have cards of their own.
+ */
+export function saysNotFound(editor: Editor, claim: ShownClaim): boolean {
+  const { check } = claim;
+  return (
+    claim.shown.state === "unsupported" &&
+    check.evidence === null &&
+    !check.citedCaseUnchecked &&
+    !check.excluded.some((left) => left.reason === "own-workings") &&
+    coveredPart(check.unsupported) === null &&
+    citationsOf(editor.state, claim).length === 0
+  );
+}
+
+/** The word a check's mark and card are headed with: "Not found" apart from "Unsupported". */
+export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
+  saysNotFound(editor, claim) ? "claim.state.notFound" : `claim.state.${claim.shown.state}`;
 
 export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
   return editor.isEditable && claim.shown.state === "contradicted";

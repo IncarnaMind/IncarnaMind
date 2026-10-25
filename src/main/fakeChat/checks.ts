@@ -8,8 +8,9 @@
  * out as the line's first number over its second (#707).
  */
 
+import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { passagesIn, recordFor } from "./passages";
-import { lastUserText, type Prompt, type Reply, toolResults } from "./prompt";
+import { lastUserText, type Prompt, type Reply, toolResults, userText } from "./prompt";
 
 /** A check Run's instructions (#96, src/core/answers/checks/prompt.ts). */
 export const CHECK_RUN = /^You check one sentence the User wrote against the User's Documents/m;
@@ -64,15 +65,23 @@ export const PARTLY_UNCITED = [
  * support it, unless the sentence has a number the line doesn't while the
  * line has numbers: that contradicts it. Fewer leave it unsupported. A
  * sentence with "blank reply" gets an empty reply, one with "refuse" a refusal,
- * and one with "no reason" an unsupported verdict with no reason.
+ * and one with "no reason" an unsupported verdict with no reason. Asked to
+ * search again before it says a sentence isn't found, it searches the
+ * sentence's longer words and numbers alone.
  * Offered calculate, a sentence that states a multiple has it worked out first.
  */
 export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
-  const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(lastUserText(prompt))?.[1] ?? "";
+  // The sentence is in the first message: the check may have been asked to search again since.
+  const asked = userText(prompt.find((message) => message.role === "user"));
+  const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(asked)?.[1] ?? "";
   if (/blank reply/i.test(sentence)) return { text: "" };
   if (/\brefuse\b/i.test(sentence)) return { text: "I'm sorry, I can't help with that." };
-  const searched = toolResults(prompt, "search_documents").at(-1);
+  const searches = toolResults(prompt, "search_documents");
+  const searched = searches.at(-1);
   if (searched === undefined) return { tool: "search_documents", input: { query: sentence } };
+  if (searches.length === 1 && lastUserText(prompt).includes(SEARCH_AGAIN)) {
+    return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
+  }
   const words = checkWords(sentence);
   let best: { record: Record<string, unknown>; line: string; shared: number } | null = null;
   for (const passage of passagesIn(searched)) {
@@ -82,7 +91,7 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     if (found && (!best || shared > best.shared)) best = { record: found.record, line, shared };
   }
   if (/\bno reason\b/i.test(sentence)) return { text: "Verdict: unsupported" };
-  const cited = /^The User cites this for it/m.test(lastUserText(prompt));
+  const cited = /^The User cites this for it/m.test(asked);
   const partly = cited
     ? PARTLY.find((each) => each.when.test(sentence))
     : PARTLY_UNCITED.find((each) => each.when.test(sentence));

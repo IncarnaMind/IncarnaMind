@@ -5,6 +5,7 @@ import type * as Y from "yjs";
 import { setOpenClaim } from "../checks";
 import { useT } from "../i18n";
 import { motionMode, subscribeMotion } from "../motion";
+import { checkStateKey } from "../unsupportedFixes";
 import { ClaimMark } from "./ClaimCheckCard";
 import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
@@ -228,7 +229,7 @@ export function MarginChecks({
           editor={editor}
           mindId={mind.id}
           doc={mind.doc}
-          label={t("claim.mark.label", { state: t(`claim.state.${mark.state}`) })}
+          label={t("claim.mark.label", { state: t(checkStateKey(editor, mark.claim)) })}
           reveal={mark.delay !== null}
           style={{ top: mark.top, "--reveal-delay": `${mark.delay ?? 0}ms` } as CSSProperties}
           onRevealed={() => {

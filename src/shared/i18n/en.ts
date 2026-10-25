@@ -665,6 +665,7 @@ export const en = {
   "claim.state.contradicted": "Contradicted",
   "claim.state.not-checked": "Not checked",
   "claim.state.needs-recheck": "Needs re-check",
+  "claim.state.notFound": "Not found",
   "claim.mark.label": "Sentence check: {state}",
   "claim.card.label": "Sentence check: {state}. {sentence}",
   "claim.sentence": "“{sentence}”",
@@ -751,7 +752,8 @@ export const en = {
   "health.found": "{count} Citations found",
   "health.notFound.one": "1 Citation not found",
   "health.notFound": "{count} Citations not found",
-  "health.unsupported": "{count} unsupported",
+  "health.needLook.one": "1 needs a look",
+  "health.needLook": "{count} need a look",
   "health.contradicted": "{count} contradicted",
   "health.noCitation": "{count} with no Citation",
   "health.recheck": "{count} needs re-check",
@@ -3616,9 +3618,9 @@ export const en = {
   "export.comment.sentence.contradicted.worked":
     "Contradicted: your Documents give {shown}, and the sentence says {stated}.",
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
-  "export.comment.sentence.unsupported": "Unsupported: I didn’t find this in “{scope}”.",
+  "export.comment.sentence.unsupported": "Not found: I didn’t find this in “{scope}”.",
   "export.comment.sentence.unsupported.more":
-    "Unsupported: I didn’t find this in “{scope}” or {count} more.",
+    "Not found: I didn’t find this in “{scope}” or {count} more.",
   "export.comment.sentence.citedCaseUnchecked": "Cited case not checked: not in the Documents.",
   "export.comment.sentence.ownWorkings": "Unsupported: only your own working file says this.",
   "export.comment.sentence.unsupported.citation":

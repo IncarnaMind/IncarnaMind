@@ -24,7 +24,7 @@ import { shownClaims } from "./claimChecks";
 import { HEALTH_PARTS } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, useMindCheckProgress } from "./MindCheckLine";
-import { HealthCard, PartMark, useHealth } from "./NoteHealth";
+import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useVerifyState, VerifyCard, verifyDone } from "./VerifyLine";
 
@@ -400,13 +400,7 @@ function BadgePill({
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const parts: ReactNode[] = [];
   const said = [
-    ...badge.marks.map(({ part, count }) =>
-      part === "notFound"
-        ? count === 1
-          ? t("health.notFound.one")
-          : t("health.notFound", { count: format(count) })
-        : t(`health.${part}`, { count: format(count) }),
-    ),
+    ...badge.marks.map(({ part, count }) => partLabel(t, part, count, format(count))),
     ...(badge.toCheck > 0
       ? [
           t(badge.toCheck === 1 ? "health.unchecked.one" : "health.unchecked", {
