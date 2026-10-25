@@ -61,6 +61,7 @@ export const zhCN = {
   "library.notSorted": "未能整理",
   "library.notSorted.title": "“整理”未能处理：{reason}",
   "library.notSorted.reason": "未能整理：{reason}",
+  "library.notSorted.noReason": "模型没有说明原因",
   "library.notSorted.count": "{count} 个未整理",
   "library.sorted.all": "已全部整理",
   "library.problem.noText.one": "1 个文档没有文字：扫描件",

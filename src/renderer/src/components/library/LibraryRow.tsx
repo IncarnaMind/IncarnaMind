@@ -198,9 +198,11 @@ export const LibraryRow = memo(function LibraryRow({
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     objectMenu.rowProps.onKeyDown(event);
     if (event.defaultPrevented || typesText(event.target)) return;
-    // Enter accepts in To review (#241), where it opens everywhere else.
+    // Enter accepts a Folder To review suggested (#241); elsewhere, and on a Document it couldn't
+    // sort, it opens, as it does on every other row.
     if (
       review &&
+      suggestedIn !== null &&
       event.key === "Enter" &&
       !(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) &&
       event.target instanceof Element &&

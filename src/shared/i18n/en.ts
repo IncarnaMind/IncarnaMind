@@ -64,6 +64,7 @@ export const en = {
   "library.notSorted": "Not sorted",
   "library.notSorted.title": "Organize couldn’t sort it: {reason}",
   "library.notSorted.reason": "Not sorted: {reason}",
+  "library.notSorted.noReason": "the model gave no reason",
   "library.notSorted.count": "{count} not sorted",
   "library.sorted.all": "All sorted",
   "library.problem.noText.one": "1 Document has no text: a scan",

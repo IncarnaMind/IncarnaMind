@@ -37,7 +37,7 @@ import { DEFAULT_SORT, sorted } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
 import { documentFields, folderFields } from "../sortFields";
 import { useAppStore } from "../store";
-import { hasNotSorted, notSortedError, waitingIds } from "../suggestionReview";
+import { hasNotSorted, isNotSorted, waitingIds } from "../suggestionReview";
 import { reviewIds, toReviewOf } from "../toReview";
 import { moveThroughRows } from "../treeKeys";
 import { useUnreadFiles } from "../unreadFiles";
@@ -151,15 +151,16 @@ export function LibraryPane() {
   const reviewOpen = useLibraryFolds((state) => state.reviewOpen);
   const notSortedOf = useCallback(
     (documentId: string) => {
-      const error = notSortedError(assignments.get(documentId));
-      return error ? providerErrorText(error, t) : null;
+      const item = assignments.get(documentId);
+      if (!isNotSorted(item)) return null;
+      const said = item?.error ? providerErrorText(item.error, t) : "";
+      return said || t("library.notSorted.noReason");
     },
     [assignments, t],
   );
   const unsortedIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const item of snapshot?.assignments ?? [])
-      if (notSortedError(item)) ids.add(item.documentId);
+    for (const item of snapshot?.assignments ?? []) if (isNotSorted(item)) ids.add(item.documentId);
     return ids;
   }, [snapshot?.assignments]);
   const notSorted = useMemo(
@@ -173,7 +174,7 @@ export function LibraryPane() {
     let sorted = documents.length > 0;
     for (const doc of documents) {
       const item = assignments.get(doc.id);
-      if (item && notSortedError(item)) count++;
+      if (isNotSorted(item)) count++;
       if (item?.status !== "classified" || item.suggested) sorted = false;
     }
     return { notSortedCount: count, allSorted: sorted && count === 0 };

@@ -1,4 +1,4 @@
-import type { AssignmentChange, DocumentGroupAssignment, ProviderError } from "../../core/api";
+import type { AssignmentChange, DocumentGroupAssignment } from "../../core/api";
 import { displayName } from "../../shared/documentNames";
 import { core } from "./core";
 import { applyAssignments } from "./documentUpdates";
@@ -21,14 +21,17 @@ export const waitingIds = (): string[] =>
     item.suggested && item.groupId !== null ? [item.documentId] : [],
   );
 
-/** Why Organize couldn't sort a Document: it ran, placed it in no Folder, and said why; else null. */
-export const notSortedError = (
-  item: Pick<DocumentGroupAssignment, "status" | "groupId" | "error"> | undefined,
-): ProviderError | null => (item?.status === "failed" && item.groupId === null ? item.error : null);
+/**
+ * Organize couldn't sort the Document: it ran, placed it in no Folder, and failed. A restored
+ * assignment may keep that state with no error saved; it still shows, with a reason of its own.
+ */
+export const isNotSorted = (
+  item: Pick<DocumentGroupAssignment, "status" | "groupId"> | undefined,
+): boolean => item?.status === "failed" && item.groupId === null;
 
 /** Whether Organize left a Document it couldn't sort, which To review shows with the reason. */
 export const hasNotSorted = (): boolean =>
-  (useAppStore.getState().library?.assignments ?? []).some((item) => notSortedError(item) !== null);
+  (useAppStore.getState().library?.assignments ?? []).some((item) => isNotSorted(item));
 
 function showDecided(decision: Decision, ids: readonly string[]): void {
   const now = assignmentsNow();

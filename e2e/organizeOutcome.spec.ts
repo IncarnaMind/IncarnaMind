@@ -5,6 +5,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
+  coreOf,
   createDataFolder,
   DECISION_FAILURE,
   decisionServer,
@@ -141,6 +142,21 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     // The first rows of each Folder, then all three it couldn't sort.
     await expect(review.getByTestId("library-review-document")).toHaveCount(19);
     await expect(review.getByTestId("library-review-name")).toBeFocused();
+    // Enter opens a Document Organize couldn't sort: there is no Folder to accept for it.
+    await unsorted
+      .getByTestId("library-review-document")
+      .first()
+      .locator("[data-row-main]")
+      .focus();
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("viewer")).toBeVisible();
+    await expect(review.getByTestId("library-review-document")).toHaveCount(19);
+    await pointAndClick(
+      window,
+      window.locator('[role="tab"][data-kind="document"]').getByTestId("tab-close"),
+    );
+    await expect(window.getByTestId("viewer")).toHaveCount(0);
+    await expect(library).toBeVisible();
 
     // The same at the narrowest window, then in Chinese.
     await setWindowSize(app, window, 900, 760);
@@ -210,6 +226,25 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await setWindowSize(app, window, 1600, 900);
     await expect(window.getByTestId("library-sorted")).toHaveText("All sorted");
     await screenshot(window, "organize-outcome-en-sorted-1600");
+
+    // A failed assignment with no reason saved (Undo of an older change can put one back) still
+    // says so, in its row and in the title line, rather than going quiet.
+    await (await coreOf(window)).evaluate(async (core) => {
+      const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
+      if (!note) throw new Error("No Document named Note 1.");
+      await core.restoreAssignment(note.id, {
+        groupId: null,
+        source: "automatic",
+        suggested: false,
+        status: "failed",
+        error: null,
+        model: null,
+      });
+    });
+    await expect(library.getByTestId("library-not-sorted-count")).toHaveText("1 not sorted");
+    await expect(
+      section(library, "not-in-a-folder").getByTestId("library-not-sorted").first(),
+    ).toHaveText("Not sorted: the model gave no reason");
   } finally {
     server.close();
     await app.close();
