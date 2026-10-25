@@ -1607,7 +1607,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
   const read: Tool = {
     name: MIND_TOOLS.read,
     description:
-      "Read one of the User's Minds (their notes) by its name, to see what it holds before changing it or adding to it. The Mind the User is in is already in <mind>: don't read it again.",
+      "Read one of the User's Minds (their notes) by its name as the User writes it, to see what it holds before changing it, adding to it or writing from it. The Mind the User is in is already in <mind>: don't read it again.",
     inputSchema: {
       type: "object",
       properties: { mind: { ...mindProperty, description: "The Mind's name." } },
