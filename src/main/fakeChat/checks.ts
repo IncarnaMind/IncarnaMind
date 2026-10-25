@@ -1,5 +1,5 @@
 /**
- * Find support and Check against Documents (`checkReply`): a sentence that shares
+ * Check against Documents (`checkReply`): a sentence that shares
  * three words with a Passage's line is supported, or contradicted when it has a
  * number the line doesn't; otherwise unsupported. A sentence the User cites a
  * quote for that `PARTLY` lists, or one with no Citation that `PARTLY_UNCITED`

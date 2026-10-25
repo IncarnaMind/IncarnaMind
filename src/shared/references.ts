@@ -8,6 +8,7 @@ import type {
   ReferenceFields,
   ReferenceName,
   ReferenceRecord,
+  ReferenceType,
   StyledRun,
 } from "../core/api";
 import type { Language } from "../core/language";
@@ -257,14 +258,27 @@ export function lookupIdentifier(
 }
 
 /**
- * Whether a record describes a work a citation style would cite well (#289): a paper, a book,
- * a report or a page of a known type, with its authors or its year. Not a record of type
- * Other (a contract, a spreadsheet), which Numbered cites as well as any style.
+ * The kinds that are a paper or a book: an article, a conference paper, a preprint, a chapter,
+ * a book or a thesis.
  */
-export function isCitableWork(record: Pick<ReferenceRecord, "fields"> | null): boolean {
+const PAPER_OR_BOOK: ReadonlySet<ReferenceType> = new Set([
+  "article-journal",
+  "paper-conference",
+  "article",
+  "chapter",
+  "book",
+  "thesis",
+]);
+
+/**
+ * Whether a Mind citing this record cites a paper or a book (#289, #1910): one of the kinds
+ * above, with its authors or its year. A report, a web page or Other never is, whatever else
+ * its record says; the kind is the Library's, never a guess from the file's look.
+ */
+export function isPaperOrBook(record: Pick<ReferenceRecord, "fields"> | null): boolean {
   if (!record) return false;
   const { type, authors, issued } = record.fields;
-  return type !== "document" && (authors.length > 0 || issued !== "");
+  return PAPER_OR_BOOK.has(type) && (authors.length > 0 || issued !== "");
 }
 
 /** What reading a file guesses at, as a style prints it; not a DOI or an address, found as written. */
@@ -324,8 +338,8 @@ export function missingDetails(record: Pick<ReferenceRecord, "fields">): Referen
 const FULL_WIDTH = /[\u3000-\u303f\uff00-\uffef]/u;
 
 /**
- * A Bibliography entry too thin to cite, as an export and the References' Copy write it: with
- * `mark` after it ("[needs details]", "[信息待补充]").
+ * A Bibliography entry too thin to cite, as the References' Copy writes it: with `mark` after
+ * it ("[needs details]", "[信息待补充]"). An export leaves the mark out (#1910).
  */
 export function withNeedsDetailsMark(runs: readonly StyledRun[], mark: string): StyledRun[] {
   const last = runs.at(-1)?.text ?? "";

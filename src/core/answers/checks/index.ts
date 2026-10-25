@@ -1,6 +1,6 @@
 /**
- * Checks of the User's own sentences (#96): Find support and Check against
- * Documents in a Mind, and the claim-check function they share (./claimCheck).
+ * Check against Documents (#96) on the User's own sentences in a Mind, and
+ * the claim-check function the other checks share with it (./claimCheck).
  *
  * 1. The sentences the selection touches are read from the Mind, whole, and
  *    each gets a "checking" mark at once (./sentences).
@@ -481,7 +481,7 @@ export function createChecks(options: ChecksOptions) {
       const result = await claimCheck({
         claim: sentence.claim,
         context: sentence.context,
-        cited: input.action === "check-against-documents" ? citedNow(sentence.cited) : [],
+        cited: citedNow(sentence.cited),
         scope: evidenceScope,
         model: ready.prepared,
         cacheKey: mindId,

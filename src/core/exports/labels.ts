@@ -9,8 +9,6 @@ export interface ExportLabels {
   notes: string;
   backToText: string;
   unverified: string;
-  /** After a Bibliography entry whose reference record is too thin to cite: "[needs details]". */
-  needsDetails: string;
   chart(title: string): string;
   /** With the space that follows it, if any: "Source: ", "数据来源：". */
   chartSources: string;
@@ -34,7 +32,6 @@ export function exportLabels(language: Language): ExportLabels {
     notes: t("export.html.notes"),
     backToText: t("export.html.back"),
     unverified: t("export.unverified"),
-    needsDetails: t("export.needsDetails"),
     chart: (title) => (title ? t("export.chart.titled", { title }) : t("export.chart")),
     // No space after full-width punctuation (docs/agents/zh-CN.md).
     chartSources: t("export.chart.sources").replace(/[^\u3000-\u303f\uff00-\uffef]$/, "$& "),

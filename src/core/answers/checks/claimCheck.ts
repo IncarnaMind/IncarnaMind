@@ -1,7 +1,7 @@
 /**
  * The claim-check function (#96): one claim checked against the Documents
- * in a check Run, the one way Find support and Check against Documents
- * check a sentence, and later verify (#97) and contradiction watch (#112).
+ * in a check Run, the one way Check against Documents checks a
+ * sentence, and later verify (#97) and contradiction watch (#112).
  *
  * The Run is the Answer engine's Tool-calling loop (ADR-0007) with the check
  * Tool set: the Documents' search and `cite`, nothing else (ADR-0013, #78).

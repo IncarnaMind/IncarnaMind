@@ -7,14 +7,14 @@ Read this before adding or changing a string in `src/shared/i18n/zh-CN.ts`, whet
 ## The rules
 
 1. **你, never 您.** Ant Design, Arco, Semi and Microsoft's Chinese style guide all say so; macOS uses 你 throughout.
-2. **A space between Chinese and Latin letters or numbers.** "新建 Mind", "135 MB", "第 3 页", "{count} 个文档". No space next to full-width punctuation ("“Lease”的文件"), and none before % or °.
+2. **A space between Chinese and Latin letters or numbers.** "导出为 Word", "135 MB", "第 3 页", "{count} 个文档". No space next to full-width punctuation ("“Lease”的文件"), and none before % or °.
 3. **Full-width punctuation in Chinese text:** ，。：；？！（）. Separate list items with 、 ("PDF、Word 和 Excel"). Parentheses stay full-width around Latin text: "Word（.docx）".
 4. **Quotation marks are “ ”**, with ‘ ’ inside. Quote the names of UI items, files, Documents, Folders, Tags and anything the User typed: "移动到“财务”", "已保存“Tides 2.docx”". Keep 《》 for the titles of published works. Never use 「」.
 5. **One "…" (U+2026)** after a command that asks for more before it acts ("导出…", "移动到…") and on progress ("正在整理…"). Use "……" only in running prose.
 6. **Buttons and menu items are a verb, or a verb and its object:** 保存, 添加文档, 移动到…. No 请, no 点击, no 。. Cancel is 取消, Done is 完成, Retry is 重试.
 7. **Errors say what happened, then what to do.** Prefer 无法… or 未能… to a bare 失败 or 没有成功: "无法调用 Notion：search", "未能登录。", "无法读取此文件". Don't blame the User.
 8. **Empty states say "还没有…" and the next step:** "还没有文档。添加一个同步文件夹，或单独添加文件。" Not "暂无数据".
-9. **Counts use 个** for 文档, 文件, 文件夹, 标签, 引用, 段落 and 工具, and **项** for a mixed selection ("还有 3 项"). 篇 belongs only in prose ("一篇文档"). Mind takes no plural: "Mind（3）", "收起 Mind".
+9. **Counts use 个** for 文档, 文件, 文件夹, 标签, 引用, 段落 and 工具, and **项** for a mixed selection ("还有 3 项"). 篇 counts a Note ("3 篇笔记"), and stays only in prose for a Document ("一篇文档"). A Note takes no plural in a label: "笔记（3）", "收起笔记".
 10. **Status:** progress is 正在… ("正在整理 3 个文档…"), done is 已… ("已保存"), not yet is 尚未… or 未….
 11. **Use the verbs Chinese apps use:** 生成 an Answer (not 写), 加载 (not 载入), 调用 a Tool (not 询问), 搜索 in a search field (not 查找), 新建 (not 创建), 重命名 (not 改名), 撤销 (not 撤消).
 12. **Avoid translationese.**
@@ -25,7 +25,7 @@ Read this before adding or changing a string in `src/shared/i18n/zh-CN.ts`, whet
     - Put the condition first ("开启后，…").
 13. **One word for one thing.** Use the glossary everywhere and never a second word for the same concept: 不在文件夹中, not 未分类 or 未分组; AI 模型 in sentences (not 对话模型 or 聊天模型); a company's own name, or 服务 when generic (not 提供商 or 服务商).
 14. **Platform words go in their own keys.** Where macOS and Windows name a thing differently, add a key per platform and choose it in code, as `linkedFolders.reveal.mac` / `.windows` / `.other` and `menu.copy` / `menu.copy.other` do. Don't put one platform's word on the other.
-15. **Names stay as they are:** IncarnaMind, Mind, ChatGPT, Ollama, OpenAI, PDF, Word, Markdown. Write file types in capitals (ZIP, CSV), and keys as they are printed (Enter, Esc, Backspace, ⌘J).
+15. **Names stay as they are:** IncarnaMind, ChatGPT, Ollama, OpenAI, PDF, Word, Markdown. Write file types in capitals (ZIP, CSV), and keys as they are printed (Enter, Esc, Backspace, ⌘J).
 
 Before you open the pull request, read every new Chinese string aloud. If it sounds translated, rewrite it. Check it on screen at the narrowest window, too (interaction rule 11).
 
@@ -33,14 +33,16 @@ Before you open the pull request, read every new Chinese string aloud. If it sou
 
 The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where Chinese apps disagree, the choice follows the one most of them show.
 
+A Note is the document the User writes in (the old Mind); your text is a Block the User writes (the old Note). The code and the data keep `mind`. Today's strings still say Mind for the document and use 笔记 for your text: the string slices replace both, and `tests/shared/noteWording.test.ts` lists what each slice leaves behind.
+
 ### IncarnaMind's own words
 
 | English | Chinese | Notes |
 |---|---|---|
-| Mind | Mind | A product name, like Notion: no translation, no plural, no measure word in labels. "新建 Mind", "Mind（3）", "这个 Mind" in prose. Where the User first meets it (the example's banner, the first empty Mind, New Mind's tooltip) one sentence says what it is: "Mind：在这里写作、向文档提问，每条引文都会核对。" |
+| Note | 笔记 | The place the User writes in. 篇 counts it in prose ("3 篇笔记"); a label takes no measure word: "笔记（3）", "收起笔记". Where the User first meets it (the example's banner, the first empty Note, New Note's tooltip) one sentence says what it is: "笔记：在这里写作、向文档提问，每条引文都会核对。" |
 | Assistant | 助手 | The one per window. "显示助手", "收起助手". As Kimi, Doubao and Yuanbao call themselves (智能助手, AI 助手). |
 | Conversation | 对话 | New chat is "新对话", History "历史对话", counted with 个: "3 个对话". As Doubao, Yuanbao, DeepSeek, Qwen, Feishu, Cherry Studio and Open WebUI show it. |
-| Note | 笔记 | |
+| Your text | 你写的内容 | A Block the User writes, as opposed to one the assistant wrote. Today's strings use 笔记 for it too ("笔记内容", "正在搜索笔记和文档…"); the string slices replace those, so 笔记 means the Note. |
 | Block | 块 | "块选项". As Feishu does. |
 | Question | 问题 | Ask: 提问. "就此文档提问". |
 | Answer | 回答 | Generate: 生成; Regenerate: 重新生成; Stop: 停止. |
@@ -106,11 +108,11 @@ The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
 | Claim | 说法 | What a check looks at, in an Answer, a Mind or a document someone else wrote. Counted with 条: "核对 24 条说法". Not 论断, an argued conclusion, or 主张, a party's claim in law: neither fits a sentence in a contract or a site report. |
 | Shorten (an AI edit) | 精简 | "精简", "正在精简…". Not 缩写, which means abbreviate. The others: 润色, 翻译, 解释. |
-| Find support | 查找出处 | Finds a Passage to cite and offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
+| Find support | 查找出处 | No longer a command: only a ⌘K keyword for Check against Documents, which offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Mind's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
 | Verify (a document) | 核对文档 | The verb is 核对, as for a Citation. |
-| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Mind's health counts its unsupported sentences with 处: "2 处需要留意". |
+| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Note's health counts its unsupported sentences with 处: "2 处需要留意". |
 | Mark | 标记 | |
 | Run | 运行 | |
 | Task | 任务 | |

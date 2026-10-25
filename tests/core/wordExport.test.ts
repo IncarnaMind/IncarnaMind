@@ -1017,7 +1017,9 @@ describe("Blocks added, deleted and moved", () => {
     const paragraphs = paragraphsIn(document);
     expect(textOf(paragraphs[1] ?? "")).toBe("Tides are strongest at new moon (Tides, n.d.).");
     expect(textOf(paragraphs.at(-2) ?? "")).toBe("References");
-    expect(textOf(paragraphs.at(-1) ?? "")).toContain("Tides");
+    // A Document with no details is listed by its name alone, never a placeholder (#1910).
+    expect(textOf(paragraphs.at(-1) ?? "")).toBe("Tides.");
+    expect(document).not.toContain("needs details");
     expect(document).toMatch(/<\/w:p><w:sectPr>/);
     expect(files.has("word/footnotes.xml")).toBe(false);
   });
