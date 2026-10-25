@@ -7,6 +7,7 @@
 import type { Expected } from "./cases";
 import type { HandedPassage } from "./passagesHanded";
 import type { Outcome, RepeatResult } from "./repeat";
+import type { WatchedRequest } from "./requests";
 import type { Placement, ScopeLanguage } from "./scopeCases";
 
 export interface ScopeRow extends RepeatResult {
@@ -19,6 +20,8 @@ export interface ScopeRow extends RepeatResult {
   expected: Expected;
   clause: string | null;
   handed: HandedPassage[];
+  /** The model requests of this sentence's check; none in a report written before they were kept. */
+  requests?: readonly WatchedRequest[];
 }
 
 const squash = (text: string) => text.replace(/\s+/g, "").toLowerCase();
@@ -66,6 +69,8 @@ export interface ScopeSummary {
   documentsHanded: { fewest: number; most: number };
   /** Checks that handed the model no Passage at all (sentences with nothing recorded). */
   nothingHanded: number;
+  /** Checks asked to search again before saying the sentence isn't found (#1608). */
+  askedAgain: number;
   misses: ScopeRow[];
 }
 
@@ -130,6 +135,8 @@ export function summarise(rows: readonly ScopeRow[]): ScopeSummary[] {
       },
       documentsHanded: { fewest: Math.min(...documents), most: Math.max(...documents) },
       nothingHanded: group.filter((row) => row.handed.length === 0).length,
+      askedAgain: group.filter((row) => row.requests?.some((request) => request.searchAgain))
+        .length,
       misses: wrong,
     };
   });
@@ -258,6 +265,8 @@ export function report(
           })
           .join(" | ")} |`,
     ),
+    "",
+    `Checks asked to search again before saying a sentence isn't found: ${sorted.map((each) => `${each.caseId} ${each.askedAgain} of ${each.falseUnsupported.total + each.falseSupported.total}`).join("; ")}.`,
     "",
     ...(sorted.some((each) => each.nothingHanded > 0)
       ? [

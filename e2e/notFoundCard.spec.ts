@@ -217,8 +217,10 @@ for (const language of ["en", "zh-CN"] as const) {
       // Headed by what the check found: nothing, which is about the search, not the sentence (#1608).
       await expect(marks.nth(2)).toHaveAccessibleName(words.mark);
       await expect(card.getByTestId("claim-badge")).toHaveText(words.heading);
-      if (SCREENSHOTS)
+      if (SCREENSHOTS) {
+        await motionSettled(window);
         await window.screenshot({ path: join(SCREENSHOTS, `not-found-${language}-${width}.png`) });
+      }
       const shown = await card
         .locator(".citation-card-actions button")
         .evaluateAll((all) => all.map((each) => each.getAttribute("data-testid")));
