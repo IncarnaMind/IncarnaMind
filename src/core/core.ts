@@ -1911,7 +1911,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now: () => adapters.now?.() ?? new Date(),
   });
 
-  // Find support and Check against Documents (#96): check Runs that can only search and cite.
+  // Check against Documents (#96): check Runs that can only search and cite.
   const startInWritingStyle = (mindId: string) => {
     const style = settings.get().user.newMindStyle;
     if (sameStyle(style, DEFAULT_MIND_STYLE)) return;
