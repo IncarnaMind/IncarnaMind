@@ -1,5 +1,4 @@
 import type { Editor } from "@tiptap/core";
-import type { ClaimCheckAction } from "../../../core/api";
 import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import { checkSentences, useChecks } from "../checks";
