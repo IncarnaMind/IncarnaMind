@@ -541,6 +541,16 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     { unsaved: unsaved.mindUnsaved },
   );
+  // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
+  const eachCitingMind = (visit: (blocks: Y.XmlFragment) => void, exceptMindId?: string) => {
+    for (const mind of db.all<{ id: string; deleted_at: string | null }>(
+      "SELECT id, deleted_at FROM minds WHERE purged_at IS NULL",
+    )) {
+      if (mind.id === exceptMindId) continue;
+      if (mind.deleted_at === null) content.peek(mind.id, visit);
+      else content.peekDeleted(mind.id, visit);
+    }
+  };
   const mindIndex = createMindIndex({
     db,
     now,
@@ -777,9 +787,7 @@ export function createCore(adapters: CoreAdapters): Core {
       citedUnits: (documentIds) => {
         const wanted = new Set(documentIds);
         const cited: CitedUnits[] = [];
-        for (const mind of minds.list()) {
-          content.peek(mind.id, (fragment) => addCitedUnits(fragment, wanted, cited));
-        }
+        eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
         conversations.addCitedUnits(wanted, cited);
         retention.addRetainedUnits(wanted, cited);
         return cited;
@@ -823,12 +831,10 @@ export function createCore(adapters: CoreAdapters): Core {
     const pagesCited = citedPages.collector();
     if (collectVersions || pagesCited) {
       const cited: CitedVersions = new Map();
-      for (const mind of minds.list()) {
-        content.peek(mind.id, (fragment) => {
-          if (collectVersions) addCitedVersions(fragment, cited);
-          if (pagesCited) eachCitation(fragment, pagesCited.cite);
-        });
-      }
+      eachCitingMind((fragment) => {
+        if (collectVersions) addCitedVersions(fragment, cited);
+        if (pagesCited) eachCitation(fragment, pagesCited.cite);
+      });
       // First, so a version only a page that went retained goes now too.
       if (pagesCited) {
         conversations.eachCitation(pagesCited.cite);
@@ -2597,13 +2603,10 @@ export function createCore(adapters: CoreAdapters): Core {
   const recentlyDeleted = createRecentlyDeleted({
     db,
     now,
-    // A Mind still waiting in Recently deleted comes back with its Citations, so they count too.
     documentText: (documentIds) => {
       const wanted = new Set(documentIds);
       const cited: CitedUnits[] = [];
-      for (const { id } of db.all<{ id: string }>("SELECT id FROM minds WHERE purged_at IS NULL")) {
-        content.peek(id, (fragment) => addCitedUnits(fragment, wanted, cited));
-      }
+      eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
       conversations.addCitedUnits(wanted, cited);
       retention.addRetainedUnits(wanted, cited);
       documents.purgeText(documentIds, cited);
@@ -2995,15 +2998,7 @@ export function createCore(adapters: CoreAdapters): Core {
     citationsRelyOn: (documentIds, exceptMindId) => {
       const wanted = new Set(documentIds);
       const cited: CitedUnits[] = [];
-      // A Mind waiting in Recently deleted comes back with its Citations, as a Conversation does.
-      for (const mind of db.all<{ id: string; deleted_at: string | null }>(
-        "SELECT id, deleted_at FROM minds WHERE purged_at IS NULL AND id <> ?",
-        [exceptMindId],
-      )) {
-        const add = (fragment: Y.XmlFragment) => addCitedUnits(fragment, wanted, cited);
-        if (mind.deleted_at === null) content.peek(mind.id, add);
-        else content.peekDeleted(mind.id, add);
-      }
+      eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited), exceptMindId);
       conversations.addCitedUnits(wanted, cited);
       return cited.length > 0;
     },
