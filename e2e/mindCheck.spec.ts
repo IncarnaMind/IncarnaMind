@@ -196,6 +196,8 @@ test("Check this Mind from ⌘K: the estimate first on a cloud model, then every
   );
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
+  // Every sentence again is offered once that check is done.
+  await expect(marks(window).and(window.locator('[data-check="checking"]'))).toHaveCount(0);
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
   await window.keyboard.type("check every sentence");
