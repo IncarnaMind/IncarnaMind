@@ -69,6 +69,7 @@ import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import { InFootnoteContext, MindIdContext, RegenerateAnswerContext } from "./mindContext";
 import { Popover } from "./Popover";
 import { onPeek, peekCitation } from "./peek";
+import { isQuietFocus } from "./quietFocus";
 import { StyledRuns, StyledRunView } from "./StyledRuns";
 import { runsText } from "./styledText";
 
@@ -401,7 +402,9 @@ export function CitationView({
         // loaded grows and moves up off it, which a Citation that only heard moves took as a leave.
         onPointerOver={(event) => pointAt(markerOfWork(workAt(event.target, inCluster)))}
         onPointerLeave={() => pointAt(null)}
-        onFocus={() => hold("focus", true)}
+        onFocus={(event) => {
+          if (!isQuietFocus(event.currentTarget)) hold("focus", true);
+        }}
         onBlur={() => hold("focus", false)}
         onClick={(event) => {
           const target = markerOfWork(workAt(event.target, inCluster));
