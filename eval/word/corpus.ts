@@ -182,7 +182,7 @@ export async function inspectPackage(bytes: Uint8Array): Promise<PackageReport> 
     const bookmarks = new Set(
       [...text.matchAll(/<w:bookmarkStart\b[^>]*\bw:name="([^"]*)"/g)].map((m) => m[1]),
     );
-    for (const found of text.matchAll(/\bNOTEREF\s+(\S+)/g)) {
+    for (const found of text.matchAll(/\bNOTEREF\s+([^\s<]+)/g)) {
       const argument = found[1];
       if (!argument) continue;
       // Word opens a field with no bookmark name and shows its inline error; it offers no

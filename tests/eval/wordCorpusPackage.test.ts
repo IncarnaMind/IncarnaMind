@@ -31,6 +31,20 @@ test("the pinned unsupported-fields input has a NOTEREF with no bookmark name, w
   expect(await checkInputPackage(bytes, features)).toEqual({ ok: true, detail: "" });
 });
 
+test("a NOTEREF with no arguments at all is not a package problem", async () => {
+  const bytes = wordFile({
+    body: paragraph(
+      '<w:r><w:fldChar w:fldCharType="begin"/></w:r>' +
+        '<w:r><w:instrText xml:space="preserve"> NOTEREF </w:instrText></w:r>' +
+        '<w:r><w:fldChar w:fldCharType="separate"/></w:r>' +
+        run("Error! No bookmark name given.") +
+        '<w:r><w:fldChar w:fldCharType="end"/></w:r>',
+    ),
+  });
+  const { problems } = await inspectPackage(bytes);
+  expect(problems).toEqual([]);
+});
+
 test("a NOTEREF that names a bookmark missing from the file is still a package problem", async () => {
   const bytes = wordFile({
     body: paragraph(
