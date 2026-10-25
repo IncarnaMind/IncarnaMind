@@ -17,8 +17,10 @@ import { describe, expect, it } from "vitest";
 import { paragraph, run, table, wordFile } from "../../tests/helpers/word";
 import {
   type CorpusEntry,
+  type CorpusOutcome,
+  checkInputPackage,
+  corpusFailure,
   extendedCache,
-  inspectPackage,
   readExtended,
   readManifest,
   WORD_DIR,
@@ -27,11 +29,6 @@ import { checkExport, checkListExport, checkReview, checkTheirChanges } from "./
 import { type Features, featureKinds } from "./features";
 import { checkImport } from "./imports";
 import { acceptAllChanges, convertToPdf, findLibreOffice } from "./libreoffice";
-
-interface Outcome {
-  ok: boolean;
-  detail: string;
-}
 
 /** A file to check, wherever it lives. */
 interface Subject {
@@ -45,7 +42,7 @@ interface Step {
   name: string;
   /** Its detail is printed when it passes too: the counts a step reports. */
   reports?: true;
-  run(subject: Subject, bytes: Uint8Array): Promise<Outcome>;
+  run(subject: Subject, bytes: Uint8Array): Promise<CorpusOutcome>;
 }
 
 const soffice = findLibreOffice();
@@ -83,14 +80,7 @@ async function openExport(subject: Subject, data: Uint8Array | undefined, suffix
 const STEPS: Step[] = [
   {
     name: "package",
-    async run(subject, bytes) {
-      const { features, problems } = await inspectPackage(bytes);
-      if (problems.length > 0) return { ok: false, detail: problems.slice(0, 3).join("; ") };
-      const drift = driftIn(subject.features, features);
-      return drift
-        ? { ok: false, detail: `its listed features are out of date: ${drift}` }
-        : { ok: true, detail: "" };
-    },
+    run: (subject, bytes) => checkInputPackage(bytes, subject.features),
   },
   {
     name: "imports as a Mind",
@@ -203,12 +193,6 @@ const ACCEPT_FIXTURE = wordFile({
     paragraph("Signed by both parties."),
 });
 
-function driftIn(listed: Features, found: Features): string | undefined {
-  const keys = Object.keys(found) as (keyof Features)[];
-  const wrong = keys.filter((key) => JSON.stringify(listed[key]) !== JSON.stringify(found[key]));
-  return wrong.length > 0 ? wrong.join(", ") : undefined;
-}
-
 function subjects(): Subject[] {
   const found: Subject[] = [];
   if (wanted === "core" || wanted === "all") {
@@ -294,9 +278,9 @@ describe("the Word corpus", () => {
         const reported = outcome.ok && step.reports && outcome.detail ? ` (${outcome.detail})` : "";
         cells.push(`${outcome.ok ? "ok" : "FAIL"} ${step.name}${reported}`);
         if (!outcome.ok) {
-          const line = `${subject.name}: ${step.name}: ${outcome.detail}`;
-          if (subject.known) lines.push(`  (known: ${subject.known}) ${line}`);
-          else failures.push(line);
+          const { known, failure } = corpusFailure(subject, step.name, outcome);
+          if (known) lines.push(known);
+          if (failure) failures.push(failure);
         }
       }
       lines.push(`${subject.name}  ${featureKinds(subject.features)} kinds  ${cells.join(", ")}`);
