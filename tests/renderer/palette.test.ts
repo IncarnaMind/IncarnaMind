@@ -165,6 +165,13 @@ describe("⌘K's actions", () => {
     expect(actions("neww mind")).toEqual([["actions", ["New Mind"]]]);
   });
 
+  // protects=an exact keyword ("local" for Local mode) ranks above a command whose name holds what was typed as one typo ("locat" in "Change output location…"); fails_when=Change output location… comes first for "local"; no_claim=the rows after it.
+  test("a typo in a name ranks below an exact match anywhere", () => {
+    const found = actions("local")[0]?.[1] ?? [];
+    expect(found[0]).toBe("Keep everything on this computer");
+    expect(found).toContain("Change output location…");
+  });
+
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {
     const [withTwo] = palette.actionGroup(
       ["new", "folder"],
