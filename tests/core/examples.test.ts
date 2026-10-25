@@ -299,11 +299,15 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       "Northwind Retail · Senior facilities agreement (excerpt).pdf",
     ]);
     // Its Documents are the documents they were, so its Citations still open them.
-    await vi.waitFor(async () => {
-      expect(
-        (await core.listDocuments({ linkedFolderId: made.linkedFolderId })).map((each) => each.id),
-      ).toEqual(documents.map((each) => each.id));
-    });
+    await vi.waitFor(
+      async () => {
+        const restored = await core.listDocuments({ linkedFolderId: made.linkedFolderId });
+        expect(restored).toHaveLength(documents.length);
+        expect(restored.map((each) => each.id)).toEqual(documents.map((each) => each.id));
+        expect(restored.map((each) => each.status)).toEqual(documents.map(() => "ready"));
+      },
+      { timeout: 20_000, interval: 100 },
+    );
     const read = await exampleMind(core, mindId);
     expect(read.textContent).toContain("Our note on the numbers below.");
     const citations = citationsOf(read);
@@ -350,6 +354,123 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     // Their own unlink stands: the removal didn't take the folder.
     expect(await core.listLinkedFolders()).toEqual([]);
     expect(await core.listDocuments()).toEqual([]);
+  });
+
+  test("a Conversation's Citations open the examples' Documents again after Undo (#1292)", async () => {
+    const { core } = await startWithExamples();
+    const made = await core.createExamples();
+    const mindId = made.mindId as string;
+    await vi.waitFor(
+      async () => {
+        const checks = citationsOf(await exampleMind(core, mindId)).map((each) => each.check);
+        expect(checks).toEqual(["found", "found"]);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    const asked = await core.askReadyQuestion();
+    const cited = async () => {
+      const { messages } = await core.getConversation(asked.conversationId);
+      const answer = messages.find((each) => each.kind === "answer");
+      if (answer?.kind !== "answer") throw new Error("The Conversation has no Answer.");
+      return answer.citations;
+    };
+    const before = await cited();
+    expect(before.map((each) => each.documentId).sort()).toEqual(
+      (await core.listDocuments()).map((each) => each.id).sort(),
+    );
+
+    await core.removeExamples();
+    await core.restoreExamples();
+
+    const after = await cited();
+    expect(after.map((each) => each.documentId)).toEqual(before.map((each) => each.documentId));
+    await vi.waitFor(
+      async () => {
+        expect((await core.listDocuments()).map((each) => each.status)).toEqual(["ready", "ready"]);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    for (const citation of after) {
+      expect(
+        (
+          await core.recheckCitation({
+            documentId: citation.documentId,
+            pageFrom: citation.pageFrom,
+            pageTo: citation.pageTo,
+            quote: citation.quote,
+          })
+        ).check,
+      ).toBe("found");
+    }
+  });
+
+  test("Undo brings back both examples when two were removed at once (#1292)", async () => {
+    const { core } = await startWithExamples();
+    const credit = await core.createExamples();
+    const papers = await core.createExamples("papers");
+    const ready = async () => {
+      const documents = await core.listDocuments();
+      expect(documents).toHaveLength(5);
+      expect(documents.every((each) => each.status === "ready")).toBe(true);
+      return documents;
+    };
+    const documents = (await vi.waitFor(ready, { timeout: 20_000, interval: 100 })).map(
+      (each) => each.id,
+    );
+    const minds = [credit.mindId as string, papers.mindId as string].sort();
+    const folders = [credit.linkedFolderId as string, papers.linkedFolderId as string].sort();
+
+    await core.removeExamples();
+    await core.removeExamples("papers");
+    expect(await core.listMinds()).toEqual([]);
+    expect((await core.listDeleted()).map((each) => each.id).sort()).toEqual(minds);
+
+    await core.restoreExamples();
+    await core.restoreExamples("papers");
+    expect((await core.listMinds()).map((each) => each.id).sort()).toEqual(minds);
+    expect((await core.listLinkedFolders()).map((each) => each.id).sort()).toEqual(folders);
+    expect(await core.listDeleted()).toEqual([]);
+    await vi.waitFor(
+      async () => {
+        const restored = await core.listDocuments();
+        expect(restored.map((each) => each.id).sort()).toEqual([...documents].sort());
+        expect(restored.every((each) => each.status === "ready")).toBe(true);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+  });
+
+  test("Undo after the examples are removed a second time brings back the same ones again (#1292)", async () => {
+    const { core } = await startWithExamples();
+    const made = await core.createExamples();
+    const mindId = made.mindId as string;
+    await vi.waitFor(
+      async () => {
+        const documents = await core.listDocuments();
+        expect(documents).toHaveLength(2);
+        expect(documents.every((each) => each.status === "ready")).toBe(true);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    const documents = (await core.listDocuments()).map((each) => each.id);
+
+    await core.removeExamples();
+    await core.restoreExamples();
+    await core.removeExamples();
+    expect((await core.listDeleted()).map((each) => each.id)).toEqual([mindId]);
+
+    const twice = await core.restoreExamples();
+    expect(twice).toMatchObject({ mindId, linkedFolderId: made.linkedFolderId });
+    expect(await core.listDeleted()).toEqual([]);
+    expect((await core.listMinds()).map((each) => each.id)).toEqual([mindId]);
+    await vi.waitFor(
+      async () => {
+        const restored = await core.listDocuments();
+        expect(restored.map((each) => each.id)).toEqual(documents);
+        expect(restored.every((each) => each.status === "ready")).toBe(true);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
   });
 
   test("deleting the example Mind on its own leaves its Linked folder marked, and making them again starts afresh", async () => {

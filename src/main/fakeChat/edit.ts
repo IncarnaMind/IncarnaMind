@@ -14,8 +14,8 @@
  * Cut the unsupported part gives a sentence `PARTLY` lists its cut words,
  * with the passage's markers, and takes the part named out of any other
  * (#1111). The
- * new text streams in word by word, slowly when the instruction or the passage
- * says "slowly", or not at all until it is stopped when it says "forever", then
+ * new text streams in word by word, slowly when the instruction says
+ * "slowly", or not at all until it is stopped when it says "forever", then
  * a line saying why (#202).
  */
 
@@ -99,7 +99,7 @@ export function fakeEdit(prompt: Prompt): { text: string; slow: boolean; holds: 
   // In the passage's language, as the instructions ask.
   const why = EDIT_REASONS[action]?.[/\p{Script=Han}/u.test(passage) ? 1 : 0];
   // A cut's task quotes the sentence's sources, which may say "slowly" themselves.
-  const slow = action !== "cut-unsupported" && (SLOWLY.test(asked) || SLOWLY.test(passage));
+  const slow = action !== "cut-unsupported" && SLOWLY.test(asked);
   const holds = action !== "cut-unsupported" && HOLDING.test(asked);
   return { text: why ? `${text}\n\n<why>${why}</why>` : text, slow, holds };
 }

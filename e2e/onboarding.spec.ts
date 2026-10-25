@@ -997,7 +997,14 @@ test("Undo after Remove the examples brings back the same Minds and Documents, a
   await leaveText(window);
   await window.keyboard.press("ControlOrMeta+z");
   await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
+  // Settled first: an embedding or a scan still running after Undo could change what is held.
+  await expectReadyDocuments(window, 5);
   await expect.poll(held).toEqual({ ...before, deleted: [] });
+  const back = await held();
+  expect(back.minds).toHaveLength(before.minds.length);
+  expect(back.linkedFolders).toHaveLength(before.linkedFolders.length);
+  expect(back.documents).toHaveLength(before.documents.length);
+  expect(back.deleted).toEqual([]);
   await app.close();
 });
 

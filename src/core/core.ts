@@ -3005,10 +3005,12 @@ export function createCore(adapters: CoreAdapters): Core {
     linkFolder: (path) => documents.linkedFolders.add(path),
     unlinkFolder,
     restoreFolder: (linkedFolderId) => {
-      const { went } = documents.linkedFolders.restore(linkedFolderId);
-      if (went.length > 0) {
-        recentlyDeleted.restore(went.map((id) => ({ kind: "document" as const, id })));
-      }
+      db.transaction(() => {
+        const { went } = documents.linkedFolders.restore(linkedFolderId);
+        if (went.length > 0) {
+          recentlyDeleted.restore(went.map((id) => ({ kind: "document" as const, id })));
+        }
+      });
     },
     linkedFolderExists: (linkedFolderId) =>
       documents.linkedFolders.list().some((folder) => folder.id === linkedFolderId),

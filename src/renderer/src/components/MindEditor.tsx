@@ -529,25 +529,11 @@ function MindEditorView({
   const hasDocuments = useAppStore((state) => state.documents.length > 0);
   const aiActions = useMemo((): SelectionAction[] => {
     const available = (current: typeof editor) => selectionForEdit(current.state) !== null;
-    // Asked in the menu, the change reports where its Undo line lands (#1411).
-    const run =
-      (action: "improve" | "shorten" | "explain", from?: "menu") => (current: typeof editor) =>
-        void requestEdit(current, mindId, doc, action, undefined, undefined, from);
+    const run = (action: "improve" | "shorten" | "explain") => (current: typeof editor) =>
+      void requestEdit(current, mindId, doc, action);
     return [
-      {
-        id: "improve",
-        label: "editor.ai.improve",
-        icon: "✎",
-        available,
-        run: run("improve", "menu"),
-      },
-      {
-        id: "shorten",
-        label: "editor.ai.shorten",
-        icon: "≡",
-        available,
-        run: run("shorten", "menu"),
-      },
+      { id: "improve", label: "editor.ai.improve", icon: "✎", available, run: run("improve") },
+      { id: "shorten", label: "editor.ai.shorten", icon: "≡", available, run: run("shorten") },
       {
         id: "translate",
         label: "editor.ai.translate",
@@ -556,8 +542,7 @@ function MindEditorView({
         choices: TRANSLATE_LANGUAGES.map((language) => ({
           id: language.id,
           label: language.name,
-          run: (current) =>
-            void requestEdit(current, mindId, doc, "translate", language.prompt, undefined, "menu"),
+          run: (current) => void requestEdit(current, mindId, doc, "translate", language.prompt),
         })),
         run: () => undefined,
       },
