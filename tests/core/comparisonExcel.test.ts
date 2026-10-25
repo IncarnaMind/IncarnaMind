@@ -8,7 +8,13 @@ import { describe, expect, test } from "vitest";
 import { cellIndex } from "../../src/core/documents/formats/sheetLayout";
 import { readWorkbook } from "../../src/core/documents/formats/xlsx";
 import { translate } from "../../src/shared/i18n";
-import { compareReports, copyRows, REPORT_QUESTIONS as QUESTIONS } from "../helpers/comparisons";
+import {
+  compareCedar,
+  compareReports,
+  copyRows,
+  REPORT_QUESTIONS as QUESTIONS,
+  rescalingModel,
+} from "../helpers/comparisons";
 import { addAndProcess } from "../helpers/documents";
 import { part, unzip } from "../helpers/docx";
 
@@ -97,6 +103,24 @@ describe("A comparison table exported to Excel", () => {
     ]);
     expect(part(files, "xl/worksheets/sheet2.xml")).toContain(
       `<hyperlink ref="A2" location="'Comparison table'!B2" display="B2"/>`,
+    );
+  });
+
+  // protects=a cell whose amount changed scale exports as what its Document gives, with no Citation on the Sources sheet, so the sheets agree (#1798); fails_when=the wrong amount, or a Source for it, reaches the workbook; no_claim=none beyond protects.
+  test("writes a cell whose amount changed scale as what its Document gives, with no Source for it", async () => {
+    const { core, mind, tableId } = await compareCedar(rescalingModel(() => false));
+    const saved = await core.saveComparisonExport({ mindId: mind.id, tableId });
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const [table, sources] = (await shownWorkbook(saved.file.path)).sheets;
+    if (!table || !sources) throw new Error("A sheet is missing.");
+    expect(table.at("B2")).toMatchObject({
+      text: "scale differs from the Document, which gives 310000 GBP thousands",
+      numeric: false,
+    });
+    expect(table.at("B3")).toMatchObject({ text: "GBP 340 million", numeric: true, raw: 340e6 });
+    expect(sources.rowCount).toBe(2);
+    expect(sources.at("A2").text).toBe(
+      "Cedar Q3 2026 draft · Net debt at Q3 2026, in GBP millions",
     );
   });
 
