@@ -202,7 +202,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(unsupported).toHaveCount(1);
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-check", "unsupported");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Not found");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “All Documents”.",
   );
@@ -212,7 +212,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(card).toHaveCount(0);
   await pointAndClick(window, unsupported);
   await expect(card).toHaveAttribute("data-check", "unsupported");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Not found");
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   await app.close();
