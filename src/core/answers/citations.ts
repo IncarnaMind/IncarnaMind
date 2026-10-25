@@ -567,14 +567,14 @@ function changedParts(
       };
     } else joined.push(segment);
   }
-  // A mark against a change goes with it: "(60)", not "(60" and ")".
+  // A bracket or quotation mark against a change goes with it: "(60)", not "(60" and ")".
   for (const [index, segment] of joined.entries()) {
     const before = joined[index - 1];
     const after = joined[index + 1];
     if (!("removed" in segment)) continue;
     const lead =
-      before && "same" in before ? (/[^\s\p{L}\p{N}]+$/u.exec(before.same)?.[0] ?? "") : "";
-    const tail = after && "same" in after ? (/^[^\s\p{L}\p{N}]+/u.exec(after.same)?.[0] ?? "") : "";
+      before && "same" in before ? (/[\p{Ps}\p{Pi}"]+$/u.exec(before.same)?.[0] ?? "") : "";
+    const tail = after && "same" in after ? (/^[\p{Pe}\p{Pf}"]+/u.exec(after.same)?.[0] ?? "") : "";
     if (before && "same" in before)
       before.same = before.same.slice(0, before.same.length - lead.length);
     if (after && "same" in after) after.same = after.same.slice(tail.length);

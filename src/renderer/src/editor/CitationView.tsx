@@ -451,7 +451,7 @@ export function CitationView({
               recheckAsked={recheckAsked}
               badgeText={badgeText}
               onOpen={openFromCard}
-              onUpdate={newVersion ? updateSentence : null}
+              onUpdate={recheckAsked && newVersion ? updateSentence : null}
               onKeep={recheckAsked && liveVersion ? keepOldVersion : null}
               onRemove={
                 editor.isEditable
@@ -614,7 +614,7 @@ function CitationCard({
   /** In a note style, the note the Citation is written in, as an export will write it. */
   note: readonly StyledRun[] | null;
   onOpen(withQuote: boolean): void;
-  /** Null where it isn't offered. */
+  /** Null where it isn't offered; with either, the card offers them in place of Open. */
   onUpdate: (() => void) | null;
   onKeep: (() => void) | null;
   /** Null where the text can't be changed, such as an Answer in the assistant. */
@@ -743,7 +743,9 @@ function CitationCard({
         </p>
       )}
       {quotedWords && <p className="citation-card-note">{t("citation.quoted.why")}</p>}
-      {state.check === "found" && <p className="citation-card-note">{t("citation.meaning")}</p>}
+      {state.check === "found" && !recheckAsked && (
+        <p className="citation-card-note">{t("citation.meaning")}</p>
+      )}
       <div className="citation-card-actions">
         {onUpdate && (
           <button
@@ -797,11 +799,11 @@ function CitationCard({
               </button>
             )}
           </>
-        ) : (
+        ) : onUpdate || onKeep ? null : (
           <button
             type="button"
             data-testid="citation-open"
-            className={`citation-card-action ${onUpdate || onKeep ? "" : "citation-card-action--primary"}`}
+            className="citation-card-action citation-card-action--primary"
             // A deleted Document's view shows the quote it kept.
             onClick={() => onOpen(removed || quoteSaysSo(state.check))}
           >
