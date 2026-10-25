@@ -258,6 +258,7 @@
   "wordLookTables.spec.ts": 12,
   "wordLookTabs.spec.ts": 25,
   "wordPaste.spec.ts": 4,
+  "writeAsNote.spec.ts": 120,
   "writeIntoMind.spec.ts": 11,
   "writtenFrom.spec.ts": 33,
   "xlsxNoValue.spec.ts": 5

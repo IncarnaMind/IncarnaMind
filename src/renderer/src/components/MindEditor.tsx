@@ -679,7 +679,6 @@ function MindEditorView({
     useComposer.getState().requestFocus();
   };
 
-  // An empty Mind of the User's own shows the start guide until the first-run card has been seen (#1940).
   const empty = useEditorState({
     editor,
     selector: ({ editor: current }) => isEmptyMind(current.state.doc),

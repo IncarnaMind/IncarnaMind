@@ -323,22 +323,18 @@ test("two notes from one chat name it by the first, and deleting that one moves 
 
 test("a note the assistant wrote is named in History by its title once its tab is closed", async () => {
   const { app, window } = await start("en", 1600);
-  await newMind(window);
-  await window.keyboard.type("Project plan");
-  await nameMind(window, "Project plan");
-
-  // The assistant adds to that note and makes another, written as it goes (#1559's scripted tools).
-  await askInAssistant(
-    window,
-    "Add Ship the beta in May to Project plan and make a new note called Fieldwork plan",
-  );
-  const made = window.getByTestId("mind-tab").filter({ hasText: "Fieldwork plan" });
-  await expect(made).toHaveAttribute("aria-selected", "true", { timeout: 15_000 });
+  // A note with text in front, so the assistant's request writes a new note of its own.
+  await noteWithText(window, "Harbour notes");
+  await askInAssistant(window, "Write a summary of my leases");
+  const made = window.getByTestId("mind-tab").filter({ hasText: "Summary" });
+  await expect(made).toHaveCount(1, { timeout: 15_000 });
+  await pointAndClick(window, made);
+  await expect(made).toHaveAttribute("aria-selected", "true");
   await pointAndClick(window, made.getByTestId("tab-close"));
   await pointAndClick(window, window.getByTestId("assistant-title"));
   await expect(
     window.getByTestId("assistant-history-popover").getByTestId("assistant-history-row").first(),
-  ).toContainText("Fieldwork plan");
+  ).toContainText("Summary");
   await app.close();
 });
 
