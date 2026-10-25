@@ -239,7 +239,9 @@ export function placeOfChange(
   const inside = at(change.to);
   const end = inside === null ? null : state.doc.resolve(inside);
   const to = change.block !== "added" ? inside : end && end.depth > 0 ? end.after(1) : null;
-  return from === null || to === null || to < from ? null : { from, to };
+  // The words its start pointed at went with the change: it is at its other end (#1411).
+  const start = from ?? (change.block === null ? to : null);
+  return start === null || to === null || to < start ? null : { from: start, to };
 }
 
 const textOf = (removed: Fragment) => removed.textBetween(0, removed.size, "\n", "￼");

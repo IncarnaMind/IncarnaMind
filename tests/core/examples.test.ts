@@ -257,6 +257,73 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     expect(await core.listMinds()).toHaveLength(1);
   });
 
+  test("Undo after Remove the examples brings back the same Mind, its writing and its Documents, and leaves nothing in Recently deleted (#1292)", async () => {
+    const { core, dataDir } = await startWithExamples();
+    const made = await core.createExamples();
+    const mindId = made.mindId as string;
+    const folder = join(dataDir, "Examples");
+    // The User writes in the example: that comes back too.
+    const client = await connectToMind(core, mindId);
+    appendParagraph(client, "Our note on the numbers below.");
+    await client.settled();
+    await vi.waitFor(
+      async () => {
+        const checks = citationsOf(await exampleMind(core, mindId)).map((each) => each.check);
+        expect(checks).toEqual(["found", "found"]);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    const documents = await core.listDocuments({ linkedFolderId: made.linkedFolderId });
+    expect(documents).toHaveLength(2);
+
+    await core.removeExamples();
+    expect((await core.listDeleted()).map((item) => item.id)).toEqual([mindId]);
+    expect(await core.listMinds()).toEqual([]);
+    await expect(access(folder)).rejects.toThrow();
+
+    const back = await core.restoreExamples();
+    expect(back).toMatchObject({
+      mindId,
+      linkedFolderId: made.linkedFolderId,
+      answerId: made.answerId,
+    });
+    // Nothing from it waits in Recently deleted, and it is the same Mind, not a copy.
+    expect(await core.listDeleted()).toEqual([]);
+    expect((await core.listMinds()).map((mind) => mind.id)).toEqual([mindId]);
+    expect((await core.listLinkedFolders()).map((linked) => linked.id)).toEqual([
+      made.linkedFolderId,
+    ]);
+    expect((await readdir(folder)).sort()).toEqual([
+      "LICENSE",
+      "Northwind Retail · Q3 2026 results.pdf",
+      "Northwind Retail · Senior facilities agreement (excerpt).pdf",
+    ]);
+    // Its Documents are the documents they were, so its Citations still open them.
+    await vi.waitFor(async () => {
+      expect(
+        (await core.listDocuments({ linkedFolderId: made.linkedFolderId })).map((each) => each.id),
+      ).toEqual(documents.map((each) => each.id));
+    });
+    const read = await exampleMind(core, mindId);
+    expect(read.textContent).toContain("Our note on the numbers below.");
+    const citations = citationsOf(read);
+    expect(citations.map((each) => each.check)).toEqual(["found", "found"]);
+    expect(new Set(citations.map((each) => each.documentId))).toEqual(
+      new Set(documents.map((each) => each.id)),
+    );
+  });
+
+  test("Undo after the removed Mind was also deleted for good says so rather than bringing back copies (#1292)", async () => {
+    const { core } = await startWithExamples();
+    const made = await core.createExamples();
+    await core.removeExamples();
+    await core.deletePermanently([{ kind: "mind", id: made.mindId as string }]);
+
+    await expect(core.restoreExamples()).rejects.toThrow(/deleted permanently/);
+    expect(await core.listMinds()).toEqual([]);
+    expect(await core.listLinkedFolders()).toEqual([]);
+  });
+
   test("deleting the example Mind on its own leaves its Linked folder marked, and making them again starts afresh", async () => {
     const { core } = await startWithExamples();
     const made = await core.createExamples();

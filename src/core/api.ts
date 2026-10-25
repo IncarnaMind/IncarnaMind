@@ -9168,6 +9168,12 @@ export interface CoreApi {
   createExamples(group?: ExampleGroup): Promise<Examples>;
   /** Deletes the example Mind, and unlinks the example Documents and deletes their copies. */
   removeExamples(group?: ExampleGroup): Promise<void>;
+  /**
+   * Brings back an example removed in this session, as Undo does: the same Mind
+   * from Recently deleted, and its Documents as the same Documents with their
+   * files copied again, so its Citations still open them. The credit paper by default.
+   */
+  restoreExamples(group?: ExampleGroup): Promise<Examples>;
   /** Shows a Linked folder as a tree of Folders or as a flat list. Returns it. */
   setLinkedFolderLayout(linkedFolderId: string, layout: LinkedFolderLayout): Promise<LinkedFolder>;
   /**
@@ -10656,6 +10662,7 @@ const methods: Record<CoreApiMethod, true> = {
   offerExamples: true,
   createExamples: true,
   removeExamples: true,
+  restoreExamples: true,
   editConnector: true,
   setConnectorEnabled: true,
   restartConnector: true,

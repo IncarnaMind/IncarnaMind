@@ -1234,7 +1234,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           name: (t) => t("undo.name.showExamples"),
           undo: () => core.removeExamples(),
           redo: async () => {
-            await core.createExamples();
+            await core.restoreExamples();
           },
         });
       }),
@@ -1264,7 +1264,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           said: (t) => t("undo.examplesRemoved"),
           name: (t) => t("undo.name.removeExamples"),
           undo: async () => {
-            for (const group of groups) await core.createExamples(group);
+            // The same Minds and Documents, not copies (#1292).
+            for (const group of groups) await core.restoreExamples(group);
             get().updateGettingStarted({ hidden });
           },
           redo: remove,

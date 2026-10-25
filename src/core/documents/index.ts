@@ -2532,6 +2532,8 @@ export function createDocuments(options: DocumentsOptions) {
         if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id);
         if (row.status === "waiting-for-model") model.ensure();
       }
+      // A Document back from an unlinked Linked folder lost its vectors with it: they are embedded again (#1292).
+      for (const id of embedWithCurrentModel(true)) if (!embedding.isEmbedding(id)) announce(id);
       for (const linkedFolderId of linkedFolders) library.documentsChanged(linkedFolderId);
       const copies = db
         .all<{ path: string; relative_path: string }>(
