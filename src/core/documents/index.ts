@@ -290,14 +290,8 @@ function taggingOf(status: string, stored: string): TaggingState {
   return "pending";
 }
 
-/**
- * Whether the Document is shown as failed, with its failure and Retry: its
- * processing failed with no version to keep, or the latest version read
- * failed while the last good one stays indexed (stored "ready", with the
- * failure recorded; see `record`).
- */
 const failedNow = (row: Pick<DocumentRow, "status" | "failure_reason">) =>
-  row.status === "failed" || (row.status === "ready" && row.failure_reason !== null);
+  row.status === "failed" || row.failure_reason !== null;
 
 /** `searchPassages` options, checked and with their defaults. */
 function parseSearchOptions(options: unknown): {
@@ -1491,7 +1485,7 @@ export function createDocuments(options: DocumentsOptions) {
       `SELECT id FROM documents
        WHERE deleted_at IS NULL AND file_status = 'available'
          AND status NOT IN ('queued', 'extracting')
-         AND (failure_reason = 'pages-unread' OR (kind = 'web' AND EXISTS (
+         AND (failure_reason IN ('pages-unread', 'forms-unread') OR (kind = 'web' AND EXISTS (
            SELECT 1 FROM document_pages dp, json_each(dp.label, '$.figures') figure
            WHERE dp.document_id = documents.id AND dp.content_hash = documents.content_hash
              AND dp.deleted_at IS NULL AND json_extract(figure.value, '$.unread') = 1)))

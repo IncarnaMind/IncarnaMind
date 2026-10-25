@@ -503,22 +503,6 @@ async function readScannedPages(
         // The core answers no read for a job it has told to stop, so a read asked for now would wait for ever.
         reading.signal.throwIfAborted();
         unit = scannedUnit(number, await reading.read(number, picture), picture, reading.reader);
-        const form = fields.get(number);
-        if (form) {
-          const offset = unit.text.length + 1;
-          unit = {
-            ...unit,
-            text: `${unit.text}\n${form.text}`,
-            anchors: [
-              ...(unit.anchors ?? []),
-              ...form.anchors.map((anchor) => ({
-                ...anchor,
-                start: anchor.start + offset,
-                end: anchor.end + offset,
-              })),
-            ],
-          };
-        }
       } catch (error) {
         reading.signal.throwIfAborted();
         message ??= error instanceof Error ? error.message : String(error);
@@ -527,7 +511,8 @@ async function readScannedPages(
         page.cleanup();
       }
     }
-    if (!unit) {
+    if (unit) unit = withFormFields(unit, fields.get(number));
+    else {
       unread.push(number);
       unit = { ...layer, label: { scan: { reader: reading.reader, unread: true } } };
     }
@@ -535,6 +520,23 @@ async function readScannedPages(
     reading.progress(index + 1, scanned.length, unit);
   }
   return unread.length > 0 ? { pages: unread, message: message ?? "" } : null;
+}
+
+function withFormFields(unit: TextUnit, form: { text: string; anchors: Anchor[] } | undefined) {
+  if (!form || unit.anchors?.some((anchor) => anchor.target.startsWith("form"))) return unit;
+  const offset = unit.text.length + 1;
+  return {
+    ...unit,
+    text: `${unit.text}\n${form.text}`,
+    anchors: [
+      ...(unit.anchors ?? []),
+      ...form.anchors.map((anchor) => ({
+        ...anchor,
+        start: anchor.start + offset,
+        end: anchor.end + offset,
+      })),
+    ],
+  };
 }
 
 function scannedFormFields(page: PDFPageProxy, fields: readonly TextItem[]) {

@@ -221,40 +221,53 @@ test("printed labels, inherited values, empty fields and multi-select display va
   expect(text).toContain("Release option: [x]");
 });
 
-test("an unreadable field is a partial-reading problem, and readable fields stay searchable", async () => {
-  const core = startCore(await createTempDataFolder());
-  const page = inspectionPage();
-  const { document } = await importPdf(
-    core,
-    buildPdf([
-      {
-        ...page,
-        fields: [
-          ...(page.fields ?? []),
-          {
-            dictionary:
-              "/FT /Sig /T (signature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
-            appearance: pdfAppearance("Signed by inspector"),
-          },
-        ],
-      },
-    ]),
-  );
-  expect(document).toMatchObject({ status: "failed", failure: { reason: "forms-unread" } });
-  expect(document.failure?.message).toContain("Print to PDF");
-  expect(await core.listUnreadFiles()).toContainEqual(
-    expect.objectContaining({ documentId: document.id, reason: "pages" }),
-  );
-  const text = (await core.readDocumentText(document.id)).pages[0]?.text ?? "";
-  expect(text).toContain("Approval signature: [?]");
-  expect(text).not.toContain("Signed by inspector");
-  expect(text).toContain("Batch identifier: BIRCH-42");
-  expect(
-    (await core.searchPassages("BIRCH-42", { mode: "keyword" })).some(
-      (passage) => passage.documentId === document.id,
-    ),
-  ).toBe(true);
-});
+test.each(["ready", "embedding", "waiting-for-model"])(
+  "an unreadable field stays a partial-reading problem while %s",
+  async (status) => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const page = inspectionPage();
+    const { document } = await importPdf(
+      core,
+      buildPdf([
+        {
+          ...page,
+          fields: [
+            ...(page.fields ?? []),
+            {
+              dictionary:
+                "/FT /Sig /T (signature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
+              appearance: pdfAppearance("Signed by inspector"),
+            },
+          ],
+        },
+      ]),
+    );
+    const stored = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      stored.run("UPDATE documents SET status = ? WHERE id = ?", [status, document.id]);
+    } finally {
+      stored.close();
+    }
+    expect((await core.listDocuments()).find((row) => row.id === document.id)).toMatchObject({
+      status: "failed",
+      failure: { reason: "forms-unread" },
+    });
+    expect(document.failure?.message).toContain("Print to PDF");
+    expect(await core.listUnreadFiles()).toContainEqual(
+      expect.objectContaining({ documentId: document.id, reason: "pages" }),
+    );
+    const text = (await core.readDocumentText(document.id)).pages[0]?.text ?? "";
+    expect(text).toContain("Approval signature: [?]");
+    expect(text).not.toContain("Signed by inspector");
+    expect(text).toContain("Batch identifier: BIRCH-42");
+    expect(
+      (await core.searchPassages("BIRCH-42", { mode: "keyword" })).some(
+        (passage) => passage.documentId === document.id,
+      ),
+    ).toBe(true);
+  },
+);
 
 test("hidden and password values do not enter searchable text", async () => {
   const core = startCore(await createTempDataFolder());
@@ -300,8 +313,9 @@ test("a PDF with XFA data is marked partially read even when its fallback page h
   );
 });
 
-test("reading a scanned template preserves the widgets above it and their highlight anchors", async () => {
-  const core = startCore(await createTempDataFolder(), {
+test("reading a scanned template preserves widgets and anchors, including kept pages at startup", async () => {
+  const dataDir = await createTempDataFolder();
+  const core = startCore(dataDir, {
     textRecognitionModelSource: NO_MODEL_FILES,
     textRecognizer: createFakeTextRecognizer({
       script: {
@@ -331,6 +345,33 @@ test("reading a scanned template preserves the widgets above it and their highli
       quote: "Unit mass (g): 125.50",
     }),
   ).toMatchObject({ check: "found" });
+  if (!page || !field) throw new Error("The form has no stored anchors.");
+  let current = core;
+  for (const removeFields of [true, false]) {
+    await current.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE documents SET processing_version = 11 WHERE id = ?", [document.id]);
+      if (removeFields)
+        db.run("UPDATE document_pages SET text = ?, anchors = ? WHERE document_id = ?", [
+          page.text.slice(0, field.start - 1),
+          JSON.stringify(page.anchors.filter((anchor) => !anchor.target.startsWith("form"))),
+          document.id,
+        ]);
+    } finally {
+      db.close();
+    }
+    current = startCore(dataDir, {
+      textRecognitionModelSource: NO_MODEL_FILES,
+      textRecognizer: createFakeTextRecognizer({
+        script: { pages: { 1: { fail: "The kept scan must not be read again." } } },
+      }),
+    });
+    const [read] = await waitForProcessing(current, [document.id]);
+    expect(read?.status).toBe("ready");
+    const text = (await current.readScannedText(document.id)).pages[0]?.text ?? "";
+    expect(text.split("Batch identifier: BIRCH-42")).toHaveLength(2);
+  }
 });
 
 test("older ready PDFs are re-read at startup so existing Documents gain their filled values", async () => {

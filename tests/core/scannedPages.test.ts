@@ -362,47 +362,68 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect((await core.getTextRecognitionModel()).error?.kind).toBe("network");
   });
 
-  test("once the model downloads after a failure, the pages that waited for it are read by themselves", async () => {
-    const dataDir = await createTempDataFolder();
-    const { recognizer, read } = countingRecognizer({
-      pages: { 1: { lines: linesOf("en-clean") } },
-    });
-    // A file the model's source serves once it is back: its bytes, size and hash pinned.
-    const bytes = Buffer.from("not really a model");
-    let online = false;
-    const server = createServer((_request, response) => {
-      if (!online) {
-        response.writeHead(503).end();
-        return;
-      }
-      response.writeHead(200, { "content-length": bytes.length }).end(bytes);
-    });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
-    const { port } = server.address() as AddressInfo;
-    const core = startCore(dataDir, {
-      textRecognizer: recognizer,
-      textRecognitionModelSource: {
-        baseUrl: `http://127.0.0.1:${port}/`,
-        files: [{ path: "model.onnx", size: bytes.length, sha256: sha256(bytes) }],
-      },
-    });
-    const document = await addPdf(
-      core,
-      "Waiting scan.pdf",
-      buildPdf([{ scan: picture("en-clean") }]),
-    );
-    expect(document.failure?.reason).toBe("pages-unread");
-    expect(read).toEqual([]);
+  test.each([false, true])(
+    "once the model downloads, unread pages recover automatically (unread forms: %s)",
+    async (forms) => {
+      const dataDir = await createTempDataFolder();
+      const { recognizer, read } = countingRecognizer({
+        pages: { 1: { lines: linesOf("en-clean") } },
+      });
+      // A file the model's source serves once it is back: its bytes, size and hash pinned.
+      const bytes = Buffer.from("not really a model");
+      let online = false;
+      const server = createServer((_request, response) => {
+        if (!online) {
+          response.writeHead(503).end();
+          return;
+        }
+        response.writeHead(200, { "content-length": bytes.length }).end(bytes);
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
+      const { port } = server.address() as AddressInfo;
+      const core = startCore(dataDir, {
+        textRecognizer: recognizer,
+        textRecognitionModelSource: {
+          baseUrl: `http://127.0.0.1:${port}/`,
+          files: [{ path: "model.onnx", size: bytes.length, sha256: sha256(bytes) }],
+        },
+      });
+      const document = await addPdf(
+        core,
+        "Waiting scan.pdf",
+        buildPdf([
+          {
+            scan: picture("en-clean"),
+            fields: forms
+              ? [
+                  {
+                    dictionary:
+                      "/FT /Sig /T (signature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
+                    appearance: "q Q",
+                  },
+                ]
+              : undefined,
+          },
+        ]),
+      );
+      expect(document.failure?.reason).toBe(forms ? "forms-unread" : "pages-unread");
+      expect(read).toEqual([]);
 
-    online = true;
-    await core.downloadTextRecognitionModel();
-    const [ready] = await waitForDocuments(core, (documents) =>
-      expect(documents[0]).toMatchObject({ status: "ready", failure: null }),
-    );
-    expect(ready?.id).toBe(document.id);
-    expect(read).toEqual([1]);
-  });
+      online = true;
+      await core.downloadTextRecognitionModel();
+      const [ready] = await waitForDocuments(core, (documents) => {
+        expect(read).toEqual([1]);
+        expect(documents[0]).toMatchObject(
+          forms
+            ? { status: "failed", failure: { reason: "forms-unread" } }
+            : { status: "ready", failure: null },
+        );
+      });
+      expect(ready?.id).toBe(document.id);
+      expect(read).toEqual([1]);
+    },
+  );
 
   test("re-reading after a reader's upgrade keeps the pages a Citation quotes as they were read", async () => {
     const quote = "Either party may terminate this Agreement for convenience";
