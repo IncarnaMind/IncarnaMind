@@ -8,13 +8,14 @@ import { useFolderContents } from "../folderContents";
 import { folderTarget, useDraggedOutOfFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
+import { DAY_ONE_DOCUMENTS } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
 import { sorted } from "../sort";
 import { type SortScope, sortOf, useSort } from "../sortChoices";
 import { documentFields, mindFields } from "../sortFields";
-import { allExamples, useAppStore } from "../store";
+import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { foldKeys, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { ExamplesMenu } from "./ExamplesMenu";
@@ -132,11 +133,14 @@ export function LibraryFolders({
   documents,
   renderDocument,
   quiet = false,
+  dayOne = false,
 }: {
   /** The Documents to show, already filtered by Tag. */
   documents: readonly Document[];
   renderDocument(document: Document, depth: number): ReactNode;
   quiet?: boolean;
+  /** The sidebar's one flat list of the User's own Documents, before any Folder (#1942). */
+  dayOne?: boolean;
 }) {
   const t = useT();
   const openMindFolder = useAppStore(
@@ -199,6 +203,8 @@ export function LibraryFolders({
           documents={looseDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
+          dayOne={dayOne}
+          hasFolders={orderedGroups.length > 0}
         />
       )}
     </div>
@@ -422,11 +428,15 @@ function NotInAFolder({
   documents,
   renderDocument,
   quiet,
+  dayOne,
+  hasFolders,
 }: {
   minds: readonly Mind[];
   documents: readonly Document[];
   renderDocument(document: Document, depth: number): ReactNode;
   quiet: boolean;
+  dayOne: boolean;
+  hasFolders: boolean;
 }) {
   const t = useT();
   const drop = useDropTarget("sidebar-folder:none", folderTarget(null));
@@ -438,14 +448,24 @@ function NotInAFolder({
       minds.every((mind) => examples.some((each) => each.mindId === mind.id))
     );
   });
-  const title = examplesOnly ? t("sidebar.examples") : t("library.unsorted");
+  const ownCount = useAppStore(
+    (state) => documents.filter((each) => isOwnDocument(each, allExamples(state))).length,
+  );
+  const title = examplesOnly
+    ? t("sidebar.examples")
+    : dayOne
+      ? t("sidebar.documents")
+      : t("library.unsorted");
+  /** A Folder, offered where one helps: the User's 8th loose Document and no Folder yet. */
+  const offerFolder = !examplesOnly && !hasFolders && ownCount >= DAY_ONE_DOCUMENTS;
   return (
     <div data-testid="not-in-a-folder" data-count={documents.length} data-minds={minds.length}>
       <SidebarSection
         testId="not-in-a-folder-section"
         title={title}
         headingTestId="not-in-a-folder-title"
-        tooltip={examplesOnly ? undefined : t("sidebar.notInFolder.hint")}
+        count={dayOne && !examplesOnly && ownCount > 0 ? ownCount : undefined}
+        tooltip={examplesOnly || dayOne ? undefined : t("sidebar.notInFolder.hint")}
         actions={examplesOnly ? <ExamplesMenu /> : undefined}
         drop={drop}
       >
@@ -457,6 +477,24 @@ function NotInAFolder({
           documents={documents}
           renderDocument={renderDocument}
         />
+        {offerFolder && (
+          <ul role="none">
+            <li role="none" className="flex h-7 items-center">
+              <button
+                type="button"
+                data-testid="offer-folder"
+                title={t("sidebar.newFolderKeys", { keys: shortcutLabel("folder.new") })}
+                onClick={() =>
+                  void commands.run("folder.new").catch(useAppStore.getState().reportError)
+                }
+                className="flex min-w-0 items-center gap-2 rounded-sm pl-2 text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
+              >
+                <PlusLineIcon className="size-3.5 shrink-0" />
+                <span className="truncate">{t("menu.newFolder")}</span>
+              </button>
+            </li>
+          </ul>
+        )}
       </SidebarSection>
     </div>
   );

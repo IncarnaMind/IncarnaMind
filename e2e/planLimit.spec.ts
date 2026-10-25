@@ -10,6 +10,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  makeTagOnDocument,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -260,6 +261,8 @@ test("tagging that meets the plan's limit waits: one line says until when, with 
     // The plan's limit resets a little later: long enough to read the line.
     const resets = usedUp(openai, LUNA, 20 / 3600);
     await addDocuments(window, await invoices(sources, ["Invoice 71", "Invoice 72"]));
+    // A Tag of the User's own: only then does the footer name Tags (#1942).
+    await makeTagOnDocument(window, "Invoice 71");
     await expect(listed(window, "Invoice 71")).toHaveAttribute(
       "data-tagging",
       "waiting-for-provider",
@@ -342,6 +345,7 @@ test("while Organize files new Documents on the plan, its limit has the same one
 
     const resets = usedUp(openai, LUNA, 15 / 3600);
     await addDocuments(window, await invoices(sources, ["Invoice 81"]));
+    await makeTagOnDocument(window, "Invoice 81");
     await expect(listed(window, "Invoice 81")).toHaveAttribute(
       "data-tagging",
       "waiting-for-provider",
@@ -402,6 +406,7 @@ test("an Organize the User runs on the plan, while Automatic tagging goes to ano
       await core.setTaggingWithAi(null, false);
     }, LUNA);
     await addDocuments(window, await invoices(sources, ["Invoice 91"]));
+    await makeTagOnDocument(window, "Invoice 91");
     await expect(listed(window, "Invoice 91")).toBeVisible();
 
     const resets = usedUp(openai, LUNA, 1);

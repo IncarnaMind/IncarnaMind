@@ -8,6 +8,7 @@ import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
+import { useDayOne, useOwnDocuments, useOwnLinkedFolders } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -19,7 +20,7 @@ import {
 } from "../selection";
 import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
 import { useSortMenu } from "../sortMenu";
-import { allExamples, isOwnDocument, useAppStore } from "../store";
+import { useAppStore } from "../store";
 import { chipsOf, tagIndex } from "../tagEditing";
 import { isMoveToKey, moveThroughRows, TREE_ROW, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
@@ -68,8 +69,10 @@ const NO_DOCUMENTS: readonly Document[] = [];
  * the sections, each shown once it has something in it: the Folders, each
  * with its Minds and Documents, and Not in a Folder (see `LibraryFolders`),
  * the Linked folders (see `LinkedFolderRows`), and the Tags in
- * use (see `SidebarTags`). On a first open with nothing of the User's own,
- * the Library waits for their first Document. Each Document is one row: its
+ * use (see `SidebarTags`). On a first open, and on day one while the User has
+ * few Documents, no Folder and no Linked folder of their own, the Library, the
+ * Folders and the Tags wait: those Documents are one flat list called Documents
+ * (#1942). Each Document is one row: its
  * name, its Tags' colours (see `TagMarks`) and, while it's processed, if it
  * failed, or if its file is missing or can't be reached, its status at the
  * end. Its Tags are in its Tags menu, and the Tags dialog; its "More" menu
@@ -81,15 +84,13 @@ const NO_DOCUMENTS: readonly Document[] = [];
 export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
-  const documentCount = useAppStore((state) => state.documents.length);
+  const ownDocuments = useOwnDocuments();
+  const dayOne = useDayOne();
   const firstOpen = useFirstOpen();
-  const hasOwnDocuments = useAppStore((state) =>
-    state.documents.some((each) => isOwnDocument(each, allExamples(state))),
-  );
-  const quiet = firstOpen && !hasOwnDocuments;
+  const quiet = firstOpen && ownDocuments.length === 0;
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
   const documents = useAppStore((state) => state.documents);
-  const hasLinkedFolders = useAppStore((state) => state.linkedFolders.length > 0);
+  const ownLinkedFolders = useOwnLinkedFolders();
   const addDocuments = useAppStore((state) => state.addDocuments);
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
@@ -151,7 +152,7 @@ export function DocumentsSection() {
       />
       <SidebarHome />
       <SidebarSearch />
-      {!quiet && (
+      {!quiet && !dayOne && (
         <div className={rowClass(libraryOpen)}>
           <button
             type="button"
@@ -171,7 +172,7 @@ export function DocumentsSection() {
               data-testid="library-row-count"
               className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
             >
-              {formatCount(documentCount, language)}
+              {formatCount(ownDocuments.length, language)}
             </span>
           </button>
           <div className={rowActionsClass}>
@@ -197,8 +198,9 @@ export function DocumentsSection() {
           documents={quiet ? NO_DOCUMENTS : documents}
           renderDocument={renderDocument}
           quiet={quiet}
+          dayOne={dayOne}
         />
-        {!quiet && hasLinkedFolders && (
+        {!quiet && ownLinkedFolders.length > 0 && (
           <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
             <LinkedFolderRows />
           </SidebarSection>

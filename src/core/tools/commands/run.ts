@@ -40,6 +40,7 @@ export type CommandsCore = Pick<
   | "listTags"
   | "renameDocument"
   | "renameMind"
+  | "isExampleDocument"
   | "moveToFolder"
   | "restoreAssignment"
   | "createLibraryGroup"
@@ -335,6 +336,11 @@ function moveTo(command: "document.moveTo" | "mind.moveTo"): Checker {
     const name = needs(input.folder, "error.commands.noFolderName");
     const documents = kind === "document" ? await documentsOf(core, input.ids) : [];
     const minds = kind === "mind" ? await mindsOf(core, input.ids) : [];
+    // The examples stay where they are: their Documents never join the User's Folders (#1942).
+    for (const document of documents) {
+      if (await core.isExampleDocument(document.id))
+        throw new InvalidInputError({ key: "error.commands.exampleDocument" });
+    }
     const moving = {
       documentIds: documents.map((each) => each.id),
       mindIds: minds.map((each) => each.id),

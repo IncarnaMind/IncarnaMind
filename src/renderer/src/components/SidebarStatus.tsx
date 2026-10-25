@@ -12,6 +12,7 @@ import { saidInLine } from "../lineNames";
 import { useCapturing, useMeetings } from "../meetings";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
+import { ownsATag } from "../ownDocuments";
 import { rerankingModelStatus } from "../rerankStatus";
 import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
 import { useSettled } from "../settling";
@@ -380,6 +381,20 @@ function useStatuses(): Status[] {
           }
         }
       }
+      // Before a Document of the User's own carries a Tag, nothing names Tags and no model is
+      // asked for one (#1942): the examples' Tags, if any, aren't the User's.
+      if (!ownsATag(state)) {
+        tagging = 0;
+        waitingForTagger = 0;
+        waitingForPlan = 0;
+        organizeWaitsForPlan = false;
+        planResetsAt = null;
+        rateLimited = 0;
+        keyRefused = 0;
+        rateLimitEnds = null;
+        failedTagging = 0;
+        unreached = 0;
+      }
       return {
         processing,
         scansReading,
@@ -459,10 +474,12 @@ function useStatuses(): Status[] {
   );
   const stoppedPlaces = useAppStore(
     useShallow((state) =>
-      stoppedDocumentPlaces(
-        state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
-        state.library,
-      ),
+      ownsATag(state)
+        ? stoppedDocumentPlaces(
+            state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
+            state.library,
+          )
+        : [],
     ),
   );
   const service = taggingService?.service.name;

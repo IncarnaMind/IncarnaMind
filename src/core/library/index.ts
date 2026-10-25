@@ -222,6 +222,12 @@ export function createLibrary(options: {
   pageImages(id: string, contentHash: string, signal: AbortSignal): Promise<DocumentPageImage[]>;
   /** The pause a rate limit puts on all Tagging (see ../tags/rateLimit). */
   rateLimit: Pick<RateLimitPause, "pausedUntil" | "pause" | "succeeded" | "refusal" | "refuse">;
+  /**
+   * Whether a Document belongs to the examples', which Organize leaves where
+   * they are: never filed into the User's Folders, never given Tags of its own
+   * (#1942). Asked at each use, since the examples are made after the Library.
+   */
+  isExampleDocument?(id: string): boolean;
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -661,9 +667,12 @@ export function createLibrary(options: {
 
   function resume(): void {
     if (lifetime.signal.aborted) return;
-    const waiting = db.all<{ document_id: string }>(
-      "SELECT g.document_id FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL AND g.status IN ('pending', 'waiting')",
-    );
+    const waiting = db
+      .all<{ document_id: string }>(
+        "SELECT g.document_id FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL AND g.status IN ('pending', 'waiting')",
+      )
+      // An assignment an earlier version made for an example's Document isn't worked on again.
+      .filter((row) => !options.isExampleDocument?.(row.document_id));
     // Existing batches run text first, then PDFs needing images, avoiding model churn.
     const ordered =
       organizeModelOf(getSettings())?.kind === "auto"
@@ -1035,12 +1044,13 @@ export function createLibrary(options: {
         (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
       )
         throw new InvalidInputError("Choose valid Documents.");
-      const ids =
+      const ids = (
         input === undefined
           ? db
               .all<{ id: string }>("SELECT id FROM documents WHERE deleted_at IS NULL")
               .map((row) => row.id)
-          : [...new Set(input as string[])];
+          : [...new Set(input as string[])]
+      ).filter((id) => !options.isExampleDocument?.(id));
       const docs = ids.map(document);
       for (const doc of docs) asked.add(doc.id);
       db.transaction(() => {
@@ -1175,6 +1185,7 @@ export function createLibrary(options: {
     },
     documentChanged(id: string) {
       if (lifetime.signal.aborted) return;
+      if (options.isExampleDocument?.(id)) return;
       const doc = document(id);
       const existing = assignment(id);
       if (!hasContent(doc)) {

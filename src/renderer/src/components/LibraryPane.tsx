@@ -31,6 +31,7 @@ import {
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
+import { useLibraryDocuments } from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
@@ -80,7 +81,7 @@ const FORMS = ["all", "starters"];
 export function LibraryPane() {
   const t = useT();
   const language = useLanguage();
-  const documents = useAppStore((state) => state.documents);
+  const documents = useLibraryDocuments();
   const snapshot = useAppStore((state) => state.library);
   const tags = useAppStore((state) => state.tags);
   const tagFilter = useAppStore(useShallow((state) => state.tagFilter));

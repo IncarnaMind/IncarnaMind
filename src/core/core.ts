@@ -2390,6 +2390,8 @@ export function createCore(adapters: CoreAdapters): Core {
     timers: paceTimers,
   });
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
+  // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
+  let isExampleDocument: (documentId: string) => boolean = () => false;
   const library = createLibrary({
     db,
     tags,
@@ -2397,6 +2399,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     settings,
     background,
+    isExampleDocument: (documentId) => isExampleDocument(documentId),
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
@@ -3029,6 +3032,7 @@ export function createCore(adapters: CoreAdapters): Core {
     changed: (value) => events.emit("examples.changed", value),
   });
   events.on("document.status", () => examples.documentChanged());
+  isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
   // A new version of a Document in a Folder: its Minds' cited claims are checked for contradictions (#112).
   checks.startWatching();
   events.on("document.status", (document) => checks.documentChanged(document));
@@ -3584,7 +3588,19 @@ export function createCore(adapters: CoreAdapters): Core {
         return text ? [{ mindId: mind.id, text }] : [];
       });
     },
-    searchDocumentText: async (query, options) => documents.searchText(query, options),
+    // The examples are found in the example, never among the User's own Documents (#1942). A
+    // search of theirs that filled its places is asked again for theirs back, so the User's are
+    // as many as asked for.
+    searchDocumentText: async (query, options) => {
+      const found = documents.searchText(query, options);
+      const kept = found.filter((each) => !isExampleDocument(each.documentId));
+      if (kept.length === found.length) return kept;
+      const wanted = found.length - kept.length;
+      return documents
+        .searchText(query, { ...options, limit: found.length + wanted })
+        .filter((each) => !isExampleDocument(each.documentId))
+        .slice(0, found.length);
+    },
     renameConversation: async (conversationId, title) => {
       const conversation = conversations.rename(conversationId, title);
       conversationsChanged();
@@ -3801,6 +3817,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listUnmatchedReferences: async () => referenceImport.unmatched(),
     addReferenceFile: (recordId, path) => referenceImport.addFile(recordId, path),
     getExamples: async (group) => examples.status(group),
+    isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
     createExamples: async (group) => examples.create(group),
     removeExamples: async (group) => examples.remove(group),
