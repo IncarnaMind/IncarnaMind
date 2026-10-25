@@ -23,13 +23,14 @@ import { useGoesBy } from "../UndoLine";
 const COPIED_MS = 1500;
 
 /**
- * Under an Answer in the assistant (#201, #391; DESIGN.md, Answer): only
- * "Copy · Add to note ▾ · New Mind" (#1559), after "Stopped" for one stopped; on hover or focus,
+ * Under an Answer in the assistant (#201, #391; DESIGN.md, Answer): "Write as a note"
+ * first (#1940), which makes a note of the Answer and opens it beside, then
+ * "Add to note ▾" and Copy (#1559), after "Stopped" for one stopped; on hover or focus,
  * and always on the newest. Its model, scope and searches are in its steps.
  * While it is written, Stop is the composer's and the wait line's, not here.
  * Once added, "Added to “{Mind}” · Undo" (⌘Z too), while that can be taken
- * back. Tab reaches each by its name. In an empty Mind, or under a long Answer with
- * Citations, Add to note comes first and names its Mind.
+ * back. Tab reaches each by its name. In an empty note of the User's, or under a
+ * long Answer with Citations, Add to note names its note.
  */
 export function AnswerActions({
   answer,
@@ -39,7 +40,7 @@ export function AnswerActions({
   mindEmpty,
   onAdd,
   onPick,
-  onNewMind,
+  onWriteNote,
 }: {
   answer: ConversationAnswer;
   streaming: boolean;
@@ -51,8 +52,8 @@ export function AnswerActions({
   mindEmpty: boolean;
   onAdd(): void;
   onPick(anchor: HTMLElement): void;
-  /** The Answer as it is, in the empty Mind in front, else in a new Mind (`AddTarget` "new"). */
-  onNewMind(): void;
+  /** The Answer as it is, in the empty Mind in front, else in a new Mind it makes (`AddTarget` "new"). */
+  onWriteNote(): void;
 }) {
   const t = useT();
   const pick = useRef<HTMLButtonElement>(null);
@@ -181,18 +182,18 @@ export function AnswerActions({
       </span>
     </button>
   );
-  const newMindButton = mindEmpty ? null : (
+  const writeButton = (
     <button
       type="button"
-      data-testid="answer-new-mind"
-      aria-label={t("answer.newMind.label")}
-      title={t("answer.newMind.label")}
+      data-testid="answer-write-note"
+      aria-label={t("answer.writeNote.label")}
+      title={t("answer.writeNote.label")}
       onMouseDown={(event) => event.preventDefault()}
-      onClick={onNewMind}
-      className="assistant-answer-action assistant-answer-action--collapses"
+      onClick={onWriteNote}
+      className="assistant-answer-action"
     >
       <MindLineIcon className="size-3.5" />
-      <span className="assistant-answer-action-label">{t("answer.newMind")}</span>
+      <span className="assistant-answer-action-label">{t("answer.writeNote")}</span>
     </button>
   );
   const addButtons = (
@@ -244,18 +245,11 @@ export function AnswerActions({
             {t("answer.status.stopped")}
           </span>
         )}
-        {canKeep && named && (
+        {canKeep && (
           <>
+            {writeButton}
             {addButtons}
             {copyButton}
-            {newMindButton}
-          </>
-        )}
-        {canKeep && !named && (
-          <>
-            {copyButton}
-            {addButtons}
-            {newMindButton}
           </>
         )}
       </div>
