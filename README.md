@@ -107,6 +107,7 @@ You don't need an account. Your Minds and the search index stay in one data fold
 <summary><b>Questions</b></summary>
 
 - **What does "Quote found" mean?** That the quoted words are in the place the citation names, not that they prove your sentence, which is why the page is one click away. "Can't check" means there's no text to compare against, as on a scanned page.
+- **Can a check miss something?** Yes: a check can miss a change of obligation, such as “should” where the Document says “may”.
 - **Can I use it on client or confidential documents?** Your files stay on your computer, and only the AI model you chose and the few services you allow receive anything. Before a client matter, read the [client data statement](docs/client-data-statement.md) and look at **Settings → Privacy**, which lists every service that is on.
 - **Is it free?** Yes: it's open source under the Apache 2.0 licence. The AI model is billed by its provider: use the ChatGPT, Claude or Copilot plan you already pay for, or your own API key and pay for what you use.
 - **Do I need an API key?** Not if you have ChatGPT Plus or Pro: choose Continue with ChatGPT and ask on your plan. Or paste a key from OpenAI, Anthropic, Google, DeepSeek, Qwen, SiliconFlow or OpenRouter, and more in Settings, such as Kimi, GLM, Mistral, xAI or any OpenAI-compatible server.

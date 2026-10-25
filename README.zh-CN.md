@@ -107,6 +107,7 @@ Windows 版将通过 SignPath Foundation 为开源项目提供的免费签名服
 <summary><b>常见问题</b></summary>
 
 - **“找到引文”是什么意思？** 意思是这段文字确实在引用所指的位置，但不代表它能证明你写的那句话，所以原文永远只差一次点击。“无法核对”表示那里没有可以比对的文字，比如扫描页。
+- **核对会漏掉什么吗？** 会：可能漏掉义务的变化，比如把“可以”写成“应当”。
 - **能用在客户的或保密的文件上吗？** 你的文件留在你的电脑上，只有你选的 AI 模型和你允许的少数服务会收到内容。处理客户事务之前，请看[客户数据声明](docs/client-data-statement.zh-CN.md)，并查看**设置 → 隐私**，那里列出了当前开着的每一项服务。
 - **要花钱吗？** 不用。IncarnaMind 开源免费（Apache 2.0 许可证）。AI 模型由它的提供商收费：用你自己的 API 密钥按用量付费，或用你已有的 ChatGPT、Claude、Copilot 订阅。
 - **一定要有 API 密钥吗？** 需要一个 AI 模型，最省事的是填一个 DeepSeek 密钥（设置里有“如何获取？”）。也可以填通义千问、硅基流动、OpenAI、Anthropic、Google、OpenRouter 的密钥；“设置”中还有更多提供商，例如 Kimi、智谱 GLM、Mistral、xAI，或任何兼容 OpenAI 接口的服务。订阅了 ChatGPT Plus 或 Pro，可以使用 ChatGPT 登录。

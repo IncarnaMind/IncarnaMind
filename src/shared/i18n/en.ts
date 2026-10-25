@@ -692,6 +692,7 @@ export const en = {
   "claim.unsupported.notFound.more": "I didn’t find this in “{scope}” or {count} more.",
   "claim.checkedIn": "Checked against “{scope}”",
   "claim.checkedIn.more": "Checked against “{scope}” and {count} more",
+  "claim.limit": "Can miss a change of obligation, such as should for may",
   "claim.unsupported.differs": "Your Documents say something different:",
   "claim.unsupported.covers.one":
     "Your Citation supports {covered}, not the parts about {uncovered}.",
