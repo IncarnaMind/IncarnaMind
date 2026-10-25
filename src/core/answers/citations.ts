@@ -72,6 +72,7 @@ import { closestWords } from "./closestWords";
 import {
   type ContextCitation,
   type ContextCitations,
+  issuedForm,
   replaceWritten,
   writtenIds,
 } from "./contextCitations";
@@ -1093,7 +1094,7 @@ export function createCitationSession(
   ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
     const named = typeof input.passage === "string" ? input.passage : "";
     const kept = ids?.get(named);
-    if (kept) return takeKept(named.trim().toUpperCase(), kept, marker);
+    if (kept) return takeKept(issuedForm(named), kept, marker);
     const quote = cleanQuote(typeof input.quote === "string" ? input.quote : "");
     // Structured output can't be told it named no Passage (see `CiteOptions`): its id read loosely,
     // else the Passage it was given that holds its quote.
@@ -1607,7 +1608,7 @@ export function createCitationSession(
      * Answer can't keep is taken out, `notKept` said in its place. An id never shows (#1800).
      */
     citeWrittenIds(markdown: string, notKept: string): string {
-      const written = writtenIds(markdown);
+      const written = writtenIds(markdown, (id) => ids !== undefined && ids.get(id) !== null);
       if (written.length === 0) return markdown;
       // A write into a Mind is read again as its input grows: a Citation counts once, however often it's read.
       for (const each of written) for (const id of each.ids) idsAsText.add(id);
@@ -1624,7 +1625,9 @@ export function createCitationSession(
       return replaceWritten(markdown, written, (each) => {
         const markers = each.ids.map(markerOf);
         const shown = markers.flatMap((marker) => (marker === null ? [] : [`[^${marker}]`]));
-        return `${shown.join("")}${markers.includes(null) ? ` ${notKept}` : ""}`;
+        // No space before full-width words: "（未能保留来源）" (docs/agents/zh-CN.md, rule 2).
+        const said = /^[\x20-\x7e]/.test(notKept) ? ` ${notKept}` : notKept;
+        return `${shown.join("")}${markers.includes(null) ? said : ""}`;
       });
     },
 

@@ -11,11 +11,16 @@ import { pageBlocks } from "../../src/shared/answerBlocks";
 import { citationState } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
 import { checkReply, isCheckRun } from "../helpers/checks";
-import { answerEnded, setUpWithDocuments } from "../helpers/citations";
+import {
+  answerEnded,
+  citingModel,
+  contextOfNextQuestion,
+  setUpWithDocuments,
+} from "../helpers/citations";
 import { sha256, waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { part, textOf, unzip } from "../helpers/docx";
 import type { MindClient } from "../helpers/mindClient";
-import { heading, note, writeMind } from "../helpers/minds";
+import { editMind, heading, note, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
@@ -65,6 +70,18 @@ async function citationOf(core: Core, document: Document, page: number, words: s
     checkReason: cited.checkReason,
   };
 }
+
+/** A Citation whose Passage is no longer in the Library. */
+const GONE = {
+  passageId: "gone",
+  documentId: "gone",
+  documentName: "Tides",
+  contentHash: "h",
+  pageFrom: 2,
+  pageTo: 2,
+  quote: "Spring tides come at full moon.",
+  check: "found",
+};
 
 const cited = (claim: string, citation: Record<string, unknown>) => {
   const block = note(claim);
@@ -202,25 +219,62 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
     expect(two.answer.citations.map(kept)).toEqual([kept(one.answer.citations[0] ?? {})]);
   });
 
-  // protects=an id the model writes as text becomes that exact Citation, and one the Answer can't keep is taken out with plain words in the Question's language, so no id shows, and the count is reported; fails_when=an id stays in the text, is matched by a name, or vanishes silently; no_claim=how often a real model does it (eval/reports counts it).
+  // protects=an id this Answer issued, written as text in square or full-width brackets, becomes that exact Citation; an issued one it can't keep is taken out with plain words in the Question's language, with no space before Chinese ones; an id it never issued stays as written; fails_when=an issued id stays in the text, a bracket it never issued is rewritten, or a source vanishes silently; no_claim=how often a real model does it (eval/reports counts it).
   test.each([
-    ["en", ASKED],
-    ["zh-CN", "把这个 Mind 整理成一份简短的报告，保留引用。"],
-  ] as const)("ids written as text are cited or said to be lost (%s)", async (language, asked) => {
-    const model = reportModel(
-      () =>
-        "The Transformer drops recurrence [Attention, p. 1 · C1]. A claim with an id it never read [Overview, p. 1 · C9].",
-      false,
-    );
+    [
+      "en",
+      ASKED,
+      "It drops recurrence [Attention, p. 1 · C1]. Later work [Overview, p. 1 · C3]. Tides [Tides, p. 2 · C4]. A cell [C9].",
+      "Tides (source couldn’t be kept). A cell [C9].",
+    ],
+    [
+      "zh-CN",
+      "把这个 Mind 整理成一份简短的报告，保留引用。",
+      "它不用循环【Attention, p. 1 · C1】。后来的工作【Overview, p. 1 · C3】。潮汐【Tides, p. 2 · C4】。表格 [C9]。",
+      "潮汐（未能保留来源）。表格 [C9]。",
+    ],
+  ] as const)(
+    "ids written as text are cited or said to be lost (%s)",
+    async (language, asked, reply, ending) => {
+      const model = reportModel(() => reply, false);
+      const { core, client, mind, documents } = await setUpWithDocuments(model, pdfs());
+      const [first, , third] = await writeReview(core, client, documents);
+      editMind(client, (blocks) => [...blocks, cited("Spring tides come at full moon", GONE)]);
+      await client.settled();
+
+      const { answer, finished } = await ask(core, asked, mind.id);
+
+      expect(answer.citations.map(kept)).toEqual([kept(first ?? {}), kept(third ?? {})]);
+      expect(answer.text.endsWith(ending)).toBe(true);
+      expect(ending).toContain(translate(language, "answer.sourceNotKept"));
+      expect(answer.text).not.toMatch(/C[1-4]|\[Attention|【/);
+      expect(finished.idsAsText).toBe(3);
+    },
+  );
+
+  // protects=in a Mind, the Citations above a Question take their ids oldest first, so an Answer added below leaves the older ones' ids as they were and the next Question reads the Mind as the last one did (the prompt cache's start); fails_when=a new Answer renumbers the Citations above it; no_claim=none beyond protects.
+  test("in a Mind, a new Answer leaves the older Citations' ids as they were", async () => {
+    const SHORTER = "The big model reaches 28.4 BLEU";
+    const model = citingModel({
+      query: "BLEU",
+      records: (passages) => [
+        {
+          marker: 1,
+          passage: passages.find((each) => each.text.includes(SHORTER))?.id,
+          quote: SHORTER,
+        },
+      ],
+      answer: "It reached 28.4 BLEU [^1].",
+    });
     const { core, client, mind, documents } = await setUpWithDocuments(model, pdfs());
-    const [first] = await writeReview(core, client, documents);
+    await writeReview(core, client, documents);
 
-    const { answer, finished } = await ask(core, asked, mind.id);
+    const one = await contextOfNextQuestion(core, client, mind.id, model, "What did it score?");
+    const two = await contextOfNextQuestion(core, client, mind.id, model, "And what did it drop?");
 
-    expect(answer.citations.map(kept)).toEqual([kept(first ?? {})]);
-    expect(answer.text).toContain(translate(language, "answer.sourceNotKept"));
-    expect(answer.text).not.toMatch(/C\d|\[Attention|\[Overview/);
-    expect(finished.idsAsText).toBe(2);
+    expect(one).toContain("The Transformer drops recurrence[Attention, p. 1 · C1]");
+    expect(two).toContain("The Transformer drops recurrence[Attention, p. 1 · C1]");
+    expect(two).toContain("It reached 28.4 BLEU [Attention, p. 2 · C4]");
   });
 
   // protects=a kept Citation keeps the version it quotes: with the Document changed since it opens that version and says the Document changed; with it deleted since it says it can't be checked, never found; fails_when=it is re-pointed at the new version or shown as working; no_claim=none beyond protects.
@@ -258,18 +312,7 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
   test("a Citation whose Passage is gone is refused, and the model is told to say so", async () => {
     const model = reportModel(() => "Spring tides come at full moon (source no longer available).");
     const { core, client, mind } = await setUpWithDocuments(model, pdfs());
-    writeMind(client, [
-      cited("Spring tides come at full moon", {
-        passageId: "gone",
-        documentId: "gone",
-        documentName: "Tides",
-        contentHash: "h",
-        pageFrom: 2,
-        pageTo: 2,
-        quote: "Spring tides come at full moon.",
-        check: "found",
-      }),
-    ]);
+    writeMind(client, [cited("Spring tides come at full moon", GONE)]);
     await client.settled();
 
     const { answer } = await ask(core, ASKED, mind.id);

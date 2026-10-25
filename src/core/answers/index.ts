@@ -1172,7 +1172,7 @@ export function createAnswers(options: AnswersOptions) {
     const write = (outcome?: Outcome): boolean => {
       const final = outcome !== undefined;
       // Turned into their Citations when the Answer ends (`finish`): till then none shows.
-      const text = withoutFootnoteDefinitions(final ? markdown : withoutWrittenIds(markdown));
+      const text = withoutFootnoteDefinitions(final ? markdown : withoutWrittenIds(markdown, ids));
       // Final: a marker with no record is removed, and each is counted for the summary.
       const citationOf = (marker: number) =>
         final ? session.finalCitation(marker) : session.streamingCitation(marker);
@@ -1244,7 +1244,7 @@ export function createAnswers(options: AnswersOptions) {
         call.input = Object.fromEntries(
           Object.entries(call.input).map(([key, value]) => [
             key,
-            typeof value === "string" ? withoutWrittenIds(value) : value,
+            typeof value === "string" ? withoutWrittenIds(value, ids) : value,
           ]),
         );
       }

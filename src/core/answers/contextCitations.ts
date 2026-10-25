@@ -70,15 +70,16 @@ export function createContextCitations(): ContextCitations {
       return id;
     },
     size: () => byId.size,
-    get: (id) =>
-      byId.get(
-        id
-          .trim()
-          .replace(/^\[\^?|\]$/g, "")
-          .toUpperCase(),
-      ) ?? null,
+    get: (id) => byId.get(issuedForm(id)) ?? null,
   };
 }
+
+/** An id as a record may name it ("c1", "[C1]", "[^C1]"), in the form it was issued: "C1". */
+export const issuedForm = (name: string): string =>
+  name
+    .trim()
+    .replace(/^\[\^?|\]$/g, "")
+    .toUpperCase();
 
 /** Where a context Citation's id was written as text, with the space before it, and the ids in it. */
 export interface WrittenIds {
@@ -87,22 +88,27 @@ export interface WrittenIds {
   ids: string[];
 }
 
-const BRACKET = /[ \t]*\[\^?([^[\]\n]{1,400})\]/g;
-const ONLY_IDS = /^\s*\^?C\d{1,4}(?:\s*[,;，；、]\s*\^?C\d{1,4})*\s*$/i;
-const ID = /C\d{1,4}/gi;
-const ID_AFTER_DOT = /·\s*(C\d{1,4})(?![\p{L}\p{N}])/giu;
+/** Brackets a model may put an id in: as it read it, full-width as Chinese text has them, or round. */
+const BRACKET =
+  /[ \t]*(?:\[\^?([^[\]\n]{1,400})\]|【([^【】\n]{1,400})】|［([^［］\n]{1,400})］|〔([^〔〕\n]{1,400})〕|[(（]([^()（）\n]{1,400})[)）])/g;
+const ONLY_IDS = /^\s*\^?C\d{1,4}(?:\s*[,;，；、]\s*\^?C\d{1,4})*\s*$/;
+const ID = /C\d{1,4}/g;
+const ID_AFTER_DOT = /[·・]\s*(C\d{1,4})(?![\p{L}\p{N}])/gu;
 
 /**
- * The brackets in an Answer's text that hold a context Citation's id as the model reads them
- * ("[Tides, p. 3 · C2]") or as ids alone ("[C2]", "[^C2]", "[C2; C3]"), outside code and maths.
+ * The brackets in an Answer's text that hold ids `issued` gave, exactly as issued ("C2"), as the
+ * model reads them ("[Tides, p. 3 · C2]", "【Tides, p. 3 · C2】") or alone ("[C2]", "[^C2]",
+ * "[C2; C3]"), outside code and maths. A bracket with an id never issued is the text's own.
  */
-export function writtenIds(text: string): WrittenIds[] {
+export function writtenIds(text: string, issued: (id: string) => boolean): WrittenIds[] {
   const found = [...text.matchAll(BRACKET)].flatMap((match): WrittenIds[] => {
-    const inner = match[1] ?? "";
+    const inner = match.slice(1).find((each) => each !== undefined) ?? "";
     const ids = ONLY_IDS.test(inner)
-      ? [...inner.matchAll(ID)].map((each) => each[0].toUpperCase())
-      : [...inner.matchAll(ID_AFTER_DOT)].map((each) => (each[1] ?? "").toUpperCase());
-    return ids.length > 0 ? [{ from: match.index, to: match.index + match[0].length, ids }] : [];
+      ? [...inner.matchAll(ID)].map((each) => each[0])
+      : [...inner.matchAll(ID_AFTER_DOT)].map((each) => each[1] ?? "");
+    return ids.length > 0 && ids.every(issued)
+      ? [{ from: match.index, to: match.index + match[0].length, ids }]
+      : [];
   });
   const shown = shownRanges(
     text,
@@ -126,6 +132,10 @@ export function replaceWritten(
   return result + text.slice(at);
 }
 
-/** An Answer's text as it shows while it is still being written: no id written as text shows. */
-export const withoutWrittenIds = (text: string): string =>
-  replaceWritten(text, writtenIds(text), () => "");
+/** An Answer's text as it shows while it is still being written: no id of `ids` written as text shows. */
+export const withoutWrittenIds = (text: string, ids: ContextCitations): string =>
+  replaceWritten(
+    text,
+    writtenIds(text, (id) => ids.get(id) !== null),
+    () => "",
+  );

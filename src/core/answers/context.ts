@@ -28,6 +28,7 @@ import {
 import { keywordTerms, keywordText } from "../documents/keywords";
 import { type ReviewReading, reviewReading } from "../mindText";
 import { attribute, contentMarkdown, textAttribute, toMarkdown } from "./blocks";
+import { eachCitation } from "./citedVersions";
 import type { ContextCitations } from "./contextCitations";
 import { answerMarkdown } from "./contextText";
 import type { AnswerMessage } from "./engine";
@@ -148,6 +149,12 @@ function tail(text: string, tokens: number): string {
  */
 type Documents = readonly LiveDocument[] | null;
 
+/** Whether a Block above the Question is read: not a failed Answer, nor a Note the User excluded. */
+const readsAbove = (block: Y.XmlElement) =>
+  block.nodeName === ANSWER_BLOCK
+    ? textAttribute(block, "status") !== "failed"
+    : block.nodeName === QUESTION_BLOCK || attribute(block, INCLUDE_IN_CONTEXT_ATTRIBUTE) !== false;
+
 /**
  * What a Block above the Question contributes, if anything. `review`: the changes still
  * waiting to read as changes (see `ReadOptions.review`).
@@ -243,6 +250,15 @@ export function questionContextOf(
   const questionText = toMarkdown(question, documents);
   const origins = blocks.doc?.getMap<unknown>(MIND_TEXT_ORIGINS_FIELD);
   const recorded = origins && origins.size > 0 ? origins : null;
+  // Read newest first, the Blocks would take their ids so too: a new Answer would renumber the
+  // older ones, and every later Question would miss the prompt cache (#1800).
+  if (ids) {
+    for (const block of children.slice(0, index)) {
+      if (block instanceof Y.XmlElement && readsAbove(block)) {
+        eachCitation(block, (citation) => ids.idOf(citation), { charts: true });
+      }
+    }
+  }
   /** What the Blocks above contribute, newest first, read only as far as the budget goes. */
   const newestFirst = function* (): Generator<Piece> {
     for (let at = index - 1; at >= 0; at--) {
