@@ -77,10 +77,17 @@ describe("a Mind written before a comparison table's columns had a label", () =>
     );
     const [sheet] = sheets;
     if (!sheet) throw new Error("The workbook has no sheets.");
-    const heading = (column: number) =>
-      sheet.layout?.shown.get(cellIndex(1, column))?.text ??
-      sheet.cells.find((cell) => cell.row === 1 && cell.column === column)?.value;
-    expect([0, 1, 2].map(heading)).toEqual(["Document", ...QUESTIONS]);
+    const cellAt = (row: number, column: number) =>
+      sheet.layout?.shown.get(cellIndex(row, column))?.text ??
+      sheet.cells.find((cell) => cell.row === row && cell.column === column)?.value;
+    expect([0, 1, 2].map((column) => cellAt(1, column))).toEqual(["Document", ...QUESTIONS]);
+    // The fixture is the Mind alone: its Documents live outside it, so the row says its source is gone.
+    expect([0, 1, 2].map((column) => cellAt(2, column))).toEqual([
+      "Acme report.txt (source removed)",
+      "1.2m",
+      "31 March 2026",
+    ]);
+    expect([1, 2].map((column) => cellAt(3, column))).toEqual(["1.1 Mio. €", "…"]);
     const markdown = Buffer.from(
       (await restarted.exportMind(mind.id, { format: "markdown" })).data,
     ).toString("utf8");
