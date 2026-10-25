@@ -98,15 +98,18 @@ export function addCitedVersions(fragment: Y.XmlFragment | Y.XmlElement, cited: 
   }
 }
 
-/** Calls `visit` with each Citation's attributes under `fragment`, at any depth. */
+/** Calls `visit` with each Citation's attributes under `fragment`, at any depth, in order; `charts`: a chart's values' too. */
 export function eachCitation(
   fragment: Y.XmlFragment | Y.XmlElement,
   visit: (citation: CitationFields) => void,
+  { charts = false }: { charts?: boolean } = {},
 ): void {
   for (const child of fragment.toArray()) {
     if (!(child instanceof Y.XmlElement)) continue;
     if (child.nodeName === CITATION_NODE) visit(child.getAttributes());
-    else eachCitation(child, visit);
+    else if (charts && child.nodeName === CHART_NODE)
+      for (const each of chartCitations(child)) visit(each);
+    else eachCitation(child, visit, { charts });
   }
 }
 
