@@ -121,12 +121,22 @@ const markdownOf = (budget: Budget) =>
   ].join("\n");
 
 /** Searches, cites each row, writes the table into the Mind in focus, and checks as the plans say. */
-function writingModel(budget: Budget, checks: ModelCall[], judged: GenerateCall[]) {
+function writingModel(
+  budget: Budget,
+  checks: ModelCall[],
+  judged: GenerateCall[],
+  plans: Record<string, Plan> = budget.plans,
+) {
   return scriptedModel(
     (call): ScriptedReply => {
       if (isCheckRun(call)) {
         checks.push(call);
-        return checkReply(call, budget.plans);
+        return checkReply(call, plans);
+      }
+      // Asked to cut a cell, Claude Sonnet 5.5 wrote its reasons into it.
+      if (call.prompt.includes('<task action="cut-unsupported">')) {
+        checks.push(call);
+        return { text: "The source gives no such figure [1].\n<why>Cut.</why>" };
       }
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search)
@@ -155,7 +165,7 @@ function writingModel(budget: Budget, checks: ModelCall[], judged: GenerateCall[
     {
       generate: (call) => {
         judged.push(call);
-        return checkGenerate(budget.plans)(call);
+        return checkGenerate(plans)(call);
       },
     },
   );
@@ -271,6 +281,41 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
   );
 });
 
+describe("A written table's cell its Citations don't support", () => {
+  // protects=a cell found unsupported, with the part its Citations cover named, lands marked as it was written, never cut or rewritten; fails_when=the cell's words change or Edit with AI is asked to cut it; no_claim=none beyond protects.
+  test("lands marked, its words as written", async () => {
+    const budget = BUDGETS[0] as Budget;
+    const plans = {
+      ...budget.plans,
+      [`Profit — 2025: 42${INLINE_NODE}`]: {
+        reply: {
+          text: "Verdict: unsupported\nThe budget gives 42 for profit in 2025 without saying it was audited.\nCovered: profit in 2025\nNot covered: the audit",
+        },
+      },
+    };
+    const checks: ModelCall[] = [];
+    const { core, client, mindId, folderId } = await budgetMind(
+      budget,
+      writingModel(budget, checks, [], plans),
+    );
+
+    await askAssistant(core, {
+      text: "Add a table of the budget",
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    await client.settled();
+
+    expect(checks.some((call) => call.prompt.includes('<task action="cut-unsupported">'))).toBe(
+      false,
+    );
+    expect(marksIn(client)).toEqual([
+      [budget.wrong, "contradicted"],
+      ["42", "unsupported"],
+    ]);
+  });
+});
+
 describe("Checking a User's own table reads each cell with its row and column", () => {
   async function ownTable(budget: Budget, unit: string) {
     const plans = plansOf(budget, unit);
@@ -302,7 +347,7 @@ describe("Checking a User's own table reads each cell with its row and column", 
       await core.checkSentences({
         requestId: randomUUID(),
         mindId,
-        action: "find-support",
+        action: "check-against-documents",
         from: { blockId: idOf(1, 1), offset: 0 },
         to: { blockId: idOf(1, 2), offset: 3 },
         more: [

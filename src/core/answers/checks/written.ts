@@ -11,7 +11,8 @@
  *   with Edit with AI's own request (`cut-unsupported`); the Citations stay on
  *   what is left, each word keeps its own formatting, and the sentence shows
  *   it needs a check again, as after the card's cut. A cut that would lose
- *   every Citation, or add one, isn't used.
+ *   every Citation, or add one, isn't used, and a table's cell isn't cut:
+ *   asked to, Edit with AI rewrote its figure, or wrote its reasons into it.
  * - A sentence still unsupported, or one a Document contradicts, lands with
  *   its check's mark, so Check this Mind doesn't find it again later.
  * - One that couldn't be checked (a failure, a limit, the time limit, or past
@@ -557,7 +558,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           result.verdict === "unsupported" && result.unsupported?.covered
             ? result.unsupported.uncovered
             : null;
-        const nodes = uncovered ? await cutOf(blocks, sentence, uncovered, prepared, signal) : null;
+        const nodes =
+          uncovered && sentence.table === undefined
+            ? await cutOf(blocks, sentence, uncovered, prepared, signal)
+            : null;
         return { result, uncovered, nodes };
       },
       { concurrency: prepared.provider.service ? CLOUD_SENTENCES_AT_ONCE : 1, signal },
