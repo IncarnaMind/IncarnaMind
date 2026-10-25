@@ -94,9 +94,9 @@ const BUDGETS: Budget[] = [
   },
 ];
 
-/** What a cell's check is told of its table: the line before it and its headings. */
-const tableOf = (budget: Budget) =>
-  ["<table>", budget.caption, budget.headings.join(" | "), "</table>"].join("\n");
+/** What a cell's check is told of its table: the line before it, its headings, and its row with the other values left out. */
+const tableOf = (budget: Budget, row: string) =>
+  ["<table>", budget.caption, budget.headings.join(" | "), row, "</table>"].join("\n");
 
 const promptOf = (call: ModelCall | undefined) =>
   (call?.options.prompt ?? [])
@@ -251,13 +251,17 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
 
       const sent = checks.filter((call) => call.results.length === 0);
       expect(sent.map(sentenceOf)).toEqual(Object.keys(budget.plans));
-      for (const call of sent) expect(promptOf(call)).toContain(tableOf(budget));
+      const [first] = budget.rows;
+      const wrongRow = `${first?.label} | … | ${budget.wrong}`;
+      const wrong = sent.find((call) => sentenceOf(call).includes(budget.wrong));
+      expect(promptOf(wrong)).toContain(tableOf(budget, wrongRow));
       // The right cell beside the wrong one is never shown it: Claude Haiku 5.5 then called it Contradicted.
       const beside = sent.find((call) => sentenceOf(call).includes("100"));
+      expect(promptOf(beside)).toContain(tableOf(budget, `${first?.label} | 100 | …`));
       expect(promptOf(beside)).not.toContain(budget.wrong);
       const confirmed = judged.filter((call) => call.system.startsWith("Compare a sentence"));
       expect(confirmed.length).toBeGreaterThan(0);
-      for (const call of confirmed) expect(call.prompt).toContain(tableOf(budget));
+      for (const call of confirmed) expect(call.prompt).toContain(tableOf(budget, wrongRow));
       expect(marksIn(client)).toEqual([[budget.wrong, "contradicted"]]);
       expect(changesIn(answer)[0]?.selfCheck).toMatchObject({ cited: 4, sent: 4, checked: 4 });
       await resolveChanges(client, "accept");
@@ -337,6 +341,6 @@ describe("Checking a User's own table reads each cell with its row and column", 
       (call) => call.results.length === 0 && sentenceOf(call).includes("210"),
     );
     expect(sentenceOf(wrong as ModelCall)).toBe(`Revenue — 2025: 210${unit}`);
-    expect(promptOf(wrong)).toContain(tableOf(budget));
+    expect(promptOf(wrong)).toContain(tableOf(budget, `Revenue | … | 210${unit}`));
   });
 });
