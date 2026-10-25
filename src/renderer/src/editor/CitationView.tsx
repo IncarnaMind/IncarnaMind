@@ -13,11 +13,13 @@ import {
 import {
   badgeMessage,
   type CitationState,
+  changedOnMessage,
   changedSourceNote,
   citationSource,
   citationState,
   parseQuotedWords,
   quoteStanding,
+  versionMoment,
   withShownName,
 } from "../../../shared/citations";
 import {
@@ -599,6 +601,12 @@ function CitationCard({
   const scanned = useScannedQuote(attributes);
   const quote = useReadableQuote(attributes);
   const changed = changedSourceNote(state.changedAfterCited, attributes, recheck, t);
+  const changedOn = changedOnMessage(
+    state.changedAfterCited,
+    live ? versionMoment(live) : null,
+    language,
+    t,
+  );
   return (
     <div className={`citation-card citation-card--${state.check}`} contentEditable={false}>
       <div className="citation-card-head">
@@ -616,6 +624,11 @@ function CitationCard({
         {web && fetchedAt && (
           <p data-testid="citation-web-source" className="citation-card-source">
             {web.siteName} · {t("webPages.fetched", { date: pageDate(fetchedAt, language) })}
+          </p>
+        )}
+        {changedOn && (
+          <p data-testid="citation-changed-date" className="citation-card-note">
+            {changedOn}
           </p>
         )}
       </div>

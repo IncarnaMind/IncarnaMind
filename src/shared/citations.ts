@@ -16,6 +16,8 @@ import type {
   QuotedPiece,
   QuotedWords,
 } from "../core/api";
+import type { Language } from "../core/language";
+import { formatDate } from "./dates";
 import { displayName } from "./documentNames";
 import type { MessageKey } from "./i18n";
 import {
@@ -243,6 +245,31 @@ export function quoteStanding(
       : "moved";
   }
   return "found";
+}
+
+/**
+ * When a Document's current version was made: a web page's latest fetch, else
+ * its file's last change, else when it was indexed.
+ */
+export function versionMoment(
+  document: Pick<Document, "modifiedAt" | "updatedAt"> & { web: { fetchedAt: string } | null },
+): string | null {
+  return document.web?.fetchedAt ?? document.modifiedAt ?? document.updatedAt;
+}
+
+/**
+ * "This Document changed on 12 October 2026" in a language: when the version
+ * the Citation now opens was made. Null while the Document is unchanged.
+ */
+export function changedOnMessage(
+  changed: boolean,
+  moment: string | null,
+  language: Language,
+  t: Translate,
+): string | null {
+  return changed && moment
+    ? t("citation.changed.on", { date: formatDate(moment, language) })
+    : null;
 }
 
 /** What a Citation's card and the viewer say once its Document changed after it was cited. */

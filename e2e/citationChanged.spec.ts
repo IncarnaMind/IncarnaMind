@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { formatDate } from "../src/shared/dates";
 import {
   askInAssistant,
   createDataFolder,
@@ -100,6 +101,14 @@ const contentHashOf = (window: Page, path: string) =>
     return (await bridge.listDocuments()).find((each) => each.path === wanted)?.contentHash;
   }, path);
 
+/** When the Document's current version was made, through the core's bridge. */
+const versionMomentOf = (window: Page, path: string) =>
+  window.evaluate(async (wanted) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const document = (await bridge.listDocuments()).find((each) => each.path === wanted);
+    return document?.web?.fetchedAt ?? document?.modifiedAt ?? document?.updatedAt ?? null;
+  }, path);
+
 /** The version each Citation of the Answer stores: what it quotes. */
 const storedVersions = (answer: Locator) =>
   answer.getByTestId("assistant-answer-text").evaluate((dom) => {
@@ -134,6 +143,7 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     const card = window.getByTestId("citation-card");
     const changed = window.getByTestId("citation-changed");
     const changedQuote = window.getByTestId("citation-changed-quote");
+    const changedDate = window.getByTestId("citation-changed-date");
     const hideCard = async () => {
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
@@ -173,8 +183,11 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await expect(viewer.locator("[data-quote-highlight]")).toHaveCount(0);
     await screenshot(window, "viewer-after-en");
 
-    // The card says the same, and its Open says it too.
+    // The card says the same, names the day, and its Open says it too.
     await showCard();
+    const momentB = await versionMomentOf(window, note);
+    if (momentB === null) throw new Error("The Document has no date for its version.");
+    await expect(changedDate).toHaveText(`This Document changed on ${formatDate(momentB, "en")}`);
     await expect(changed).toContainText("The Document changed after this was cited.");
     await expect(changedQuote).toHaveText("Its quote is no longer in the new version.");
     await screenshot(window, "card-after-en");
@@ -186,6 +199,7 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await setLanguage(window, "zh-CN");
     await expect(notice).toContainText("此文档在被引用后有改动。新版本中已找不到这条引文。");
     await showCard();
+    await expect(changedDate).toHaveText(`此文档已于 ${formatDate(momentB, "zh-CN")} 更新`);
     await expect(changed).toContainText("此文档在被引用后有改动。");
     await expect(changedQuote).toHaveText("新版本中已找不到这条引文。");
     await screenshot(window, "card-after-zh");
@@ -227,6 +241,9 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
       "The Document changed after this was cited. The quote is still here.",
     );
     await showCard();
+    const momentD = await versionMomentOf(window, note);
+    if (momentD === null) throw new Error("The Document has no date for its version.");
+    await expect(changedDate).toHaveText(`This Document changed on ${formatDate(momentD, "en")}`);
     await expect(changed).toContainText("The Document changed after this was cited.");
     await expect(changedQuote).toHaveText("The quote is still here.");
     await screenshot(window, "card-still-here-en");
