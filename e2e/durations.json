@@ -76,7 +76,7 @@
   "documentRenames.spec.ts": 5,
   "documentsSidebar.spec.ts": 14,
   "dragLayer.spec.ts": 14,
-  "editField.spec.ts": 98,
+  "editField.spec.ts": 115,
   "editWithAi.spec.ts": 38,
   "editorBasics.spec.ts": 77,
   "embedding.spec.ts": 6,
