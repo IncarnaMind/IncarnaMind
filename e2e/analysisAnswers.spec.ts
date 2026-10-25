@@ -65,7 +65,7 @@ test.afterEach(async () => {
 async function launchWithSheets(language: "en" | "zh-CN" = "en", width = 1600) {
   const launched = await launchApp(dataDir, { fakeChat: true, sandboxed: true });
   const { app, window } = launched;
-  await setWindowSize(app, window, width, 900);
+  await setWindowSize(app, window, width, 660);
   await dismissChatSetup(window);
   await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
@@ -156,7 +156,7 @@ for (const language of ["en", "zh-CN"] as const) {
         closed = true;
         const reopened = await launchApp(dataDir, { fakeChat: true, sandboxed: true });
         try {
-          await setWindowSize(reopened.app, reopened.window, width, 900);
+          await setWindowSize(reopened.app, reopened.window, width, 660);
           expect((await storedAnswer(reopened.window)).analyses).toEqual(stored.analyses);
         } finally {
           await reopened.app.close();
