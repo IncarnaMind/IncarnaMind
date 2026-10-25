@@ -30,6 +30,7 @@ import { ProviderDirectory } from "./ProviderDirectory";
 import { logoIdOf, ProviderLogo } from "./ProviderLogo";
 import { ProviderPage, providerName, type RemovedProvider } from "./ProviderPage";
 import { catalogIdOf, MODELS_UNDO_PLACE, regionFor, savedProviderFor } from "./shared";
+import { useJevSettings } from "./useJevSettings";
 
 type View =
   | { page: "list" }
@@ -94,12 +95,14 @@ export function ModelsSettings() {
       !!state.library &&
       changedFromDefaults(state.library.settings, state.library.automaticDefault),
   );
+  const [jev] = useJevSettings();
+  const jevEnabled = jev?.enabled === true;
   const toTagging = useAppStore((state) => state.settingsAt === "tagging");
   const [advanced, setAdvanced] = useState(false);
   // Once open, it never folds under the cursor; the next opening starts folded.
   useLayoutEffect(() => {
-    if (changed || toTagging) setAdvanced(true);
-  }, [changed, toTagging]);
+    if (changed || jevEnabled || toTagging) setAdvanced(true);
+  }, [changed, jevEnabled, toTagging]);
 
   // Each page starts at its top; back on the list, the focus is where it was.
   useLayoutEffect(() => {

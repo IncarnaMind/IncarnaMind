@@ -99,6 +99,12 @@ test("with a Jev key, Jev tags Documents instead of the chat model, and an unsur
   await expect(section).toContainText(`Server: ${jev.url}`);
   await closeSettings(window);
 
+  // A saved Jev setup is a choice of the User's under Advanced: it opens by itself.
+  const reopened = await openSettings(window, "models");
+  await expect(reopened.getByTestId("models-advanced")).toHaveAttribute("open", "");
+  await expect(reopened.getByTestId("jev-settings")).toContainText("Your Jev key is saved.");
+  await closeSettings(window);
+
   await addDocuments(window, [summary]);
 
   // Paper is likely; Report is unsure, so it is applied and marked for review. The
