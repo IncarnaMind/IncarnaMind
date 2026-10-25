@@ -5451,6 +5451,12 @@ export interface AnswerSteps {
    * meeting did. Absent: an Answer written before this was kept, or one that isn't in the assistant.
    */
   sent?: { documents: string[]; transcript?: true };
+  /**
+   * A help button was pressed while its Meeting's live text was behind (#1366): the lines it had,
+   * if any, went with the Question, and the reply says so first. Absent: it wasn't behind, or this
+   * isn't a help Answer.
+   */
+  textBehind?: true;
 }
 
 /**

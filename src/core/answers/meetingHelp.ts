@@ -144,6 +144,13 @@ export const languageSaid = (heard: readonly WindowedPassage[]): string | null =
   );
 
 /**
+ * A button's Question while the live text is behind but has lines (#1366). The reply starts with a
+ * line saying so, written for it: the model neither repeats it nor adds another before its form.
+ */
+export const LIVE_TEXT_BEHIND_NOTE =
+  "- The live text fell behind: <live-transcript> holds the lines written so far, and what was said since isn't in it. A line saying so already starts the reply: don't repeat it, and answer from these lines.";
+
+/**
  * What the model is told for a button's Question during a call. `found`: Passages of the User's
  * Documents were found ahead for the newest lines. `callLanguage`: the language the call's newest
  * lines are in, which the reply is written in; `language`, the interface's, when it can't be told.

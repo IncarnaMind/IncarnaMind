@@ -5031,6 +5031,9 @@ export const en = {
   "meetings.help.button": "{name} ({shortcut})",
   "meetings.help.setUp": "Choose an AI model to get help during the call",
   "meetings.help.failed": "No help this time: {message}",
+  "meetings.help.textBehind":
+    "The live text is behind, so none of the call is written yet. It is transcribed after the meeting stops.",
+  "meetings.help.textBehind.some": "The live text is behind, so this rests on the lines so far.",
   "meetings.help.retry": "Try again",
   "meetings.help.theySaid": "They said: “{text}”",
   "meetings.help.youSaid": "You said: “{text}”",
