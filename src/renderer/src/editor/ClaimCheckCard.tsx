@@ -169,6 +169,10 @@ export function ClaimMark({
   useEffect(() => {
     if (requestedFocus) openedByKeyboard.current = true;
   }, [requestedFocus]);
+  // Another card can take this one's place without dismissing it: a later mouse opening must not steal the focus.
+  useEffect(() => {
+    if (!open) openedByKeyboard.current = false;
+  }, [open]);
   // A card already open under the mouse: the popover only takes the focus as it first shows.
   useEffect(() => {
     if (!requestedFocus || !open) return;

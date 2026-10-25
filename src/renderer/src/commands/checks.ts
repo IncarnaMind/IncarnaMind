@@ -11,9 +11,7 @@ import {
 } from "../checks";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
-import { frontTabOfMind, groupsMerged } from "../layoutSlice";
 import { startMindCheck } from "../mindCheck";
-import { useAppStore } from "../store";
 import {
   contradictedAt,
   cutSentence,
@@ -37,22 +35,19 @@ function withSentences() {
 }
 
 /**
- * The checked sentence the caret is in, in a Mind the window shows: what
- * "Show the check for this sentence" opens. A caret exactly between two
- * sentences takes the one it ends.
+ * The checked sentence the caret is in: what "Show the check for this
+ * sentence" opens. A caret exactly between two sentences takes the one it ends.
  */
 function withClaimAtCaret() {
   const note = noteHandle.current;
   if (!note || note.editor.isDestroyed) return null;
-  const place = frontTabOfMind(useAppStore.getState().layout, note.mindId, groupsMerged())?.id;
-  if (!place) return null;
   const { head } = note.editor.state.selection;
   const claims = shownClaims(note.editor.state);
   const claim =
     claims.find((each) => each.sentence.from < head && head < each.sentence.to) ??
     claims.find((each) => each.sentence.from <= head && head <= each.sentence.to) ??
     null;
-  return claim ? { ...note, place, claim } : null;
+  return claim ? { ...note, claim } : null;
 }
 
 /** Shows a sentence's card and gives its first action the focus, in the tab the Mind is in (#1762). */

@@ -132,6 +132,7 @@ import { CompareSheet } from "./CompareSheet";
 import { StartGuide, useIsExample } from "./GettingStarted";
 import { CheckLineIcon, MineLineIcon, SearchLineIcon } from "./lineIcons";
 import { MindNotice } from "./MindNotice";
+import { useTabPlace } from "./tabs/tabItems";
 
 /** Stands in for the hint's button in its translated words, which are split around it. */
 const ASK = "\uE000";
@@ -280,6 +281,7 @@ function MindEditorView({
 }) {
   const t = useT();
   const isExample = useIsExample(mindId);
+  const place = useTabPlace()?.tabId ?? mindId;
   const dock = useContext(ComposerDockContext);
   const slots = useContext(PageSlotsContext);
   const sheetSlot = useContext(CompareSheetSlotContext);
@@ -482,7 +484,7 @@ function MindEditorView({
   useEffect(() => {
     if (readOnly) return;
     const lend = () => {
-      noteHandle.current = { editor, mindId, doc };
+      noteHandle.current = { editor, mindId, doc, place };
     };
     if (!noteHandle.current || noteHandle.current.editor.isDestroyed) lend();
     editor.on("focus", lend);
@@ -490,7 +492,7 @@ function MindEditorView({
       editor.off("focus", lend);
       if (noteHandle.current?.editor === editor) noteHandle.current = null;
     };
-  }, [editor, mindId, doc, readOnly]);
+  }, [editor, mindId, doc, place, readOnly]);
 
   // The Mind the assistant reads (it draws this Mind's composer): Add to note puts an Answer
   // here through this editor, and a second Esc in the assistant comes back here.
