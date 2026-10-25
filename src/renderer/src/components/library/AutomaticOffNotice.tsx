@@ -12,7 +12,7 @@ export function AutomaticOffNotice() {
   const t = useT();
   const shown = useAppStore((state) => state.library?.automaticOffNotice === true);
   const sent = useTaggingService("tagging", shown);
-  if (!shown || !sent) return null;
+  if (!shown || sent.where !== "cloud") return null;
   const close = () =>
     core.dismissAutomaticOffNotice().catch((error: unknown) => {
       useAppStore.getState().reportError(error);

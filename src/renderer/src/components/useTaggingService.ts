@@ -1,41 +1,41 @@
 import { useEffect, useState } from "react";
-import type { ExternalService } from "../../../core/api";
+import type { DataFlowId } from "../../../core/api";
 import { core } from "../core";
 import { useAppStore } from "../store";
-
-export interface TaggingService {
-  service: ExternalService;
-  allowed: boolean;
-}
+import {
+  destinationFrom,
+  type TaggingDestination,
+  unknownDestination,
+} from "../taggingDestination";
 
 /**
  * The service automatic tagging, or Organize, sends to now, and whether the
- * User has allowed it; null for a model on this computer. Tagging is
- * background work and never asks (ADR-0022): where its Documents wait says
- * so, and offers Allow in place. Read only while `watching`.
+ * User has allowed it; a model on this computer; or not known yet, until the
+ * flows have been read. Tagging is background work and never asks (ADR-0022):
+ * where its Documents wait says so, and offers Allow in place. Read only while
+ * `watching`.
  */
-export function useTaggingService(
-  flow: "tagging" | "classification" | "scan-images",
-  watching: boolean,
-): TaggingService | null {
-  const [tagging, setTagging] = useState<TaggingService | null>(null);
+export function useTaggingService(flow: DataFlowId, watching: boolean): TaggingDestination {
+  const [destination, setDestination] = useState<TaggingDestination>(unknownDestination);
 
   useEffect(() => {
     if (!watching) {
-      setTagging(null);
+      setDestination(unknownDestination);
       return;
     }
     let stopped = false;
     const load = () => {
-      core.listRegisteredDataFlows().then(
-        (flows) => {
-          if (stopped) return;
-          // The flow goes only to the service the Tagging setting tags or organizes with now.
-          const to = flows.find((each) => each.id === flow)?.services[0];
-          setTagging(to ? { service: to.flow.service, allowed: to.consent === "accepted" } : null);
+      // Say nothing while a new answer is read: the last one may name the wrong service (#1021).
+      setDestination(unknownDestination);
+      destinationFrom(
+        () => core.listRegisteredDataFlows(),
+        flow,
+        (error) => {
+          if (!stopped) useAppStore.getState().reportError(error);
         },
-        (error: unknown) => useAppStore.getState().reportError(error),
-      );
+      ).then((next) => {
+        if (!stopped) setDestination(next);
+      });
     };
     load();
     const stops = [
@@ -50,5 +50,5 @@ export function useTaggingService(
     };
   }, [flow, watching]);
 
-  return tagging;
+  return destination;
 }

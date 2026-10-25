@@ -518,12 +518,12 @@ function useStatuses(): Status[] {
     !!library?.assignments.some(
       (item) => item.status === "pending" || item.status === "classifying",
     );
-  const taggingService = useTaggingService(
-    organizingNow ? "classification" : "tagging",
-    taggingWaits || tagging || organizingNow,
-  );
+  const taggingFlow = useTaggingService("tagging", taggingWaits || tagging);
+  const organizingFlow = useTaggingService("classification", organizingNow);
   const taggingNeedsOk =
-    taggingWaits && taggingService && !taggingService.allowed ? taggingService.service : null;
+    taggingWaits && taggingFlow.where === "cloud" && !taggingFlow.allowed
+      ? taggingFlow.service
+      : null;
   const refusedService = useTaggingService(
     organizesNew ? "classification" : "tagging",
     counts.keyRefused > 0,
@@ -541,7 +541,6 @@ function useStatuses(): Status[] {
       ),
     ),
   );
-  const service = taggingService?.service.name;
   // A scan without text goes to Organize as pictures of its pages.
   const scans = useAppStore(
     (state) =>
@@ -556,7 +555,6 @@ function useStatuses(): Status[] {
           ),
       ),
   );
-  const sends = taggingSends(service ?? null, t, scans);
   const stop = {
     label: t("tagging.stop"),
     testId: "tagging-stop",
@@ -800,7 +798,10 @@ function useStatuses(): Status[] {
       action: {
         label: t("answer.error.checkKey"),
         testId: "tagging-key-refused-check",
-        run: () => void useKeyRefusals.getState().checkService(refusedService?.service.id ?? null),
+        run: () =>
+          void useKeyRefusals
+            .getState()
+            .checkService(refusedService.where === "cloud" ? refusedService.service.id : null),
       },
     });
   }
@@ -929,6 +930,7 @@ function useStatuses(): Status[] {
   }
 
   if (!capturing && tagging) {
+    const service = taggingFlow.where === "cloud" ? taggingFlow.service.name : null;
     const text = service
       ? counts.tagging === 1
         ? t("status.taggingWith.one", { service })
@@ -941,7 +943,7 @@ function useStatuses(): Status[] {
       tone: "progress",
       short: text,
       full: text,
-      sends,
+      sends: taggingSends(taggingFlow, t) ?? undefined,
       action: stop,
     });
   }
@@ -967,6 +969,7 @@ function useStatuses(): Status[] {
         action: { label: t("library.review"), run: () => useAppStore.getState().openLibrary() },
       });
     if (pending) {
+      const service = organizingFlow.where === "cloud" ? organizingFlow.service.name : null;
       const text = service
         ? pending === 1
           ? t("library.progressWith.one", { service })
@@ -979,7 +982,7 @@ function useStatuses(): Status[] {
         tone: "progress",
         short: text,
         full: text,
-        sends,
+        sends: taggingSends(organizingFlow, t, { folders: true, scans }) ?? undefined,
         action: stop,
       });
     }

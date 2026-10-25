@@ -344,7 +344,7 @@ function DocumentInfo({ document }: { document: Document }) {
           {assignment?.error && (
             <span className="block text-ink-meta">{providerErrorText(assignment.error, t)}</span>
           )}
-          {scanImages && !scanImages.allowed && (
+          {scanImages.where === "cloud" && !scanImages.allowed && (
             <button
               type="button"
               data-testid="info-allow-page-images"

@@ -9,8 +9,9 @@
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { channelFor } from "../src/shared/bridge";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
@@ -118,7 +119,7 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
   );
   const status = footer.getByTestId("tagging-status");
   await expect(status.getByTestId("status-label")).toHaveText(
-    /^Tagging [2-4] Documents with Anthropic$/,
+    /^Tagging [2-4] Documents with Anthropic…$/,
   );
   await expect(footer.getByTestId("tagging-waiting")).toHaveCount(0);
   const stop = status.getByTestId("tagging-stop");
@@ -172,7 +173,7 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
       .getByTestId("sidebar-status")
       .getByTestId("tagging-status")
       .getByTestId("status-label"),
-  ).toHaveText(/^Tagging [1-6] Documents? with Anthropic$/);
+  ).toHaveText(/^Tagging [1-6] Documents? with Anthropic…$/);
   await expect(documentItem(again.window, "Expert report")).not.toHaveAttribute(
     "data-tagging",
     "stopped",
@@ -205,7 +206,7 @@ test("in Chinese, the status names the company, and Stop names the Folder", asyn
   await openFolder(window, FOLDER);
   const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
   await expect(status.getByTestId("status-label")).toHaveText(
-    /^正在用 Anthropic 为 [2-4] 个文档打标签$/,
+    /^正在用 Anthropic 为 [2-4] 个文档打标签…$/,
   );
   const stop = status.getByTestId("tagging-stop");
   await expect(stop).toHaveText("停止");
@@ -350,7 +351,7 @@ test("while Organize runs, the status names the company too, with Stop", async (
   );
   await progress.getByTestId("status-label").click();
   await expect(window.getByTestId("status-sends")).toHaveText(
-    "Each Document’s name, outline and short excerpts go to Anthropic. Page images of scans are included.",
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to Anthropic. Page images of scans are included.",
   );
   await screenshot(window, "organize-status-stop-en");
   await progress.getByTestId("tagging-stop").click();
@@ -401,18 +402,72 @@ const sameBox = (before: Box, during: Box) => {
 
 const LINES = {
   en: {
-    cloud: /^Tagging \d+ Documents? with Anthropic$/,
-    local: /^Tagging \d+ Documents?$/,
-    cloudSends: "Each Document’s name, outline and short excerpts go to Anthropic.",
-    localSends: "Each Document’s name, outline and short excerpts stay on this computer.",
+    cloud: /^Tagging \d+ Documents? with Anthropic…$/,
+    local: /^Tagging \d+ Documents?…$/,
+    cloudSends:
+      "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, go to Anthropic.",
+    localSends:
+      "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
   },
   "zh-CN": {
-    cloud: /^正在用 Anthropic 为 \d+ 个文档打标签$/,
-    local: /^正在为 \d+ 个文档打标签$/,
-    cloudSends: "每个文档的名称、目录和简短摘录都会发送到 Anthropic。",
-    localSends: "每个文档的名称、目录和简短摘录都留在这台电脑上。",
+    cloud: /^正在用 Anthropic 为 \d+ 个文档打标签…$/,
+    local: /^正在为 \d+ 个文档打标签…$/,
+    cloudSends: "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 Anthropic。",
+    localSends: "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。",
   },
 } as const;
+
+const FLOW_LIST = channelFor("listRegisteredDataFlows");
+
+/** Holds the flow list's answer, as a core busy enough to be slow would: nothing is known until it is let go. */
+async function holdFlowList(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ ipcMain }, channel) => {
+    // Electron keeps invoked handlers here; it has no public way to hold one for a test.
+    const handlers = (
+      ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
+    )._invokeHandlers;
+    const answer = handlers.get(channel);
+    const held = globalThis as unknown as { releaseFlows?: () => void };
+    handlers.set(
+      channel,
+      (...args) =>
+        new Promise((resolve) => {
+          held.releaseFlows = () => {
+            if (answer) handlers.set(channel, answer);
+            resolve(answer?.(...args));
+          };
+        }),
+    );
+  }, FLOW_LIST);
+}
+
+async function releaseFlowList(app: ElectronApplication): Promise<void> {
+  await app.evaluate(() => {
+    (globalThis as unknown as { releaseFlows?: () => void }).releaseFlows?.();
+  });
+}
+
+test("nothing is said about where Documents go until the flows are read", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 1280, 800);
+  await saveAnthropicKey(window);
+  await holdFlowList(app);
+  await window.getByTestId("add-documents-input").setInputFiles([await slowFile("Field notes")]);
+  const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
+  const label = status.getByTestId("status-label");
+
+  // Not known yet: the row says what it is doing, and its label opens nothing.
+  await expect(label).toHaveText(LINES.en.local);
+  await label.hover();
+  await expect(window.getByTestId("status-sends")).toHaveCount(0);
+
+  await releaseFlowList(app);
+  await expect(label).toHaveText(LINES.en.cloud);
+  await window.mouse.move(600, 300);
+  await label.hover();
+  await expect(window.getByTestId("status-sends")).toHaveText(LINES.en.cloudSends);
+  await app.close();
+});
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const cloud of [true, false] as const) {
