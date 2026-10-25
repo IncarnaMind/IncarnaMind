@@ -41,6 +41,17 @@ export function allOrigins(doc: Y.Doc): Map<string, BlockOrigin> {
   return origins;
 }
 
+/**
+ * The conversation a Mind came from (#1940): the origin of the first Block added
+ * from an Answer, whose chat the Mind's ⋯ opens. Null for a Mind written by hand.
+ */
+export function conversationOrigin(origins: ReadonlyMap<string, BlockOrigin>): BlockOrigin | null {
+  for (const origin of origins.values()) {
+    if (origin.from.artifactKind === "conversation") return origin;
+  }
+  return null;
+}
+
 /** Gives these Blocks one origin. Call it in the transaction that adds them, where there is one. */
 export function setOrigins(doc: Y.Doc, blockIds: readonly string[], origin: BlockOrigin): void {
   const origins = originsOf(doc);
