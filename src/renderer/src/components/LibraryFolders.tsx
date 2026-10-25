@@ -133,12 +133,15 @@ export function LibraryFolders({
   documents,
   renderDocument,
   quiet = false,
+  hideExamples = false,
   dayOne = false,
 }: {
   /** The Documents to show, already filtered by Tag. */
   documents: readonly Document[];
   renderDocument(document: Document, depth: number): ReactNode;
   quiet?: boolean;
+  /** Leaves the example Minds out, once the examples are folded to one row (#1944). */
+  hideExamples?: boolean;
   /** The sidebar's one flat list of the User's own Documents, before any Folder (#1942). */
   dayOne?: boolean;
 }) {
@@ -155,7 +158,9 @@ export function LibraryFolders({
     if (openMindFolder) useFolds.getState().reveal(openMindFolder);
   }, [openMindId, openMindFolder]);
 
-  const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents);
+  const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents, {
+    hideExamples,
+  });
 
   const draggingOut = useDraggedOutOfFolder();
   const looseMinds = mindsByFolder.get(null) ?? NO_MINDS;
@@ -458,7 +463,6 @@ function NotInAFolder({
       : t("library.unsorted");
   // In the tree's keys, as the rows are: one Tab stop, and ↑ ↓ reach it (#1942).
   const offerItem = useTreeItem({ depth: 0 });
-
   /** A Folder, offered where one helps: the User's 8th loose Document and no Folder yet. */
   const offerFolder = !examplesOnly && !hasFolders && ownCount >= DAY_ONE_DOCUMENTS;
   return (

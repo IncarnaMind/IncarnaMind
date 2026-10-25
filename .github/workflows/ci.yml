@@ -68,29 +68,50 @@ jobs:
           echo "heavy=$heavy" | tee -a "$GITHUB_OUTPUT"
           echo "packaged=$packaged" | tee -a "$GITHUB_OUTPUT"
 
-  check:
-    name: Typecheck, lint and unit tests
+  # The unit tests are cut into shards that run at once: as one job they took about 13 minutes.
+  # Vitest deals the files out evenly by a hash of their paths. Typecheck and lint run once, in
+  # the first shard.
+  unit:
+    name: Unit tests shard ${{ matrix.shard }}/3
     needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
     env:
       # The unit tests drive the core in plain Node; they don't need the Electron binary.
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
-      - if: needs.changes.outputs.heavy == 'true'
-        uses: actions/checkout@v7
-      - if: needs.changes.outputs.heavy == 'true'
-        uses: actions/setup-node@v7
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
-      - if: needs.changes.outputs.heavy == 'true'
-        run: npm ci
-      - if: needs.changes.outputs.heavy == 'true'
+      - run: npm ci
+      - if: matrix.shard == 1
         run: npm run typecheck
-      - if: needs.changes.outputs.heavy == 'true'
+      - if: matrix.shard == 1
         run: npm run lint
-      - if: needs.changes.outputs.heavy == 'true'
-        run: npm test
+      - run: npm test -- --shard=${{ matrix.shard }}/3
+
+  # The check keeps its name, so whatever reads it keeps working while the shards change.
+  check:
+    name: Typecheck, lint and unit tests
+    if: always()
+    needs: [changes, unit]
+    runs-on: ubuntu-latest
+    steps:
+      # Skipped shards (a change to documents only) count as passed; a failed or cancelled one never does.
+      - name: Every shard passed
+        run: |
+          test "${{ needs.changes.result }}" = success
+          if [ "${{ needs.changes.outputs.heavy }}" = true ]; then
+            test "${{ needs.unit.result }}" = success
+          else
+            test "${{ needs.unit.result }}" = skipped
+          fi
 
   # The packaged app, as the User installs it, transcribes a meeting with its real speech engine
   # and model (#1239): #1233 broke transcription only there, while every test passed on the fake
@@ -195,18 +216,18 @@ jobs:
   # (scripts/smoke-shard.mjs and e2e/durations.json): as one job it took about 20 minutes, and
   # pull requests merge one at a time, each up to date with main, so that time sets the pace.
   smoke-shard:
-    name: Smoke shard ${{ matrix.shard }}/8 (Linux)
+    name: Smoke shard ${{ matrix.shard }}/10 (Linux)
     # A pull request merges only when it is up to date with main and this passed, so the merge
     # commit's tree is the one already tested. Running it again on main tests nothing new.
     needs: changes
     if: needs.changes.outputs.heavy == 'true' && contains(fromJSON('["pull_request","merge_group","schedule","workflow_dispatch"]'), github.event_name)
     runs-on: ubuntu-latest
-    # A shard's specs take about 20 minutes; the rest is for a slow package mirror.
+    # A shard's specs take about 10 minutes; the rest is for a slow package mirror.
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -245,16 +266,24 @@ jobs:
         with:
           package: ffmpeg
       # The app needs a display: a virtual one, bigger than the window the specs set
-      # (e2e/app.ts), at full colour depth. xvfb-run's own default is 640 × 480 at 8 bits.
+      # (e2e/app.ts), at full colour depth. Each of the two workers has its own: windows on one
+      # display take the keyboard focus from each other and share its clipboard.
       - name: Run the specs
         shell: bash
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run test:smoke -- $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 8) 2>&1 | tee smoke.log
+        run: |
+          trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+          for number in 98 99; do
+            Xvfb ":$number" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
+            for _ in $(seq 100); do [ -S "/tmp/.X11-unix/X$number" ] && break; sleep 0.2; done
+            test -S "/tmp/.X11-unix/X$number"
+          done
+          DISPLAY=:98 INCARNAMIND_DISPLAYS=:98,:99 npm run test:smoke -- --workers=2 $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 10) 2>&1 | tee smoke.log
       # A night's failures show on the run's page without opening a log.
       - name: List the failed specs in the summary
         if: failure()
         run: |
           {
-            echo "### Failed specs, shard ${{ matrix.shard }}/8"
+            echo "### Failed specs, shard ${{ matrix.shard }}/10"
             echo '```'
             grep -E '^\s+✘' smoke.log || echo "none: the shard stopped before its specs finished (a limit or a crash)"
             echo '```'

@@ -20,12 +20,13 @@ import {
 } from "../selection";
 import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
 import { useSortMenu } from "../sortMenu";
-import { useAppStore } from "../store";
+import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { chipsOf, tagIndex } from "../tagEditing";
 import { isMoveToKey, moveThroughRows, TREE_ROW, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { useTreeKeyboard } from "../useTreeKeyboard";
 import { DocumentTagMenu } from "./DocumentTags";
+import { ExampleRow } from "./ExampleRow";
 import { InlineName } from "./InlineName";
 import { LibraryFolders } from "./LibraryFolders";
 import { LinkedFolderRows } from "./LinkedFolderRows";
@@ -69,10 +70,8 @@ const NO_DOCUMENTS: readonly Document[] = [];
  * the sections, each shown once it has something in it: the Folders, each
  * with its Minds and Documents, and Not in a Folder (see `LibraryFolders`),
  * the Linked folders (see `LinkedFolderRows`), and the Tags in
- * use (see `SidebarTags`). On a first open, and on day one while the User has
- * few Documents, no Folder and no Linked folder of their own, the Library, the
- * Folders and the Tags wait: those Documents are one flat list called Documents
- * (#1942). Each Document is one row: its
+ * use (see `SidebarTags`). On a first open with nothing of the User's own,
+ * the Library waits for their first Document. Each Document is one row: its
  * name, its Tags' colours (see `TagMarks`) and, while it's processed, if it
  * failed, or if its file is missing or can't be reached, its status at the
  * end. Its Tags are in its Tags menu, and the Tags dialog; its "More" menu
@@ -85,12 +84,40 @@ export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
   const ownDocuments = useOwnDocuments();
+  const ownLinkedFolders = useOwnLinkedFolders();
   const dayOne = useDayOne();
   const firstOpen = useFirstOpen();
-  const quiet = firstOpen && ownDocuments.length === 0;
+  const hasOwnDocuments = useAppStore((state) =>
+    state.documents.some((each) => isOwnDocument(each, allExamples(state))),
+  );
+  const quiet = firstOpen && !hasOwnDocuments;
+  // The example folds to one row once the User has a Document of their own (#1944), and only while
+  // its Mind is there for that row to open: its Documents and folder stay reachable without one.
+  const exampleMindId = useAppStore((state) => {
+    const id = state.examples?.mindId;
+    return id !== null && id !== undefined && state.minds.some((each) => each.id === id)
+      ? id
+      : null;
+  });
+  const exampleFolders = useAppStore((state) =>
+    allExamples(state)
+      .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
+      .join(" "),
+  );
+  const foldExamples = hasOwnDocuments && exampleMindId !== null;
+  const folded = useMemo(
+    () => (foldExamples ? new Set(exampleFolders.split(" ").filter(Boolean)) : new Set<string>()),
+    [foldExamples, exampleFolders],
+  );
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
   const documents = useAppStore((state) => state.documents);
-  const ownLinkedFolders = useOwnLinkedFolders();
+  const shownDocuments = useMemo(
+    () =>
+      folded.size === 0
+        ? documents
+        : documents.filter((each) => !folded.has(each.linkedFolderId ?? "")),
+    [documents, folded],
+  );
   const addDocuments = useAppStore((state) => state.addDocuments);
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
@@ -195,17 +222,19 @@ export function DocumentsSection() {
       )}
       <div ref={tree} data-testid="sidebar-sections" {...treeKeys}>
         <LibraryFolders
-          documents={quiet ? NO_DOCUMENTS : documents}
+          documents={quiet ? NO_DOCUMENTS : shownDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
+          hideExamples={foldExamples}
           dayOne={dayOne}
         />
         {!quiet && ownLinkedFolders.length > 0 && (
           <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
-            <LinkedFolderRows />
+            <LinkedFolderRows hideExamples={foldExamples} />
           </SidebarSection>
         )}
         {!quiet && <SidebarTags />}
+        {foldExamples && exampleMindId && <ExampleRow mindId={exampleMindId} />}
       </div>
       <LinkFolderDialog />
       <TagNamesTip />

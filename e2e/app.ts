@@ -33,6 +33,14 @@ import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 
 const appDir = resolve(__dirname, "..");
 
+// CI runs two workers, each on a virtual display of its own: windows on one display take the
+// keyboard focus from each other and share its clipboard.
+const displays = (process.env.INCARNAMIND_DISPLAYS ?? "").split(",").filter(Boolean);
+const workerIndex = Number(process.env.TEST_PARALLEL_INDEX);
+if (displays.length > 0 && Number.isInteger(workerIndex)) {
+  process.env.DISPLAY = displays[workerIndex % displays.length];
+}
+
 /**
  * The apps this test launched that are still open, by the data folder each
  * runs on: `removeDataFolder` closes them, keeping a picture of the window if
