@@ -110,7 +110,7 @@ The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Mind's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
 | Verify (a document) | 核对文档 | The verb is 核对, as for a Citation. |
-| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify; the Mind's health counts its unsupported sentences in places, "2 处需要留意". |
+| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Mind's health counts its unsupported sentences with 处: "2 处需要留意". |
 | Mark | 标记 | |
 | Run | 运行 | |
 | Task | 任务 | |

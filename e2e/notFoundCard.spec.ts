@@ -29,7 +29,6 @@ import {
  * of Undo. The scripted model supports a sentence that shares three words with a line it was
  * handed (src/main/fakeChat/checks.ts).
  */
-/** Where the card's screenshots go, for a pull request: none unless set. */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 
 let dataDir: string;
