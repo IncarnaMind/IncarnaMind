@@ -529,11 +529,24 @@ function MindEditorView({
   const hasDocuments = useAppStore((state) => state.documents.length > 0);
   const aiActions = useMemo((): SelectionAction[] => {
     const available = (current: typeof editor) => selectionForEdit(current.state) !== null;
-    const run = (action: "improve" | "shorten" | "explain") => (current: typeof editor) =>
-      void requestEdit(current, mindId, doc, action);
+    const run =
+      (action: "improve" | "shorten" | "explain", from?: "menu") => (current: typeof editor) =>
+        void requestEdit(current, mindId, doc, action, undefined, undefined, from);
     return [
-      { id: "improve", label: "editor.ai.improve", icon: "✎", available, run: run("improve") },
-      { id: "shorten", label: "editor.ai.shorten", icon: "≡", available, run: run("shorten") },
+      {
+        id: "improve",
+        label: "editor.ai.improve",
+        icon: "✎",
+        available,
+        run: run("improve", "menu"),
+      },
+      {
+        id: "shorten",
+        label: "editor.ai.shorten",
+        icon: "≡",
+        available,
+        run: run("shorten", "menu"),
+      },
       {
         id: "translate",
         label: "editor.ai.translate",
@@ -542,7 +555,8 @@ function MindEditorView({
         choices: TRANSLATE_LANGUAGES.map((language) => ({
           id: language.id,
           label: language.name,
-          run: (current) => void requestEdit(current, mindId, doc, "translate", language.prompt),
+          run: (current) =>
+            void requestEdit(current, mindId, doc, "translate", language.prompt, undefined, "menu"),
         })),
         run: () => undefined,
       },
