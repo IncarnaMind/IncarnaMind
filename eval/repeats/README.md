@@ -59,6 +59,27 @@ npm run eval:repeats
 
 ## Results
 
+### 2026-10-25: a check searches again before it says a sentence isn't found (#1608)
+
+Before a check says nothing in its scope states a sentence, it asks the model once to search again with other words: the sentence's key terms, a plainer paraphrase, or the Documents' language (`src/core/answers/checks/searchAgain.ts`). The model writes the query. A reply that names a part a Passage states, or a check that already searched more than once, isn't asked. The no-Citation card for such a sentence is headed "Not found" (未找到).
+
+**Why a sentence the Documents state came back unsupported.** On `main` at f46093a4c, with every request logged, the deciding clause was among the first search's Passages in every check of these four sets: 160 checks on Claude Haiku 5.5 and 200 on Claude Sonnet 5.5. It was never a search miss. The issue's flip was "Staff…" on Sonnet 5.5, unsupported with no parts so the card said nothing was found. That was the model's first verdict, and since the `Scope` field it gets the partly-supported card in 40 of 40 checks. Where a sentence the agreement states still comes back unsupported, as in `unfiled-20` below, the clause was handed every time: the model reads a sentence that names no party, in a Library of several agreements, as a rule for all of them. The Mind's Search scope (#1623) settles that.
+
+Counts are of checks, `main` and this version, interleaved within three hours on 2026-10-25; another change to the period rule was being measured on `main` in parallel. `main` ran Haiku 5.5 twice.
+
+| | Haiku 5.5 `main` | Haiku 5.5 this version | Sonnet 5.5 `main` | Sonnet 5.5 this version |
+|---|---|---|---|---|
+| Sentences the agreement states, unsupported (of 40), English | 0; 2 | 0 | 0 | 0 |
+| The same, Chinese | 0; 0 | 0 | 0 (1 not checked) | 0 |
+| Pairs of checks in a row that agree, of 9: en, en-control, zh, zh-control | 9, 7, 9, 9; 7, 4, 7, 9 | 9, 6, 9, 7 | 9, 9, 7, 9 | 9, 9, 9, 9 |
+| Checks asked to search again | | 0 of 200 | | 0 of 200 |
+
+- **The pairs that disagree:** a general word Supported in about 1 check in 10 ("Employees…", 员工…; the `Scope` field, #1708), a near miss Contradicted once, "can" for "may" given the partly-supported card by a `Roles` line that says differs, a quote not found once on Haiku 5.5, and on Sonnet 5.5 a reply with no verdict line (#1673). The ask to search again never ran in these checks, so it can't have caused or fixed any of them.
+- **Cost:** none on the common path. On this version a sentence's check took 3.1, 3.1, 2.7 and 2.2 requests on Haiku 5.5 (en, en-control, zh, zh-control), against 3.1, 2.9, 2.7 and 2.3 on `main`. It took 15,300, 17,200, 12,300 and 11,000 tokens in, against 15,300, 16,200, 12,600 and 11,600, and 3.3 to 4.8 s of requests, against 3.4 to 4.1 s. On Sonnet 5.5 it took 4.1, 3.9, 3.4 and 3.0 requests, against 4.1, 4.0, 3.4 and 3.0, and 6.6 to 8.1 s against 7.2 to 8.0 s, and 22,400, 21,800, 15,600 and 16,300 tokens in, against 21,400, 21,800, 16,000 and 16,200. Both models already search twice for a sentence they don't find: the car allowance had two searches or more in all 100 checks of these runs, so an ask would have nothing to add there. When it does run, it is one more request, with the check's own context, before the verdict.
+- **The other sets,** Haiku 5.5, 5 checks, `main` against this version. Conflicts Contradicted: 129 and 125 of 145 in English, 114 and 110 of 140 in Chinese. False Supported: 8 and 6 in English, 3 and 0 in Chinese conflicts, 3 and 1 in the Chinese near misses. Results not as expected: paraphrases 5 and 5 (en), 0 and 1 (zh); near misses 5 and 6 (en), 9 and 6 (zh). No check in any of these sets was asked to search again (0 of 415), so the differences are draws.
+- **Scope cases,** Haiku 5.5, 10 checks: sentences the agreement states that weren't Supported in `unfiled-20` went from 6 of 20 on `main` to 1 of 20 in English, and from 1 of 20 to 2 of 20 in Chinese. Every one was the partly-supported card with the clause in hand. With the agreement as the Mind's scope it was 0 of 20 in both languages. No check was asked to search again (0 of 160).
+- **Spend:** $5.47 at the app's own count: Haiku 5.5 $1.25 (with the scope cases), Sonnet 5.5 $4.22.
+
 ### 2026-10-24: the holiday clause is dated, so the 2026 sentences are conflicts (#1765)
 
 The test agreements say the Employee starts on 11 January 2027 and give no year for the holiday clause, so a sentence about holiday in 2026 was a claim about a year the agreement might not cover, and Sonnet 5.5 called it a near miss in 8 of 10 checks. The holiday clause now starts on 1 January 2025 ("From 1 January 2025 the Employee is entitled to 27 working days of paid holiday per year…", "自2025年1月1日起，乙方每年享有带薪年休假10天…"); the employment start date and the other sentences are as they were. A new expected value, `absent`, is for a figure about a year before the clause starts ("In 2024 the Employee was entitled to 25 days of paid holiday.", "2024年乙方享有带薪年休假15天。"): the card should say "I didn’t find this".
