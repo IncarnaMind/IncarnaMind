@@ -185,6 +185,7 @@ describe("unreadDocumentsNote", () => {
     expect(note).toContain('"Pages.pdf" (scanned pages 3, 7 weren\'t read)');
     expect(note).toContain('"Whole.pdf" (some page content couldn\'t be read)');
     expect(note).toContain("Values missing from its Passages are unknown");
+    expect(note).toContain("[?] is IncarnaMind's unreadable-field status");
     expect(note).toContain('"Locked.docx" (password-protected)');
     expect(note).toContain('"Broken.pdf" (damaged or couldn\'t be opened)');
     expect(note).toContain('"Huge.docx" (too large to open)');

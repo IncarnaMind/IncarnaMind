@@ -1,5 +1,6 @@
 /** The instructions every Answer is written with. Kept short: every word is sent with every Question. */
 import { figureContextOf, readFigures } from "../../shared/figures";
+import { PDF_BLANK_FIELD, PDF_UNREAD_FIELD } from "../../shared/pdfFormText";
 import { CJK, nameKey } from "../../shared/text";
 import type { CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
@@ -512,7 +513,7 @@ export function unreadDocumentsNote(unread: readonly UnreadFile[]): string {
     .map((file) => `"${listedName(file.name)}" (${UNREAD_WORDS[file.reason](file.pages)})`);
   const more = unread.length - named.length;
   const partial = unread.some((file) => file.reason === "pages")
-    ? ' A partially read page may still have searchable Passages. Values missing from its Passages are unknown, not evidence that a field is blank or absent. For PDF form fields, a label without a value means the value could not be read; a readable blank field is recorded as "".'
+    ? ` A partially read page may still have searchable Passages. Values missing from its Passages are unknown, not evidence that a field is blank or absent. In PDF form text, ${PDF_UNREAD_FIELD} is IncarnaMind's unreadable-field status, not text written in the PDF or a field value. It does not show whether that field is blank or filled. ${PDF_BLANK_FIELD} denotes a readable blank field. Never report a ${PDF_UNREAD_FIELD} field as blank, absent, or a recorded value.`
     : "";
   return `IncarnaMind couldn't read the text of some Documents in the search, so no Passage comes from that text: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. If the Passages don't clearly answer the Question and it may be about one of them, say in one sentence that it couldn't be read, so the answer may be there, rather than taking another Document's figure for it.${partial}`;
 }

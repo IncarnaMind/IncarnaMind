@@ -1,6 +1,9 @@
 import type { PDFPageProxy, TextContent, TextItem } from "pdfjs-dist/types/src/display/api";
 import { isRecord } from "../core/errors";
 
+export const PDF_UNREAD_FIELD = "[?]";
+export const PDF_BLANK_FIELD = '""';
+
 const FORM_FONT = "incarnamindForm";
 const INVISIBLE = 1;
 const HIDDEN = 2;
@@ -32,8 +35,9 @@ function fieldValue(field: Record<string, unknown>): string | null {
   const visible = field.fieldType === "Tx" ? strings(field.textContent) : null;
   if (visible && visible.length > 0) return visible.join("\n");
   const values = strings(field.fieldValue);
-  if (!values) return field.fieldValue == null && field.hasAppearance !== true ? '""' : null;
-  if (values.length === 0 || values.every((value) => value === "")) return '""';
+  if (!values)
+    return field.fieldValue == null && field.hasAppearance !== true ? PDF_BLANK_FIELD : null;
+  if (values.length === 0 || values.every((value) => value === "")) return PDF_BLANK_FIELD;
   const options = Array.isArray(field.options) ? field.options.filter(isRecord) : [];
   return values
     .map((value) => {
@@ -140,7 +144,7 @@ export function pdfFormText(
     const x = left + (position?.[0] ?? 0);
     const baseline = bottom + (position?.[1] ?? height * 0.8);
     items.push({
-      str: value === null ? label : `${label ? `${label}: ` : ""}${value}`,
+      str: `${label ? `${label}: ` : ""}${value ?? PDF_UNREAD_FIELD}`,
       dir: "ltr",
       transform: [height, 0, 0, height, x, baseline],
       width: Math.max(1, right - x),

@@ -246,8 +246,7 @@ test("an unreadable field is a partial-reading problem, and readable fields stay
     expect.objectContaining({ documentId: document.id, reason: "pages" }),
   );
   const text = (await core.readDocumentText(document.id)).pages[0]?.text ?? "";
-  expect(text).not.toContain("[?]");
-  expect(text).toContain("Approval signature");
+  expect(text).toContain("Approval signature: [?]");
   expect(text).not.toContain("Signed by inspector");
   expect(text).toContain("Batch identifier: BIRCH-42");
   expect(
