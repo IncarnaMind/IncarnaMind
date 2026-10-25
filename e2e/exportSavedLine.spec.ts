@@ -99,7 +99,7 @@ async function addComment(window: Page): Promise<void> {
   await slideSelect(window, line, "Harbours", { line, words: "months." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");
 }
