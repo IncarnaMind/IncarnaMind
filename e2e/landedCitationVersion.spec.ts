@@ -12,6 +12,7 @@ import {
   focusSettled,
   launchApp,
   linkFolderFromSidebar,
+  menuCommands,
   motionSettled,
   newMind,
   pointAndClick,
@@ -199,6 +200,26 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(chip).toHaveAttribute("data-recheck", "true");
       expect((await storedCitation(editor)).keptOver).toBeNull();
       await screenshot(window, `5-kept-undone-${language}`);
+
+      // The Citation's right-click menu offers both choices too; Keep from it does the same.
+      await window.mouse.move(0, 0);
+      await pointAt(window, chip);
+      await chip.click({ button: "right" });
+      const menu = editor.getByTestId("citation").getByTestId("citation-actions");
+      expect(await menuCommands(menu)).toEqual([
+        "citation.open",
+        "—",
+        "citation.update",
+        "citation.keepOld",
+        "—",
+        "citation.remove",
+      ]);
+      await expect(menu.getByTestId("citation.keepOld")).toHaveText(words.keep);
+      await pointAndClick(window, menu.getByTestId("citation.keepOld"));
+      await expect(chip).not.toHaveAttribute("data-recheck", "true");
+      expect((await storedCitation(editor)).keptOver).toBe(current);
+      await undo();
+      await expect(chip).toHaveAttribute("data-recheck", "true");
 
       // Update the sentence…: it cites the new words, which open beside, and its sentence is selected.
       await showCard();

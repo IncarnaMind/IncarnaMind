@@ -296,10 +296,16 @@ export function CitationView({
   };
   const openFromCardRef = useRef(openFromCard);
   openFromCardRef.current = openFromCard;
+  const choices = {
+    update: recheckAsked && newVersion ? updateSentence : null,
+    keepOld: recheckAsked && liveVersion ? keepOldVersion : null,
+  };
+  const choicesRef = useRef(choices);
+  choicesRef.current = choices;
   // "Open cited page" (a command) opens the Citation whose card shows.
   useEffect(() => {
     if (!open) return;
-    const handle = { open: () => openFromCardRef.current() };
+    const handle = { open: () => openFromCardRef.current(), choices: () => choicesRef.current };
     citationHandle.current = handle;
     return () => {
       if (citationHandle.current === handle) citationHandle.current = null;
@@ -312,6 +318,8 @@ export function CitationView({
     ...(state.reason !== "document-removed" && {
       "citation.open": () => openFromCardRef.current(),
     }),
+    ...(choices.update && { "citation.update": choices.update }),
+    ...(choices.keepOld && { "citation.keepOld": choices.keepOld }),
     // Not where the text can't be changed, such as an Answer in the assistant.
     ...(editor.isEditable && {
       "citation.remove": () => {
@@ -451,8 +459,8 @@ export function CitationView({
               recheckAsked={recheckAsked}
               badgeText={badgeText}
               onOpen={openFromCard}
-              onUpdate={recheckAsked && newVersion ? updateSentence : null}
-              onKeep={recheckAsked && liveVersion ? keepOldVersion : null}
+              onUpdate={choices.update}
+              onKeep={choices.keepOld}
               onRemove={
                 editor.isEditable
                   ? () => {
