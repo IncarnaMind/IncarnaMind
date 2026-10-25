@@ -42,6 +42,10 @@ export interface MindsCase {
   documents?: true;
   /** The Minds it names hold only AI text: a Meeting's notes filled after Stop ("ai"), or what an Answer added ("answer"). */
   sources?: "ai" | "answer";
+  /** More Minds beside the workspace's, such as near namesakes of the one it names (#1865). */
+  extra?: readonly SeedMind[];
+  /** What the User picks when the assistant asks which Mind, by its label; none: the Answer stops at the question. */
+  choose?: string;
   expected: Expected;
 }
 
@@ -225,6 +229,63 @@ export const WORKSPACES: Readonly<Record<Language, readonly SeedMind[]>> = {
   "zh-CN": WORKSPACE_ZH,
 };
 
+const PLAN_DRAFT: Readonly<Record<Language, SeedMind>> = {
+  en: {
+    title: "Project plan (draft)",
+    blocks: [
+      "## Goals",
+      "Launch the customer portal in the Nordic region first.",
+      "## Milestones",
+      "Beta opens in February.",
+      "## Risks",
+      "Hiring may be slow.",
+    ],
+  },
+  "zh-CN": {
+    title: "项目计划（草稿）",
+    blocks: [
+      "## 目标",
+      "先在北欧上线客户门户。",
+      "## 里程碑",
+      "内测在 2 月开始。",
+      "## 风险",
+      "招聘可能偏慢。",
+    ],
+  },
+};
+
+const BUDGETS: Readonly<Record<Language, readonly SeedMind[]>> = {
+  en: [2024, 2025].map((year) => ({
+    title: `Budget ${year}`,
+    blocks: [
+      "## Summary",
+      `The ${year} budget is €2.4 million, up 5% on the year before. Most of the increase goes to the support team, which grows by three people. Travel and office costs stay flat, and the research budget is held at €300,000.`,
+      "## Notes",
+      "Approved by the board.",
+    ],
+  })),
+  "zh-CN": [2024, 2025].map((year) => ({
+    title: `${year}年预算`,
+    blocks: [
+      "## 摘要",
+      `${year} 年预算为 240 万欧元，比上一年增长 5%。增加的部分大多用于客服团队，团队将增加三人。差旅和办公费用保持不变，研发预算维持在 30 万欧元。`,
+      "## 备注",
+      "已获董事会批准。",
+    ],
+  })),
+};
+
+const budgetShortened = (language: Language): Expected => ({
+  changed: {
+    [language === "en" ? "Budget 2025" : "2025年预算"]: {
+      kind: "shorten",
+      section: language === "en" ? "Summary" : "摘要",
+      sentences: 2,
+      keeps: language === "en" ? ["2.4 million", "5%", "300,000"] : ["240", "5%", "30"],
+    },
+  },
+});
+
 /** The Minds the requests for a new note from two name. */
 export const SOURCES: Readonly<Record<Language, readonly string[]>> = {
   en: ["Project plan", "Meeting notes"],
@@ -279,36 +340,26 @@ const shortenAll = (language: Language): Expected => {
   };
 };
 
+/** A line holding the decision to open the beta to 50 customers, added to `section`. */
+const fifty = (language: Language, section: string): Rule => ({
+  kind: "add",
+  section,
+  facts: [
+    language === "en"
+      ? ["50 customers", "50 pilot customers", "50"]
+      : ["50 位客户", "50 个客户", "50 家客户", "50"],
+  ],
+});
+
 const decision = (language: Language): Expected =>
   language === "en"
     ? {
         changed: {
-          "Project plan": {
-            kind: "add",
-            section: "Milestones",
-            facts: [["50 customers", "50 pilot customers", "50"]],
-          },
-          "Meeting notes": {
-            kind: "add",
-            section: "Decisions",
-            facts: [["50 customers", "50 pilot customers", "50"]],
-          },
+          "Project plan": fifty("en", "Milestones"),
+          "Meeting notes": fifty("en", "Decisions"),
         },
       }
-    : {
-        changed: {
-          项目计划: {
-            kind: "add",
-            section: "里程碑",
-            facts: [["50 位客户", "50 个客户", "50 家客户", "50"]],
-          },
-          会议纪要: {
-            kind: "add",
-            section: "决定",
-            facts: [["50 位客户", "50 个客户", "50 家客户", "50"]],
-          },
-        },
-      };
+    : { changed: { 项目计划: fifty("zh-CN", "里程碑"), 会议纪要: fifty("zh-CN", "决定") } };
 
 const term = (language: Language): Expected => {
   const rule: Rule =
@@ -481,6 +532,43 @@ export const CASES: readonly MindsCase[] = [
     open: null,
     sources: "answer",
     expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "namesake-add-en",
+    language: "en",
+    request:
+      "Today we decided to open the beta to 50 customers. Add that to the Milestones in the Project plan.",
+    open: null,
+    extra: [PLAN_DRAFT.en],
+    choose: "Project plan",
+    expected: { changed: { "Project plan": fifty("en", "Milestones") } },
+  },
+  {
+    id: "namesake-add-zh",
+    language: "zh-CN",
+    request: "今天我们决定内测向 50 位客户开放。把这条加到项目计划的里程碑里。",
+    open: null,
+    extra: [PLAN_DRAFT["zh-CN"]],
+    choose: "项目计划",
+    expected: { changed: { 项目计划: fifty("zh-CN", "里程碑") } },
+  },
+  {
+    id: "namesake-year-en",
+    language: "en",
+    request: "Shorten the summary in Budget 2025 to two sentences.",
+    open: null,
+    extra: BUDGETS.en,
+    choose: "Budget 2025",
+    expected: budgetShortened("en"),
+  },
+  {
+    id: "namesake-year-zh",
+    language: "zh-CN",
+    request: "把 2025年预算 里的摘要缩短成两句话。",
+    open: null,
+    extra: BUDGETS["zh-CN"],
+    choose: "2025年预算",
+    expected: budgetShortened("zh-CN"),
   },
   {
     id: "missing-mind-en",

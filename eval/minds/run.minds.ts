@@ -99,7 +99,7 @@ async function runOne(
     await core.saveChatProvider(chatProviderOf(chat));
     await seedWorkspace(
       core,
-      WORKSPACES[each.language],
+      [...WORKSPACES[each.language], ...(each.extra ?? [])],
       each.sources ? { titles: SOURCES[each.language], by: each.sources } : null,
     );
     const before = await readWorkspace(core);
@@ -107,12 +107,11 @@ async function runOne(
     if (each.open !== null && !open) throw new Error(`No Mind “${each.open}” to open.`);
 
     const asked = Date.now();
-    const answer = await ask(core, {
-      text: each.request,
-      mindId: open?.id ?? null,
-      conversationId: null,
-      focus: null,
-    });
+    const answer = await ask(
+      core,
+      { text: each.request, mindId: open?.id ?? null, conversationId: null, focus: null },
+      { choose: each.choose },
+    );
     const answeredSeconds = (Date.now() - asked) / 1000;
     const { failures, calls, card } = await examine(core, each, before, answer, (reply, record) =>
       unbackedIn(judge, reply, record),

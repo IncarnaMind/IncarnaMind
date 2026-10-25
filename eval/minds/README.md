@@ -16,7 +16,7 @@ Each run uses its own core, so runs can go in parallel (`INCARNAMIND_EVAL_MINDS_
 
 ## The requests
 
-`cases.ts`: ten, each in English and Chinese.
+`cases.ts`: twelve, each in English and Chinese.
 
 | Request | Asked from | What must hold afterwards |
 |---|---|---|
@@ -29,6 +29,8 @@ Each run uses its own core, so runs can go in parallel (`INCARNAMIND_EVAL_MINDS_
 | `new-from-two-plain-docs`: the same, in a Library that also has two Documents of other matters (`DOCUMENTS`), so the model can search too (#1790) | Home | The same |
 | `new-from-two-plain-ai`: the same, the Project plan and the Meeting notes holding only AI text, as a Meeting's notes filled after Stop | Home | The same |
 | `new-from-two-plain-made`: the same, the two holding only what an Answer added, which the Minds line leaves out (#1790): it measures what that costs | Home | The same |
+| `namesake-add`: "…Add that to the Milestones in the Project plan.", beside a Mind "Project plan (draft)" (项目计划（草稿）) (#1865) | Home | The assistant asks which Mind; the evaluation picks Project plan. Its Milestones hold "50", and the draft is untouched |
+| `namesake-year`: "Shorten the summary in Budget 2025 to two sentences.", beside Budget 2024 (2025年预算 and 2024年预算) | Home | The same pick, of Budget 2025: its Summary is shorter, and Budget 2024 is untouched |
 | `missing-mind`: "Shorten the summary in my Budget forecast Mind." | Project plan, which is in front | Nothing changes, and the reply (or its question) names Budget forecast |
 
 ## What a run is held to
