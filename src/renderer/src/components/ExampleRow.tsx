@@ -12,11 +12,12 @@ import {
   rowClass,
   rowIconClass,
 } from "./sidebarRows";
+import { rowMenuProps } from "./usePopoverMenu";
 
 /**
  * The examples, folded to one row once the User has a Document of their own
- * (#1944): it opens the first-run example, and its ⋯ offers the others and
- * removes them.
+ * (#1944): it opens the first-run example, and its ⋯, a right-click or
+ * Shift+F10 offers the others and removes them.
  */
 export function ExampleRow({ mindId }: { mindId: string }) {
   const t = useT();
@@ -26,16 +27,26 @@ export function ExampleRow({ mindId }: { mindId: string }) {
     return item?.kind === "mind" && item.mindId === mindId;
   });
   const treeItem = useTreeItem({ depth: 0 });
-  const name = mind ? mindName(mind) : "";
+  if (!mind) return null;
   return (
-    <div data-testid="example-row" className={rowClass(shown)}>
+    <div
+      data-testid="example-row"
+      data-object-row=""
+      className={rowClass(shown)}
+      {...rowMenuProps((row) =>
+        row.querySelector<HTMLButtonElement>('[data-testid="examples-menu"]'),
+      )}
+    >
       <button
         type="button"
         {...treeItem}
         data-testid="example-open"
         aria-current={shown ? "page" : undefined}
-        title={name || t("examples.row")}
-        onClick={() => useAppStore.getState().openMind(mindId)}
+        title={mindName(mind) || t("examples.row")}
+        onClick={() => {
+          const state = useAppStore.getState();
+          if (state.minds.some((each) => each.id === mindId)) state.openMind(mindId);
+        }}
         className={`${rowButtonClass} ${clearsActions.menu}`}
       >
         <MindLineIcon className={rowIconClass(shown)} />

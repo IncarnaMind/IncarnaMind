@@ -37,6 +37,7 @@ import { askInAssistant } from "../conversations";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
+import { citationStepOpen } from "../nudges";
 import { openCited } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
@@ -195,13 +196,7 @@ export function ClaimMark({
 
   const guided = useAppStore((app) => {
     const progress = app.settings?.device.gettingStarted;
-    return (
-      state === "contradicted" &&
-      !progress?.mistakeSeen &&
-      progress?.indexed === true &&
-      (progress.askedOwn || progress.askedReady) &&
-      !progress.citationChecked
-    );
+    return state === "contradicted" && !progress?.mistakeSeen && citationStepOpen(progress);
   });
 
   /**

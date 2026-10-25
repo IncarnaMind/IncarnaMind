@@ -89,8 +89,13 @@ export function DocumentsSection() {
   );
   const quiet = firstOpen && !hasOwnDocuments;
   // The example folds to one row once the User has a Document of their own (#1944), and only while
-  // there is an example Mind for that row: its Documents and folder stay reachable without one.
-  const exampleMindId = useAppStore((state) => state.examples?.mindId ?? null);
+  // its Mind is there for that row to open: its Documents and folder stay reachable without one.
+  const exampleMindId = useAppStore((state) => {
+    const id = state.examples?.mindId;
+    return id !== null && id !== undefined && state.minds.some((each) => each.id === id)
+      ? id
+      : null;
+  });
   const exampleFolders = useAppStore((state) =>
     allExamples(state)
       .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))

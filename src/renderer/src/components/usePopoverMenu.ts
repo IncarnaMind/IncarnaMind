@@ -1,6 +1,7 @@
 import { computePosition, flip, offset, shift } from "@floating-ui/dom";
 import {
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type ToggleEvent,
   useEffect,
@@ -218,6 +219,48 @@ export function openMenuFromRightClick(
     };
     window.addEventListener("pointerup", () => setTimeout(open), { once: true });
   }
+}
+
+/**
+ * How a row opens its menu button's menu from a right-click, the
+ * context-menu key or Shift+F10, so every way opens the same menu.
+ */
+export function rowMenuProps(buttonOf: (row: HTMLElement) => HTMLButtonElement | null) {
+  const opensMenu = (event: KeyboardEvent<HTMLElement>) =>
+    event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
+  const open = (
+    row: HTMLElement,
+    buttons: number,
+    at: { x: number; y: number; above?: number },
+  ): boolean => {
+    const button = buttonOf(row);
+    if (!button) return false;
+    openMenuFromRightClick(button, buttons, at);
+    return true;
+  };
+  return {
+    onContextMenu(event: MouseEvent<HTMLElement>) {
+      const row = event.currentTarget;
+      // Not from a menu or picker drawn from this row but sitting elsewhere in the page, nor an inner row's.
+      if (!(event.target instanceof Node) || !row.contains(event.target)) return;
+      if (event.defaultPrevented || (event.target as Element).closest('[role="menu"]')) return;
+      if (open(row, event.buttons, { x: event.clientX, y: event.clientY })) {
+        event.preventDefault();
+        // The row's own menu only: not that of a row that holds this one.
+        event.stopPropagation();
+      }
+    },
+    onKeyDown(event: KeyboardEvent<HTMLElement>) {
+      if (!opensMenu(event) || event.defaultPrevented) return;
+      const field = event.target;
+      if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return;
+      const box = event.currentTarget.getBoundingClientRect();
+      if (open(event.currentTarget, 0, { x: box.left + 24, y: box.bottom, above: box.top })) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+  };
 }
 
 /**

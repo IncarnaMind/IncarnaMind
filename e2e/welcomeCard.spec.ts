@@ -178,9 +178,14 @@ for (const language of ["en", "zh-CN"] as const) {
           /Harbours/,
         );
 
-        // 3 Check a Citation, from the card's title with the keyboard.
-        const checkTitle = step(window, "citation").getByTestId("first-open-step-do");
-        await checkTitle.focus();
+        // 3 Check a Citation, from ⌘K with the keyboard.
+        await window.keyboard.press("ControlOrMeta+k");
+        await expect(window.getByTestId("palette-search")).toBeFocused();
+        await window.keyboard.type(language === "en" ? "Check a Citation" : "核对一条引用");
+        await expect(paletteFound(window).first()).toHaveAttribute(
+          "data-key",
+          "command:firstOpen.checkCitation",
+        );
         await window.keyboard.press("Enter");
         const chip = answer.getByTestId("citation-chip").first();
         await expect(chip).toBeFocused();
@@ -217,6 +222,15 @@ for (const language of ["en", "zh-CN"] as const) {
           language === "en" ? "Ask a Question" : "提问",
         );
         await window.keyboard.press("Escape");
+        // With the steps done, the route is gone again.
+        await window.keyboard.press("ControlOrMeta+k");
+        await window.keyboard.type(language === "en" ? "Check a Citation" : "核对一条引用");
+        await expect(
+          paletteFound(window).filter({
+            hasText: language === "en" ? "Check a Citation" : "核对一条引用",
+          }),
+        ).toHaveCount(0);
+        await window.keyboard.press("Escape");
       } finally {
         await app.close();
         await removeDataFolder(sources);
@@ -250,6 +264,65 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
     await app.close();
     await removeDataFolder(sources);
   }
+});
+
+test("the Example row's ⋯, a right-click and Shift+F10 open the examples' menu (#1944)", async () => {
+  const sources = await createDataFolder();
+  const notes = join(sources, "Harbour notes.md");
+  await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await window.getByTestId("add-documents-input").setInputFiles([notes]);
+    const row = window.getByTestId("example-row");
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    const menu = window.getByTestId("examples-actions");
+
+    await row.hover();
+    await pointAndClick(window, row.getByTestId("examples-menu"));
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId("example-more-link")).toHaveCount(3);
+    await expect(menu.getByTestId("examples-remove")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+
+    const box = await row.boundingBox();
+    if (!box) throw new Error("The Example row isn't laid out.");
+    const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+    await window.mouse.move(x, y, { steps: 4 });
+    await window.mouse.click(x, y, { button: "right" });
+    await expect(menu).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+
+    await row.getByTestId("example-open").focus();
+    await window.keyboard.press("Shift+F10");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId("example-more-link")).toHaveCount(3);
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+  } finally {
+    await app.close();
+    await removeDataFolder(sources);
+  }
+});
+
+test("hiding the guide takes its red mark's ring and its ⌘K route away (#1944)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await markSteps(window, { ...NONE, indexed: true, askedReady: true });
+  const mark = window.getByTestId("mind-pane").getByTestId("claim-mark");
+  await expect(mark).toHaveAttribute("data-guided");
+
+  await pointAndClick(window, window.getByTestId("first-open-hide"));
+  await expect(window.getByTestId("first-open-steps")).toHaveCount(0);
+  await expect(mark).not.toHaveAttribute("data-guided");
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Check a Citation");
+  await expect(paletteFound(window).filter({ hasText: "Check a Citation" })).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await app.close();
 });
 
 test("the Welcome card keeps one height through every step, so the page's text never moves (#1195)", async () => {
@@ -776,14 +849,16 @@ for (const language of ["en", "zh-CN"] as const) {
       element.closest(".mind-scroller")?.scrollTo({ top: 0 });
     });
     expect(await inView()).toBe(false);
+    // The card opens a moment after a focus: run the page's clock past it, so "it stays closed" is checked.
+    await window.clock.install();
     await pointAndClick(window, link);
+    await window.clock.runFor(600);
     await expect.poll(inView).toBe(true);
     await expect(mark).toBeFocused();
     expect(await mark.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
-    // The card opens a moment after a focus; waiting that out is the only way to see it never does.
-    await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
     await expect(mark).toHaveAttribute("aria-expanded", "false");
     await expect(window.getByTestId("claim-card")).toHaveCount(0);
+    await window.clock.resume();
     await expect(citation).toHaveAttribute("data-state", "open");
     expect(await gettingStarted(window)).toMatchObject({ mistakeSeen: false });
     expect(await height()).toBe(before);
@@ -840,12 +915,14 @@ for (const language of ["en", "zh-CN"] as const) {
       .first();
     await expect(chip).toHaveAttribute("data-check", "found", { timeout: 20_000 });
 
+    // The card opens a moment after a focus: run the page's clock past it, so "it stays closed" is checked.
+    await window.clock.install();
     await pointAndClick(window, citation.getByTestId("first-open-step-do"));
+    await window.clock.runFor(600);
     await expect(chip).toBeFocused();
     expect(await chip.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
-    // The card opens a moment after a focus; waiting that out is the only way to see it never does.
-    await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
     await expect(window.getByTestId("citation-card")).toHaveCount(0);
+    await window.clock.resume();
     await expect(citation).toHaveAttribute("data-state", "open");
     expect(await gettingStarted(window)).toMatchObject({ citationChecked: false });
 

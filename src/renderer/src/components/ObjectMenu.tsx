@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import type { CommandId } from "../../../shared/commands";
 import { showPlace } from "../commands/here";
 import { menuKeysLabel } from "../commands/keymap";
@@ -17,7 +17,7 @@ import { useAppStore } from "../store";
 import { MoreLineIcon } from "./lineIcons";
 import { rowActionButtonClass } from "./sidebarRows";
 import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "./ui";
-import { openMenuFromRightClick, usePopoverMenu } from "./usePopoverMenu";
+import { rowMenuProps, usePopoverMenu } from "./usePopoverMenu";
 
 const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   mind: "mind",
@@ -35,9 +35,6 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
 };
 
 const keyOf = (target: ObjectRef) => `${target.kind}:${target.id}`;
-
-const opensMenu = (event: KeyboardEvent) =>
-  event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
 
 const ROW = "[data-object-row]";
 
@@ -60,41 +57,13 @@ function focusRow(from: HTMLElement | null): void {
  */
 export function useObjectMenu(target: ObjectRef) {
   const key = keyOf(target);
-  const open = (
-    row: HTMLElement,
-    buttons: number,
-    at: { x: number; y: number; above?: number },
-  ): boolean => {
-    const button = row.querySelector<HTMLButtonElement>(`[data-object-menu="${CSS.escape(key)}"]`);
-    if (!button) return false;
-    openMenuFromRightClick(button, buttons, at);
-    return true;
-  };
   return {
     buttonProps: { "data-object-menu": key },
     rowProps: {
       "data-object-row": "",
-      onContextMenu(event: MouseEvent<HTMLElement>) {
-        const row = event.currentTarget;
-        // Not from a menu or picker drawn from this row but sitting elsewhere in the page, nor an inner row's.
-        if (!(event.target instanceof Node) || !row.contains(event.target)) return;
-        if (event.defaultPrevented || (event.target as Element).closest('[role="menu"]')) return;
-        if (open(row, event.buttons, { x: event.clientX, y: event.clientY })) {
-          event.preventDefault();
-          // The row's own menu only: not that of a row that holds this one.
-          event.stopPropagation();
-        }
-      },
-      onKeyDown(event: KeyboardEvent<HTMLElement>) {
-        if (!opensMenu(event) || event.defaultPrevented) return;
-        const field = event.target;
-        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return;
-        const box = event.currentTarget.getBoundingClientRect();
-        if (open(event.currentTarget, 0, { x: box.left + 24, y: box.bottom, above: box.top })) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
-      },
+      ...rowMenuProps((row) =>
+        row.querySelector<HTMLButtonElement>(`[data-object-menu="${CSS.escape(key)}"]`),
+      ),
     },
   };
 }
