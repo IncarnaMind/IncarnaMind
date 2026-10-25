@@ -2863,6 +2863,7 @@ export const en = {
   "comparison.cell.readingText": "Reading…",
   "comparison.cell.stopped": "stopped",
   "comparison.cell.notFound": "not found",
+  "comparison.cell.scaleChanged": "scale differs from the Document, which gives {amount}",
   "comparison.cell.nothingToSearch": "no text to search",
   "comparison.cell.sourceRemoved": "source removed",
   "comparison.cell.leftOut": "left out: IncarnaMind wrote it",
