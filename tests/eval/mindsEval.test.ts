@@ -348,7 +348,9 @@ describe("The requests and their scoring", () => {
   // protects=every request is asked in English and in Chinese, against a workspace that holds the Minds it names; fails_when=a request names a Mind its workspace lacks, or a language has fewer requests; no_claim=how well a model does them.
   test("each request has a pair, over a workspace with the Minds it names", () => {
     for (const each of CASES) {
-      const titles = WORKSPACES[each.language].map((mind) => mind.title);
+      const titles = [...WORKSPACES[each.language], ...(each.extra ?? [])].map(
+        (mind) => mind.title,
+      );
       for (const title of [each.open, ...Object.keys(each.expected.changed)]) {
         if (title !== null) expect(titles, each.id).toContain(title);
       }

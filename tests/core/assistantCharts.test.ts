@@ -286,6 +286,51 @@ describe("A chart only draws what is cited", { timeout: 60_000 }, () => {
   });
 });
 
+describe("A chart waiting for cite, the rest of its text revised", { timeout: 60_000 }, () => {
+  // protects=a new Mind's chart that waits for cite is still drawn after its table once a later call of the same Answer revised another section of that text, and its card counts it; fails_when=the chart is dropped, or drawn away from its table; no_claim=how often a real model revises its own text.
+  test("is drawn after its table", async () => {
+    const content = `## Revenue\n\n${TABLE}\n\n## Outlook\n\nSales should keep growing.`;
+    const model = scriptedModel((call): ScriptedReply => {
+      const search = call.results.find((each) => each.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!called(call, "create_mind")) {
+        const chart = { kind: "bar", title: "Revenue" };
+        return {
+          calls: [
+            { tool: "create_mind", input: { title: "Revenue notes", chart, content } },
+            { tool: "cite", input: { citations: citationsIn(search) } },
+          ],
+        };
+      }
+      if (!called(call, "edit_mind")) {
+        const outlook = "## Outlook\n\nSales should keep growing next year.";
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { mind: "Revenue notes", part: "Outlook", content: outlook },
+            },
+          ],
+        };
+      }
+      return { text: "" };
+    });
+    const { core, mind } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "make a note charting revenue",
+      mindId: mind.id,
+    });
+    const [made] = changesIn(answer);
+    const page = await connectToMind(core, made?.mindId ?? "");
+
+    const { types } = blocksOf(readMind(page));
+    expect(types[types.indexOf("table") + 1]).toBe("chart");
+    expect(made).toMatchObject({ created: true, tables: 1, charts: 1 });
+    expect(made?.chartNotDrawn).toBeUndefined();
+  });
+});
+
 describe("A chart of a table already in the Mind", { timeout: 60_000 }, () => {
   // protects="chart this table" tells the model to give chart with no content, and charts the table there, right after it, without writing it again, as a change of its own; fails_when=the table is written a second time, or the chart goes elsewhere; no_claim=that a real model gives chart that way.
   test("“chart this table” charts the one there, without a second table", async () => {

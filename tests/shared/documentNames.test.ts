@@ -6,6 +6,7 @@ import {
   looksMachineMade,
   sourceOf,
   titleWithoutSite,
+  whereShown,
 } from "../../src/shared/documentNames";
 
 describe("a web page's title in a citation", () => {
@@ -152,5 +153,58 @@ describe("a Document's own title", () => {
     expect(documentTitle(null, null)).toBeNull();
     expect(documentTitle(null, "   \n  ")).toBeNull();
     expect(documentTitle(null, "49ed72de-a284-4da6-b515-1ddbb7c0a8f1")).toBeNull();
+  });
+});
+
+describe("Two Documents with one name show where each is (#1507)", () => {
+  const doc = (
+    id: string,
+    path: string,
+    name = path
+      .split("/")
+      .pop()
+      ?.replace(/\.\w+$/, "") ?? "",
+  ) => ({
+    id,
+    name,
+    path,
+  });
+
+  // protects=the issue's Linked folder: two Annual-Report and two notes, one pair in 2025, one in 2026, each shown with its own year, and a Document whose name is its own shows nothing; fails_when=the two Annual-Reports read the same, or a lone name gets a place; no_claim=how a row lays it out.
+  test("the nearest folder that tells them apart", () => {
+    const where = whereShown([
+      doc("a", "/Users/me/awkward/same-name/2025/Annual-Report.docx"),
+      doc("b", "/Users/me/awkward/same-name/2025/notes.md"),
+      doc("c", "/Users/me/awkward/same-name/2026/Annual-Report.docx"),
+      doc("d", "/Users/me/awkward/same-name/2026/notes.md"),
+      doc("e", "/Users/me/awkward/Budget.xlsx"),
+    ]);
+    expect(Object.fromEntries(where)).toEqual({ a: "2025", b: "2025", c: "2026", d: "2026" });
+  });
+
+  // protects=when the nearest folders match, more of the path is shown until they differ; identical paths are told apart by "(2)"; Chinese names, and names differing only in case, count as one; fails_when=two rows still read the same; no_claim=none beyond protects.
+  test.each([
+    [
+      "more of the path",
+      [doc("a", "/x/Q1/2025/Report.pdf"), doc("b", "/x/Q2/2025/Report.pdf")],
+      { a: "Q1 / 2025", b: "Q2 / 2025" },
+    ],
+    [
+      "the same path twice",
+      [doc("a", "/x/2025/Report.pdf"), doc("b", "/x/2025/Report.pdf")],
+      { a: "2025", b: "2025 (2)" },
+    ],
+    [
+      "Chinese names",
+      [doc("a", "/x/上海/年度报告.docx"), doc("b", "/x/北京/年度报告.docx")],
+      { a: "上海", b: "北京" },
+    ],
+    [
+      "names that differ only in case",
+      [doc("a", "/x/old/notes.md"), doc("b", "/x/new/Notes.md", "Notes")],
+      { a: "old", b: "new" },
+    ],
+  ])("%s", (_, documents, expected) => {
+    expect(Object.fromEntries(whereShown(documents))).toEqual(expected);
   });
 });

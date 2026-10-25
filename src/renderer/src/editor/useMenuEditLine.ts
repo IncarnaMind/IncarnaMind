@@ -1,14 +1,11 @@
 import type { Editor } from "@tiptap/core";
 import { useEffect } from "react";
-import { readinessAction } from "../components/providers/ChatReadinessNotice";
-import { readinessKey, serviceName } from "../components/providers/shared";
-import { dismissEditProblem, type EditProblem, stopEdit, useEdits } from "../editWithAi";
-import { providerErrorText } from "../errors";
+import { dismissEditProblem, stopEdit, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { appliedLineIn, setAppliedLine } from "./appliedEditLine";
+import { editProblemParts } from "./EditStatus";
 
-/** An edit asked in the selection menu shows nothing in the page for its first 300 ms. */
 const SHOWN_AFTER_MS = 300;
 
 /**
@@ -48,12 +45,30 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
       return () => clearTimeout(timer);
     }
     if (!pending && problem?.menu && problem.kind !== "busy") {
-      const words = wordsOf(problem, t, language, openSettings, mindId);
+      const { blockId } = problem.menu;
+      const parts = editProblemParts(problem, t, language, openSettings, mindId);
+      const retry = parts.action;
       setAppliedLine(editor, {
         kind: "failed",
-        blockId: problem.menu.blockId,
-        text: words.text,
-        action: words.action ?? null,
+        blockId,
+        text: parts.text,
+        action: retry
+          ? {
+              label: retry.label,
+              run: () => {
+                retry.run();
+                // Asking again clears the line: put the working line back in the box it had, so
+                // the text below it does not jump (#1417).
+                if (problem.kind === "failed" && useEdits.getState().pending[mindId]?.menu) {
+                  setAppliedLine(editor, {
+                    kind: "running",
+                    blockId,
+                    stop: () => stopEdit(mindId),
+                  });
+                }
+              },
+            }
+          : null,
         close: () => dismissEditProblem(mindId),
       });
       return;
@@ -76,52 +91,4 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
     dom.addEventListener("keydown", onKey, true);
     return () => dom.removeEventListener("keydown", onKey, true);
   }, [editor, mindId, readOnly]);
-}
-
-function wordsOf(
-  problem: EditProblem,
-  t: ReturnType<typeof useT>,
-  language: ReturnType<typeof useLanguage>,
-  openSettings: ReturnType<typeof useAppStore.getState>["openSettings"],
-  mindId: string,
-): { text: string; action?: { label: string; run(): void } } {
-  switch (problem.kind) {
-    case "not-ready": {
-      const { readiness } = problem;
-      const service = "provider" in readiness ? serviceName(readiness.provider, t, language) : "";
-      const way = readinessAction(readiness, t, openSettings, t("question.setUp"), () =>
-        dismissEditProblem(mindId),
-      );
-      return {
-        text: t(readinessKey(readiness), { service }).replace(/[.。]$/, ""),
-        action: { label: way.label, run: way.onClick },
-      };
-    }
-    case "local-mode":
-      return {
-        text: t("edit.problem.local-mode"),
-        action: {
-          label: t("edit.problem.chooseModel"),
-          run: () => {
-            dismissEditProblem(mindId);
-            openSettings("models");
-          },
-        },
-      };
-    case "failed":
-      return {
-        text: t("edit.problem.failed", { message: problem.message }),
-        action: {
-          label: t("edit.problem.retry"),
-          run: () => {
-            dismissEditProblem(mindId);
-            problem.retry();
-          },
-        },
-      };
-    case "consent-revoked":
-      return { text: providerErrorText(problem.error, t) };
-    default:
-      return { text: t(`edit.problem.${problem.kind}`) };
-  }
 }

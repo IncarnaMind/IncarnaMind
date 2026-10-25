@@ -289,6 +289,10 @@ export function serveFileActions(
     if (trusted(event) && isEditMenuState(state)) setEditMenu(state);
   });
 
+  ipcMain.on(FILES_CHANNELS.paste, (event) => {
+    if (trusted(event)) event.sender.paste();
+  });
+
   ipcMain.on(FILES_CHANNELS.examplesRemoved, (event, removed: unknown) => {
     if (trusted(event) && typeof removed === "boolean") setExamplesRemoved(removed);
   });

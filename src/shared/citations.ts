@@ -316,6 +316,54 @@ export function changedSourceNote(
 }
 
 /**
+ * Whether a Citation needs re-check (#99; ADR-0017's amendment): its Document changed after it
+ * was cited, and its quote isn't at its place in the current version, as `recheck` found it
+ * ("failed" when it couldn't be looked for), unless the User chose to keep citing the old
+ * version over that one. Quiet until the current version is looked at.
+ */
+export function needsRecheck(
+  state: Pick<CitationState, "changedAfterCited">,
+  attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "keptOver">>,
+  recheck: CitationRecheck | "failed" | null,
+): boolean {
+  if (!state.changedAfterCited || recheck === null) return false;
+  if (recheck === "failed") return true;
+  if (attributes.keptOver && attributes.keptOver === recheck.contentHash) return false;
+  return quoteStanding(attributes, recheck) !== "found";
+}
+
+/**
+ * What Update the sentence… makes a Citation (#99): the words now at its place in its Document's
+ * current version when they changed, or its quote where it is now when it moved, checked there.
+ * Null when the current version holds nothing to cite in its place.
+ */
+export function newVersionCitation(
+  attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "quote">>,
+  recheck: CitationRecheck | "failed" | null,
+): Partial<CitationAttributes> | null {
+  if (recheck === null || recheck === "failed" || recheck.contentHash === null) return null;
+  const now =
+    recheck.changed?.now ??
+    (quoteStanding(attributes, recheck) === "moved"
+      ? { ...recheck, quote: attributes.quote ?? "" }
+      : null);
+  if (!now || now.contentHash === null) return null;
+  return {
+    passageId: now.passageId,
+    contentHash: now.contentHash,
+    pageFrom: now.pageFrom,
+    pageTo: now.pageTo,
+    location: now.location,
+    quote: now.quote,
+    check: now.check,
+    checkReason: now.checkReason,
+    quotedWords: null,
+    verdict: null,
+    keptOver: null,
+  };
+}
+
+/**
  * A Citation's short Location label in a language ("p. 3", "slide 4",
  * "Revenue, rows 12–14", "§ 2.1 Sensitivity", "lines 120–134"); null for a
  * whole TXT or Markdown file cited before Locations.
