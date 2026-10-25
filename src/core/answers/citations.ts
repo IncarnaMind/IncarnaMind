@@ -944,7 +944,6 @@ export function createCitationSession(
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
-  const citedDocuments: string[] = [];
   const passageDocuments: string[] = [];
   const searchedDocuments: string[] = [];
   const remember = (list: string[], id: string) => {
@@ -1222,7 +1221,6 @@ export function createCitationSession(
       const { record, source, passageUnits } = taken;
       const { marker } = record;
       records.set(marker, record);
-      remember(citedDocuments, source.documentId);
       recorded.push(marker);
       events.onRecord(marker, toCitation(record, null));
       // Tell the model now what the check will find, so it can fix the record.
@@ -1467,6 +1465,16 @@ export function createCitationSession(
     return record ? toCitation(record, record.result) : null;
   };
 
+  /** The Documents the Answer's final Citations name, in the order they first appear. */
+  const citedDocuments = () => {
+    const ids: string[] = [];
+    for (const marker of new Set(finalMarkers)) {
+      const record = records.get(marker);
+      if (record && !ids.includes(record.source.documentId)) ids.push(record.source.documentId);
+    }
+    return ids;
+  };
+
   /** Quotes for calculated figures' inputs (./calculations). */
   const quotes = {
     /**
@@ -1504,9 +1512,9 @@ export function createCitationSession(
   return {
     tools,
 
-    /** The Documents its Citations name, those its Passages came from, and those it searched by name. */
+    /** The Documents its final Citations name, those its Passages came from, and those it searched by name. */
     documentsRead: () => ({
-      cited: [...citedDocuments],
+      cited: citedDocuments(),
       passages: [...passageDocuments],
       searched: [...searchedDocuments],
     }),

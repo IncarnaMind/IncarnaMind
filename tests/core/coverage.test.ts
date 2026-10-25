@@ -8,7 +8,7 @@ import {
   documentsAsked,
   namedCoverage,
 } from "../../src/core/answers/coverage";
-import { recordsFor } from "../../src/main/fakeChat/passages";
+import { passagesIn, recordFor, recordsFor } from "../../src/main/fakeChat/passages";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { waitForProcessing } from "../helpers/documents";
@@ -325,8 +325,9 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
 });
 
 describe("A name that fits two Documents, through the core (#1512)", { timeout: 60_000 }, () => {
-  // Ten unrelated Documents, past the twelve the assistant sends whole, so the Answer searches.
+  // Eleven unrelated Documents, past the twelve the assistant sends whole, so the Answer searches.
   const fillers: [string, string][] = [
+    ["停车位安排.md", "# 停车位安排\n\n地下车位按月分配。\n"],
     ["差旅报销制度.md", "# 差旅报销制度\n\n员工出差前需填写申请单。\n"],
     ["采购流程.md", "# 采购流程\n\n采购申请由部门负责人审批。\n"],
     ["绩效考核说明.md", "# 绩效考核说明\n\n考核每半年一次，结果分为四档。\n"],
@@ -439,6 +440,130 @@ describe("A name that fits two Documents, through the core (#1512)", { timeout: 
       kind: "named",
       used: [{ id: idOf("people-policy-sync-2026-10-14"), name: "人事政策同步会 会议纪要" }],
       rest: [idOf("会议纪要（2026年第三季度）")],
+    });
+  });
+
+  const minuteLibrary = async (folder: string) => {
+    const files: [string, string][] = [
+      ...fillers,
+      ["会议纪要（2026年第三季度）.md", "# 会议纪要（2026年第三季度）\n\n王芳的年假为 10 天。\n"],
+      ["会议纪要（2026年第二季度）.md", "# 会议纪要（2026年第二季度）\n\n王芳的年假为 12 天。\n"],
+      [
+        "会议纪要（2026年第一季度）.md",
+        "# 会议纪要（2026年第一季度）\n\n本季度讨论了办公室搬迁。\n",
+      ],
+    ];
+    return Promise.all(
+      files.map(async ([name, text]) => {
+        const path = join(folder, name);
+        await writeFile(path, text);
+        return path;
+      }),
+    );
+  };
+
+  // protects=a marker cited again for another Document leaves the replaced Document out of the line; fails_when=the line names the Document the final Citation no longer points to; no_claim=which Document the model should have cited.
+  test("names the Document the final Citation points to after a marker is replaced", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "named-"));
+    const paths = await minuteLibrary(folder);
+    const question = "会议纪要里说王芳的年假是几天？";
+    let found: ReturnType<typeof passagesIn> = [];
+    let phase = 0;
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "年假" } }] };
+      }
+      const results = call.results.map((result) => result.text).join("\n");
+      if (phase === 0) {
+        phase = 1;
+        found = passagesIn(results);
+        const record = (at: number) => {
+          const passage = found[at];
+          return passage ? (recordFor(passage, question, 1)?.record ?? null) : null;
+        };
+        const first = record(0);
+        const second = record(1);
+        if (!first || !second) throw new Error("The search found fewer than two Passages.");
+        return {
+          calls: [
+            { tool: "cite", input: { citations: [first] } },
+            { tool: "cite", input: { citations: [second] } },
+          ],
+        };
+      }
+      if (phase === 1) {
+        phase = 2;
+        const taken = found[1] && recordFor(found[1], question, 1);
+        return { text: `会议纪要写道“${String(taken?.record.quote ?? "")}”[^1]。` };
+      }
+      return { text: "会议纪要里没有写王芳的年假。" };
+    });
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const added = await core.addDocuments(paths);
+    await waitForProcessing(
+      core,
+      added.documents.map((document) => document.id),
+      30_000,
+    );
+    const idOf = (name: string) => added.documents.find((each) => each.name === name)?.id;
+
+    const answer = await askAssistant(core, { text: question });
+
+    expect(found.length).toBeGreaterThanOrEqual(2);
+    expect(answer.steps?.coverage).toEqual({
+      kind: "named",
+      used: [{ id: idOf(found[1]?.document ?? ""), name: found[1]?.document }],
+      rest: [idOf("会议纪要（2026年第一季度）")],
+    });
+  });
+
+  // protects=a record the text never uses leaves no Document in the line; fails_when=the line names a Document cited only by an unused record; no_claim=which Document the model should have cited.
+  test("leaves out a Document cited only by a record the text doesn't use", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "named-"));
+    const paths = await minuteLibrary(folder);
+    const question = "会议纪要里说王芳的年假是几天？";
+    let found: ReturnType<typeof passagesIn> = [];
+    let phase = 0;
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "年假" } }] };
+      }
+      const results = call.results.map((result) => result.text).join("\n");
+      if (phase === 0) {
+        phase = 1;
+        found = passagesIn(results);
+        const first = found[0] && recordFor(found[0], question, 1)?.record;
+        const second = found[1] && recordFor(found[1], question, 2)?.record;
+        if (!first || !second) throw new Error("The search found fewer than two Passages.");
+        return { calls: [{ tool: "cite", input: { citations: [first, second] } }] };
+      }
+      if (phase === 1) {
+        phase = 2;
+        const taken = found[1] && recordFor(found[1], question, 2);
+        return { text: `会议纪要写道“${String(taken?.record.quote ?? "")}”[^2]。` };
+      }
+      return { text: "会议纪要里没有写王芳的年假。" };
+    });
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const added = await core.addDocuments(paths);
+    await waitForProcessing(
+      core,
+      added.documents.map((document) => document.id),
+      30_000,
+    );
+    const idOf = (name: string) => added.documents.find((each) => each.name === name)?.id;
+
+    const answer = await askAssistant(core, { text: question });
+
+    expect(found.length).toBeGreaterThanOrEqual(2);
+    expect(answer.steps?.coverage).toEqual({
+      kind: "named",
+      used: [{ id: idOf(found[1]?.document ?? ""), name: found[1]?.document }],
+      rest: [idOf("会议纪要（2026年第一季度）")],
     });
   });
 });
