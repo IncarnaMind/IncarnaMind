@@ -4,8 +4,8 @@
  * The table is the scripted writer's, so its right and wrong cells are known; every check
  * goes to the real model. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY (the model is
  * INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku 5.5 by default). INCARNAMIND_LIVE_TABLE_RUNS asks
- * each language that many times, INCARNAMIND_LIVE_TABLE_FEW=1 cites only six of the cells, and
- * INCARNAMIND_LIVE_REPORT keeps what each cell came to.
+ * each language that many times, INCARNAMIND_LIVE_TABLE_ONLY ("shapes" or "few") writes fewer
+ * cells, and INCARNAMIND_LIVE_REPORT keeps what each cell came to.
  */
 import { appendFile } from "node:fs/promises";
 import { wrapLanguageModel } from "ai";
@@ -57,9 +57,10 @@ interface Case {
   writes: Table[][];
 }
 
-// A costlier model checks only the cells marked `few`: two right ones, a right figure under the
+// "shapes" writes only the second set of tables, the shapes of #1966's review; "few", for a
+// costlier model, cites only the cells marked `few` there: two right ones, a right figure under the
 // wrong year, another row's figure, a wrong unit column and the figure an index column hides.
-const FEW = process.env.INCARNAMIND_LIVE_TABLE_FEW === "1";
+const ONLY = process.env.INCARNAMIND_LIVE_TABLE_ONLY;
 
 const cell = (text: string, right: boolean, marker: number, few = false): Cell => ({
   text,
@@ -212,12 +213,14 @@ const CASES: Case[] = [
   },
 ];
 
-const cited = (each: Cell) => !FEW || each.few === true;
+const cited = (each: Cell) => ONLY !== "few" || each.few === true;
+
+const writesOf = (each: Case) => (ONLY ? each.writes.slice(1) : each.writes);
 
 const isCell = (each: string | Cell): each is Cell => typeof each !== "string";
 
 const cellsOf = (each: Case) =>
-  each.writes.flatMap((tables) =>
+  writesOf(each).flatMap((tables) =>
     tables.flatMap((table) => table.rows.flatMap((row) => row.filter(isCell).filter(cited))),
   );
 
@@ -257,7 +260,9 @@ function writer(each: Case) {
       });
       return { calls: [{ tool: "cite", input: { citations } }] };
     }
-    const writes = each.writes.map(markdownOf).filter((content) => content.includes("[^"));
+    const writes = writesOf(each)
+      .map(markdownOf)
+      .filter((content) => content.includes("[^"));
     const next = writes[call.results.filter((result) => result.tool === "add_to_mind").length];
     if (next) return { calls: [{ tool: "add_to_mind", input: { content: next } }] };
     return { text: each.language === "en" ? "Added the tables." : "已加上对比表。" };
@@ -350,7 +355,7 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
       const count = (right: boolean, verdict: string) =>
         verdicts.filter((each) => each.right === right && each.verdict === verdict).length;
       const lines = [
-        `## ${MODEL} · ${each.language} · ${RUNS} run(s)${FEW ? " · few cells" : ""} · $${spent.toFixed(4)}`,
+        `## ${MODEL} · ${each.language} · ${RUNS} run(s)${ONLY ? ` · ${ONLY}` : ""} · $${spent.toFixed(4)}`,
         `right cells: ${count(true, "supported")} supported, ${count(true, "unsupported")} unsupported, ${count(true, "contradicted")} contradicted, ${count(true, "not-checked")} not checked`,
         `wrong cells: ${count(false, "contradicted")} contradicted, ${count(false, "unsupported")} unsupported, ${count(false, "supported")} supported, ${count(false, "not-checked")} not checked`,
         ...verdicts.map(
