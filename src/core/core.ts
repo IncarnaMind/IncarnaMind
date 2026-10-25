@@ -3828,6 +3828,7 @@ export function createCore(adapters: CoreAdapters): Core {
         quote: typeof input.quote === "string" ? input.quote : "",
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
+        contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
       });
     },
     citeSelection: async (input) => {

@@ -107,8 +107,10 @@ const RETOLD = [
   "Both follow the Moon's cycle.",
 ].join("\n\n");
 const REVENUE_CHART = /\bchart of revenue by quarter\b|各季度收入的(?:柱状图|折线图)/i;
-const QUARTER_REVENUE = /Revenue in (Q\d) was (€\d+ million)/g;
+const QUARTER_REVENUE = /Revenue in (Q\d+) was (€\d+ million)/g;
 const RENT_CHART = /\bchart of rent by lease\b/i;
+/** A table whose every cell is a claim, for the one check count (#1909). */
+const CHECK_TABLE = /\brevenue table for checking\b|核对用的收入表格/iu;
 const UNIT_RENT = /The monthly rent for (unit \d+) is (€[\d,]+)/g;
 const LEASES_SUMMARY = /\bwrite a summary of my leases\b|根据我的租约写一份总结/i;
 const BRIEF_SUMMARY = /\bbrief summary\b|简要总结/i;
@@ -256,6 +258,7 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   }
   if (REVENUE_CHART.test(question)) return revenueChart(prompt, question);
   if (RENT_CHART.test(question)) return tableChart(prompt, RENT);
+  if (CHECK_TABLE.test(question)) return checkTable(prompt, question);
   if (LEASES_SUMMARY.test(question)) {
     const made = lastResult(prompt, "create_mind") ?? lastResult(prompt, "add_to_mind");
     if (made !== undefined) return { text: firstSentence(made) };
@@ -376,6 +379,48 @@ const RENT: ChartedFigures = {
   title: "Rent by lease",
   kind: "bar",
 };
+
+/** A table of the Document's revenue lines, each cell a claim that cites the line (#1909). */
+function checkTable(prompt: Prompt, question: string): Reply {
+  const added = lastResult(prompt, "add_to_mind");
+  if (added !== undefined) return { text: firstSentence(added) };
+  const [searched] = toolResults(prompt, "search_documents");
+  if (searched === undefined) {
+    return { tool: "search_documents", input: { query: "revenue by quarter" } };
+  }
+  const found = passagesIn(searched)
+    .flatMap((passage) =>
+      [...passage.text.matchAll(QUARTER_REVENUE)].map((match) => ({
+        passage: passage.id,
+        label: match[1] ?? "",
+        figure: match[2] ?? "",
+        quote: match[0],
+      })),
+    )
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  if (toolResults(prompt, "cite").length === 0) {
+    return {
+      tool: "cite",
+      input: {
+        citations: found.map((each, index) => ({
+          marker: index + 1,
+          passage: each.passage,
+          quote: each.quote,
+        })),
+      },
+    };
+  }
+  const chinese = /\p{Script=Han}/u.test(question);
+  const table = [
+    chinese ? "| 季度 | 收入 |" : "| Quarter | Revenue |",
+    "|---|---|",
+    ...found.map(
+      (each, index) =>
+        `| ${each.label} | Revenue in ${each.label} was ${each.figure} [^${index + 1}] |`,
+    ),
+  ].join("\n");
+  return { tool: "add_to_mind", input: { content: table } };
+}
 
 function revenueChart(prompt: Prompt, question: string): Reply {
   const chinese = /\p{Script=Han}/u.test(question);
