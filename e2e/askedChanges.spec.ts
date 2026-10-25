@@ -145,6 +145,30 @@ test("“write a summary page” makes the page with the summary applied, “mak
   await expect(summary.getByTestId("mind-changes-undone")).toHaveText("Undone");
 });
 
+test("two edits of the same text in one turn revise in place, with one Undo for the whole turn", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1440, 900);
+  await newMind(window);
+  await askInAssistant(window, "write a summary page");
+  const editor = window.getByTestId("mind-editor");
+  const paragraphs = editor.locator(":scope > p");
+
+  await askInAssistant(window, "make it longer twice");
+
+  const longer = [`${SPRING} It says more. It says more.`, `${NEAP} It says more. It says more.`];
+  await expect(paragraphs).toHaveText(longer);
+  await expect(editor.locator("ins.proposal-insert, del.proposal-delete")).toHaveCount(0);
+  await expect(editor.getByTestId("applied-count")).toHaveText("Changed 2 paragraphs");
+
+  await editor.focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(paragraphs).toHaveText([SPRING, NEAP]);
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(paragraphs).toHaveText(longer);
+});
+
 test("typed elsewhere after “make it longer”, the line goes but Review changes stays in ⌘K, the Mind's ⋯ and the Answer's card: a change the User edited says so with no Restore, the other restores and leaves their writing, ⌘Z takes the Restore back, and with none left the entries and the hint's pointer go, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);

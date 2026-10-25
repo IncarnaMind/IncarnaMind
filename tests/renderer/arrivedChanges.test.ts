@@ -10,6 +10,8 @@ import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import { describe, expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core";
+import { createElement } from "../../src/core/answers/blocks";
+import { replaceOwn, waitingIn } from "../../src/core/proposals/ownWaiting";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { pendingProposals } from "../../src/shared/proposals";
@@ -143,5 +145,39 @@ describe("Changes the User asked the assistant for", () => {
       "A new paragraph.",
       "Harbours openclose at nine.",
     ]);
+  });
+  test("a revision inside the same turn joins the first edit in one Undo", () => {
+    const { doc, blocks, schema } = mindWith([
+      {
+        type: "paragraph",
+        attrs: { id: "Summary" },
+        content: [
+          text("The quarter was "),
+          text("very ", [{ type: "proposalDelete", attrs: ref("a", "first") }]),
+          text("quite ", [{ type: "proposalInsert", attrs: ref("b", "first") }]),
+          text("good."),
+        ],
+      },
+    ]);
+    const own = waitingIn(
+      blocks,
+      { blockId: "Summary", offset: 0 },
+      { blockId: "Summary", offset: 1 },
+      new Set(["first"]),
+    );
+    if (own.kind !== "own") throw new Error("The first edit wasn't found.");
+    replaceOwn(
+      blocks,
+      own,
+      [createElement({ type: "paragraph", attrs: { id: "Summary" }, content: [text("The quarter was good.")] })],
+      "second",
+    );
+    const undo = new Y.UndoManager(blocks, { trackedOrigins: new Set([Asked]) });
+
+    writeAccepted(doc, new Set(["first", "second"]), new Aside(), new Asked(), schema);
+
+    expect(textOf(blocks)).toEqual(["The quarter was good."]);
+    undo.undo();
+    expect(textOf(blocks)).toEqual(["The quarter was very good."]);
   });
 });

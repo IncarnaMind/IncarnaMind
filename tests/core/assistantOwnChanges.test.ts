@@ -11,6 +11,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
+  claimCheckReply,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -286,6 +287,50 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     ]);
     expect(waitingProblemOf(second)).toBeNull();
   });
+  // protects=a second edit of the same text in one turn revises the first, rather than refusing the turn's own change as waiting for the User; fails_when=the second is refused, or the final text isn't the second rewrite; no_claim=how the window groups the turn into one Undo step.
+  test("a second edit in the same turn revises the first", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) {
+        return {
+          text: passage.includes("really")
+            ? passage.replace(/\b(?:very|really) /g, "")
+            : "## Summary\n\nThe quarter was good.",
+        };
+      }
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits === 0) {
+        return {
+          calls: [
+            { tool: "edit_mind", input: { part: "Summary", instruction: "Make it plainer" } },
+          ],
+        };
+      }
+      if (edits === 1) {
+        return {
+          calls: [{ tool: "edit_mind", input: { part: "Summary", instruction: "Shorten it" } }],
+        };
+      }
+      return { text: "Shortened the summary in “Q3 review”." };
+    });
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "make the summary plainer, then shorter",
+      mindId: mind.id,
+    });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(edits[1]).toMatchObject({
+      status: "done",
+      mindChange: { revised: true, replacedOwn: { paragraphs: 1, tables: 0, charts: 0 } },
+    });
+    expect(lastResult(model)).toContain("Revised your own text");
+    expect(lastResult(model)).not.toContain("waiting for the User");
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual(["+ Summary", "+ The quarter was good."]);
+  });
 });
 
 describe("Changes it can't revise", { timeout: 30_000 }, () => {
@@ -369,11 +414,14 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
   // protects=a reply claiming a change no call made is asked for once more with the record, and the honest second reply is what the User reads, unflagged; fails_when=the claim stands, or the model isn't asked again; no_claim=that a real model corrects itself.
   test("is asked for once more, and the honest reply stands", async () => {
     let note = "";
-    const model = scriptedModel((call): ScriptedReply => {
-      if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
-      note = asked(call);
-      return { text: "I haven't changed “Q3 review” yet: say if you'd like a risks section." };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
+        note = asked(call);
+        return { text: "I haven't changed “Q3 review” yet: say if you'd like a risks section." };
+      },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
+    );
     const { core, mind, client } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "add risks", mindId: mind.id });
@@ -391,16 +439,24 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
 
   // protects=asked again, the model may make the change it claimed, and then nothing is flagged; fails_when=the change isn't made, or the reply is still flagged; no_claim=none beyond protects.
   test("asked once more, it may make the change, and nothing is flagged", async () => {
-    const model = scriptedModel((call): ScriptedReply => {
-      if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
-      return called(call, "add_to_mind")
-        ? { text: "Added a risks section to “Q3 review”." }
-        : {
-            calls: [
-              { tool: "add_to_mind", input: { content: "## Risks\n\nThe supplier is late." } },
-            ],
-          };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
+        return called(call, "add_to_mind")
+          ? { text: "Added a risks section to “Q3 review”." }
+          : {
+              calls: [
+                { tool: "add_to_mind", input: { content: "## Risks\n\nThe supplier is late." } },
+              ],
+            };
+      },
+      {
+        generate: (call) =>
+          claimCheckReply(call, (prompt) =>
+            prompt.includes('"tool": "add_to_mind"') ? [] : [{ sentence: CLAIM, kind: "added" }],
+          ),
+      },
+    );
     const { core, mind, client } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "add risks", mindId: mind.id });
@@ -413,7 +469,9 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
 
   // protects=a reply that still claims a change no call made is shown flagged, for the line under it (#1559); fails_when=it is shown as if the change were made, or is lost; no_claim=how the line reads.
   test("still claiming it, the reply is flagged", async () => {
-    const model = scriptedModel((): ScriptedReply => ({ text: CLAIM }));
+    const model = scriptedModel((): ScriptedReply => ({ text: CLAIM }), {
+      generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]),
+    });
     const { core, mind } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "add risks", mindId: mind.id });
@@ -453,39 +511,46 @@ describe("The owner's four turns", { timeout: 30_000 }, () => {
   // protects=the owner's conversation (write a summary page, make it longer, no citations?, write a summary of the 2 papers) leaves one summary in one page, revised in place each time, each turn knowing what the last really did, and the false claim of turn 3 never stands; fails_when=a second summary is written, a turn's record is missing or wrong, the false claim is shown, or the counts disagree; no_claim=what a real model chooses, which the everyday-requests evaluation checks.
   test("one page, one summary, each turn told what the last did, and no false claim", async () => {
     const prompts: Record<string, string> = {};
-    const model = scriptedModel((call): ScriptedReply => {
-      const passage = editPassage(call);
-      if (passage !== null) return { text: `${passage} It also compares how they are trained.` };
-      const question = asked(call);
-      if (question.endsWith("write a summary page")) {
-        return called(call, "create_mind")
-          ? { text: "It covers both papers." }
-          : { calls: [{ tool: "create_mind", input: { title: PAGE, content: SUMMARY_PAGE } }] };
-      }
-      if (question.endsWith("make the summary section longer")) {
-        prompts.second = call.prompt;
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) return { text: `${passage} It also compares how they are trained.` };
+        const question = asked(call);
+        if (question.endsWith("write a summary page")) {
+          return called(call, "create_mind")
+            ? { text: "It covers both papers." }
+            : { calls: [{ tool: "create_mind", input: { title: PAGE, content: SUMMARY_PAGE } }] };
+        }
+        if (question.endsWith("make the summary section longer")) {
+          prompts.second = call.prompt;
+          return called(call, "edit_mind")
+            ? { text: "It now says how each is trained." }
+            : {
+                calls: [
+                  {
+                    tool: "edit_mind",
+                    input: { mind: PAGE, part: "Summary", instruction: "Make it longer" },
+                  },
+                ],
+              };
+        }
+        if (question.endsWith("no citations?")) {
+          prompts.third = call.prompt;
+          return { text: FALSE_CLAIM };
+        }
+        if (call.prompt.includes("but no Tool did that")) return { text: HONEST };
         return called(call, "edit_mind")
-          ? { text: "It now says how each is trained." }
+          ? { text: "" }
           : {
               calls: [
-                {
-                  tool: "edit_mind",
-                  input: { mind: PAGE, part: "Summary", instruction: "Make it longer" },
-                },
+                { tool: "edit_mind", input: { mind: PAGE, part: "Summary", content: RETOLD } },
               ],
             };
-      }
-      if (question.endsWith("no citations?")) {
-        prompts.third = call.prompt;
-        return { text: FALSE_CLAIM };
-      }
-      if (call.prompt.includes("but no Tool did that")) return { text: HONEST };
-      return called(call, "edit_mind")
-        ? { text: "" }
-        : {
-            calls: [{ tool: "edit_mind", input: { mind: PAGE, part: "Summary", content: RETOLD } }],
-          };
-    });
+      },
+      {
+        generate: (call) => claimCheckReply(call, [{ sentence: FALSE_CLAIM, kind: "changed" }]),
+      },
+    );
     const { core, mind } = await setUp(model);
     const turn = (text: string, conversationId?: string) =>
       askAssistant(core, { text, mindId: mind.id, ...(conversationId && { conversationId }) });
@@ -703,13 +768,14 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
     return deltas;
   };
 
-  // protects=the sentence that claims a change waits until it is checked: the User never sees it before the honest reply replaces it, while the sentences before it show as they come; fails_when=the claim streams out first; no_claim=none beyond protects.
+  // protects=the sentence that may claim a change waits until it is checked: the User never sees it before the honest reply replaces it, while the sentences before it show as they come; fails_when=the claim streams out first; no_claim=none beyond protects.
   test("the claim is held back until checked, and never shows", async () => {
     const model = scriptedModel(
       (call): ScriptedReply =>
         call.prompt.includes(ASKED_AGAIN)
           ? { text: "No section was added. Say if you'd like one." }
           : { text: `The supplier is late. ${CLAIM}` },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
     );
     const { core, mind } = await setUp(model);
     const deltas = shownDeltas(core);
@@ -717,8 +783,8 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
     const answer = await askAssistant(core, { text: "what are the risks?", mindId: mind.id });
 
     expect(deltas.join("")).not.toContain("added a risks section");
-    expect(deltas.join("")).toMatch(/^The supplier is late\. No section was added\./);
     expect(answer.text).toBe("No section was added. Say if you'd like one.");
+    expect(answer.steps?.unbackedClaims).toBeUndefined();
   });
 
   // protects=when the request asking again fails, the first reply comes back, flagged; fails_when=the Answer fails, shows nothing, or shows the claim unflagged; no_claim=none beyond protects.
@@ -728,6 +794,7 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
         call.prompt.includes(ASKED_AGAIN)
           ? { error: { status: 400, message: "The request was malformed." } }
           : { text: CLAIM },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
     );
     const { core, mind } = await setUp(model);
 
@@ -745,6 +812,7 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
         call.prompt.includes(ASKED_AGAIN)
           ? { error: { status: 400, message: "tools are not supported by this model" } }
           : { text: CLAIM },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
     );
     const { core, mind } = await setUp(model);
 
@@ -760,14 +828,17 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
     const reached = new Promise<void>((resolve) => {
       retrying = resolve;
     });
-    const model = scriptedModel((call): ScriptedReply => {
-      if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
-      retrying();
-      return {
-        text: "No section was added yet. Say if you'd like one.",
-        pause: { after: 30, until: new Promise(() => undefined) },
-      };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
+        retrying();
+        return {
+          text: "No section was added yet. Say if you'd like one.",
+          pause: { after: 30, until: new Promise(() => undefined) },
+        };
+      },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
+    );
     const { core, mind } = await setUp(model);
     const asked = await core.askInConversation({ text: "add risks", mindId: mind.id });
     if (!asked.asked) throw new Error("Not asked.");

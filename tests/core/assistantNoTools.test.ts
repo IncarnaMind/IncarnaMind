@@ -87,8 +87,8 @@ describe("A model without Tools asked to write into a Mind", { timeout: 30_000 }
     },
   );
 
-  // protects=a model that does what it is told doesn't claim a change, and one that claims one is caught by the detector all the same, its reply kept to put into a Mind by hand; fails_when=the told model's reply is flagged, the claim isn't, or the reply is lost; no_claim=that a real model obeys: the script obeys only when the prompt says it.
-  test("never claims a change that wasn't made", async () => {
+  // protects=with no Note tools offered the change-claim judge doesn't run: the model is told it can't change a Mind, and its reply is kept to put into one by hand; fails_when=the judge runs anyway, or the reply is lost; no_claim=that a real model obeys: the script obeys only when the prompt says it.
+  test("no change-claim judge runs without the Note tools", async () => {
     const claims = withoutTools((call) =>
       call.system.includes(TOLD)
         ? SUMMARY
@@ -111,7 +111,7 @@ describe("A model without Tools asked to write into a Mind", { timeout: 30_000 }
       mindId: ignoring.mind.id,
     });
 
-    expect(caught.steps?.unbackedClaims).toEqual(["added"]);
+    expect(caught.steps?.unbackedClaims).toBeUndefined();
     expect(caught.text).toContain("## Summary");
   });
 });

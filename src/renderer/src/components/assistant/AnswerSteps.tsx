@@ -348,6 +348,8 @@ function liveText(
       return checkingWords(t, step.count);
     case "checking-figures":
       return t("answer.phase.checking-figures");
+    case "checking-claims":
+      return t("answer.phase.checking-claims");
   }
 }
 

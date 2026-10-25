@@ -38,6 +38,8 @@ import { citationsIn, proposeOver, setProposal, textBlocks } from "./write";
 export interface OwnWaiting {
   kind: "own";
   blockIds: string[];
+  /** The Proposals to accept in a copy before their text is rewritten. */
+  requests: string[];
   /** What they hold as read, to tell whether they changed since. */
   fingerprint: string;
 }
@@ -78,6 +80,28 @@ function holdsProposal(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[])
     if (!(node instanceof Y.XmlElement)) return false;
     return node.getAttribute(PROPOSAL_ATTRIBUTE) !== undefined || holdsProposal(node.toArray());
   });
+}
+
+function requestsIn(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[]): string[] {
+  const requests = new Set<string>();
+  const visit = (nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[]) => {
+    for (const node of nodes) {
+      if (node instanceof Y.XmlText) {
+        for (const run of node.toDelta() as Run[]) {
+          const insert = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
+          const removed = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK]);
+          if (insert) requests.add(insert.request);
+          if (removed) requests.add(removed.request);
+        }
+      } else if (node instanceof Y.XmlElement) {
+        const proposal = readProposalAttribute(node.getAttribute(PROPOSAL_ATTRIBUTE));
+        if (proposal) requests.add(proposal.request);
+        visit(node.toArray());
+      }
+    }
+  };
+  visit(nodes);
+  return [...requests];
 }
 
 const WRITTEN_ATOMS: ReadonlySet<string> = new Set([
@@ -172,13 +196,20 @@ function rangeOf(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): Y.XmlEl
 const fingerprintOf = (elements: readonly Y.XmlElement[]) =>
   elements.map((element) => element.toString()).join("\n");
 
-export function waitingIn(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): WaitingIn {
+export function waitingIn(
+  blocks: Y.XmlFragment,
+  from: TextPlace,
+  to: TextPlace,
+  inTurn: ReadonlySet<string> = new Set(),
+): WaitingIn {
   const range = rangeOf(blocks, from, to);
   if (!holdsProposal(range)) return { kind: "none" };
   const count = waitingChanges(blocks);
+  const requests = requestsIn(range);
   const own = range.filter(isOwn);
-  if (own.length === range.length) {
-    return { kind: "own", blockIds: range.map(idOf), fingerprint: fingerprintOf(range) };
+  const thisTurn = requests.length > 0 && requests.every((request) => inTurn.has(request));
+  if (thisTurn || own.length === range.length) {
+    return { kind: "own", blockIds: range.map(idOf), requests, fingerprint: fingerprintOf(range) };
   }
   const others = range.filter((element) => !own.includes(element));
   return { kind: own.length > 0 && !holdsProposal(others) ? "mixed" : "other", count };
@@ -206,13 +237,9 @@ function blocksOf(
  * Call it in a Yjs transaction.
  */
 export function acceptOwnIn(blocks: Y.XmlFragment, own: OwnWaiting): void {
-  const ids = new Set(
-    (blocksOf(blocks, own) ?? []).flatMap((element) => {
-      const ref = readProposalRef(element.getAttribute(PROPOSAL_ATTRIBUTE));
-      return ref ? [ref.id] : [];
-    }),
-  );
-  resolveProposals(blocks, (proposal) => ids.has(proposal.id), "accept");
+  if (!blocksOf(blocks, own)) return;
+  const requests = new Set(own.requests);
+  resolveProposals(blocks, (proposal) => requests.has(proposal.request), "accept");
 }
 
 /**
@@ -341,15 +368,11 @@ export function citationsDropped(
 
 /** Whether the User asked for all of the text `own` holds (#880): a revision of it is asked for too. */
 export function ownAsked(blocks: Y.XmlFragment, own: OwnWaiting): boolean {
-  const old = blocksOf(blocks, own);
   const doc = blocks.doc;
   return (
-    !!old &&
+    blocksOf(blocks, own) !== null &&
     !!doc &&
-    old.every((element) => {
-      const attribute = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
-      return !!attribute && askedFor(doc, attribute.request);
-    })
+    own.requests.every((request) => askedFor(doc, request))
   );
 }
 

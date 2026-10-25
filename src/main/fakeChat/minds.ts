@@ -99,6 +99,7 @@ export function mindRead(prompt: Prompt): string | null {
 const SUMMARY_PAGE =
   /\bwrite a summary page\b|写一个总结页面|\bwrite a summary of my documents\b|根据我现有的文件帮我写一份summary/i;
 const LONGER = /\blonger\b|长一点|更长/i;
+const LONGER_TWICE = /\bmake it longer twice\b/i;
 const RETELL = /\bretell the summary\b|重述总结/i;
 const RETOLD = [
   "## Summary",
@@ -232,6 +233,12 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   }
   // Asked "slowly", only its pace changes.
   const question = asked.replace(/\s+slowly$/i, "");
+  if (LONGER_TWICE.test(question)) {
+    const edits = toolResults(prompt, "edit_mind").length;
+    if (edits < 2)
+      return { tool: "edit_mind", input: { part: "Summary", instruction: "make it longer" } };
+    return { text: "Made the summary in “Summary” longer twice." };
+  }
   const paragraphs = paragraphsReply(prompt, question);
   if (paragraphs) return paragraphs;
   const both = ADD_AND_NEW.exec(question);

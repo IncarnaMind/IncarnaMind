@@ -837,6 +837,22 @@ export const CASES: readonly EverydayCase[] = [
     expected: { ...EDIT, only: 1 },
   },
   {
+    id: "edit-ordinal-decoy-en",
+    language: "en",
+    library: "papers",
+    mind: Q3,
+    request: "The second paragraph of the paper says the method is complex, so shorten my third paragraph",
+    expected: { ...EDIT, only: 2 },
+  },
+  {
+    id: "edit-ordinal-decoy-zh",
+    language: "zh-CN",
+    library: "papers",
+    mind: WEEKLY,
+    request: "论文的第二段说方法很复杂，所以把我的第三段缩短",
+    expected: { ...EDIT, only: 2 },
+  },
+  {
     id: "edit-typos-draft-zh",
     language: "zh-CN",
     library: "papers",

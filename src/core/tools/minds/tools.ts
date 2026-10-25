@@ -50,6 +50,7 @@ import { holdsNothing } from "../../../shared/madeMind";
 import { looksLikeTable } from "../../../shared/markdownTables";
 import {
   changedParagraphs,
+  pendingProposals,
   readProposalAttribute,
   recordProposalRequest,
   resolveProposals,
@@ -65,7 +66,6 @@ import {
 } from "../../answers/blocks";
 import type { CheckWrittenInput, WrittenCheck } from "../../answers/checks/written";
 import type { ContextCitations } from "../../answers/contextCitations";
-import type { ParagraphAsked } from "../../answers/paragraphAsked";
 import { withoutPointersBack } from "../../answers/pointersBack";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -176,6 +176,7 @@ export interface MindsForTools {
     /** More of its Proposals are in the Mind, as they come. */
     written(request: string, count: number): void;
     requested: RequestedChange | null;
+    ownRequests?: ReadonlySet<string>;
   }): Promise<{
     result: EditWithAiResult;
     length: { before: string; after: string } | null;
@@ -249,8 +250,6 @@ export interface MindToolsOptions {
     extraCells: number;
     searchTalk: number;
   };
-  /** The one paragraph the User's words name by its place (../../answers/paragraphAsked). */
-  paragraph: ParagraphAsked;
   /** A call changed a Mind: its card says so, as soon as it does, also while it writes. */
   changed(toolCallId: string, change: MindChange): void;
   /** A call changed nothing, and whatever it wrote as its input came was taken back. */
@@ -486,17 +485,6 @@ function paragraphNamed(
   return found.length === 1 ? found[0] : undefined;
 }
 
-function paragraphAt(
-  elements: readonly Y.XmlElement[],
-  asked: ParagraphAsked,
-): Y.XmlElement | undefined {
-  if (asked === null) return undefined;
-  const paragraphs = elements.filter(
-    (element) => element.nodeName === "paragraph" && plainText(element).trim() !== "",
-  );
-  return asked === "last" ? paragraphs.at(-1) : paragraphs[asked];
-}
-
 /** The stretch of a Mind `edit_mind` changes, from one paragraph or heading to another. */
 interface Stretch {
   from: TextPlace;
@@ -506,16 +494,13 @@ interface Stretch {
 /**
  * The stretch of a Mind `edit_mind` changes, whole: the section under the
  * heading `part` (to the next heading as high or higher), else the Blocks the
- * User selected, else all of it; of that, only the paragraph the User named
- * by its place (`asked`, counted in the selection or the whole Mind). Why
- * not, when there is nothing there to change.
+ * User selected, else all of it. Why not, when there is nothing there to change.
  */
 function stretchOf(
   blocks: Y.XmlFragment,
   part: string | null,
   language: Language,
   selected: readonly string[],
-  asked: ParagraphAsked,
 ): Stretch | { why: string; kind: "no-heading" | "no-text" | "several-places" } {
   const all = textBlocks(blocks).map((each) => each.element);
   let chosen = all;
@@ -535,8 +520,7 @@ function stretchOf(
       );
       chosen = all.slice(start, end < 0 ? all.length : end);
     } else {
-      // A start the model got wrong falls back to the paragraph the User named by its place.
-      const paragraph = paragraphNamed(all, part) ?? paragraphAt(all, asked);
+      const paragraph = paragraphNamed(all, part);
       if (!paragraph) {
         const count = countText(nameKey(part));
         const short = count.words < MIN_FIRST_WORDS && count.cjk < MIN_FIRST_CJK;
@@ -559,11 +543,6 @@ function stretchOf(
     };
     const picked = all.filter(inSelection);
     if (picked.length > 0) chosen = picked;
-  }
-  if (chosen.length > 1) {
-    // Rewritten with the paragraphs around it, the others would come back reworded.
-    const paragraph = paragraphAt(part === null ? chosen : all, asked);
-    if (paragraph && chosen.includes(paragraph)) chosen = [paragraph];
   }
   const first = chosen[0];
   const last = chosen.at(-1);
@@ -620,9 +599,8 @@ function lengths(before: string, after: string): string {
   const unit = (count: ReturnType<typeof countText>) => (mostlyCjk(count) ? "characters" : "words");
   const from = countFor(was, "words");
   const to = countFor(now, "words");
-  return unit(was) === unit(now)
-    ? `from ${from} to ${to} ${unit(now)}`
-    : `from ${from} ${unit(was)} to ${to} ${unit(now)}`;
+  if (unit(was) !== unit(now)) return `from ${from} ${unit(was)} to ${to} ${unit(now)}`;
+  return `from ${from} to ${to} ${unit(now)}${to >= from ? ", not shorter" : ""}`;
 }
 
 const changes = (count: number) => (count === 1 ? "1 change" : `${count} changes`);
@@ -917,10 +895,12 @@ function writtenBy(
   const counts = { paragraphs: 0, tables: 0, charts: 0 };
   const visit = (element: Y.XmlElement, written: boolean) => {
     const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
-    const ours = written || (proposal?.kind === "insert" && requests.has(proposal.request));
+    const inserted = proposal?.kind === "insert" && requests.has(proposal.request);
+    const touched = pendingProposals(element).some((ref) => requests.has(ref.request));
+    const ours = written || inserted;
     if (ours && element.nodeName === "table") counts.tables++;
     else if (ours && element.nodeName === CHART_NODE) counts.charts++;
-    else if (ours && element.nodeName === "paragraph") counts.paragraphs++;
+    else if ((ours || touched) && element.nodeName === "paragraph") counts.paragraphs++;
     else {
       for (const child of element.toArray()) if (child instanceof Y.XmlElement) visit(child, ours);
     }
@@ -1969,9 +1949,8 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       // The selection counts only in the Mind it is in, and only when no section is named.
       const selected = focused?.mindId === mind.id && part === null ? focused.blockIds : [];
       // Text the assistant still waits on is revised as a whole, from its heading.
-      const asked = markdown === null ? options.paragraph : null;
       const stretch = minds.read(mind.id, (blocks) =>
-        stretchOf(blocks, part, options.language, selected, asked),
+        stretchOf(blocks, part, options.language, selected),
       );
       if ("why" in stretch) {
         throw new Refusal(
@@ -1983,7 +1962,9 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           `Nothing was changed in “${mind.name}”: ${stretch.why}.`,
         );
       }
-      const waiting = minds.read(mind.id, (blocks) => waitingIn(blocks, stretch.from, stretch.to));
+      const waiting = minds.read(mind.id, (blocks) =>
+        waitingIn(blocks, stretch.from, stretch.to, ownRequests),
+      );
       if (waiting.kind === "mixed" || waiting.kind === "other") {
         throw refuseWaiting(mind, { count: waiting.count, mixed: waiting.kind === "mixed" });
       }
@@ -2023,12 +2004,15 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         written: (request, proposals) =>
           options.changed(toolCallId, { mindId: mind.id, created: false, request, proposals }),
         requested: "edit",
+        ownRequests,
       });
       if (result.kind !== "proposed") {
         const why = notProposed(result, mind, unmadeSaid(mind.name));
         if (typeof why === "string") return why;
         if (why.problem.kind === "waiting") {
-          const now = minds.read(mind.id, (blocks) => waitingIn(blocks, stretch.from, stretch.to));
+          const now = minds.read(mind.id, (blocks) =>
+            waitingIn(blocks, stretch.from, stretch.to, ownRequests),
+          );
           throw refuseWaiting(mind, {
             count: now.kind === "none" || now.kind === "own" ? 0 : now.count,
             mixed: now.kind === "mixed",

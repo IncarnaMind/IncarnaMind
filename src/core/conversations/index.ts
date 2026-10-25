@@ -211,6 +211,7 @@ const PHASES: Record<AnswerPhase, true> = {
   writing: true,
   "checking-quotes": true,
   "checking-figures": true,
+  "checking-claims": true,
 };
 
 const timeOrNull = (value: unknown): string | null =>
