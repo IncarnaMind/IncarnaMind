@@ -105,9 +105,13 @@ A numbered list takes one of four schemes ("1. a. i.", Outline, Clauses and Chin
 - **Content schema version 27** adds `numbering`, `startLevel` and `continues` on an ordered list. An older version's editor would strip them, so it would draw the list as a "1. a. i." list from level 0 that starts again, and opens these Minds read-only. Older content is version 27 content as it is.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
 
+## Amendment: a Citation the User keeps on the version it quotes (2026-10-25, #1869)
+
+- **Content schema version 28** adds `keptOver` on a Citation: the Document's version the User chose to keep citing the old one over (ADR-0017's amendment). An older version's editor would strip it, so the Citation would ask again to be checked, and opens these Minds read-only. Older content is version 28 content as it is.
+
 ## Amendment: a comparison table's columns have a label (2026-10-25, #1833)
 
 A comparison table's column has a short **label**, its heading, beside its Question, the words each Document is asked. The label starts as the Question shortened: a column with none is headed by its Question shortened, so tables written before this need no migration.
 
-- **Content schema version 28** adds `label` to each column of a table's `questions`, with room for its `width` and whether it is `hidden`. An older version's editor writes the columns back as `{ id, text }` when it changes one, which would lose all three, so it opens these Minds read-only. Older content is version 28 content as it is.
+- **Content schema version 29** adds `label` to each column of a table's `questions`, with room for its `width` and whether it is `hidden`. An older version's editor writes the columns back as `{ id, text }` when it changes one, which would lose all three, so it opens these Minds read-only. Older content is version 29 content as it is.
 - **A heading shortens; a file doesn't.** The table's headings and the commands that name a column in the app read `label ?? shortened(text)`, because a heading has room for about 40 characters. The Excel and Word exports read `label ?? text`, so a Question longer than a heading, or one a label hasn't replaced, reaches a file whole. Either way a column has one name, its label when it has one.

@@ -124,7 +124,12 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
-registerMenu("citation", ["citation.open", "citation.remove"]);
+registerMenu("citation", [
+  "citation.open",
+  "citation.update",
+  "citation.keepOld",
+  "citation.remove",
+]);
 
 registerMenu("comparisonColumn", [
   "comparison.column.edit",

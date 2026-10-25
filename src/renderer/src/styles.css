@@ -4663,6 +4663,15 @@
       display: block;
     }
   }
+  /* A Citation whose Document changed where it quotes carries ↻, needs re-check (#99). */
+  .citation-marker[data-recheck] {
+    padding: 0 5px 0 3px;
+
+    .citation-marker-icon {
+      display: block;
+      color: var(--color-ink-meta);
+    }
+  }
   /* In the style's words, each work that isn't found has its mark before its words. */
   .citation-run-icon {
     display: inline-block;
@@ -5163,6 +5172,21 @@
     width: 16px;
     height: 16px;
     flex-shrink: 0;
+  }
+  .citation-badge[data-recheck] {
+    color: var(--color-ink-secondary);
+  }
+  /* The cited words as they changed, as a change reads in the text (DESIGN.md, How a change reads). */
+  .citation-card-changed-words {
+    ins {
+      text-decoration: underline 1px currentColor;
+      text-underline-offset: 3px;
+    }
+    del {
+      margin-inline-end: 0.2em;
+      color: var(--color-ink-meta);
+      text-decoration: line-through 1px var(--color-ink-meta);
+    }
   }
   .citation-card-source {
     padding-left: 22px;
