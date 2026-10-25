@@ -67,6 +67,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { filingFolder, hasSearchScope, NO_SCOPE, searchScopeOf } from "../../shared/searchScope";
+import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import {
   ANSWER_BLOCK,
@@ -174,12 +175,13 @@ import {
   textAttribute,
   topLevelBlocks,
 } from "./blocks";
-import { answerLanguage, createCalculationSession } from "./calculations";
+import { answerLanguage, createCalculationSession, whole } from "./calculations";
 import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
 import {
   type AnswerDocuments,
   createCitationSession,
+  type QuoteInput,
   withoutDeadMarkers,
   withoutFootnoteDefinitions,
 } from "./citations";
@@ -227,6 +229,7 @@ import type {
   AnswerEngine,
   AnswerSearchOptions,
   AnswerTools,
+  CitationRecordInput,
   CiteOptions,
   DocumentLanguage,
   GatedCall,
@@ -240,6 +243,7 @@ import {
   withTranscript,
 } from "./liveTranscript";
 import { markdownToBlocks } from "./markdown";
+import { withFigureCitations } from "./markerPlacement";
 import {
   FOUND_TOKEN_LIMIT,
   foundWithin,
@@ -430,6 +434,8 @@ export interface CellAnswer {
   changedScale: ChangedScale | null;
   error: ProviderError | null;
 }
+
+const FIGURE_CITATIONS_FROM = 9000;
 
 // With nothing to search, a model wrote what a Document says, uncited, into the User's Mind and
 // blamed its Tools (#1359).
@@ -1183,6 +1189,80 @@ export function createAnswers(options: AnswersOptions) {
         text,
         [...new Set(markersIn(text))].flatMap((marker) => session.quotes.recorded(marker) ?? []),
         answerLanguage(context.question),
+      );
+    // A figure's Citations are its inputs', which the model may leave out of its sentence or write
+    // only as footnote definitions (#1831). An input quoted directly is recorded when calculate
+    // takes it, numbered far above the model's own, which count from [^1]: a Citation the model
+    // writes later never takes a figure's quote.
+    const quoteKey = (quote: QuoteInput) =>
+      [quote.passage, quote.location, quote.pageFrom, quote.pageTo, quote.quote].join("\n");
+    const recordedQuotes = new Map<string, number>();
+    const quotesRecorded = new Map<number, QuoteInput>();
+    let figureMarker = FIGURE_CITATIONS_FROM;
+    const nextMarker = (): number => {
+      do figureMarker++;
+      while (session.tools.hasRecord?.(figureMarker));
+      return figureMarker;
+    };
+    const recordQuote = (quote: QuoteInput, marker: number) => {
+      session.tools.cite([{ ...quote, marker }], { structured: true });
+      if (!session.tools.hasRecord?.(marker)) return false;
+      recordedQuotes.set(quoteKey(quote), marker);
+      quotesRecorded.set(marker, quote);
+      return true;
+    };
+    const calculateFigures = (given: readonly unknown[], calculateOptions?: CiteOptions) => {
+      const told = figures.calculate(given, calculateOptions);
+      for (const raw of given) {
+        const marker = whole((raw as { marker?: unknown } | null)?.marker);
+        for (const source of marker === null ? [] : figures.inputSources(marker)) {
+          if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
+            recordQuote(source, nextMarker());
+        }
+      }
+      return told;
+    };
+    const citeRecords = (records: readonly CitationRecordInput[], citeOptions?: CiteOptions) => {
+      for (const record of records) {
+        const quote = quotesRecorded.get(record.marker);
+        // The model numbered a Citation of its own with a figure's: the figure's record moves.
+        if (quote && quoteKey(quote) !== quoteKey(record)) {
+          quotesRecorded.delete(record.marker);
+          recordQuote(quote, nextMarker());
+        }
+      }
+      for (const record of records) recordedQuotes.set(quoteKey(record), record.marker);
+      return session.tools.cite(records, citeOptions);
+    };
+    const wordsOf = (marker: number) => {
+      const citation = session.quotes.recorded(marker)?.citation;
+      return citation && { passage: citation.passageId, quote: normaliseText(citation.quote) };
+    };
+    // A Citation that quotes an input's words cites that input; another claim's beside the figure,
+    // though from the same Passage, doesn't (#1831).
+    const covers = (cited: number, marker: number) => {
+      const [shown, input] = [wordsOf(cited), wordsOf(marker)];
+      return (
+        cited === marker ||
+        (!!shown &&
+          !!input &&
+          input.quote !== "" &&
+          shown.passage === input.passage &&
+          shown.quote.includes(input.quote))
+      );
+    };
+    // An id written as text is a Citation (#1800), made one first: a figure beside it isn't cited twice.
+    const citeFigures = (text: string): string =>
+      withFigureCitations(
+        session.citeWrittenIds(text, notKept),
+        (figure, cited) =>
+          figures.inputSources(figure).flatMap((source) => {
+            const marker =
+              typeof source === "number" ? source : recordedQuotes.get(quoteKey(source));
+            if (marker === undefined || !session.tools.hasRecord?.(marker)) return [];
+            return cited.some((each) => covers(each, marker)) ? [] : [marker];
+          }),
+        (figure) => figures.figure(figure),
       );
     /** A Citation marker's node as the text around a figure sees it: none for a marker with no record. */
     const citedNode = (marker: number) =>
@@ -2035,6 +2115,7 @@ export function createAnswers(options: AnswersOptions) {
                 const written = withoutSearchTalk(
                   session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
                 );
+                const markdown = calculating ? citeFigures(written.markdown) : written.markdown;
                 const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
@@ -2045,8 +2126,8 @@ export function createAnswers(options: AnswersOptions) {
                 const names = documentNames;
                 const known = (source: NamedSource) =>
                   namesOneOf(source.name, names) || link({ ...source, location: null }) !== null;
-                const asText = sourcesAsText(written.markdown, known);
-                const sourced = linkKnownSources(written.markdown, known, link);
+                const asText = sourcesAsText(markdown, known);
+                const sourced = linkKnownSources(markdown, known, link);
                 const tables = linkTableSources(sourced.text, link);
                 const cited = markdownToBlocks(tables.markdown).flatMap((block, index) =>
                   withCitations([block], (marker) => {
@@ -2135,7 +2216,10 @@ export function createAnswers(options: AnswersOptions) {
         readingDocuments: () => options.documents.reading(documentIds),
         searchDocuments: (query, signal, searchOptions) =>
           session.tools.searchDocuments(query, signal, searchOptions),
-        cite: (records, citeOptions) => session.tools.cite(records, citeOptions),
+        cite: (records, citeOptions) =>
+          calculating
+            ? citeRecords(records, citeOptions)
+            : session.tools.cite(records, citeOptions),
         hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
         unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
         correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
@@ -2144,9 +2228,9 @@ export function createAnswers(options: AnswersOptions) {
         wroteIntoMind: () =>
           [...mindChanges.values()].some((change) => change.proposals > 0 || change.revised),
         ...(calculating && {
-          calculate: (given: readonly unknown[], calculateOptions?: CiteOptions) =>
-            figures.calculate(given, calculateOptions),
+          calculate: calculateFigures,
           figureProblems: () => figures.problems(),
+          citeFigures,
         }),
       };
       // Scripts can run when a Skill has some, unless the User turned them off.

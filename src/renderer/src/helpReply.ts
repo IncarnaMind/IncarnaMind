@@ -94,6 +94,25 @@ export function shownItems(
   return [...lead, ...options];
 }
 
+/**
+ * The number each Citation shows with, from 1 in the order the shown items cite them, as the
+ * assistant numbers an Answer's: a marker is the core's ("[^9001]" for a figure's input), never
+ * the User's. A marker `cited` doesn't know isn't shown, so it takes no number.
+ */
+export function citationNumbers(
+  items: readonly ReplyItem[],
+  cited: (marker: number) => boolean,
+): Map<number, number> {
+  const numbers = new Map<number, number>();
+  for (const item of items) {
+    for (const piece of [item.lead, ...item.notes, item.effect ?? []].flat()) {
+      if (piece.kind === "citation" && !numbers.has(piece.marker) && cited(piece.marker))
+        numbers.set(piece.marker, numbers.size + 1);
+    }
+  }
+  return numbers;
+}
+
 export function readHelpReply(markdown: string): ReplyItem[] {
   const items: ReplyItem[] = [];
   for (const raw of markdown.split("\n")) {
