@@ -632,18 +632,33 @@ test("Review changes lives with the Mind's editor: once its tab has shown anothe
 });
 
 /** Pastes HTML where the cursor is, as a copy from IncarnaMind arrives: AI text stays AI text. */
-const pasteHtml = (window: Page, html: string) =>
-  window.evaluate((pasted) => {
+const pasteHtml = (editor: Locator, html: string) =>
+  editor.evaluate((element, pasted) => {
     const data = new DataTransfer();
     data.setData("text/html", pasted);
-    const event = new ClipboardEvent("paste", { clipboardData: data, bubbles: true });
-    document.querySelector(".ProseMirror")?.dispatchEvent(event);
+    element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true }));
   }, html);
+
+/** The text before the editor's own caret, as a paste reads it; null while the selection isn't a caret. */
+const beforeCaret = (editor: Locator) =>
+  editor.evaluate((element) => {
+    const { state } = (
+      element as unknown as {
+        editor: {
+          state: {
+            selection: { empty: boolean; from: number };
+            doc: { textBetween(from: number, to: number): string };
+          };
+        };
+      }
+    ).editor;
+    return state.selection.empty ? state.doc.textBetween(0, state.selection.from) : null;
+  });
 
 test("a copy of an AI change pasted beside it is never restored: with the change itself edited, Review changes isn't offered", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
-  const { paragraphs } = await mindWith(window, [TIDES]);
+  const { editor, paragraphs } = await mindWith(window, [TIDES]);
   const note = paragraphs.first();
 
   await slideSelect(window, note, TIDES);
@@ -651,7 +666,8 @@ test("a copy of an AI change pasted beside it is never restored: with the change
   await expect(note).toHaveText("The tides here are very powerful and really regular.");
   await slideSelect(window, note, "powerful");
   await window.keyboard.press("ArrowRight");
-  await pasteHtml(window, "<span data-generated>powerful</span>");
+  await expect.poll(() => beforeCaret(editor)).toBe("The tides here are very powerful");
+  await pasteHtml(editor, "<span data-generated>powerful</span>");
   await expect(note).toHaveText("The tides here are very powerfulpowerful and really regular.");
   await slideSelect(window, note, "wer");
   await window.keyboard.type("x");
