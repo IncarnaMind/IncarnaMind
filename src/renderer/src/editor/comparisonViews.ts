@@ -122,7 +122,7 @@ export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
     reading.textContent = translateNow("comparison.cell.readingText");
     stopped.textContent = translateNow("comparison.cell.stopped");
     if (cell.problem) {
-      const { key, params } = cellProblemMessage(cell.problem);
+      const { key, params } = cellProblemMessage(cell.problem, cell.message);
       reason.textContent = translateNow(key, params);
     } else reason.textContent = "";
     problem.title = cell.message ?? "";
