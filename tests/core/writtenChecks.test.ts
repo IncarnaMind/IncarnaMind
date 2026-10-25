@@ -552,7 +552,24 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     ]);
   });
 
-  // protects=text with no Citation isn't checked as it lands: nothing to check it against; fails_when=a check Run is made; no_claim=none beyond protects.
+  // protects=a sentence with a Citation is checked even when it is too short to make a claim (#1909), as "€12 million" in a table; fails_when=isClaim leaves it unchecked; no_claim=the verdict.
+  test("a short sentence with a Citation is checked", async () => {
+    const { core, change, client } = await write({ content: "## Tides\n\n€12 million [^1]." });
+
+    expect(change?.selfCheck).toMatchObject({
+      checkable: 1,
+      cited: 1,
+      sent: 1,
+      checked: 1,
+      failed: 0,
+    });
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
+      ["€12 million .", "unsupported"],
+    ]);
+  });
+
+  // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and Check the rest), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.
   test("a sentence with no Citation isn't checked as it lands", async () => {
     const { calls, client } = await write({
       content: "## Tides\n\nThe harbour is quiet in winter.",

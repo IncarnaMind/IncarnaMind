@@ -1,11 +1,12 @@
 /**
  * What the assistant writes into a Mind, checked before it lands (#1111).
  *
- * The sentences it wrote that have Citations, the first
- * `SENTENCES_CHECKED_AT_MOST` of them, are checked as Check this Mind would
- * check them (./claimCheck: the Mind's Folder, the Citations' quotes sent), a
- * few at a time, each within a time limit. The words are still the
- * assistant's changes then, not the Mind's.
+ * The sentences it wrote with Citations, the first `SENTENCES_CHECKED_AT_MOST`
+ * of them, are checked as Check this Mind would check them (./claimCheck: the
+ * Mind's Folder, the Citations' quotes sent), a few at a time, each within a
+ * time limit. The claims it wrote with no Citation are left to the one count
+ * and Check the rest (#1909). The words are still the assistant's changes
+ * then, not the Mind's.
  *
  * - A part its Citations don't support, as the check names it, is taken out
  *   with Edit with AI's own request (`cut-unsupported`); the Citations stay on
@@ -13,12 +14,11 @@
  *   it needs a check again, as after the card's cut. A cut that would lose
  *   every Citation, add one or leave no claim isn't used, nor one that does
  *   more than take words out (#1397): the sentence then lands as written, marked.
- * - A sentence still unsupported, or one a Document contradicts, lands with
- *   its check's mark, so Check this Mind doesn't find it again later.
+ * - A sentence the check covered, supported included, lands with its check's
+ *   mark, so Check this Mind doesn't find it again later and the count that
+ *   must close after a write counts it once (#1909).
  * - One that couldn't be checked (a failure, a limit, the time limit, or past
  *   the first `SENTENCES_CHECKED_AT_MOST`) lands marked not checked, with why.
- * - A supported sentence lands unmarked: its Citations' own checks stand for
- *   it, as after Add as Citation.
  *
  * Only the sentences cut or marked are written, and only while each reads as
  * it was written: one the User changed meanwhile keeps their words, marked to
@@ -104,14 +104,18 @@ export interface CheckWrittenInput {
 }
 
 /**
- * What the check did: of the sentences with Citations (`cited`), how many it
- * sent, how many got a verdict and how many couldn't be checked, and what
- * stopped it; each part it cut, as it named it; how many land marked. Its
- * marks share `request`. `blocked`: the sentences the User's own choice kept
- * from being sent, among those that couldn't be checked.
+ * What the check did: of the claims the write holds (`checkable`), how many
+ * have a Citation and were checked (`cited`), how many it sent, how many got a
+ * verdict and how many couldn't be checked, and what stopped it; each part it
+ * cut, as it named it; how many land marked. Its marks share `request`.
+ * `blocked`: the sentences the User's own choice kept from being sent, among
+ * those that couldn't be checked.
  */
 export interface WrittenCheck {
   request: string;
+  /** The write's top-level Blocks, so Check the rest checks this write's sentences alone (#1909). */
+  blocks: string[];
+  checkable: number;
   cited: number;
   sent: number;
   checked: number;
@@ -163,7 +167,8 @@ function quoteOf(node: NodeJSON): CitedQuote | null {
   };
 }
 
-function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
+/** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
+function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
   const visit = (nodes: readonly NodeJSON[], path: number[]) => {
     nodes.forEach((node, index) => {
@@ -177,19 +182,13 @@ function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
       const context = paragraphText(content);
       const layout = inlineLayout(content);
       for (const span of sentenceSpans(context)) {
+        const text = context.slice(span.from, span.to);
         const cited = layout.flatMap(({ node: inline, start }) => {
           if (inline.type !== CITATION_NODE || start < span.from || start >= span.to) return [];
           return quoteOf(inline) ?? [];
         });
-        if (cited.length === 0) continue;
-        found.push({
-          path: here,
-          from: span.from,
-          to: span.to,
-          text: context.slice(span.from, span.to),
-          context,
-          cited,
-        });
+        if (cited.length === 0 && !isClaim(text)) continue;
+        found.push({ path: here, from: span.from, to: span.to, text, context, cited });
       }
     });
   };
@@ -566,7 +565,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   async function checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null> {
     const { mindId, blocks, signal } = input;
     if (judgesUnreliably(input.prepared)) return null;
-    const sentences = citedSentences(blocks);
+    const checkable = checkableSentences(blocks);
+    // The claims with no Citation are left to the one count and Check the rest (#1909).
+    const sentences = checkable.filter((sentence) => sentence.cited.length > 0);
     if (sentences.length === 0) return null;
     const prepared = await options.prepare(input.prepared);
     if (!prepared) return null;
@@ -595,6 +596,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
 
     const done: WrittenCheck = {
       request,
+      blocks: [...input.ids],
+      checkable: checkable.length,
       cited: sentences.length,
       sent: sending.length,
       checked: 0,
@@ -668,8 +671,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       done.checked++;
-      if (result.verdict === "supported") return;
       const mark = options.withResult(markOf(sentence), result, at);
+      if (result.verdict === "supported") {
+        landings.push({ sentence, nodes: null, mark });
+        return;
+      }
       if (nodes && uncovered) {
         done.cut.push(uncovered);
         landings.push({ sentence, nodes: withMark(nodes, mark), mark });
