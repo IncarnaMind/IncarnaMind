@@ -148,8 +148,13 @@ export function readOnItsLine(
   const own = (each: Reading) =>
     `${each.scale}:${each.unit.kind === "currency" ? each.unit.code : each.unit.kind}`;
   const near = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  // Only a scale or currency the quote lacks: a quote that reads "310000 GBP" knows more than its
+  // row's bare "310000" cell.
+  const adds = (each: Reading) =>
+    (figure.scale === 1 && each.scale !== 1) ||
+    (figure.unit.kind === "plain" && each.unit.kind === "currency");
   const found = readFigures(lines, context).filter(
-    (each) => near(writtenNumber(each), writtenNumber(figure)) && own(each) !== own(figure),
+    (each) => near(writtenNumber(each), writtenNumber(figure)) && adds(each),
   );
   const [first] = found;
   return first && found.every((each) => own(each) === own(first)) ? first : null;

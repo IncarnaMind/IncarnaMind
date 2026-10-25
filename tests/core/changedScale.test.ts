@@ -44,6 +44,16 @@ describe("A cell's amount against its Citations' amounts", () => {
     expect(check("£310,000 [^1]", [NET_DEBT])?.times).toBe(0.001);
   });
 
+  // protects=a quote copied with spaces for the row's tabs, which reads "310000 GBP thousands" itself, isn't read as its row's bare cell; fails_when="GBP 310 million" is flagged against "310000" (seen with Claude Haiku 5.5 after #1798); no_claim=none beyond protects.
+  test("passes a right amount whose quote joins the row's cells with spaces", () => {
+    const spaced = cited(
+      "Net debt Q3 2026 actual 310000 GBP thousands actual, not forecast",
+      CEDAR,
+    );
+    expect(check("Net debt: GBP 310 million [^1]", [spaced])).toBeNull();
+    expect(check("Net debt: 310,000 GBP million [^1]", [spaced])?.times).toBe(1_000);
+  });
+
   // protects=a right amount passes at any scale it is written in: converted, as given, rounded, beside another; fails_when=a correct cell shows a problem line; no_claim=amounts worked out from several figures, which calculate checks.
   test("passes a right amount at any scale: converted, as the Document gives it, or beside another", () => {
     expect(check("Net debt: GBP 310 million [^1]", [NET_DEBT])).toBeNull();
