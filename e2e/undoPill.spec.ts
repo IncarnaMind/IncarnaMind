@@ -317,13 +317,19 @@ for (const language of ["en", "zh-CN"] as const) {
           expect(await undo.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
             "auto",
           );
-          const button = await boxOf(undo);
-          const label = await undo.evaluate((element) => {
+          // The button adds nothing beyond its own padding: its hit box is its label's box.
+          const beyondPadding = await undo.evaluate((element) => {
             const range = document.createRange();
             range.selectNodeContents(element);
-            return range.getBoundingClientRect().width;
+            const style = getComputedStyle(element);
+            return (
+              element.getBoundingClientRect().width -
+              range.getBoundingClientRect().width -
+              Number.parseFloat(style.paddingLeft) -
+              Number.parseFloat(style.paddingRight)
+            );
           });
-          expect(button.width - label).toBeLessThanOrEqual(8.5);
+          expect(Math.abs(beyondPadding)).toBeLessThanOrEqual(1);
 
           const gutter = column.x - card.x;
           const fits = gutter >= pillBox.width + 8;
