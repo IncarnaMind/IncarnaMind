@@ -21,6 +21,7 @@ import {
   figureLanguageTag,
   readFigures,
 } from "../../shared/figures";
+import { figureNumber } from "../../shared/formula";
 import { INLINE_NODE } from "../../shared/sentences";
 import { checkAgain, useChecks } from "./checks";
 import { makeMine } from "./editor/aiText";
@@ -98,13 +99,22 @@ export function figureFix(
   );
   const [only] = written;
   return only && written.length === 1
-    ? { from: only.start, to: only.end, shown: calculation.figure.shown }
+    ? {
+        from: only.start,
+        to: only.end,
+        shown: figureNumber(calculation.figure.shown, calculation.figure.show.language),
+      }
     : null;
 }
 
 /** Whether the card offers Use {figure}: a figure worked out that disagrees with the sentence (#1247). */
 export function offersUseFigure(editor: Editor, claim: ShownClaim): boolean {
-  return editor.isEditable && figureFix(claim.check.calculation, claim.sentence.text) !== null;
+  const { shown } = claim;
+  return (
+    editor.isEditable &&
+    (shown.state === "supported" || shown.state === "contradicted") &&
+    figureFix(claim.check.calculation, claim.sentence.text) !== null
+  );
 }
 
 const claimAt = (editor: Editor, offered: (editor: Editor, claim: ShownClaim) => boolean) => {
@@ -261,6 +271,7 @@ function restoreCheck(editor: Editor, claim: ShownClaim, earlier: ClaimCheckAttr
  * number back with the check it had.
  */
 export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: ShownClaim): void {
+  if (claim.shown.state !== "supported" && claim.shown.state !== "contradicted") return;
   const calculation = claim.check.calculation;
   const fix = figureFix(calculation, claim.sentence.text);
   if (!fix || !calculation) return;

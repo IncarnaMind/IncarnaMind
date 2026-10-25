@@ -12,7 +12,12 @@ vi.mock("../../src/renderer/src/i18n", () => ({ translateNow: (key: string) => k
 
 const { figureFix } = await import("../../src/renderer/src/unsupportedFixes");
 
-const calculation = (stated: string, shown: string, agrees = false): ClaimCalculation => ({
+const calculation = (
+  stated: string,
+  shown: string,
+  agrees = false,
+  approximate = false,
+): ClaimCalculation => ({
   agrees,
   stated,
   figure: {
@@ -21,7 +26,7 @@ const calculation = (stated: string, shown: string, agrees = false): ClaimCalcul
     inputs: [],
     value: 1.31,
     unit: { kind: "times" },
-    approximate: false,
+    approximate,
     shown,
     show: { language: "en", as: "times", decimals: null, scale: null },
     literals: [],
@@ -65,6 +70,13 @@ describe("Use {figure} (#1247)", () => {
   test("a sentence that no longer writes the number offers nothing", () => {
     const sentence = "Net debt to EBITDA was 1.3x at the end of 2025.";
     expect(figureFix(calculation("1.1x", "1.31x"), sentence)).toBeNull();
+  });
+
+  test('an approximate figure is written as its number, not a second "about"', () => {
+    const sentence = "Net debt to EBITDA was about 1.1x at the end of 2025.";
+    const fix = figureFix(calculation("1.1x", "about 1.31x", false, true), sentence);
+    expect(fix?.shown).toBe("1.31x");
+    expect(sentence.slice(fix?.from, fix?.to)).toBe("1.1x");
   });
 
   test("a check that worked out no figure offers nothing", () => {
