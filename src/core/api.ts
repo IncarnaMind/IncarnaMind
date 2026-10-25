@@ -1023,6 +1023,8 @@ export type MindProblem =
   | { kind: "no-mind" }
   | { kind: "not-found"; name: string }
   | { kind: "several"; name: string }
+  /** Minds of close titles, and the User didn't pick which one was meant (#1865). */
+  | { kind: "not-picked"; name: string }
   | { kind: "no-heading"; mindId: string; heading: string }
   | { kind: "no-place"; mindId: string; place: string }
   | { kind: "several-places"; mindId: string; name: string; adding: boolean }
@@ -2090,8 +2092,8 @@ export interface UserSettings {
 
 /**
  * The "Get started" checklist of a first run, at the bottom of the sidebar:
- * check a Citation in the example Mind, add Documents or connect an app, and
- * ask a Question of one's own. Each step ticks itself as the User does it.
+ * add Documents or connect an app, ask a Question of one's own, and check a
+ * Citation. Each step ticks itself as the User does it.
  */
 export interface GettingStarted {
   /** Shown: the examples were made on this device's first run. */

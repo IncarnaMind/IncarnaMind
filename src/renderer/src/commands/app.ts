@@ -6,6 +6,7 @@ import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
 import { blockMenuOpeners } from "../editor/blockMenuOpeners";
 import { originOf } from "../editor/blockOrigins";
+import { goToCitation } from "../editor/citationMark";
 import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
 import { useFindSources } from "../findSources";
@@ -13,6 +14,7 @@ import { useHistory } from "../history";
 import { startSkillFromMind } from "../makeSkill";
 import { showCheckCard, startCheckThisMind, startMindCheck } from "../mindCheck";
 import { useMindTools } from "../mindTools";
+import { citationStepOpen } from "../nudges";
 import { useReferenceImport } from "../referenceImport";
 import { useAppStore } from "../store";
 import { verifyDocument } from "../verify";
@@ -111,6 +113,14 @@ const appCommands: readonly Command[] = [
     group: "open",
     reversible: true,
     run: () => useAppStore.getState().openHome(),
+  },
+  {
+    id: "firstOpen.checkCitation",
+    label: "firstOpen.step.citation.title",
+    group: "open",
+    reversible: true,
+    when: () => citationStepOpen(useAppStore.getState().settings?.device.gettingStarted),
+    run: () => goToCitation(),
   },
   {
     id: "word.import",

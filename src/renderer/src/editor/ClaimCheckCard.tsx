@@ -42,7 +42,7 @@ import { askInAssistant } from "../conversations";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
-import { firstOpenOf } from "../nudges";
+import { citationStepOpen } from "../nudges";
 import { openCited } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
@@ -68,8 +68,8 @@ import { useReadableQuote } from "./citationScan";
 import { claimCardPlace } from "./claimCardPlace";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
-import { isQuietFocus } from "./mistakeMark";
 import { Popover } from "./Popover";
+import { isQuietFocus } from "./quietFocus";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
 
 /** How long a pointer rests on a mark before its card shows, and how long it may leave before it goes. */
@@ -203,7 +203,7 @@ export function ClaimMark({
 
   const guided = useAppStore((app) => {
     const progress = app.settings?.device.gettingStarted;
-    return state === "contradicted" && !progress?.mistakeSeen && firstOpenOf(progress);
+    return state === "contradicted" && !progress?.mistakeSeen && citationStepOpen(progress);
   });
 
   /**
@@ -249,7 +249,7 @@ export function ClaimMark({
         onClick={(event) => {
           if (event.detail === 0) setClaimFocus(place, id);
           setOpenClaim(place, id);
-          // Step 1 of the first open's steps, "See a mistake it caught".
+          // In the example's red ≠: opening it records that the check was seen.
           if (state === "contradicted") {
             useAppStore.getState().updateGettingStarted({ mistakeSeen: true });
           }
