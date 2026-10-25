@@ -5,11 +5,11 @@
  * answers.
  */
 import { describe, expect, test } from "vitest";
-import type { ConversationAnswer, Core, UserQuestionRequest } from "../../src/core";
+import type { ConversationAnswer, Core, UserAnswer, UserQuestionRequest } from "../../src/core";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
-import { heading, note, writeMind } from "../helpers/minds";
+import { heading, note, readMind, resolveChanges, writeMind } from "../helpers/minds";
 import {
   type ModelCall,
   type ScriptedReply,
@@ -18,13 +18,14 @@ import {
 } from "../helpers/models";
 
 const ADD = { tool: "add_to_mind", input: { mind: "Q3 plan", content: "The vendor may be late." } };
+const ALSO = { tool: "add_to_mind", input: { mind: "Q3 plan", content: "Costs may rise." } };
 
-/** A model that adds a line to "Q3 plan" once each turn, then replies with what the Tool said. */
+/** A model that adds a line to "Q3 plan" once each turn (two at once when asked twice), then replies with what the Tools said. */
 const adding = () =>
-  scriptedModel(
-    (call: ModelCall): ScriptedReply =>
-      call.results.length === 0 ? { calls: [ADD] } : { text: call.results.at(-1)?.text ?? "" },
-  );
+  scriptedModel((call: ModelCall): ScriptedReply => {
+    if (call.results.length > 0) return { text: call.results.map((each) => each.text).join(" ") };
+    return { calls: call.prompt.includes("Add both") ? [ADD, ALSO] : [ADD] };
+  });
 
 async function setUp({ localOnly = false }: { localOnly?: boolean } = {}) {
   const model = adding();
@@ -36,23 +37,24 @@ async function setUp({ localOnly = false }: { localOnly?: boolean } = {}) {
   const finance = await core.createLibraryGroup({ name: "Finance", description: "" });
   const plan = await core.createMind({ title: "Q3 plan", folderId: finance.id });
   const draft = await core.createMind({ title: "Q3 plan (draft)" });
+  const clients = [];
   for (const mind of [plan, draft]) {
     const client = await connectToMind(core, mind.id);
     writeMind(client, [heading(2, "Risks"), note("Hiring is slow.")]);
     await client.settled();
+    clients.push(client);
   }
-  return { core, plan, draft };
+  const [planClient, draftClient] = clients;
+  if (!planClient || !draftClient) throw new Error("No clients.");
+  return { core, plan, draft, planClient, draftClient };
 }
 
 /** Answers each question the assistant asks with `answer`, and gives back what it asked. */
-function answering(core: Core, answer: (asked: UserQuestionRequest) => unknown) {
+function answering(core: Core, answer: (asked: UserQuestionRequest) => UserAnswer) {
   const asked: UserQuestionRequest[] = [];
   core.on("question.asked", (request) => {
     asked.push(request);
-    void core.answerUserQuestion(
-      request.requestId,
-      answer(request) as Parameters<Core["answerUserQuestion"]>[1],
-    );
+    void core.answerUserQuestion(request.requestId, answer(request));
   });
   return asked;
 }
@@ -63,7 +65,7 @@ const changedIn = (answer: ConversationAnswer) =>
 describe("A change to a Mind with a close namesake (#1865)", { timeout: 30_000 }, () => {
   // protects=out of focus and untouched, a Mind whose title is close to another's isn't changed until the User picks, from options that name each with its Folder and when it was edited, and the pick is the one changed; fails_when=it changes before asking, the options don't tell the Minds apart, or the change goes to the Mind the model named; no_claim=the tray's looks.
   test("asks which, and changes the one the User picks", async () => {
-    const { core, draft } = await setUp();
+    const { core, draft, draftClient, planClient } = await setUp();
     const asked = answering(core, () => ({
       skipped: false,
       chosen: ["Q3 plan (draft)"],
@@ -82,6 +84,33 @@ describe("A change to a Mind with a close namesake (#1865)", { timeout: 30_000 }
     expect(question?.options[1]?.description).toMatch(/^Not in a Folder · edited /);
     expect(changedIn(answer)).toEqual([draft.id]);
     expect(answer.text).toContain("The User chose “Q3 plan (draft)”");
+    await draftClient.settled();
+    expect(readMind(draftClient).textContent).toContain("The vendor may be late.");
+    expect(readMind(planClient).textContent).not.toContain("The vendor may be late.");
+
+    await resolveChanges(draftClient, "reject");
+    await draftClient.settled();
+    expect(readMind(draftClient).textContent).toBe("RisksHiring is slow.");
+    expect(readMind(planClient).textContent).toBe("RisksHiring is slow.");
+  });
+
+  // protects=two changes to the same Mind at once, and a later one naming it again, share one question, and the pick holds for the whole Answer; fails_when=the User is asked twice, or a line goes to the other Mind; no_claim=none beyond protects.
+  test("asks once for two changes to the same Mind, and both go to the one picked", async () => {
+    const { core, draft, draftClient, planClient } = await setUp();
+    const asked = answering(core, () => ({
+      skipped: false,
+      chosen: ["Q3 plan (draft)"],
+      wrote: null,
+    }));
+
+    const answer = await askAssistant(core, { text: "Add both to my Q3 plan." });
+
+    expect(asked).toHaveLength(1);
+    expect(changedIn(answer)).toEqual([draft.id, draft.id]);
+    await draftClient.settled();
+    expect(readMind(draftClient).textContent).toContain("The vendor may be late.");
+    expect(readMind(draftClient).textContent).toContain("Costs may rise.");
+    expect(readMind(planClient).textContent).toBe("RisksHiring is slow.");
   });
 
   // protects=a question the User skips changes nothing, and the model is told why; fails_when=a Mind changes; no_claim=none beyond protects.
@@ -94,6 +123,7 @@ describe("A change to a Mind with a close namesake (#1865)", { timeout: 30_000 }
     });
 
     expect(changedIn(answer)).toEqual([]);
+    expect(answer.toolCalls.map((call) => call.mindProblem?.kind)).toEqual(["not-picked"]);
     expect(answer.text).toContain("the User didn't say which of these Minds they meant");
   });
 

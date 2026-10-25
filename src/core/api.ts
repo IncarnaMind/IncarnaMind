@@ -1018,6 +1018,8 @@ export type MindProblem =
   | { kind: "no-mind" }
   | { kind: "not-found"; name: string }
   | { kind: "several"; name: string }
+  /** Minds of close titles, and the User didn't pick which one was meant (#1865). */
+  | { kind: "not-picked"; name: string }
   | { kind: "no-heading"; mindId: string; heading: string }
   | { kind: "no-place"; mindId: string; place: string }
   | { kind: "several-places"; mindId: string; name: string; adding: boolean }

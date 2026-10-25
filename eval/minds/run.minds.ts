@@ -66,7 +66,7 @@ async function runOne(
     openLibrary({
       name: "minds",
       embedder: createFakeEmbedder(),
-      documents: folder ? await writeDocuments(folder, each.language) : [],
+      documents: folder ? await writeDocuments(folder, each) : [],
       keep: keepData,
       embeddings: false,
       chatModels: recorder.chatModels,
@@ -113,9 +113,14 @@ async function runOne(
       { choose: each.choose },
     );
     const answeredSeconds = (Date.now() - asked) / 1000;
-    const { failures, calls, card } = await examine(core, each, before, answer, (reply, record) =>
+    const examined = await examine(core, each, before, answer, (reply, record) =>
       unbackedIn(judge, reply, record),
     );
+    const { calls, card } = examined;
+    const failures =
+      each.choose && !answer.toolCalls.some((call) => call.asked)
+        ? [...examined.failures, { kind: "not-asked" as const }]
+        : examined.failures;
     return {
       ...empty,
       failures,
@@ -145,9 +150,10 @@ async function runOne(
   }
 }
 
-async function writeDocuments(folder: string, language: MindsCase["language"]) {
+async function writeDocuments(folder: string, each: MindsCase) {
+  const texts = each.documents === true ? DOCUMENTS[each.language] : (each.documents ?? []);
   return Promise.all(
-    DOCUMENTS[language].map(async ({ file, text }) => {
+    texts.map(async ({ file, text }) => {
       const path = join(folder, file);
       await writeFile(path, text);
       return { key: file, path };

@@ -124,7 +124,6 @@ export interface ChangeableMind {
   name: string;
 }
 
-/** A Mind as the Minds' Tools list it: where it is, and when it last changed. */
 export interface ListedMind extends ChangeableMind {
   folderId: string | null;
   /** ISO 8601 UTC. */
@@ -970,10 +969,9 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     };
 
   /** Minds a change goes into without asking: changed earlier in this conversation, or picked or made in this Answer. */
-  const settled = new Set(options.touched);
+  const settled = new Set([...options.touched, ...(options.remake ? [options.remake] : [])]);
   const untitled = new Set(LANGUAGES.map((language) => translate(language, "mind.untitled")));
 
-  /** The other live Minds whose title is close to this one's (../../../shared/closeTitles). */
   const namesakesOf = (mind: ChangeableMind): ListedMind[] =>
     untitled.has(mind.name)
       ? []
@@ -1005,17 +1003,11 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         : `${mind.name} · ${where} · ${choices.indexOf(mind) + 1}`;
     });
 
-  /**
-   * The Mind a change goes into: `mind`, unless it is out of focus, unchanged in this
-   * conversation, and another Mind's title is close to its own. Then the User picks (#1865):
-   * a model took a Mind of a similar title for the one meant.
-   */
-  const confirmed = async (
+  const pick = async (
     toolCallId: string,
     mind: ChangeableMind,
     signal: AbortSignal,
   ): Promise<{ mind: ChangeableMind; said: string | null }> => {
-    if (focused?.mindId === mind.id || settled.has(mind.id)) return { mind, said: null };
     const namesakes = namesakesOf(mind);
     const target = minds.list().find((each) => each.id === mind.id);
     if (namesakes.length === 0 || !target) return { mind, said: null };
@@ -1024,7 +1016,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     const named = choices.map((each) => `“${each.name}” (${whereIs(each)})`).join(", ");
     if (!options.ask) {
       throw new Refusal(
-        { kind: "several", name: mind.name },
+        { kind: "not-picked", name: mind.name },
         `Nothing was changed: these Minds have close titles, and the User can't be asked here which one is meant: ${named}. Say in one sentence which Minds match, and ask the User to say which one.`,
       );
     }
@@ -1054,7 +1046,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     const picked = answer.skipped ? undefined : choices[labels.indexOf(answer.chosen[0] ?? "")];
     if (!picked) {
       throw new Refusal(
-        { kind: "several", name: mind.name },
+        { kind: "not-picked", name: mind.name },
         `Nothing was changed: the User didn't say which of these Minds they meant: ${named}. Say so in one sentence.`,
       );
     }
@@ -1062,10 +1054,29 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     return { mind: picked, said: `The User chose “${picked.name}” (${whereIs(picked)}).` };
   };
 
-  /** The Mind each call goes into once the User picked it, by call. */
+  // Calls made at once, or later in the Answer, that name the same Mind share its one question.
+  const meant = new Map<string, Promise<{ mind: ChangeableMind; said: string | null }>>();
+
+  /**
+   * The Mind a change goes into: `mind`, unless it is out of focus, unchanged in this
+   * conversation, and another Mind's title is close to its own. Then the User picks (#1865):
+   * a model took a Mind of a similar title for the one meant.
+   */
+  const confirmed = (
+    toolCallId: string,
+    mind: ChangeableMind,
+    signal: AbortSignal,
+  ): Promise<{ mind: ChangeableMind; said: string | null }> => {
+    if (focused?.mindId === mind.id || settled.has(mind.id)) {
+      return Promise.resolve({ mind, said: null });
+    }
+    const asked = meant.get(mind.id) ?? pick(toolCallId, mind, signal);
+    meant.set(mind.id, asked);
+    return asked;
+  };
+
   const picked = new Map<string, ChangeableMind>();
 
-  /** A Tool that changes a Mind, asking first which Mind when its title has a close namesake (`confirmed`). */
   const gated = (tool: Tool): Tool => ({
     ...tool,
     async call(input, context) {

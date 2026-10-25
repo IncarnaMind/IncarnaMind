@@ -5047,6 +5047,7 @@ export const zhCN = {
   "mindCall.failed.noMind": "无法修改：没有打开的 Mind，也没有指明是哪一个",
   "mindCall.failed.notFound": "找不到名为“{name}”的 Mind",
   "mindCall.failed.several": "有多个 Mind 叫“{name}”",
+  "mindCall.failed.notPicked": "未修改“{name}”：没有选择 Mind",
   "mindCall.failed.noHeading": "无法修改“{mind}”：其中没有标题“{heading}”",
   "mindCall.failed.noPlace": "无法添加到“{mind}”：其中没有标题或段落“{place}”",
   "mindCall.failed.severalPlaces": "无法修改“{mind}”：有多个位置叫“{name}”",

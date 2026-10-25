@@ -439,7 +439,6 @@ const noDocumentsNote = (examples: boolean) =>
 const changesAMind = (change: MindChange) =>
   change.created || change.revised === true || change.proposals > 0;
 
-/** The Minds the Answers among `messages` made or changed. */
 const touchedIn = (messages: readonly ConversationMessage[]): string[] =>
   messages.flatMap((message) =>
     message.kind === "answer"

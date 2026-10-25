@@ -38,8 +38,8 @@ export interface MindsCase {
   request: string;
   /** The Mind in front when it is asked, by title; none: asked from Home. */
   open: string | null;
-  /** The Library also holds `DOCUMENTS`, so the model can search them too. */
-  documents?: true;
+  /** The Library also holds `DOCUMENTS`, or these Documents, so the model can search them too. */
+  documents?: true | readonly LibraryText[];
   /** The Minds it names hold only AI text: a Meeting's notes filled after Stop ("ai"), or what an Answer added ("answer"). */
   sources?: "ai" | "answer";
   /** More Minds beside the workspace's, such as near namesakes of the one it names (#1865). */
@@ -275,6 +275,18 @@ const BUDGETS: Readonly<Record<Language, readonly SeedMind[]>> = {
   })),
 };
 
+/** A Document of the same name as the Mind "Budget 2025", which the request means (#1865). */
+const BUDGET_DOCUMENT: Readonly<Record<Language, LibraryText>> = {
+  en: {
+    file: "Budget 2025.md",
+    text: "# Budget 2025\n\nFinance's draft, sent on 3 October. It asks for €2.6 million, with two more people in sales, and cuts travel by a tenth.\n",
+  },
+  "zh-CN": {
+    file: "2025年预算.md",
+    text: "# 2025年预算\n\n财务部 10 月 3 日发来的草案：申请 260 万欧元，销售增加两人，差旅削减一成。\n",
+  },
+};
+
 const budgetShortened = (language: Language): Expected => ({
   changed: {
     [language === "en" ? "Budget 2025" : "2025年预算"]: {
@@ -292,8 +304,14 @@ export const SOURCES: Readonly<Record<Language, readonly string[]>> = {
   "zh-CN": ["项目计划", "会议纪要"],
 };
 
+/** A Document written for the Library, by its file name. */
+export interface LibraryText {
+  file: string;
+  text: string;
+}
+
 /** Documents of other matters, for a request asked in a Library that has some: nothing of them belongs in its answer. */
-export const DOCUMENTS: Readonly<Record<Language, readonly { file: string; text: string }[]>> = {
+export const DOCUMENTS: Readonly<Record<Language, readonly LibraryText[]>> = {
   en: [
     {
       file: "Supplier contract.md",
@@ -568,6 +586,24 @@ export const CASES: readonly MindsCase[] = [
     open: null,
     extra: BUDGETS["zh-CN"],
     choose: "2025年预算",
+    expected: budgetShortened("zh-CN"),
+  },
+  {
+    id: "namesake-document-en",
+    language: "en",
+    request: "Shorten the summary in Budget 2025 to two sentences.",
+    open: null,
+    extra: BUDGETS.en.filter((mind) => mind.title === "Budget 2025"),
+    documents: [BUDGET_DOCUMENT.en],
+    expected: budgetShortened("en"),
+  },
+  {
+    id: "namesake-document-zh",
+    language: "zh-CN",
+    request: "把 2025年预算 里的摘要缩短成两句话。",
+    open: null,
+    extra: BUDGETS["zh-CN"].filter((mind) => mind.title === "2025年预算"),
+    documents: [BUDGET_DOCUMENT["zh-CN"]],
     expected: budgetShortened("zh-CN"),
   },
   {
