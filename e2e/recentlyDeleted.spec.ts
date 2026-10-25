@@ -553,10 +553,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await target.getByTestId("deleted-select").check();
       await expect(window.getByTestId("deleted-selection")).toBeVisible();
       await expect(target).toHaveAttribute("aria-selected", "true");
-      await pointAndClick(window, window.getByTestId("deleted-delete-selected"));
+      await window.getByTestId("deleted-delete-selected").hover();
+      await window.getByTestId("deleted-delete-selected").click();
       await expect(dialog.getByRole("heading")).toContainText(name);
       await window.keyboard.press("Escape");
-      await pointAndClick(window, window.getByTestId("deleted-restore-selected"));
+      await window.getByTestId("deleted-restore-selected").hover();
+      await window.getByTestId("deleted-restore-selected").click();
       await expect(target).toHaveCount(0);
       await pointAndClick(window, undoLine(window).getByTestId("undo-action"));
       await expect(target).toHaveCount(1);
