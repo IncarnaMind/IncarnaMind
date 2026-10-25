@@ -167,6 +167,12 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(claimCard.getByTestId("claim-cut-sentence")).toHaveCount(0);
   await window.keyboard.press("Escape");
 
+  // A contradicted claim can be kept as the User's view too.
+  await pointAndClick(window, marks(window).and(window.locator('[data-check="contradicted"]')));
+  await expect(claimCard).toBeVisible();
+  await expect(claimCard.getByTestId("claim-keep")).toBeVisible();
+  await window.keyboard.press("Escape");
+
   // Each row goes to the next claim of its kind.
   const caretIn = () =>
     editor.evaluate(() => getSelection()?.anchorNode?.parentElement?.closest("p")?.textContent);

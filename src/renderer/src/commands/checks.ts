@@ -7,6 +7,7 @@ import type { ShownClaim } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { startMindCheck } from "../mindCheck";
 import {
+  contradictedAt,
   cutSentence,
   cutUnsupported,
   fixesFree,
@@ -60,7 +61,9 @@ function withClaim(find: (editor: Editor) => ShownClaim | null) {
 
 const withUnsupported = () => withClaim(unsupportedAt);
 const withNotFound = () => withClaim(notFoundAt);
+const withContradicted = () => withClaim(contradictedAt);
 const withNothingBacking = () => withUnsupported() ?? withNotFound();
+const withKeepable = () => withNothingBacking() ?? withContradicted();
 
 // A Mind made to verify someone else's document keeps their words.
 function withCuttable() {
@@ -129,9 +132,9 @@ export const checkCommands: readonly Command[] = [
     label: "claim.keepAsView",
     group: "main",
     reversible: true,
-    when: () => withNothingBacking() !== null,
+    when: () => withKeepable() !== null,
     run() {
-      const at = withNothingBacking();
+      const at = withKeepable();
       if (at) keepAsView(at.editor, at.claim);
     },
   },
