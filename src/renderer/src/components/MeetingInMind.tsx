@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Meeting } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import { commands } from "../commands/registry";
@@ -67,6 +67,14 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
   const problem = useMeetings((state) => state.problems[meeting.id]);
   const { start, discard } = useMeetings.getState();
   const microphoneOnly = canRecord === "microphone";
+  const recordButton = useRef<HTMLButtonElement>(null);
+  const focusHere = useMeetings((state) => state.startToFocus === meeting.id);
+
+  useEffect(() => {
+    if (!focusHere) return;
+    recordButton.current?.focus();
+    useMeetings.setState({ startToFocus: null });
+  }, [focusHere]);
 
   useEffect(() => {
     if (!copied) return;
@@ -129,6 +137,7 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
       )}
       <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
         <button
+          ref={recordButton}
           type="button"
           data-testid="meeting-start-record"
           onClick={() => void start(meeting.id, systemAudio && !microphoneOnly)}

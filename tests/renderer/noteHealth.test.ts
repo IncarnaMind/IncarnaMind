@@ -70,7 +70,7 @@ const docOf = (...blocks: JSONContent[]) => schema.nodeFromJSON({ type: "doc", c
 
 /** The Mind's health as its header counts it, part by part. */
 function healthOf(doc: ProseMirrorNode): Record<HealthPart, number> {
-  const { claims, kept } = claimsOf(doc, { versions: null, folderId: null });
+  const { claims, kept } = claimsOf(doc, { versions: null, folderId: null, scope: null });
   const health = noteHealth(doc, claims, (attributes) => attributes.check, kept);
   return Object.fromEntries(HEALTH_PARTS.map((part) => [part, health[part].length])) as Record<
     HealthPart,
@@ -87,7 +87,7 @@ function uncheckedIn(
   skipped: readonly string[] = [],
   answered: readonly string[] = [],
 ): number {
-  const { claims, kept } = claimsOf(doc, { versions: null, folderId: null });
+  const { claims, kept } = claimsOf(doc, { versions: null, folderId: null, scope: null });
   return noteHealth(
     doc,
     claims,
@@ -254,7 +254,7 @@ describe("A Mind's health", () => {
         content: [text("The harbour master thinks the tides are lovely in spring.")],
       },
     );
-    const { claims, kept } = claimsOf(doc, { versions: null, folderId: null });
+    const { claims, kept } = claimsOf(doc, { versions: null, folderId: null, scope: null });
     const health = noteHealth(
       doc,
       claims,

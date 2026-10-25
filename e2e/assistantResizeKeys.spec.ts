@@ -31,7 +31,6 @@ interface Holder {
   watching?: boolean;
 }
 
-/** From now, notes each width the line is drawn at, and how many times the core says the layout changed. */
 const startWatching = (window: Page) =>
   window.evaluate(() => {
     const holder = globalThis as unknown as Holder;
@@ -56,7 +55,6 @@ const startWatching = (window: Page) =>
 const layoutEvents = (window: Page) =>
   window.evaluate(() => (globalThis as unknown as Holder).layoutEvents);
 
-/** Once the core has answered everything asked so far, and the window has drawn it. */
 const settled = (window: Page) =>
   window.evaluate(async () => {
     const holder = globalThis as unknown as Holder;

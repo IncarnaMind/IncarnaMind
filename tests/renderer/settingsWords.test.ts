@@ -89,7 +89,9 @@ const CONSENT_FACTS = [
   "providers.secrets.plainText.accept",
   "providers.secrets.plainText.body",
   "providers.secrets.unavailable",
+  "providers.sends.onRequest",
   "rerank.settings.sends",
+  "tagging.automatic.sends",
 ];
 
 describe("The Settings pages", () => {

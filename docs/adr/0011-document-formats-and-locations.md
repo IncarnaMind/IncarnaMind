@@ -12,7 +12,7 @@ IncarnaMind reads more than PDF, Markdown and plain text, and a Citation's Locat
 - PowerPoint: one or two slides ("slide 4"). Speaker notes count as part of their slide.
 - Excel and CSV: a sheet and a range of rows ("Revenue, rows 12–14"). A CSV has a single sheet.
 - Markdown: the section the quote sits under ("§ Methods"). Plain text: a range of lines ("lines 120–134"). This replaces citing the whole Document.
-- Word: the section the quote sits under ("§ 2.1 Sensitivity"), as for Markdown. A preview's page breaks follow only explicit breaks, so its page numbers wouldn't match Word's, and a wrong page undermines a checkable Citation.
+- Word: the section the quote sits under ("§ 2.1 Sensitivity"), as for Markdown. "§ Start" names text before the first heading only in a Document that has headings (`UnitLabel.beforeHeading`); a Word file with none is cited by its paragraph, counted from the file's start ("¶ 12"), or by its name alone. A preview's page breaks follow only explicit breaks, so its page numbers wouldn't match Word's, and a wrong page undermines a checkable Citation.
 
 **Checking quotes from spreadsheets.** The cited rows' cells, joined in reading order, must contain the quote's words and numbers, the same way text quotes are checked. Number formatting is normalised first, so "4,812" matches "4812". Spreadsheet Citations are checked, not marked "can't check", because numbers are what analysts cite most and get wrong most.
 

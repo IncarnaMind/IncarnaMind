@@ -11,6 +11,7 @@ import {
   citedTextKept,
   closestWordsMessage,
   parseQuotedWords,
+  quotedWordsFoundIn,
   shownDocumentName,
   withShownName,
 } from "../../src/shared/citations";
@@ -341,6 +342,32 @@ describe("The words an Answer put in quotation marks that a Citation's page lack
     expect(translate("zh-CN", "citation.reason.quoted-words-not-on-pages")).toContain("引号");
   });
 
+  test("quoted words are found only as the sentence wrote them, not piece by piece anywhere", () => {
+    const passage =
+      "The Employee may work from home two days a week, agreed in advance with the manager; the director approves leave.";
+    // The sentence quoted "two days a week, director": the word "director" is on
+    // the page, but not where the sentence put it.
+    expect(
+      quotedWordsFoundIn(passage, {
+        answer: [
+          { text: "two days a week, ", found: true },
+          { text: "director", found: false },
+        ],
+        closest: null,
+      }),
+    ).toBe(false);
+    expect(
+      quotedWordsFoundIn(passage, {
+        answer: [
+          { text: "two days a week, ", found: true },
+          { text: "agreed", found: true },
+        ],
+        closest: null,
+      }),
+    ).toBe(true);
+    expect(quotedWordsFoundIn(passage, null)).toBe(true);
+  });
+
   test("stored words are read back whole, or not at all", () => {
     const stored = {
       answer: [
@@ -379,7 +406,7 @@ describe("A Citation's Location label (ADR-0011)", () => {
       [{ kind: "rows", sheet: "Revenue", from: 7, to: 7 }, "Revenue, row 7", "Revenue，第 7 行"],
       [{ kind: "rows", sheet: null, from: 2, to: 3 }, "rows 2–3", "第 2–3 行"],
       [{ kind: "section", heading: "2.1 Sensitivity" }, "§ 2.1 Sensitivity", "§ 2.1 Sensitivity"],
-      [{ kind: "section", heading: null }, "§ Start", "§ 开头"],
+      [{ kind: "section", heading: null, start: true }, "§ Start", "§ 开头"],
       [{ kind: "section", heading: null, notes: true }, "§ Notes", "§ 注释"],
       [
         { kind: "section", heading: "2 Costs", comment: { author: "Reviewer" } },
@@ -392,7 +419,7 @@ describe("A Citation's Location label (ADR-0011)", () => {
         "§ 二、运营数据，王丽华 的批注",
       ],
       [
-        { kind: "section", heading: null, comment: { author: null } },
+        { kind: "section", heading: null, start: true, comment: { author: null } },
         "§ Start, comment",
         "§ 开头，批注",
       ],
@@ -407,7 +434,7 @@ describe("A Citation's Location label (ADR-0011)", () => {
         "§ 唐代的茶，第 1–2 段",
       ],
       [
-        { kind: "section", heading: null, paragraphs: { from: 2, to: 2 } },
+        { kind: "section", heading: null, start: true, paragraphs: { from: 2, to: 2 } },
         "§ Start, ¶\u00a02",
         "§ 开头，第 2 段",
       ],
@@ -417,6 +444,68 @@ describe("A Citation's Location label (ADR-0011)", () => {
       expect(citedLocation(at(location), in_("en"))).toBe(en);
       expect(citedLocation(at(location), in_("zh-CN"))).toBe(zh);
     }
+  });
+
+  describe("of a Document with no headings (#1601)", () => {
+    const RESUME = "示例简历-设计师 2";
+    const none = at({ kind: "section", heading: null }, RESUME);
+    const paragraph = (from: number, to = from) =>
+      at({ kind: "section", heading: null, paragraphs: { from, to } }, RESUME);
+
+    test("is cited by its name alone, never as '§ Start', and not by the page a Unit number would make", () => {
+      expect(citedLocation(none, in_("en"))).toBeNull();
+      expect(citedLocation(none, in_("zh-CN"))).toBeNull();
+      expect(citationSource(none, in_("zh-CN"))).toEqual({
+        name: RESUME,
+        where: null,
+        text: RESUME,
+      });
+      expect(citationReference(none)).toBe(`[${RESUME}]`);
+      expect(words(none)).toEqual({
+        en: `Quote found in ${RESUME}`,
+        zh: `已在“${RESUME}”中找到引文`,
+      });
+    });
+
+    test("is cited by its paragraph when the Passage has one, in English and Chinese", () => {
+      expect(citedLocation(paragraph(12), in_("en"))).toBe("¶\u00a012");
+      expect(citedLocation(paragraph(12), in_("zh-CN"))).toBe("第 12 段");
+      expect(citedLocation(paragraph(3, 4), in_("en"))).toBe("¶\u00a03–4");
+      expect(citationSource(paragraph(12), in_("en")).text).toBe(`${RESUME}, ¶\u00a012`);
+      expect(citationSource(paragraph(12), in_("zh-CN")).text).toBe(`${RESUME}，第 12 段`);
+      expect(citationReference(paragraph(7))).toBe(`[${RESUME}, ¶\u00a07]`);
+    });
+
+    test("leaves out the section of a comment or a picture too", () => {
+      const cases: [CitationAttributes["location"], string, string][] = [
+        [
+          { kind: "section", heading: null, comment: { author: "Reviewer" } },
+          "comment by Reviewer",
+          "Reviewer 的批注",
+        ],
+        [{ kind: "section", heading: null, comment: { author: null } }, "comment", "批注"],
+        [{ kind: "section", heading: null, figure: 2 }, "figure\u00a02", "图 2"],
+      ];
+      for (const [location, en, zh] of cases) {
+        expect(citedLocation(at(location), in_("en"))).toBe(en);
+        expect(citedLocation(at(location), in_("zh-CN"))).toBe(zh);
+      }
+    });
+
+    test("still says '§ Start' where the Document has headings and the text comes before the first", () => {
+      expect(citedLocation(at({ kind: "section", heading: null, start: true }), in_("en"))).toBe(
+        "§ Start",
+      );
+      expect(parseLocation({ kind: "section", heading: null, start: true })).toEqual({
+        kind: "section",
+        heading: null,
+        start: true,
+      });
+      expect(parseLocation({ kind: "section", heading: null, start: "yes" })).toEqual({
+        kind: "section",
+        heading: null,
+      });
+    });
   });
 
   test("words the badge with the label: on a page, slide or lines; in rows or a section", () => {
