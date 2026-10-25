@@ -31,6 +31,7 @@
     "eval:excel": "vitest run --config eval/excel/vitest.config.ts",
     "eval:everyday": "vitest run --config eval/everyday/vitest.config.ts",
     "eval:minds": "vitest run --config eval/minds/vitest.config.ts",
+    "eval:reports": "vitest run --config eval/reports/vitest.config.ts",
     "eval:repeats": "vitest run --config eval/repeats/vitest.config.ts",
     "eval:scope": "vitest run --config eval/repeats/vitest.scope.config.ts",
     "eval:harness": "vitest run --config eval/harness/vitest.config.ts",
