@@ -34,4 +34,4 @@ npm run eval:speed
 
 The input, cached input and output are what the provider counted, from the same finish part the core's timing records keep. Every other number is estimated locally with the core's own estimator (`src/core/answers/context` `estimateTokens`) from the exact prompt text, and scaled per request by `counted input / local estimate`, so the parts sum to the counted input. The report says how far the local estimate was from the counted total before scaling; the split between the parts is as good as that estimator, and a part the prompt doesn't let apart (a selection before the Question, the provider's own framing) is named rather than guessed. Only numbers and Tool names are kept, never a prompt's or a reply's text.
 
-The tables are in the run's report and in `tokens.json` beside it.
+The tables are in the run's report and in `tokens.json` beside it. A kind whose flows `INCARNAMIND_EVAL_SPEED_FLOWS` left out shows as not run, with no numbers, rather than as zeros.

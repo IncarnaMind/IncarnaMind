@@ -15,6 +15,7 @@ import {
   passageTexts,
   sumParts,
   type ToolSize,
+  tokenReport,
   tokenRows,
   toolUses,
 } from "../../eval/speed/tokens";
@@ -361,5 +362,42 @@ describe("the auditor", () => {
     expect(requests[0]?.instructions.map((each) => each.id)).toContain(
       "answer: the Answer's rules",
     );
+  });
+});
+
+describe("a kind whose flows did not run", () => {
+  it("marks it not run, never as zeros", () => {
+    const report = tokenReport([
+      {
+        flow: "question",
+        model: "anthropic/claude-haiku-5-5",
+        language: "en",
+        requests: [request()],
+      },
+    ]);
+    expect(report).toContain("| Answers | question | 1 |");
+    expect(report).toContain(
+      "| Assistant runs | assistant-write, assistant-edit, assistant-longer | not run (flow not selected) |",
+    );
+    expect(report).toContain("| Edits | edit-with-ai | not run (flow not selected) |");
+    expect(report).toContain("| Checks | find-support, check-mind | not run (flow not selected) |");
+    expect(report).toContain(
+      "| Other flows | suggestion, comparison, research | not run (flow not selected) |",
+    );
+    expect(report).not.toMatch(/\| Edits \| edit-with-ai \| 0 \|/);
+    expect(report).not.toMatch(/\| Other flows \|[^|]*\| 0 \|/);
+  });
+
+  it("still shows a kind whose flow ran but called no model as 0 requests", () => {
+    const report = tokenReport([
+      {
+        flow: "suggestion",
+        model: "anthropic/claude-haiku-5-5",
+        language: "en",
+        requests: [],
+      },
+    ]);
+    expect(report).toContain("| Other flows | suggestion, comparison, research | 0 |");
+    expect(report).toContain("| Answers | question | not run (flow not selected) |");
   });
 });

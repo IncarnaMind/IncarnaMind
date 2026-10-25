@@ -613,6 +613,8 @@ const mean = (values: readonly number[]): number =>
 export interface TokenRow {
   kind: string;
   flows: string;
+  /** False: no flow of this kind ran in this report, so its numbers are not measured (not zero). */
+  measured: boolean;
   requests: number;
   failed: number;
   parts: PromptParts;
@@ -628,7 +630,12 @@ export interface TokenRow {
   estimated: number;
 }
 
-function rowOf(kind: string, flows: string, requests: readonly AuditedRequest[]): TokenRow {
+function rowOf(
+  kind: string,
+  flows: string,
+  requests: readonly AuditedRequest[],
+  measured: boolean,
+): TokenRow {
   const finished = requests.filter((each) => each.outcome === "finished" && each.counted !== null);
   const parts = emptyParts();
   for (const request of finished) {
@@ -642,6 +649,7 @@ function rowOf(kind: string, flows: string, requests: readonly AuditedRequest[])
   return {
     kind,
     flows,
+    measured,
     requests: finished.length,
     failed: requests.length - finished.length,
     parts,
@@ -657,13 +665,20 @@ function rowOf(kind: string, flows: string, requests: readonly AuditedRequest[])
 const anythingElse = (row: TokenRow): number =>
   row.parts.question + row.parts.toolCalls + row.parts.toolResults + row.parts.other;
 
-/** The tokens of each part of a kind's requests, mean per request. */
-export function tokenRows(requests: readonly AuditedRequest[]): TokenRow[] {
+/**
+ * The tokens of each part of a kind's requests, mean per request. `ran`: the harness flows that
+ * ran; a kind with none of them shows as not measured rather than as zeros.
+ */
+export function tokenRows(
+  requests: readonly AuditedRequest[],
+  ran?: ReadonlySet<string>,
+): TokenRow[] {
   return KINDS.map(({ kind, flows }) =>
     rowOf(
       kind,
       flows.join(", "),
       requests.filter((request) => kindOf(request) === kind),
+      ran === undefined || flows.some((flow) => ran.has(flow)),
     ),
   );
 }
@@ -676,17 +691,19 @@ const shown = (value: number): string =>
 const shownShare = (value: number): string => `${Math.round(value * 100)}%`;
 
 const rowLine = (row: TokenRow): string =>
-  `| ${row.kind} | ${row.flows} | ${row.requests} | ${shown(row.parts.instructions)} | ${shown(row.parts.tools)} | ${Math.round(row.passages)} | ${shown(row.parts.passages + row.parts.passageNotes)} | ${shown(row.parts.history)} | ${shown(anythingElse(row))} | ${shown(row.input)} | ${shown(row.cached)} (${shownShare(row.cachedShare)}) | ${shown(row.output)} |`;
+  row.measured
+    ? `| ${row.kind} | ${row.flows} | ${row.requests} | ${shown(row.parts.instructions)} | ${shown(row.parts.tools)} | ${Math.round(row.passages)} | ${shown(row.parts.passages + row.parts.passageNotes)} | ${shown(row.parts.history)} | ${shown(anythingElse(row))} | ${shown(row.input)} | ${shown(row.cached)} (${shownShare(row.cachedShare)}) | ${shown(row.output)} |`
+    : `| ${row.kind} | ${row.flows} | not run (flow not selected) | – | – | – | – | – | – | – | – | – |`;
 
 export const COUNTED_NOTE =
   "Input, cached input and output are what the provider counted. Every other number is estimated locally from the exact prompt the core assembled, with the core's own estimator, and scaled per request so the parts sum to the counted input.";
 
 /** One table of each kind of request: what a call of it carries, mean per request. */
-export function kindTable(requests: readonly AuditedRequest[]): string {
+export function kindTable(requests: readonly AuditedRequest[], ran?: ReadonlySet<string>): string {
   return [
     "| Kind | Flow(s) | Requests | Instructions | Tools | Passages | Passages & windows | Conversation history | Anything else | Input (counted) | Cached in (counted) | Output (counted) |",
     "|---|---|---|---|---|---|---|---|---|---|---|---|",
-    ...tokenRows(requests).map(rowLine),
+    ...tokenRows(requests, ran).map(rowLine),
     "| Call help | none: it needs a Meeting's recording, which this runner makes only by hand | – | – | – | – | – | – | – | – | – | – |",
   ].join("\n");
 }
@@ -832,10 +849,10 @@ export function tokenReport(runs: readonly TokenAuditRun[]): string {
   const models = [...new Set(runs.map((run) => run.model))];
   for (const model of models) {
     for (const language of ["en", "zh-CN"] as const) {
-      const requests = runs
-        .filter((run) => run.model === model && run.language === language)
-        .flatMap((run) => run.requests);
-      if (requests.length === 0) continue;
+      const cell = runs.filter((run) => run.model === model && run.language === language);
+      if (cell.length === 0) continue;
+      const requests = cell.flatMap((run) => run.requests);
+      const ran = new Set(cell.map((run) => run.flow));
       const finished = requests.filter((each) => each.counted !== null);
       const input = finished.reduce((sum, each) => sum + (each.counted?.input ?? 0), 0);
       const estimated = finished.reduce((sum, each) => sum + each.estimated, 0);
@@ -845,7 +862,7 @@ export function tokenReport(runs: readonly TokenAuditRun[]): string {
       lines.push(
         `### ${model} · ${language}`,
         "",
-        kindTable(requests),
+        kindTable(requests, ran),
         "",
         "**The Tools each kind offers, and calls**",
         "",
