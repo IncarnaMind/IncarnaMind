@@ -2264,7 +2264,7 @@ export function createCore(adapters: CoreAdapters): Core {
     localOnly: () => embedding.localOnly(),
     ollamaUrl: adapters.ollamaUrl ?? defaultOllamaUrl(),
     localModels: adapters.localModels ?? installedOllamaModels,
-    planPausedUntil: () => chatGptPace.pausedUntil(),
+    planPausedUntil: () => chatGptPace.pausedUntil() ?? claudePace.pausedUntil(),
     now: () => paceTimers.now(),
   });
   const tagsWith = (): TaggingClassifier | null => {

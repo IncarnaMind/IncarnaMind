@@ -86,7 +86,7 @@ export interface TaggingModels {
   options: TaggingModelOption[];
   /** "Keep everything on this computer" is on: Automatic picks only local models, and a cloud one waits. */
   localMode: boolean;
-  /** Tagging on the ChatGPT plan waits for its limit to reset, until this time (ISO 8601, UTC); null when it doesn't. */
+  /** Tagging on a plan (ChatGPT's or Claude's) waits for its limit to reset, until this time (ISO 8601, UTC); null when it doesn't. */
   planPausedUntil: string | null;
 }
 

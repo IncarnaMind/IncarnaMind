@@ -1905,9 +1905,12 @@ export const en = {
   "tagging.resume": "Resume",
   "tagging.resume.keywords": "resume restart turn on tagging stopped",
   "status.taggingStopped": "Tagging stopped",
-  "status.taggingPaused": "Tagging waits for your ChatGPT plan",
-  "status.taggingPaused.full":
-    "ChatGPT plan limit reached: tagging waits for the reset, then resumes.",
+  "status.planLimit": "Your {plan} plan’s limit is reached",
+  "status.planLimit.until": "Your {plan} plan’s limit is reached until {time}",
+  "status.planLimit.unnamed": "Your plan’s limit is reached",
+  "status.planLimit.unnamed.until": "Your plan’s limit is reached until {time}",
+  "status.planLimit.full":
+    "{line}. Tagging and Organize wait for it to reset, then go on by themselves.",
   "status.taggingRateLimited": "Rate limit reached · resumes at {time}",
   "status.taggingRateLimited.full": "Rate limit reached: tagging resumes at {time}.",
   "status.taggingKeyRefused": "The key was refused",
