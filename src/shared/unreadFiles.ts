@@ -33,8 +33,8 @@ export function unreadCountText(files: readonly UnreadFile[], t: Translate): str
   return t(files.length === 1 ? "unread.count.one" : "unread.count", { count: files.length });
 }
 
-/** 20,001 for 20001, the same in every language, as the app's figures are. */
-const grouped = (number: number) => String(number).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const withThousandSeparators = (number: number) =>
+  String(number).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 /**
  * What of a workbook wasn't read (#740): its hidden sheets, and the sheets its rows were cut
@@ -70,7 +70,9 @@ export function unreadPartsText(parts: UnreadParts, t: Translate, names: boolean
   if (cut > 0) {
     if (names) {
       for (const each of parts.rowsCut) {
-        segments.push(t("unread.parts.rows", { names: each.sheet, from: grouped(each.from) }));
+        segments.push(
+          t("unread.parts.rows", { names: each.sheet, from: withThousandSeparators(each.from) }),
+        );
       }
       for (const sheet of parts.sheetsNotRead) {
         segments.push(t("unread.parts.notRead", { names: sheet }));
