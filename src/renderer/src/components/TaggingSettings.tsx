@@ -16,6 +16,7 @@ import { supportsLibraryImages } from "../../../shared/libraryModels";
 import { core } from "../core";
 import { errorMessage } from "../errors";
 import { translateNow, useLanguage, useT } from "../i18n";
+import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
 import { placesText, stoppedPlaces, tagWithAi } from "../taggingStop";
 import { useUndo } from "../undo";
@@ -38,6 +39,8 @@ import {
 
 /** The groups of models, as the composer's model chip groups them. */
 const GROUPS: readonly TaggingModelGroup[] = ["keys", "plan", "local"];
+
+const TARGET = ["tagging"] as const;
 
 const GROUP_NAMES: Record<TaggingModelGroup, MessageKey> = {
   keys: "composer.model.group.keys",
@@ -90,7 +93,7 @@ export const providerOf = (option: TaggingModelOption, language: Language) =>
   option.provider ? (language === "zh-CN" ? option.provider.zh : option.provider.en) : null;
 
 /**
- * Settings → Models → Tagging: the one model choice for automatic
+ * Settings → Models → Advanced → Tagging: the one model choice for automatic
  * tagging and Organize, Automatic by default, which says what it uses now and
  * why; the models to choose instead, grouped as the model chip groups them,
  * each with what 100 Documents cost; "Other model…" for one the list doesn't
@@ -124,6 +127,11 @@ export function TaggingSettings() {
       for (const stop of stops) stop();
     };
   }, [reload]);
+  const section = useSettingsTarget<HTMLElement>(TARGET, !!settings && !!models, () =>
+    section.current
+      ?.querySelector<HTMLInputElement>("input[name='tagging-model']:checked")
+      ?.focus({ preventScroll: true }),
+  );
 
   const save = async (next: Partial<LibrarySettings>) => {
     if (!settings) return;
@@ -184,7 +192,7 @@ export function TaggingSettings() {
   const stopped = stoppedPlaces(library);
 
   return (
-    <section data-testid="tagging-settings" className="flex flex-col">
+    <section ref={section} data-testid="tagging-settings" className="flex scroll-mt-8 flex-col">
       <h4 className={sectionTitleClass}>{t("tagging.title")}</h4>
       <p className={sectionNoteClass}>{t("tagging.intro")}</p>
       <div role="radiogroup" aria-label={t("tagging.model")} className="flex flex-col gap-3">
