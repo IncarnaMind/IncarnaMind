@@ -1690,6 +1690,8 @@ async function* toolLoop(
   let stepTools: Tool[] = [];
   /** An earlier step wrote the Answer and recorded its Citations: text with markers after that is a second copy. */
   let answered = false;
+  /** As the Run engine ends steps: a step wrote marked text beside `cite` or `calculate` alone. */
+  let writtenBesideRecords = false;
   /**
    * Texts written beside `cite` or `calculate` alone, with no marker in them,
    * and taken back: the last is the Answer if the model never writes another,
@@ -1778,14 +1780,18 @@ async function* toolLoop(
     },
     window,
     // The Answer written beside `cite` or `calculate`, with all they were given taken, is complete:
-    // another call would only write it again.
-    endsAfter: (step) =>
-      cite !== null &&
-      MARKER.test(step.text) &&
-      step.calls.length > 0 &&
-      step.calls.every(
-        (call) => recording(offered.get(call.tool)) && askedForFixes.get(call.id) === false,
-      ),
+    // another call would only write it again. So is one whose records a later step fixed.
+    endsAfter: (step) => {
+      const recordsOnly =
+        step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
+      writtenBesideRecords ||= recordsOnly && MARKER.test(step.text);
+      return (
+        cite !== null &&
+        writtenBesideRecords &&
+        recordsOnly &&
+        step.calls.every((call) => askedForFixes.get(call.id) === false)
+      );
+    },
     temperature,
     signal: AbortSignal.any([signal, rambling.signal]),
   });
@@ -1948,6 +1954,7 @@ async function* toolLoop(
           keptText = "";
           stepText = "";
           answered = false;
+          writtenBesideRecords = false;
           setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
           break;

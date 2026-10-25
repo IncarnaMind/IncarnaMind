@@ -2363,6 +2363,7 @@ export function createAnswers(options: AnswersOptions) {
                   scoped,
                   calculating,
                   withMindTools || ids.size() > 0,
+                  withMindTools,
                 ),
             stillReadingNote(options.documents.reading(documentIds)),
             coverageInstructions(

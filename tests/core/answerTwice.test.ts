@@ -70,6 +70,56 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
     expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
   });
 
+  test("a record to fix in a cite call of its own: the loop ends once it is taken", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched) {
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      }
+      const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+      const cites = call.results.filter((result) => result.tool === "cite").length;
+      if (cites >= 2) return { text: ANSWER };
+      const record = { marker: 1, passage, quote: cites === 0 ? WRONG : SPRING };
+      return {
+        ...(cites === 0 && { text: ANSWER }),
+        calls: [{ tool: "cite", input: { citations: [record] } }],
+      };
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Tides.md", contents: TIDES_MD },
+    ]);
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    // The search, the Answer with its records, and the fix: no call after the fix is taken.
+    expect(model.doStreamCalls).toHaveLength(3);
+    expect(citationsIn(client, answerId).map((citation) => citation.quote)).toEqual([SPRING]);
+    expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
+  });
+
+  test("a model that still cites first, then writes: the Answer is there once", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched) {
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      }
+      if (call.results.some((result) => result.tool === "cite")) return { text: ANSWER };
+      const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+      return {
+        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+      };
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Tides.md", contents: TIDES_MD },
+    ]);
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(model.doStreamCalls).toHaveLength(3);
+    expect(citationsIn(client, answerId).map((citation) => citation.quote)).toEqual([SPRING]);
+    expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
+  });
+
   // protects=an Answer shows neither the text before its search nor the text beside cite with no marker in it, only the Answer after them; fails_when=a preamble shows in the Answer; no_claim=none beyond protects.
   test("text before the search and beside cite with no marker in it isn't shown", async () => {
     const model = scriptedModel((call: ModelCall): ScriptedReply => {

@@ -455,9 +455,28 @@ export const unrecordedMarkersNote = (markers: readonly number[]) =>
 const UNBROKEN_QUOTE =
   "- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.";
 
-/** The Citation check also looks for the words an Answer puts in quotation marks (#483): a reader takes them for the Document's own. */
+/**
+ * The Citation check also looks for the words an Answer puts in quotation marks (#483): a reader
+ * takes them for the Document's own. An Answer written before its records quoted the Passage
+ * tidied ("P E_{pos+k}" for "P Epos+k", "include[s]"), which the check doesn't find (#489).
+ */
 const QUOTATION_MARKS =
-  "- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.";
+  "- Use quotation marks only around a Document's exact words, copied character for character as its Passage reads, even where the text looks garbled (its spacing, symbols, a word cut short), with nothing changed or added in brackets, and give that same stretch as its record's quote. Quote it in its own language, never a translation of it: that goes after the closing mark, as “…”（译：…）. Words you would change, give in your own words, without quotation marks.";
+
+/**
+ * How a model in the Tool loop cites (#489): the Answer first, then all its records in one
+ * `cite` call in the same reply, so its words come a model call sooner; the Answer ends when
+ * `cite` takes every record. Exported for the paired evaluation, which compares it with citing first.
+ */
+export const WRITE_THEN_CITE: readonly string[] = [
+  "- Once you have searched, write the Answer with a marker such as [^1] right after each claim a Passage supports, in a table's cell too, and add no list of sources.",
+  `- Then, in the same reply, call cite once with a record for each marker: its number (1, 2, …), ${RECORD}.`,
+  "- If cite asks you to fix records, give them fixed in another cite call: never write the Answer again.",
+];
+
+/** Text written into a Mind isn't checked before the reply, so its records come first (mindInstructions). */
+const MIND_TEXT_CITED_FIRST =
+  "- Text you write into a Mind is the exception: call cite for it before the call that writes it.";
 
 /** The most Document names the instructions list: the most recently added. */
 export const LISTED_DOCUMENTS = 50;
@@ -551,7 +570,8 @@ function documentNames({ total, names }: ListedDocuments): string {
  * limited the Question to some of their Documents (its Search scope), and
  * `listed` covers only those. `calculate`: the model is offered the
  * `calculate` Tool (or `calculations` in its JSON), and steered to it. `keeps`: the
- * Question context shows Citations with ids, or a Mind read may.
+ * Question context shows Citations with ids, or a Mind read may. `minds`: the model is offered
+ * the Tools that write into Minds.
  */
 export function documentInstructions(
   mode: CitationSupport | "no-documents",
@@ -560,6 +580,7 @@ export function documentInstructions(
   scoped = false,
   calculate = false,
   keeps = false,
+  minds = false,
 ): string {
   const documents = `${listed.total} Document${listed.total === 1 ? "" : "s"}`;
   const dated = datedDocumentsNote(passages);
@@ -579,12 +600,12 @@ export function documentInstructions(
         documentNames(listed),
         "",
         "Cite every claim you draw from a Passage:",
-        `- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), ${RECORD}.`,
+        ...WRITE_THEN_CITE,
         UNBROKEN_QUOTE,
         QUOTATION_MARKS,
-        "- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.",
         ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
-        "- Write nothing before your Tool calls: only the Answer, after them.",
+        ...(minds ? [MIND_TEXT_CITED_FIRST] : []),
+        "- Write nothing before your searches: only the Answer, after them.",
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
