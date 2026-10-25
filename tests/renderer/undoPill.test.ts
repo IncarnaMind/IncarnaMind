@@ -1,8 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { showsUndoPill } from "../../src/renderer/src/undoPill";
 
-/* Where the undo line shows (#1776): the sidebar's foot, or the pill when the sidebar is out of sight. */
-
 describe("the undo line's place", () => {
   test("the sidebar shown: the line is at its foot", () => {
     expect(showsUndoPill({ hidden: false, peeking: false })).toBe(false);

@@ -219,6 +219,36 @@ test("the pill stays clear of the assistant's composer docked on the left", asyn
   }
 });
 
+test("at 900 px with the first open's Ask pill, the pill sits above it", async () => {
+  test.setTimeout(180_000);
+  const sources = await createDataFolder();
+  await writeFile(join(sources, "Tides note.txt"), "Tides and the moon.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 900, 700);
+    await setSidebarShown(window, false);
+    // A Document added at the first open is a change Undo takes back.
+    await window
+      .getByTestId("add-documents-input")
+      .setInputFiles([join(sources, "Tides note.txt")]);
+    const pill = window.getByTestId("undo-pill");
+    const ask = window.getByTestId("ask-pill");
+    await expect(pill).toBeVisible();
+    await expect(ask).toBeVisible();
+    await motionSettled(window);
+    const [pillBox, askBox] = await Promise.all([boxOf(pill), boxOf(ask)]);
+    expect(overlaps(pillBox, askBox)).toBe(false);
+    expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(askBox.y);
+    if (SCREENSHOTS) {
+      await window.screenshot({ path: join(SCREENSHOTS, "undo-pill-en-900-ask.png") });
+    }
+  } finally {
+    await app.close();
+    await removeDataFolder(sources);
+  }
+});
+
 test("the pill at 900 px stays clear of the check badge at the Mind's foot", async () => {
   test.setTimeout(180_000);
   const sources = await createDataFolder();

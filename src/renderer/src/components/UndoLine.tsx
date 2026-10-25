@@ -59,22 +59,20 @@ export function UndoLineAt({ place }: { place: string }) {
 
 const report = (error: unknown) => useAppStore.getState().reportError(error);
 
-/**
- * The one line itself: what changed, then Undo. `inPill` gives it the pill's own edges, and
- * `held` keeps it while the pointer or the focus rests on that pill.
- */
 export function UndoLineBody({
   line,
   inPill = false,
   held = false,
+  fade = true,
 }: {
   line: UndoLineState;
   inPill?: boolean;
   held?: boolean;
+  fade?: boolean;
 }) {
   const t = useT();
   const shown = useRef<HTMLDivElement>(null);
-  useFade(shown);
+  useFade(shown, fade);
 
   useGoesBy(line.change || line.told || (line.note && !line.busy) ? line.id : null, held);
   useDismissOnEscape(true, () => useUndo.getState().dismiss());
