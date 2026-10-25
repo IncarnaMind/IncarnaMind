@@ -23,7 +23,7 @@ import {
 /*
  * Contradiction watch (#112): "Check for contradictions" (⌘K, the Mind's
  * menu) checks each cited sentence of a Mind against the other Documents in
- * its Folder. The User cites a sentence with Find support's Add as Citation;
+ * its Folder. The User cites a sentence with Check against Documents' Add as Citation;
  * the scripted model (src/main/fakeChat/checks.ts) finds a sentence
  * contradicted when it shares three words with a line that has other numbers.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
@@ -89,7 +89,7 @@ const bridge = (window: Page) => ({
     ),
 });
 
-/** A Mind with the claim, cited with Find support's Add as Citation. */
+/** A Mind with the claim, cited with Check against Documents' Add as Citation. */
 async function citedClaim(window: Page): Promise<Locator> {
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
@@ -98,7 +98,7 @@ async function citedClaim(window: Page): Promise<Locator> {
   const line = editor.locator(":scope > p").first();
   await slideSelect(window, line, "Harbours publish", { line, words: "6 months." });
   const menu = window.getByTestId("selection-menu");
-  await pointAndClick(window, menu.getByTestId("selection-action-find-support"));
+  await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
   const mark = window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "supported");
   await pointAndClick(window, mark);
@@ -157,7 +157,7 @@ test("Check for contradictions: the estimate first, then a cited claim another D
   await screenshot(window, "contradictions-card-en");
   await window.keyboard.press("Escape");
 
-  // Editing the claim makes it need a re-check, as Find support's do.
+  // Editing the claim makes it need a re-check, as Check against Documents' do.
   await slideSelect(window, line, "Harbours");
   await window.keyboard.type("Ports");
   await expect(mark).toHaveAttribute("data-check", "needs-recheck");
