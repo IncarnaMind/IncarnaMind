@@ -37,6 +37,15 @@ export function useTopModal(): HTMLDialogElement | null {
 }
 
 /**
+ * The modal dialog on top now, or null when none is open, or when one this stack doesn't know
+ * (the command palette) is open too, since that one may be above it.
+ */
+export function topModalNow(): HTMLDialogElement | null {
+  const shown = document.querySelectorAll("dialog:modal").length;
+  return shown === openModals.length ? (openModals.at(-1) ?? null) : null;
+}
+
+/**
  * Keeps a native <dialog> shown as a modal while `open` is true. With
  * `focusDialog`, opening focuses the dialog itself (give it tabIndex={-1})
  * instead of its first control, e.g. so no choice looks picked before the

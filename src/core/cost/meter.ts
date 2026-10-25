@@ -54,6 +54,7 @@ import { searchFee, searchFeeOf } from "../providers/webSearch";
 import { currentTask } from "../runs/current";
 import type { TokenUsage } from "../runs/engine";
 import type { Database } from "../storage";
+import type { Timings } from "../timing/timings";
 import { costOf, inCurrency, promptTokensOf, reservationOf, TYPICAL_ANSWER } from "./price";
 
 type Wrapped = Parameters<NonNullable<LanguageModelMiddleware["wrapStream"]>>[0];
@@ -78,6 +79,7 @@ export interface MeteredModel {
   maxOutput: number | undefined;
   /** A model in Ollama that runs on ollama.com. */
   ollamaCloud: boolean;
+  reasoning?: string;
 }
 
 /** The output reserved for a request that sets no limit, on a model whose limit isn't known. */
@@ -196,13 +198,89 @@ const neverAnswered = (error: unknown) =>
 
 export type Meter = ReturnType<typeof createMeter>;
 
+const usageOf = (usage: Usage) => ({
+  inputTokens: usage.inputTokens.total,
+  cachedInputTokens: usage.inputTokens.cacheRead,
+  outputTokens: usage.outputTokens.total,
+});
+
+const outcomeOf = (error: unknown) =>
+  error instanceof Error && error.name === "AbortError" ? "stopped" : "failed";
+
+const GENERATED: Readonly<Record<string, string>> = {
+  text: "text-delta",
+  reasoning: "reasoning-delta",
+  "tool-call": "tool-call",
+};
+
+function timingMiddleware(timings: Timings, metered: MeteredModel): LanguageModelMiddleware {
+  const about = {
+    dataFlow: metered.flow,
+    providerKind: metered.kind,
+    modelId: metered.modelId,
+    reasoning: metered.reasoning ?? null,
+  };
+  return {
+    specificationVersion: "v4",
+    wrapGenerate: async ({ doGenerate }) => {
+      const timing = timings.request(about);
+      try {
+        const result = await doGenerate();
+        for (const part of result.content) timing.heard(GENERATED[part.type] ?? part.type);
+        timing.end("finished", usageOf(result.usage));
+        return result;
+      } catch (error) {
+        timing.end(outcomeOf(error), null);
+        throw error;
+      }
+    },
+    wrapStream: async ({ doStream }) => {
+      const timing = timings.request(about);
+      let result: Awaited<ReturnType<typeof doStream>>;
+      try {
+        result = await doStream();
+      } catch (error) {
+        timing.end(outcomeOf(error), null);
+        throw error;
+      }
+      const reader = result.stream.getReader();
+      const stream = new ReadableStream<StreamPart>({
+        async pull(controller) {
+          try {
+            const { done, value } = await reader.read();
+            if (done) {
+              timing.end("stopped", null);
+              controller.close();
+              return;
+            }
+            timing.heard(value.type);
+            if (value.type === "finish") timing.end("finished", usageOf(value.usage));
+            else if (value.type === "error") timing.end("failed", null);
+            controller.enqueue(value);
+          } catch (error) {
+            timing.end(outcomeOf(error), null);
+            controller.error(error);
+          }
+        },
+        async cancel(reason) {
+          timing.end("stopped", null);
+          await reader.cancel(reason);
+        },
+      });
+      return { ...result, stream };
+    },
+  };
+}
+
 export function createMeter(options: {
   db: Database;
   now: () => Date;
   /** The monthly cap, read at each reservation, so a change applies to the next request. */
   cap: () => MonthlyCap | null;
+  /** A free model's requests, on this computer, are timed too. */
+  timings?: Timings;
 }) {
-  const { db, now } = options;
+  const { db, now, timings } = options;
 
   /** The start of this calendar month, in the computer's time zone. */
   const monthStart = (at: Date) => new Date(at.getFullYear(), at.getMonth(), 1).toISOString();
@@ -412,63 +490,70 @@ export function createMeter(options: {
   return {
     /** The model, with every request it makes counted (and, billed per token, reserved against the cap). */
     wrap(model: ChatLanguageModel, metered: MeteredModel): ChatLanguageModel {
-      if (metered.billing === "free") return model;
+      const timed = timings ? [timingMiddleware(timings, metered)] : [];
+      if (metered.billing === "free") {
+        return timed.length > 0 ? wrapLanguageModel({ model, middleware: timed }) : model;
+      }
       return wrapLanguageModel({
         model,
-        middleware: {
-          specificationVersion: "v4",
-          wrapGenerate: async ({ doGenerate, params }) => {
-            const request = begin(metered, params);
-            try {
-              const result = await doGenerate();
-              for (const part of result.content) request.heard(part);
-              request.settle(result.usage, contentBytes(result.content));
-              return result;
-            } catch (error) {
-              const limit = ollamaLimit(metered, error);
-              request.failed(limit ?? error);
-              throw limit ?? error;
-            }
-          },
-          wrapStream: async ({ doStream, params }) => {
-            const request = begin(metered, params);
-            let result: Awaited<ReturnType<typeof doStream>>;
-            try {
-              result = await doStream();
-            } catch (error) {
-              const limit = ollamaLimit(metered, error);
-              request.failed(limit ?? error);
-              throw limit ?? error;
-            }
-            const reader = result.stream.getReader();
-            let bytes = 0;
-            const stream = new ReadableStream<StreamPart>({
-              async pull(controller) {
-                try {
-                  const { done, value } = await reader.read();
-                  if (done) {
+        // The timing goes inside, around the model alone: a request the cap refuses was never made.
+        middleware: [
+          {
+            specificationVersion: "v4",
+            wrapGenerate: async ({ doGenerate, params }) => {
+              const request = begin(metered, params);
+              try {
+                const result = await doGenerate();
+                for (const part of result.content) request.heard(part);
+                request.settle(result.usage, contentBytes(result.content));
+                return result;
+              } catch (error) {
+                const limit = ollamaLimit(metered, error);
+                request.failed(limit ?? error);
+                throw limit ?? error;
+              }
+            },
+            wrapStream: async ({ doStream, params }) => {
+              const request = begin(metered, params);
+              let result: Awaited<ReturnType<typeof doStream>>;
+              try {
+                result = await doStream();
+              } catch (error) {
+                const limit = ollamaLimit(metered, error);
+                request.failed(limit ?? error);
+                throw limit ?? error;
+              }
+              const reader = result.stream.getReader();
+              let bytes = 0;
+              const stream = new ReadableStream<StreamPart>({
+                async pull(controller) {
+                  try {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                      request.end(bytes);
+                      controller.close();
+                      return;
+                    }
+                    bytes += streamedBytes(value);
+                    request.heard(value);
+                    if (value.type === "finish") request.settle(value.usage, bytes);
+                    const limit = value.type === "error" ? ollamaLimit(metered, value.error) : null;
+                    controller.enqueue(limit ? { type: "error", error: limit } : value);
+                  } catch (error) {
                     request.end(bytes);
-                    controller.close();
-                    return;
+                    controller.error(error);
                   }
-                  bytes += streamedBytes(value);
-                  request.heard(value);
-                  if (value.type === "finish") request.settle(value.usage, bytes);
-                  const limit = value.type === "error" ? ollamaLimit(metered, value.error) : null;
-                  controller.enqueue(limit ? { type: "error", error: limit } : value);
-                } catch (error) {
+                },
+                async cancel(reason) {
                   request.end(bytes);
-                  controller.error(error);
-                }
-              },
-              async cancel(reason) {
-                request.end(bytes);
-                await reader.cancel(reason);
-              },
-            });
-            return { ...result, stream };
+                  await reader.cancel(reason);
+                },
+              });
+              return { ...result, stream };
+            },
           },
-        },
+          ...timed,
+        ],
       });
     },
 

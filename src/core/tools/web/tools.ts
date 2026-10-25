@@ -61,6 +61,7 @@ const REASONS: Record<WebPageFailureReason, string> = {
   "not-public": "it is on this computer or a local network",
   "too-many-redirects": "it redirects too many times",
   "not-from-search": "search_web didn't return it in this Answer",
+  "local-mode": "Local mode is on, so no page is fetched",
 };
 
 function resultsText(query: string, pages: readonly WebResult[]): string {

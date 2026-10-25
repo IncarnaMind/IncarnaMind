@@ -10,7 +10,6 @@ import { zhCN } from "../../src/shared/i18n/zh-CN";
 
 const keys = (Object.keys(en) as MessageKey[]).filter((key) => key.startsWith("checkRecord."));
 const NO_TRANSLATION = new Set<MessageKey>([
-  "checkRecord.format.csv",
   "checkRecord.summary.mind",
   "checkRecord.column.sha256",
   "checkRecord.checker",

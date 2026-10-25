@@ -20,10 +20,12 @@ import {
 } from "../../src/core";
 import { elements, parseXml, type XmlElement } from "../../src/core/documents/formats/xml";
 import { quitCopyOptions } from "../../src/shared/exportOptions";
+import { setMindScope } from "../../src/shared/mindScope";
 import { recordProposalRequest } from "../../src/shared/proposals";
+import { folderScope } from "../../src/shared/searchScope";
 import { wordFileOf, wordImportProgressOf } from "../../src/shared/wordFiles";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { addAndProcess, linkAndProcess, writeSourceFile } from "../helpers/documents";
 import { acceptedParagraphs, textOf, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind } from "../helpers/minds";
@@ -176,6 +178,34 @@ describe("what the Mind didn't change", () => {
     expect(word?.unknownParts).toEqual(["vendor/settings.vendor"]);
     expect(files.get("vendor/settings.vendor")?.toString("utf8")).toBe("<vendor>kept</vendor>");
   });
+
+  // protects=the export keeps the page the imported file has, its size and margins, whatever the computer's region; fails_when=the export takes the region's paper, as a native Mind's does; no_claim=Page view, which pageSetup.test.ts covers.
+  test.each([
+    [
+      "GB",
+      "Letter",
+      '<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1000" w:right="1000" w:bottom="1000" w:left="1000" w:header="500" w:footer="500" w:gutter="0"/>',
+    ],
+    [
+      "US",
+      "A4",
+      '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/>',
+    ],
+  ] as const)(
+    "on a computer in %s, a Mind imported from a %s file exports on that page",
+    async (region, _paper, sectPr) => {
+      const core = startCore(await createTempDataFolder(), { systemRegion: () => region });
+      const { mindId, client } = await importFile(
+        core,
+        wordFile({ body: paragraph("Text."), sectPr }),
+      );
+      editText(client, (value) => `${value} Edited.`);
+      await client.settled();
+
+      const { document } = await exported(core, mindId);
+      expect(document).toContain(`<w:sectPr>${sectPr}</w:sectPr>`);
+    },
+  );
 });
 
 describe("an edited paragraph", () => {
@@ -762,6 +792,94 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       expect(comments).toContain(nothing);
     },
   );
+
+  test.each([
+    {
+      language: "en" as const,
+      one: "Unsupported: I didn’t find this in “Okoro agreement”.",
+      two: "Unsupported: I didn’t find this in “Okoro agreement” or 1 more.",
+      changed: "Needs re-check: the Mind’s Search scope has changed since.",
+    },
+    {
+      language: "zh-CN" as const,
+      one: "无依据：未在“Okoro agreement”中找到。",
+      two: "无依据：未在“Okoro agreement”等 2 项中找到。",
+      changed: "需重新核对：这个 Mind 的搜索范围已更改。",
+    },
+  ])(
+    // protects=the Word comment of a sentence checked in the Mind's chosen scope names that scope, as its card does, and one checked in another scope than the Mind's now needs a re-check (#1623); fails_when=it says All Documents, another wording than the card's, or keeps a verdict made elsewhere; no_claim=the card itself (e2e).
+    "$language: a sentence checked in the Mind's chosen scope says where it looked, as its card does",
+    async ({ language, one, two, changed }) => {
+      const { core, mindId, client } = await setUp({
+        body: paragraph("Margins widened in 2026.") + paragraph("Costs fell in 2025."),
+      });
+      await core.updateSettings({ user: { language } });
+      const okoro = await core.saveTextAsDocument({ name: "Okoro agreement", text: "Notice." });
+      const adeyemi = await core.saveTextAsDocument({ name: "Adeyemi agreement", text: "Leave." });
+      const scopeOf = (documentIds: string[]) => ({ folderIds: [], tagIds: [], documentIds });
+      const inScope = (value: string, documentIds: string[]) => {
+        const marked = checked(value, "unsupported", null);
+        const [mark] = marked.marks;
+        if (!mark) throw new Error("No mark.");
+        const scope = { folderId: null, widened: false, chosen: scopeOf(documentIds) };
+        return { ...marked, marks: [{ ...mark, attrs: { ...mark.attrs, scope } }] };
+      };
+      editMind(client, ([first, second]) => [
+        { ...(first as JSONContent), content: [inScope("Margins widened in 2026.", [okoro.id])] },
+        {
+          ...(second as JSONContent),
+          content: [inScope("Costs fell in 2025.", [okoro.id, adeyemi.id])],
+        },
+      ]);
+      const commentsWith = async (documentIds: string[]) => {
+        setMindScope(client.doc, scopeOf(documentIds));
+        await client.settled();
+        const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+        return textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
+      };
+
+      const inOkoro = await commentsWith([okoro.id]);
+      expect(inOkoro).toContain(one);
+      expect(inOkoro).toContain(changed);
+      const inBoth = await commentsWith([okoro.id, adeyemi.id]);
+      expect(inBoth).toContain(two);
+      expect(inBoth).toContain(changed);
+      expect(inBoth).not.toContain(one);
+    },
+  );
+
+  // protects=a Linked folder chosen as the Mind's scope is named by its own name in the Word comment, and a Folder deleted since still reads as deleted; fails_when=the Linked folder reads as a deleted Folder; no_claim=the card, which names it from the window's Folders.
+  test("a sentence checked in a Linked folder chosen as the scope names that folder, and one in a Folder since deleted says it was deleted", async () => {
+    const { core, mindId, client } = await setUp({
+      body: paragraph("Leave is 30 days.") + paragraph("Margins widened in 2026."),
+    });
+    const notes = join(await createTempDataFolder(), "Notes");
+    await writeSourceFile(notes, "Holiday.md", "# Holiday\n\nLeave is 25 days.\n");
+    await linkAndProcess(core, notes);
+    const linked = (await core.listFolders()).find((folder) => folder.name === "Notes");
+    if (!linked) throw new Error("The Linked folder has no Folder.");
+    const gone = await core.createLibraryGroup({ name: "Old harbours", description: "" });
+    const inFolder = (value: string, folderId: string) => {
+      const scope = { folderId: null, widened: false, chosen: folderScope(folderId) };
+      return checked(value, "unsupported", null, null, { scope });
+    };
+    editMind(client, ([first, second]) => [
+      { ...(first as JSONContent), content: [inFolder("Leave is 30 days.", linked.id)] },
+      { ...(second as JSONContent), content: [inFolder("Margins widened in 2026.", gone.id)] },
+    ]);
+    await core.deleteLibraryGroup(gone.id);
+    const commentsIn = async (folderId: string) => {
+      setMindScope(client.doc, folderScope(folderId));
+      await client.settled();
+      const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+      return textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
+    };
+
+    expect(await commentsIn(linked.id)).toContain("Unsupported: I didn’t find this in “Notes”.");
+    expect(await commentsIn(gone.id)).toContain(
+      "Unsupported: I didn’t find this in “Deleted Folder”.",
+    );
+  });
 
   test("with the option off the file is the one it was", async () => {
     const { core, bytes, mindId, client } = await setUp({

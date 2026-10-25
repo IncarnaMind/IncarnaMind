@@ -14,6 +14,7 @@ import {
 } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import * as Y from "yjs";
+import type { EmbeddingModelSource } from "../src/core/adapters";
 import {
   type AssistantPlace,
   CHOSEN_PROVIDER_FLOWS,
@@ -153,6 +154,15 @@ export interface LaunchOptions {
   /** How many scans are read at once (#1502), whatever the computer. A test build honours it. */
   scansAtOnce?: number;
   /**
+   * The search model's files at a stand-in, and IncarnaMind's copies at others (#1578): a
+   * `{ source, copies }` the core's model downloads take instead. Needs a test build.
+   */
+  modelDownloads?: {
+    source: EmbeddingModelSource;
+    copies: Record<string, { url: string }>;
+    speech?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+  };
+  /**
    * The scripted Task that asks for approval and writes files (src/main/scriptedTask.ts),
    * started with `startScriptedTask`. Needs a test build.
    */
@@ -175,6 +185,12 @@ export interface LaunchOptions {
    * its sandbox, where the line must not show. The sandbox is on in the last two on Linux too.
    */
   sandboxNotice?: "switch" | "environment" | "on";
+  /**
+   * The search, text recognition and speech engines are the real ones instead of the fake ones, on
+   * the models already in the data folder (a test build reaches no model host): for a recording
+   * of the app as the User runs it.
+   */
+  realEngines?: boolean;
   /**
    * The first Word export asks whether to mark the text IncarnaMind wrote. Without this, a launch
    * answers it "Mark it" if nobody has, so a test that exports to Word is not stopped by it;
@@ -245,12 +261,14 @@ export async function launchApp(
     transcriber,
     scans,
     scansAtOnce,
+    modelDownloads,
     web,
     lookLimit,
     scriptedTasks = false,
     contradictionWatchDelayMs,
     sandboxed = false,
     sandboxNotice,
+    realEngines = false,
     askToMarkAiText = false,
     askCitationPlace = false,
   }: LaunchOptions = {},
@@ -283,6 +301,7 @@ export async function launchApp(
   delete env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS;
   delete env.INCARNAMIND_TEST_SCANS;
   delete env.INCARNAMIND_TEST_SCANS_AT_ONCE;
+  delete env.INCARNAMIND_TEST_MODEL_DOWNLOADS;
   delete env.INCARNAMIND_TEST_WEB;
   delete env.INCARNAMIND_TEST_LOOK_LIMIT;
   delete env.INCARNAMIND_TEST_TASKS;
@@ -317,6 +336,7 @@ export async function launchApp(
   if (copilot) env.INCARNAMIND_TEST_COPILOT = copilot;
   if (scans) env.INCARNAMIND_TEST_SCANS = scans;
   if (scansAtOnce) env.INCARNAMIND_TEST_SCANS_AT_ONCE = String(scansAtOnce);
+  if (modelDownloads) env.INCARNAMIND_TEST_MODEL_DOWNLOADS = JSON.stringify(modelDownloads);
   if (web) env.INCARNAMIND_TEST_WEB = String(web);
   if (lookLimit) env.INCARNAMIND_TEST_LOOK_LIMIT = String(lookLimit);
   if (scriptedTasks) env.INCARNAMIND_TEST_TASKS = "1";
@@ -326,8 +346,10 @@ export async function launchApp(
   env.INCARNAMIND_DATA_DIR = dataDir;
   env.INCARNAMIND_TEST_HOOKS = "1";
   if (fakeChat) env.INCARNAMIND_FAKE_CHAT = "1";
-  env.INCARNAMIND_TEST_EMBEDDER = "fake";
-  env.INCARNAMIND_TEST_TRANSCRIBER = "fake";
+  if (!realEngines) {
+    env.INCARNAMIND_TEST_EMBEDDER = "fake";
+    env.INCARNAMIND_TEST_TRANSCRIBER = "fake";
+  }
   if (transcriber) env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS = JSON.stringify(transcriber);
 
   const app = await electron.launch({
@@ -619,6 +641,16 @@ export async function runFromPalette(window: Page, label: string): Promise<void>
   const item = window.getByTestId("palette-item").filter({ hasText: label }).first();
   await expect(item).toBeVisible();
   await item.click();
+}
+
+/** Runs a command from ⌘K by its id, once ⌘K lists it under its label, as the User types and clicks it. */
+export async function runCommand(window: Page, id: string, label: string): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(label);
+  const item = window.getByTestId("palette").locator(`[data-key="command:${id}"]`);
+  await expect(item).toContainText(label);
+  await pointAndClick(window, item);
 }
 
 /** A Folder's row in the sidebar's Folders view, with what is listed in it, by its name. */
@@ -1581,6 +1613,17 @@ export async function markSteps(window: Page, done: object): Promise<void> {
   }, done);
 }
 
+/** One step of the Welcome card. */
+export const welcomeStep = (window: Page, key: "citation" | "question" | "files") =>
+  window.locator(`[data-testid="first-open-step"][data-step="${key}"]`);
+
+/** Which steps of the first open the core holds as done. */
+export const gettingStarted = (window: Page) =>
+  window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await bridge.getSettings()).device.gettingStarted;
+  });
+
 /** The id of the Document listed in the sidebar under `name`. */
 export async function documentIdOf(window: Page, name: string): Promise<string> {
   const id = await window
@@ -1999,6 +2042,17 @@ export async function focusSettled(window: Page, editor: Locator): Promise<void>
   await expect(editor).toBeFocused();
   await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 20)));
 }
+
+/** The words of the sentences the User keeps as their own view, in the Mind's order. */
+export const keptWords = (editor: Locator) =>
+  editor.evaluate((dom) => {
+    const kept: string[] = [];
+    (dom as unknown as { editor: Editor }).editor.state.doc.descendants((node) => {
+      const marked = node.marks.some((each) => each.type.name === "claimCheck" && each.attrs.kept);
+      if (node.isText && marked) kept.push(node.text ?? "");
+    });
+    return kept;
+  });
 
 /** The page of the Mind the User is in, in the group they are in. */
 export const frontMind = (window: Page) =>
@@ -2629,4 +2683,66 @@ export async function fontsDrawing(window: Page, selector: string) {
   } finally {
     await session.detach();
   }
+}
+
+/**
+ * A local decision server like Ollama's `/v1/systemone` (no model): a Folder chosen by what the
+ * Document says (`folderFor`: Finance for an invoice, Reports otherwise), Invoice in the review
+ * band for an invoice, Report likely for a report, nothing else. `requests` counts what it was asked;
+ * `delayMs` holds each answer back, for a test that does something else while Organize works.
+ */
+export async function decisionServer(
+  folderFor: (text: string) => string = (text) =>
+    text.includes("invoice") ? "Finance" : "Reports",
+  { delayMs = 0 }: { delayMs?: number } = {},
+): Promise<{ server: Server; readonly requests: number }> {
+  let requests = 0;
+  const server = createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    const body = raw ? JSON.parse(raw) : {};
+    response.setHeader("content-type", "application/json");
+    if (request.url !== "/v1/systemone") {
+      response.end(JSON.stringify({ models: [] }));
+      return;
+    }
+    requests++;
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const text = JSON.stringify(body.state).toLowerCase();
+    const answers = Object.fromEntries(
+      Object.entries(
+        body.questions as Record<
+          string,
+          { type: string; instructions: string; criteria?: Record<string, string> }
+        >,
+      ).map(([id, question]) => {
+        if (question.type === "choice") {
+          const wanted = folderFor(text);
+          const choice =
+            Object.entries(question.criteria ?? {}).find(([, value]) =>
+              value.startsWith(wanted),
+            )?.[0] ?? "__unsorted__";
+          return [id, { type: "choice", choice }];
+        }
+        const noul = question.instructions.includes("“Invoice”")
+          ? text.includes("invoice")
+            ? 0.65
+            : 0.01
+          : question.instructions.includes("“Report”")
+            ? text.includes("report")
+              ? 0.95
+              : 0.01
+            : 0.01;
+        return [id, { type: "noul", noul }];
+      }),
+    );
+    response.end(JSON.stringify({ answers }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    server,
+    get requests() {
+      return requests;
+    },
+  };
 }

@@ -196,12 +196,17 @@ test("a Citation opens its Document as a preview in the group to the right, the 
   await openDocumentAt(window, { documentId: ids.list, quote: "Oke 1982" });
   const listTab = right.getByTestId("document-tab").filter({ hasText: "Reading list" });
   await expect(listTab).toHaveAttribute("data-preview", "true");
-  // The tabs keep the start of their names, so the strip scrolls: to its start, where the first tab is.
-  await right.getByTestId("tab-list").evaluate((list) => list.scrollTo({ left: 0 }));
-  const firstTab = await boxOf(right.getByRole("tab").first());
-  await dragTabTo(window, listTab, { x: firstTab.x + 12, y: firstTab.y + firstTab.height / 2 });
-  await expect(titlesIn(right).first()).toHaveText("Reading list");
-  await expect(right.getByTestId("document-tab").first()).not.toHaveAttribute("data-preview");
+  // The tabs keep the start of their names and the strip rests on whole tabs, so the first tabs
+  // are out of sight: it moves a place left, onto the tab before it.
+  const before = await boxOf(right.getByRole("tab").nth(2));
+  await dragTabTo(window, listTab, { x: before.x + 12, y: before.y + before.height / 2 });
+  await expect(titlesIn(right)).toHaveText([
+    "Field notes",
+    "Bowler 2010",
+    "Reading list",
+    "Urban heat",
+  ]);
+  await expect(listTab).not.toHaveAttribute("data-preview");
 
   // Selecting some of a preview's text keeps it too.
   await right
@@ -269,13 +274,16 @@ test("tabs split off and move by dragging with the mouse, by the tab's menu and 
   await expect(titlesIn(groupAt(window, 2))).toHaveText(["Gamma"]);
   await expect(groupAt(window, 2).getByRole("tab")).toBeFocused();
   await window.keyboard.press("ControlOrMeta+Alt+Backslash");
-  await expect(window.getByTestId("tab-notice")).toHaveText(
+  await expect(window.getByTestId("undo-message")).toHaveText(
     /Three groups fit side by side at most/,
   );
   await expect(groupsOf(window)).toHaveCount(3);
   await screenshot(window, "groups-three");
 
-  // With three groups, a group's edge moves rather than splits, and says so.
+  // With three groups, a group's edge moves rather than splits, and says so. Delta's strip rests
+  // on the tab it shows, so Delta is shown from the sidebar first.
+  await window.getByTestId("mind-list-item").filter({ hasText: "Delta" }).click();
+  await expect(groupAt(window, 1).getByRole("tab", { selected: true })).toHaveText("Delta");
   const firstBody = await boxOf(first.locator("[data-group-body]"));
   await dragTabTo(
     window,
@@ -304,7 +312,7 @@ test("tabs split off and move by dragging with the mouse, by the tab's menu and 
   await groupAt(window, 2).getByTestId("tab-close").click();
   await expect(groupsOf(window)).toHaveCount(2);
   await window.keyboard.press("ControlOrMeta+3");
-  await expect(window.getByTestId("tab-notice")).toHaveText(/There’s no group 3/);
+  await expect(window.getByTestId("undo-message")).toHaveText(/There’s no group 3/);
 });
 
 test("one divider runs the full height through the strips and the pages; it resizes the groups, by mouse and keys, and a double-click makes them equal", async () => {
@@ -379,7 +387,7 @@ test("a pinned tab stays at the left of its group; ⌘W and a middle click leave
 
   await gamma.click();
   await window.keyboard.press("ControlOrMeta+w");
-  await expect(window.getByTestId("tab-notice")).toHaveText(/“Gamma” is pinned/);
+  await expect(window.getByTestId("undo-message")).toHaveText(/“Gamma” is pinned/);
   await gamma.click({ button: "middle" });
   await expect(titlesIn(group)).toHaveText(["Gamma", "Alpha", "Beta"]);
 

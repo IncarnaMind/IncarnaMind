@@ -73,6 +73,8 @@ interface ReviewState {
   proposals: readonly PendingProposal[];
   /** Requests of edits applying (#880), drawn as the text they make. */
   applying: ReadonlySet<string>;
+  /** Every request seen so far: one that comes new and was asked for here is applying from its first frame. */
+  known: ReadonlySet<string>;
   applied: readonly PendingProposal[];
   /** The Proposal under the pointer, by id. */
   hovered: string | null;
@@ -613,15 +615,20 @@ function proposalMarks(state: EditorState): MarkType[] {
  * text Edit with AI is working on marked until its Proposals come back.
  * Words the User types into a Proposal are theirs: they carry no Proposal.
  */
-export const ProposalReview = Extension.create<{ translate: Translate }>({
+export const ProposalReview = Extension.create<{
+  translate: Translate;
+  /** Whether this window's own Question asked for the request's changes, so they apply as they arrive. */
+  asked(state: EditorState, request: string): boolean;
+}>({
   name: "proposalReview",
 
   addOptions() {
-    return { translate: (key, params) => translate("en", key, params) };
+    return { translate: (key, params) => translate("en", key, params), asked: () => false };
   },
 
   addProseMirrorPlugins() {
     const t: Translate = (key, params) => this.options.translate(key, params);
+    const { asked } = this.options;
     return [
       new Plugin<ReviewState>({
         key: proposalReviewKey,
@@ -631,6 +638,7 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
             return {
               proposals,
               applying: new Set(),
+              known: new Set(proposals.map((each) => each.request)),
               applied: [],
               hovered: null,
               target: null,
@@ -646,7 +654,7 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
           },
           apply(tr, value, oldState, state): ReviewState {
             const meta = tr.getMeta(proposalReviewKey) as Meta | undefined;
-            let { proposals, applying, applied, hovered, target } = value;
+            let { proposals, applying, applied, hovered, target, known } = value;
             const found =
               tr.docChanged &&
               (proposals.length + applied.length > 0 || fromDocument(tr) || bringsProposals(tr));
@@ -654,6 +662,18 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
             // Typing brings no Proposal, only moves or removes one: a Mind with none stays without.
             if (found || applying !== value.applying) {
               const all = found ? proposalsIn(state.doc) : [...proposals, ...applied];
+              // The window hears of a request's Answer a moment after its first change arrives:
+              // asking the Mind's own record keeps the bar from showing for those frames.
+              const fresh = found
+                ? [...new Set(all.map((each) => each.request))].filter(
+                    (request) => !known.has(request),
+                  )
+                : [];
+              if (fresh.length > 0) {
+                known = new Set([...known, ...fresh]);
+                const taken = fresh.filter((request) => asked(state, request));
+                if (taken.length > 0) applying = new Set([...applying, ...taken]);
+              }
               proposals = all.filter((each) => !applying.has(each.request));
               applied = all.filter((each) => applying.has(each.request));
             }
@@ -674,6 +694,7 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
             return {
               proposals,
               applying,
+              known,
               applied,
               hovered,
               target,
@@ -798,13 +819,15 @@ export function changeReason(
  * (`decideProposals`). The change reaches the core as the User's edits do.
  * `"all"` takes every Proposal the Mind holds when it runs, ones an Undo has
  * just brought back included, rather than a list read earlier, but those an
- * edit is applying and those of the requests `except` names.
+ * edit is applying and those of the requests `except` names. `alsoRecord`
+ * writes more into the Mind in the same step, with what was resolved.
  */
 export function resolveInEditor(
   editor: Editor,
   ids: ReadonlySet<string> | "all",
   outcome: "accept" | "reject",
   except: ReadonlySet<string> = new Set(),
+  alsoRecord?: (doc: Y.Doc, resolved: readonly ResolvedProposal[]) => void,
 ): ResolvedProposal[] {
   const binding = bindingOf(editor);
   if (!binding || (ids !== "all" && ids.size === 0)) return [];
@@ -824,6 +847,7 @@ export function resolveInEditor(
           : ids.has(proposal.id),
       outcome,
     );
+    alsoRecord?.(binding.doc, resolved);
   }, ySyncPluginKey);
   undo?.stopCapturing();
   return resolved;

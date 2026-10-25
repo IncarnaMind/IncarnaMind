@@ -15,6 +15,7 @@ import { holdStyleCatalogue } from "./citationStylePicker";
 import { useComingUp } from "./comingUp";
 import { menuEntries, menuKinds } from "./commands/menus";
 import { COMMAND_GROUPS, commands } from "./commands/registry";
+import { usePanelFault } from "./components/PanelBoundary";
 import { findable } from "./finding";
 import { currentTabOf } from "./layoutSlice";
 import { leavingCopies, motionRunning, setMotionSpeed } from "./motion";
@@ -39,6 +40,7 @@ export function installTestHooks(): void {
     },
     interceptSkillPicker,
     addPaths: (paths) => useAppStore.getState().addPaths(paths),
+    failPanel: (name) => usePanelFault.setState({ failing: name }),
     registry: () => ({
       groups: COMMAND_GROUPS,
       menus: Object.fromEntries(menuKinds().map((kind) => [kind, [...menuEntries(kind)]])),

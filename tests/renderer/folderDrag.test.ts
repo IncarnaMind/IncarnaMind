@@ -46,6 +46,28 @@ describe("the Folder and Tag targets", () => {
     expect(targets.folderTarget(null).accepts(dragged, at)).not.toBeNull();
   });
 
+  test("a Document waiting in a Suggested Folder can be moved into it, which accepts it", () => {
+    const dragged: Dragged = { kind: "objects", refs: [doc("a")] };
+    store.setState({
+      minds: [],
+      documents: [tagged("a", null)],
+      library: {
+        groups: [{ id: "f", name: "Finance" }],
+        assignments: [{ documentId: "a", groupId: "f", suggested: true }],
+      } as never,
+    });
+    expect(targets.folderTarget("f").accepts(dragged, at)).not.toBeNull();
+    expect(targets.folderTarget(null).accepts(dragged, at)).not.toBeNull();
+
+    store.setState({
+      library: {
+        groups: [{ id: "f", name: "Finance" }],
+        assignments: [{ documentId: "a", groupId: "f", suggested: false }],
+      } as never,
+    });
+    expect(targets.folderTarget("f").accepts(dragged, at)).toBeNull();
+  });
+
   test("a Tag takes Documents that don't have it yet, and nothing once they all do", () => {
     const dragged: Dragged = { kind: "objects", refs: [doc("a"), doc("b")] };
     store.setState({ documents: [tagged("a", "t"), tagged("b", null)] });

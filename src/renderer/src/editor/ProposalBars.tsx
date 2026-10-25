@@ -8,11 +8,11 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
-import { formatDate } from "../../../shared/dates";
 import { actOnAppliedEdit, restoreChange } from "../appliedEdits";
 import { PencilLineIcon, SparkLineIcon } from "../components/lineIcons";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
+import { useReviewPanes } from "../reviewPane";
 import { useAppStore } from "../store";
 import {
   appliedLineIn,
@@ -33,6 +33,7 @@ import {
   theirChange,
 } from "./proposalReview";
 import { redrawProposalRewrites, toggleProposalOriginal } from "./proposalRewrites";
+import { madeByLine, namesList } from "./theirChanges";
 
 const GAP_PX = 6;
 
@@ -51,9 +52,10 @@ const spokenText = (text: string) => {
  * Proposals waiting in the Mind (#93), reviewed in place:
  *
  * - at the top of the Mind, while any wait: "3 changes from the assistant ·
- *   Accept all · Reject all", which stays in view as the Mind scrolls, and a
- *   line of its own for each person's changes from a Word file (#108): "4
- *   changes from Dana Kim · Accept all · Reject all";
+ *   Accept all · Reject all", which stays in view as the Mind scrolls, and,
+ *   for other people's changes from a Word file (#108), "4 changes from Dana
+ *   Kim and Luis Ortega · Review", which opens the reviewing pane (#697) and
+ *   goes while it is open;
  * - over the change the pointer or the cursor is on, its own bar: "Change 1
  *   of 3 · Accept · Reject" (⌘↵, ⌘⌫), with who made someone's change and
  *   when, and when it would remove a Citation, that it does, or when a
@@ -150,68 +152,98 @@ function barRoom(editor: Editor): BarRoom {
 /** The second click of a double click: it does nothing more. */
 const repeated = (event: MouseEvent) => event.detail > 1;
 
-/** Changes waiting at the top of the Mind, in a line each: each person's from the file, and the assistant's. */
 interface Group {
-  /** Who made them, for someone's changes from a Word file (null when the file names no one); the assistant's: undefined. */
-  author?: string | null;
   ids: string[];
   stale: boolean;
 }
 
+interface Theirs {
+  count: number;
+  authors: (string | null)[];
+}
+
 function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
   const t = useT();
-  const groups = useEditorState({
+  const reviewing = useReviewPanes((state) => state.panes[mindId] !== undefined);
+  const { theirs, assistant } = useEditorState({
     editor,
-    selector: ({ editor: current }): Group[] => {
-      const theirs = new Map<string | null, Group>();
+    selector: ({ editor: current }): { theirs: Theirs; assistant: Group } => {
+      const theirs: Theirs = { count: 0, authors: [] };
       const assistant: Group = { ids: [], stale: false };
       const line = appliedLineIn(current.state);
       // An edit held back has its own line.
       const ownLine = line?.kind === "held" ? line.request : null;
       for (const each of pendingIn(current.state)) {
         if (each.request === ownLine) continue;
-        let group = assistant;
         if (each.theirs) {
           const author = theirChange(current, each)?.author ?? null;
-          group = theirs.get(author) ?? { author, ids: [], stale: false };
-          theirs.set(author, group);
+          theirs.count++;
+          if (!theirs.authors.includes(author)) theirs.authors.push(author);
+          continue;
         }
-        group.ids.push(each.id);
-        group.stale ||= each.outOfDate;
+        assistant.ids.push(each.id);
+        assistant.stale ||= each.outOfDate;
       }
-      return [...theirs.values(), ...(assistant.ids.length > 0 ? [assistant] : [])];
+      return { theirs, assistant };
     },
   });
-  if (groups.length === 0) return null;
+  const theirLine = theirs.count > 0 && !reviewing;
+  if (!theirLine && assistant.ids.length === 0) return null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a region of the Mind, not a page landmark.
     <div
       role="region"
-      aria-label={t(
-        groups.some((group) => group.author !== undefined)
-          ? "proposal.region.review"
-          : "proposal.region",
-      )}
+      aria-label={t(theirs.count > 0 ? "proposal.region.review" : "proposal.region")}
       data-testid="proposals-bar"
       className="proposals-bar"
     >
-      {groups.map((group) => (
-        <GroupLine
-          key={group.author === undefined ? "\u0000assistant" : (group.author ?? "\u0000unknown")}
-          group={group}
-          every={groups.length === 1}
-          editor={editor}
-          mindId={mindId}
-        />
-      ))}
+      {theirLine && <TheirChangesLine theirs={theirs} mindId={mindId} />}
+      {assistant.ids.length > 0 && (
+        <GroupLine group={assistant} every={theirs.count === 0} editor={editor} mindId={mindId} />
+      )}
+    </div>
+  );
+}
+
+function TheirChangesLine({ theirs, mindId }: { theirs: Theirs; mindId: string }) {
+  const t = useT();
+  const language = useLanguage();
+  const names = namesList(
+    theirs.authors.map((author) => author ?? t("proposal.unknownAuthor")),
+    language,
+  );
+  const said =
+    theirs.count === 1
+      ? t("review.line.one", { names })
+      : t("review.line", { count: theirs.count, names });
+  return (
+    <div className="proposals-bar-line" data-testid="their-changes-line">
+      <PencilLineIcon className="proposals-bar-icon" />
+      <span data-testid="their-changes-count" title={said} className="min-w-0 truncate">
+        {said}
+      </span>
+      <span aria-hidden="true" className="proposal-dot">
+        ·
+      </span>
+      <button
+        type="button"
+        data-testid="their-changes-review"
+        aria-label={t("review.title")}
+        onClick={(event) => {
+          if (!repeated(event.nativeEvent)) useReviewPanes.getState().open(mindId);
+        }}
+        className="proposal-action"
+      >
+        {t("review.open")}
+      </button>
     </div>
   );
 }
 
 /**
- * One line of the bar: how many changes, whose, and Accept all · Reject all
- * for them; for every change the Mind holds as it acts, when the line has
- * them all (`every`), those an Undo has just brought back too.
+ * The assistant's line: how many changes, and Accept all · Reject all for
+ * them; for every change the Mind holds as it acts, when no one else's wait
+ * (`every`), those an Undo has just brought back too.
  */
 function GroupLine({
   group,
@@ -225,37 +257,23 @@ function GroupLine({
   mindId: string;
 }) {
   const t = useT();
-  const theirs = group.author !== undefined;
-  const name = group.author ?? t("proposal.unknownAuthor");
-  const prefix = theirs ? "their-changes" : "proposals";
   const count = group.ids.length;
   const resolveAll = (outcome: "accept" | "reject") => {
     resolveProposalsIn(editor, mindId, every ? "all" : group.ids, outcome);
   };
   return (
-    <div className="proposals-bar-line" data-testid={`${prefix}-line`}>
-      {theirs ? (
-        <PencilLineIcon className="proposals-bar-icon" />
-      ) : (
-        <SparkLineIcon className="proposals-bar-icon" />
-      )}
-      <span data-testid={`${prefix}-count`} className="min-w-0 truncate">
-        {theirs
-          ? count === 1
-            ? t("proposal.theirs.count.one", { name })
-            : t("proposal.theirs.count", { count, name })
-          : count === 1
-            ? t("proposal.count.one")
-            : t("proposal.count", { count })}
+    <div className="proposals-bar-line" data-testid="proposals-line">
+      <SparkLineIcon className="proposals-bar-icon" />
+      <span data-testid="proposals-count" className="min-w-0 truncate">
+        {count === 1 ? t("proposal.count.one") : t("proposal.count", { count })}
       </span>
       <span aria-hidden="true" className="proposal-dot">
         ·
       </span>
       <button
         type="button"
-        data-testid={`${prefix}-accept-all`}
+        data-testid="proposals-accept-all"
         title={group.stale ? t("proposal.acceptAll.outOfDate") : undefined}
-        aria-label={theirs ? t("proposal.theirs.acceptAll", { name }) : undefined}
         onClick={(event) => {
           if (!repeated(event.nativeEvent)) resolveAll("accept");
         }}
@@ -268,8 +286,7 @@ function GroupLine({
       </span>
       <button
         type="button"
-        data-testid={`${prefix}-reject-all`}
-        aria-label={theirs ? t("proposal.theirs.rejectAll", { name }) : undefined}
+        data-testid="proposals-reject-all"
         onClick={(event) => {
           if (!repeated(event.nativeEvent)) resolveAll("reject");
         }}
@@ -285,15 +302,7 @@ function GroupLine({
 function useMadeBy(made: { author: string | null; date: string | null } | null): string | null {
   const t = useT();
   const language = useLanguage();
-  if (!made) return null;
-  const author = made.author ?? t("proposal.unknownAuthor");
-  const date = made.date ? new Date(made.date) : null;
-  if (!date || Number.isNaN(date.getTime())) return author;
-  // The day the file names, not the day it falls on here: Word writes its own clock's time.
-  return t("proposal.madeBy", {
-    author,
-    date: formatDate(date, language, { timeZone: "UTC" }),
-  });
+  return made ? madeByLine(made, t, language) : null;
 }
 
 interface Shown {

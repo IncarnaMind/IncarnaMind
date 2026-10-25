@@ -52,7 +52,7 @@ describe("Word", () => {
     const { units, headings } = await extractDocx(DOCX);
 
     expect(units.map((unit) => unit.label)).toEqual([
-      { path: [] },
+      { path: [], beforeHeading: true },
       { path: ["1 Introduction"] },
       { path: ["1 Introduction", "1.1 Scope"] },
       { path: ["2 Results"] },
@@ -193,6 +193,7 @@ describe("Word", () => {
 
     expect(units[0]?.label).toEqual({
       path: [],
+      beforeHeading: true,
       comments: [{ target: "comment0", author: "J. Moreau" }],
     });
     expect(
@@ -578,7 +579,7 @@ describe("Markdown", () => {
     const units = markdownUnits(source);
 
     expect(units.map((unit) => unit.label)).toEqual([
-      { path: [] },
+      { path: [], beforeHeading: true },
       { path: ["Methods"] },
       { path: ["Methods", "Calibration"] },
       { path: ["Results"] },
