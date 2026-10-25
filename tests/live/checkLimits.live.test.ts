@@ -52,7 +52,14 @@ function calculateCalls(): string {
   if (calls.length === 0) return "no calculate";
   const given = (input: unknown) =>
     ((input as { figures?: Record<string, unknown>[] } | null)?.figures ?? []).map(
-      ({ formula, stated, relation }) => ({ formula, stated, relation }),
+      ({ formula, stated, relation, inputs }) => ({
+        formula,
+        stated,
+        relation,
+        costs: (Array.isArray(inputs) ? (inputs as Record<string, unknown>[]) : [])
+          .filter((input) => input.bracketedCost === true)
+          .map((input) => input.name),
+      }),
     );
   return calls
     .map((part) =>

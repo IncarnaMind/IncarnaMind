@@ -728,6 +728,20 @@ const checkCalculationsSchema = {
     ...calculationsSchema.items,
     properties: {
       ...calculationsSchema.items.properties,
+      inputs: {
+        ...calculationsSchema.items.properties.inputs,
+        items: {
+          ...calculationsSchema.items.properties.inputs.items,
+          properties: {
+            ...calculationsSchema.items.properties.inputs.items.properties,
+            bracketedCost: {
+              type: "boolean",
+              description:
+                'True when the number is a cost or deduction printed in brackets ("Finance costs (41.2)", "财务费用 (41.2)"), so its size is meant. Never for a loss or another result in brackets.',
+            },
+          },
+        },
+      },
       stated: {
         type: "string",
         description: 'The number as the sentence to check writes it: "1.1x", "12%".',
