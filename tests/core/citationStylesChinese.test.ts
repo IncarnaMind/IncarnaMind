@@ -233,9 +233,12 @@ describe("a work cited twice in one cluster", () => {
 
 describe("an entry too thin to cite", () => {
   test("is written with the details it has, never a placeholder in Markdown or Word (#1910)", async () => {
-    const { core, mind, client, dictionary, blank, titled } = await setUp();
+    const { core, mind, client, dictionary, blank, titled, prospect } = await setUp();
     await core.updateSettings({ user: { language: "zh-CN" } });
     await core.setMindCitationStyle(mind.id, "gb-t-7714-2015-numeric");
+    // Its authors and date there, its title not: written with the Document's name, and not
+    // counted, since the Saved line says only what lacks authors or a date.
+    const untitled = await core.updateReference(prospect.id, { title: "" });
     writeMind(client, [
       paragraph(
         text("绿地使夏季夜间降温"),
@@ -244,6 +247,8 @@ describe("an entry too thin to cite", () => {
         citation(titled, null),
         text("，“思想”的内涵见词典"),
         citation(dictionary, page(1194)),
+        text("，另见"),
+        citation(untitled, null),
         text("。"),
       ),
     ]);
@@ -257,6 +262,7 @@ describe("an entry too thin to cite", () => {
     expect(markdown).toContain(
       "\\[3\\] 中国社会科学院语言研究所词典编辑室. 现代汉语词典\\[M\\]. 商务印书馆, 1996.\n",
     );
+    expect(markdown).toContain("prospect");
     expect(markdown).not.toContain("添加于");
     expect(markdown).not.toContain("信息待补充");
     expect([...exported.needsDetails].sort()).toEqual([blank.id, titled.id].sort());

@@ -29,6 +29,7 @@ import {
   CITATION_PLACES,
   type CitationAttributes,
   type CitationFormatRequest,
+  type Document,
   EXPORT_FORMATS,
   type ExportFormat,
   type ExportMindOptions,
@@ -89,7 +90,7 @@ export interface ExportsDependencies {
   /** Reads the Mind's Blocks (see `MindContent.read`). */
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   /** The live Documents: a Citation whose Document was deleted can't be checked. */
-  liveDocuments(): SourceDocument[];
+  liveDocuments(): readonly (SourceDocument & Pick<Document, "reference">)[];
   /** The text kept of Documents unlinked with their Linked folder: Citations quoting it still check. */
   keptCitationTexts(): KeptCitationText[];
   /** A Citation's quote as its Document's text reads it, or null when the Document or the quote isn't there. */
@@ -169,7 +170,7 @@ interface Prepared {
   language: Language;
   style: ResolvedCitationStyle;
   textLanguage: Language;
-  documents: readonly SourceDocument[];
+  documents: readonly (SourceDocument & Pick<Document, "reference">)[];
   bibliography: boolean;
   listed: boolean;
   font: string | null;
@@ -519,8 +520,9 @@ export function createExports(deps: ExportsDependencies) {
         throw new Error("This copy of IncarnaMind can't make PDFs.");
       }
       if (format === "source-pack") return sourcePack(prepared);
-      const thin = thinEntries((request) =>
-        deps.formatCitations({ ...request, language: prepared.textLanguage }),
+      const thin = thinEntries(
+        (request) => deps.formatCitations({ ...request, language: prepared.textLanguage }),
+        documents,
       );
       if (format === "docx" && prepared.word) {
         return exportIntoWord(prepared, prepared.word, thin);
@@ -662,16 +664,26 @@ interface ThinEntries {
   documents: ReadonlySet<string>;
 }
 
+/**
+ * The Documents the Saved line counts: those whose entry lacks authors or a date, so its words
+ * are what is missing. A record missing only its title is written with the Document's name
+ * instead, so it isn't counted (#1910).
+ */
 function thinEntries(
   format: (request: CitationFormatRequest) => Promise<FormattedCitations>,
+  documents: readonly (SourceDocument & Pick<Document, "reference">)[],
 ): ThinEntries {
-  const documents = new Set<string>();
+  const counted = new Set<string>();
+  const byId = new Map(documents.map((document) => [document.id, document]));
   return {
-    documents,
+    documents: counted,
     async format(request) {
       const formatted = await format(request);
       for (const entry of formatted.bibliography) {
-        if (entry.needsDetails && entry.documentId !== null) documents.add(entry.documentId);
+        if (!entry.needsDetails || entry.documentId === null) continue;
+        const fields = byId.get(entry.documentId)?.reference?.fields;
+        if (fields && fields.authors.length > 0 && fields.issued !== "") continue;
+        counted.add(entry.documentId);
       }
       return formatted;
     },
