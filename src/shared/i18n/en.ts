@@ -4156,6 +4156,8 @@ export const en = {
   "menu.copy": "Copy",
   // On Windows and Linux; macOS Chinese says 拷贝 and 显示 where they say 复制 and 查看.
   "menu.copy.other": "Copy",
+  "menu.clipboardFailed":
+    "IncarnaMind couldn’t put the selection on the clipboard. Your text is unchanged; try again.",
   "menu.paste": "Paste",
   "menu.selectAll": "Select All",
   "menu.view": "View",

@@ -1,6 +1,7 @@
 import { type Editor, Extension, wrappingInputRule } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode, type ResolvedPos } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { isInTable } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import {
@@ -21,7 +22,7 @@ export const NUMBERING_ATTRIBUTE = "numbering";
 export const START_LEVEL_ATTRIBUTE = "startLevel";
 export const CONTINUES_ATTRIBUTE = "continues";
 
-/** The gutter a level's text starts after, and the step it moves right by for a wide marker: in px. */
+/** In px: a level's gutter, a wide marker's step, and the room between a marker and its text. */
 const LEVEL_INDENT = 48;
 const WIDE_STEP = 12;
 const MARKER_GAP = 8;
@@ -65,10 +66,6 @@ const markerWidth = (text: string) => measure?.(text) ?? 0;
 const isList = (node: ProseMirrorNode) =>
   node.type.name === "orderedList" || node.type.name === "bulletList";
 
-/**
- * Each numbered item's marker, on its first paragraph, and the room its text needs when the marker
- * is wider than its gutter. A list that goes on takes up the numbers of the numbered list before it.
- */
 function markers(doc: ProseMirrorNode): DecorationSet {
   return DecorationSet.create(doc, markerDecorations(doc));
 }
@@ -128,35 +125,63 @@ function markerDecorations(doc: ProseMirrorNode): Decoration[] {
         }
       }
       item.forEach((child, childOffset) => {
-        if (isList(child)) draw(child, itemAt + 1 + childOffset, depth + 1, outer, [...numbers]);
+        const childAt = itemAt + 1 + childOffset;
+        if (child.type.name === "orderedList") {
+          draw(child, childAt, depth + 1, outer, [...numbers]);
+        } else if (child.type.name === "bulletList" || child.type.name === "taskList") {
+          drawNested(child, childAt);
+        }
+      });
+    });
+  };
+  // A numbered list under a bullet or a to-do starts a numbered list of its own (#1419).
+  const drawNested = (list: ProseMirrorNode, at: number) => {
+    list.forEach((item, itemOffset) => {
+      const itemAt = at + 1 + itemOffset;
+      item.forEach((child, childOffset) => {
+        const childAt = itemAt + 1 + childOffset;
+        if (child.type.name === "orderedList") {
+          draw(child, childAt, 0, { scheme: schemeOf(child), startLevel: startLevelOf(child) }, []);
+        } else if (child.type.name === "bulletList" || child.type.name === "taskList") {
+          drawNested(child, childAt);
+        }
       });
     });
   };
   doc.descendants((node, pos, parent) => {
-    if (!isList(node)) return true;
-    if (parent?.type.name === "listItem" || parent?.type.name === "taskItem") return false;
+    if (node.type.name === "bulletList" || node.type.name === "taskList") return true;
     if (node.type.name !== "orderedList") return true;
+    const nested = parent?.type.name === "listItem" || parent?.type.name === "taskItem";
+    if (nested && listParent(doc, pos) === "orderedList") return false;
     const continues = node.attrs[CONTINUES_ATTRIBUTE] === true && before !== null;
     const numbers: number[] = continues && before ? [...before] : [];
     const outer = { scheme: schemeOf(node), startLevel: startLevelOf(node) };
     if (continues && before) {
-      // It goes on from the list before: its first item takes the next number.
       const level = itemLevel(0, outer.startLevel);
       const shifted = { ...node.attrs, start: (before[level] ?? 0) + 1 };
       draw(node.type.create(shifted, node.content), pos, 0, outer, numbers);
     } else {
       draw(node, pos, 0, outer, numbers);
     }
-    before = numbers.length > 0 ? numbers : before;
+    if (!nested) before = numbers.length > 0 ? numbers : before;
     return false;
   });
   return decorations;
 }
 
+const listParent = (doc: ProseMirrorNode, pos: number): string | null => {
+  const $pos = doc.resolve(pos);
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const name = $pos.node(depth).type.name;
+    if (name === "orderedList" || name === "bulletList" || name === "taskList") return name;
+  }
+  return null;
+};
+
 /**
  * The first markers that begin a list when typed at the start of an empty line, as Word's
  * AutoFormat reads them, and the scheme and level each draws in. Chinese ones end in their own
- * punctuation, so they need no space. Any "N. " begins a default list at N, as before.
+ * punctuation, so they need no space.
  */
 const FIRST_MARKERS: Readonly<Record<string, { scheme: NumberingScheme; level: number }>> = {
   "a. ": { scheme: "default", level: 1 },
@@ -229,17 +254,19 @@ export const Numbering = Extension.create<object, NumberingStorage>({
   },
 
   addKeyboardShortcuts() {
-    // Enter on an empty item, or Backspace at its start, steps out one level: in a list that
-    // starts deeper, there is a level to step out to before the list ends.
+    // A list that starts deeper has a level to step out to before the list ends.
     const stepOut = () =>
       emptyItemAt(this.editor) && asOneStep(this.editor, () => raiseFromStartLevel(this.editor));
+    // In a table, Tab moves between cells.
+    const inTable = () => isInTable(this.editor.state);
     // Before the list item's own Tab and Shift-Tab, which can't nest a first item or lift an item
     // of a list that starts deeper, as ⌘] and ⌘[ (`changeIndent`) do too.
     return {
       Enter: stepOut,
       Backspace: stepOut,
-      Tab: () => asOneStep(this.editor, () => deepenList(this.editor)),
-      "Shift-Tab": () => asOneStep(this.editor, () => raiseFromStartLevel(this.editor)),
+      Tab: () => !inTable() && asOneStep(this.editor, () => deepenList(this.editor)),
+      "Shift-Tab": () =>
+        !inTable() && asOneStep(this.editor, () => raiseFromStartLevel(this.editor)),
     };
   },
 
@@ -255,7 +282,7 @@ export const Numbering = Extension.create<object, NumberingStorage>({
         getAttributes: (match) => {
           const typed = typedMarker(match[0]);
           storage.typed = { step: "marker", text: match[0] };
-          // In a list, a nested list takes its level and its scheme from the list it is in.
+          // In a list, a nested list takes its level and scheme from the list it is in.
           const { $from } = editor.state.selection;
           for (let depth = $from.depth; depth > 0; depth--) {
             if ($from.node(depth).type.name === "listItem") return { start: typed.start };
@@ -285,9 +312,8 @@ export const Numbering = Extension.create<object, NumberingStorage>({
     return [
       new Plugin<DecorationSet>({
         key: KEY,
-        // Tiptap dispatches the typed text, then the list. Each change before it reaches the Mind
-        // starts a step of its own: the list, and the typing after it. So ⌘Z straight after puts
-        // the typed marker back, and takes back no more.
+        // Tiptap dispatches the typed text, then the list: a step of its own between them lets ⌘Z
+        // straight after put the typed marker back, and take back no more.
         appendTransaction: (transactions, _before, state) => {
           const typed = storage.typed;
           if (!typed || !transactions.some((tr) => tr.docChanged)) return null;
@@ -299,7 +325,6 @@ export const Numbering = Extension.create<object, NumberingStorage>({
           }
           storage.typed = null;
           undoStackOf(editor)?.stopCapturing();
-          // ⌘Z straight after puts the marker back as text, with the caret after it, where it was.
           const undone = transactions.some(
             (tr) => tr.getMeta(ySyncPluginKey)?.isUndoRedoOperation === true,
           );
@@ -328,7 +353,6 @@ export const Numbering = Extension.create<object, NumberingStorage>({
               if (!$at || !inItem) return false;
               event.preventDefault();
               const { from, to } = view.state.selection;
-              // A right-click on the selection keeps it, for Cut and Copy; elsewhere it moves the caret.
               if ($at.pos < from || $at.pos > to) {
                 view.dispatch(view.state.tr.setSelection(TextSelection.near($at)));
               }
@@ -384,8 +408,7 @@ const setListAttributes = (editor: Editor, attributes: Record<string, unknown>):
 };
 
 /**
- * Numbers the list the caret is in, or the selected paragraphs, in `scheme`: the whole list takes
- * it, nested levels too. One Undo step.
+ * Numbers the whole list the caret is in, or the selected paragraphs, in `scheme`; one Undo step.
  */
 export function setNumbering(editor: Editor, scheme: NumberingScheme): boolean {
   return asOneStep(editor, () => {
@@ -401,6 +424,8 @@ export const restartNumbering = (editor: Editor): boolean =>
 export function canContinueNumbering(editor: Editor): boolean {
   const list = numberedListAt(editor);
   if (!list || list.node.attrs[CONTINUES_ATTRIBUTE] === true) return false;
+  // A numbered list under a bullet or a to-do starts fresh, so it has nothing above it to go on.
+  if (listParent(editor.state.doc, list.pos) !== null) return false;
   let earlier = false;
   editor.state.doc.nodesBetween(0, list.pos, (node, pos, parent) => {
     if (earlier || pos >= list.pos) return false;
@@ -433,7 +458,6 @@ export function numberingState(editor: Editor): {
   };
 }
 
-/** How deep the innermost bulleted or numbered list item around `$at` is; 0 outside one. */
 function listItemDepth($at: ResolvedPos): number {
   for (let depth = $at.depth; depth > 1; depth--) {
     if ($at.node(depth).type.name === "listItem" && isList($at.node(depth - 1))) return depth;
@@ -453,7 +477,6 @@ function emptyItemAt(editor: Editor): boolean {
   );
 }
 
-/** The outermost numbered list the caret is in, when the caret is in one of its own items, not a nested list's. */
 function outerItemAt(editor: Editor) {
   const { $from } = editor.state.selection;
   for (let depth = $from.depth; depth > 1; depth--) {
@@ -467,10 +490,31 @@ function outerItemAt(editor: Editor) {
   return null;
 }
 
+function selectedItems(list: ProseMirrorNode, listPos: number, from: number, to: number): number {
+  let count = 0;
+  let at = listPos + 1;
+  list.forEach((item) => {
+    if (at < to && at + item.nodeSize > from) count++;
+    at += item.nodeSize;
+  });
+  return count;
+}
+
+const itemsOf = (list: ProseMirrorNode): ProseMirrorNode[] => {
+  const items: ProseMirrorNode[] = [];
+  list.forEach((item) => {
+    items.push(item);
+  });
+  return items;
+};
+
+const sizeOf = (items: readonly ProseMirrorNode[], upto: number) =>
+  items.slice(0, upto).reduce((sum, item) => sum + item.nodeSize, 0);
+
 /**
- * Tab where an item can't nest (the first item of a list): only that item goes a level deeper, as
- * in Word, in a one-item list of its own that starts a level deeper. The items after it stay a
- * list where they were. False when the item nests as usual.
+ * Tab where an item can't nest (the first item of a list): only that item, or every selected item
+ * from it, goes a level deeper, as in Word, in a list of its own that starts a level deeper. The
+ * items after them stay a list where they were. False when the item nests as usual.
  */
 export function deepenList(editor: Editor): boolean {
   const at = outerItemAt(editor);
@@ -479,27 +523,34 @@ export function deepenList(editor: Editor): boolean {
   const level = startLevelOf(list);
   if (level >= DEEPEST_LEVEL) return true;
   const deeper = { ...list.attrs, [START_LEVEL_ATTRIBUTE]: level + 1 };
-  const { from } = editor.state.selection;
-  const first = list.firstChild;
-  if (!first) return false;
-  const rest = list.content.cut(first.nodeSize);
-  const tr =
-    rest.size === 0
-      ? editor.state.tr.setNodeMarkup(listPos, undefined, deeper)
-      : editor.state.tr.replaceWith(listPos, listPos + list.nodeSize, [
-          list.type.create({ ...deeper, start: 1, [CONTINUES_ATTRIBUTE]: null }, first),
-          list.type.create(list.attrs, rest),
-        ]);
-  tr.setSelection(TextSelection.create(tr.doc, from));
+  const { from, to } = editor.state.selection;
+  const count = Math.max(1, selectedItems(list, listPos, from, to));
+  if (count >= list.childCount) {
+    editor.view.dispatch(editor.state.tr.setNodeMarkup(listPos, undefined, deeper));
+    return true;
+  }
+  const items = itemsOf(list);
+  const tr = editor.state.tr.replaceWith(listPos, listPos + list.nodeSize, [
+    list.type.create(
+      { ...deeper, start: 1, [CONTINUES_ATTRIBUTE]: null },
+      Fragment.fromArray(items.slice(0, count)),
+    ),
+    list.type.create(list.attrs, Fragment.fromArray(items.slice(count))),
+  ]);
+  const movedEnd = listPos + sizeOf(items, count);
+  tr.setSelection(
+    TextSelection.between(tr.doc.resolve(from), tr.doc.resolve(Math.min(to, movedEnd)), 1),
+  );
   editor.view.dispatch(tr);
   return true;
 }
 
 /**
- * Shift-Tab on an item of a list that starts deeper than the first level: the item comes up one
- * level, as lifting an item out of a nested list does. The items before it stay where they were,
- * and those after it nest under it, so each keeps its level. False at the first level, where the
- * item leaves the list as usual. Lists at different levels are never joined.
+ * Shift-Tab on an item of a list that starts deeper than the first level: the item, or every
+ * selected item from it, comes up one level, as lifting an item out of a nested list does. The
+ * items before them stay where they were, and those after them nest under the last one, so each
+ * keeps its level. False at the first level, where the item leaves the list as usual. Lists at
+ * different levels are never joined.
  */
 export function raiseFromStartLevel(editor: Editor): boolean {
   const at = outerItemAt(editor);
@@ -507,25 +558,28 @@ export function raiseFromStartLevel(editor: Editor): boolean {
   const level = startLevelOf(at.list);
   if (level === 0) return false;
   const { list, listPos, index } = at;
-  const items: ProseMirrorNode[] = [];
-  list.forEach((item) => {
-    items.push(item);
-  });
+  const { from, to } = editor.state.selection;
+  const items = itemsOf(list);
+  const count = Math.min(items.length - index, Math.max(1, selectedItems(list, listPos, from, to)));
   const before = items.slice(0, index);
-  const item = items[index];
-  const after = items.slice(index + 1);
-  if (!item) return false;
+  const raised = items.slice(index, index + count);
+  const after = items.slice(index + count);
+  const last = raised.at(-1);
+  if (!last) return false;
   const nested = after.length
     ? [
         list.type.create(
           { ...list.attrs, start: 1, [START_LEVEL_ATTRIBUTE]: null, [CONTINUES_ATTRIBUTE]: null },
-          after,
+          Fragment.fromArray(after),
         ),
       ]
     : [];
-  const raised = item.type.create(item.attrs, item.content.append(Fragment.from(nested)));
+  const raisedItems = [
+    ...raised.slice(0, -1),
+    last.type.create(last.attrs, last.content.append(Fragment.from(nested))),
+  ];
   const lists = [
-    ...(before.length ? [list.type.create(list.attrs, before)] : []),
+    ...(before.length ? [list.type.create(list.attrs, Fragment.fromArray(before))] : []),
     list.type.create(
       {
         ...list.attrs,
@@ -533,32 +587,39 @@ export function raiseFromStartLevel(editor: Editor): boolean {
         [START_LEVEL_ATTRIBUTE]: level - 1 || null,
         [CONTINUES_ATTRIBUTE]: null,
       },
-      [raised],
+      Fragment.fromArray(raisedItems),
     ),
   ];
   // Up beside the list after it, at its level and in its scheme, it goes on in that list: a first
-  // item taken a level deeper (`deepenList`) and brought back is one list again.
+  // item taken a level deeper (`deepenList`) and brought back is one list again, still continuing.
   const next = editor.state.doc.resolve(listPos + list.nodeSize).nodeAfter;
   const joins =
     next?.type === list.type &&
     startLevelOf(next) === level - 1 &&
-    schemeOf(next) === schemeOf(list) &&
-    next.attrs[CONTINUES_ATTRIBUTE] !== true;
-  const last = lists.at(-1);
-  if (joins && next && last) {
-    lists[lists.length - 1] = list.type.create(last.attrs, last.content.append(next.content));
+    schemeOf(next) === schemeOf(list);
+  const joined = lists.at(-1);
+  if (joins && next && joined) {
+    const continues =
+      next.attrs[CONTINUES_ATTRIBUTE] === true || joined.attrs[CONTINUES_ATTRIBUTE] === true;
+    const attrs = continues ? { ...joined.attrs, [CONTINUES_ATTRIBUTE]: true } : joined.attrs;
+    lists[lists.length - 1] = list.type.create(attrs, joined.content.append(next.content));
   }
-  const offsetInItem =
-    editor.state.selection.from -
-    (listPos + 1 + items.slice(0, index).reduce((sum, each) => sum + each.nodeSize, 0));
+  const raisedAt = listPos + (before.length ? (lists[0]?.nodeSize ?? 0) : 0);
+  const oldItemStart = (offset: number) => listPos + 1 + sizeOf(items, offset);
+  const newItemStart = (offset: number) => raisedAt + 1 + sizeOf(raised, offset);
+  const newFrom = newItemStart(0) + (from - oldItemStart(index));
+  const newTo = newItemStart(count - 1) + (to - oldItemStart(index + count - 1));
   const tr = editor.state.tr.replaceWith(
     listPos,
     listPos + list.nodeSize + (joins && next ? next.nodeSize : 0),
     lists,
   );
-  const raisedAt = listPos + (before.length ? (lists[0]?.nodeSize ?? 0) : 0) + 1;
+  const size = tr.doc.content.size;
   tr.setSelection(
-    TextSelection.near(tr.doc.resolve(Math.min(raisedAt + offsetInItem, tr.doc.content.size))),
+    TextSelection.between(
+      tr.doc.resolve(Math.min(newFrom, size)),
+      tr.doc.resolve(Math.min(newTo, size)),
+    ),
   );
   editor.view.dispatch(tr.scrollIntoView());
   return true;

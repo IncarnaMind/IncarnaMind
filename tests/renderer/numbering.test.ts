@@ -1,5 +1,7 @@
 import type { Editor, JSONContent } from "@tiptap/core";
+import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
+import { parseHTML } from "linkedom";
 import { describe, expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { changeIndent } from "../../src/renderer/src/editor/formatCommands";
@@ -46,7 +48,6 @@ function caretAt(editor: Editor, at: number) {
   editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, at)));
 }
 
-/** Puts the caret at the start of the text `words`, or at its end. */
 function caretIn(editor: Editor, words: string, { end = false } = {}) {
   let at = -1;
   editor.state.doc.descendants((node, pos) => {
@@ -59,13 +60,30 @@ function caretIn(editor: Editor, words: string, { end = false } = {}) {
   caretAt(editor, at);
 }
 
-/** A new empty paragraph at the end, with the caret in it. */
+function selectFromTo(editor: Editor, fromWords: string, toWords: string) {
+  let from = -1;
+  let to = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (!node.isText) return true;
+    const text = node.text ?? "";
+    if (from < 0 && text.includes(fromWords)) from = pos + text.indexOf(fromWords);
+    if (to < 0 && text.includes(toWords)) to = pos + text.indexOf(toWords) + toWords.length;
+    return true;
+  });
+  if (from < 0 || to < 0) throw new Error(`No "${fromWords}" or "${toWords}".`);
+  editor.view.dispatch(
+    editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to)),
+  );
+}
+
+const selectedText = (editor: Editor) =>
+  editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, " ");
+
 function newLineAtEnd(editor: Editor) {
   editor.commands.insertContentAt(editor.state.doc.content.size, paragraph(""));
   caretAt(editor, editor.state.doc.content.size - 1);
 }
 
-/** The top-level numbered lists: their scheme, the level they start at, and how many items. */
 const lists = (editor: Editor) => {
   const found: Record<string, unknown>[] = [];
   editor.state.doc.forEach((node) => {
@@ -134,6 +152,51 @@ describe("Numbering schemes", () => {
     expect(canContinueNumbering(editor)).toBe(false);
     restartNumbering(editor);
     expect(markers(editor)).toEqual(["1.", "2.", "1.", "2."]);
+  });
+
+  // protects=a start a pasted or stored list holds, however large, draws at once as its number where the scheme can't write it; fails_when=the conversion loops or its work grows with the number; no_claim=the marker a scheme draws at a value it can still write.
+  test("a list's extreme start draws at once", () => {
+    const stored = editorWith([
+      ordered({ numbering: "clauses", startLevel: 1, start: 1e20 }, item("Huge")),
+    ]);
+    expect(markers(stored)).toEqual(["(100000000000000000000)"]);
+
+    const roman = editorWith([ordered({ startLevel: 2, start: 1e20 }, item("Huge"))]);
+    expect(markers(roman)).toEqual(["100000000000000000000."]);
+
+    const { document } = parseHTML(
+      '<!doctype html><html><body><ol start="100000000000000000000" data-numbering="clauses" data-start-level="1"><li><p>Pasted</p></li></ol></body></html>',
+    );
+    const pasted = ProseMirrorDOMParser.fromSchema(headlessEditor().schema).parse(
+      document.body as unknown as Node,
+    );
+    expect(drawnMarkers(pasted).map((each) => each.marker)).toEqual(["(100000000000000000000)"]);
+  });
+
+  // protects=a numbered list under a bullet or a to-do draws with its own scheme and level, and a scheme applies to the whole list; fails_when=it draws no marker or takes the list above's scheme; no_claim=Continue numbering, which such a list doesn't offer.
+  test("a numbered list under a bullet or a to-do draws its own scheme", () => {
+    const editor = editorWith([
+      {
+        type: "bulletList",
+        content: [
+          {
+            type: "listItem",
+            content: [
+              paragraph("Bullet"),
+              ordered({ numbering: "chinese" }, item("A", ordered({}, item("B")))),
+            ],
+          },
+        ],
+      },
+      {
+        type: "taskList",
+        content: [{ type: "taskItem", content: [paragraph("To-do"), ordered({}, item("C"))] }],
+      },
+    ]);
+    expect(markers(editor)).toEqual(["一、", "（一）", "1."]);
+    caretIn(editor, "A");
+    setNumbering(editor, "clauses");
+    expect(markers(editor)).toEqual(["(a)", "(i)", "1."]);
   });
 });
 
@@ -252,6 +315,85 @@ describe("A list that starts deeper", () => {
     changeIndent(flat, -1);
     expect(markers(flat)).toEqual(["1."]);
     expect(flat.state.doc.lastChild?.type.name).toBe("paragraph");
+  });
+
+  // protects=Tab and Shift-Tab change the level of every selected item, from the first, and keep the selection on them; fails_when=only the item the selection begins in moves, or the selection becomes a caret; no_claim=Undo, which the e2e covers.
+  test("Tab and Shift-Tab change the level of every selected item", () => {
+    const editor = editorWith([
+      ordered({ numbering: "clauses", startLevel: 1 }, item("A"), item("B"), item("C")),
+    ]);
+    selectFromTo(editor, "A", "B");
+    changeIndent(editor, 1);
+    expect(lists(editor)).toEqual([
+      { numbering: "clauses", startLevel: 2, items: 2 },
+      { numbering: "clauses", startLevel: 1, items: 1 },
+    ]);
+    expect(markers(editor)).toEqual(["(A)", "(B)", "(i)"]);
+    expect(selectedText(editor)).toBe("A B");
+
+    changeIndent(editor, -1);
+    expect(lists(editor)).toEqual([{ numbering: "clauses", startLevel: 1, items: 3 }]);
+    expect(markers(editor)).toEqual(["(i)", "(ii)", "(iii)"]);
+    expect(selectedText(editor)).toBe("A B");
+  });
+
+  // protects=Tab then Shift-Tab on the first item of a list that continues the list above gives one list again, still continuing, with the numbers it had; fails_when=the raise drops the continuation, leaves two lists, or restarts the numbering; no_claim=the same round trip on a list that doesn't continue, which the test above covers.
+  test("Tab then Shift-Tab on a continued list keeps it continuing", () => {
+    const editor = editorWith([
+      ordered({ numbering: "clauses", startLevel: 1 }, item("P"), item("Q")),
+      paragraph("Between"),
+      ordered({ numbering: "clauses", startLevel: 1, continues: true }, item("A"), item("B")),
+    ]);
+    expect(markers(editor)).toEqual(["(i)", "(ii)", "(iii)", "(iv)"]);
+    caretIn(editor, "A");
+    changeIndent(editor, 1);
+    changeIndent(editor, -1);
+    expect(lists(editor)).toEqual([
+      { numbering: "clauses", startLevel: 1, items: 2 },
+      { numbering: "clauses", startLevel: 1, items: 2 },
+    ]);
+    const continued = editor.state.doc.child(2);
+    expect(continued.attrs.continues).toBe(true);
+    expect(markers(editor)).toEqual(["(i)", "(ii)", "(iii)", "(iv)"]);
+  });
+
+  // protects=Tab in a table moves between cells, from a list item in one too (DESIGN.md › Lists › Keys); fails_when=the item indents instead; no_claim=Shift-Tab, which the same guard covers.
+  test("Tab in a table moves between cells, not the item's level", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [
+              { type: "tableCell", content: [ordered({}, item("Cell one"), item("Cell two"))] },
+              { type: "tableCell", content: [paragraph("Second cell")] },
+            ],
+          },
+        ],
+      },
+    ]);
+    caretIn(editor, "Cell one");
+    const keydown = {
+      key: "Tab",
+      keyCode: 9,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+    } as unknown as KeyboardEvent;
+    const handled = editor.state.plugins.some((plugin) =>
+      plugin.props.handleKeyDown?.call(plugin, editor.view, keydown),
+    );
+    expect(handled).toBe(true);
+    expect(editor.state.selection.$from.parent.textContent).toBe("Second cell");
+    const found: Record<string, unknown>[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "orderedList") found.push(node.attrs);
+      return true;
+    });
+    expect(found).toHaveLength(1);
+    expect(found[0]?.startLevel ?? 0).toBe(0);
   });
 
   // protects=lists side by side at different levels stay two lists, whatever is done beside them, until an edit (Backspace, Delete) joins them; fails_when=they join by themselves; no_claim=paste, which keeps the list pasted into.

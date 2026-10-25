@@ -18,6 +18,8 @@ export function useMenuKeys(onClose: (refocus: boolean) => void, submenu: boolea
       onClose(true);
       return;
     }
+    // A submenu below this menu handles its keys first; this menu must not move again.
+    if (event.defaultPrevented) return;
     const all = itemsOf(menu.current);
     const active = document.activeElement;
     const index = active instanceof HTMLElement ? all.indexOf(active) : -1;
@@ -44,3 +46,18 @@ export function useMenuKeys(onClose: (refocus: boolean) => void, submenu: boolea
 
 /** Keeps the text selected while a menu item is pressed: the menu acts on it. */
 export const keepSelection = (event: { preventDefault(): void }) => event.preventDefault();
+
+/** → on a row that opens a submenu opens it there, as a click would; false for other keys and rows. */
+export function submenuOpensOnRight(event: KeyboardEvent<HTMLDivElement>): boolean {
+  const active = document.activeElement;
+  if (
+    event.key !== "ArrowRight" ||
+    !(active instanceof HTMLElement) ||
+    !active.getAttribute("aria-haspopup")
+  ) {
+    return false;
+  }
+  event.preventDefault();
+  active.click();
+  return true;
+}

@@ -26,6 +26,8 @@ import {
  */
 const UNDO = "ControlOrMeta+z";
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+// macOS Chinese says 拷贝 where Windows and Linux say 复制 (docs/agents/zh-CN.md, rule 14).
+const COPY_ZH = process.platform === "darwin" ? /^拷贝/ : /^复制/;
 
 const SETTINGS = [
   { language: "en", width: 1600, items: ["Rent", "Deposit", "Repairs", "Insurance"] },
@@ -67,7 +69,6 @@ async function screenshot(window: Page, name: string): Promise<void> {
 const items = (editor: Locator) => editor.locator("ol li");
 const itemText = (item: Locator) => item.locator(":scope > p").first();
 
-/** An item's marker as drawn, and where it and the item's text start and end, from the page's left. */
 const drawn = (item: Locator) =>
   item.evaluate((li) => {
     const text = li.querySelector(":scope > p") as HTMLElement;
@@ -85,7 +86,6 @@ const drawn = (item: Locator) =>
 const markers = async (editor: Locator) =>
   Promise.all((await items(editor).all()).map(async (item) => (await drawn(item)).marker));
 
-/** The text edge of the Mind: its first paragraph's left. */
 const edge = (editor: Locator) =>
   editor
     .locator(":scope > p")
@@ -95,7 +95,6 @@ const edge = (editor: Locator) =>
 const near = (value: number, expected: number, what: string) =>
   expect(Math.abs(value - expected), `${what}: ${value} is not ${expected}`).toBeLessThanOrEqual(1);
 
-/** Right-clicks on `words`, as a person does on a selection, keeping it. */
 async function rightClickWords(window: Page, line: Locator, words: string): Promise<void> {
   const box = await wordsBox(line, words);
   const x = (box.left + box.right) / 2;
@@ -103,7 +102,6 @@ async function rightClickWords(window: Page, line: Locator, words: string): Prom
   await window.mouse.click(x, box.y, { button: "right" });
 }
 
-/** Opens Aa › Numbering on a selection of `words`. */
 async function aaNumbering(window: Page, line: Locator, words: string): Promise<Locator> {
   // A menu closed over a selection stays closed until the selection changes: start from elsewhere.
   await pointAndClick(window, window.getByTestId("mind-editor").locator(":scope > p").first());
@@ -120,7 +118,6 @@ async function aaNumbering(window: Page, line: Locator, words: string): Promise<
   return menu;
 }
 
-/** Types a list four levels deep, one item a level, begun with "1. ". */
 async function fourLevels(window: Page, words: readonly string[]): Promise<void> {
   await window.keyboard.type("1. ");
   for (const [index, word] of words.entries()) {
@@ -184,7 +181,6 @@ for (const { language, width, items: words } of SETTINGS) {
     await window.keyboard.press(UNDO);
     await expect(items(editor)).toHaveCount(0);
     await expect(editor.locator(":scope > p").last()).toHaveText("(i) ");
-    // Typed on as text, after it, it stays text.
     await window.keyboard.type(words[0]);
     await expect(items(editor)).toHaveCount(0);
     await expect(editor.locator(":scope > p").last()).toHaveText(`(i) ${words[0]}`);
@@ -206,8 +202,7 @@ for (const { language, width, items: words } of SETTINGS) {
     await window.keyboard.press("Shift+Tab");
     await expect.poll(() => markers(editor)).toEqual([language === "en" ? "(a)" : "一、", second]);
 
-    // On the first item, with nothing to go under, Tab takes only that item a level deeper, as in
-    // Word; Shift-Tab brings it back into the one list.
+    // On the first item there is nothing to go under: as in Word, only it goes deeper.
     await clickEndOf(window, itemText(items(editor).first()));
     await expect
       .poll(() =>
@@ -256,11 +251,24 @@ for (const { language, width, items: words } of SETTINGS) {
     await expect(menu.getByRole("menuitem")).toHaveText(
       language === "en"
         ? [/^Cut/, /^Copy/, /^Paste/, "Numbering", "Restart at 1", "Continue numbering"]
-        : [/^剪切/, /^拷贝/, /^粘贴/, "编号", "重新从 1 开始", "继续编号"],
+        : [/^剪切/, COPY_ZH, /^粘贴/, "编号", "重新从 1 开始", "继续编号"],
     );
     await expect(menu.getByTestId("list-item-cut")).toHaveAttribute("aria-disabled", "true");
     await expect(menu.getByTestId("numbering-restart")).toHaveAttribute("aria-disabled", "true");
     await screenshot(window, `numbering-right-click-${language}-${width}`);
+
+    // → opens the submenu; ↓ moves inside it, not the menu behind.
+    await window.getByTestId("list-item-numbering").focus();
+    await window.keyboard.press("ArrowRight");
+    const submenu = window.getByTestId("numbering-menu");
+    await expect(submenu).toBeVisible();
+    await expect(submenu.getByTestId("numbering-default")).toBeFocused();
+    await window.keyboard.press("ArrowDown");
+    await expect(submenu.getByTestId("numbering-outline")).toBeFocused();
+    await window.keyboard.press("ArrowLeft");
+    await expect(submenu).toBeHidden();
+    await expect(window.getByTestId("list-item-numbering")).toBeFocused();
+
     await pointAndClick(window, menu.getByTestId("numbering-continue"));
     await expect(menu).toBeHidden();
     await expect.poll(() => markers(editor)).toEqual(["1.", "2.", "3.", "4."]);
@@ -339,6 +347,24 @@ for (const { language, width, items: words } of SETTINGS) {
     await window.keyboard.type("(a)");
     await expect(window.getByTestId("find-count")).toHaveClass(/find-count--none/);
     await expect(editor.locator(".find-match")).toHaveCount(0);
+    await window.keyboard.press("Escape");
+
+    // A Copy the system refuses says so, in plain words, where the menu was.
+    await slideSelect(window, itemText(items(editor).nth(3)), words[3]);
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("selection-menu")).toBeHidden();
+    await rightClickWords(window, itemText(items(editor).nth(3)), words[3]);
+    await expect(menu).toBeVisible();
+    await window.evaluate(() => {
+      document.execCommand = () => false;
+    });
+    await pointAndClick(window, menu.getByTestId("list-item-copy"));
+    await expect(menu).toBeHidden();
+    await expect(window.getByTestId("error-notice-message")).toContainText(
+      language === "en"
+        ? "couldn’t put the selection on the clipboard"
+        : "未能把所选内容放到剪贴板",
+    );
     await app.close();
   });
 
@@ -364,3 +390,24 @@ for (const { language, width, items: words } of SETTINGS) {
     await app.close();
   });
 }
+
+test("a Chinese marker written through an input method begins its list when the composition ends, and ⌘Z puts it back (zh-CN, 900 px)", async () => {
+  const { app, window, editor } = await openMind("zh-CN", 900);
+  const session = await window.context().newCDPSession(window);
+  try {
+    await session.send("Input.imeSetComposition", {
+      text: "yi",
+      selectionStart: 2,
+      selectionEnd: 2,
+    });
+    await session.send("Input.insertText", { text: "一、" });
+  } finally {
+    await session.detach();
+  }
+  await expect(items(editor)).toHaveCount(1);
+  expect(await markers(editor)).toEqual(["一、"]);
+  await window.keyboard.press(UNDO);
+  await expect(items(editor)).toHaveCount(0);
+  await expect(editor.locator(":scope > p").last()).toHaveText("一、");
+  await app.close();
+});

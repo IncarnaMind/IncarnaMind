@@ -15,10 +15,9 @@ vi.mock("../../src/core/api", async (importOriginal) => ({
   CONTENT_SCHEMA_VERSION: 26,
 }));
 
-/** The content schema version numbered lists came with: what a Mind written since records. */
+/** The content schema version numbered lists came with. */
 const NUMBERED = 27;
 
-/** The attributes the editor puts on an ordered list (#1419), under the names the core keeps. */
 const NUMBERING = "numbering";
 const START_LEVEL = "startLevel";
 const CONTINUES = "continues";

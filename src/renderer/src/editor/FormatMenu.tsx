@@ -31,7 +31,7 @@ import {
   toggleSpaceAfter,
   toggleSpaceBefore,
 } from "./formatCommands";
-import { keepSelection, useMenuKeys } from "./menuKeys";
+import { keepSelection, submenuOpensOnRight, useMenuKeys } from "./menuKeys";
 import { NumberingChoices, SCHEME_NAMES, schemePreview } from "./NumberingMenu";
 import { numberingState } from "./numbering";
 import { Popover } from "./Popover";
@@ -174,16 +174,7 @@ export function FormatMenu({
         if (open.which === null) onClose(how === "escape");
       }}
       onKeyDown={(event) => {
-        const active = document.activeElement;
-        if (
-          event.key === "ArrowRight" &&
-          active instanceof HTMLElement &&
-          active.getAttribute("aria-haspopup")
-        ) {
-          event.preventDefault();
-          active.click();
-          return;
-        }
+        if (submenuOpensOnRight(event)) return;
         onKeyDown(event);
       }}
       className="editor-menu format-menu"

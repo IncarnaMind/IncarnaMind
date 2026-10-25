@@ -1,4 +1,5 @@
 import type { VirtualElement } from "@floating-ui/dom";
+import { isMacOS } from "@tiptap/core";
 import { type Editor, useEditorState } from "@tiptap/react";
 import { useEffect, useRef, useState } from "react";
 import type { MessageKey } from "../../../shared/i18n";
@@ -12,8 +13,9 @@ import { ChevronIcon } from "../components/icons";
 import { CheckLineIcon } from "../components/lineIcons";
 import { files } from "../core";
 import { useT } from "../i18n";
+import { useNotices } from "../notices";
 import { caretAnchor } from "./LinkField";
-import { keepSelection, useMenuKeys } from "./menuKeys";
+import { keepSelection, submenuOpensOnRight, useMenuKeys } from "./menuKeys";
 import {
   continueNumbering,
   NUMBERING_OPEN,
@@ -39,11 +41,6 @@ export const schemePreview = (scheme: NumberingScheme) =>
 const useNumbering = (editor: Editor) =>
   useEditorState({ editor, selector: ({ editor: current }) => numberingState(current) });
 
-/**
- * Numbering › (DESIGN.md › Lists › Numbering styles): the four schemes, each drawn as its first
- * three levels with a tick on the list's, then, `withOrder`, Restart at 1 and Continue numbering.
- * A choice applies to the whole list as one Undo step, and closes the menu (`onChosen`).
- */
 export function NumberingChoices({
   editor,
   anchor,
@@ -158,7 +155,6 @@ function OrderItems({
   ));
 }
 
-/** The paragraph the caret is in, for a menu opened from ⌘K to sit under. */
 function paragraphAnchor(editor: Editor): Element | VirtualElement {
   const { $from } = editor.state.selection;
   const dom = $from.depth > 0 ? editor.view.nodeDOM($from.before()) : null;
@@ -169,11 +165,6 @@ type Open =
   | { kind: "item"; anchor: VirtualElement; submenu: HTMLElement | null; focus: boolean }
   | { kind: "numbering"; anchor: Element | VirtualElement };
 
-/**
- * A list item's right-click menu, as Word has it: Cut, Copy and Paste, then Numbering ›, Restart
- * at 1 and Continue numbering. Also the Numbering menu ⌘K opens ("Numbering…") under the
- * paragraph the caret is in. The right-click is `Numbering`'s.
- */
 export function ListMenu({ editor }: { editor: Editor }) {
   const t = useT();
   const [open, setOpen] = useState<Open | null>(null);
@@ -224,16 +215,19 @@ export function ListMenu({ editor }: { editor: Editor }) {
     );
   }
 
+  const copyLabel = isMacOS() ? "menu.copy" : "menu.copy.other";
   const clipboard = (command: "cut" | "copy" | "paste") => {
     // Focused at once, not a frame later as Tiptap's focus does: each acts where the focus is.
     editor.view.focus();
     if (command === "paste") files.paste();
-    else document.execCommand(command);
+    else if (!document.execCommand(command)) {
+      useNotices.getState().showError(new Error(t("menu.clipboardFailed")));
+    }
     setOpen(null);
   };
   const edits = [
     { id: "cut", label: t("menu.cut"), keys: "CmdOrCtrl+X", on: selected },
-    { id: "copy", label: t("menu.copy"), keys: "CmdOrCtrl+C", on: selected },
+    { id: "copy", label: t(copyLabel), keys: "CmdOrCtrl+C", on: selected },
     { id: "paste", label: t("menu.paste"), keys: "CmdOrCtrl+V", on: true },
   ] as const;
   const toggleSchemes = (button: HTMLElement, focus: boolean) =>
@@ -252,16 +246,7 @@ export function ListMenu({ editor }: { editor: Editor }) {
         if (!open.submenu) close(how === "escape");
       }}
       onKeyDown={(event) => {
-        const active = document.activeElement;
-        if (
-          event.key === "ArrowRight" &&
-          active instanceof HTMLElement &&
-          active.getAttribute("aria-haspopup")
-        ) {
-          event.preventDefault();
-          toggleSchemes(active, true);
-          return;
-        }
+        if (submenuOpensOnRight(event)) return;
         onKeyDown(event);
       }}
       className="editor-menu list-item-menu"

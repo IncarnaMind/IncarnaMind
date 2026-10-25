@@ -3969,6 +3969,7 @@ export const zhCN = {
   "menu.cut": "剪切",
   "menu.copy": "拷贝",
   "menu.copy.other": "复制",
+  "menu.clipboardFailed": "IncarnaMind 未能把所选内容放到剪贴板。文字没有改动，请重试。",
   "menu.paste": "粘贴",
   "menu.selectAll": "全选",
   "menu.view": "显示",

@@ -23,13 +23,19 @@ export const isNumberingScheme = (value: unknown): value is NumberingScheme =>
 export const itemLevel = (depth: number, startLevel: number) =>
   Math.min(DEEPEST_LEVEL, Math.max(0, depth) + Math.max(0, startLevel));
 
+// A list's `start` comes from a pasted or stored file, so it can be any number: each conversion
+// stays bounded and draws a number it can't write in the scheme as that number (#1419).
 const letters = (n: number) => {
+  if (!Number.isInteger(n) || n < 1) return String(n);
   let text = "";
   for (let rest = n; rest > 0; rest = Math.floor((rest - 1) / 26)) {
     text = String.fromCharCode(97 + ((rest - 1) % 26)) + text;
   }
   return text;
 };
+
+/** Past this, Roman numerals are drawn as their number, which also bounds the subtraction. */
+const ROMAN_LIMIT = 3999;
 
 const ROMAN: readonly [number, string][] = [
   [1000, "m"],
@@ -47,6 +53,7 @@ const ROMAN: readonly [number, string][] = [
   [1, "i"],
 ];
 const roman = (n: number) => {
+  if (!Number.isInteger(n) || n < 1 || n > ROMAN_LIMIT) return String(n);
   let text = "";
   let rest = n;
   for (const [value, digits] of ROMAN) {
