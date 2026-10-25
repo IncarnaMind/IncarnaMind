@@ -1072,8 +1072,11 @@
    * The one line above a Mind, in the page's own top margin: the assistant's "Writing…" and the
    * applied edit's line draw here, so the text under them never moves as they come and go.
    */
-  .mind-editor-frame:not(.mind-editor-frame--guide) .mind-editor:not(.assistant-answer-text) {
+  .mind-editor-frame .mind-editor:not(.assistant-answer-text) {
     padding-top: var(--mind-band);
+  }
+  /* The first-run guide's steps follow its line at once: it keeps no writing room of its own. */
+  .mind-editor-frame:not(.mind-editor-frame--guide) .mind-editor:not(.assistant-answer-text) {
     min-height: calc(10rem + var(--mind-band));
   }
   /*
@@ -3433,11 +3436,11 @@
     flex-wrap: nowrap;
     overflow: hidden;
 
-    & > :not([data-testid="applied-count"]) {
+    & > :not(.applied-count) {
       flex: none;
     }
   }
-  .mind-editor .applied-line--band [data-testid="applied-count"] {
+  .mind-editor .applied-line--band .applied-count {
     flex: 1 1 0%;
     min-width: 0;
     overflow: hidden;

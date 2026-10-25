@@ -7,9 +7,11 @@ import {
   createDataFolder,
   dismissChatSetup,
   emit,
+  frontMind,
   launchApp,
   type MindChild,
   mindNode,
+  newMind,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -196,6 +198,37 @@ test("the bar of changes waiting never shows for what the User's own Question is
   expect(
     await window.evaluate(() => (globalThis as unknown as { barShown: number }).barShown),
   ).toBe(0);
+  await app.close();
+});
+
+test("the first-run guide keeps the band's padding, so a Writing line shows above its first line and over no text", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 900, 800);
+  await newMind(window);
+  await dismissChatSetup(window);
+  await expect(window.getByTestId("start-guide")).toBeVisible();
+  const editor = window.locator('[data-testid="mind-editor"]:visible');
+  const mindId = await frontMind(window).getAttribute("data-mind-id");
+  if (!mindId) throw new Error("No Mind is in front.");
+
+  await emit(app, "mind.writing", { mindId, place: { after: null } });
+  const writing = editor.getByTestId("mind-writing");
+  await expect(writing).toBeVisible();
+
+  expect(
+    await editor.evaluate((element) => ({
+      paddingTop: getComputedStyle(element).paddingTop,
+      minHeight: getComputedStyle(element).minHeight,
+    })),
+  ).toEqual({ paddingTop: "26px", minHeight: "0px" });
+  const band = await writing.boundingBox();
+  const editorBox = await editor.boundingBox();
+  const first = await editor.locator(":scope > p").first().boundingBox();
+  if (!band || !editorBox || !first)
+    throw new Error("The writing line, the editor or the guide's first line has no box.");
+  expect(band.y).toBeGreaterThanOrEqual(editorBox.y - 1);
+  expect(band.y + band.height).toBeLessThanOrEqual(first.y + 1);
+  await expect(window.getByTestId("start-guide")).toBeVisible();
   await app.close();
 });
 
