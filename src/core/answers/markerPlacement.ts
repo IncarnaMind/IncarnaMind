@@ -26,12 +26,14 @@
  * doesn't touch it.
  */
 import {
+  answerSentences,
   FENCE,
   MARKER,
   type Paragraph,
   paragraphsOf,
   type Span,
 } from "../../shared/answerSentences";
+import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import { delimiterRow, looksLikeTable, tableCellRanges } from "../../shared/markdownTables";
 import type { AnswerEngineEvent, AnswerTools } from "./engine";
 
@@ -109,15 +111,17 @@ const matches = (likeness: { shared: number; score: number }) =>
  */
 export function answerTableUnits(
   text: string,
-): { start: number; end: number; text: string; markers: number[] }[] {
-  const units: { start: number; end: number; text: string; markers: number[] }[] = [];
-  const unit = (start: number, end: number) => {
+): { start: number; end: number; text: string; markers: number[]; cell: boolean }[] {
+  const units: { start: number; end: number; text: string; markers: number[]; cell: boolean }[] =
+    [];
+  const unit = (start: number, end: number, cell = true) => {
     const found = text.slice(start, end);
     units.push({
       start,
       end,
       text: found.trim(),
       markers: [...found.matchAll(MARKER)].map((each) => Number(each[1])),
+      cell,
     });
   };
   let fenced = false;
@@ -127,10 +131,52 @@ export function answerTableUnits(
     offset += line.length + 1;
     if (FENCE.test(line)) fenced = !fenced;
     if (fenced || !looksLikeTable(line) || delimiterRow(line)) continue;
-    unit(start, start + line.length);
+    unit(start, start + line.length, false);
     for (const cell of tableCellRanges(line)) unit(start + cell.start, start + cell.end);
   }
   return units;
+}
+
+/** The sentences and table cells of an Answer that show figures ("[=2]") but no Citation marker. */
+function uncitedPlaces(text: string): { span: Span; figures: number[]; cell: boolean }[] {
+  const places = [
+    ...answerSentences(text).map((sentence) => ({ ...sentence, cell: false })),
+    ...answerTableUnits(text).filter((unit) => unit.cell),
+  ];
+  return places.flatMap(({ start, end, markers, cell }) => {
+    if (markers.length > 0) return [];
+    const figures = [...text.slice(start, end).matchAll(FIGURE_MARKER)].map((each) =>
+      Number(each[1]),
+    );
+    return figures.length > 0 ? [{ span: { start, end }, figures, cell }] : [];
+  });
+}
+
+/** The figures ("[=2]") of `text` that a sentence or table cell shows with no Citation marker. */
+export const uncitedFigures = (text: string): number[] => [
+  ...new Set(uncitedPlaces(text).flatMap((place) => place.figures)),
+];
+
+/**
+ * `text` with Citation markers put in where it shows figures with none (#1831): at the end of
+ * the sentence, before its closing punctuation, or of the table cell. `citationsOf` gives a
+ * figure's markers.
+ */
+export function withFigureCitations(
+  text: string,
+  citationsOf: (figure: number) => readonly number[],
+): string {
+  const insertions = uncitedPlaces(text).flatMap((place) => {
+    const markers = [...new Set(place.figures.flatMap((figure) => citationsOf(figure)))];
+    if (markers.length === 0) return [];
+    const at = place.cell ? place.span.end : insertionPoint(text, place.span);
+    return [{ at, label: markers.map((marker) => `[^${marker}]`).join("") }];
+  });
+  let cited = text;
+  for (const { at, label } of insertions.sort((a, b) => b.at - a.at)) {
+    cited = `${cited.slice(0, at)}${label}${cited.slice(at)}`;
+  }
+  return cited;
 }
 
 /**

@@ -220,6 +220,7 @@ import type {
   AnswerEngine,
   AnswerSearchOptions,
   AnswerTools,
+  CitationRecordInput,
   CiteOptions,
   DocumentLanguage,
   GatedCall,
@@ -227,6 +228,7 @@ import type {
 } from "./engine";
 import { listenedTokens, newestWithin, withBeforeQuestion, withTranscript } from "./liveTranscript";
 import { markdownToBlocks } from "./markdown";
+import { uncitedFigures, withFigureCitations } from "./markerPlacement";
 import {
   FOUND_TOKEN_LIMIT,
   foundWithin,
@@ -1127,6 +1129,30 @@ export function createAnswers(options: AnswersOptions) {
         [...new Set(markersIn(text))].flatMap((marker) => session.quotes.recorded(marker) ?? []),
         answerLanguage(context.question),
       );
+    // A figure whose inputs quote their Passages directly comes with no Citation marker (#1831).
+    const citeFigures = (text: string): string => {
+      const records: CitationRecordInput[] = [];
+      const markersOf = new Map<number, number[]>();
+      let next = Math.max(0, ...markersIn(text)) + 1;
+      for (const figure of uncitedFigures(text)) {
+        for (const quote of figures.directQuotes(figure)) {
+          let record = records.find(
+            (each) => each.passage === quote.passage && each.quote === quote.quote,
+          );
+          if (!record) {
+            while (session.tools.hasRecord?.(next)) next++;
+            record = { ...quote, marker: next++ };
+            records.push(record);
+          }
+          markersOf.set(figure, [...(markersOf.get(figure) ?? []), record.marker]);
+        }
+      }
+      if (records.length === 0) return text;
+      session.tools.cite(records, { structured: true });
+      return withFigureCitations(text, (figure) =>
+        (markersOf.get(figure) ?? []).filter((marker) => session.tools.hasRecord?.(marker)),
+      );
+    };
     /** A Citation marker's node as the text around a figure sees it: none for a marker with no record. */
     const citedNode = (marker: number) =>
       session.streamingCitation(marker) ? citationNode(null) : null;
@@ -1922,6 +1948,7 @@ export function createAnswers(options: AnswersOptions) {
                 let unrecorded = 0;
                 let firstUnrecorded = -1;
                 const written = withoutSearchTalk(withoutFootnoteDefinitions(text));
+                const markdown = calculating ? citeFigures(written.markdown) : written.markdown;
                 const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
@@ -1932,8 +1959,8 @@ export function createAnswers(options: AnswersOptions) {
                 const names = documentNames;
                 const known = (source: NamedSource) =>
                   namesOneOf(source.name, names) || link({ ...source, location: null }) !== null;
-                const asText = sourcesAsText(written.markdown, known);
-                const sourced = linkKnownSources(written.markdown, known, link);
+                const asText = sourcesAsText(markdown, known);
+                const sourced = linkKnownSources(markdown, known, link);
                 const tables = linkTableSources(sourced.text, link);
                 const cited = markdownToBlocks(tables.markdown).flatMap((block, index) =>
                   withCitations([block], (marker) => {
@@ -2057,6 +2084,7 @@ export function createAnswers(options: AnswersOptions) {
           calculate: (given: readonly unknown[], calculateOptions?: CiteOptions) =>
             figures.calculate(given, calculateOptions),
           figureProblems: () => figures.problems(),
+          citeFigures,
         }),
       };
       // Scripts can run when a Skill has some, unless the User turned them off.

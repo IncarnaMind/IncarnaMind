@@ -369,8 +369,8 @@ interface Recorded {
   note: string;
   /** The model was told to check a sign (#978): its next figure for the marker is the fix, not a marker given twice. */
   signAsked: boolean;
-  /** Each input's quote, and its unit statement's, in order. */
-  quotes: { input: Quoted; unit: Quoted | null }[];
+  /** Each input's quote, and its unit statement's, in order; `direct`: the quote it gave instead of a cite record. */
+  quotes: { input: Quoted; unit: Quoted | null; direct: QuoteInput | null }[];
 }
 
 /** A figure given in structured output that couldn't be worked out: what its one request to fix it shows. */
@@ -827,7 +827,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         figure,
         note,
         signAsked: negatives.length > 0,
-        quotes: reads.map((read) => ({ input: read.quoted, unit: read.unit?.quoted ?? null })),
+        quotes: reads.map((read) => ({
+          input: read.quoted,
+          unit: read.unit?.quoted ?? null,
+          direct: read.given.citation === null ? read.given.record : null,
+        })),
       },
     };
   }
@@ -910,6 +914,13 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     /** The figures given in structured output that couldn't be worked out, by marker. */
     problems(): FigureProblem[] {
       return [...failed.values()].sort((a, b) => a.marker - b.marker);
+    },
+
+    /** The quotes a marker's figure gave its inputs directly, rather than through `cite`'s records. */
+    directQuotes(marker: number): QuoteInput[] {
+      return (recorded.get(marker)?.quotes ?? []).flatMap((each) =>
+        each.direct ? [each.direct] : [],
+      );
     },
 
     /** A marker's figure: "checking" until `check`, then with each input's check; null when none was recorded. */
