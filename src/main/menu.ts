@@ -18,6 +18,18 @@ function send(command: MenuCommand): void {
 }
 
 /**
+ * Select All: on macOS, while a system dialog is open, its own file list takes it, as ⌘A does in
+ * any Mac app; the window behind gets nothing (#1684, #1707).
+ */
+function selectAll(): void {
+  if (process.platform === "darwin" && systemDialogOpen()) {
+    Menu.sendActionToFirstResponder("selectAll:");
+    return;
+  }
+  send("edit.selectAll");
+}
+
+/**
  * The application menu, in the interface language. As in a browser, ⌘W closes
  * the tab and Shift+⌘W the window. Reload and the developer tools are only in
  * development and test builds. Ctrl stands in for ⌘ on Windows and Linux.
@@ -196,7 +208,7 @@ function buildMenu(): void {
         { role: "cut", label: t("menu.cut") },
         { role: "copy", label: t(isMac ? "menu.copy" : "menu.copy.other") },
         { role: "paste", label: t("menu.paste") },
-        { ...command("edit.selectAll"), id: "edit.selectAll" },
+        { ...command("edit.selectAll"), id: "edit.selectAll", click: selectAll },
       ],
     },
     {

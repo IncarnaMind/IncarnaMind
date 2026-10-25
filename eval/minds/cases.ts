@@ -38,6 +38,10 @@ export interface MindsCase {
   request: string;
   /** The Mind in front when it is asked, by title; none: asked from Home. */
   open: string | null;
+  /** The Library also holds `DOCUMENTS`, so the model can search them too. */
+  documents?: true;
+  /** The Minds it names hold only AI text: a Meeting's notes filled after Stop ("ai"), or what an Answer added ("answer"). */
+  sources?: "ai" | "answer";
   expected: Expected;
 }
 
@@ -221,6 +225,36 @@ export const WORKSPACES: Readonly<Record<Language, readonly SeedMind[]>> = {
   "zh-CN": WORKSPACE_ZH,
 };
 
+/** The Minds the requests for a new note from two name. */
+export const SOURCES: Readonly<Record<Language, readonly string[]>> = {
+  en: ["Project plan", "Meeting notes"],
+  "zh-CN": ["项目计划", "会议纪要"],
+};
+
+/** Documents of other matters, for a request asked in a Library that has some: nothing of them belongs in its answer. */
+export const DOCUMENTS: Readonly<Record<Language, readonly { file: string; text: string }[]>> = {
+  en: [
+    {
+      file: "Supplier contract.md",
+      text: "# Supplier contract\n\nThis agreement between Northwind Ltd and Harbour Freight runs for two years from 1 January 2026. Harbour Freight delivers within 5 working days of an order. Either party may end the agreement with three months' notice. A late delivery earns a credit of 2% of the order's value for each day.\n",
+    },
+    {
+      file: "Q3 sales figures.md",
+      text: "# Q3 sales figures\n\nSales in the third quarter were €1.2 million, up 8% on the second quarter. The German market grew fastest, at 15%. The average order was €2,400, and 61 new customers signed.\n",
+    },
+  ],
+  "zh-CN": [
+    {
+      file: "供应商合同.md",
+      text: "# 供应商合同\n\n本合同由北风有限公司与海港货运签订，自 2026 年 1 月 1 日起生效，为期两年。海港货运须在下单后 5 个工作日内交货。任何一方提前三个月书面通知即可终止合同。每延迟交货一天，按订单金额的 2% 抵扣。\n",
+    },
+    {
+      file: "第三季度销售数据.md",
+      text: "# 第三季度销售数据\n\n第三季度销售额为 120 万欧元，比第二季度增长 8%。德国市场增长最快，达 15%。平均订单金额为 2,400 欧元，新签客户 61 家。\n",
+    },
+  ],
+};
+
 const shortenAll = (language: Language): Expected => {
   const keeps =
     language === "en"
@@ -395,6 +429,57 @@ export const CASES: readonly MindsCase[] = [
     language: "zh-CN",
     request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
     open: null,
+    expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "new-from-two-plain-docs-en",
+    language: "en",
+    request:
+      "Make a new note called Launch brief from the Project plan and the Meeting notes: the milestones from the plan and the decisions from the notes.",
+    open: null,
+    documents: true,
+    expected: launchBrief("en"),
+  },
+  {
+    id: "new-from-two-plain-docs-zh",
+    language: "zh-CN",
+    request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
+    open: null,
+    documents: true,
+    expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "new-from-two-plain-ai-en",
+    language: "en",
+    request:
+      "Make a new note called Launch brief from the Project plan and the Meeting notes: the milestones from the plan and the decisions from the notes.",
+    open: null,
+    sources: "ai",
+    expected: launchBrief("en"),
+  },
+  {
+    id: "new-from-two-plain-ai-zh",
+    language: "zh-CN",
+    request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
+    open: null,
+    sources: "ai",
+    expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "new-from-two-plain-made-en",
+    language: "en",
+    request:
+      "Make a new note called Launch brief from the Project plan and the Meeting notes: the milestones from the plan and the decisions from the notes.",
+    open: null,
+    sources: "answer",
+    expected: launchBrief("en"),
+  },
+  {
+    id: "new-from-two-plain-made-zh",
+    language: "zh-CN",
+    request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
+    open: null,
+    sources: "answer",
     expected: launchBrief("zh-CN"),
   },
   {

@@ -1,6 +1,8 @@
-import { createContext, type ReactNode, useContext, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
+import { changedSourceNote, citationState } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
+import { useCitationRecheck } from "../citationVersion";
 import { CountItLine } from "../components/CountItLine";
 import { InlineName } from "../components/InlineName";
 import { moveDocumentsBeside } from "../components/library/DocumentMoveTo";
@@ -11,9 +13,9 @@ import { DocumentTagChips } from "../components/TagChips";
 import { files } from "../core";
 import { errorMessage } from "../errors";
 import { useLeftOutOfEvidence } from "../evidence";
-import { useLanguage, useT } from "../i18n";
+import { useGap, useLanguage, useT } from "../i18n";
 import { type Said, saidInLine } from "../lineNames";
-import { useAppStore } from "../store";
+import { useAppStore, type ViewerTarget } from "../store";
 import { useRename } from "../useRename";
 import { pageDate } from "../webPages";
 import { OpenExternallyIcon } from "./icons";
@@ -25,6 +27,8 @@ export interface ViewerFrame {
   /** The tab is a preview: the toolbar offers to keep it open. */
   preview: boolean;
   keep(): void;
+  /** Where the tab was opened, when a Citation opened it: its version and quote. */
+  target?: ViewerTarget;
 }
 
 export const ViewerFrameContext = createContext<ViewerFrame>({
@@ -61,7 +65,54 @@ export function ViewerHeader({
 }) {
   const t = useT();
   const language = useLanguage();
-  const { document, preview, keep } = useContext(ViewerFrameContext);
+  const gap = useGap();
+  const { document, preview, keep, target } = useContext(ViewerFrameContext);
+  const documents = useAppStore((state) =>
+    state.status.kind === "ready" ? state.documents : null,
+  );
+  const cited = target?.citation ?? null;
+  const citedState = useMemo(
+    () =>
+      cited && target
+        ? citationState(
+            {
+              documentId: target.documentId,
+              contentHash: cited.contentHash ?? null,
+              check: cited.check,
+              pageFrom: cited.pageFrom ?? target.pageFrom ?? null,
+              pageTo: cited.pageTo ?? target.pageTo ?? null,
+            },
+            documents,
+          )
+        : null,
+    [cited, target, documents],
+  );
+  const changedState = citedState?.changedAfterCited ?? false;
+  const recheck = useCitationRecheck(
+    cited && target?.quote
+      ? {
+          documentId: target.documentId,
+          contentHash: cited.contentHash ?? null,
+          pageFrom: cited.pageFrom ?? target.pageFrom ?? null,
+          pageTo: cited.pageTo ?? target.pageTo ?? null,
+          quote: target.quote,
+        }
+      : null,
+    changedState,
+    document?.contentHash,
+  );
+  const changed = citedState
+    ? changedSourceNote(
+        changedState,
+        {
+          pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
+          pageTo: cited?.pageTo ?? target?.pageTo ?? null,
+          location: cited?.location ?? null,
+        },
+        recheck,
+        t,
+      )
+    : null;
   /** Why the Document's own app couldn't open it, until it is tried again. */
   const [problem, setProblem] = useState<Said | null>(null);
   const leftOut = useLeftOutOfEvidence(document);
@@ -177,6 +228,12 @@ ${sourceOf(document)}`
           className="shrink-0 px-4 py-2"
         >
           {problem.message}
+        </ProblemLine>
+      )}
+      {changed && (
+        <ProblemLine role="status" testId="viewer-citation-changed" className="shrink-0 px-4 py-2">
+          {changed.notice}
+          {changed.quote && `${gap(changed.notice, changed.quote)}${changed.quote}`}
         </ProblemLine>
       )}
       {document && leftOut && (
