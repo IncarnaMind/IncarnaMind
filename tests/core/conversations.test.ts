@@ -407,6 +407,84 @@ describe("Empty conversations", { timeout: 30_000 }, () => {
       expect(await core.getConversation(first.conversation.id)).toEqual(before);
     },
   );
+
+  test("a rejected turn after a published one leaves History at the published turn's time", async () => {
+    const acceptedUrl = "http://127.0.0.1:2";
+    const rejectedUrl = "http://127.0.0.1:3";
+    const gate = () => {
+      const held = Promise.withResolvers<void>();
+      const begun = Promise.withResolvers<void>();
+      return {
+        release: () => held.resolve(),
+        held: held.promise,
+        began: begun.promise,
+        begin: () => begun.resolve(),
+      };
+    };
+    const acceptingGate = gate();
+    const rejectingGate = gate();
+    const { core, clock, ended } = await setUp(streamingModel("Hello."), {
+      ollamaModels: {
+        describe: async (baseUrl) => {
+          if (baseUrl === acceptedUrl) {
+            acceptingGate.begin();
+            await acceptingGate.held;
+          }
+          if (baseUrl === rejectedUrl) {
+            rejectingGate.begin();
+            await rejectingGate.held;
+          }
+          return null;
+        },
+        loaded: async () => null,
+        running: async () => true,
+      },
+    });
+    const acceptingModel = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: acceptedUrl,
+      modelId: "accepting-model",
+      keepDefault: true,
+    });
+    const rejectingModel = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: rejectedUrl,
+      modelId: "rejecting-model",
+      keepDefault: true,
+    });
+    const first = await ask(core, ended, { text: "Hello" });
+    clock.advance(1000);
+
+    // The accepted turn is added first, then the rejected one a second later.
+    const accepting = core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Accepted",
+      model: { providerId: acceptingModel.id, modelId: "accepting-model" },
+    });
+    await acceptingGate.began;
+    clock.advance(1000);
+    const rejecting = core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Rejected",
+      forcedSkill: "no-such-skill",
+      model: { providerId: rejectingModel.id, modelId: "rejecting-model" },
+    });
+    await rejectingGate.began;
+
+    acceptingGate.release();
+    const accepted = await accepting;
+    if (!accepted.asked) throw new Error("Not asked.");
+    expect(await ended(accepted.answerId)).toBe("finished");
+    rejectingGate.release();
+    await expect(rejecting).resolves.toMatchObject({ asked: false, reason: "skill-unavailable" });
+
+    const { conversation, messages } = await core.getConversation(first.conversation.id);
+    const asked = messages.find(
+      (message) => message.kind === "question" && message.text === "Accepted",
+    );
+    if (asked?.kind !== "question") throw new Error("The accepted Question is missing.");
+    expect(conversation.updatedAt).toBe(asked.createdAt);
+  });
 });
 
 describe("History: by Folder, all of them, and search", { timeout: 30_000 }, () => {

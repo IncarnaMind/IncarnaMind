@@ -915,8 +915,9 @@ export function createConversations(db: Database, now: () => string) {
       const pending = pendingTurns.get(turn.conversation.id);
       if (!pending) return;
       pending.answerIds.delete(turn.answer.id);
-      if (pending.updatedAt < turn.conversation.updatedAt) {
-        pending.updatedAt = turn.conversation.updatedAt;
+      // The turn's own time, not the conversation's: another pending turn may have moved that on.
+      if (pending.updatedAt < turn.question.createdAt) {
+        pending.updatedAt = turn.question.createdAt;
       }
       if (pending.answerIds.size === 0) pendingTurns.delete(turn.conversation.id);
     },
