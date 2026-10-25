@@ -1548,9 +1548,9 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       read: (mindId, look) => content.read(mindId, look),
       edit: (mindId, change) => content.edit(mindId, change),
-      text: (mindId, name, tokens) => {
+      text: (mindId, name, tokens, ids) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null))
+          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids))
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -2264,7 +2264,7 @@ export function createCore(adapters: CoreAdapters): Core {
     localOnly: () => embedding.localOnly(),
     ollamaUrl: adapters.ollamaUrl ?? defaultOllamaUrl(),
     localModels: adapters.localModels ?? installedOllamaModels,
-    planPausedUntil: () => chatGptPace.pausedUntil(),
+    planPausedUntil: () => chatGptPace.pausedUntil() ?? claudePace.pausedUntil(),
     now: () => paceTimers.now(),
   });
   const tagsWith = (): TaggingClassifier | null => {

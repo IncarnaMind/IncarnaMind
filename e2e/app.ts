@@ -860,6 +860,19 @@ export async function addProviderPage(settings: Locator, catalogId: string): Pro
   return page;
 }
 
+/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+export async function openAdvancedModels(settings: Locator): Promise<Locator> {
+  const advanced = settings.getByTestId("models-advanced");
+  const toggle = advanced.getByTestId("models-advanced-toggle");
+  await expect(toggle).toBeVisible();
+  await expect(advanced).not.toHaveAttribute("open");
+  await toggle.click();
+  await expect(advanced).toHaveAttribute("open", "");
+  const tagging = advanced.getByTestId("tagging-settings");
+  await expect(tagging).toBeVisible();
+  return tagging;
+}
+
 /** As `addProviderPage`, returning that page's key form. */
 export const addProviderForm = async (settings: Locator, catalogId: string): Promise<Locator> =>
   (await addProviderPage(settings, catalogId)).getByTestId("provider-form");
