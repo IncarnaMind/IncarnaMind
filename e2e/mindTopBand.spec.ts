@@ -10,6 +10,7 @@ import {
   frontMind,
   launchApp,
   type MindChild,
+  markSteps,
   mindNode,
   newMind,
   pointAndClick,
@@ -204,8 +205,13 @@ test("the bar of changes waiting never shows for what the User's own Question is
 test("the first-run guide keeps the band's padding, so a Writing line shows above its first line and over no text", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 900, 800);
-  await newMind(window);
   await dismissChatSetup(window);
+  const exampleId = await frontMind(window).getAttribute("data-mind-id");
+  if (!exampleId) throw new Error("No Mind is in front.");
+  const exampleTab = window.locator(`[data-testid="mind-tab"][data-mind-id="${exampleId}"]`);
+  await newMind(window);
+  await pointAndClick(window, exampleTab.getByTestId("tab-close"));
+  await markSteps(window, { seen: false });
   await expect(window.getByTestId("start-guide")).toBeVisible();
   const editor = window.locator('[data-testid="mind-editor"]:visible');
   const mindId = await frontMind(window).getAttribute("data-mind-id");
