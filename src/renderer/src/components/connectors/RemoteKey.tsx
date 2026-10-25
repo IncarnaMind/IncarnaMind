@@ -82,6 +82,16 @@ export function RemoteKeyForm({
   const [error, setError] = useState<string | null>(null);
   const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
   const firstField = useRef<HTMLInputElement>(null);
+  useEffect(
+    () => () => {
+      document
+        .querySelector<HTMLButtonElement>(
+          `[data-connector-id="${CSS.escape(connector.id)}"] [data-testid="connector-change-key"]`,
+        )
+        ?.focus();
+    },
+    [connector.id],
+  );
   useEffect(() => {
     firstField.current?.focus();
     core.getSecretStorage().then(setStorage, (failure) => setError(errorMessage(failure, t)));
@@ -103,7 +113,16 @@ export function RemoteKeyForm({
     }
   };
   return (
-    <form onSubmit={(event) => void submit(event)} className="mt-2 flex flex-col gap-3">
+    <form
+      onSubmit={(event) => void submit(event)}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onDone();
+      }}
+      className="mt-2 flex flex-col gap-3"
+    >
       {names.map((name) => (
         <label key={name} className={fieldLabelClass}>
           {t("remoteConnectors.key.label")}

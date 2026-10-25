@@ -350,6 +350,7 @@ function ConnectorControls({ connector }: { connector: Connector }) {
             connector.error?.kind !== "missing-secrets" && (
               <button
                 type="button"
+                data-testid="connector-change-key"
                 onClick={() => setChangingKey(true)}
                 className={buttonStyle("secondary", "sm")}
               >
@@ -419,7 +420,12 @@ function ErrorNotice({
       </p>
       <div className="flex flex-wrap items-center gap-2 text-[12px]">
         {error.kind === "key-refused" || (keySignIn && error.kind === "missing-secrets") ? (
-          <button type="button" onClick={onChangeKey} className={buttonStyle("secondary", "sm")}>
+          <button
+            type="button"
+            data-testid="connector-change-key"
+            onClick={onChangeKey}
+            className={buttonStyle("secondary", "sm")}
+          >
             {t("remoteConnectors.key.change")}
           </button>
         ) : error.retrying && error.kind !== "unreachable" ? (

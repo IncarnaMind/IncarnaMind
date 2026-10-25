@@ -7176,9 +7176,8 @@ export interface RemoteConnectorSignIn {
 }
 
 /**
- * A remote Connector: an MCP server reached by its URL over Streamable HTTP.
- * If it requires a sign-in, the User signs in in their browser (OAuth 2.1
- * with PKCE, as the MCP authorization spec describes).
+ * A remote Connector using Streamable HTTP or older SSE, with device-only
+ * header secrets or browser sign-in (OAuth 2.1 with PKCE).
  */
 export interface RemoteConnector extends ConnectorBase {
   transport: "http";

@@ -81,11 +81,18 @@ for (const language of ["en", "zh-CN"] as const)
         await window.keyboard.press("Enter");
         const replacement = connector.locator('input[type="password"]');
         await expect(replacement).toBeFocused();
+        await replacement.press("Escape");
+        await expect(replacement).toHaveCount(0);
+        await expect(window.getByTestId("settings")).toBeVisible();
+        await expect(connector.getByTestId("connector-change-key")).toBeFocused();
+        await window.keyboard.press("Enter");
+        await expect(replacement).toBeFocused();
         await replacement.fill(key).catch(() => {
           throw new Error("Could not enter the synthetic replacement key.");
         });
         await replacement.press("Enter");
         await expect(connector).toHaveAttribute("data-state", "ready");
+        await expect(connector.getByTestId("connector-change-key")).toBeFocused();
         await expect(connector).toContainText(t("remoteConnectors.connection.sse"));
         await expect(connector.getByTestId("connector-key-mask")).toContainText("••••••••");
         expect((await page.textContent())?.includes(key)).toBe(false);

@@ -4,12 +4,12 @@
  * official MCP SDK:
  * - local ones run as programs on this computer, over their standard input
  *   and output;
- * - remote ones are reached by URL over Streamable HTTP, and sign in through
- *   the User's browser when the server requires it (./remote, ./auth).
+ * - remote ones use Streamable HTTP or older SSE, with header secrets or
+ *   browser sign-in when the server requires it (./remote, ./auth).
  *
  * - Storage: one row per Connector, sync-ready and without secrets. A local
  *   one's environment values (usually API keys) are one keychain secret; a
- *   remote one's tokens and OAuth registration are two more.
+ *   remote one's header values, tokens and OAuth registration stay there too.
  * - Lifecycle: enabled Connectors start when the core starts, or on first use
  *   if they haven't yet. A process that stops, or a server that can't be
  *   reached, is tried again, waiting longer after each failure. A remote one
@@ -143,8 +143,8 @@ interface ConnectorRow {
 
 /**
  * The `config` column, without secrets: for "stdio" only the names of the
- * environment variables; for "http" the URL, and the client ID of the OAuth
- * app the User entered (its secret, if any, is in the keychain).
+ * environment variables; for "http" the URL, connection kind, header names
+ * and their secret-store reference, and the OAuth client ID.
  */
 type StoredConfig =
   | { transport: "stdio"; command: string; args: string[]; env: string[] }

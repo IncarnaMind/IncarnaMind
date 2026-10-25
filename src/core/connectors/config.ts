@@ -31,7 +31,7 @@ export interface ClientCredentials {
   clientSecret: string | null;
 }
 
-/** Where a remote Connector is, and the OAuth app it signs in with if the User gave one. */
+/** Remote input; header values and the OAuth secret are consumed into the device's secret store. */
 export interface RemoteConnectorConfig {
   transport: "http";
   name: string;

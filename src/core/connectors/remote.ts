@@ -1,7 +1,6 @@
 /**
- * Remote Connectors: MCP servers reached by URL over Streamable HTTP, with
- * the official SDK's client transport, signing in with OAuth when the server
- * requires it (see ./auth for where the sign-in is kept).
+ * Remote Connectors use the official SDK's HTTP or SSE client transport,
+ * with header secrets or OAuth (./auth keeps the browser sign-in).
  *
  * Signing in follows the MCP authorization spec: the SDK discovers the
  * server's authorization server (protected-resource metadata, then
