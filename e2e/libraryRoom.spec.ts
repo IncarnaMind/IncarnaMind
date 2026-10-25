@@ -145,10 +145,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(library.locator('[data-testid="tag-chip"]:visible')).toHaveCount(0);
 
     // What they said is the name's tooltip.
-    const tip = await first
-      .getByTestId("library-document-name")
-      .locator("xpath=..")
-      .getAttribute("title");
+    const tip = await first.locator("[data-row-main]").getAttribute("title");
     expect(tip).toContain(
       ((await first.getByTestId("library-document-format").textContent()) ?? "").trim(),
     );

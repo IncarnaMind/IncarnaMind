@@ -307,6 +307,33 @@ describe("Edit with AI", () => {
     ]);
   });
 
+  // protects=a Citation the User keeps on the version it quotes (Keep citing the old version, ADR-0017's amendment) stays on that version when a rewrite of its sentence is accepted, though its quote is in the current version; fails_when=accepting the rewrite re-points it at the current version; no_claim=none beyond protects.
+  test("a Citation kept on the old version stays on it through an accepted rewrite", async () => {
+    const { core, mind, client, tides } = await setUp(
+      editingModel(() => "Spring tides come at new and full moon [1]."),
+    );
+    const kept = citation(tides);
+    kept.attrs = { ...kept.attrs, contentHash: "an-older-version", keptOver: tides.contentHash };
+    const note = paragraph(
+      text("Spring tides happen at new moon and at full moon "),
+      kept,
+      text("."),
+    );
+    writeMind(client, [note]);
+    await client.settled();
+
+    await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "shorten"));
+    await resolveChanges(client, "accept");
+
+    const after: Record<string, unknown>[] = [];
+    readMind(client).descendants((node) => {
+      if (node.type.name === "citation") after.push(node.attrs);
+    });
+    expect(after).toEqual([
+      expect.objectContaining({ contentHash: "an-older-version", keptOver: tides.contentHash }),
+    ]);
+  });
+
   test("the model sees Citations as numbered markers, formulas as written, and the paragraphs around the selection", async () => {
     const calls: EditCall[] = [];
     const { core, mind, client, tides } = await setUp(

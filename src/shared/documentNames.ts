@@ -93,3 +93,73 @@ export function sourceOf(document: {
     ? document.name
     : `${document.name}${extension}`;
 }
+
+/** What `whereShown` reads of a Document. */
+export interface NamedDocument {
+  id: string;
+  name: string;
+  title?: string | null;
+  /** Where its file is: absolute, on this computer. */
+  path: string;
+  web?: { address: string } | null;
+}
+
+const foldersOf = (path: string) => path.split(/[\\/]/).filter(Boolean).slice(0, -1);
+const sameName = (name: string) => name.normalize("NFC").toLocaleLowerCase();
+
+/**
+ * Where each Document stands among those it shares its shown name with (#1507), by id: the
+ * fewest of its parent folders, nearest first, that tell it from the others ("2025", or
+ * "Q1 / 2025"), or, where even its whole path doesn't, its place in their order ("(2)"). A
+ * Document whose name nobody else's shown name matches has none. A web page goes by its site.
+ */
+export function whereShown(documents: readonly NamedDocument[]): Map<string, string> {
+  const byName = new Map<string, NamedDocument[]>();
+  for (const document of documents) {
+    const key = sameName(displayName(document));
+    const group = byName.get(key);
+    if (group) group.push(document);
+    else byName.set(key, [document]);
+  }
+  const where = new Map<string, string>();
+  for (const named of byName.values()) {
+    if (named.length < 2) continue;
+    // By id, so twins at one path take their "(2)" in an order that doesn't change.
+    const group = [...named].sort((a, b) => a.id.localeCompare(b.id));
+    const places = group.map((document) =>
+      document.web ? [hostOf(document.web.address)] : foldersOf(document.path),
+    );
+    let deepest = 0;
+    for (const place of places) deepest = Math.max(deepest, place.length);
+    const label = (place: string[], upTo: number) => place.slice(-upTo).join(" / ");
+    const distinct = (upTo: number) => new Set(places.map((place) => label(place, upTo))).size;
+    // As few folders as tell apart all that their whole paths can.
+    const most = distinct(deepest);
+    let depth = 1;
+    while (depth < deepest && distinct(depth) < most) depth++;
+    const twins = new Map<string, number>();
+    for (const place of places) {
+      const key = label(place, depth);
+      twins.set(key, (twins.get(key) ?? 0) + 1);
+    }
+    const seen = new Map<string, number>();
+    group.forEach((document, index) => {
+      const place = label(places[index] ?? [], depth);
+      const count = (seen.get(place) ?? 0) + 1;
+      seen.set(place, count);
+      where.set(
+        document.id,
+        (twins.get(place) ?? 0) > 1 ? (count > 1 ? `${place} (${count})` : place) : place,
+      );
+    });
+  }
+  return where;
+}
+
+function hostOf(address: string): string {
+  try {
+    return new URL(address).hostname.replace(/^www\./, "");
+  } catch {
+    return address;
+  }
+}

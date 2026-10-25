@@ -20,6 +20,7 @@ import {
   searchMatches,
   sectionShows,
   sectionsOf,
+  sourceFacet,
 } from "../../src/renderer/src/libraryPage";
 import { queryWords } from "../../src/renderer/src/matcher";
 import { displayName } from "../../src/shared/documentNames";
@@ -311,5 +312,17 @@ describe("the Folder filter", () => {
     expect(facet.label(NOT_IN_A_FOLDER, en)).toBe("Not in a Folder");
     expect(facet.label(NOT_IN_A_FOLDER, zh)).toBe("不在文件夹中");
     expect(facet.label("finance", en)).toBe("Finance");
+  });
+
+  test("Source locations name Linked folders apart when two have one name (#1507)", () => {
+    const facet = sourceFacet([
+      { id: "a", path: "/work/2025/Reading" },
+      { id: "b", path: "/work/2026/Reading" },
+      { id: "c", path: "/work/Other" },
+    ]);
+    expect(facet.label("a", en)).toBe("2025 / Reading");
+    expect(facet.label("b", en)).toBe("2026 / Reading");
+    expect(facet.label("c", en)).toBe("Other");
+    expect(facet.compare("a", "b")).toBeLessThan(0);
   });
 });
