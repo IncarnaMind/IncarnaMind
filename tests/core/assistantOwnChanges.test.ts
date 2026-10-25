@@ -450,7 +450,7 @@ describe("A turn that ends after a refused Tool with no reply", { timeout: 30_00
     [
       "Budget forecast",
       "Shorten the summary in my Budget forecast Mind.",
-      "There is no Mind called “Budget forecast”, so the change wasn't made.",
+      "There is no Mind called “Budget forecast”, so the change wasn’t made.",
     ],
     [
       "预算预测",
