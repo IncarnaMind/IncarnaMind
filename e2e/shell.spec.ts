@@ -5,6 +5,7 @@ import type { CoreBridge, LinkedFolder } from "../src/core/api";
 import {
   addDocuments,
   confirmLink,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -373,11 +374,6 @@ test("Linked folder and Document rows stay 28px, on the shared text edge, throug
   await expectRowsAligned(window);
   await screenshot(window, "linked-folders-missing", sidebar());
 
-  // Papers as one list: its row says so, and stays on its line.
-  await (await openLinkedFolderMenu(papers)).getByTestId("linkedFolder.layout").click();
-  await expect(papers).toHaveAttribute("data-layout", "flat");
-  await expectRowsAligned(window);
-  await screenshot(window, "linked-folders-flat", sidebar());
   await running.app.close();
 
   // Drive unplugged while the app was closed: it and its Documents are unavailable.
@@ -422,7 +418,8 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   const before = await layout();
 
   // No chat model yet: the Document is ready, and tagging waits. The footer says so.
-  await addDocuments(window, [paper]);
+  // Added by the core, not through the picker, whose step puts an undo line in the footer.
+  await (await coreOf(window)).evaluate(async (core, file) => core.addDocuments([file]), paper);
   const item = window.getByTestId("document-list-item");
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
   await expect(status.getByTestId("tagging-waiting")).toBeVisible();

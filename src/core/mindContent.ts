@@ -137,9 +137,10 @@ export function createMindContent(
   };
 
   /** A new document holding what is stored for the Mind, and how many rows that took. */
-  const fromStorage = (mindId: string) => {
+  const fromStorage = (mindId: string, deleted = false) => {
+    // A Mind waiting in Recently deleted has all its rows marked deleted.
     const rows = db.all<{ data: Uint8Array }>(
-      "SELECT data FROM mind_updates WHERE mind_id = ? AND deleted_at IS NULL ORDER BY rowid",
+      `SELECT data FROM mind_updates WHERE mind_id = ? AND deleted_at IS ${deleted ? "NOT " : ""}NULL ORDER BY rowid`,
       [mindId],
     );
     const doc = new Y.Doc();
@@ -147,6 +148,21 @@ export function createMindContent(
       for (const row of rows) Y.applyUpdate(doc, row.data);
     });
     return { doc, rows: rows.length };
+  };
+
+  const peekStored = <T>(
+    mindId: string,
+    deleted: boolean,
+    look: (blocks: Y.XmlFragment) => T,
+  ): T => {
+    const mind = loaded.get(mindId);
+    if (mind) return look(mind.doc.getXmlFragment(MIND_CONTENT_FIELD));
+    const { doc } = fromStorage(mindId, deleted);
+    try {
+      return look(doc.getXmlFragment(MIND_CONTENT_FIELD));
+    } finally {
+      doc.destroy();
+    }
   };
 
   const load = (mindId: string): LoadedMind => {
@@ -342,14 +358,12 @@ export function createMindContent(
      * read from what is stored and left unloaded, writing nothing.
      */
     peek<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T {
-      const mind = loaded.get(mindId);
-      if (mind) return look(mind.doc.getXmlFragment(MIND_CONTENT_FIELD));
-      const { doc } = fromStorage(mindId);
-      try {
-        return look(doc.getXmlFragment(MIND_CONTENT_FIELD));
-      } finally {
-        doc.destroy();
-      }
+      return peekStored(mindId, false, look);
+    },
+
+    /** As `peek`, for a Mind waiting in Recently deleted: its Blocks as they come back on restore. */
+    peekDeleted<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T {
+      return peekStored(mindId, true, look);
     },
 
     /**

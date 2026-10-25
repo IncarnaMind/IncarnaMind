@@ -27,6 +27,7 @@ import {
   type ProposalRequest,
   type RecordAiUseInput,
 } from "../core/api";
+import { originOf, restoreOrigins } from "./blockOrigins";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
 
@@ -202,6 +203,14 @@ export function resolveProposals(
   const order: string[] = [];
   /** Where each request's first top-level Block removed by a reject was: what it revised goes back there. */
   const removedAt = new Map<string, number>();
+  const removedFrom = new Map<string, string | null>();
+  const rejectedIn = new Map<string, Set<string>>();
+  const rejected = (request: string, top: string | null) => {
+    if (outcome !== "reject" || !top) return;
+    const tops = rejectedIn.get(request) ?? new Set<string>();
+    tops.add(top);
+    rejectedIn.set(request, tops);
+  };
   const note = (ref: ProposalRef, characters: number, blockId: string | null) => {
     let entry = resolved.get(ref.id);
     if (!entry) {
@@ -214,7 +223,7 @@ export function resolveProposals(
       entry.blockIds.push(blockId);
   };
 
-  const resolveText = (text: Y.XmlText, owner: string | null) => {
+  const resolveText = (text: Y.XmlText, owner: string | null, top: string | null) => {
     const edits: { at: number; length: number; mark: string; keep: boolean }[] = [];
     let at = 0;
     for (const run of text.toDelta() as Run[]) {
@@ -225,6 +234,7 @@ export function resolveProposals(
         const keep = (mark === PROPOSAL_INSERT_MARK) === (outcome === "accept");
         edits.push({ at, length, mark, keep });
         note(ref, keep && mark === PROPOSAL_INSERT_MARK ? length : 0, owner);
+        rejected(ref.request, top);
       }
       at += length;
     }
@@ -235,15 +245,20 @@ export function resolveProposals(
     }
   };
 
-  const visit = (parent: Y.XmlFragment | Y.XmlElement, owner: string | null) => {
+  const visit = (
+    parent: Y.XmlFragment | Y.XmlElement,
+    owner: string | null,
+    above: string | null,
+  ) => {
     const children = parent.toArray();
     for (let index = children.length - 1; index >= 0; index--) {
       const child = children[index];
       if (child instanceof Y.XmlText) {
-        resolveText(child, owner);
+        resolveText(child, owner, above);
         continue;
       }
       if (!(child instanceof Y.XmlElement)) continue;
+      const top = parent === blocks ? idOf(child) : above;
       // A footnote has an id but isn't a Block, and one a Proposal moves holds the User's text.
       const footnote = child.nodeName === FOOTNOTE_NODE;
       const own = (footnote ? null : idOf(child)) ?? owner;
@@ -252,30 +267,71 @@ export function resolveProposals(
         const keep = (attribute.kind === "insert") === (outcome === "accept");
         const written = keep && attribute.kind === "insert" && !footnote;
         note(attribute, written ? textLength(child) : 0, own);
+        rejected(attribute.request, top);
         if (!keep) {
-          if (parent === blocks) removedAt.set(attribute.request, index);
+          if (parent === blocks) {
+            removedAt.set(attribute.request, index);
+            removedFrom.set(attribute.request, answerOf(child));
+          }
           parent.delete(index, 1);
           continue;
         }
         child.removeAttribute(PROPOSAL_ATTRIBUTE);
       }
-      visit(child, own);
+      visit(child, own, top);
     }
   };
 
-  visit(blocks, null);
-  settleRevisions(
+  visit(blocks, null, null);
+  const restored = settleRevisions(
     blocks,
     new Set([...resolved.values()].map((each) => each.request)),
     outcome,
     removedAt,
   );
+  // What a rejected revision brings back that the same Answer wrote goes too, so an Answer that
+  // revised the text it had just written is taken back whole, while an earlier Answer's text
+  // comes back waiting. It never waited for the User, so it isn't in what this returns.
+  const sameAnswer = new Set<string>();
+  for (const [request, kept] of restored) {
+    const answer = removedFrom.get(request);
+    for (const { element, from } of kept) {
+      const ref = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+      if (ref && answer && from === answer) sameAnswer.add(ref.id);
+    }
+  }
+  if (sameAnswer.size > 0) resolveProposals(blocks, (ref) => sameAnswer.has(ref.id), "reject");
+  if (blocks.doc) {
+    // A change written over Blocks gave them its origin (`setOriginsOf`): taken out, it gives theirs back.
+    for (const [request, tops] of rejectedIn) {
+      const done = [...tops].filter((top) => !waitsIn(blocks, top, request));
+      restoreOrigins(blocks.doc, request, done);
+    }
+  }
   // Walked from the end: the first one met is the last in the Mind.
   return order.reverse().map((id) => resolved.get(id) as ResolvedProposal);
 }
 
+function waitsIn(blocks: Y.XmlFragment, blockId: string, request: string): boolean {
+  const block = blocks
+    .toArray()
+    .find((each): each is Y.XmlElement => each instanceof Y.XmlElement && idOf(each) === blockId);
+  if (!block) return false;
+  const own = readProposalAttribute(block.getAttribute(PROPOSAL_ATTRIBUTE));
+  return (
+    own?.request === request || pendingProposals(block).some((each) => each.request === request)
+  );
+}
+
+function answerOf(element: Y.XmlElement): string | null {
+  const id = idOf(element);
+  const from = element.doc && id ? originOf(element.doc, id)?.from : null;
+  return from ? JSON.stringify(from) : null;
+}
+
 const REVISED_BLOCKS = "blocks";
 const REVISED_AFTER = "after";
+const REVISED_FROM = "from";
 
 const revisionsOf = (blocks: Y.XmlFragment) =>
   blocks.doc?.getMap<Y.Map<unknown>>(MIND_REVISIONS_FIELD) ?? null;
@@ -302,19 +358,26 @@ export function keepRevised(
   const revision = new Y.Map<unknown>();
   revision.set(REVISED_BLOCKS, kept);
   revision.set(REVISED_AFTER, before instanceof Y.XmlElement ? idOf(before) : null);
+  // Read now: a revision that rewrites Blocks in place keeps their ids, which then take its origin.
+  revision.set(REVISED_FROM, replaced.map(answerOf));
   revisions.set(request, revision);
 }
 
 /**
  * Puts back what a revision by `request` replaced, after the Block that was
  * before it, unless a change of it still waits or they are back already: a
- * reject undone and done again puts them back once.
+ * reject undone and done again puts them back once. Returns what it put back,
+ * each with the Answer it came from when it was replaced.
  */
-export function restoreRevised(blocks: Y.XmlFragment, request: string, fallback?: number): void {
+export function restoreRevised(
+  blocks: Y.XmlFragment,
+  request: string,
+  fallback?: number,
+): { element: Y.XmlElement; from: string | null }[] {
   const revision = revisionsOf(blocks)?.get(request);
   const kept = revision?.get(REVISED_BLOCKS);
-  if (!revision || !(kept instanceof Y.Array)) return;
-  if (pendingProposals(blocks).some((each) => each.request === request)) return;
+  if (!revision || !(kept instanceof Y.Array)) return [];
+  if (pendingProposals(blocks).some((each) => each.request === request)) return [];
   const elements = kept
     .toArray()
     .filter((each): each is Y.XmlElement => each instanceof Y.XmlElement);
@@ -322,7 +385,7 @@ export function restoreRevised(blocks: Y.XmlFragment, request: string, fallback?
   const ids = new Set(
     children.flatMap((child) => (child instanceof Y.XmlElement ? (idOf(child) ?? []) : [])),
   );
-  if (elements.some((element) => ids.has(idOf(element) ?? ""))) return;
+  if (elements.some((element) => ids.has(idOf(element) ?? ""))) return [];
   const after = revision.get(REVISED_AFTER);
   const anchor =
     typeof after === "string"
@@ -338,26 +401,36 @@ export function restoreRevised(blocks: Y.XmlFragment, request: string, fallback?
     at,
     elements.map((element) => element.clone()),
   );
+  const from = revision.get(REVISED_FROM);
+  return elements.map((element, index) => {
+    const answer = Array.isArray(from) ? from[index] : null;
+    return { element, from: typeof answer === "string" ? answer : null };
+  });
 }
 
-/** What revisions of the resolved requests replaced: back once all their new Blocks are rejected, gone once any is accepted. */
+/**
+ * What revisions of the resolved requests replaced: back once all their new Blocks are rejected,
+ * gone once any is accepted. Returns what came back, by the request whose revision it was.
+ */
 function settleRevisions(
   blocks: Y.XmlFragment,
   requests: ReadonlySet<string>,
   outcome: "accept" | "reject",
   removedAt: ReadonlyMap<string, number>,
-): void {
+): Map<string, ReturnType<typeof restoreRevised>> {
+  const restored = new Map<string, ReturnType<typeof restoreRevised>>();
   const revisions = revisionsOf(blocks);
-  if (!revisions || revisions.size === 0) return;
+  if (!revisions || revisions.size === 0) return restored;
   for (const request of requests) {
     if (!revisions.has(request)) continue;
     if (outcome === "accept") revisions.delete(request);
-    else restoreRevised(blocks, request, removedAt.get(request));
+    else restored.set(request, restoreRevised(blocks, request, removedAt.get(request)));
   }
+  return restored;
 }
 
 /** The Proposals waiting in the Mind's Blocks, each once, in the order they start. */
-export function pendingProposals(blocks: Y.XmlFragment): ProposalRef[] {
+export function pendingProposals(blocks: Y.XmlFragment | Y.XmlElement): ProposalRef[] {
   const found = new Map<string, ProposalRef>();
   const add = (ref: ProposalRef | null) => {
     if (ref && !found.has(ref.id)) found.set(ref.id, ref);
@@ -379,12 +452,55 @@ export function pendingProposals(blocks: Y.XmlFragment): ProposalRef[] {
   return [...found.values()];
 }
 
+/**
+ * How many changes wait, or wait of those `belongs` takes: the Proposals Accept all and Reject
+ * all act on, which the Mind's bar, the assistant's lines and its change card all count.
+ */
+export function waitingChanges(
+  blocks: Y.XmlFragment,
+  belongs: (ref: ProposalRef) => boolean = () => true,
+): number {
+  return pendingProposals(blocks).filter(belongs).length;
+}
+
 const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
 /**
- * How many paragraphs and headings the Proposals that `belongs` takes change: those whose
- * words they change, and those they add or remove whole, but for the cells of
- * a table they add or remove. What a change's count counts (DESIGN.md, AI edits).
+ * What a paragraph or heading came to in a change: its words changed where they stand; the whole
+ * Block added or removed (a heading that way is a section's title, not a paragraph written, as
+ * "Wrote 3 paragraphs" counts it); or not touched.
+ */
+export type ChangeKind = "edited" | "added" | "removed" | "title-added" | "title-removed" | "kept";
+
+/**
+ * How many paragraphs changed, each counted once (#1335), from what happened to each paragraph in
+ * the order they stand. A paragraph with words changed is one. Paragraphs added or removed whole
+ * and side by side are one for each that pairs: a paragraph written anew is the old one removed and
+ * the new one added, so of the two sides the larger counts. Titles count only where a stretch holds
+ * nothing else.
+ */
+export function countChanged(kinds: Iterable<ChangeKind>): number {
+  let count = 0;
+  const run = { added: 0, removed: 0, "title-added": 0, "title-removed": 0 };
+  const close = () => {
+    const paragraphs = Math.max(run.added, run.removed);
+    count += paragraphs > 0 ? paragraphs : Math.max(run["title-added"], run["title-removed"]);
+    run.added = run.removed = run["title-added"] = run["title-removed"] = 0;
+  };
+  for (const kind of kinds) {
+    if (kind === "edited" || kind === "kept") {
+      close();
+      if (kind === "edited") count++;
+    } else run[kind]++;
+  }
+  close();
+  return count;
+}
+
+/**
+ * How many paragraphs the Proposals that `belongs` takes change (`countChanged`): those whose
+ * words they change, and those they add or remove whole, but for the cells of a table they add
+ * or remove. What a change's count counts.
  */
 export function changedParagraphs(
   blocks: Y.XmlFragment,
@@ -404,20 +520,23 @@ export function changedParagraphs(
           : child instanceof Y.XmlElement &&
             ours(readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE))),
       );
-  let count = 0;
-  const visit = (parent: Y.XmlFragment | Y.XmlElement, whole: boolean) => {
+  const kinds: ChangeKind[] = [];
+  const visit = (parent: Y.XmlFragment | Y.XmlElement, whole: "added" | "removed" | null) => {
     for (const child of parent.toArray()) {
       if (!(child instanceof Y.XmlElement)) continue;
-      const own = whole || ours(readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE)));
+      const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
+      const own =
+        whole ?? (ours(proposal) ? (proposal?.kind === "insert" ? "added" : "removed") : null);
       // A table added or removed whole counts as a table, not by its cells.
       if (child.nodeName === "table" && own) continue;
       if (TEXT_BLOCKS.has(child.nodeName)) {
-        if (own || wordsChanged(child)) count++;
+        if (own) kinds.push(child.nodeName === "heading" ? `title-${own}` : own);
+        else kinds.push(wordsChanged(child) ? "edited" : "kept");
       } else visit(child, own);
     }
   };
-  visit(blocks, false);
-  return count;
+  visit(blocks, null);
+  return countChanged(kinds);
 }
 
 const requestsOf = (doc: Y.Doc) => doc.getMap<unknown>(MIND_PROPOSAL_REQUESTS_FIELD);

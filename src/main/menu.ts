@@ -3,6 +3,7 @@ import type { Language } from "../core/language";
 import { type EditMenuState, FILES_CHANNELS, type MenuCommand } from "../shared/bridge";
 import { MENU_COMMANDS } from "../shared/commands";
 import { type MessageKey, translate } from "../shared/i18n";
+import { systemDialogOpen } from "./systemDialogs";
 
 /** The window the menu acts on: the one in front, or else the only one. */
 function front(): BrowserWindow | null {
@@ -10,23 +11,44 @@ function front(): BrowserWindow | null {
   return window && !window.isDestroyed() ? window : null;
 }
 
-/** Asks the window in front to run a menu item's command (see `files.onMenuCommand`). */
+/** Asks the window in front to run a menu item's command (see `files.onMenuCommand`); none while a system dialog has the keys. */
 function send(command: MenuCommand): void {
+  if (systemDialogOpen()) return;
   front()?.webContents.send(FILES_CHANNELS.menuCommand, command);
+}
+
+/**
+ * Select All: on macOS, while a system dialog is open, its own file list takes it, as ⌘A does in
+ * any Mac app; the window behind gets nothing (#1684, #1707).
+ */
+function selectAll(): void {
+  if (process.platform === "darwin" && systemDialogOpen()) {
+    Menu.sendActionToFirstResponder("selectAll:");
+    return;
+  }
+  send("edit.selectAll");
 }
 
 /**
  * The application menu, in the interface language. As in a browser, ⌘W closes
  * the tab and Shift+⌘W the window. Reload and the developer tools are only in
  * development and test builds. Ctrl stands in for ⌘ on Windows and Linux.
+ * `windows` is the app's own windows, for Close All: never the hidden ones.
  */
-export function installAppMenu(language: Language, { developer }: { developer: boolean }): void {
-  installed = { language, developer };
+export function installAppMenu(
+  language: Language,
+  { developer, windows }: { developer: boolean; windows: () => BrowserWindow[] },
+): void {
+  installed = { language, developer, windows };
   buildMenu();
 }
 
 /** What the menu was last built from, to build it again when the sidebar is hidden or shown. */
-let installed: { language: Language; developer: boolean } | null = null;
+let installed: {
+  language: Language;
+  developer: boolean;
+  windows: () => BrowserWindow[];
+} | null = null;
 let sidebarHidden = false;
 let exportedMind: string | null = null;
 let examplesRemoved = false;
@@ -72,7 +94,7 @@ export function setMenuSidebarHidden(hidden: boolean): void {
 
 function buildMenu(): void {
   if (!installed) return;
-  const { language, developer } = installed;
+  const { language, developer, windows } = installed;
   const isMac = process.platform === "darwin";
   const t = (key: MessageKey) => translate(language, key);
   const command = (
@@ -152,7 +174,21 @@ function buildMenu(): void {
         { type: "separator" },
         command("tab.close"),
         command("tab.reopen"),
-        { role: "close", label: t("menu.closeWindow"), accelerator: "Shift+CmdOrCtrl+W" },
+        // Not the `close` role: macOS adds its own "Close All" beside it, in the system's language (#1346).
+        {
+          id: "window.close",
+          label: t("menu.closeWindow"),
+          accelerator: "Shift+CmdOrCtrl+W",
+          click: () => BrowserWindow.getFocusedWindow()?.close(),
+        },
+        {
+          id: "window.closeAll",
+          label: t("menu.closeAll"),
+          accelerator: "Alt+Shift+CmdOrCtrl+W",
+          click: () => {
+            for (const window of windows()) window.close();
+          },
+        },
         ...(isMac
           ? []
           : ([
@@ -172,7 +208,7 @@ function buildMenu(): void {
         { role: "cut", label: t("menu.cut") },
         { role: "copy", label: t(isMac ? "menu.copy" : "menu.copy.other") },
         { role: "paste", label: t("menu.paste") },
-        command("edit.selectAll"),
+        { ...command("edit.selectAll"), id: "edit.selectAll", click: selectAll },
       ],
     },
     {

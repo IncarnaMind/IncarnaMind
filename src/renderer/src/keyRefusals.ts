@@ -27,11 +27,13 @@ interface KeyRefusalsState {
   savedAt: Readonly<Record<string, string>>;
   /** Opens the key field of a refused provider; a provider with no key field opens Models as it is. */
   check(providerId: string | null, modelId: string, at: string | null): Promise<void>;
+  /** The same for background work, which knows the company it sends to, not the provider: the one saved for it. */
+  checkService(serviceId: string | null): Promise<void>;
   saved(provider: ChatProvider): void;
   done(): void;
 }
 
-export const useKeyRefusals = create<KeyRefusalsState>()((set) => ({
+export const useKeyRefusals = create<KeyRefusalsState>()((set, get) => ({
   showing: null,
   savedAt: {},
 
@@ -48,6 +50,15 @@ export const useKeyRefusals = create<KeyRefusalsState>()((set) => ({
       reportError(error);
     }
     openSettings("models");
+  },
+
+  async checkService(serviceId) {
+    const sent = serviceId
+      ? (await core.listChatProviders().catch(() => [])).filter(
+          (each) => each.service?.id === serviceId,
+        )
+      : [];
+    await get().check(sent.length === 1 ? (sent[0]?.id ?? null) : null, "", null);
   },
 
   saved: (provider) =>

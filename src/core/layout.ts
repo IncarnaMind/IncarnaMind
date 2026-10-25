@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { parseLocation } from "../shared/locations";
 import {
   type AssistantCorner,
   type AssistantDock,
@@ -69,11 +70,12 @@ function parseItem(value: unknown): TabItem {
   if (isRecord(value)) {
     if (value.kind === "mind" && isId(value.mindId)) return { kind: "mind", mindId: value.mindId };
     if (value.kind === "library") return { kind: "library" };
+    if (value.kind === "home") return { kind: "home" };
     if (value.kind === "document" && isId(value.documentId)) {
       return { kind: "document", documentId: value.documentId };
     }
   }
-  throw new InvalidInputError("A tab shows a Mind, the Library or a Document.");
+  throw new InvalidInputError("A tab shows a Mind, the Library, Home or a Document.");
 }
 
 function parseCitation(value: unknown): TabCitation {
@@ -93,6 +95,15 @@ function parseCitation(value: unknown): TabCitation {
     }
     citation[key] = text;
   }
+  for (const key of ["pageFrom", "pageTo"] as const) {
+    const unit = value[key];
+    if (unit === undefined || unit === null) continue;
+    if (!isUnit(unit)) throw new InvalidInputError({ key: "error.layout.units" });
+    citation[key] = unit;
+  }
+  // A place a version of this app doesn't know is left out: the Units still open the Document.
+  const location = value.location === undefined ? null : parseLocation(value.location);
+  if (location) citation.location = location;
   return citation;
 }
 
@@ -232,6 +243,7 @@ export function parseLayoutChange(value: unknown): LayoutChange {
       const preview = optionalBoolean(value.preview, "preview");
       const focus = optionalBoolean(value.focus, "focus");
       const keep = optionalBoolean(value.keep, "keep");
+      const behind = optionalBoolean(value.behind, "behind");
       return {
         type: "open",
         item: parseItem(value.item),
@@ -239,6 +251,7 @@ export function parseLayoutChange(value: unknown): LayoutChange {
         ...(preview !== undefined && { preview }),
         ...(focus !== undefined && { focus }),
         ...(keep !== undefined && { keep }),
+        ...(behind !== undefined && { behind }),
         ...(value.place !== undefined && { place: parsePlace(value.place) }),
       };
     }
@@ -345,6 +358,9 @@ function readSavedLayout(value: unknown): Layout | null {
 
 // ---------------------------------------------------------------------------
 // The changes.
+
+const oneTabEach = (item: TabItem): item is { kind: "library" } | { kind: "home" } =>
+  item.kind === "library" || item.kind === "home";
 
 const sameItem = (a: TabItem, b: TabItem): boolean =>
   a.kind === b.kind &&
@@ -472,14 +488,23 @@ function tidy(layout: Layout): void {
   }
 }
 
+/** The tab opened behind last, and the tab that was in front of it then. */
+interface OpenedBehind {
+  tabId: string;
+  shownId: string | null;
+}
+
+/** Applies an `open` change; returns the tab it opened behind, if it did. */
 function open(
   layout: Layout,
   change: Extract<LayoutChange, { type: "open" }>,
   newId: () => string,
-): void {
+  openedBehind: OpenedBehind | null,
+): OpenedBehind | null {
   const { item, place } = change;
   const where = change.where ?? { in: "place" };
-  const focus = change.focus !== false;
+  const behind = change.behind === true;
+  const focus = change.focus !== false && !behind;
   const preview = change.preview === true && item.kind === "document";
   const update = (tab: LayoutTab) => {
     if (change.preview === false || change.keep === true) tab.preview = false;
@@ -490,7 +515,7 @@ function open(
   };
   const reveal = (group: LayoutGroup, tab: LayoutTab) => {
     update(tab);
-    show(layout, group, tab, focus);
+    if (!behind) show(layout, group, tab, focus);
   };
 
   const from =
@@ -498,9 +523,9 @@ function open(
       ? requireGroup(layout, where.from)
       : focusedGroup(layout);
   const shown = from.tabs.find((tab) => tab.id === from.activeTabId);
-  // The Library has one tab per window; anything else is revealed wherever it is open,
-  // and only a tab asked for in a group (Open in a new tab) can be a second one.
-  const found = where.in !== "group" || item.kind === "library" ? findOpen(layout, item) : null;
+  // The Library and Home have one tab per window; anything else is revealed wherever it is
+  // open, and only a tab asked for in a group (Open in a new tab) can be a second one.
+  const found = where.in !== "group" || oneTabEach(item) ? findOpen(layout, item) : null;
   // Showing a Document that is behind the Mind in the group it is opened from would replace
   // the Mind in view: its tab moves to the group a new tab would open in.
   const behindMind =
@@ -511,7 +536,7 @@ function open(
     (where.in === "side" || where.in === "beside");
   if (found && !behindMind) {
     reveal(found.group, found.tab);
-    return;
+    return null;
   }
 
   let target: LayoutGroup;
@@ -539,12 +564,12 @@ function open(
     if (displaced) takeOut(target, displaced);
     const pinned = target.tabs.filter((tab) => tab.pinned).length;
     insert(target, found.tab, found.tab.pinned ? pinned : undefined);
-    show(layout, target, found.tab, focus);
+    if (!behind || target.activeTabId === null) show(layout, target, found.tab, focus);
   } else if (replaced) {
     replaced.item = item;
     replaced.place = place ?? null;
     replaced.opened += 1;
-    show(layout, target, replaced, focus);
+    if (!behind) show(layout, target, replaced, focus);
   } else {
     const tab: LayoutTab = {
       id: newId(),
@@ -555,9 +580,29 @@ function open(
       opened: place ? 1 : 0,
     };
     const at = before ? target.tabs.findIndex((each) => each.id === before) : -1;
-    insert(target, tab, before === undefined ? undefined : at === -1 ? target.tabs.length : at);
-    show(layout, target, tab, focus);
+    // Tabs opened behind one after another keep the order they were opened in, as a browser's do.
+    const chained =
+      behind && openedBehind?.shownId === target.activeTabId
+        ? target.tabs.findIndex((each) => each.id === openedBehind?.tabId)
+        : -1;
+    insert(
+      target,
+      tab,
+      before !== undefined
+        ? at === -1
+          ? target.tabs.length
+          : at
+        : chained === -1
+          ? undefined
+          : chained + 1,
+    );
+    if (!behind || target.activeTabId === null) {
+      show(layout, target, tab, focus);
+      return null;
+    }
+    return { tabId: tab.id, shownId: target.activeTabId };
   }
+  return null;
 }
 
 /** A window's layout and the tabs it closed, with every change it can take. */
@@ -567,6 +612,8 @@ class WindowState {
     private readonly newId: () => string,
     readonly closed: ClosedTab[] = [],
   ) {}
+
+  private openedBehind: OpenedBehind | null = null;
 
   private close(group: LayoutGroup, tab: LayoutTab): void {
     const groupIndex = this.layout.groups.indexOf(group);
@@ -582,9 +629,13 @@ class WindowState {
 
   apply(change: LayoutChange, valid: (item: TabItem) => boolean): void {
     const { layout, newId } = this;
+    const openedBehind = this.openedBehind;
+    this.openedBehind = null;
     switch (change.type) {
       case "open":
-        open(layout, change, newId);
+        // One already open, opened behind again, leaves the run of tabs opened behind as it was.
+        this.openedBehind =
+          open(layout, change, newId, openedBehind) ?? (change.behind ? openedBehind : null);
         break;
       case "show": {
         const { group, tab } = requireTab(layout, change.tabId);
@@ -669,10 +720,10 @@ class WindowState {
     if (!closed) return;
     const { tab, index, groupId, groupIndex } = closed;
     // Opened again since it closed: that tab is shown, not a second one. The
-    // Library has one tab per window; anything else one per group.
-    const library = tab.item.kind === "library" ? findOpen(layout, tab.item) : null;
-    if (library) {
-      show(layout, library.group, library.tab, true);
+    // Library and Home have one tab per window; anything else one per group.
+    const single = oneTabEach(tab.item) ? findOpen(layout, tab.item) : null;
+    if (single) {
+      show(layout, single.group, single.tab, true);
       return;
     }
     const last = layout.groups.at(-1) as LayoutGroup;
@@ -719,8 +770,8 @@ class WindowState {
     if (layout.groups.length >= MAX_TAB_GROUPS) return;
     const { group: from, tab } = requireTab(layout, change.tabId);
     const beside = change.groupId === undefined ? from : requireGroup(layout, change.groupId);
-    // The Library has one tab per window: it moves instead.
-    const copy = change.copy && tab.item.kind !== "library";
+    // The Library and Home have one tab per window: they move instead.
+    const copy = change.copy && !oneTabEach(tab.item);
     if (!copy && from === beside && from.tabs.length === 1) return;
     const index = layout.groups.indexOf(beside);
     const group = addGroup(layout, change.side === "left" ? index : index + 1, beside, this.newId);
@@ -761,7 +812,7 @@ export function createLayouts(deps: LayoutDependencies) {
   const windows = new Map<string, WindowState>();
 
   const exists = (item: TabItem) =>
-    item.kind === "library" ||
+    oneTabEach(item) ||
     (item.kind === "mind" ? deps.mindExists(item.mindId) : deps.documentExists(item.documentId));
 
   /**

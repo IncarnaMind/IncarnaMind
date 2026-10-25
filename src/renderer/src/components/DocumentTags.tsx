@@ -3,6 +3,7 @@ import type { Document, Tag } from "../../../core/api";
 import { organizeHeld, organizesNewDocuments } from "../../../shared/libraryModels";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
+import { taggingProblem } from "../taggingProblem";
 import { placeOf, resumeTagging } from "../taggingStop";
 import { TagLineIcon } from "./lineIcons";
 import { pickerLabel, TagPicker, tagPopoverClass, useTagPopover } from "./TagPicker";
@@ -159,7 +160,7 @@ export function DocumentTagFooter({ item, close }: { item: Document; close(): vo
         {taggingLine && (
           <span
             data-testid="document-tagging"
-            title={item.taggingError?.message}
+            title={item.taggingError ? taggingProblem(item.taggingError, t) : undefined}
             className="flex max-w-28 items-center gap-1.5 px-1 text-[12px] text-ink-meta"
           >
             {item.tagging === "failed" && (

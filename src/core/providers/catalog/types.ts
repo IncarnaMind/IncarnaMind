@@ -60,6 +60,8 @@ export interface Endpoint {
   keyUrl?: string;
   /** This region's prices, when they aren't on the provider's `pricingUrl`. */
   pricingUrl?: string;
+  /** Where credit is added for this region, when it isn't the provider's `billingUrl`. */
+  billingUrl?: string;
 }
 
 /**
@@ -154,6 +156,8 @@ export interface CatalogProvider {
   name: Localized;
   support: Support;
   group: "international" | "china" | "local" | "other";
+  /** A provider with a region in each (Kimi) is listed under the other heading too. */
+  alsoListedIn?: "international" | "china";
   adapter: Adapter;
   /**
    * Its API, one per region, the first the default. Empty for a server the
@@ -173,6 +177,8 @@ export interface CatalogProvider {
   docsUrl?: string;
   /** Its own page of prices ("Pricing ↗" beside a model's estimate), when `docsUrl` isn't it. */
   pricingUrl?: string;
+  /** Where the User adds credit, when the provider is paid in advance and has one page for it ("Add credit ↗" on an out-of-credit refusal). */
+  billingUrl?: string;
   request?: RequestQuirks;
   /** Model ids for the roles it offers. A provider whose models the User names has none. */
   roles: Partial<Record<Role, string>>;
@@ -251,6 +257,12 @@ export interface ModelFacts {
   maxInput: number;
   /** The most it writes in one reply, in tokens. */
   maxOutput: number;
+  /**
+   * It refuses a thinking block once the request's tool list differs from the one the block was
+   * made with (Anthropic): the last step of an Answer keeps the Tools in its request and is told
+   * to call none, instead of choosing none, which drops them (#1344).
+   */
+  toolsEveryRequest: boolean;
   price: Price;
   /** How it cites, when that was measured or the server decides it (a small local model). */
   citing: Citing;

@@ -4,7 +4,7 @@ import { markdownToBlocks } from "../../src/core/answers/markdown";
 import { calculatedCells, chartOfTable } from "../../src/core/tools/minds/charts";
 import { type ChartAttributes, readChart } from "../../src/shared/charts";
 import type { PlacedFigure } from "../../src/shared/figureMarkers";
-import { pendingProposals } from "../../src/shared/proposals";
+import { pendingProposals, proposalRequestOf } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -114,8 +114,7 @@ describe("A chart the User asks the assistant for (#1091)", { timeout: 60_000 },
     const answer = await askAssistant(core, { text: request, mindId: mind.id });
     await client.settled();
 
-    expect(systems.at(-1)).toContain("This request asks for a chart");
-    expect(systems.at(-1)).toContain('kind "bar"');
+    expect(systems.at(-1)).toContain("give chart with the kind the User named");
     const { types, charts, ids } = blocksOf(readMind(client));
     expect(types).toEqual(["paragraph", "table", "chart"]);
     const [chart] = charts;
@@ -134,7 +133,7 @@ describe("A chart the User asks the assistant for (#1091)", { timeout: 60_000 },
     );
   });
 
-  // protects=the kind follows the request: "as a line chart" makes a line chart; fails_when=it is drawn as a bar chart; no_claim=none beyond protects.
+  // protects=the kind the call gives is the kind drawn: "as a line chart" makes a line chart; fails_when=it is drawn as a bar chart; no_claim=that a real model gives the kind asked for.
   test("“as a line chart” makes a line chart", async () => {
     const systems: string[] = [];
     const model = chartingModel({ kind: "line", title: "Revenue by quarter" }, systems);
@@ -146,7 +145,6 @@ describe("A chart the User asks the assistant for (#1091)", { timeout: 60_000 },
     });
     await client.settled();
 
-    expect(systems.at(-1)).toContain('kind "line"');
     expect(blocksOf(readMind(client)).charts.map((chart) => chart.kind)).toEqual(["line"]);
   });
 
@@ -225,6 +223,10 @@ describe("A chart only draws what is cited", { timeout: 60_000 }, () => {
       QUARTERS.map(() => "found"),
     );
     expect(changesIn(answer).at(-1)).toMatchObject({ tables: 1, charts: 1 });
+    // Drawn once cite has recorded, the chart is the write the request is, whatever its words were.
+    expect(proposalRequestOf(client.doc, changesIn(answer).at(-1)?.request ?? "")).toMatchObject({
+      requested: "write",
+    });
   });
 
   // protects=a column the model typed, with no Citation and no calculation (a growth rate), keeps the table and draws no chart, the model and the User told why; fails_when=a chart draws figures nothing backs; no_claim=what a real model then says.
@@ -253,7 +255,7 @@ describe("A chart only draws what is cited", { timeout: 60_000 }, () => {
     const { core, mind, client } = await setUp(model);
 
     const answer = await askAssistant(core, {
-      text: "make a chart of revenue growth by quarter",
+      text: "Could you chart revenue growth by quarter?",
       mindId: mind.id,
     });
     await client.settled();
@@ -261,6 +263,10 @@ describe("A chart only draws what is cited", { timeout: 60_000 }, () => {
     expect(blocksOf(readMind(client)).types).toEqual(["paragraph", "table"]);
     expect(changesIn(answer)[0]).toMatchObject({ tables: 1, chartNotDrawn: "uncited" });
     expect(lastResult(model)).toContain("no Citation and come from no calculation");
+    // The table is a write like any other: it applies at once, chart or none (#1559).
+    expect(proposalRequestOf(client.doc, changesIn(answer)[0]?.request ?? "")).toMatchObject({
+      requested: "write",
+    });
   });
 
   // protects=an uncited table of figures the model made up ("999, 888") draws no chart; fails_when=it charts them; no_claim=none beyond protects.
@@ -277,6 +283,51 @@ describe("A chart only draws what is cited", { timeout: 60_000 }, () => {
 
     expect(blocksOf(readMind(client)).types).toEqual(["paragraph", "table"]);
     expect(changesIn(answer)[0]?.chartNotDrawn).toBe("uncited");
+  });
+});
+
+describe("A chart waiting for cite, the rest of its text revised", { timeout: 60_000 }, () => {
+  // protects=a new Mind's chart that waits for cite is still drawn after its table once a later call of the same Answer revised another section of that text, and its card counts it; fails_when=the chart is dropped, or drawn away from its table; no_claim=how often a real model revises its own text.
+  test("is drawn after its table", async () => {
+    const content = `## Revenue\n\n${TABLE}\n\n## Outlook\n\nSales should keep growing.`;
+    const model = scriptedModel((call): ScriptedReply => {
+      const search = call.results.find((each) => each.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!called(call, "create_mind")) {
+        const chart = { kind: "bar", title: "Revenue" };
+        return {
+          calls: [
+            { tool: "create_mind", input: { title: "Revenue notes", chart, content } },
+            { tool: "cite", input: { citations: citationsIn(search) } },
+          ],
+        };
+      }
+      if (!called(call, "edit_mind")) {
+        const outlook = "## Outlook\n\nSales should keep growing next year.";
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { mind: "Revenue notes", part: "Outlook", content: outlook },
+            },
+          ],
+        };
+      }
+      return { text: "" };
+    });
+    const { core, mind } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "make a note charting revenue",
+      mindId: mind.id,
+    });
+    const [made] = changesIn(answer);
+    const page = await connectToMind(core, made?.mindId ?? "");
+
+    const { types } = blocksOf(readMind(page));
+    expect(types[types.indexOf("table") + 1]).toBe("chart");
+    expect(made).toMatchObject({ created: true, tables: 1, charts: 1 });
+    expect(made?.chartNotDrawn).toBeUndefined();
   });
 });
 
@@ -308,7 +359,9 @@ describe("A chart of a table already in the Mind", { timeout: 60_000 }, () => {
     const answer = await askAssistant(core, { text: "chart this table", mindId: mind.id });
     await client.settled();
 
-    expect(systems.at(-1)).toContain("a chart of a table already in the Mind");
+    expect(systems.at(-1)).toContain(
+      "For a table already in the Mind, call add_to_mind with chart",
+    );
     const { types, charts, ids } = blocksOf(readMind(client));
     expect(types).toEqual(["paragraph", "table", "chart"]);
     expect(charts[0]).toMatchObject({ kind: "line", source: { kind: "table", blockId: ids[1] } });

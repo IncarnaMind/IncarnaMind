@@ -5,7 +5,14 @@ import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import type { CitationAttributes } from "../../../core/api";
 import { citationState } from "../../../shared/citations";
-import { acceptAndCheck, checkSentences, dismissCheckProblem, useChecks } from "../checks";
+import {
+  acceptAndCheck,
+  checkSentences,
+  dismissCheckProblem,
+  setCheckCardOpen,
+  setOpenClaim,
+  useChecks,
+} from "../checks";
 import { ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
@@ -13,17 +20,25 @@ import {
   readinessAlso,
 } from "../components/providers/ChatReadinessNotice";
 import { UnreadFilesLine } from "../components/UnreadFilesLine";
+import { useComposer } from "../composer";
 import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
+import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
 import { originOf } from "./blockOrigins";
-import { coverageOf, keptSentences, sameCoverage, shownClaims } from "./claimChecks";
-import { type NoteHealth as Health, type HealthPart, noteHealth } from "./healthCounts";
+import { useCardPlace } from "./checkPlace";
+import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
+import {
+  everythingChecked,
+  type NoteHealth as Health,
+  type HealthPart,
+  noteHealth,
+} from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { CheckedWhen } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
@@ -35,10 +50,11 @@ const NO_HEALTH: Health = {
   notFound: [],
   unsupported: [],
   contradicted: [],
+  toCheck: [],
+  tableCells: [],
+  citable: [],
   noCitation: [],
-  recheck: [],
-  notChecked: [],
-  unchecked: [],
+  checkable: 0,
 };
 
 /** A count's words with the number in bold, as the badge shows it: "**3** claims not checked yet". */
@@ -55,7 +71,7 @@ export function Counted({ text, count }: { text: string; count: string }) {
 }
 
 /** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
-export function PartMark({ part }: { part: HealthPart }) {
+export function PartMark({ part }: { part: HealthPart | "notChecked" }) {
   switch (part) {
     case "found":
       return <CheckMarkIcon check="found" className="mind-health-icon" />;
@@ -65,8 +81,7 @@ export function PartMark({ part }: { part: HealthPart }) {
       return <ClaimMarkIcon state="unsupported" className="mind-health-icon" />;
     case "contradicted":
       return <ClaimMarkIcon state="contradicted" className="mind-health-icon" />;
-    case "recheck":
-      return <ClaimMarkIcon state="needs-recheck" className="mind-health-icon" />;
+    case "toCheck":
     case "notChecked":
       return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
     case "noCitation":
@@ -87,13 +102,14 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
       timer = undefined;
       if (editor.isDestroyed) return;
       setHealth(
-        noteHealth(
-          editor.state.doc,
-          shownClaims(editor.state),
-          (attributes: CitationAttributes) => citationState(attributes, documents, kept).check,
-          new Set([...skipped, ...keptSentences(editor.state)]),
-          (blockId) => originOf(editor.state, blockId) !== null,
-        ),
+        noteHealth(editor.state.doc, {
+          claims: shownClaims(editor.state),
+          citationCheck: (attributes: CitationAttributes) =>
+            citationState(attributes, documents, kept).check,
+          skipped,
+          kept: keptSpans(editor.state),
+          writtenByAnswer: (blockId) => originOf(editor.state, blockId) !== null,
+        }),
       );
     };
     const later = () => {
@@ -110,14 +126,7 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
   return health;
 }
 
-const ROWS: readonly HealthPart[] = [
-  "contradicted",
-  "unsupported",
-  "notFound",
-  "notChecked",
-  "recheck",
-  "found",
-];
+const ROWS: readonly HealthPart[] = ["contradicted", "unsupported", "notFound", "toCheck", "found"];
 
 /**
  * The check badge's card for a Mind (#96, #909): one row a part of its
@@ -138,6 +147,7 @@ export function HealthCard({
 }) {
   const t = useT();
   const language = useLanguage();
+  const place = useCardPlace(mindId);
   const checkedAll = useMindCheckRun(doc);
   const unread = useCheckUnread(editor, doc);
   const asking = useMindCheck((state) => state.asking[mindId] !== undefined);
@@ -158,6 +168,9 @@ export function HealthCard({
     if (folderId === null) return null;
     return state.library?.groups.find((group) => group.id === folderId)?.name ?? null;
   });
+  const emptyScope = useEmptyScopeLine(
+    problem?.kind === "no-documents" ? (problem.chosen ?? null) : null,
+  );
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
 
   const label = (part: HealthPart, count: number) => {
@@ -167,8 +180,8 @@ export function HealthCard({
         return count === 1 ? t("health.found.one") : t("health.found", shown);
       case "notFound":
         return count === 1 ? t("health.notFound.one") : t("health.notFound", shown);
-      case "recheck":
-        return count === 1 ? t("health.recheck", shown) : t("health.recheck.other", shown);
+      case "toCheck":
+        return t(count === 1 ? "health.toCheck.one" : "health.toCheck", shown);
       default:
         return t(`health.${part}`, shown);
     }
@@ -176,7 +189,9 @@ export function HealthCard({
 
   /**
    * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just
-   * after its marker, where its state shows, so a key can't take the Citation away.
+   * after its marker, where its state shows, so a key can't take the Citation away. It is
+   * centred by its own position, not its paragraph's, which can be taller than the page, and clear
+   * of the fade and the badge at the page's foot.
    */
   const goToNext = (part: HealthPart) => {
     if (editor.isDestroyed) return;
@@ -187,10 +202,20 @@ export function HealthCard({
     if (next === undefined) return;
     const { doc } = editor.state;
     const at = Math.min(next, doc.content.size);
-    editor.view.dispatch(
-      editor.state.tr.setSelection(TextSelection.near(doc.resolve(at))).scrollIntoView(),
-    );
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(doc.resolve(at))));
     editor.view.focus();
+    const scroller = editor.view.dom.closest(".mind-scroller");
+    if (scroller) {
+      const caret = editor.view.coordsAtPos(cited ? at - 1 : at);
+      const area = scroller.getBoundingClientRect();
+      scroller.scrollTop += (caret.top + caret.bottom) / 2 - (area.top + area.bottom) / 2;
+    }
+    const claim = cited
+      ? undefined
+      : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
+    if (!claim) return;
+    setCheckCardOpen(place, false);
+    setOpenClaim(place, claim.check.id);
   };
 
   const rows = ROWS.filter((part) => health[part].length > 0);
@@ -231,22 +256,21 @@ export function HealthCard({
       <AddedDocumentsLine doc={doc} mindId={mindId} />
       <div className="check-rows" data-testid="mind-health">
         {rows.map(row)}
-        {health.unchecked.length > 0 && (
-          <div className="check-row" data-testid="health-unchecked">
-            <span className="check-row-mark" />
-            <span className="check-row-text">
-              <Counted
-                text={t(
-                  health.unchecked.length === 1 ? "health.unchecked.one" : "health.unchecked",
-                  { count: format(health.unchecked.length) },
-                )}
-                count={format(health.unchecked.length)}
-              />
-            </span>
-          </div>
-        )}
         {health.noCitation.length > 0 && row("noCitation")}
       </div>
+      {health.tableCells.length > 0 && (
+        <p data-testid="health-table-cells" className="mind-health-line">
+          {t("health.tableCells", { count: format(health.tableCells.length) })}
+        </p>
+      )}
+      {everythingChecked(health, {
+        running: running !== undefined,
+        problem: problem !== undefined,
+      }) && (
+        <p data-testid="health-all-checked" className="mind-health-line mind-health-note">
+          {t("health.allChecked")}
+        </p>
+      )}
       {checkedAll && !running && (
         <div className="check-card-note">
           <CheckedWhen run={checkedAll} />
@@ -297,15 +321,47 @@ export function HealthCard({
                 ? () => void startMindCheck(mindId, "all", { allDocuments: true })
                 : coverage.range && coverage.action
                   ? () =>
-                      void checkSentences(editor, mindId, doc, coverage.action ?? "find-support", {
-                        ...(coverage.range && { ranges: [coverage.range] }),
-                        allDocuments: true,
-                      })
+                      void checkSentences(
+                        editor,
+                        mindId,
+                        doc,
+                        coverage.action ?? "check-against-documents",
+                        {
+                          ...(coverage.range && { ranges: [coverage.range] }),
+                          allDocuments: true,
+                        },
+                      )
                   : undefined
           }
         />
       )}
-      {!running && problem?.kind === "no-documents" && (
+      {!running && problem?.kind === "no-documents" && emptyScope !== null && (
+        <ProblemLine
+          testId="checks-problem"
+          className="mind-health-line"
+          action={
+            problem.checkAll && {
+              label: t("checks.checkAll"),
+              testId: "checks-check-all",
+              onClick: () => {
+                dismissCheckProblem(mindId);
+                problem.checkAll?.();
+              },
+            }
+          }
+          also={{
+            label: t("checks.changeScope"),
+            testId: "checks-change-scope",
+            onClick: () => {
+              dismissCheckProblem(mindId);
+              useComposer.getState().requestScope();
+            },
+          }}
+        >
+          {emptyScope}
+        </ProblemLine>
+      )}
+      {!running && problem?.kind === "no-documents" && emptyScope === null && (
         <ProblemLine
           testId="checks-problem"
           className="mind-health-line"

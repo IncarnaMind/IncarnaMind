@@ -25,7 +25,7 @@ const matches = (provider: CatalogProvider, query: string): boolean => {
   );
 };
 
-/** Each provider once: under Popular where it is popular, else in its own group. Empty groups are left out. */
+/** Each provider once: under Popular where it is popular, else in its own group; one with a region in two groups (`alsoListedIn`) also in the other. Empty groups are left out. */
 export function directoryGroups(
   language: Language,
   query = "",
@@ -38,7 +38,11 @@ export function directoryGroups(
       providers:
         group === "popular"
           ? popular.flatMap((id) => shown.filter((provider) => provider.id === id))
-          : shown.filter((provider) => provider.group === group && !popular.includes(provider.id)),
+          : shown.filter(
+              (provider) =>
+                (provider.group === group && !popular.includes(provider.id)) ||
+                provider.alsoListedIn === group,
+            ),
     }))
     .filter((each) => each.providers.length > 0);
 }

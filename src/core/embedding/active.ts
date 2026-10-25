@@ -39,6 +39,7 @@ import type {
 } from "../api";
 import type { Consent } from "../consent";
 import { ConsentDeclinedError, EmbeddingModelNotReadyError, InvalidInputError } from "../errors";
+import { storedApiKey } from "../providers/apiKey";
 import {
   type ApiEmbeddingChoice,
   type ApiEmbeddingModel,
@@ -260,7 +261,7 @@ export function createActiveEmbedding(options: {
 
     /** The key, if the provider takes one; throws (setting the error) when a required one is missing. */
     const key = async (): Promise<string | null> => {
-      const apiKey = await secrets.tryGet(KEY_NAME);
+      const apiKey = storedApiKey(await secrets.tryGet(KEY_NAME));
       if (!apiKey && embeddingKeyRequired(choice.kind)) {
         throw new EmbeddingUnavailableError(
           `No API key for ${embeddingProviderName(choice)} can be read on this device.`,
@@ -417,7 +418,7 @@ export function createActiveEmbedding(options: {
       saved !== null &&
       saved.kind === parsed.choice.kind &&
       saved.baseUrl === parsed.choice.baseUrl;
-    return sameServer ? await secrets.tryGet(KEY_NAME) : null;
+    return sameServer ? storedApiKey(await secrets.tryGet(KEY_NAME)) : null;
   }
 
   function refuseCloudInLocalMode(service: ExternalService | null): void {

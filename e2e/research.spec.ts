@@ -329,12 +329,12 @@ test("with a model that can't search the web, Research says it reads the Library
     await window.keyboard.type("/res");
     const offer = window.getByTestId("slash-item-research");
     await expect(offer).toContainText(
-      "Searches the Library only, then drafts with Citations. fake-model can’t search the web",
+      "Searches the Library only, then drafts with Citations. fake-model can’t search the web.",
     );
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("composer-research")).toHaveAttribute(
       "title",
-      "Searches the Library only, then drafts with Citations. fake-model can’t search the web",
+      "Searches the Library only, then drafts with Citations. fake-model can’t search the web.",
     );
     await window.keyboard.type("Spring tides, no plan");
     await window.keyboard.press("Enter");
@@ -353,6 +353,99 @@ test("with a model that can't search the web, Research says it reads the Library
     await screenshot(window, "research-library-only-en");
     await step.fill("Read the tide tables in the Library");
     await expect(card.getByTestId("research-plan-start")).toBeEnabled();
+    await app.close();
+  } finally {
+    ollama.server.close();
+  }
+});
+
+for (const [language, said, choose] of [
+  [
+    "en",
+    "Couldn’t make a plan: The model used its whole reply thinking and sent no steps. Write the steps yourself, or choose another model.",
+    "Choose another model",
+  ],
+  [
+    "zh-CN",
+    "未能制定计划：模型把回复全用在了思考上，没有给出步骤。你可以自己写步骤，或换一个模型。",
+    "换一个模型",
+  ],
+] as const) {
+  test(`a model that thinks through its whole plan reply says so, and offers another model rather than Try again (${language})`, async () => {
+    const ollama = await ollamaListing(["fake-model-always-thinks"]);
+    try {
+      const { app, window } = await launchApp(dataDir, { fakeChat: true, home });
+      await dismissChatSetup(window);
+      await setWindowSize(app, window, 1100, 760);
+      await window.evaluate(async (baseUrl) => {
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider({
+          kind: "ollama",
+          baseUrl,
+          modelId: "fake-model-always-thinks",
+        });
+      }, ollama.url);
+      await newMind(window);
+      await window.keyboard.type("Tide notes");
+      await setLanguage(window, language);
+
+      await window.keyboard.press("ControlOrMeta+j");
+      await window.keyboard.type("/res");
+      await window.keyboard.press("Enter");
+      await window.keyboard.type("Spring tides");
+      await window.keyboard.press("Enter");
+
+      const failed = window.getByTestId("research-plan").getByTestId("research-plan-failed");
+      await expect(failed).toContainText(said);
+      await expect(failed.getByRole("button")).toHaveText(choose);
+      await pointAndClick(window, failed.getByRole("button"));
+      await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
+      await app.close();
+    } finally {
+      ollama.server.close();
+    }
+  });
+}
+
+test("with the thinking model picked in the chip, Choose another model opens the chip's menu, and another model there makes the plan", async () => {
+  const ollama = await ollamaListing(["fake-model", "fake-model-always-thinks"]);
+  try {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true, home });
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1100, 760);
+    await window.evaluate(async (baseUrl) => {
+      await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider({
+        kind: "ollama",
+        baseUrl,
+        modelId: "fake-model",
+      });
+    }, ollama.url);
+    await newMind(window);
+    await window.keyboard.type("Tide notes");
+    const pick = async (name: string) => {
+      const option = window
+        .getByTestId("composer-model-menu")
+        .getByTestId("composer-model-option")
+        .filter({ hasText: name });
+      await pointAndClick(window, option.first());
+    };
+    await pointAndClick(window, window.getByTestId("composer-model"));
+    await pick("fake-model-always-thinks");
+
+    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.type("/res");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("Spring tides");
+    await window.keyboard.press("Enter");
+    const card = window.getByTestId("research-plan");
+    const failed = card.getByTestId("research-plan-failed");
+    await expect(failed.getByRole("button")).toHaveText("Choose another model");
+
+    await pointAndClick(window, failed.getByRole("button"));
+    await expect(window.getByTestId("composer-model-menu")).toBeVisible();
+    await expect(window.getByTestId("settings")).toBeHidden();
+    await pick("fake-model");
+    await expect(card.getByTestId("research-plan-step")).toHaveCount(3);
+    await expect(failed).toHaveCount(0);
     await app.close();
   } finally {
     ollama.server.close();

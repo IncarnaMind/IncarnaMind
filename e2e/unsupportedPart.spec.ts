@@ -20,7 +20,7 @@ import {
 
 /**
  * A cited sentence's Unsupported card says what its Citations support and what
- * they don't, and never "Nothing in your Documents says this", which a sentence
+ * they don't, and never that it didn't find the sentence, which a sentence
  * with no Citation keeps. The scripted model (src/main/fakeChat/checks.ts)
  * finds the sentences listed in `PARTLY` partly supported, and gives a
  * sentence that says "no reason" no reason.
@@ -53,7 +53,7 @@ const LANGUAGES = {
       "Your Citations support the speed comparison, not the parts about memory and robustness.",
     coversOne:
       "Your Citation supports the harbour times, not the parts about the scaling constraint.",
-    nothing: "Nothing in your Documents says this.",
+    nothing: "I didn’t find this in “All Documents”.",
     noReason: "The check gave no reason",
     checkAgain: "Check again",
     open: (number: number) => `Open citation ${number}`,
@@ -65,7 +65,7 @@ const LANGUAGES = {
     first: "教程讨论了",
     covers: "引用支持速度比较，但不支持内存和鲁棒性的部分。",
     coversOne: "引用支持the harbour times，但不支持the scaling constraint的部分。",
-    nothing: "你的文档中没有内容提到这一点。",
+    nothing: "未在“全部文档”中找到。",
     noReason: "核对没有给出原因",
     checkAgain: "重新核对",
     open: (number: number) => `打开引用 ${number}`,

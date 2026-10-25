@@ -74,9 +74,10 @@ import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
 import {
   DOCUMENT_EXTENSIONS,
-  isInside,
+  isLegacyCopy,
   openFile,
   openImageBeside,
+  pathIn,
   relativePath,
   type StatIdentity,
 } from "./files";
@@ -98,6 +99,7 @@ import {
   unreadMessage,
 } from "./processing";
 import { createProcessor } from "./processor";
+import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
 import { type TextRecognitionModel, TextRecognitionUnavailableError } from "./scan";
 import { MIN_PAGE_TEXT } from "./scan/pages";
 import {
@@ -430,8 +432,11 @@ export interface DocumentsOptions {
    * scanned pages are left with the little text they have, as before.
    */
   textRecognition?: TextRecognitionModel;
+  /** How many scans are read at once (./processor, `scansAtOnce`). */
+  scansAtOnce?: number;
   /** The password kept for a locked PDF (./pdfPasswords, #763); undefined when none is. */
   pdfPassword?(documentId: string): Promise<string | undefined>;
+  readingSpeed: Pick<ReadingMeterOptions, "read" | "write">;
   linkedFolders: {
     watch: WatchFolder;
     stat: StatIdentity;
@@ -474,12 +479,6 @@ export function createDocuments(options: DocumentsOptions) {
   const { textRecognition } = options;
   /** Where reading each Document's scanned pages is, while its job reads them (#397). */
   const scanProgress = new Map<string, DocumentScanProgress>();
-  /**
-   * Scanned pages read by a job that didn't finish (stopped, paused, or the
-   * worker crashed), by Document, with their version: the next job uses
-   * them rather than reading them again. Kept for this session only.
-   */
-  const partialScans = new Map<string, { contentHash: string; units: Map<number, TextUnit> }>();
 
   /** The scanned pages of a Document's current version that couldn't be read (see "pages-unread"). */
   const unreadPages = (row: Pick<DocumentRow, "id" | "content_hash">): number[] =>
@@ -543,7 +542,8 @@ export function createDocuments(options: DocumentsOptions) {
       pageCount: row.page_count,
       status,
       progress: status === "embedding" ? progressOf(row) : null,
-      scan: status === "extracting" ? (scanProgress.get(row.id) ?? null) : null,
+      scan:
+        status === "extracting" || status === "queued" ? (scanProgress.get(row.id) ?? null) : null,
       failure: failed
         ? {
             reason: (row.failure_reason ?? "processing-error") as DocumentFailureReason,
@@ -644,12 +644,58 @@ export function createDocuments(options: DocumentsOptions) {
         });
       }
     }
-    const partial = partialScans.get(row.id);
-    if (partial && partial.contentHash !== row.content_hash) {
-      return { contentHash: partial.contentHash, units: [...partial.units.values()] };
-    }
-    for (const [page, unit] of partial?.units ?? []) keep.set(page, unit);
+    const unfinished = unfinishedScan(row);
+    if (unfinished) return unfinished;
     return keep.size > 0 ? { contentHash: row.content_hash, units: [...keep.values()] } : null;
+  }
+
+  // A read that a quit, a crash or a stop ended leaves the pages of a version not yet indexed
+  // (#1504); the job uses them only if the file is still that version.
+  function unfinishedScan(row: Pick<DocumentRow, "id" | "content_hash">): ScanJob["keep"] {
+    const latest = db.get<{ content_hash: string }>(
+      `SELECT content_hash FROM document_pages
+       WHERE document_id = ? AND deleted_at IS NULL
+         AND json_extract(label, '$.scan.reader') IS NOT NULL
+       ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      [row.id],
+    );
+    if (!latest || latest.content_hash === row.content_hash) return null;
+    const units = db
+      .all<UnitRow>(
+        `SELECT page, text, kind, label, anchors FROM document_pages
+         WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL
+           AND json_extract(label, '$.scan.reader') = ?
+           AND json_extract(label, '$.scan.unread') IS NOT 1
+         ORDER BY page`,
+        [row.id, latest.content_hash, textRecognition?.reader ?? ""],
+      )
+      .map(toUnitText)
+      .map(
+        (unit): TextUnit => ({
+          page: unit.page ?? 0,
+          kind: unit.kind ?? "page",
+          label: unit.label ?? null,
+          text: unit.text,
+          anchors: unit.anchors ?? null,
+        }),
+      );
+    return units.length > 0 ? { contentHash: latest.content_hash, units } : null;
+  }
+
+  // Written as soon as it is read, so a quit or a crash keeps it (#1504); the finished read
+  // writes them all again.
+  function keepScannedPage(documentId: string, contentHash: string, unit: TextUnit): void {
+    db.transaction(() => {
+      // A job stopped meanwhile read it all the same: the next one keeps it.
+      if (!find(documentId)) return;
+      const at = now();
+      db.run(
+        `UPDATE document_pages SET deleted_at = ?, updated_at = ?
+         WHERE document_id = ? AND content_hash = ? AND page = ? AND deleted_at IS NULL`,
+        [at, at, documentId, contentHash, BigInt(unit.page)],
+      );
+      insertPages(documentId, contentHash, [unit]);
+    });
   }
 
   const jobFor = (
@@ -673,6 +719,13 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists.
   let isPaused = (_documentId: string) => false;
 
+  const reading = createReadingMeter({
+    ...options.readingSpeed,
+    clock: () => performance.now(),
+    embedding: () => (model.enabled() ? model.id : ""),
+    reportError,
+  });
+
   const embedding = createEmbeddingQueue({
     db,
     now,
@@ -680,6 +733,7 @@ export function createDocuments(options: DocumentsOptions) {
     vectors,
     announce,
     onReady: options.onReady,
+    onEmbedded: (id, ms) => reading.embedded(id, ms),
     isPaused: (id) => isPaused(id),
   });
 
@@ -953,9 +1007,21 @@ export function createDocuments(options: DocumentsOptions) {
   let checkFile = (_path: string) => {};
 
   const processor = createProcessor({
-    onStart(job) {
-      if (find(job.documentId)?.status !== "queued") return;
+    scansAtOnce: options.scansAtOnce,
+    onStart(job, warm) {
+      reading.started(job.documentId, warm);
+      const row = find(job.documentId);
+      if (row?.status !== "queued") return undefined;
       setStatus(job.documentId, "extracting");
+      announce(job.documentId);
+      // A job queued again while one before it ran keeps the pages that one read meanwhile.
+      return job.scan ? { ...job, scan: { ...job.scan, keep: keptScans(row) } } : undefined;
+    },
+    onWaiting(job) {
+      // Queued, a quit doesn't count it as what stopped the app; its scan progress, kept, says
+      // it is a scan waiting its turn.
+      if (find(job.documentId)?.status !== "extracting") return;
+      setStatus(job.documentId, "queued");
       announce(job.documentId);
     },
     onProgress(job, { contentHash, read, of, unit }) {
@@ -964,14 +1030,9 @@ export function createDocuments(options: DocumentsOptions) {
         read,
         of: job.kind === "web" ? "pictures" : "scanned-pages",
       });
-      if (unit) {
-        let partial = partialScans.get(job.documentId);
-        if (partial?.contentHash !== contentHash) {
-          partial = { contentHash, units: new Map() };
-          partialScans.set(job.documentId, partial);
-        }
-        // A page that couldn't be read is read again by the next job.
-        if (!unit.label?.scan?.unread) partial.units.set(unit.page, unit);
+      // A page that couldn't be read is read again by the next job; a web page's pictures are few.
+      if (unit && job.kind === "pdf" && !unit.label?.scan?.unread) {
+        keepScannedPage(job.documentId, contentHash, unit);
       }
       announce(job.documentId);
     },
@@ -993,14 +1054,13 @@ export function createDocuments(options: DocumentsOptions) {
     isUnavailable: (error) => error instanceof TextRecognitionUnavailableError,
     password: async (job) => options.pdfPassword?.(job.documentId),
     onResult(job, result) {
-      scanProgress.delete(job.documentId);
-      // Pages read by a job that stopped or crashed wait for the next; any other result has them.
-      if (result.outcome !== "stopped" && result.outcome !== "crashed") {
-        partialScans.delete(job.documentId);
-      }
+      const scanned = scanProgress.delete(job.documentId);
       const recorded = record(job, result);
       if (recorded === undefined) return; // deleted, or queued again, while processing
       const { status, replaced } = recorded;
+      if (result.outcome === "ready" && !scanned) {
+        reading.processed(job.documentId, job.kind, result.size, status === "ready");
+      }
       // Any vectors from an earlier processing went with the old Passages.
       if (replaced) vectors.removeDocument(job.documentId);
       if (result.outcome === "file-unreadable") {
@@ -1266,6 +1326,7 @@ export function createDocuments(options: DocumentsOptions) {
     for (const id of ids) {
       vectors.removeDocument(id);
       processor.cancel(id);
+      reading.forget(id);
     }
     // Pushed first, so a Citation quoting what is kept never shows "can't check" meanwhile.
     if (keep) options.emitKept?.(keptCitationTexts());
@@ -1274,15 +1335,21 @@ export function createDocuments(options: DocumentsOptions) {
 
   // Startup: Documents copied into the data folder by the old layout (before
   // ADR-0010) are files kept there, until the User links their originals.
-  // Each copy gets its kind's extension, so another app can open it.
-  for (const row of db.all<{ id: string; content_hash: string; kind: string }>(
-    "SELECT id, content_hash, kind FROM documents WHERE deleted_at IS NULL AND path IS NULL",
+  // Each copy gets its kind's extension, so another app can open it. One
+  // deleted then can still be restored, so it gets its path too, after the live
+  // ones and without renaming: its copy went with the delete, unless a live one
+  // with the same content, maybe of another kind, still has it.
+  for (const row of db.all<{ id: string; content_hash: string; kind: string; deleted: number }>(
+    `SELECT id, content_hash, kind, deleted_at IS NOT NULL AS deleted FROM documents
+     WHERE path IS NULL AND purged_at IS NULL ORDER BY deleted`,
   )) {
     const bare = join(legacyFolder, row.content_hash);
     const extension = DOCUMENT_EXTENSIONS[row.kind as DocumentKind]?.[0];
     const named = extension ? `${bare}.${extension}` : bare;
     try {
-      if (named !== bare && !existsSync(named) && existsSync(bare)) renameSync(bare, named);
+      if (!row.deleted && named !== bare && !existsSync(named) && existsSync(bare)) {
+        renameSync(bare, named);
+      }
     } catch (error) {
       reportError(error);
     }
@@ -1301,8 +1368,12 @@ export function createDocuments(options: DocumentsOptions) {
     stat: options.linkedFolders.stat,
     retryMs: options.linkedFolders.retryMs,
     detectDataless: options.linkedFolders.detectDataless,
+    readingSeconds: (files) => reading.seconds(files),
     hooks: {
       process,
+      stillQueued: (id) => {
+        if (find(id)?.status === "queued" && !processor.has(id)) process(id);
+      },
       announce,
       added: (id) => options.onFound?.(id),
       moved: (ids) => {
@@ -1485,7 +1556,7 @@ export function createDocuments(options: DocumentsOptions) {
    * Documents already embedded with it stay ready. `thorough` also finds ready
    * Documents with a Passage that has no vector yet, as one can after a time
    * with embeddings off: their vectors from the model are kept, and only the
-   * missing ones made.
+   * missing ones made. `only` leaves the other Documents as they are.
    *
    * While embeddings are off, the other way round: a Document being embedded,
    * or waiting for the model, is ready, since its keyword index is; any
@@ -1493,13 +1564,16 @@ export function createDocuments(options: DocumentsOptions) {
    *
    * Returns the Documents whose status changed.
    */
-  function embedWithCurrentModel(thorough = false): string[] {
+  function embedWithCurrentModel(thorough = false, only?: readonly string[]): string[] {
+    const filter = only === undefined ? "" : " AND id IN (SELECT value FROM json_each(?))";
+    const ids = only === undefined ? [] : [JSON.stringify(only)];
     if (!model.enabled()) {
       const readied = db.transaction(() => {
         const rows = db.all<{ id: string }>(
           `SELECT id FROM documents
-           WHERE deleted_at IS NULL AND status IN ('embedding', 'waiting-for-model')
+           WHERE deleted_at IS NULL AND status IN ('embedding', 'waiting-for-model')${filter}
            ORDER BY created_at, rowid`,
+          ids,
         );
         for (const { id } of rows) setStatus(id, "ready");
         return rows.map((row) => row.id);
@@ -1524,8 +1598,9 @@ export function createDocuments(options: DocumentsOptions) {
                      AND p.deleted_at IS NULL AND p.embedding IS NULL)`
                : ""
            })
+           ${only === undefined ? "" : "AND d.id IN (SELECT value FROM json_each(?))"}
          ORDER BY d.created_at, d.rowid`,
-        [model.id],
+        [model.id, ...ids],
       );
       const target = ready ? "embedding" : "waiting-for-model";
       return rows.filter((row) => {
@@ -2175,7 +2250,11 @@ export function createDocuments(options: DocumentsOptions) {
       added?: (documentId: string) => void,
     ): Promise<Omit<AddDocumentsResult, "batchId">> {
       const paths = parsePaths(input);
-      const results = await library.addFiles(paths, added);
+      const brought: string[] = [];
+      const results = await library.addFiles(paths, (documentId) => {
+        brought.push(documentId);
+        added?.(documentId);
+      });
       const documents: Document[] = [];
       const skipped: SkippedFile[] = [];
       results.forEach((result, at) => {
@@ -2189,7 +2268,7 @@ export function createDocuments(options: DocumentsOptions) {
           });
         }
       });
-      return { documents, skipped };
+      return { documents, skipped, added: brought };
     },
 
     /** See the library's `newVersionFrom`: a newer draft of a Word file imported before (#720). */
@@ -2281,6 +2360,19 @@ export function createDocuments(options: DocumentsOptions) {
         .map(toDocument);
     },
 
+    /** The live Documents (of these, or all of them) whose text is still being read: queued or extracting, newest first. */
+    reading(documentIds?: readonly string[]): Document[] {
+      const { where, params } = filterWhere(documentIds ? { ids: documentIds } : {});
+      return db
+        .all<DocumentRow>(
+          `SELECT ${COLUMNS} FROM documents
+           WHERE ${where} AND status IN ('queued', 'extracting')
+           ORDER BY created_at DESC, rowid DESC`,
+          params,
+        )
+        .map(toDocument);
+    },
+
     /** A live Document. Throws NotFoundError for an unknown or deleted one. */
     get(idInput: unknown): Document {
       const row = find(parseId(idInput));
@@ -2365,11 +2457,11 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     /**
-     * Removes Documents from the index, all in one step, or none when one isn't found. The
-     * User's files aren't touched; only copies the old layout made in the data folder go with
-     * them.
+     * Removes Documents from the index, all in one step, or none when one isn't found. No file
+     * is touched: a copy the old layout made in the data folder goes once its Document is
+     * deleted permanently (`dropPurged`).
      */
-    async delete(idsInput: unknown): Promise<string[]> {
+    delete(idsInput: unknown): string[] {
       const ids = [...new Set((Array.isArray(idsInput) ? idsInput : [idsInput]).map(parseId))];
       const rows = ids.map((id) => {
         const row = find(id);
@@ -2377,11 +2469,6 @@ export function createDocuments(options: DocumentsOptions) {
         return row;
       });
       removeFromIndex(ids, now());
-      for (const row of rows) {
-        if (row.path !== legacyFolder && isInside(legacyFolder, row.path)) {
-          await rm(row.path, { force: true }).catch(reportError);
-        }
-      }
       // Once a Linked folder, not once a Document: 1,700 Documents took 90 s one by one (#1349).
       for (const linkedFolderId of new Set(rows.map((row) => row.linked_folder_id))) {
         library.documentsChanged(linkedFolderId);
@@ -2465,7 +2552,42 @@ export function createDocuments(options: DocumentsOptions) {
         if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id);
         if (row.status === "waiting-for-model") model.ensure();
       }
+      // A Document back from an unlinked Linked folder lost its vectors with it: they are embedded again (#1292).
+      for (const id of embedWithCurrentModel(true, ids))
+        if (!embedding.isEmbedding(id)) announce(id);
       for (const linkedFolderId of linkedFolders) library.documentsChanged(linkedFolderId);
+      const copies = db
+        .all<{ path: string; relative_path: string }>(
+          `SELECT path, relative_path FROM documents
+           WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL
+             AND source_kind = 'data-folder' AND relative_path IS NOT NULL`,
+          [JSON.stringify(ids)],
+        )
+        .filter((row) => isLegacyCopy(dataDir, pathIn(dataDir, row.relative_path)))
+        .map((row) => row.path);
+      // Builds before #1432 removed the copy at delete: one gone shows missing now, not when opened.
+      if (copies.length > 0) library.check(copies).catch(reportError);
+    },
+
+    /**
+     * Removes the old layout's copies of Documents deleted permanently, each once no Document
+     * that can still come back is at its place. Again at each start, for a quit that cut it short.
+     */
+    async dropPurged(): Promise<void> {
+      // By place, not by path: a Document added from a data folder reached through a link has
+      // the path with links resolved, an old one the path as the app was given it.
+      const copies = db
+        .all<{ relative_path: string }>(
+          `SELECT DISTINCT d.relative_path FROM documents d
+           WHERE d.purged_at IS NOT NULL AND d.source_kind = 'data-folder'
+             AND d.linked_folder_id IS NULL AND d.relative_path IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM documents o WHERE o.purged_at IS NULL
+               AND (o.path = d.path
+                    OR (o.source_kind = 'data-folder' AND o.relative_path = d.relative_path)))`,
+        )
+        .map((row) => pathIn(dataDir, row.relative_path))
+        .filter((path) => isLegacyCopy(dataDir, path));
+      await Promise.all(copies.map((path) => rm(path, { force: true }).catch(reportError)));
     },
 
     /**
@@ -2711,6 +2833,7 @@ export function createDocuments(options: DocumentsOptions) {
       library.close();
       embedding.close();
       processor.close();
+      reading.close();
       // Closed in good order, a Document being read is read again at the next start; one
       // still "extracting" then is one whose reading stopped the app (see `unfinished`).
       db.run(

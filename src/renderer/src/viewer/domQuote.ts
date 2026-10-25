@@ -68,15 +68,19 @@ function blockOf(node: Node): Element | null {
   return current;
 }
 
+/** The text nodes as the pieces of one text, a line break between blocks. */
+export const piecesOf = (nodes: readonly Text[]): TextPiece[] =>
+  nodes.map((node, index) => ({
+    text: node.data,
+    breakAfter: index + 1 < nodes.length && blockOf(node) !== blockOf(nodes[index + 1] as Node),
+  }));
+
 /**
  * Finds `quote` in `nodes` and wraps what it covers in marks; returns them in
  * order, or null if the quote isn't there.
  */
 export function markQuote(nodes: readonly Text[], quote: string): HTMLElement[] | null {
-  const pieces: TextPiece[] = nodes.map((node, index) => ({
-    text: node.data,
-    breakAfter: index + 1 < nodes.length && blockOf(node) !== blockOf(nodes[index + 1] as Node),
-  }));
+  const pieces = piecesOf(nodes);
   const found = findQuoteInPieces(pieces, quote);
   if (!found || found.length === 0) return null;
   const marks: HTMLElement[] = [];

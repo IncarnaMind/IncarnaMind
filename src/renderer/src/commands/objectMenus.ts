@@ -6,12 +6,7 @@ import { registerMenu, registerMixedMenu } from "./menus";
  * Export… (the Export button's short menu: the formats, its options), then the AI use statement
  * (#739) and the check record (#738). The formats themselves are in that menu and in ⌘K.
  */
-const EXPORTS = [
-  "mind.exportMenu",
-  "mind.aiUseStatement",
-  "mind.checkRecord.pdf",
-  "mind.checkRecord.csv",
-] as const;
+const EXPORTS = ["mind.exportMenu", "mind.aiUseStatement", "mind.checkRecord"] as const;
 
 registerMenu("mind", [
   "mind.open",
@@ -37,6 +32,8 @@ registerMenu("document", [
   "document.openMind",
   "document.ask",
   "document.startMind",
+  "document.accept",
+  "document.reject",
   "document.moveTo",
   "folder.newWith",
   "document.tags",
@@ -78,7 +75,6 @@ registerMixedMenu(["selection.moveTo", "selection.delete"]);
 
 registerMenu("linkedFolder", [
   "linkedFolder.pause",
-  "linkedFolder.layout",
   "folder.sort",
   "linkedFolder.download",
   "linkedFolder.reveal",
@@ -127,7 +123,12 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
-registerMenu("citation", ["citation.open", "citation.remove"]);
+registerMenu("citation", [
+  "citation.open",
+  "citation.update",
+  "citation.keepOld",
+  "citation.remove",
+]);
 
 registerMenu("chart", [
   "chart.table",

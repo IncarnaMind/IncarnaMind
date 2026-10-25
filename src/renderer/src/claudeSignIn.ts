@@ -11,6 +11,7 @@ import { catalogProvider } from "../../core/providers/catalog/providers";
 import { core } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
+import { clearModelFailure } from "./modelHealth";
 import { useAppStore } from "./store";
 
 export interface ClaudeSignInFailure {
@@ -60,17 +61,18 @@ export function claudeSignInOffered(): boolean {
 let latest = 0;
 let cancelled = false;
 
-async function chooseClaudePlan(keepDefault: boolean): Promise<void> {
+async function chooseClaudePlan(keepDefault: boolean): Promise<string> {
   const providers = await core.listChatProviders();
   const existing = providers.find((provider) => provider.kind === "claude-account");
   const chatModel = useAppStore.getState().settings?.user.chatModel ?? null;
-  if (existing && (keepDefault || chatModel?.providerId === existing.id)) return;
+  if (existing && (keepDefault || chatModel?.providerId === existing.id)) return existing.id;
   const modelId = catalogProvider("anthropic")?.roles.answers;
   if (!modelId) throw new Error("The catalog names no Answers model for Anthropic.");
-  await core.saveChatProvider({ kind: "claude-account", modelId });
+  const saved = await core.saveChatProvider({ kind: "claude-account", modelId });
   if (keepDefault && chatModel) {
     await useAppStore.getState().updateSettings({ user: { chatModel } });
   }
+  return saved.id;
 }
 
 /**
@@ -93,7 +95,7 @@ export async function signInWithClaude(options: { keepDefault?: boolean } = {}):
       return false;
     }
     useClaudeSignIn.setState({ status: result?.status ?? current });
-    await chooseClaudePlan(options.keepDefault === true);
+    clearModelFailure(await chooseClaudePlan(options.keepDefault === true));
     return true;
   } catch (error) {
     failure = { kind: "failed", message: errorMessage(error, translateNow) };

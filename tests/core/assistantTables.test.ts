@@ -178,7 +178,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
     expect(changesIn(answer)).toEqual([
       { mindId: mind.id, created: false, request: expect.any(String), proposals: 1, tables: 1 },
     ]);
-    expect(lastResult(model)).toContain("Proposed 1 change in “Tides”");
+    expect(lastResult(model)).toContain("Changed 1 place in “Tides”");
     expect(lastResult(model)).toContain("One of them adds a table.");
     await resolveChanges(client, "accept");
     expect(tablesIn(readMind(client))).toEqual([EXPECTED_ROWS]);
@@ -217,8 +217,16 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         proposals: 2,
         tables: 1,
         cited: 1,
-        // The cell's sentence was checked before it landed (#1111).
-        selfCheck: { request: expect.any(String), cited: 1, sent: 1, checked: 1, failed: 0 },
+        // The one cited claim was checked before it landed; the two with none are left to Check the rest (#1111, #1909).
+        selfCheck: {
+          request: expect.any(String),
+          blocks: expect.any(Array),
+          checkable: 3,
+          cited: 1,
+          sent: 1,
+          checked: 1,
+          failed: 0,
+        },
       },
     ]);
     expect(lastResult(model)).toContain("One of them adds a table.");

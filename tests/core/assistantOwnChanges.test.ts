@@ -411,7 +411,7 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     expect(shownWithChanges(client).slice(-2)).toEqual(["+ Risks", "+ The supplier is late."]);
   });
 
-  // protects=a reply that still claims a change no call made is shown flagged; fails_when=it is shown as if the change were made; no_claim=none beyond protects.
+  // protects=a reply that still claims a change no call made is shown flagged, for the line under it (#1559); fails_when=it is shown as if the change were made, or is lost; no_claim=how the line reads.
   test("still claiming it, the reply is flagged", async () => {
     const model = scriptedModel((): ScriptedReply => ({ text: CLAIM }));
     const { core, mind } = await setUp(model);
@@ -787,23 +787,25 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
 });
 
 describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_000 }, () => {
-  // protects=“make the summary longer” after Add to note replaces the added summary with the longer one, tagged as asked so it applies, in English and Chinese; fails_when=the longer text goes in beside the old one, or the change isn't asked for; no_claim=that a real model chooses content over instruction.
+  // protects=“make the summary longer” after Add to note writes the longer summary over the added one, its new words added where they go, tagged as asked so it applies, in English and Chinese; fails_when=the longer text goes in beside the old one, the old one is removed whole, or the change isn't asked for; no_claim=that a real model chooses content over instruction.
   test.each([
     [
       "Make the summary longer.",
       "The paper is",
       "The paper is about spring tides.",
       "The paper is about spring tides, which come at new and full moon, when the tide rises highest.",
+      "The paper is about spring tides{+, which come at new and full moon, when the tide rises highest+}.",
     ],
     [
       "把摘要写长一点。",
       "这篇论文讲的是",
       "这篇论文讲的是大潮。",
       "这篇论文讲的是大潮：大潮出现在新月和满月前后，这时潮水涨得最高。",
+      "这篇论文讲的是大潮{+：大潮出现在新月和满月前后，这时潮水涨得最高+}。",
     ],
   ])(
-    "“%s” replaces the summary added from an Answer, never adding a second",
-    async (request, part, summary, longer) => {
+    "“%s” writes over the summary added from an Answer, never adding a second",
+    async (request, part, summary, longer, shown) => {
       const model = scriptedModel((call): ScriptedReply => {
         if (call.results.length > 0) return { text: "Done." };
         return {
@@ -827,8 +829,11 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
         requested: "edit",
       });
       expect(lastResult(model)).toContain("applies in the Mind at once");
-      expect(lastResult(model)).toContain("don't describe it");
-      expect(shownWithChanges(client).slice(-2)).toEqual([`- ${summary}`, `+ ${longer}`]);
+      expect(lastResult(model)).toContain("don't repeat the new text");
+      expect(shownWithChanges(client).slice(-2)).toEqual([
+        "The quarter was very good, and sales were really strong.",
+        shown,
+      ]);
       client.doc.transact(() => resolveProposals(client.blocks, () => true, "accept"));
       await client.settled();
       expect(shownWithChanges(client)).toEqual([
@@ -836,6 +841,54 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
         "The quarter was very good, and sales were really strong.",
         longer,
       ]);
+    },
+  );
+
+  // protects=a summary written anew over the one added from an Answer changes each paragraph where it stands and counts each once, in the Answer's record as in the Mind, the heading it keeps left as it is; fails_when=a paragraph is removed and added again, or counted twice (20 for 10 paragraphs written anew); no_claim=how a real model writes it (#1335, #1488).
+  test.each([
+    ["10 paragraphs written anew", 10, 10, 10, 10],
+    ["10 paragraphs written anew as 12", 10, 12, 12, 12],
+    ["one paragraph written anew as 10", 1, 10, 10, 10],
+    ["10 paragraphs written anew as 8", 10, 8, 10, 10],
+  ])(
+    "%s is %i → %i, changed %i, with %i changes to accept",
+    async (_, before, after, changed, waiting) => {
+      const paragraphs = (count: number, say: string) =>
+        Array.from({ length: count }, (_, index) => `${say} ${index + 1}.`);
+      const old = paragraphs(before, "The quarter went to plan, as paragraph");
+      const longer = paragraphs(after, "The quarter went to plan and then some, as paragraph");
+      const model = scriptedModel((call): ScriptedReply => {
+        if (call.results.length > 0) return { text: "Done." };
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Tide notes", content: `## Tide notes\n\n${longer.join("\n\n")}` },
+            },
+          ],
+        };
+      });
+      const { core, mind, client } = await setUp(model);
+      await core.addToNote({
+        mindId: mind.id,
+        blocks: [
+          { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Tide notes" }] },
+          ...old.map((words) => ({ type: "paragraph", content: [{ type: "text", text: words }] })),
+        ],
+        origin: null,
+        model: null,
+      });
+      await client.settled();
+
+      const answer = await askAssistant(core, {
+        text: "Make the summary longer.",
+        mindId: mind.id,
+      });
+
+      await client.settled();
+      const [change] = changesIn(answer);
+      expect(change).toMatchObject({ changed, proposals: waiting });
+      expect(waitingFrom(client, change?.request ?? "")).toBe(waiting);
     },
   );
 

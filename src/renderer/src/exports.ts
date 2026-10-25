@@ -1,15 +1,18 @@
 import { create } from "zustand";
 import type {
   CheckRecordFormat,
+  CitationPlace,
   ExportFormat,
   ExportPreferences,
+  MarkAiTextChoice,
+  SavedCheckRecord,
   SavedComparisonExport,
   SavedExport,
   SavedMindExport,
   SentenceChecksExported,
   WordExportReport,
 } from "../../core/api";
-import { optionsFor } from "../../shared/exportOptions";
+import { type CitedCount, hasCitationPlace, optionsFor } from "../../shared/exportOptions";
 import type { MessageKey } from "../../shared/i18n";
 import { core } from "./core";
 import { errorMessage } from "./errors";
@@ -27,18 +30,13 @@ export const FORMAT_LABELS: Readonly<Record<ExportFormat, MessageKey>> = {
   markdown: "export.format.markdown",
 };
 
-export const RECORD_FORMAT_LABELS: Readonly<Record<CheckRecordFormat, MessageKey>> = {
-  pdf: "export.format.pdf",
-  csv: "checkRecord.format.csv",
-};
-
 /** Until settings load, as the core's defaults have it. */
 const DEFAULT_PREFERENCES: ExportPreferences = {
   format: "docx",
   docx: {
     includeQuestions: false,
     trackChanges: true,
-    markAiText: true,
+    markAiText: null,
     commentFailedChecks: true,
   },
   pdf: { includeQuestions: false },
@@ -51,16 +49,9 @@ export const exportPreferences = (): ExportPreferences =>
 
 export const COMPARISON_EXCEL = "comparison-xlsx";
 
-export type ExportKind =
-  | ExportFormat
-  | `check-record-${CheckRecordFormat}`
-  | typeof COMPARISON_EXCEL;
+export type ExportKind = ExportFormat | "check-record" | typeof COMPARISON_EXCEL;
 
-export const isCheckRecord = (kind: ExportKind): kind is `check-record-${CheckRecordFormat}` =>
-  kind.startsWith("check-record-");
-
-export const checkRecordKind = (format: CheckRecordFormat): `check-record-${CheckRecordFormat}` =>
-  `check-record-${format}`;
+export const isCheckRecord = (kind: ExportKind): kind is "check-record" => kind === "check-record";
 
 /**
  * How the last export went, said in the Mind it exported (`ExportResultLine`); `tableId` names
@@ -74,6 +65,10 @@ export type ExportResult = { tableId?: string } & (
       format: ExportKind;
       path: string;
       name: string;
+      /** The check record's CSV, saved beside the PDF named. */
+      withCsv: boolean;
+      /** The check record's files that couldn't be saved, each with why: the other was kept. */
+      failures: { format: CheckRecordFormat; reason: string }[];
       /** The folder it is in, which the line names. */
       folder: string;
       inDefaultFolder: boolean;
@@ -93,6 +88,17 @@ export type ExportResult = { tableId?: string } & (
     }
   /** Not saved yet: what a Word file can't keep, for the User to see first (#105). */
   | { mindId: string; state: "review"; format: ExportFormat; word: WordExportReport }
+  /**
+   * Not started yet: the export waits for what the User hasn't said, whether Word marks the text
+   * IncarnaMind wrote (`mark`) and where Word or PDF puts the Citations (`places`, with how many).
+   */
+  | {
+      mindId: string;
+      state: "ask";
+      format: "docx" | "pdf";
+      mark: boolean;
+      places: CitedCount | null;
+    }
   | { mindId: string; state: "failed"; format: ExportKind; message: string }
   /** A source pack of a Mind with no Citations: nothing to make, and nothing went wrong. */
   | { mindId: string; state: "empty"; format: ExportFormat }
@@ -133,6 +139,61 @@ function begin(
   };
 }
 
+function ask(mindId: string, format: "docx" | "pdf", mark: boolean, places: CitedCount | null) {
+  const { result } = useExports.getState();
+  if (result?.mindId === mindId && result.state === "saving") return;
+  useExports.setState({ result: { mindId, state: "ask", format, mark, places } });
+}
+
+/** Mind ids whose export is looking for what to ask, so a held ⇧⌘E asks once. */
+const looking = new Set<string>();
+
+async function toAsk(
+  mindId: string,
+  format: "docx" | "pdf",
+  preferences: ExportPreferences,
+): Promise<{ mark: boolean; places: CitedCount | null } | null> {
+  const mark = format === "docx" && preferences.docx.markAiText === null;
+  let places: CitedCount | null = null;
+  if (preferences.citationPlace === undefined) {
+    const preview = await core.previewMindExport(mindId, { format });
+    if (preview.numbered && preview.citations > 0) {
+      places = { citations: preview.citations, documents: preview.citedDocuments };
+    }
+  }
+  return mark || places ? { mark, places } : null;
+}
+
+async function keep(update: (preferences: ExportPreferences) => ExportPreferences) {
+  await useAppStore.getState().updateSettings({
+    user: { exportOptions: update(exportPreferences()) },
+  });
+}
+
+/** Keeps the User's answer to the question the Word export asked, then exports as they asked. */
+export async function answerMarkAiText(
+  mindId: string,
+  format: ExportFormat,
+  answer: MarkAiTextChoice,
+): Promise<void> {
+  await keep((preferences) => ({
+    ...preferences,
+    docx: { ...preferences.docx, markAiText: answer },
+  }));
+  // A refusal is already said in a notice, and the question stays for another try.
+  if (exportPreferences().docx.markAiText === answer) await exportMind(mindId, format);
+}
+
+/** Keeps the User's answer to where Citations go, then exports as they asked. */
+export async function answerCitationPlace(
+  mindId: string,
+  format: ExportFormat,
+  answer: CitationPlace,
+): Promise<void> {
+  await keep((preferences) => ({ ...preferences, citationPlace: answer }));
+  if (exportPreferences().citationPlace === answer) await exportMind(mindId, format);
+}
+
 const NO_CHECKS: SentenceChecksExported = {
   contradicted: 0,
   unsupported: 0,
@@ -143,7 +204,11 @@ const NO_CHECKS: SentenceChecksExported = {
 function savedResult(
   mindId: string,
   format: ExportKind,
-  saved: Exclude<SavedMindExport, { status: "review" }> | SavedExport | SavedComparisonExport,
+  saved:
+    | Exclude<SavedMindExport, { status: "review" }>
+    | SavedExport
+    | SavedCheckRecord
+    | SavedComparisonExport,
 ): ExportResult | null {
   if (saved.status === "saved") {
     return {
@@ -152,6 +217,14 @@ function savedResult(
       format,
       path: saved.file.path,
       name: saved.file.name,
+      withCsv: "withCsv" in saved && saved.withCsv,
+      failures:
+        "failures" in saved
+          ? saved.failures.map(({ format, message, wording }) => ({
+              format,
+              reason: wording ? translateNow(wording.key, wording.values) : message,
+            }))
+          : [],
       folder: saved.file.folder,
       inDefaultFolder: saved.file.inDefaultFolder,
       at: Date.now(),
@@ -181,6 +254,9 @@ function savedResult(
  * the last one, which it becomes; the result line says how it went. `first` fixes what stopped
  * the last try (another Output location, allowing a Linked folder), unless it returns false.
  * `accept` is what a Word file can't keep that the User has seen and exports anyway (#105).
+ * Until the User has said whether Word marks the text IncarnaMind wrote, and where Word and PDF
+ * put the Citations of a Mind that has some, an export asks that first, in the result line, and
+ * exports once it is answered (`answerMarkAiText`, `answerCitationPlace`).
  */
 export async function exportMind(
   mindId: string,
@@ -190,6 +266,36 @@ export async function exportMind(
 ): Promise<void> {
   const preferences = exportPreferences();
   const chosen = format ?? preferences.format;
+  if (hasCitationPlace(chosen)) {
+    if (looking.has(mindId)) return;
+    looking.add(mindId);
+    try {
+      const asks = await toAsk(mindId, chosen, preferences);
+      if (asks) {
+        ask(mindId, chosen, asks.mark, asks.places);
+        return;
+      }
+    } catch (failure) {
+      const { result } = useExports.getState();
+      if (result?.mindId === mindId && result.state === "saving") {
+        console.error(`What the export of Mind ${mindId} asks couldn't be worked out.`, failure);
+      } else {
+        useExports.setState({
+          result: {
+            mindId,
+            state: "failed",
+            format: chosen,
+            message: errorMessage(failure, translateNow),
+          },
+        });
+      }
+      return;
+    } finally {
+      looking.delete(mindId);
+    }
+  }
+  const options = optionsFor(chosen, preferences);
+  if (!options) return;
   const settle = begin(mindId, chosen);
   if (!settle) return;
   if (chosen !== preferences.format) {
@@ -210,7 +316,7 @@ export async function exportMind(
       return;
     }
     const saved = await core.saveMindExport(mindId, {
-      ...optionsFor(chosen, preferences),
+      ...options,
       ...(accept && { accept: [...accept] }),
     });
     settle(
@@ -230,20 +336,23 @@ export async function exportMind(
 
 export async function exportCheckRecord(
   mindId: string,
-  format: CheckRecordFormat,
   first?: () => Promise<boolean>,
 ): Promise<void> {
-  const kind = checkRecordKind(format);
-  const settle = begin(mindId, kind);
+  const settle = begin(mindId, "check-record");
   if (!settle) return;
   try {
     if (first && !(await first())) {
       settle(null);
       return;
     }
-    settle(savedResult(mindId, kind, await core.saveCheckRecord(mindId, format)));
+    settle(savedResult(mindId, "check-record", await core.saveCheckRecord(mindId)));
   } catch (failure) {
-    settle({ mindId, state: "failed", format: kind, message: errorMessage(failure, translateNow) });
+    settle({
+      mindId,
+      state: "failed",
+      format: "check-record",
+      message: errorMessage(failure, translateNow),
+    });
   }
 }
 
@@ -287,12 +396,13 @@ export function exportAgain(
   const { mindId, format: kind } = result;
   if (kind === COMPARISON_EXCEL) return exportComparison(mindId, result.tableId ?? "", first);
   if (!isCheckRecord(kind)) return exportMind(mindId, kind, first);
-  return exportCheckRecord(mindId, kind === "check-record-pdf" ? "pdf" : "csv", first);
+  return exportCheckRecord(mindId, first);
 }
 
 /**
- * Shows the first entry of the Mind's References too thin to cite, as the result line's Show
- * does: scrolled to the middle, its "Needs details" focused, which opens its "Cite as" on Enter.
+ * Adds the first entry of the Mind's References too thin to cite, as the result line's Add
+ * details does: scrolled to the middle, its "Needs details" clicked, which opens its "Cite as"
+ * at the first gap.
  */
 export function revealNeedsDetails(mindId: string): boolean {
   const needs = document.querySelector<HTMLElement>(
@@ -300,7 +410,7 @@ export function revealNeedsDetails(mindId: string): boolean {
   );
   if (!needs) return false;
   needs.scrollIntoView({ block: "center" });
-  needs.focus();
+  needs.click();
   return true;
 }
 

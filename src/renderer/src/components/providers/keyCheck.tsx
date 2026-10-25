@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { checkKey, type KeyCheck } from "../../../../core/providers/catalog/keyForms";
+import { checkApiKey } from "../../../../shared/apiKey";
 import { gap } from "../../../../shared/i18n/join";
 import { useLanguage, useT } from "../../i18n";
 import { ProblemLine } from "../ProblemLine";
@@ -12,8 +13,9 @@ const OK: KeyCheck = { ok: true };
  */
 export function useKeyCheck(catalogId: string | null, apiKey: string) {
   const [agreed, setAgreed] = useState<string | null>(null);
-  const given = apiKey.trim();
-  const found = catalogId !== null && given !== "" ? checkKey(catalogId, given) : OK;
+  const { key: given, stray } = checkApiKey(apiKey);
+  const found =
+    catalogId !== null && given !== "" && stray === null ? checkKey(catalogId, given) : OK;
   const check =
     !found.ok && found.service !== null && agreed === `${catalogId}\n${given}` ? OK : found;
   return {

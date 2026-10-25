@@ -71,7 +71,8 @@ describe.each(LIVE)("$kind, live", ({ kind, key, region }) => {
       const reply = await generateText({
         model: createAiSdkChatModel({
           kind,
-          baseUrl: null,
+          // The endpoint's own address: a model made from the endpoint id alone goes to the first one (#1650).
+          baseUrl: endpoint && !endpoint.field ? endpoint.baseUrl : null,
           apiKey: apiKey as string,
           modelId: quick,
           thinking: "off",

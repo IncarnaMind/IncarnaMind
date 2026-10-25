@@ -88,3 +88,33 @@ The User sets a paragraph's alignment, indents, spacing and line spacing, and te
 ## Amendment: a check the User keeps as their own view (2026-10-18, #1111)
 
 Keep as my view, on the card of a cited sentence found unsupported, sets `kept: true` on that sentence's `claimCheck` mark. While its words stay as they were checked, the sentence shows no mark, isn't counted in the Mind's health, and no check runs on it again (Check this Mind in every mode, contradiction watch); editing the words ends it. It stays on the mark, beside the result, so ⌘Z takes it back with the words' other changes in one step. An older version's editor strips mark attributes it doesn't know, so it would drop `kept`, and the `unsupported` reason a check gives (#1072), and count and check the sentence again: the content schema version is 25. Nothing older is rewritten.
+
+## Amendment: a Mind's chosen Search scope, and the scope a check looked in (2026-10-23, #1623)
+
+The Search scope the User sets for a Mind in its composer is where its Questions search and its checks look. "Ask about this Document" and text added from an Answer asked of one Document set it too.
+
+- **The scope is Mind content.** It is a `scope` key in the Mind's settings map (`MIND_SETTINGS_FIELD`), beside its model, so it goes wherever the Mind goes, syncs with it and survives a restart. A Mind with no key has no scope of its own and is checked as before: in its Folder while that holds a Document, else in every Document.
+- **One whole value.** The key holds the scope's Folders, Tags and Documents as one value. A narrowed scope also holds where one click takes it back: `before: "all"` when it narrowed every Document, chosen; nothing when it narrowed the Mind's own. When two devices set it at once, one device's value wins whole, with its own way back, and no other key of the settings map is lost.
+- **A check records where it looked.** The `claimCheck` mark's `scope` gains `chosen`, the scope searched when it was the Mind's own choice, so the card, the Word comment and the check record name it, and a check made in another scope than the Mind's now needs a re-check. An older version's editor would strip `chosen` and read such a check as made in the Mind's Folder, and it could write over the scope key without knowing it, so the content schema version is 26: an older version opens a Mind written since read-only. Nothing older is rewritten.
+- **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: numbered lists take a scheme, a start level and a continuation (2026-10-25, #1419)
+
+A numbered list takes one of four schemes ("1. a. i.", Outline, Clauses and Chinese report), starts at a level other than the first, and can go on from the list before it. The Aa menu's Numbering sets them, and so does a list item's right-click menu.
+
+- **Content schema version 27** adds `numbering`, `startLevel` and `continues` on an ordered list. An older version's editor would strip them, so it would draw the list as a "1. a. i." list from level 0 that starts again, and opens these Minds read-only. Older content is version 27 content as it is.
+- **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: a Citation the User keeps on the version it quotes (2026-10-25, #1869)
+
+- **Content schema version 28** adds `keptOver` on a Citation: the Document's version the User chose to keep citing the old one over (ADR-0017's amendment). An older version's editor would strip it, so the Citation would ask again to be checked, and opens these Minds read-only. Older content is version 28 content as it is.
+
+## Amendment: a change written over Blocks keeps the origins it replaced (2026-10-25, #1950)
+
+A rewrite of an Answer's text is written over the Blocks it changes (#1873), and a revision with an instruction rewrites waiting Blocks in place, so they keep their ids and take the rewriting Answer's origin (`MIND_ORIGINS_FIELD`). Rejecting the change brought the text back but not the origin, so Use all on the earlier Answer missed its own text and wrote it a second time.
+
+- **What the map holds.** A `replacedOrigins` map beside the Blocks (`MIND_REPLACED_ORIGINS_FIELD`) keeps, by the request whose change gave Blocks its origin, each such Block's earlier origin: the same reference to an Answer and the Question it answered as `origins` holds, and nothing of a device.
+- **Rejected, the origin goes back.** Where rejecting takes that change out of a Block and nothing of it waits there any more, the Block's earlier origin goes back, in the decision's own step, so Undo and Redo take it back with the text, on the card and in the Mind.
+- **Entries are kept for good.** An entry stays after the change is accepted, rejected or applied at once: History can bring back any earlier version of the Mind, with the change waiting again, and restoring it rejects that change, which needs the earlier origin. The map grows by one origin per Block a change was written over, the same size as that Block's own entry in `origins`, which also keeps entries for Blocks deleted since.
+- **No schema version.** An older version keeps the map as it is and leaves `origins` as the change set them: its Reject keeps the rewriting Answer's origin, as before, and no text is lost. It raises no content schema version.
+- **No table, no migration.** Nothing outside the Mind's Yjs document changes.

@@ -172,12 +172,13 @@ class PrintWriter {
     return blocks.map((block) => this.block(block)).join("");
   }
 
-  private marker(note: string): string {
+  private marker(note: string, adjacent = false): string {
     const number = this.number(note);
+    const separator = adjacent ? "," : "";
     if (this.linkNotes) {
-      return `<sup class="note-ref" id="ref-${number}"><a href="#note-${number}">${number}</a></sup>`;
+      return `<sup class="note-ref" id="ref-${number}">${separator}<a href="#note-${number}">${number}</a></sup>`;
     }
-    return `<sup class="note-ref" data-note="${number}">${number}</sup>`;
+    return `<sup class="note-ref" data-note="${number}">${separator}${number}</sup>`;
   }
 
   private block(block: Block): string {
@@ -277,24 +278,37 @@ class PrintWriter {
   /** Inline content, someone's changes in it marked, each with a note of who made it and when. */
   inline(content: readonly Inline[], inNote = false): string {
     const spans = changeSpans(content);
+    const state = { lastWasNote: false };
     return spans
       .map(({ change, content: part }, at) => {
-        const html = this.marked(part, inNote);
+        const html = this.marked(part, inNote, state);
         if (!change) return html;
         const tag = change.kind === "insert" ? "ins" : "del";
         const marked = `<${tag} class="change">${html}</${tag}>`;
         const ended = changeEnding(spans, at);
         if (!ended) return marked;
         const note = escapeHtml(this.labels.change(ended));
-        return inNote ? `${marked} (${note})` : marked + this.marker(note);
+        if (inNote) {
+          state.lastWasNote = false;
+          return `${marked} (${note})`;
+        }
+        const marker = this.marker(note, state.lastWasNote);
+        state.lastWasNote = true;
+        return marked + marker;
       })
       .join("");
   }
 
   /** Inline content: text with its marks, maths, footnote markers and breaks. */
-  private marked(content: readonly Inline[], inNote: boolean): string {
+  private marked(
+    content: readonly Inline[],
+    inNote: boolean,
+    state: { lastWasNote: boolean },
+  ): string {
     let html = "";
     for (const item of content) {
+      const before = html.length;
+      let lastWasNote = false;
       switch (item.kind) {
         case "text":
           html += wrap(item.text, item.marks, this.isLink);
@@ -317,19 +331,27 @@ class PrintWriter {
             const number = this.number(this.citations.note(item.footnote));
             html += this.citations.marker(item.footnote, number);
           } else {
-            html += this.marker(sourceHtml(item.footnote, this.labels, this.isLink));
+            html += this.marker(
+              sourceHtml(item.footnote, this.labels, this.isLink),
+              state.lastWasNote,
+            );
+            lastWasNote = true;
           }
           break;
         case "footnote":
-          html += this.marker(this.inline(item.content, true));
+          html += this.marker(this.inline(item.content, true), state.lastWasNote);
+          lastWasNote = true;
           break;
         case "cite": {
           const marker = item.unverified ? unverifiedHtml(this.labels) : "";
-          if (item.note && !inNote) html += this.marker(runsHtml(item.runs, this.isLink) + marker);
-          else html += runsHtml(item.runs, this.isLink) + marker;
+          if (item.note && !inNote) {
+            html += this.marker(runsHtml(item.runs, this.isLink) + marker, state.lastWasNote);
+            lastWasNote = true;
+          } else html += runsHtml(item.runs, this.isLink) + marker;
           break;
         }
       }
+      if (html.length !== before) state.lastWasNote = lastWasNote;
     }
     return html;
   }

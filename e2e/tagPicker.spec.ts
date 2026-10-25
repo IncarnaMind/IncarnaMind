@@ -1,12 +1,13 @@
 import { writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
   createDataFolder,
+  decisionServer,
   dismissChatSetup,
   launchApp,
   openManageTags,
@@ -239,62 +240,6 @@ test("Tags are added, created and removed with the keyboard, on one Document and
     await app.close();
   }
 });
-
-/**
- * A local decision server like Ollama's `/v1/systemone`: Finance for an
- * invoice, Reports otherwise; Invoice in the review band for an invoice,
- * Report likely for a report.
- */
-async function decisionServer(): Promise<{ server: Server; readonly requests: number }> {
-  let requests = 0;
-  const server = createServer(async (request, response) => {
-    let raw = "";
-    for await (const chunk of request) raw += chunk;
-    const body = raw ? JSON.parse(raw) : {};
-    response.setHeader("content-type", "application/json");
-    if (request.url !== "/v1/systemone") {
-      response.end(JSON.stringify({ models: [] }));
-      return;
-    }
-    requests++;
-    const text = JSON.stringify(body.state).toLowerCase();
-    const answers = Object.fromEntries(
-      Object.entries(
-        body.questions as Record<
-          string,
-          { type: string; instructions: string; criteria?: Record<string, string> }
-        >,
-      ).map(([id, question]) => {
-        if (question.type === "choice") {
-          const wanted = text.includes("invoice") ? "Finance" : "Reports";
-          const choice =
-            Object.entries(question.criteria ?? {}).find(([, value]) =>
-              value.startsWith(wanted),
-            )?.[0] ?? "__unsorted__";
-          return [id, { type: "choice", choice }];
-        }
-        const noul = question.instructions.includes("“Invoice”")
-          ? text.includes("invoice")
-            ? 0.65
-            : 0.01
-          : question.instructions.includes("“Report”")
-            ? text.includes("report")
-              ? 0.95
-              : 0.01
-            : 0.01;
-        return [id, { type: "noul", noul }];
-      }),
-    );
-    response.end(JSON.stringify({ answers }));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return {
-    server,
-    get requests() {
-      return requests;
-    },
-  };
-}
 
 test("a Tag automatic tagging wasn't sure of is confirmed or removed in one click, and + Filter's Tags narrow the Library", async () => {
   const decisions = await decisionServer();
@@ -558,6 +503,62 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
       "0 个文档",
     );
     await screenshot(window, "manage-tags-zh");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Chinese Tag is found by its pinyin and initials in the picker and in Find a Tag, in English and Chinese (#1363)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await addTextDocuments(window, {
+      "March invoice.txt": "Invoice 2026-03 for consulting. Total due: 1,200.",
+    });
+    await (await bridge(window)).evaluate(async (core) => {
+      await core.createTag({ name: "财务", description: "预算与账单" });
+    });
+    await slideAndClick(window, window.getByTestId("open-library"));
+    const library = window.getByTestId("library");
+    const invoice = rowOf(library, "March invoice");
+    await slideTo(window, invoice);
+    await slideAndClick(window, invoice.getByTestId("document-tags-menu"));
+    const picker = invoice.getByTestId("document-tags-popover");
+    const field = picker.getByTestId("tag-picker-input");
+    await expect(field).toBeFocused();
+    // The pinyin and the initials find it, chosen first, as ⌘K finds a name.
+    for (const typed of ["caiwu", "cw"]) {
+      await field.fill(typed);
+      await expect(picker.getByTestId("tag-option")).toHaveCount(1);
+      await expect(picker.getByTestId("tag-option")).toContainText("财务");
+      await expect(picker.getByTestId("tag-option")).toHaveAttribute("data-active", "true");
+    }
+    await window.keyboard.press("Enter");
+    await expect(tokens(picker)).toHaveText(["财务"]);
+    await window.keyboard.press("Escape");
+    await expect(picker).toBeHidden();
+
+    // "Find a Tag": the same words match, in the interface's own language.
+    for (const language of ["en", "zh-CN"] as const) {
+      await (await bridge(window)).evaluate(
+        (core, language) => core.updateSettings({ user: { language } }),
+        language,
+      );
+      await openManageTags(window, language);
+      const dialog = window.getByTestId("tags-dialog");
+      const search = dialog.getByTestId("tag-search");
+      await expect(search).toBeVisible();
+      for (const typed of ["caiwu", "cw"]) {
+        await search.fill(typed);
+        await expect(dialog.getByTestId("tag-row")).toHaveCount(1);
+        await expect(dialog.getByTestId("tag-row")).toContainText("财务");
+      }
+      await slideAndClick(
+        window,
+        dialog.getByRole("button", { name: translate(language, "tags.dialog.done") }),
+      );
+      await expect(dialog).toBeHidden();
+    }
   } finally {
     await app.close();
   }

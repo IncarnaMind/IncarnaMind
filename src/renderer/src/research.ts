@@ -30,12 +30,11 @@ const report = (error: unknown) => useAppStore.getState().reportError(error);
 /** Whether a Research Task with this model can search the web, or why not. */
 export type WebReach = "ready" | "off" | "local-mode" | "unsupported";
 
-/** Whether research with `model` (the default when null) can search the web (#128): on, off this computer, a provider that searches. */
+/** Whether research with `model` (the model in use) can search the web (#128): on, off this computer, a provider that searches. */
 export function useWebReach(model: ChatModelChoice | null): WebReach {
   const on = useAppStore((state) => state.settings?.user.webSearch === true);
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
-  const fallback = useAppStore((state) => state.settings?.user.chatModel ?? null);
-  const providerId = (model ?? fallback)?.providerId ?? null;
+  const providerId = model?.providerId ?? null;
   const [kinds, setKinds] = useState<Readonly<Record<string, ChatProviderKind>>>({});
   const known = providerId !== null && kinds[providerId] !== undefined;
   useEffect(() => {
@@ -58,13 +57,11 @@ export function useWebReach(model: ChatModelChoice | null): WebReach {
 export function useWebMissing(reach: WebReach, model: ChatModelChoice | null): string | null {
   const t = useT();
   const nameOf = useModelNames();
-  const fallback = useAppStore((state) => state.settings?.user.chatModel ?? null);
-  const shown = model ?? fallback;
   if (reach === "ready") return null;
   if (reach === "off") return t("research.plan.webOff");
   if (reach === "local-mode") return t("research.plan.localMode");
   return t("research.plan.webUnavailable", {
-    model: shown ? nameOf(shown.modelId, shown.providerId).name : t("answer.error.thisModel"),
+    model: model ? nameOf(model.modelId, model.providerId).name : t("answer.error.thisModel"),
   });
 }
 

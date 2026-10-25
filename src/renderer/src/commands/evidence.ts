@@ -1,5 +1,6 @@
 import { countedByChoice, leftOutOfEvidence } from "../../../shared/evidence";
 import { countAsEvidence, markNotCited } from "../evidence";
+import { countNow } from "../i18n";
 import { useAppStore } from "../store";
 import type { Command } from "./registry";
 import { documentsOf, everyDocument } from "./targets";
@@ -10,7 +11,7 @@ export const evidenceCommands: readonly Command[] = [
     id: "document.countAsEvidence",
     label: (ctx, t) => {
       const count = documentsOf(ctx).length;
-      return count > 1 ? t("evidence.countMany", { count }) : t("evidence.count");
+      return count > 1 ? t("evidence.countMany", { count: countNow(count) }) : t("evidence.count");
     },
     group: "main",
     appliesTo: ["document"],
@@ -25,7 +26,9 @@ export const evidenceCommands: readonly Command[] = [
     id: "document.leaveOutOfEvidence",
     label: (ctx, t) => {
       const count = documentsOf(ctx).length;
-      return count > 1 ? t("evidence.leaveOutMany", { count }) : t("evidence.leaveOut");
+      return count > 1
+        ? t("evidence.leaveOutMany", { count: countNow(count) })
+        : t("evidence.leaveOut");
     },
     group: "main",
     appliesTo: ["document"],
@@ -41,7 +44,9 @@ export const evidenceCommands: readonly Command[] = [
     id: "document.dontCite",
     label: (ctx, t) => {
       const count = documentsOf(ctx).length;
-      return count > 1 ? t("evidence.notCitedMany", { count }) : t("evidence.notCited");
+      return count > 1
+        ? t("evidence.notCitedMany", { count: countNow(count) })
+        : t("evidence.notCited");
     },
     hint: "evidence.notCited.hint",
     group: "main",
@@ -54,7 +59,9 @@ export const evidenceCommands: readonly Command[] = [
     id: "document.citeAgain",
     label: (ctx, t) => {
       const count = documentsOf(ctx).length;
-      return count > 1 ? t("evidence.citeAgainMany", { count }) : t("evidence.citeAgain");
+      return count > 1
+        ? t("evidence.citeAgainMany", { count: countNow(count) })
+        : t("evidence.citeAgain");
     },
     group: "main",
     appliesTo: ["document"],

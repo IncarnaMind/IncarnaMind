@@ -74,6 +74,121 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`an invalid monthly cap keeps its draft, explains the active cap, and can be corrected or cancelled (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await dismissChatSetup(window);
+      await setWindowSize(app, window, 1440, 660);
+      const settings = await openSettings(window, "general");
+      await bridge(window).language(language);
+      const cap = settings.getByTestId("spending-cap-settings");
+      const toggle = cap.getByTestId("spending-cap-switch");
+      await toggle.hover();
+      await toggle.click();
+      const amount = cap.getByTestId("spending-cap-amount");
+      const currency = cap.getByTestId("spending-cap-currency");
+      const problem = cap.getByTestId("spending-cap-problem");
+      const initial = {
+        amount: language === "en" ? 20 : 150,
+        currency: language === "en" ? "USD" : "CNY",
+      };
+      const message =
+        language === "en"
+          ? "Enter an amount from 0 to 1,000,000. The active cap is still $20.00."
+          : "输入 0 到 1,000,000 之间的金额。当前上限仍为 ¥150.00。";
+      await expect(amount).toHaveValue(String(initial.amount));
+
+      await amount.fill("-1");
+      await amount.press("Enter");
+      await expect(problem).toHaveText(message);
+      await expect(amount).toHaveValue("-1");
+      await expect(amount).toHaveAttribute("aria-invalid", "true");
+      await expect(amount).toHaveAttribute(
+        "aria-describedby",
+        (await problem.getAttribute("id")) ?? "",
+      );
+      expect(await bridge(window).cap()).toEqual(initial);
+      await shot(window, `cap-invalid-wide-${language}`);
+      await setWindowSize(app, window, 900, 560);
+      await expect(problem).toBeInViewport();
+      const within = await problem.evaluate((element) => {
+        const row = element.parentElement?.getBoundingClientRect();
+        const bounds = element.getBoundingClientRect();
+        return row && bounds.left >= row.left && bounds.right <= row.right;
+      });
+      expect(within).toBe(true);
+      await shot(window, `cap-invalid-narrow-${language}`);
+      await amount.press("Escape");
+      await expect(amount).toHaveValue(String(initial.amount));
+      await expect(problem).toHaveCount(0);
+      await expect(settings).toBeVisible();
+
+      await amount.fill("-2");
+      await amount.press("Tab");
+      await expect(toggle).toBeFocused();
+      await expect(amount).toHaveValue("-2");
+      await expect(problem).toHaveText(message);
+      expect(await bridge(window).cap()).toEqual(initial);
+      await currency.selectOption(initial.currency === "USD" ? "CNY" : "USD");
+      await expect(currency).toHaveValue(initial.currency);
+      await expect(amount).toHaveValue("-2");
+      await expect(problem).toHaveText(message);
+      expect(await bridge(window).cap()).toEqual(initial);
+
+      await amount.fill("1000001");
+      await amount.press("Enter");
+      await expect(amount).toHaveValue("1000001");
+      await expect(problem).toHaveText(message);
+      expect(await bridge(window).cap()).toEqual(initial);
+      await amount.fill("");
+      await amount.press("Tab");
+      await expect(amount).toHaveValue(String(initial.amount));
+      await expect(problem).toHaveCount(0);
+      expect(await bridge(window).cap()).toEqual(initial);
+
+      for (const value of [0, 12.5, 1000000]) {
+        await amount.fill(String(value));
+        await amount.press(value === 12.5 ? "Tab" : "Enter");
+        await expect
+          .poll(() => bridge(window).cap())
+          .toEqual({ amount: value, currency: initial.currency });
+        await expect(amount).not.toHaveAttribute("aria-invalid", "true");
+        await expect(problem).toHaveCount(0);
+      }
+      await amount.fill("-3");
+      await amount.press("Enter");
+      await expect(problem).toBeVisible();
+      await amount.fill("25");
+      await amount.press("Enter");
+      await amount.press("Enter");
+      await expect
+        .poll(() => bridge(window).cap())
+        .toEqual({ amount: 25, currency: initial.currency });
+      await expect(problem).toHaveCount(0);
+      await amount.press("Escape");
+      await expect(settings).toBeHidden();
+      await window
+        .getByRole("button", { name: language === "en" ? "Settings" : "设置", exact: true })
+        .click();
+      await expect(settings).toBeVisible();
+      await expect(amount).toHaveValue("25");
+
+      await amount.fill("-4");
+      await amount.press("Tab");
+      await expect(problem).toBeVisible();
+      await toggle.press("Space");
+      await expect.poll(() => bridge(window).cap()).toBeNull();
+      await expect(problem).toHaveCount(0);
+      await toggle.press("Space");
+      await expect.poll(() => bridge(window).cap()).toEqual(initial);
+      await expect(amount).toHaveValue(String(initial.amount));
+    } finally {
+      await app.close();
+    }
+  });
+}
+
 test("an Answer stopped by the monthly cap says so in place, and Change cap opens the cap; set by mouse and keyboard, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   try {

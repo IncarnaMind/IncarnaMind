@@ -9,6 +9,7 @@ import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import type { SpeechEngine, VoiceDetector } from "./speech";
 import { textOfResult, wordsOnly } from "./speechText";
+import { writtenNumbers } from "./spokenNumbers";
 
 /** Silero's window at 16 kHz: it reads audio 512 samples at a time. */
 const WINDOW = 512;
@@ -122,12 +123,14 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         const stream = recognizer.createStream();
         stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
         try {
-          return wordsOnly((await recognizer.decodeAsync(stream)).text);
+          return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
         } catch (error) {
           if (!(error instanceof SyntaxError)) throw error;
           // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
           const addon = exportsOf(await import("sherpa-onnx-node/addon.js"));
-          return wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle)));
+          return writtenNumbers(
+            wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
+          );
         }
       },
     },

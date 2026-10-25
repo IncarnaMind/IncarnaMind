@@ -11,12 +11,17 @@ import { extractUnits } from "../../src/core/documents/formats";
 import { lineUnits } from "../../src/core/documents/formats/text";
 import { webUnits } from "../../src/core/documents/formats/web";
 import { snapshotOf } from "../../src/core/documents/web/snapshot";
+import { citationSource } from "../../src/shared/citations";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import {
+  citationLocation,
   englishLocation,
+  englishPlace,
   locationOf,
   parseRequestedLocation,
   quoteInUnits,
   resolveRequested,
+  unitLocation,
 } from "../../src/shared/locations";
 import type { TextUnit } from "../../src/shared/units";
 import {
@@ -55,6 +60,31 @@ const COMMENTED = await extractUnits(
       comment: { text: "配送中心的合同将于2026年12月到期，需提前续签。", author: "王丽华" },
     },
   ]),
+);
+
+const SKILLS = "主导过三个品牌的视觉升级，带领五人设计团队。";
+const RESUME = await extractUnits(
+  "docx",
+  new Uint8Array(
+    docxOf([
+      { text: "示例员工" },
+      { text: "" },
+      { text: "资深视觉设计师" },
+      { text: "7年设计经验，擅长品牌与界面设计。" },
+      { text: SKILLS },
+      { text: "Figma、Sketch 与 Photoshop。" },
+    ]),
+  ),
+);
+const LETTER = await extractUnits(
+  "docx",
+  new Uint8Array(
+    docxOf([
+      { text: "Dear team," },
+      { text: "Terms", heading: 1 },
+      { text: "Payment is due in 30 days." },
+    ]),
+  ),
 );
 
 const units = (all: readonly TextUnit[], from: number, to = from) =>
@@ -237,6 +267,7 @@ describe("The check of a quote in a web page's sections (#261)", () => {
     expect(locationIn(1, "After plain water, tea is the most widely consumed drink")).toEqual({
       kind: "section",
       heading: null,
+      start: true,
       paragraphs: { from: 1, to: 1 },
     });
     // The heading itself is no paragraph.
@@ -262,6 +293,69 @@ describe("The check of a quote in a web page's sections (#261)", () => {
     expect(resolveRequested(parseRequestedLocation("§ History, ¶¶ 2–3") as never, ARTICLE)).toEqual(
       { from: 2, to: 2 },
     );
+  });
+});
+
+describe("A Word file with and without headings (#1601)", () => {
+  const locationIn = (all: readonly TextUnit[], quote: string) => {
+    const cited = units(all, 1);
+    return locationOf(cited, quoteInUnits(cited, quote));
+  };
+  const t = (language: "en" | "zh-CN") => (key: MessageKey, params?: MessageParams) =>
+    translate(language, key, params);
+  const cited = (name: string, all: readonly TextUnit[], quote: string) => ({
+    documentName: name,
+    location: locationIn(all, quote),
+  });
+
+  test("a file with no headings numbers its paragraphs, the empty ones not counted", () => {
+    expect(RESUME).toHaveLength(1);
+    expect(RESUME[0]?.label).toEqual({ path: [] });
+    expect(locationIn(RESUME, SKILLS)).toEqual({
+      kind: "section",
+      heading: null,
+      paragraphs: { from: 4, to: 4 },
+    });
+    expect(locationIn(RESUME, "资深视觉设计师 7年设计经验，擅长品牌与界面设计。")).toEqual({
+      kind: "section",
+      heading: null,
+      paragraphs: { from: 2, to: 3 },
+    });
+  });
+
+  test("is cited by its name and paragraph, in English and Chinese, and by its name alone when no paragraph is known", () => {
+    const name = "示例简历-设计师 2";
+    const where = cited(name, RESUME, SKILLS);
+    expect(citationSource(where, t("en")).text).toBe(`${name}, ¶\u00a04`);
+    expect(citationSource(where, t("zh-CN")).text).toBe(`${name}，第 4 段`);
+    const notFound = cited(name, RESUME.slice(0, 1), "Not in the file at all.");
+    expect(citationLocation({ ...notFound, pageFrom: 1, pageTo: 1 })).toBeNull();
+    expect(citationSource(notFound, t("zh-CN")).text).toBe(name);
+    expect(citationSource(notFound, t("en")).text).toBe(name);
+  });
+
+  test("is marked in the prompt only by where it is, never as '§ Start'", () => {
+    expect(englishPlace(unitLocation(RESUME[0] as TextUnit))).toBeNull();
+    expect(englishPlace(locationIn(RESUME, SKILLS))).toBe("¶\u00a04");
+  });
+
+  test("a file with headings is cited from before its first as '§ Start'", () => {
+    expect(LETTER.map((unit) => unit.label)).toEqual([
+      { path: [], beforeHeading: true },
+      { path: ["Terms"] },
+    ]);
+    const intro = units(LETTER, 1);
+    expect(locationOf(intro, quoteInUnits(intro, "Dear team,"))).toEqual({
+      kind: "section",
+      heading: null,
+      start: true,
+    });
+    expect(englishPlace(unitLocation(LETTER[0] as TextUnit))).toBe("§ Start");
+    const terms = units(LETTER, 2);
+    expect(locationOf(terms, quoteInUnits(terms, "Payment is due in 30 days."))).toEqual({
+      kind: "section",
+      heading: "Terms",
+    });
   });
 });
 
@@ -475,6 +569,58 @@ describe("Citing Word, PowerPoint and Excel Documents in an Answer", { timeout: 
       [{ kind: "section", heading: "Costs" }, "not-found"],
     ]);
     expect(citations[0]?.quote).toBe("Finance has asked to lower the contingency to 8 per cent.");
+  });
+
+  test("a Word file with no headings is cited by its paragraph, one with headings from before the first as '§ Start', and the footnotes say so (#1601)", async () => {
+    const name = "示例简历-设计师 2";
+    const model = citingModel({
+      query: "品牌 视觉 Figma Dear team Payment",
+      records: (passages) => [
+        { marker: 1, passage: byDocument(passages, name), quote: "主导过三个品牌的视觉升级" },
+        { marker: 2, passage: byDocument(passages, name), quote: "Figma、Sketch 与 Photoshop" },
+        { marker: 3, passage: byDocument(passages, "Letter"), quote: "Dear team," },
+      ],
+      answer: "She led rebrands [^1] and uses Figma [^2]. The letter greets the team [^3].",
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      {
+        name: `${name}.docx`,
+        contents: new Uint8Array(
+          docxOf([
+            { text: "示例员工" },
+            { text: "资深视觉设计师" },
+            { text: "主导过三个品牌的视觉升级，带领五人设计团队。" },
+            { text: "Figma、Sketch 与 Photoshop。" },
+          ]),
+        ),
+      },
+      {
+        name: "Letter.docx",
+        contents: new Uint8Array(
+          docxOf([
+            { text: "Dear team," },
+            { text: "Terms", heading: 1 },
+            { text: "Payment is due in 30 days." },
+          ]),
+        ),
+      },
+    ]);
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "What does she do?");
+
+    const citations = citationsIn(client, answerId);
+    expect(citations.map((citation) => [citation.location, citation.check])).toEqual([
+      [{ kind: "section", heading: null, paragraphs: { from: 3, to: 3 } }, "found"],
+      [{ kind: "section", heading: null, paragraphs: { from: 4, to: 4 } }, "found"],
+      [{ kind: "section", heading: null, start: true }, "found"],
+    ]);
+    const markdown = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "markdown" })).data,
+    );
+    expect(markdown).toContain(`${name}, ¶\u00a03`);
+    expect(markdown).toContain(`${name}, ¶\u00a04`);
+    expect(markdown).toContain("Letter, § Start");
+    expect(markdown).not.toContain(`${name}, § Start`);
   });
 
   test("a Location the Passage doesn't have is 'not found', and the model is told where it can cite", async () => {

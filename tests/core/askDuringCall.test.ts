@@ -113,6 +113,7 @@ describe("Asking during a call", { timeout: 60_000 }, () => {
         check: "found",
       }),
     ]);
+    expect(answer.steps?.sent).toEqual({ documents: [], transcript: true });
     expect(readMind(client).textContent).toBe("");
   });
 
@@ -134,6 +135,29 @@ describe("Asking during a call", { timeout: 60_000 }, () => {
     expect(sent).toMatch(/\[\d+:\d{2} Them\] /);
     expect(firstCall.system).toContain('"Them" is the other side of the call');
     expect(firstCall.system).toContain("never guess");
+  });
+
+  test("a Question that isn't a button is not told the live text is behind, whatever the Transcript's state (#1366)", async () => {
+    const calls: ModelCall[] = [];
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir, {
+      model: listeningModel(calls),
+      engine: { decodeMs: 30 },
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (transcript) => transcript.state === "live");
+    record(40 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.state === "behind");
+
+    const answer = await ask(core, {
+      mindId: meeting.mindId,
+      text: "What did they say about the payment provider?",
+    });
+
+    expect(calls[0]?.system).not.toContain("fell behind");
+    expect(answer.steps?.textBehind).toBeUndefined();
   });
 
   test("a Question from another Mind, or after Stop, goes without the transcript", async () => {

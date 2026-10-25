@@ -56,9 +56,9 @@ for (const [language, width, count] of [
   const words = {
     en: {
       deleted: `Moved ${shown} Documents to Recently deleted`,
-      selected: `${count} selected`,
+      selected: `${shown} selected`,
     },
-    "zh-CN": { deleted: `已将 ${shown} 个文档移到回收站`, selected: `已选 ${count} 个` },
+    "zh-CN": { deleted: `已将 ${shown} 个文档移到回收站`, selected: `已选 ${shown} 个` },
   }[language];
 
   test(`${shown} Documents selected with ⌘A go to Recently deleted in one step, and ⌘Z brings them all back in one (${language}, ${width}px)`, async () => {

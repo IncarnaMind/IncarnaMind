@@ -78,6 +78,8 @@ export interface WordPatchInput {
   style: ResolvedCitationStyle;
   /** Whether a Numbered Mind shows its Bibliography. */
   bibliography: boolean;
+  /** Citations as `[1]` and a list at the end, instead of footnotes (#1600). */
+  listed: boolean;
   bibliographyHeading: string;
   sources: SourceContext;
   formatCitations(request: CitationFormatRequest): Promise<FormattedCitations>;
@@ -193,7 +195,9 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     numbering,
   );
   footnotes.reserveIds(target.ids);
-  await reserveIds(writer, target.ids);
+  const bookmarks = new Set<string>();
+  await reserveIds(writer, target.ids, bookmarks);
+  target.reserveBookmarks(bookmarks);
   const review = new Review(input.review, target.ids, input.labels, () => target.styles.comment);
   const docxWriter = new DocxWriter(input.labels, textWidthOf(base.root), target, review);
 
@@ -250,10 +254,11 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   const bibliography = await styleWritten(order, {
     style: input.style,
     bibliography: input.bibliography,
+    listed: input.listed,
     heading: input.bibliographyHeading,
     sources: input.sources,
     format: input.formatCitations,
-    needsDetails: input.labels.needsDetails,
+    unverified: input.labels.unverified,
   });
   for (const each of order) if (each.blocks) each.blocks = await input.withPictures(each.blocks);
 
@@ -295,7 +300,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   });
   let text: string;
   try {
-    text = patch.write();
+    text = docxWriter.finish(patch.write());
   } catch (error) {
     throw new WordPartError(
       pkg.part,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DataFromNewerVersionError } from "../../src/core/errors";
-import { startupDialog } from "../../src/main/startupError";
+import { startupDialog, startupProblem } from "../../src/main/startupError";
 
 describe("startupDialog", () => {
   const newer = new DataFromNewerVersionError(58);
@@ -30,5 +30,26 @@ describe("startupDialog", () => {
     expect(dialog.title).toBe("IncarnaMind couldn’t start");
     expect(dialog.detail).toContain("disk full");
     expect(dialog.buttons).toEqual([]);
+  });
+
+  it("says in plain words that another copy may still be starting, in both languages", () => {
+    expect(startupProblem("en", "busy").detail).toBe(
+      "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+    );
+    expect(startupProblem("zh-CN", "busy").detail).toBe(
+      "IncarnaMind 无法打开数据文件夹。可能另一个副本仍在启动，请稍后再试。",
+    );
+  });
+
+  it("says in plain words that another copy was quitting and the data is safe, in both languages", () => {
+    expect(startupProblem("en", "stalled")).toEqual({
+      title: "IncarnaMind couldn’t start",
+      detail:
+        "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
+    });
+    expect(startupProblem("zh-CN", "stalled")).toEqual({
+      title: "IncarnaMind 无法启动",
+      detail: "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。",
+    });
   });
 });

@@ -12,6 +12,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { withFigureText } from "../../shared/figureMarkers";
+import { parseLocation } from "../../shared/locations";
 import { conversationName, cutTitle } from "../../shared/naming";
 import { parseThirdPartySource } from "../../shared/textOrigins";
 import { asksToCheckOrCalculate } from "../answers/carefulIntent";
@@ -30,6 +31,7 @@ import type {
   AnswerSteps,
   AnswerToolCall,
   AskedFrom,
+  AskedQuote,
   ChatModelChoice,
   CitationSupport,
   ClaimedChange,
@@ -49,7 +51,7 @@ import type {
   SearchScope,
   ThirdPartySource,
 } from "../api";
-import { CLAIMED_CHANGES } from "../api";
+import { CLAIMED_CHANGES, MOST_ASKED_QUOTES } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
@@ -67,6 +69,9 @@ export interface QuestionInput {
   mind: { id: string; folderId: string | null } | null;
   /** Where the User was in that Mind; null with none. */
   focus: MindFocus | null;
+  /** The Documents open on screen, by id, the focused group's first; not kept with the Question. */
+  onScreen: string[];
+  quotes: AskedQuote[];
   scope: SearchScope | null;
   model: ChatModelChoice | null;
   forcedSkill: string | null;
@@ -95,6 +100,12 @@ export interface Turn {
   question: ConversationQuestion;
   answer: ConversationAnswer;
   earlier: ConversationMessage[];
+}
+
+/** A Turn as `add` made it, with its conversation's `updated_at` from before it. */
+export interface AddedTurn {
+  turn: Turn;
+  previousConversationUpdatedAt: string | null;
 }
 
 interface ConversationRow {
@@ -134,6 +145,7 @@ interface MessageRow {
   read_mind_id: string | null;
   read_mind_version: string | null;
   read_partial: number;
+  quotes: string | null;
   created_at: string;
   updated_at: string;
   /** Joined in: the asked-from Mind's name, and 1 if it is deleted or not on this computer. */
@@ -173,6 +185,9 @@ const ERROR_KINDS: Record<ProviderErrorKind, true> = {
   "rate-limit": true,
   network: true,
   provider: true,
+  refused: true,
+  "out-of-credit": true,
+  region: true,
   "consent-declined": true,
   "consent-revoked": true,
   "local-mode": true,
@@ -223,9 +238,11 @@ function storedSteps(value: string | null): AnswerSteps | null {
     careful,
     unbackedClaims,
     example,
-    withoutMindTools,
     coverage,
     writtenFrom,
+    stillReading,
+    sent,
+    textBehind,
   } = parsed;
   const claimed = Array.isArray(unbackedClaims)
     ? unbackedClaims.filter((each): each is ClaimedChange =>
@@ -256,12 +273,27 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(careful === true && { careful }),
     ...(claimed.length > 0 && { unbackedClaims: claimed }),
     ...(example === true && { example }),
-    ...(withoutMindTools === true && { withoutMindTools }),
+    ...(textBehind === true && { textBehind }),
     ...(storedCoverage(coverage) ?? {}),
     ...(isRecord(writtenFrom) &&
       isCount(writtenFrom.documents) &&
       isCount(writtenFrom.total) && {
         writtenFrom: { documents: writtenFrom.documents, total: writtenFrom.total },
+      }),
+    ...(isRecord(stillReading) &&
+      isCount(stillReading.count) && {
+        stillReading: {
+          count: stillReading.count,
+          ...(typeof stillReading.name === "string" &&
+            stillReading.name !== "" && { name: stillReading.name }),
+        },
+      }),
+    ...(isRecord(sent) &&
+      Array.isArray(sent.documents) && {
+        sent: {
+          documents: sent.documents.filter((each): each is string => typeof each === "string"),
+          ...(sent.transcript === true && { transcript: true as const }),
+        },
       }),
   };
 }
@@ -342,6 +374,64 @@ function storedFocus(value: string | null): MindFocus | null {
   }
 }
 
+/** The Documents open on screen, by id, in order, each once; throws for anything but a list of ids. */
+export function parseOnScreen(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id !== "")) {
+    throw new InvalidInputError({ key: "error.question.onScreen" });
+  }
+  return [...new Set(value as string[])];
+}
+
+// Two pages of dense text, the most a Citation covers, with room to spare.
+const MOST_QUOTED_CHARACTERS = 50_000;
+
+const pageOf = (value: unknown): number | null | undefined =>
+  value === null
+    ? null
+    : typeof value === "number" && Number.isInteger(value) && value >= 1
+      ? value
+      : undefined;
+
+function parseQuote(value: unknown): AskedQuote | null {
+  if (!isRecord(value)) return null;
+  const { documentId, documentName, quote } = value;
+  const pageFrom = pageOf(value.pageFrom);
+  const pageTo = pageOf(value.pageTo);
+  const location = value.location === null ? null : parseLocation(value.location);
+  if (
+    typeof documentId !== "string" ||
+    documentId === "" ||
+    typeof documentName !== "string" ||
+    typeof quote !== "string" ||
+    quote.trim() === "" ||
+    quote.length > MOST_QUOTED_CHARACTERS ||
+    pageFrom === undefined ||
+    pageTo === undefined ||
+    (value.location !== null && location === null)
+  ) {
+    return null;
+  }
+  return { documentId, documentName, quote, pageFrom, pageTo, location };
+}
+
+function parseQuotes(value: unknown): AskedQuote[] {
+  if (value === undefined || value === null) return [];
+  const unreadable = () => new InvalidInputError({ key: "error.question.quotes" });
+  if (!Array.isArray(value)) throw unreadable();
+  if (value.length > MOST_ASKED_QUOTES) {
+    throw new InvalidInputError({
+      key: "error.question.quotes.tooMany",
+      values: { count: MOST_ASKED_QUOTES },
+    });
+  }
+  return value.map((each) => {
+    const quote = parseQuote(each);
+    if (!quote) throw unreadable();
+    return quote;
+  });
+}
+
 /** A `MindFocus`, or null for anything else. */
 function parseFocus(value: unknown): MindFocus | null {
   if (!isRecord(value) || typeof value.selection !== "string" || !Array.isArray(value.blockIds)) {
@@ -362,6 +452,7 @@ function toQuestion(row: MessageRow): ConversationQuestion {
     scope: storedScope(row.scope),
     model: modelOf(row),
     forcedSkill: row.forced_skill,
+    quotes: storedList<unknown>(row.quotes ?? "[]").flatMap((each) => parseQuote(each) ?? []),
     createdAt: row.created_at,
   };
 }
@@ -429,6 +520,9 @@ const readColumns = (read: AnswerRead | null): [string | null, string | null, nu
 ];
 
 export function createConversations(db: Database, now: () => string) {
+  /** The state before each conversation's first unpublished turn, shared by overlapping turns. */
+  const pendingTurns = new Map<string, { updatedAt: string; answerIds: Set<string> }>();
+
   /** Each conversation's Minds asked from, each once, in the order first asked from. */
   function askedFromIn(ids: readonly string[]): Map<string, AskedFrom[]> {
     const rows = db.all<{
@@ -541,6 +635,7 @@ export function createConversations(db: Database, now: () => string) {
       scope?: SearchScope | null;
       model: ChatModelChoice | null;
       forcedSkill?: string | null;
+      quotes?: readonly AskedQuote[];
       status?: AnswerStatus;
       read?: AnswerRead | null;
     },
@@ -549,10 +644,10 @@ export function createConversations(db: Database, now: () => string) {
     const id = randomUUID();
     db.run(
       `INSERT INTO conversation_messages (id, conversation_id, position, kind, question_id, text,
-         asked_from_mind_id, focus, scope, provider_id, model_id, forced_skill, status,
+         asked_from_mind_id, focus, scope, provider_id, model_id, forced_skill, quotes, status,
          read_mind_id, read_mind_version, read_partial, created_at, updated_at)
        VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM conversation_messages
-                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         conversationId,
@@ -566,6 +661,7 @@ export function createConversations(db: Database, now: () => string) {
         fields.model?.providerId ?? null,
         fields.model?.modelId ?? null,
         fields.forcedSkill ?? null,
+        fields.quotes?.length ? JSON.stringify(fields.quotes) : null,
         fields.status ?? null,
         ...readColumns(fields.read ?? null),
         at,
@@ -732,6 +828,8 @@ export function createConversations(db: Database, now: () => string) {
         text: text.trim(),
         mind,
         focus: mind ? where : null,
+        onScreen: parseOnScreen(input.onScreen),
+        quotes: parseQuotes(input.quotes),
         scope: parseSearchScope(input.scope),
         model: model ?? null,
         forcedSkill: typeof forcedSkill === "string" ? forcedSkill : null,
@@ -744,8 +842,17 @@ export function createConversations(db: Database, now: () => string) {
      * conversation is named by the Question and belongs to the Folder of the Mind in
      * focus, or to none.
      */
-    add(input: QuestionInput, answerModel: ChatModelChoice | null, read: AnswerRead | null): Turn {
-      return db.transaction(() => {
+    add(
+      input: Omit<QuestionInput, "onScreen">,
+      answerModel: ChatModelChoice | null,
+      read: AnswerRead | null,
+    ): AddedTurn {
+      const previousConversationUpdatedAt =
+        input.conversationId === null
+          ? null
+          : (pendingTurns.get(input.conversationId)?.updatedAt ??
+            liveRow(input.conversationId).updated_at);
+      const added = db.transaction(() => {
         const at = now();
         let conversationId = input.conversationId;
         if (conversationId === null) {
@@ -774,6 +881,7 @@ export function createConversations(db: Database, now: () => string) {
             scope: input.scope,
             model: input.model,
             forcedSkill: input.forcedSkill,
+            quotes: input.quotes,
           },
           at,
         );
@@ -790,8 +898,96 @@ export function createConversations(db: Database, now: () => string) {
           },
           at,
         );
-        return turnOf(question, answer.id);
+        const turn = turnOf(question, answer.id);
+        return { turn, previousConversationUpdatedAt };
       });
+      if (previousConversationUpdatedAt !== null) {
+        const id = added.turn.conversation.id;
+        const pending = pendingTurns.get(id) ?? {
+          updatedAt: previousConversationUpdatedAt,
+          answerIds: new Set<string>(),
+        };
+        pending.answerIds.add(added.turn.answer.id);
+        pendingTurns.set(id, pending);
+      }
+      return added;
+    },
+
+    publish(turn: Turn): void {
+      const pending = pendingTurns.get(turn.conversation.id);
+      if (!pending) return;
+      pending.answerIds.delete(turn.answer.id);
+      // The turn's own time, not the conversation's: another pending turn may have moved that on.
+      if (pending.updatedAt < turn.question.createdAt) {
+        pending.updatedAt = turn.question.createdAt;
+      }
+      if (pending.answerIds.size === 0) pendingTurns.delete(turn.conversation.id);
+    },
+
+    /** Removes an unpublished turn whose model or Skill couldn't be asked. */
+    discard(added: AddedTurn): void {
+      const { turn } = added;
+      const questionId = turn.question.id;
+      const answerId = turn.answer.id;
+      const pending = pendingTurns.get(turn.conversation.id);
+      const lastPending = pending
+        ? pending.answerIds.size === 1 && pending.answerIds.has(answerId)
+        : true;
+      const previousConversationUpdatedAt =
+        pending?.updatedAt ?? added.previousConversationUpdatedAt;
+      const discarded = db.transaction(() => {
+        const question = db.get<{ seq: number; conversation_id: string; position: number }>(
+          `SELECT seq, conversation_id, position FROM conversation_messages
+           WHERE id = ? AND kind = 'question' AND deleted_at IS NULL`,
+          [questionId],
+        );
+        const answer = db.get<{ seq: number; conversation_id: string }>(
+          `SELECT seq, conversation_id FROM conversation_messages
+           WHERE id = ? AND kind = 'answer' AND question_id = ? AND status = 'streaming'
+             AND text = '' AND deleted_at IS NULL`,
+          [answerId, questionId],
+        );
+        if (!question || !answer || question.conversation_id !== answer.conversation_id)
+          return false;
+        db.run("DELETE FROM conversation_messages_fts WHERE rowid IN (?, ?)", [
+          BigInt(question.seq),
+          BigInt(answer.seq),
+        ]);
+        db.run("DELETE FROM conversation_messages WHERE id IN (?, ?)", [questionId, answerId]);
+        const remaining = db.get<{ count: number }>(
+          "SELECT count(*) AS count FROM conversation_messages WHERE conversation_id = ?",
+          [question.conversation_id],
+        );
+        if (remaining?.count !== 0) {
+          if (lastPending && previousConversationUpdatedAt !== null) {
+            db.run(
+              `UPDATE conversations SET updated_at = ?
+               WHERE id = ? AND updated_at = ?
+                 AND NOT EXISTS (
+                   SELECT 1 FROM conversation_messages
+                   WHERE conversation_id = ? AND position > ? AND deleted_at IS NULL
+                 )`,
+              [
+                previousConversationUpdatedAt,
+                question.conversation_id,
+                turn.conversation.updatedAt,
+                question.conversation_id,
+                question.position,
+              ],
+            );
+          }
+          return true;
+        }
+        db.run(
+          "DELETE FROM conversations_fts WHERE rowid IN (SELECT seq FROM conversations WHERE id = ?)",
+          [question.conversation_id],
+        );
+        db.run("DELETE FROM conversations WHERE id = ?", [question.conversation_id]);
+        return true;
+      });
+      if (!discarded) return;
+      pending?.answerIds.delete(answerId);
+      if (lastPending) pendingTurns.delete(turn.conversation.id);
     },
 
     /**
@@ -813,12 +1009,13 @@ export function createConversations(db: Database, now: () => string) {
         .map((row) => ({ question: row.question, answer: row.answer ?? "" }));
     },
 
-    /** The Question of an Answer, both live, to write the Answer again. */
+    /** The Question of an Answer, both live, to write the Answer again, and what is on screen now. */
     questionOf(input: unknown): {
       answerId: string;
       question: ConversationQuestion;
       /** The Tool calls the Answer made, as it stands before it is written again. */
       toolCalls: AnswerToolCall[];
+      onScreen: string[];
     } {
       if (!isRecord(input)) {
         throw new InvalidInputError("Expected { conversationId, answerId }.");
@@ -836,7 +1033,16 @@ export function createConversations(db: Database, now: () => string) {
         answerId: answer.id,
         question: toQuestion(question),
         toolCalls: storedList<AnswerToolCall>(answer.tool_calls),
+        onScreen: parseOnScreen(input.onScreen),
       };
+    },
+
+    /** The Search scope an Answer's Question was asked with; null for none, or once either is gone. */
+    askedScope(conversationId: string, answerId: string): SearchScope | null {
+      const answer = liveMessage(answerId);
+      if (answer?.kind !== "answer" || answer.conversation_id !== conversationId) return null;
+      const question = liveMessage(answer.question_id);
+      return question?.kind === "question" ? storedScope(question.scope) : null;
     },
 
     /** Takes the Search scope off a Question, so its Answers search every Document (#748). */

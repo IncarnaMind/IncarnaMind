@@ -1,8 +1,10 @@
 import { type FormEvent, useEffect, useId, useState } from "react";
 import type { Connector, LocalConnector, SecretStorageStatus } from "../../../../core/api";
+import { nameInLine } from "../../../../shared/naming";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
+import { FieldProblem, type FieldProblems, useFieldProblems } from "../FieldProblem";
 import { ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
 import { TypingTextarea } from "../TypingTextarea";
@@ -72,6 +74,7 @@ export function ConnectorForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [secretStorage, setSecretStorage] = useState<SecretStorageStatus | null>(null);
+  const problems = useFieldProblems();
 
   useEffect(() => {
     core.getSecretStorage().then(setSecretStorage, () => undefined);
@@ -132,6 +135,7 @@ export function ConnectorForm({
     <form
       data-testid="connector-form"
       onSubmit={(event) => void submit(event)}
+      {...problems.form}
       className="flex flex-col gap-3"
     >
       <fieldset hidden={editing !== undefined || fixedKind !== undefined}>
@@ -156,11 +160,17 @@ export function ConnectorForm({
         {t("connectors.form.name")}
         <input
           required
+          {...problems.field("connector-name")}
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder={remote ? "Linear" : "GitHub"}
           className={inputClass}
         />
+        {problems.fault("connector-name") && (
+          <FieldProblem id={problems.lineId("connector-name")}>
+            {t("error.connector.nameEmpty")}
+          </FieldProblem>
+        )}
       </label>
       {remote ? (
         <>
@@ -169,6 +179,7 @@ export function ConnectorForm({
             <input
               required
               type="url"
+              {...problems.field("connector-url")}
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               placeholder="https://mcp.example.com/mcp"
@@ -176,6 +187,13 @@ export function ConnectorForm({
               className={`${inputClass} font-mono`}
             />
             <span className={hintClass}>{t("remoteConnectors.form.urlHint")}</span>
+            {problems.fault("connector-url") && (
+              <FieldProblem id={problems.lineId("connector-url")}>
+                {problems.fault("connector-url") === "missing"
+                  ? t("error.connector.urlMissing")
+                  : t("error.connector.urlInvalid", { url: nameInLine(url) })}
+              </FieldProblem>
+            )}
           </label>
           <details className="text-[13px] leading-5 text-ink-secondary">
             <summary className="cursor-pointer select-none hover:text-ink">
@@ -217,6 +235,7 @@ export function ConnectorForm({
           setEnv={setEnv}
           envInvalid={variables === null}
           savedEnv={editing?.env ?? []}
+          problems={problems}
         />
       )}
 
@@ -264,10 +283,11 @@ function LocalFields(props: {
   envInvalid: boolean;
   /** The names of a Connector's saved variables, kept unless others are entered. */
   savedEnv: readonly string[];
+  problems: FieldProblems;
 }) {
   const t = useT();
   const invalidId = useId();
-  const { command, setCommand, args, setArgs, env, setEnv } = props;
+  const { command, setCommand, args, setArgs, env, setEnv, problems } = props;
   const [argsMoved, setArgsMoved] = useState(false);
   // A whole command line pasted as the command: the program stays, its
   // arguments move to their own field (before any already there).
@@ -284,6 +304,7 @@ function LocalFields(props: {
         {t("connectors.form.command")}
         <input
           required
+          {...problems.field("connector-command")}
           value={command}
           onChange={(event) => {
             setCommand(event.target.value);
@@ -297,6 +318,11 @@ function LocalFields(props: {
         <span className={hintClass}>
           {argsMoved ? t("connectors.form.argsMoved") : t("connectors.form.commandHint")}
         </span>
+        {problems.fault("connector-command") && (
+          <FieldProblem id={problems.lineId("connector-command")}>
+            {t("error.connector.commandMissing")}
+          </FieldProblem>
+        )}
       </label>
       <label className={fieldLabelClass}>
         {t("connectors.form.args")}
@@ -328,14 +354,7 @@ function LocalFields(props: {
             : t("connectors.form.envHint")}
         </span>
         {props.envInvalid && (
-          <span
-            id={invalidId}
-            role="alert"
-            className="mt-1 block text-[12px] leading-[18px] text-ink"
-          >
-            <ProblemMark />
-            {t("connectors.form.envInvalid")}
-          </span>
+          <FieldProblem id={invalidId}>{t("connectors.form.envInvalid")}</FieldProblem>
         )}
       </label>
     </>

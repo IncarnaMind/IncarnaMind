@@ -229,8 +229,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^Outline(⌥⌘L|Ctrl\+Alt\+L)$/,
       /^Export…$/,
       /^Export AI use statement$/,
-      /^Export check record as PDF$/,
-      /^Export check record as CSV$/,
+      /^Export check record…$/,
       /^History$/,
       /^Check this Mind$/,
       /^Check for contradictions$/,
@@ -275,7 +274,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(shortlist.getByTestId("mind-list-item")).toBeFocused();
     await window.keyboard.press("Shift+F10");
     await expect(actions.getByTestId("mind.open")).toBeFocused();
-    for (let step = 0; step < 13; step++) await window.keyboard.press("ArrowDown");
+    for (let step = 0; step < 12; step++) await window.keyboard.press("ArrowDown");
     await expect(actions.getByTestId("mind.moveTo")).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(picker.getByTestId("move-to-search")).toBeFocused();
@@ -309,14 +308,14 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(undoLine.getByTestId("undo-message")).toHaveText("Moved “Shortlist” to Research");
     await screenshot(window, "folder-tree-moved");
 
-    // Its composer now starts with Research; a Question asked keeps it.
+    // Research holds no Document yet, so the Mind's next Question searches every Document, and the
+    // chip's title says why (#1359).
     const editor = window.getByTestId("mind-editor");
     await editor.click();
     await window.keyboard.press("ControlOrMeta+j");
     const composer = window.getByTestId("composer");
-    // The Folder holds no Document yet: its chip says so (#764).
-    await expect(composer.getByTestId("scope-chip").locator(".truncate")).toHaveText("Research");
-    await expect(composer.getByTestId("scope-chip-empty")).toBeVisible();
+    const all = composer.getByTestId("composer-scope-all");
+    await expect(all).toHaveAttribute("title", /^“Research” has no Documents yet/);
     await window.keyboard.type("What do my notes say?");
     await window.keyboard.press("Enter");
     const answer = assistantAnswers(window).first();
@@ -336,9 +335,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     );
     // Open as before the double-click.
     await expect(renamed).toHaveAttribute("data-expanded", "true");
-    await expect(composer.getByTestId("scope-chip").locator(".truncate")).toHaveText(
-      "Research notes",
-    );
+    await expect(all).toHaveAttribute("title", /^“Research notes” has no Documents yet/);
     for (const key of ["F2"]) {
       await renamed.getByTestId("folder-row").focus();
       await window.keyboard.press(key);

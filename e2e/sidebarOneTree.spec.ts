@@ -166,16 +166,21 @@ const documentRow = (scope: Page | Locator, name: string) =>
 const notInAFolder = (window: Page) => window.getByTestId("not-in-a-folder");
 const notInAFolderHeading = (window: Page) => window.getByTestId("not-in-a-folder-section-heading");
 
-/** The composer's scope for the open Mind's next Question: its Folder's chip, or every Document. */
-async function expectScope(window: Page, folder: string | null): Promise<void> {
+async function expectScope(
+  window: Page,
+  folder: string | null,
+  { holds = true }: { holds?: boolean } = {},
+): Promise<void> {
   await window.keyboard.press("ControlOrMeta+j");
   const composer = window.getByTestId("composer");
-  if (folder === null) {
-    await expect(composer.getByTestId("scope-chip")).toHaveCount(0);
-    await expect(composer.getByTestId("composer-scope-all")).toBeVisible();
-  } else {
+  if (folder !== null && holds) {
     await expect(composer.getByTestId("scope-chip")).toContainText(folder);
+    return;
   }
+  await expect(composer.getByTestId("scope-chip")).toHaveCount(0);
+  const all = composer.getByTestId("composer-scope-all");
+  await expect(all).toBeVisible();
+  if (folder !== null) await expect(all).toHaveAttribute("title", new RegExp(`“${folder}”`));
 }
 
 const opacityOf = (target: Locator) =>
@@ -187,7 +192,7 @@ for (const [language, width] of [
   ["zh-CN", 1440],
   ["zh-CN", 900],
 ] as const) {
-  test(`a fresh sidebar is the header, Search, the Library and the foot; each section comes with its first item, and a heading's + shows on hover and focus (${language}, ${width}px)`, async () => {
+  test(`a fresh sidebar is the header, Home, Search, the Library and the foot; each section comes with its first item, and a heading's + shows on hover and focus (${language}, ${width}px)`, async () => {
     const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
     const { app, window } = await launchApp(dataDir);
     try {
@@ -195,8 +200,8 @@ for (const [language, width] of [
       await setLanguage(window, language);
       const sidebar = window.getByTestId("sidebar");
 
-      // Fresh: the header's +, Search and the Library, then nothing until there is something.
       await expect(sidebar.getByTestId("plus-menu")).toBeVisible();
+      await expect(sidebar.getByTestId("sidebar-home")).toHaveText(t("home.title"));
       await expect(sidebar.getByTestId("sidebar-search")).toContainText(t("sidebar.search"));
       await expect(sidebar.getByTestId("open-library")).toContainText(t("library.title"));
       for (const section of [
@@ -210,9 +215,9 @@ for (const [language, width] of [
       }
       await expect(sidebar.getByRole("button", { name: t("assistant.newChat") })).toHaveCount(0);
       await expect(sidebar.getByTestId("sidebar-sections")).toHaveText("");
-      // Search, the Library and the foot share the icon and text columns.
       const left = (await sidebar.boundingBox())?.x ?? 0;
       for (const row of [
+        sidebar.getByTestId("sidebar-home"),
         sidebar.getByTestId("sidebar-search"),
         sidebar.getByTestId("open-library"),
         sidebar.getByTestId("sidebar-footer").getByRole("button", { name: t("sidebar.settings") }),
@@ -351,7 +356,7 @@ for (const [language, width] of [
       await expect(undoLine).toHaveText(t("move.done", { name: "Shortlist", folder: "Finance" }));
       expect(await folderOfMind(window, shortlist)).toBe(finance);
       await expectCountsOfCore(window);
-      await expectScope(window, "Finance");
+      await expectScope(window, "Finance", { holds: false });
       await screenshot(window, `one-tree-dragged-${language}-${width}`);
       // ⌘Z takes it back.
       await undo(window);
@@ -401,7 +406,7 @@ for (const [language, width] of [
       // Clicked, it is the one selected.
       await financeFolder.getByTestId("mind-list-item").click();
       await expect(window.getByTestId("sidebar-selection")).toHaveText("");
-      await expectScope(window, "Finance");
+      await expectScope(window, "Finance", { holds: false });
       await dragOnto(
         window,
         mindRow(window, "Shortlist"),
@@ -420,7 +425,7 @@ for (const [language, width] of [
       await expectScope(window, null);
       await undo(window);
       await expect.poll(() => folderOfMind(window, shortlist)).toBe(finance);
-      await expectScope(window, "Finance");
+      await expectScope(window, "Finance", { holds: false });
 
       // Move to… by keyboard: ⇧⌘M on the row, type, Enter, and the folded Folder opens with it;
       // ⌘Z takes it back.
@@ -458,7 +463,7 @@ for (const [language, width] of [
         t("folder.made.one", { name: "Harbour", item: "Shortlist" }),
       );
       await expectCountsOfCore(window);
-      await expectScope(window, "Harbour");
+      await expectScope(window, "Harbour", { holds: false });
       await undo(window);
       await expect(harbour).toHaveCount(0);
       await expect.poll(() => folderOfMind(window, shortlist)).toBe(finance);

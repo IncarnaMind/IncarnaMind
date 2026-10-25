@@ -9,8 +9,9 @@ import { core } from "../core";
 import { formatMoney } from "../cost";
 import { AnswerError } from "../editor/AnswerView";
 import { RemoveIcon } from "../editor/icons";
-import { useMindModel } from "../editor/ModelChip";
 import { useLanguage, useT } from "../i18n";
+import { useModelInUse, useOwnModel } from "../modelInUse";
+import { requestModelMenu } from "../modelMenu";
 import { useModelNames } from "../modelNames";
 import {
   addStep,
@@ -61,9 +62,9 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
   const t = useT();
   const card = useResearch((state) => state.plans[mindId]);
   const seat = useComposer((state) => state.seat);
-  const chosen = useMindModel(seat?.mindId === mindId ? seat.doc : null);
-  const fallback = useAppStore((state) => state.settings?.user.chatModel ?? null);
-  const model = chosen ?? fallback;
+  const doc = seat?.mindId === mindId ? seat.doc : null;
+  const model = useModelInUse(doc);
+  const chosen = useOwnModel(doc);
   const web = useWebReach(model);
   const fields = useRef<(HTMLTextAreaElement | null)[]>([]);
   const focusStep = useRef<number | null>(null);
@@ -83,7 +84,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
     card.planning || card.starting || steps.length === 0 || (!searchesWeb && !card.sources.library);
 
   const start = () => {
-    if (!blocked) void startResearch(mindId, chosen);
+    if (!blocked) void startResearch(mindId, model);
   };
   const cancel = () => cancelResearch(mindId);
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -221,7 +222,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
           </div>
         </div>
       </div>
-      <PlanProblem mindId={mindId} card={card} model={chosen} />
+      <PlanProblem mindId={mindId} card={card} model={model} chosen={chosen} />
       <div className="research-plan-foot">
         <Estimate
           steps={Math.max(1, steps.length)}
@@ -411,15 +412,29 @@ function PlanProblem({
   mindId,
   card,
   model,
+  chosen,
 }: {
   mindId: string;
   card: Card;
   model: ChatModelChoice | null;
+  /** The model picked in the Mind; null when it follows the last pick or the default. */
+  chosen: ChatModelChoice | null;
 }) {
   const t = useT();
   const openSettings = useAppStore((state) => state.openSettings);
-  const fallback = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const problem = card.problem;
+  const thinking =
+    problem?.reason === "failed" &&
+    problem.error.wording?.key === "error.research.plan.thoughtOnly";
+  const failedWith = useRef(model);
+  // Another model chosen is the way on from a model that only thinks: the plan is made again with it.
+  useEffect(() => {
+    const before = failedWith.current;
+    failedWith.current = model;
+    if (!thinking || !model) return;
+    if (before?.providerId === model.providerId && before.modelId === model.modelId) return;
+    void planAgain(mindId, model);
+  }, [thinking, mindId, model]);
   if (!problem) return null;
   if (problem.reason === "not-ready") {
     return (
@@ -446,19 +461,26 @@ function PlanProblem({
         testId="research-plan-failed"
         className="research-plan-problem"
         title={error.message}
-        action={{ label: t("research.plan.tryAgain"), onClick: again }}
+        action={
+          thinking
+            ? {
+                label: t("answer.error.chooseModel"),
+                // The chip's model is the plan's: Settings' default can't change it.
+                onClick: chosen ? requestModelMenu : () => openSettings("models"),
+              }
+            : { label: t("research.plan.tryAgain"), onClick: again }
+        }
       >
         {t("research.plan.failedBecause", { reason: t(error.wording.key, error.wording.values) })}
       </ProblemLine>
     );
   }
-  const shown = model ?? fallback;
   return (
     <div data-testid="research-plan-failed" className="research-plan-problem">
       <AnswerError
         kind={error.kind}
-        modelId={shown?.modelId ?? null}
-        providerId={shown?.providerId ?? null}
+        modelId={model?.modelId ?? null}
+        providerId={model?.providerId ?? null}
         resetsAt={error.resetsAt ?? null}
         signInRoute={error.signInRoute ?? null}
         details={error.message}

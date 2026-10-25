@@ -1,7 +1,9 @@
 import { useId, useState } from "react";
 import type { SourceProviderInfo } from "../../../core/api";
+import { checkApiKey } from "../../../shared/apiKey";
 import { useFindSources } from "../findSources";
 import { useT } from "../i18n";
+import { KeyCharacterLine } from "./KeyCharacterLine";
 import { ProblemLine } from "./ProblemLine";
 import { buttonStyle, inputClass } from "./ui";
 
@@ -16,6 +18,7 @@ export function SourceKeyField({ provider }: { provider: SourceProviderInfo }) {
   const hintId = useId();
   const open = useFindSources((state) => state.keyOpen === provider.id);
   const [key, setKey] = useState("");
+  const { key: text, stray } = checkApiKey(key);
   const [problem, setProblem] = useState<string | null>(null);
   const save = async (value: string | null) => {
     const failed = await useFindSources.getState().setKey(provider.id, value);
@@ -44,7 +47,7 @@ export function SourceKeyField({ provider }: { provider: SourceProviderInfo }) {
           className="mt-1.5 flex flex-wrap items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            if (key.trim() !== "") void save(key);
+            if (text !== "" && !stray) void save(text);
           }}
         >
           <input
@@ -55,8 +58,9 @@ export function SourceKeyField({ provider }: { provider: SourceProviderInfo }) {
             autoFocus
             data-testid="find-sources-key"
             aria-label={t("sources.key.title", name)}
-            aria-describedby={hintId}
+            aria-describedby={stray ? `${hintId}-stray ${hintId}` : hintId}
             placeholder={t("sources.key.placeholder")}
+            aria-invalid={stray ? true : undefined}
             value={key}
             onChange={(event) => setKey(event.target.value)}
             className={`${inputClass} mt-0 min-w-48 flex-1`}
@@ -64,7 +68,7 @@ export function SourceKeyField({ provider }: { provider: SourceProviderInfo }) {
           <button
             type="submit"
             data-testid="find-sources-key-save"
-            disabled={key.trim() === ""}
+            disabled={text === "" || stray !== null}
             className={buttonStyle("primary")}
           >
             {t("sources.key.save")}
@@ -78,6 +82,11 @@ export function SourceKeyField({ provider }: { provider: SourceProviderInfo }) {
             >
               {t("sources.key.remove")}
             </button>
+          )}
+          {stray && (
+            <div className="basis-full">
+              <KeyCharacterLine id={`${hintId}-stray`} stray={stray} />
+            </div>
           )}
           <p id={hintId} className="basis-full text-ink-meta">
             {t(provider.keyNeeded ? "sources.key.hint.needed" : "sources.key.hint", name)}

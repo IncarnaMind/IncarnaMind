@@ -23,8 +23,10 @@ import { formatMoney, formatSpent, joinMeta, setAsideText } from "../../cost";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { type KeyRefusal, useKeyRefusals } from "../../keyRefusals";
+import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
+import { KeyCharacterLine } from "../KeyCharacterLine";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsBackLink } from "../SettingsBackLink";
@@ -38,8 +40,9 @@ import {
   successTextClass,
 } from "../ui";
 import { KeyCheckLine, useKeyCheck } from "./keyCheck";
+import { LocalModeUnavailable } from "./LocalModeUnavailable";
 import { OtherModels } from "./OtherModels";
-import { KeyRefusedLine, ProviderSendsLine, TestResult } from "./ProviderForm";
+import { KeyNotCheckedLine, KeyRefusedLine, ProviderSendsLine, TestResult } from "./ProviderForm";
 import { logoIdOf, ProviderLogo } from "./ProviderLogo";
 import { keyProviderName, useProviderKey } from "./shared";
 
@@ -86,6 +89,7 @@ function abilitiesOf(about: ModelAbout | undefined, t: Translate): string {
 
 export function ProviderPage({
   provider,
+  keyNotChecked = false,
   group,
   refused,
   onBack,
@@ -93,6 +97,8 @@ export function ProviderPage({
   onRemoved,
 }: {
   provider: ChatProvider;
+  /** The key was just saved with its test stopped by Local mode. */
+  keyNotChecked?: boolean;
   group: ChatModelGroup | undefined;
   /** From "Check the key": said by the key field, which takes the focus. */
   refused: KeyRefusal | null;
@@ -118,6 +124,8 @@ export function ProviderPage({
   );
   const keyField = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
+  const [notChecked, setNotChecked] = useState(keyNotChecked);
+  const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<ProviderTestResult | null>(null);
@@ -156,8 +164,8 @@ export function ProviderPage({
 
   const saveKey = async (event: FormEvent) => {
     event.preventDefault();
-    const apiKey = key.apiKey.trim();
-    if (apiKey === "" || !someModel || keyCheck.blocked) return;
+    const apiKey = key.text;
+    if (apiKey === "" || key.stray || !someModel || keyCheck.blocked) return;
     setSaving(true);
     setKeyError(null);
     try {
@@ -175,6 +183,8 @@ export function ProviderPage({
       });
       key.clear();
       setResult(null);
+      setNotChecked(saved.service !== null && localOnly);
+      clearModelFailure(saved.id);
       if (refused) useKeyRefusals.getState().saved(saved);
     } catch (failure) {
       setKeyError(errorMessage(failure, t));
@@ -269,6 +279,8 @@ export function ProviderPage({
         )}
       </header>
 
+      {provider.service && provider.kind !== "ollama" && <LocalModeUnavailable />}
+
       {provider.service ? (
         <ProviderSendsLine
           provider={provider.service.name}
@@ -301,15 +313,18 @@ export function ProviderPage({
               onChange={(event) => key.type(event.target.value)}
               autoComplete="off"
               spellCheck={false}
-              aria-describedby={refusedHere ? `${id}-refused` : undefined}
+              aria-invalid={key.stray ? true : undefined}
+              aria-describedby={
+                key.stray ? `${id}-stray` : refusedHere ? `${id}-refused` : undefined
+              }
               className={`${fieldClass} min-w-0 flex-1 basis-56`}
             />
           )}
-          {key.apiKey.trim() !== "" ? (
+          {key.text !== "" ? (
             <button
               type="submit"
               data-testid="provider-page-save-key"
-              disabled={saving || !someModel || keyCheck.blocked}
+              disabled={saving || !someModel || key.stray !== null || keyCheck.blocked}
               className={buttonClass}
             >
               {t("models.provider.saveKey")}
@@ -337,6 +352,7 @@ export function ProviderPage({
             </a>
           )}
         </div>
+        {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
         <KeyCheckLine
           check={keyCheck.check}
           provider={name}
@@ -344,6 +360,7 @@ export function ProviderPage({
           onAnyway={() => keyCheck.agree()}
         />
         {refusedHere && refused && <KeyRefusedLine id={`${id}-refused`} refused={refused} />}
+        {notChecked && localOnly && key.text === "" && <KeyNotCheckedLine provider={name} />}
         {keyError && (
           <p
             role="alert"

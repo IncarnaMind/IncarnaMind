@@ -52,6 +52,7 @@ import {
   readProposalAttribute,
   readProposalRef,
 } from "../shared/proposals";
+import type { ScopeKind } from "../shared/searchScope";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
@@ -127,11 +128,16 @@ export type FailedSentence = { id: string } & (
   | { check: "contradicted"; says: string | null; worked: { shown: string; stated: string } | null }
   | {
       check: "unsupported";
-      folder: string | null;
+      /** Where it looked, as `scopeName` names it; null for every Document. */
+      scope: { kind: ScopeKind; name: string | null; more: number } | null;
       nearest: { quote: string; source: string } | null;
+      covers: { covered: string; uncovered: string; quote: string; source: string } | null;
+      /** What the sentence's own Citations support and don't, as its card says. */
+      citations: { count: number; covered: string; uncovered: string } | null;
     }
+  | { check: "own-workings" }
   | { check: "needs-recheck"; why: RecheckReason }
-  | { check: "cited-case-unchecked" }
+  | { check: "cited-case-unchecked"; unsupported: boolean }
 );
 
 /** Part of a change still waiting to be accepted (a Proposal), read for review (#107). */
@@ -186,6 +192,8 @@ export type Inline = (
       runs: StyledRun[];
       note: boolean;
       unverified: boolean;
+      /** What it cites, as one key: the sources and places of its Citations. */
+      of?: string;
       /** The footnotes of its Citations whose check failed. */
       failed?: Footnote[];
     }
@@ -225,7 +233,14 @@ export type Block = (
   | { kind: "heading"; level: number; content: Inline[]; format?: ParagraphFormat }
   | { kind: "code"; language: string; code: string }
   | { kind: "math"; latex: string }
-  | { kind: "list"; ordered: boolean; start: number; items: Block[][] }
+  | {
+      kind: "list";
+      ordered: boolean;
+      start: number;
+      items: Block[][];
+      /** A checklist's state, in the same order as its items; absent on ordinary lists. */
+      checked?: boolean[];
+    }
   | { kind: "quote"; content: Block[] }
   | { kind: "rule" }
   | { kind: "table"; rows: TableCell[][] }
@@ -528,7 +543,6 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
       ];
     case "blockMath":
       return [{ kind: "math", latex: stringAttribute(element, "latex") }];
-    // A checklist reads as a bulleted list: its ticks are for the User, not for what reads the text.
     case "bulletList":
     case "taskList":
     case "orderedList": {
@@ -540,11 +554,22 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
         .toArray()
         .filter((item): item is Y.XmlElement => item instanceof Y.XmlElement)
         .flatMap((item) => {
-          if (!options.review) return [readChildren(item.toArray(), options)];
-          const change = changeOf(item, options);
-          return change ? [withChange(readChildren(item.toArray(), options), change)] : [];
+          const change = options.review ? changeOf(item, options) : undefined;
+          if (options.review && !change) return [];
+          const attributes: Record<string, unknown> = item.getAttributes();
+          const checked = attributes.checked === true;
+          const content = readChildren(item.toArray(), options);
+          return [{ content: change ? withChange(content, change) : content, checked }];
         });
-      return [{ kind: "list", ordered, start, items }];
+      return [
+        {
+          kind: "list",
+          ordered,
+          start,
+          items: items.map((item) => item.content),
+          ...(element.nodeName === "taskList" && { checked: items.map((item) => item.checked) }),
+        },
+      ];
     }
     case "blockquote":
       return [{ kind: "quote", content: readChildren(element.toArray(), options) }];
@@ -652,7 +677,7 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
           return { kind: "answer", content: readChildren(element.toArray(), options) };
         }
         if (!state.problem) return { kind: "words", text: "…" };
-        const { key, params } = cellProblemMessage(state.problem);
+        const { key, params } = cellProblemMessage(state.problem, state.message);
         return { kind: "words", text: say(key, params) };
       }),
     });

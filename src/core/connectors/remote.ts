@@ -24,6 +24,7 @@ import {
   ClientIdRequiredError,
   type ConnectorAuth,
   causedBy,
+  HeldBackError,
   RefreshFailedError,
   SignInRequiredError,
 } from "./auth";
@@ -110,6 +111,7 @@ export function signInError(error: unknown): ConnectorSignInError {
   const message = messageOf(error);
   const flow = causedBy(error, OAuthFlowError);
   if (flow) return { kind: flow.reason, message: flow.message };
+  if (causedBy(error, HeldBackError)) return { kind: "held-back", message };
   if (causedBy(error, ClientIdRequiredError)) return { kind: "client-id-required", message };
   // The SDK's own words, when the service has no metadata to say it can't register clients.
   if (/does not support dynamic client registration/i.test(message)) {

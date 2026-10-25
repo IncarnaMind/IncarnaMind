@@ -1,5 +1,4 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
-import { displayName } from "../../../shared/documentNames";
 import { nameInLine } from "../../../shared/naming";
 import { core, files } from "../core";
 import { CheckStateIcon } from "../editor/icons";
@@ -19,8 +18,7 @@ import {
   useExports,
 } from "../exports";
 import { showFileLabelKey } from "../fileInfo";
-import { useLanguage, useT } from "../i18n";
-import { saidInLine } from "../lineNames";
+import { useT } from "../i18n";
 import { folderName } from "../linkedFolders";
 import { enter } from "../motion";
 import {
@@ -29,7 +27,8 @@ import {
   showOutputLocationSetting,
 } from "../outputFiles";
 import { saveFailureReason } from "../problems";
-import { useAppStore } from "../store";
+import { useHeld } from "../useHeld";
+import { ExportAsks } from "./ExportAsks";
 import { CloseLineIcon, ExportLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { WordExportReview } from "./WordExportReview";
@@ -45,6 +44,7 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.unverified === 0 &&
   result.needsDetails.length === 0 &&
   result.kept.length === 0 &&
+  result.failures.length === 0 &&
   unmarkedChecks(result.checks, t) === null;
 
 /**
@@ -53,7 +53,8 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
  * Open · Show in Finder", with a second line when quotes weren't found ("1 quote not found,
  * marked unverified · Show"), or the problem and its one fix. A plain "Saved" goes by itself
  * after a while, and not back when the Mind is opened again after that; a problem stays until
- * it is dismissed, or the next export replaces it.
+ * it is dismissed, or the next export replaces it. Before a Word or PDF export the User hasn't
+ * answered for, it holds the question instead, and Esc or ✕ leaves nothing exported.
  */
 export function ExportResultLine({ mindId }: { mindId: string }) {
   const t = useT();
@@ -82,35 +83,6 @@ export function ExportResultLine({ mindId }: { mindId: string }) {
       </div>
     </div>
   );
-}
-
-/** Whether the pointer or the focus is on the line, which keeps a plain "Saved" showing. */
-function useHeld(line: RefObject<HTMLDivElement | null>): boolean {
-  const [held, setHeld] = useState(false);
-  useEffect(() => {
-    const element = line.current;
-    if (!element) return;
-    const hold = () => setHeld(true);
-    const release = (event: Event) => {
-      if (
-        event.type === "focusout" &&
-        element.contains((event as FocusEvent).relatedTarget as Node)
-      )
-        return;
-      setHeld(element.matches(":hover"));
-    };
-    element.addEventListener("pointerenter", hold);
-    element.addEventListener("pointerleave", release);
-    element.addEventListener("focusin", hold);
-    element.addEventListener("focusout", release);
-    return () => {
-      element.removeEventListener("pointerenter", hold);
-      element.removeEventListener("pointerleave", release);
-      element.removeEventListener("focusin", hold);
-      element.removeEventListener("focusout", release);
-    };
-  }, [line]);
-  return held;
 }
 
 function ResultBody({
@@ -282,6 +254,11 @@ function ResultBody({
                     )}
               </ProblemLine>
             )}
+            {result.failures.map(({ format, reason }) => (
+              <ProblemLine key={format} role="status" testId={`export-failed-${format}`}>
+                {t(`checkRecord.failed.${format}`, { reason: reasonOf(reason, t) })}
+              </ProblemLine>
+            ))}
             {error && <ProblemLine testId="export-problem">{error}</ProblemLine>}
           </>
         ) : result.state === "empty" ? (
@@ -290,6 +267,8 @@ function ResultBody({
           </ProblemLine>
         ) : result.state === "review" ? (
           <WordExportReview result={result} />
+        ) : result.state === "ask" ? (
+          <ExportAsks result={result} />
         ) : (
           <ProblemLine testId="export-problem" action={fix()} className="py-1">
             {t("export.failed.save", {
@@ -317,38 +296,18 @@ function ResultBody({
   );
 }
 
-const NAMED_BEFORE_MORE = 3;
-
 /**
- * The Documents whose entries went into the file marked "[needs details]", by name, and Show,
- * which goes to the first in the Mind's References, where "Needs details" fills it in.
+ * The Documents whose reference records lack authors or a date, as one count and the way to fill
+ * them in: "2 Documents lack authors or dates · Add details", which opens the first one's
+ * "Cite as" in the Mind's References, at its first gap.
  */
 function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds: string[] }) {
   const t = useT();
-  const language = useLanguage();
-  const documents = useAppStore((state) => state.documents);
-  const names = documentIds.flatMap((id) => {
-    const document = documents.find((each) => each.id === id);
-    return document ? [displayName(document)] : [];
-  });
-  if (names.length === 0) return null;
-  const separator = language === "zh-CN" ? "、" : ", ";
-  const said = saidInLine(t, (t, cut) =>
-    names.length === 1
-      ? t("export.needsDetails.line.one", { name: names[0] ?? "" })
-      : t("export.needsDetails.line.other", {
-          count: names.length,
-          names: `${names
-            .slice(0, NAMED_BEFORE_MORE)
-            .map((name) => `“${cut(name)}”`)
-            .join(separator)}${names.length > NAMED_BEFORE_MORE ? "…" : ""}`,
-        }),
-  );
+  if (documentIds.length === 0) return null;
   return (
     <ProblemLine
       role="status"
       testId="export-needs-details"
-      title={said.fullMessage}
       action={{
         label: t("export.needsDetails.show"),
         testId: "export-needs-details-show",
@@ -359,7 +318,9 @@ function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds
         aria-hidden="true"
         className="mr-2 inline-block size-1.5 rounded-full bg-attention align-[2px]"
       />
-      {said.message}
+      {documentIds.length === 1
+        ? t("export.needsDetails.line.one")
+        : t("export.needsDetails.line.other", { count: documentIds.length })}
     </ProblemLine>
   );
 }
@@ -374,14 +335,19 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
       data-testid="export-done"
       title={result.path}
       aria-label={
-        name === result.name ? undefined : t("export.doneIn", { name: result.name, folder })
+        name === result.name
+          ? undefined
+          : t(result.withCsv ? "export.record.doneIn" : "export.doneIn", {
+              name: result.name,
+              folder,
+            })
       }
       className={`flex min-w-0 items-start gap-2 text-[14px] leading-5 text-ink-secondary ${
         withFile.length > 0 ? "grow basis-75" : ""
       }`}
     >
       <CheckIcon />
-      <SavedName name={name} folder={folder} withFile={withFile} />
+      <SavedName name={name} withCsv={result.withCsv} folder={folder} withFile={withFile} />
     </p>
   );
 }
@@ -394,15 +360,17 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
  */
 function SavedName({
   name,
+  withCsv,
   folder,
   withFile,
 }: {
   name: string;
+  withCsv: boolean;
   folder: string;
   withFile: SavedWithFile;
 }) {
   const t = useT();
-  const said = t("export.doneIn", { name: "\u0000", folder });
+  const said = t(withCsv ? "export.record.doneIn" : "export.doneIn", { name: "\u0000", folder });
   const [before = "", after = ""] = said.split("\u0000");
   const saved = (
     <span data-testid="export-saved" className="min-w-0 break-words">

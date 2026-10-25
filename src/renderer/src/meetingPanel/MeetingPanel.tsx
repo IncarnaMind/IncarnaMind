@@ -12,6 +12,7 @@ import {
   ChevronDownLineIcon,
   CloseLineIcon,
   EyeOffLineIcon,
+  MicOffLineIcon,
   MinusLineIcon,
 } from "../components/lineIcons";
 import { HelpButtons } from "../components/meetings/HelpButtons";
@@ -22,6 +23,8 @@ import {
   useHelpAnswer,
 } from "../components/meetings/HelpSuggestion";
 import { LevelBars } from "../components/meetings/LevelBars";
+import { MicrophoneButton } from "../components/meetings/MicrophoneButton";
+import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessExplanation } from "../components/providers/ChatReadinessNotice";
 import { core } from "../core";
 import { errorMessage } from "../errors";
@@ -130,6 +133,7 @@ export function MeetingPanel() {
         <Panel
           meeting={meeting}
           keys={labels}
+          microphoneKeys={held.mic ? keysHere(held.mic) : null}
           pinned={pinned}
           onPin={togglePin}
           onFold={() => setFolded(true)}
@@ -201,12 +205,14 @@ function Pill({
 function Panel({
   meeting,
   keys,
+  microphoneKeys,
   pinned,
   onPin,
   onFold,
 }: {
   meeting: Meeting;
   keys: Partial<Record<MeetingHelpKind, string>>;
+  microphoneKeys: string | null;
   pinned: readonly MeetingHelp[];
   onPin(help: MeetingHelp): void;
   onFold(): void;
@@ -214,12 +220,19 @@ function Panel({
   const t = useT();
   const hidden = useAppStore((state) => state.settings?.device.meetingPanelHidden ?? true);
   const [choosing, setChoosing] = useState(false);
+  const problem = useMeetings((state) => state.problems[meeting.id]);
   const help = meeting.help;
   const shownPinned = pinned.filter((each) => each.answerId !== help?.answerId);
   return (
     <section aria-label={t("meetings.help.label")} className="panel">
       <header className="panel-header panel-drag">
         <RecordingState meeting={meeting} />
+        <MicrophoneButton
+          meeting={meeting}
+          testId="panel-mic"
+          className="panel-icon-button"
+          keys={microphoneKeys}
+        />
         <button
           type="button"
           data-testid="panel-template"
@@ -255,6 +268,26 @@ function Panel({
           <CloseLineIcon className="size-3.5" />
         </button>
       </header>
+      {meeting.microphonePausedAtMs !== null && (
+        <p role="status" data-testid="panel-mic-line" className="panel-subline">
+          <MicOffLineIcon className="size-3.5 shrink-0" />
+          <b>{t("meetings.mic.pausedSince", { time: clockTime(meeting.microphonePausedAtMs) })}</b>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
+            data-testid="panel-mic-resume"
+            onClick={() => void useMeetings.getState().setMicrophonePaused(meeting.id, false)}
+            className="panel-link"
+          >
+            {t("meetings.mic.resumeLine")}
+          </button>
+        </p>
+      )}
+      {problem && (
+        <ProblemLine testId="panel-problem" className="px-3.5 pb-2">
+          {problem}
+        </ProblemLine>
+      )}
       {choosing && (
         <TemplateChoice
           meeting={meeting}

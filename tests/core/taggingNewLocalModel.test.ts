@@ -7,7 +7,7 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import type { ChatModelSpec, Core, Document } from "../../src/core";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, startCore, turnOnAutomaticTagging } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
 import { tagNamesOf, waitForTagging } from "../helpers/tags";
@@ -116,6 +116,7 @@ describe("a model installed after Documents wait", () => {
       apiKey: "sk-ant-test",
       modelId: "claude-sonnet-5-5",
     });
+    await turnOnAutomaticTagging(core);
     await core.setLocalOnly(true);
     const first = await add(core, "First");
     expect(first.tagging).toBe("waiting-for-provider");

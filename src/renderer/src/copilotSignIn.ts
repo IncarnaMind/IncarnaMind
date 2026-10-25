@@ -10,6 +10,7 @@ import { copilotWay } from "../../core/providers/copilot/service";
 import { core } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
+import { clearModelFailure } from "./modelHealth";
 import { useAppStore } from "./store";
 
 /** "no-models": signed in, but the plan listed no model for this account. */
@@ -111,7 +112,8 @@ export async function signInWithCopilot(options: { keepDefault?: boolean } = {})
 
 async function choosePlan(status: CopilotStatus, keepDefault: boolean): Promise<boolean> {
   const providers = await core.listChatProviders();
-  if (!providers.some((provider) => provider.kind === "copilot")) {
+  let provider = providers.find((each) => each.kind === "copilot");
+  if (!provider) {
     const modelId = status.models[0]?.id;
     if (!modelId) {
       useCopilot.setState({
@@ -123,11 +125,12 @@ async function choosePlan(status: CopilotStatus, keepDefault: boolean): Promise<
       return false;
     }
     const chatModel = useAppStore.getState().settings?.user.chatModel ?? null;
-    await core.saveChatProvider({ kind: "copilot", modelId });
+    provider = await core.saveChatProvider({ kind: "copilot", modelId });
     // Saving makes the plan the default for new Minds; from Settings, a default the User had stays.
     if (keepDefault && chatModel)
       await useAppStore.getState().updateSettings({ user: { chatModel } });
   }
+  clearModelFailure(provider.id);
   useCopilot.setState({ providerSaved: true, failure: null });
   settleAgain(true);
   return true;

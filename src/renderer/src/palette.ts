@@ -22,6 +22,7 @@ import { translate } from "../../shared/i18n";
 import { formatLocation } from "../../shared/locations";
 import { mindName } from "../../shared/naming";
 import { focusComposer } from "./commands/assistant";
+import { placeAt } from "./commands/edit";
 import { placeHere } from "./commands/here";
 import { menuKeysLabel, objectAt, surfaceOf } from "./commands/keymap";
 import {
@@ -71,7 +72,12 @@ function acting(
   const targets = on.selection.length > 0 ? on.selection : on.focus ? [on.focus] : [];
   const moveTo = () => moveFromPalette(targets);
   const here = target && placeHere(target, active);
-  return { ...NOTHING, ...on, here: { "mind.moveTo": moveTo, "document.moveTo": moveTo, ...here } };
+  return {
+    ...NOTHING,
+    ...on,
+    place: placeAt(active),
+    here: { "mind.moveTo": moveTo, "document.moveTo": moveTo, ...here },
+  };
 }
 
 /**
@@ -116,6 +122,8 @@ export type PaletteItem =
       ranges: TextRange[];
       /** What it acts on, when one thing: "Supplier review: Aldermoor Freight". */
       meta: string;
+      /** What it is for, under its name; "" for most. */
+      purpose: string;
       shortcut: string | null;
     }
   | {
@@ -252,8 +260,10 @@ export function recentGroup(
 /**
  * The registry's commands that apply here, with their shortcuts and, when they
  * act on one thing, its name: those whose name or keywords, in English or
- * Chinese, hold every word typed, best first; with nothing typed, the few that
- * are `top`, in its order, or, for ">" (`all`), every one in the menus' order.
+ * Chinese, hold every word typed at a word's start or one typo from it, best
+ * first, so letters inside a word or across two never find an action (#1372);
+ * with nothing typed, the few that are `top`, in its order, or, for ">" (`all`),
+ * every one in the menus' order.
  */
 export function actionGroup(
   words: readonly string[],
@@ -279,16 +289,17 @@ export function actionGroup(
   const items = offered.flatMap((command) => {
     const name = labelOf(command, ctx, t);
     const byName = words.length > 0 ? matchName(words, name) : null;
+    const named = byName && (byName.atWordStart || byName.typo) ? byName : null;
     const elsewhere =
-      byName || words.length === 0
+      named || words.length === 0
         ? null
-        : [
+        : ([
             labelOf(command, ctx, other),
             ...(command.keywords ?? []).flatMap((key) => [t(key), other(key)]),
           ]
             .map((each) => matchName(words, each))
-            .find((match) => match !== null);
-    if (words.length > 0 && !byName && !elsewhere) return [];
+            .find((match) => match !== null && (match.atWordStart || match.typo)) ?? null);
+    if (words.length > 0 && !named && !elsewhere) return [];
     const item: PaletteItem = {
       kind: "command",
       key: `command:${command.id}`,
@@ -296,10 +307,11 @@ export function actionGroup(
       name,
       ranges: byName?.ranges ?? [],
       meta: command.appliesTo ? targetName : "",
+      purpose: command.purpose ? t(command.purpose) : "",
       shortcut: menuKeysLabel(command),
     };
     // A match by keyword or in the other language ranks below one by its name.
-    const score = byName?.score ?? (elsewhere ? elsewhere.score - 4000 : 0);
+    const score = named?.score ?? (elsewhere ? elsewhere.score - 4000 : 0);
     return [{ item, score, group: command.group }];
   });
   const topOf = (id: CommandId) => commands.get(id)?.top ?? Number.MAX_SAFE_INTEGER;

@@ -1,14 +1,17 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
+import { paragraph, run, tracked, wordFile } from "../tests/helpers/word";
 import {
   acceptPlainTextKeys,
   addDocuments,
   checkCard,
   createDataFolder,
   dismissChatSetup,
+  importWordFromMenu,
+  interceptOpenDialog,
   launchApp,
   motionSettled,
   newMind,
@@ -22,8 +25,8 @@ import {
 } from "./app";
 
 /*
- * Checking the User's own sentences (#96): select sentences, then Find
- * support or Check against Documents in the selection menu. Each sentence
+ * Checking the User's own sentences (#96): select sentences, then Check
+ * against Documents in the selection menu. Each sentence
  * gets a mark in the margin, its card says what was found, and the check
  * badge's card counts them. The scripted model (see
  * src/main/fakeChat/checks.ts) finds a sentence supported when it shares three
@@ -90,16 +93,16 @@ async function checkAll(window: Page, line: Locator, first: string, last: string
 
 const marks = (window: Page) => window.getByTestId("claim-mark");
 
-test("Find support on two sentences: one is supported and its Citation is added, the other is marked unsupported", async () => {
+test("Check against Documents on two sentences with no Citation: one is supported and its Citation is added, the other is marked unsupported", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
   const { editor, line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
   await setWindowSize(app, window, 1440, 900);
-  await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
-    "2 with no Citation",
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "2 claims not checked yet",
   );
 
-  await checkAll(window, line, "Spring tides", "harbour cliffs.", "find-support");
+  await checkAll(window, line, "Spring tides", "harbour cliffs.", "check-against-documents");
 
   await expect(marks(window)).toHaveCount(2);
   const supported = marks(window).and(window.locator('[data-check="supported"]'));
@@ -128,7 +131,7 @@ test("Find support on two sentences: one is supported and its Citation is added,
   const card = window.getByTestId("claim-card");
   await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
-    "Nothing in your Documents says this.",
+    "I didn’t find this in “All Documents”.",
   );
   await window.keyboard.press("Escape");
   await expect(card).toBeHidden();
@@ -162,8 +165,9 @@ test("Find support on two sentences: one is supported and its Citation is added,
   await slideSelect(window, line, "Penguins");
   await window.keyboard.type("Gulls");
   await expect(marks(window)).toHaveAttribute("data-check", "needs-recheck");
-  await expect((await checkCard(window)).getByTestId("health-recheck")).toContainText(
-    "1 needs re-check",
+  // Its Citation's check stands for the supported sentence, which has no mark now; the edited one is to check too.
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "2 claims not checked yet",
   );
   await screenshot(window, "check-recheck-en");
   await pointAndClick(window, marks(window));
@@ -178,22 +182,75 @@ test("Find support on two sentences: one is supported and its Citation is added,
   await expect(editor).toContainText("Gulls nest on the harbour cliffs.");
 });
 
+test("The selection menu has one check, Check against Documents, and no Find support", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const { line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
+  await setWindowSize(app, window, 1440, 900);
+
+  await slideSelect(window, line, "Spring tides", { line, words: "harbour cliffs." });
+
+  const menu = window.getByTestId("selection-menu");
+  await expect(menu.getByTestId("selection-action-check-against-documents")).toHaveText(
+    "Check against Documents",
+  );
+  await expect(menu.getByTestId("selection-action-find-support")).toHaveCount(0);
+  await app.close();
+});
+
+test("a card opened while its sentence is still checking stays open when the result arrives, until Esc, and a click after it opens it again", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  // "slowly" makes the scripted check report slowly, so the card is opened while it checks.
+  const { line } = await mindWithSentences(window, [`${UNSUPPORTED.slice(0, -1)} slowly.`]);
+  await setWindowSize(app, window, 1440, 900);
+  await checkAll(window, line, "Penguins", "slowly.", "check-against-documents");
+
+  // Clicked while it checks, its card opens.
+  const checking = marks(window).and(window.locator('[data-check="checking"]'));
+  await expect(checking).toHaveCount(1);
+  await pointAndClick(window, checking);
+  const card = window.getByTestId("claim-card");
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute("data-check", "checking");
+
+  // The result arriving keeps the card open, showing it.
+  const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
+  await expect(unsupported).toHaveCount(1);
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute("data-check", "unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-nothing")).toHaveText(
+    "I didn’t find this in “All Documents”.",
+  );
+
+  // Esc closes it; a click after the check opens it again, and Esc closes that too.
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+  await pointAndClick(window, unsupported);
+  await expect(card).toHaveAttribute("data-check", "unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+  await app.close();
+});
+
 test("In Chinese and a narrow window: Check against Documents marks a contradiction and a sentence it couldn't check", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
   const { line } = await mindWithSentences(window, [CONTRADICTED, BLANK]);
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
-  await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
-    "2 条没有引用",
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "2 条说法待核对",
   );
 
   await slideSelect(window, line, "Harbours publish", { line, words: "blank reply." });
   const menu = window.getByTestId("selection-menu");
-  await expect(menu.getByTestId("selection-action-find-support")).toHaveText("查找出处");
   await expect(menu.getByTestId("selection-action-check-against-documents")).toHaveText(
     "对照文档核对",
   );
+  await expect(menu.getByTestId("selection-action-find-support")).toHaveCount(0);
   await screenshot(window, "check-menu-zh-narrow");
   await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
 
@@ -209,8 +266,8 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   await expect((await checkCard(window)).getByTestId("health-contradicted")).toContainText(
     "1 条与文档矛盾",
   );
-  await expect((await checkCard(window)).getByTestId("health-notChecked")).toContainText(
-    "1 条未核对",
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "1 条说法待核对",
   );
   await screenshot(window, "check-results-zh-narrow");
   // In a narrow window the card covers the margin: Esc puts it away.
@@ -235,7 +292,7 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
 
   // Each row of the badge's card moves to its sentence.
   await window.keyboard.press("Escape");
-  await pointAndClick(window, (await checkCard(window)).getByTestId("health-notChecked"));
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
   await expect(window.getByTestId("mind-editor")).toBeFocused();
 });
 
@@ -269,7 +326,7 @@ test("A figure the Documents don't state is worked out from theirs: a wrong mult
   await editor.click();
   await window.keyboard.type(`${wrong} ${right}`);
   const line = editor.locator(":scope > p").first();
-  await checkAll(window, line, "Net debt", "1.3x at the end of 2025.", "find-support");
+  await checkAll(window, line, "Net debt", "1.3x at the end of 2025.", "check-against-documents");
 
   const contradicted = marks(window).and(window.locator('[data-check="contradicted"]'));
   const supported = marks(window).and(window.locator('[data-check="supported"]'));
@@ -335,7 +392,7 @@ test("A figure worked out from an amount in brackets says the amount was counted
   await editor.click();
   await window.keyboard.type(sentence);
   const line = editor.locator(":scope > p").first();
-  await checkAll(window, line, "Net cash", "end of 2025.", "find-support");
+  await checkAll(window, line, "Net cash", "end of 2025.", "check-against-documents");
 
   const contradicted = marks(window).and(window.locator('[data-check="contradicted"]'));
   await expect(contradicted).toBeVisible({ timeout: 15_000 });
@@ -363,7 +420,7 @@ test("A supported sentence's card names the Document as it is named now, after a
   await useLocalChatModel(window);
   const { line } = await mindWithSentences(window, [SUPPORTED]);
   await setWindowSize(app, window, 1440, 900);
-  await checkAll(window, line, "Spring tides", "full moon.", "find-support");
+  await checkAll(window, line, "Spring tides", "full moon.", "check-against-documents");
   const supported = marks(window).and(window.locator('[data-check="supported"]'));
   const card = window.getByTestId("claim-card");
   await pointAt(window, supported);
@@ -388,23 +445,41 @@ test("A supported sentence's card names the Document as it is named now, after a
 const PENGUINS_A = "Penguins nest on a harbour cliffs.";
 const HARBOURS_A = "Harbours publish a times of high water every 6 months.";
 
-/** Asks the assistant to change "the" to "a": its changes, in the two sentences with "the", wait as the assistant's do. */
-async function askForTwoChanges(window: Page, line: Locator) {
-  await window.keyboard.press("ControlOrMeta+j");
-  await expect(window.getByTestId("composer-input")).toBeFocused();
-  await window.keyboard.type("replace the with a");
-  await window.keyboard.press("Enter");
-  await expect(line.locator("ins.proposal-insert")).toHaveText(["a", "a"], { timeout: 15_000 });
+// The assistant's own changes apply at once (#1559): what waits is someone's tracked changes in a
+// Word file, here "the" to "a" in each sentence that has it.
+async function mindWithTheirChanges(
+  app: ElectronApplication,
+  window: Page,
+  sentences: readonly string[],
+) {
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  let id = 0;
+  const runs = sentences.map((sentence, index) => {
+    const space = index < sentences.length - 1 ? " " : "";
+    const [before, after] = sentence.split(" the ");
+    if (after === undefined) return run(`${sentence}${space}`);
+    id += 2;
+    return `${run(`${before} `)}${tracked("del", id - 1, "Dana Kim", "the")}${tracked("ins", id, "Dana Kim", "a")}${run(` ${after}${space}`)}`;
+  });
+  const path = join(sources, "Tide notes.docx");
+  await writeFile(path, wordFile({ body: paragraph(runs.join("")) }));
+  await interceptOpenDialog(app, path);
+  const dialog = await importWordFromMenu(window);
+  await dialog.getByTestId("word-import-add-original").uncheck();
+  await dialog.getByTestId("word-import-confirm").click();
+  await expect(dialog).toBeHidden();
+  const line = window.getByTestId("mind-editor").locator(":scope > p").first();
+  await expect(line.locator("ins.proposal-insert")).toHaveText(["a", "a"]);
+  return { line };
 }
 
 test("A check reads the text as it stands and says which sentences with changes waiting it left out; Accept all and check checks them, and Undo takes the accept back, in English and Chinese", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
-  const { line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
+  const { line } = await mindWithTheirChanges(app, window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
   await setWindowSize(app, window, 1440, 900);
-  await askForTwoChanges(window, line);
 
-  await checkAll(window, line, "Spring tides", "6 months.", "find-support");
+  await checkAll(window, line, "Spring tides", "6 months.", "check-against-documents");
 
   const waiting = window.getByTestId("checks-waiting");
   await expect(waiting).toContainText("2 sentences with changes waiting weren’t checked");
@@ -429,7 +504,7 @@ test("A check reads the text as it stands and says which sentences with changes 
   await window.keyboard.press("ControlOrMeta+z");
   await expect(line.locator("ins.proposal-insert")).toHaveText(["a", "a"]);
   await expect(line.locator("del.proposal-delete")).toHaveText(["the", "the"]);
-  await expect(bar.getByTestId("proposals-count")).toHaveText(/2/);
+  await expect(bar.getByTestId("their-changes-count")).toHaveText("来自 Dana Kim 的 2 处修订");
 });
 
 /**
@@ -465,17 +540,16 @@ for (const [language, width] of [
     const { app, window } = await launchWithTides();
     await useLocalChatModel(window);
     if (language === "zh-CN") await setLanguage(window, language);
-    const { line } = await mindWithSentences(window, [
+    const { line } = await mindWithTheirChanges(app, window, [
       SUPPORTED,
       UNSUPPORTED,
       CONTRADICTED,
       LIGHTHOUSES,
     ]);
     await setWindowSize(app, window, width, 900);
-    await askForTwoChanges(window, line);
     const places = await notePlaces(window, "checks-accept-and-check");
 
-    await checkAll(window, line, "Spring tides", "at night.", "find-support");
+    await checkAll(window, line, "Spring tides", "at night.", "check-against-documents");
     await expect(window.getByTestId("checks-accept-and-check")).toBeVisible();
     await expect(window.getByTestId("check-card").getByTestId("health-unsupported")).toBeVisible();
     await motionSettled(window);
@@ -489,9 +563,8 @@ for (const [language, width] of [
 test("Check against Documents on sentences that all have changes waiting sends nothing and says so; Accept all and check checks them against the Documents", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
-  const { line } = await mindWithSentences(window, [UNSUPPORTED, CONTRADICTED]);
+  const { line } = await mindWithTheirChanges(app, window, [UNSUPPORTED, CONTRADICTED]);
   await setWindowSize(app, window, 1440, 900);
-  await askForTwoChanges(window, line);
 
   await checkAll(window, line, "Penguins", "6 months.", "check-against-documents");
 
@@ -511,10 +584,9 @@ test("Check against Documents on sentences that all have changes waiting sends n
 test("After the User accepts one change by hand and goes to another tab and back, Accept all and check accepts the rest and checks every sentence the check left out", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
-  const { line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
+  const { line } = await mindWithTheirChanges(app, window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
   await setWindowSize(app, window, 1440, 900);
-  await askForTwoChanges(window, line);
-  await checkAll(window, line, "Spring tides", "6 months.", "find-support");
+  await checkAll(window, line, "Spring tides", "6 months.", "check-against-documents");
   const waiting = window.getByTestId("checks-waiting");
   await expect(waiting).toContainText("2 sentences with changes waiting weren’t checked");
 

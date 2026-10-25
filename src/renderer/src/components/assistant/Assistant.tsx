@@ -300,7 +300,7 @@ function AssistantMain({
         data-setup={settingUp || undefined}
         className="assistant-composer"
       >
-        {mind && <TaskTray mindId={mind.mindId} />}
+        <TaskTray mindId={mind?.mindId ?? null} />
         {settingUp ? <ModelSetupCard /> : <Composer mind={mind} />}
       </div>
     </div>

@@ -22,6 +22,8 @@ export interface FakeCloudOptions {
   dropAfterMs?: number;
   /** The service refuses the key. */
   refuse?: boolean;
+  /** How many voices Soniox's side tells apart, taking turns line by line: 2 by default. */
+  voices?: number;
 }
 
 /** 20 ms frames: one is speech when its level is above a whisper's, as the fake engine hears it. */
@@ -134,6 +136,7 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
           if (loudMs >= LINE_MS) {
             const start = lineStartMs;
             const end = frameMs + 20;
+            const speaker = String((said % (options.voices ?? 2)) + 1);
             reply(
               qwen
                 ? {
@@ -160,7 +163,7 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
                         start_ms: start,
                         end_ms: end,
                         is_final: true,
-                        speaker: String((said % 2) + 1),
+                        speaker,
                       },
                       { text: "<end>", is_final: true },
                     ],

@@ -4,6 +4,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge, ReferencePatch } from "../src/core/api";
 import { readPackIndex } from "../src/core/citationStyles/pack";
+import type { TestHooks } from "../src/shared/testHooks";
 import { paragraphsOf, part, unzip } from "../tests/helpers/docx";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -20,6 +21,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
   sidebarFolder,
   useLocalChatModel,
@@ -123,14 +125,24 @@ async function chooseStyle(window: Page, search: string, label: string): Promise
   const picker = window.getByTestId("citation-style-picker");
   const field = picker.getByTestId("citation-style-search");
   await expect(field).toBeFocused();
-  // The catalogue's count is in the field once every style is listed: before it, the first match is
-  // the common list's, and Enter may take another's once the rest arrive.
-  await expect(field).toHaveAttribute("aria-label", /\d/);
   await window.keyboard.type(search);
   await expect(picker.getByTestId("citation-style-option-label").first()).toHaveText(label);
   await window.keyboard.press("Enter");
   await expect(picker).toBeHidden();
 }
+
+async function openPickerFromRow(window: Page, row: Locator): Promise<void> {
+  await row.hover();
+  await pointAndClick(window, row.getByTestId("mind-menu"));
+  await pointAndClick(window, row.getByTestId("mind.citationStyle"));
+}
+
+const holdStyleCatalogue = (window: Page, hold: boolean) =>
+  window.evaluate((held) => {
+    const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
+    if (!hooks) throw new Error("Test hooks are off: launch with INCARNAMIND_TEST_HOOKS=1.");
+    hooks.holdStyleCatalogue(held);
+  }, hold);
 
 test("a Mind citing a paper offers a citation style; chosen, its Citations and References read in it, the References' picker switches it, with Undo, and the export follows", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
@@ -363,7 +375,7 @@ test("in Chinese: the offer puts GB/T 7714 first; chosen, raised numbers and 参
   await app.close();
 });
 
-test("in Chinese, a thesis Mind: 引用信息 read from the PDFs waits to be checked; GB/T 7714 by default, in the Export menu; pages raised, and a thin entry flagged in the Word file and named after the export", async () => {
+test("in Chinese, a thesis Mind: 引用信息 read from the PDFs waits to be checked; GB/T 7714 by default, in the Export menu; pages raised, and a thin entry written with its name alone, named after the export", async () => {
   await writeFile(join(sources, "林小雨学位论文.pdf"), THESIS);
   await writeFile(join(sources, "绿地与热岛.pdf"), ARTICLE);
   await writeFile(join(sources, "城市绿地调查笔记.txt"), "城市绿地调查：公园比周围街道凉快。");
@@ -441,13 +453,15 @@ test("in Chinese, a thesis Mind: 引用信息 read from the PDFs waits to be che
   await window.keyboard.press("Escape");
   await expect(picker).toBeHidden();
 
-  // Exported to Word: raised pages, 参考文献, and the thin entry flagged, never "添加于".
+  // Exported to Word: raised pages, 参考文献, and the thin entry written with its name alone,
+  // never a placeholder in the file the User sends (#1910).
   await exportFromMenu(window, "docx");
   const result = window.getByTestId("export-result");
   const done = result.getByTestId("export-done");
   await expect(done).toHaveText(/\.docx/);
   const needs = result.getByTestId("export-needs-details");
-  await expect(needs).toContainText("“城市绿地调查笔记”的引用信息待补充，已在文件中标出");
+  await expect(needs).toContainText("1 个文档缺少作者或日期");
+  await expect(needs).toContainText("补充信息");
   await screenshot(window, "export-needs-details-zh");
   const saved = (await done.getAttribute("title")) ?? "";
   const paragraphs = paragraphsOf(part(unzip(await readFile(saved)), "word/document.xml")).map(
@@ -458,12 +472,15 @@ test("in Chinese, a thesis Mind: 引用信息 read from the PDFs waits to be che
   expect(
     paragraphs.some((line) => line.includes("林小雨. 城市绿地与夏季降温调查[D]. 华东师范大学")),
   ).toBe(true);
-  expect(paragraphs.some((line) => line.endsWith("城市绿地调查笔记. [信息待补充]"))).toBe(true);
+  expect(paragraphs.some((line) => line.endsWith("城市绿地调查笔记."))).toBe(true);
+  expect(paragraphs.join("\n")).not.toContain("信息待补充");
   expect(paragraphs.join("\n")).not.toContain("添加于");
 
-  // Show goes to the thin entry, whose 信息待补充 fills it in right there.
+  // Add details opens the thin entry's Cite as right there, at its first gap, its title.
   await pointAndClick(window, needs.getByTestId("export-needs-details-show"));
-  await expect(thin.getByTestId("reference-needs-details")).toBeFocused();
+  const citeAs = window.getByTestId("reference-cite-as");
+  await expect(citeAs).toBeVisible();
+  await expect(citeAs.locator("input:focus, textarea:focus")).toHaveCount(1);
   await app.close();
 });
 
@@ -553,8 +570,19 @@ test("a Mind citing files with no details isn't offered a style until one is a p
   await expect(prompt).toHaveCount(0);
   await expect(window.getByTestId("references")).toHaveCount(0);
 
+  // A report with an author and a date is still neither a paper nor a book: nothing offered (#1910).
+  const lease = await documentIdOf(window, "Lease agreement");
+  await setRecord(window, lease, {
+    type: "report",
+    title: "Rent review 2026",
+    authors: [{ literal: "Facilities" }],
+    issued: "2026",
+  });
+  await expect(prompt).toHaveCount(0);
+  await expect(window.getByTestId("references")).toHaveCount(0);
+
   // Once its record says it is a paper, the offer shows at the Mind's end.
-  await setRecord(window, await documentIdOf(window, "Lease agreement"), {
+  await setRecord(window, lease, {
     type: "article-journal",
     title: "Rent and the Moon",
     authors: [{ family: "Oke", given: "T. R." }],
@@ -592,13 +620,7 @@ test("the style chosen for a Mind in a Folder, from its menu, is the one a new M
   await pointAndClick(window, folder.getByTestId("folder-row"));
   await expect(folder).toHaveAttribute("data-expanded", "true");
 
-  /** Opens a Mind's citation style picker from its row's ⋯ menu. */
-  const openPicker = async (row: Locator) => {
-    await row.hover();
-    await pointAndClick(window, row.getByTestId("mind-menu"));
-    await pointAndClick(window, row.getByTestId("mind.citationStyle"));
-  };
-  await openPicker(folder.getByTestId("mind-row").filter({ hasText: "Chapter 1" }));
+  await openPickerFromRow(window, folder.getByTestId("mind-row").filter({ hasText: "Chapter 1" }));
   await chooseStyle(window, "ieee", "IEEE");
 
   // "New Mind here", from the Folder's menu: it starts in IEEE, ticked in its picker.
@@ -606,13 +628,95 @@ test("the style chosen for a Mind in a Folder, from its menu, is the one a new M
   await pointAndClick(window, folder.getByTestId("folder.newMind"));
   const rows = folder.getByTestId("mind-row");
   await expect(rows).toHaveCount(2);
-  await openPicker(rows.filter({ hasNotText: "Chapter 1" }));
+  await openPickerFromRow(window, rows.filter({ hasNotText: "Chapter 1" }));
   const current = window.locator('[data-testid="citation-style-option"][data-current="true"]');
   await expect(current.getByTestId("citation-style-option-label")).toHaveText("IEEE");
   await window.keyboard.press("Escape");
   await expect(window.getByTestId("citation-style-picker")).toBeHidden();
   await app.close();
 });
+
+for (const [language, name, id] of [
+  ["en", "ieee", "ieee"],
+  ["zh-CN", "温哥华", "vancouver"],
+] as const) {
+  test(`in ${language}: a style's exact name typed and Enter at once take it before every style has arrived; when they arrive, what was shown keeps its place and the highlight, under a resting pointer too`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    const minds = await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const folder = await core.createLibraryGroup({ name: "Thesis", description: "" });
+      const first = await core.createMind({ title: "Chapter 1", folderId: folder.id });
+      const second = await core.createMind({ title: "Chapter 2", folderId: folder.id });
+      return { first: first.id, second: second.id };
+    });
+    const styleOf = (mindId: string) =>
+      window.evaluate(
+        (id) =>
+          (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getMindCitationStyle(
+            id,
+          ),
+        mindId,
+      );
+    const folder = sidebarFolder(window, "Thesis");
+    await pointAndClick(window, folder.getByTestId("folder-row"));
+    await expect(folder).toHaveAttribute("data-expanded", "true");
+    const row = (title: string) => folder.getByTestId("mind-row").filter({ hasText: title });
+    const picker = window.getByTestId("citation-style-picker");
+    const field = picker.getByTestId("citation-style-search");
+    const options = picker.getByTestId("citation-style-option");
+    const labels = picker.getByTestId("citation-style-option-label");
+
+    await holdStyleCatalogue(window, true);
+    await openPickerFromRow(window, row("Chapter 1"));
+    await expect(field).toBeFocused();
+    await expect(field).not.toHaveAttribute("aria-label", /\d/);
+    await window.keyboard.type(name);
+    await window.keyboard.press("Enter");
+    await expect(picker).toBeHidden();
+    await expect.poll(async () => (await styleOf(minds.first)).style).toBe(id);
+
+    expect((await styleOf(minds.second)).chosen).toBe(false);
+    await openPickerFromRow(window, row("Chapter 2"));
+    await expect(field).toBeFocused();
+    await window.keyboard.type("chi");
+    await expect(options).toHaveCount(2);
+    await expect(options.first()).toHaveAttribute("data-style", "chicago-notes");
+    const box = await field.boundingBox();
+    if (!box) throw new Error("The picker's field isn't on screen.");
+    const pointer = { x: box.x + box.width / 2, y: box.y + box.height + 220 };
+    await window.mouse.move(pointer.x, pointer.y);
+    await holdStyleCatalogue(window, false);
+    await expect(field).toHaveAttribute("aria-label", /\d/);
+    await expect
+      .poll(() =>
+        window.evaluate(
+          ({ x, y }) =>
+            document.elementFromPoint(x, y)?.closest('[role="option"]')?.matches(":hover") ?? false,
+          pointer,
+        ),
+      )
+      .toBe(true);
+    await expect(options.first()).toHaveAttribute("data-style", "chicago-notes");
+    await expect(picker.locator('[role="option"][aria-selected="true"]')).toHaveAttribute(
+      "data-style",
+      "chicago-notes",
+    );
+    await window.keyboard.press("ControlOrMeta+a");
+    await window.keyboard.type("ieee");
+    await expect(labels.first()).toHaveText("IEEE");
+    await expect(
+      picker
+        .locator('[role="option"][aria-selected="true"]')
+        .getByTestId("citation-style-option-label"),
+    ).toHaveText("IEEE");
+    await window.keyboard.press("Enter");
+    await expect(picker).toBeHidden();
+    await expect.poll(async () => (await styleOf(minds.second)).style).toBe("ieee");
+    await app.close();
+  });
+}
 
 test("every CSL style: ⌘K and the References' style open the one picker, which finds a journal in English and Chinese and lists Recently used; the Mind keeps the journal's name, a style this version lacks says so, and the picker fits a 1,100px window", async () => {
   const count = readPackIndex(

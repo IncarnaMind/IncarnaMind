@@ -6,7 +6,7 @@ import type {
   LibrarySnapshot,
   Mind,
 } from "../../src/core/api";
-import { chosenScope, composerScope, NO_SCOPE } from "../../src/renderer/src/composer";
+import { composerScope } from "../../src/renderer/src/composer";
 import {
   movedLocally,
   moveMessage,
@@ -17,7 +17,13 @@ import {
 } from "../../src/renderer/src/moves";
 import { scopeChips, scopeCounts } from "../../src/renderer/src/scope";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
-import { hasSearchScope } from "../../src/shared/searchScope";
+import {
+  chosenScope,
+  filingFolder,
+  hasSearchScope,
+  mindSearchScope,
+  NO_SCOPE,
+} from "../../src/shared/searchScope";
 
 /**
  * Folders are projects (#111), as the window shows them: the composer's
@@ -58,6 +64,7 @@ const t = (key: MessageKey, params?: MessageParams) => translate("en", key, para
 
 describe("the composer's Search scope", () => {
   const draft = { text: "", scope: null, skill: null, pastes: [] };
+  const folder = (id: string) => ({ folderIds: [id], tagIds: [], documentIds: [] });
 
   test("a Mind in a Folder starts with the Folder as its chip; one in none searches everything", () => {
     expect(composerScope(draft, "finance")).toEqual({
@@ -91,6 +98,29 @@ describe("the composer's Search scope", () => {
     });
     // In no Folder, nothing chosen is the Mind's own: it follows the Mind into one.
     expect(chosenScope(NO_SCOPE, null)).toBeNull();
+  });
+
+  // protects=one rule for what a Mind's Question searches: its own Folder while it holds a Document, every Document while it holds none, and a scope the User chose as chosen (#1359); fails_when=an empty own Folder is searched, a chosen scope widens, or the Folder stops being sent; no_claim=that the core applies it, which tests/core/ownSearchScope.test.ts covers.
+  test("a Mind's own Folder with no Documents searches every Document until it holds one", () => {
+    expect(mindSearchScope(null, "contracts", false)).toEqual(NO_SCOPE);
+    expect(mindSearchScope(null, "contracts", true).folderIds).toEqual(["contracts"]);
+    // The Folder picked again with "@" is the Mind's own.
+    expect(mindSearchScope(folder("contracts"), "contracts", false)).toEqual(NO_SCOPE);
+    // What the composer sends stays the Folder; the core applies the rule.
+    expect(composerScope(draft, "contracts").folderIds).toEqual(["contracts"]);
+    const chosen = { folderIds: ["contracts"], tagIds: ["urgent"], documentIds: [] };
+    expect(mindSearchScope(chosen, "contracts", false)).toEqual(chosen);
+    expect(mindSearchScope(folder("board"), "contracts", false)).toEqual(folder("board"));
+    expect(mindSearchScope(NO_SCOPE, "contracts", true)).toEqual(NO_SCOPE);
+  });
+
+  // protects=a new note from a Mind goes into the Folder its scope names, else the Mind's own Folder, whether the chip was removed, a Tag picked or the Folder is empty; the composer's "Create a new note called …" and the assistant file the same way (#1359); fails_when=a note lands Not in a Folder because the search widened; no_claim=none beyond protects.
+  test("a new note goes into the Folder its scope names, else the Mind's own", () => {
+    expect(filingFolder(composerScope(draft, "contracts"), "contracts")).toBe("contracts");
+    expect(filingFolder(NO_SCOPE, "contracts")).toBe("contracts");
+    expect(filingFolder({ ...NO_SCOPE, tagIds: ["urgent"] }, "contracts")).toBe("contracts");
+    expect(filingFolder(folder("board"), "contracts")).toBe("board");
+    expect(filingFolder(NO_SCOPE, null)).toBeNull();
   });
 });
 
@@ -132,6 +162,7 @@ describe("moving Minds and Documents", () => {
       organizeWith: null,
       taggingStopped: [],
     },
+    automaticDefault: false,
   };
   const minds = [mind("shortlist", null, "Shortlist"), mind("notes", "research", "Notes")];
 

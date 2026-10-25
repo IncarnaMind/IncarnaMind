@@ -26,24 +26,42 @@ export interface Cue {
 /**
  * Why a stretch of a Meeting has no text: transcription restarted after a
  * crash, the computer slept, IncarnaMind wasn't running, the audio was
- * deleted before it could catch up, or the cloud service's connection dropped
- * (#141).
+ * deleted before it could catch up, no audio was recorded for it (the system's
+ * permission prompt unanswered, a capture that stalled), the cloud service's
+ * connection dropped (#141), or the User paused their microphone (the other
+ * side's lines go on through it).
  */
-export type GapReason = "restarted" | "sleep" | "interrupted" | "lost" | "cloud";
+export type GapReason =
+  | "restarted"
+  | "sleep"
+  | "interrupted"
+  | "lost"
+  | "uncaptured"
+  | "cloud"
+  | "muted";
 
 export const GAP_REASONS: readonly GapReason[] = [
   "restarted",
   "sleep",
   "interrupted",
   "lost",
+  "uncaptured",
   "cloud",
+  "muted",
 ];
+
+/** A stretch without text shorter than this isn't listed: nobody can tell it was missing. */
+export const MIN_GAP_MS = 1000;
 
 export interface TranscriptGap {
   fromMs: number;
   toMs: number;
   reason: GapReason;
 }
+
+/** The gaps a Transcript lists: a point in time, and any stretch of a second or more. */
+export const listedGaps = (gaps: readonly TranscriptGap[]): TranscriptGap[] =>
+  gaps.filter((gap) => gap.toMs === gap.fromMs || gap.toMs - gap.fromMs >= MIN_GAP_MS);
 
 export interface Transcript {
   cues: Cue[];

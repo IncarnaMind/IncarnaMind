@@ -14,6 +14,7 @@ import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
+import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
 import {
   buttonClass,
@@ -197,15 +198,16 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
     saved.kind === kind && (saved.baseUrl ?? "") === baseUrl.trim().replace(/\/+$/, "");
   const takesKey = kind === "openai" || kind === "google" || kind === "openai-compatible";
   const keyRequired = kind === "openai" || kind === "google";
-  const hasKey = apiKey.trim() !== "" || (sameServer && saved.hasApiKey);
-  const keyBlocked = apiKey.trim() !== "" && secretStorage !== null && !secretStorage.canSave;
+  const hasKey = key.text !== "" || (sameServer && saved.hasApiKey);
+  const keyBlocked = key.text !== "" && secretStorage !== null && !secretStorage.canSave;
   const complete =
     isPlainKind(kind) ||
-    (modelId.trim() !== "" &&
+    (key.stray === null &&
+      modelId.trim() !== "" &&
       (kind !== "openai-compatible" || baseUrl.trim() !== "") &&
       (!keyRequired || hasKey));
   const unchanged =
-    sameServer && apiKey.trim() === "" && (isPlainKind(kind) || modelId.trim() === saved.modelId);
+    sameServer && key.text === "" && (isPlainKind(kind) || modelId.trim() === saved.modelId);
   const cloudService = cloudServiceOf(kind, baseUrl, t);
   // A server elsewhere, in local mode: said as the address is typed, not refused at the end.
   const outsideLocalMode = current.localOnly && cloudService !== null;
@@ -235,7 +237,7 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
           ...((kind === "openai-compatible" || kind === "ollama") && baseUrl.trim()
             ? { baseUrl: baseUrl.trim() }
             : {}),
-          ...(takesKey && apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          ...(takesKey && key.text ? { apiKey: key.text } : {}),
         };
 
   const runTest = async () => {
@@ -355,8 +357,11 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
             onChange={(event) => key.type(event.target.value, baseUrl)}
             autoComplete="off"
             spellCheck={false}
+            aria-invalid={key.stray ? true : undefined}
+            aria-describedby={key.stray ? `${id}-stray` : undefined}
             className={inputClass}
           />
+          {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
           {sameServer && saved.hasApiKey && (
             <span className={hintClass}>{t("providers.form.apiKeySaved")}</span>
           )}

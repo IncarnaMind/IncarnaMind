@@ -9,8 +9,6 @@ export interface ExportLabels {
   notes: string;
   backToText: string;
   unverified: string;
-  /** After a Bibliography entry whose reference record is too thin to cite: "[needs details]". */
-  needsDetails: string;
   chart(title: string): string;
   /** With the space that follows it, if any: "Source: ", "数据来源：". */
   chartSources: string;
@@ -34,7 +32,6 @@ export function exportLabels(language: Language): ExportLabels {
     notes: t("export.html.notes"),
     backToText: t("export.html.back"),
     unverified: t("export.unverified"),
-    needsDetails: t("export.needsDetails"),
     chart: (title) => (title ? t("export.chart.titled", { title }) : t("export.chart")),
     // No space after full-width punctuation (docs/agents/zh-CN.md).
     chartSources: t("export.chart.sources").replace(/[^\u3000-\u303f\uff00-\uffef]$/, "$& "),
@@ -59,6 +56,7 @@ export function exportLabels(language: Language): ExportLabels {
       if (sentence.check === "cited-case-unchecked") {
         return t("export.comment.sentence.citedCaseUnchecked");
       }
+      if (sentence.check === "own-workings") return t("export.comment.sentence.ownWorkings");
       if (sentence.check === "contradicted") {
         if (sentence.says)
           return t("export.comment.sentence.contradicted", { says: sentence.says });
@@ -68,9 +66,27 @@ export function exportLabels(language: Language): ExportLabels {
       }
       if (sentence.nearest)
         return t("export.comment.sentence.unsupported.differs", sentence.nearest);
-      return sentence.folder
-        ? t("export.comment.sentence.unsupported.folder", { folder: sentence.folder })
-        : t("export.comment.sentence.unsupported");
+      if (sentence.covers) return t("export.comment.sentence.unsupported.covers", sentence.covers);
+      if (sentence.citations) {
+        const { count, ...part } = sentence.citations;
+        return t(
+          count === 1
+            ? "export.comment.sentence.unsupported.citation"
+            : "export.comment.sentence.unsupported.citations",
+          part,
+        );
+      }
+      const { scope } = sentence;
+      const name = scope
+        ? (scope.name ?? t(`scope.chip.deleted.${scope.kind}`))
+        : t("composer.scope.all");
+      return scope && scope.more > 0
+        ? t("export.comment.sentence.unsupported.more", {
+            scope: name,
+            count: scope.more,
+            total: scope.more + 1,
+          })
+        : t("export.comment.sentence.unsupported", { scope: name });
     },
     change: ({ kind, pending }) => {
       const author = pending.by || t("export.change.someone");

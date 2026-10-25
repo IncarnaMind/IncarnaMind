@@ -53,6 +53,14 @@ describe("A key's prefix and its service (#1384)", () => {
     expect(serviceOfKey(key)).toBeNull();
   });
 
+  test("a key is read as it is cleaned: invisible characters around it change nothing", () => {
+    const key = `sk-ant-api03-${alnum(40)}`;
+    for (const around of ["\u200B", "\uFEFF", "\u00A0", "\u2800", "\uFE0F", " \n"]) {
+      expect(serviceOfKey(`${around}${key}${around}`), JSON.stringify(around)).toBe("anthropic");
+      expect(checkKey("anthropic", `${around}${key}${around}`)).toEqual({ ok: true });
+    }
+  });
+
   test.each(STRICT)(
     "under %s, a key that names nobody lacks the prefix its keys start with",
     (service) => {

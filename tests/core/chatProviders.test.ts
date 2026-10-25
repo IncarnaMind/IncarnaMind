@@ -351,7 +351,7 @@ describe("Test connection", () => {
       modelId: "gpt-9",
     });
 
-    expect(result).toEqual({ ok: false, error: { kind, message } });
+    expect(result).toEqual({ ok: false, error: { kind, message, status } });
   });
 
   // protects=a key a provider refuses is not tried with any other provider by itself (#1384); fails_when=a refusal makes a second model, for another service, get the key; no_claim=the key form's own check of whose key it looks like, which keyForms.test.ts and the keyForm smoke test cover.
@@ -400,6 +400,43 @@ describe("Test connection", () => {
     await core.testChatConnection({ kind: "openai", modelId: "gpt-5.4-mini" });
 
     expect(models.specs[0]?.apiKey).toBe(OPENAI_KEY);
+  });
+
+  test("a key is tested without the spaces, line breaks and invisible characters around it", async () => {
+    const models = scriptedModels(replyingModel());
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: models.createChatModel,
+    });
+    acceptConsentAutomatically(core);
+
+    const result = await core.testChatConnection({
+      kind: "openai",
+      apiKey: `\uFEFF \n${OPENAI_KEY}\u200B\u00A0 `,
+      modelId: "gpt-5.4-mini",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(models.specs[0]?.apiKey).toBe(OPENAI_KEY);
+  });
+
+  test("a key with a character that keys don't use is refused in plain words, naming only that character, before anything is sent", async () => {
+    const models = scriptedModels(replyingModel());
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: models.createChatModel,
+    });
+    acceptConsentAutomatically(core);
+    const apiKey = "sk-test-1234作品-not-a-real-key";
+    const wording = { key: "error.provider.keyCharacter", values: { character: "作" } };
+
+    const test = core.testChatConnection({ kind: "openai", apiKey, modelId: "gpt-5.4-mini" });
+    await expect(test).rejects.toMatchObject({ wording });
+    await expect(test).rejects.not.toThrow(/sk-test/);
+    await expect(
+      core.saveChatProvider({ kind: "openai", apiKey, modelId: "gpt-5.4-mini" }),
+    ).rejects.toMatchObject({ wording });
+
+    expect(models.specs).toEqual([]);
+    expect(await core.listChatProviders()).toEqual([]);
   });
 
   test("a provider that needs a key isn't tested without one", async () => {

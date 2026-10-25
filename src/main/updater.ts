@@ -17,11 +17,12 @@
  */
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow } from "electron";
 import type { Core, CoreApi, ExternalService, Language } from "../core";
 import { translate } from "../shared/i18n";
 import { systemBrowser } from "./platform";
 import { RELEASES_PAGE } from "./startupError";
+import { showMessageBox } from "./systemDialogs";
 import { restartToInstall } from "./updateRestart";
 
 /** Where update checks go. */
@@ -31,6 +32,11 @@ const GITHUB_RELEASES: Readonly<ExternalService> = {
 };
 
 type SettingsSource = Pick<CoreApi, "getSettings" | "getPrivacySettings">;
+
+let installsOnQuit = false;
+
+/** Whether a downloaded update installs when the app quits: the updater then starts the app itself, if at all. */
+export const updateInstallsOnQuit = () => installsOnQuit;
 
 /** Lists the update check on the Privacy page, on or off as the User chose. */
 export function registerUpdateCheck(core: Pick<Core, "networkTraffic" | "getPrivacySettings">) {
@@ -45,9 +51,13 @@ export function registerUpdateCheck(core: Pick<Core, "networkTraffic" | "getPriv
  * Starts this run's update check in the background. Does nothing in an
  * unpackaged app, or when the User turned automatic update checks off.
  */
-export function startAutoUpdates(core: SettingsSource, settleQuit: () => Promise<boolean>): void {
+export function startAutoUpdates(
+  core: SettingsSource,
+  settleQuit: () => Promise<boolean>,
+  releaseDataFolder: () => void,
+): void {
   if (!app.isPackaged) return;
-  checkForUpdates(core, settleQuit).catch((error: unknown) => {
+  checkForUpdates(core, settleQuit, releaseDataFolder).catch((error: unknown) => {
     // Offline, rate-limited, or no release yet: the next start tries again.
     console.warn("The update check failed:", error);
   });
@@ -56,6 +66,7 @@ export function startAutoUpdates(core: SettingsSource, settleQuit: () => Promise
 async function checkForUpdates(
   core: SettingsSource,
   settleQuit: () => Promise<boolean>,
+  releaseDataFolder: () => void,
 ): Promise<void> {
   if (!(await core.getPrivacySettings()).automaticUpdateChecks) return;
   const { autoUpdater } = await import("./autoUpdater");
@@ -77,11 +88,10 @@ async function checkForUpdates(
   }
 
   await result.downloadPromise;
+  installsOnQuit = true;
   const { language } = await core.getSettings();
   if (await ask(language, "ready", version)) {
-    await restartToInstall(autoUpdater, settleQuit, () => {
-      if (process.platform === "linux") app.releaseSingleInstanceLock();
-    });
+    await restartToInstall(autoUpdater, settleQuit, releaseDataFolder);
   }
 }
 
@@ -116,8 +126,6 @@ async function ask(
     cancelId: 1,
   };
   const window = BrowserWindow.getAllWindows().find((it) => it.isVisible());
-  const { response } = window
-    ? await dialog.showMessageBox(window, options)
-    : await dialog.showMessageBox(options);
+  const { response } = await showMessageBox(window ?? null, options);
   return response === 0;
 }

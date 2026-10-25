@@ -121,6 +121,19 @@ export function withFound(messages: readonly AnswerMessage[], shown: string): An
   return [...messages.slice(0, -1), { ...last, content }];
 }
 
+/** The button's instructions (`meetingHelpInstructions`) after its Question, in its message. */
+export function withHelp(
+  messages: readonly AnswerMessage[],
+  instructions: string,
+): AnswerMessage[] {
+  const last = messages.at(-1);
+  if (last?.role !== "user") return [...messages];
+  return [
+    ...messages.slice(0, -1),
+    { ...last, content: `${last.content}\n\n<help>\n${instructions}\n</help>` },
+  ];
+}
+
 /** The language the newest lines of a live transcript are in, without their times and speakers. */
 export const languageSaid = (heard: readonly WindowedPassage[]): string | null =>
   questionLanguage(
@@ -129,6 +142,13 @@ export const languageSaid = (heard: readonly WindowedPassage[]): string | null =
       .map((passage) => passage.text.replace(/\[[^\]]*\]/g, " "))
       .join("\n"),
   );
+
+/**
+ * A button's Question while the live text is behind but has lines (#1366). The reply starts with a
+ * line saying so, written for it: the model neither repeats it nor adds another before its form.
+ */
+export const LIVE_TEXT_BEHIND_NOTE =
+  "- The live text fell behind: <live-transcript> holds the lines written so far, and what was said since isn't in it. A line saying so already starts the reply: don't repeat it, and answer from these lines.";
 
 /**
  * What the model is told for a button's Question during a call. `found`: Passages of the User's

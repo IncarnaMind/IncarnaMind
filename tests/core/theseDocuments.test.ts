@@ -86,7 +86,9 @@ describe("“These documents” in the assistant", { timeout: 60_000 }, () => {
 
     await askAssistant(core, { text: "Summarise these documents", mindId: mine.id });
 
-    expect(system).toContain("The User has added no Documents of their own");
+    expect(system).toContain(
+      "None of the User's own Documents can be searched yet (the examples IncarnaMind made aren't theirs)",
+    );
     expect(system).not.toContain("limited this Question");
   });
 });

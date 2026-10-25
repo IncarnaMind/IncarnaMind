@@ -1,7 +1,7 @@
 import type { Extensions, NodeViewRenderer } from "@tiptap/core";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Highlight from "@tiptap/extension-highlight";
-import { TaskItem, TaskList } from "@tiptap/extension-list";
+import { TaskList } from "@tiptap/extension-list";
 import { BlockMath, InlineMath } from "@tiptap/extension-mathematics";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import UniqueID from "@tiptap/extension-unique-id";
@@ -15,8 +15,10 @@ import {
   NOTE_BLOCK_TYPES,
   QUESTION_BLOCK,
 } from "../../../core/api";
+import { translate } from "../../../shared/i18n";
 import { Generated } from "./aiText";
 import { Chart } from "./chartSchema";
+import { checklistItem } from "./checklistItem";
 import { Citation } from "./citationSchema";
 import { ClaimCheck } from "./claimChecks";
 import { lowlight } from "./codeLanguages";
@@ -31,6 +33,7 @@ import {
   TextFont,
   TextSize,
 } from "./formatSchema";
+import { Numbering } from "./numbering";
 import { ProposalAttributes, ProposalDelete, ProposalInsert } from "./proposalSchema";
 import { Answer, MindDocument, Question, QuestionContextFlag } from "./questionSchema";
 import {
@@ -65,6 +68,7 @@ const BLOCK_TYPES: readonly string[] = [
 export const MATH_TYPES: readonly string[] = ["blockMath", "inlineMath"];
 
 export interface NoteSchemaOptions {
+  checklistLabel?: (text: string) => string;
   /** Called with a formula's position when it is clicked, to edit it. */
   onEditMath?: (pos: number) => void;
   /** Draws code blocks, e.g. with a language picker. */
@@ -112,6 +116,7 @@ export interface NoteSchemaOptions {
  * this alone.
  */
 export function noteExtensions({
+  checklistLabel = (text) => text.trim() || translate("en", "editor.checklist.empty"),
   onEditMath,
   codeBlockView,
   questionView,
@@ -146,6 +151,7 @@ export function noteExtensions({
       dropcursor: { color: "rgb(14 165 233)", width: 2 },
     }),
     MindDocument,
+    Numbering,
     // One colour: a `highlight` mark with no attributes. Mod-Shift-H, or `==text==` typed or pasted.
     Highlight,
     CodeBlock.configure({ lowlight }),
@@ -155,7 +161,7 @@ export function noteExtensions({
     // Tab and Shift-Tab move between cells; Tab in the last cell adds a row.
     // A checklist: its items hold a box and Blocks, as list items do.
     TaskList,
-    TaskItem.configure({ nested: true }),
+    checklistItem(checklistLabel),
     Table.configure({ resizable: false, View: WordLookTableView }),
     TableRow,
     TableHeader,

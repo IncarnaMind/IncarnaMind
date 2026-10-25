@@ -22,14 +22,21 @@ export const ComposerDockContext = createContext<HTMLElement | null>(null);
  * above the text, for what is happening now and needs the User, as a Word
  * import's progress; `menu`, the page's top right, for its ⋯ button; `count`
  * and `badge`, the page's bottom left and right, over the text, for the count
- * while writing and the check badge. Each is null until it is there.
+ * while writing and the check badge; `review`, beside the page or over its
+ * right edge, for the reviewing pane (#697), and where it shows now. Each is
+ * null until it is there.
  */
 export const PageSlotsContext = createContext<{
   top: HTMLElement | null;
   menu: HTMLElement | null;
   count: HTMLElement | null;
   badge: HTMLElement | null;
-}>({ top: null, menu: null, count: null, badge: null });
+  review: HTMLElement | null;
+  reviewShown: ReviewShown;
+}>({ top: null, menu: null, count: null, badge: null, review: null, reviewShown: "closed" });
+
+/** Where a Mind's reviewing pane is: beside the page, over its right edge, folded to its button, or closed. */
+export type ReviewShown = "beside" | "over" | "folded" | "closed";
 
 /**
  * Where a Mind's Compare Documents sheet is drawn: at the foot of its tab,

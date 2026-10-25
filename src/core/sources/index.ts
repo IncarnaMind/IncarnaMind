@@ -13,6 +13,7 @@
  */
 import { mkdir, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { cleanApiKey } from "../../shared/apiKey";
 import { arxivIdOf, normalizeDoi } from "../../shared/references";
 import type {
   AddFoundSourceResult,
@@ -36,6 +37,7 @@ import {
   LocalModeError,
 } from "../errors";
 import { safeFileName, writeNewFile } from "../fileNames";
+import { readApiKey } from "../providers/apiKey";
 import { fillReference, linkReference, writeUnlinkedReference } from "../referenceRecords/store";
 import type { Secrets } from "../secrets";
 import { createSendGate } from "../sendGate";
@@ -599,13 +601,13 @@ export function createSources(options: SourcesOptions) {
         throw new InvalidInputError("A key must be text, or null to remove it.");
       }
       const name = sourceKeySecret(provider.id);
-      const trimmed = key?.trim() ?? "";
+      const trimmed = cleanApiKey(key ?? "");
       if (trimmed === "") return options.secrets.delete(name);
       // A key is one token: anything else is a paste gone wrong, and it isn't echoed back.
       if (trimmed.length > 200 || /\s/.test(trimmed)) {
         throw new InvalidInputError({ key: "error.sources.keyLooksWrong" });
       }
-      await options.secrets.set(name, trimmed);
+      await options.secrets.set(name, readApiKey(trimmed));
     },
 
     /** See `CoreApi.findSources`. */

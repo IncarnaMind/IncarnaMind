@@ -72,7 +72,7 @@ describe("A web page's snapshot", () => {
   test("reads as sections, each paragraph numbered from its heading; reference marks are left out", () => {
     const units = webUnits(snapshot.xhtml);
     expect(units.map((unit) => unit.label)).toEqual([
-      { path: [], paragraphs: true },
+      { path: [], beforeHeading: true, paragraphs: true },
       { path: ["History"], paragraphs: true },
       { path: ["Preparation"], paragraphs: true },
       { path: ["Preparation", "Steeping times"], paragraphs: true },

@@ -11,6 +11,7 @@ import {
   SOURCE_KIND_PROVIDERS,
   type ToolApprovalRequest,
 } from "../../../core/api";
+import { billingUrlOf, catalogProviderOf } from "../../../core/providers/catalog/providers";
 import { isSignInRoute, isSignInRouteProblem } from "../../../core/providers/signInRoutes";
 import { asksAfterThirdParty } from "../../../shared/approvalRules";
 import { toolCallsOf } from "../../../shared/toolCalls";
@@ -19,6 +20,7 @@ import { isCalculated, RUN_SCRIPT, SEARCH } from "../answerSteps";
 import { useAnswers } from "../answers";
 import { useApprovals, waitingFor } from "../approvals";
 import { signInAgain } from "../chatGptSignIn";
+import { AskCall } from "../components/assistant/AskCall";
 import { CommandCall } from "../components/assistant/CommandCall";
 import { MindCall } from "../components/assistant/MindCall";
 import { DetailsLine } from "../components/DetailsLine";
@@ -34,13 +36,14 @@ import {
 import { RouteProblemLine } from "../components/providers/RouteProblemLine";
 import { core } from "../core";
 import { formatResetTime } from "../cost";
+import { useDeclineEnded } from "../declineEnded";
 import { useFindSources } from "../findSources";
 import { useLanguage, useT } from "../i18n";
 import { useKeyRefusals, useKeySavedSince } from "../keyRefusals";
 import { requestModelMenu } from "../modelMenu";
-import { useModelNames } from "../modelNames";
+import { useModelNames, useServiceName } from "../modelNames";
 import { useStoppedByPlanLimit } from "../planLimits";
-import { ANSWER_PROBLEMS, failedAnswerLine } from "../problems";
+import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
 import { useRouteOffered } from "../routeSignIn";
 import type { SettingsPage } from "../settingsPages";
 import { skillTitle } from "../skills";
@@ -85,7 +88,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
   const answerId = text(node.attrs[BLOCK_ID_ATTRIBUTE]);
   const questionId = text(node.attrs.questionId);
   const modelId = text(node.attrs.modelId);
-  const shownModel = useModelNames()(modelId ?? "");
+  const shownModel = useModelNames()(modelId ?? "", text(node.attrs.providerId));
   const status = text(node.attrs.status) ?? "done";
   const writing = useAnswers((state) => (answerId ? state.writing.has(answerId) : false));
   // The event says so first; the status says so in windows that opened since.
@@ -285,6 +288,7 @@ export function NoCitationsLine({
 const WRONG_MODEL: ReadonlySet<ProviderErrorKind> = new Set([
   "model",
   "provider",
+  "refused",
   "no-answer",
   "unknown",
 ]);
@@ -323,11 +327,15 @@ export function AnswerError({
     (state) => state.models?.find((group) => group.provider.id === providerId)?.provider,
   );
   const provider = providerInUse?.kind;
-  const service = providerInUse
-    ? (providerInUse.service?.name ?? t(`providers.kind.${providerInUse.kind}`))
-    : t("answer.error.thisService");
+  const service = useServiceName(providerId);
   const [shownAt] = useState(() => new Date().toISOString());
+  // Once the User has been sent to add credit, asking again is what's next.
+  const [billingOpened, setBillingOpened] = useState(false);
   const keySaved = useKeySavedSince(providerId, failedAt ?? shownAt);
+  const declineEnded = useDeclineEnded(
+    providerInUse?.service?.id ?? null,
+    kind === "consent-declined" && onRetry !== undefined,
+  );
   // Whose plan or sign-in it was decides the line. A sign-in that ends changes readiness, which
   // clears the list, so it is read again then, and not on every error (offline, that only fails).
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -351,7 +359,12 @@ export function AnswerError({
         }
       : undefined;
   const offered = useRouteOffered(isSignInRoute(provider) ? provider : null);
-  const shown = failedAnswerLine(kind, provider, signInRoute, offered);
+  const catalog = providerInUse && catalogProviderOf(providerInUse.kind, providerInUse.catalogId);
+  const billingUrl = catalog && billingUrlOf(catalog, providerInUse.endpoint);
+  const shown = failedAnswerLine(kind, provider, signInRoute, offered, {
+    ...(billingUrl && { billingUrl }),
+    ...(providerInUse && { local: providerInUse.service === null }),
+  });
   if (shown.kind === "route") {
     return (
       <RouteProblemLine
@@ -365,7 +378,13 @@ export function AnswerError({
       />
     );
   }
-  const { line, fix } = shown.problem;
+  const { line } = shown.problem;
+  const fix =
+    kind === "consent-declined" && declineEnded
+      ? retry
+      : kind === "out-of-credit" && billingOpened && onRetry
+        ? retry
+        : shown.problem.fix;
   if (fix.kind === "ollama") return <OllamaNotRunningLine details={details} onRetry={onRetry} />;
   if (fix.kind === "local-model") {
     return (
@@ -399,7 +418,10 @@ export function AnswerError({
               ? // The main process opens it in the User's browser.
                 {
                   label: `${t(fix.label)} ↗`,
-                  onClick: () => window.open(fix.url, "_blank", "noreferrer"),
+                  onClick: () => {
+                    window.open(fix.url, "_blank", "noreferrer");
+                    setBillingOpened(kind === "out-of-credit");
+                  },
                 }
               : fix.kind === "retry" && onRetry
                 ? { label: t(fix.label), onClick: onRetry }
@@ -462,6 +484,7 @@ export function CallRows({
 
 /** The row of a call through a Connector, of Find sources, of web search, of a Minds' Tool, or of a Skill script. */
 export function CallRow({ call }: { call: AnswerToolCall }) {
+  if (call.source === "asks") return <AskCall call={call} />;
   if (call.source === "minds") return <MindCall call={call} />;
   if (call.source === "commands") return <CommandCall call={call} />;
   if (call.source === "connector") return <ConnectorCall call={call} />;

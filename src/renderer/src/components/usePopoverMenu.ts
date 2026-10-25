@@ -14,6 +14,10 @@ import { isSlidingTo, type Point } from "./submenuSlide";
 
 const GAP_PX = 4;
 const EDGE_PX = 8;
+/** The top band's height, which a menu over the window buttons stays below. */
+const BAND_PX = 44;
+/** Less room than this beside a row, and a scrolling menu would show too little to use. */
+const MIN_BESIDE_ROW_PX = 120;
 /** Menu items of every kind: plain, radio and checkbox. */
 const ITEMS = '[role^="menuitem"]';
 
@@ -23,10 +27,26 @@ const SLIDE_REST_MS = 300;
 const itemsOf = (menu: HTMLElement | null) =>
   Array.from(menu?.querySelectorAll<HTMLElement>(ITEMS) ?? []);
 
-/** Where a menu opened with a right-click was asked for, if it was. */
-function pointOf(button: HTMLElement | null): { x: number; y: number } | null {
+/** Where a menu opened with a right-click or a key was asked for, if it was. */
+function pointOf(button: HTMLElement | null): { x: number; y: number; above: number } | null {
   const at = button?.dataset.menuAt?.split(",").map(Number);
-  return at?.length === 2 && at.every(Number.isFinite) ? { x: at[0] ?? 0, y: at[1] ?? 0 } : null;
+  return at?.length === 3 && at.every(Number.isFinite)
+    ? { x: at[0] ?? 0, y: at[1] ?? 0, above: at[2] ?? 0 }
+    : null;
+}
+
+/** How far the system's window buttons reach into the top band from each side. */
+function windowButtonsReach(): { left: number; right: number } {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;height:0;visibility:hidden";
+  document.body.append(probe);
+  const reach = (name: string) => {
+    probe.style.width = `var(${name})`;
+    return probe.offsetWidth;
+  };
+  const reaches = { left: reach("--window-buttons-left"), right: reach("--window-buttons-right") };
+  probe.remove();
+  return reaches;
 }
 
 /** What a menu grows from and shrinks to: the pointer if it opened there, else its button. */
@@ -48,8 +68,11 @@ function place(
 ): Box | null {
   const point = pointOf(button);
   const atPoint = point !== null;
-  const box = point ? new DOMRect(point.x, point.y, 0, 0) : button?.getBoundingClientRect();
+  const box = point
+    ? new DOMRect(point.x, point.above, 0, point.y - point.above)
+    : button?.getBoundingClientRect();
   if (!box || !menu) return null;
+  menu.style.removeProperty("max-height");
   const hidden = !menu.matches(":popover-open");
   if (hidden) menu.style.display = "block";
   const width = menu.offsetWidth;
@@ -71,13 +94,36 @@ function place(
     Math.min(anchor.left - (atPoint ? 1 : 0), window.innerWidth - width - EDGE_PX),
   );
   const below = anchor.bottom + gap;
-  const top =
-    below + height > window.innerHeight - EDGE_PX
-      ? Math.max(EDGE_PX, anchor.top - gap - height)
-      : below;
+  // The window buttons are covered by a menu that reaches them, so it stays under the band (#1517).
+  const buttons = windowButtonsReach();
+  const overButtons = left < buttons.left || left + width > window.innerWidth - buttons.right;
+  const floor = overButtons ? BAND_PX : EDGE_PX;
+  const roomBelow = window.innerHeight - EDGE_PX - below;
+  const roomAbove = anchor.top - gap - floor;
+  // A menu a key opened from a row that fits neither side stays beside the row, on the side with
+  // more room, and scrolls there; it would cover the row anywhere else (#1517).
+  const besideRow =
+    point !== null &&
+    point.above < point.y &&
+    height > roomBelow &&
+    height > roomAbove &&
+    Math.max(roomBelow, roomAbove) >= MIN_BESIDE_ROW_PX;
+  let top: number;
+  let room: number;
+  if (besideRow) {
+    const downward = roomBelow >= roomAbove;
+    top = downward ? below : floor;
+    room = downward ? roomBelow : roomAbove;
+  } else {
+    const wanted = height > roomBelow ? Math.max(EDGE_PX, anchor.top - gap - height) : below;
+    // Neither below nor above fits: the menu sits as high as the window lets all of it show.
+    top = Math.max(floor, Math.min(wanted, window.innerHeight - EDGE_PX - height));
+    room = window.innerHeight - EDGE_PX - top;
+  }
+  if (height > room) menu.style.maxHeight = `${room}px`;
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
-  return { left, top, width, height };
+  return { left, top, width, height: Math.min(height, room) };
 }
 
 /** The checked item, or the first; with `first`, the first whatever is checked. */
@@ -145,21 +191,22 @@ function clearAutofocus(menu: HTMLElement | null): void {
 
 /**
  * Opens a menu from its ⋯ button for a right-click, so the right-click menu
- * and the ⋯ menu are one. With `at` it opens at once at that point. Without, it opens under the button: at once, or, with
+ * and the ⋯ menu are one. With `at` it opens at once at that point, and, if it doesn't fit below,
+ * above `at.above` (the top of the row a key opened it on, so it doesn't cover the row). Without, it opens under the button: at once, or, with
  * a mouse button still held (`buttons`), once it is let go, as letting go
  * outside the menu would close it.
  */
 export function openMenuFromRightClick(
   button: HTMLButtonElement,
   buttons: number,
-  at?: { x: number; y: number },
+  at?: { x: number; y: number; above?: number },
 ): void {
   // The popover itself, not aria-expanded, which lags a render behind a menu that was just dismissed.
   const expanded = button.popoverTargetElement?.matches(":popover-open") ?? false;
   if (at) {
     if (expanded) return;
     // Where the menu opens instead of under the button; cleared when it closes.
-    button.dataset.menuAt = `${at.x},${at.y}`;
+    button.dataset.menuAt = `${at.x},${at.y},${at.above ?? at.y}`;
     button.click();
     return;
   }

@@ -18,7 +18,11 @@ const bridge: CaptureBridge = {
   onStop: (listener) => {
     ipcRenderer.on(CAPTURE_CHANNELS.stop, () => listener());
   },
-  audio: (source, samples) => ipcRenderer.send(CAPTURE_CHANNELS.audio, source, samples),
+  onMicrophone: (listener) => {
+    ipcRenderer.on(CAPTURE_CHANNELS.microphone, (_event, on: boolean) => listener(on));
+  },
+  audio: (source, samples, capturedAt) =>
+    ipcRenderer.send(CAPTURE_CHANNELS.audio, source, samples, capturedAt),
   state: (source, state) => ipcRenderer.send(CAPTURE_CHANNELS.state, source, state),
   stopped: () => ipcRenderer.send(CAPTURE_CHANNELS.stopped),
 };

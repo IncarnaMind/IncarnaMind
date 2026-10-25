@@ -68,12 +68,16 @@ For each file it runs these steps, and prints one line per file:
 7. **review export opens in LibreOffice**: step 3 on the review export, its PDF kept as `<file>-review.pdf`.
 8. **resolves someone's changes** (#108, `checkTheirChanges`): of the tracked changes of someone else's that the file has, which import as changes to accept or reject, every third is accepted, the next rejected and the next left, and the file is exported with the User's edits tracked. No change is out of date as imported; the package has none of the problems of step 1 the file didn't have; nothing is reported lost; nothing is tracked as the User's or IncarnaMind's; the changes left import again with their kind, author, date and text; and the text Word shows with every change accepted is the Mind's with every change accepted. `npm test` runs it on the core set.
 9. **that export opens in LibreOffice**: step 3 on it, its PDF kept as `<file>-resolved.pdf`.
+10. **exports with the Citations in a list** (#1600, `checkListExport`): the scripted edit again, with the User's choice of a list at the end: the added Citation is `[1]` in its paragraph, its source is the list's one entry under the Bibliography's heading, no footnote is added, and the package passes step 1's checks.
+11. **list export opens in LibreOffice**: step 3 on it, its PDF kept as `<file>-list.pdf`.
 
 After the files, a fixture made for it (headings, paragraphs and a table) is exported for review and opened in LibreOffice, which accepts every change in it with a Basic macro (in its temporary profile) and saves its text: that text's words, paragraph by paragraph, must be the Mind's with every change accepted.
 
+A Mind of to-dos (nested, one done, one empty) is exported to Word, opened in LibreOffice and imported again: its nesting is the indent, and every box and its text comes back as text, not a to-do, since Word has no to-do.
+
 LibreOffice is found as `INCARNAMIND_SOFFICE`, then `soffice`, then `libreoffice` on the PATH. When it isn't there the LibreOffice steps are skipped and say so, unless `INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1`, which CI sets: then a missing LibreOffice fails the run.
 
-A file that is known to fail a step is marked `known` with the reason in `sources.json` (or `extended.json`); it is reported and does not fail the run.
+An input package that is known to fail inspection is marked `known` with the reason in `sources.json` (or `extended.json`); its package failure is reported and does not fail the run. Feature-metadata drift, import, export and LibreOffice failures still fail the run, including for a file with a known input-package defect.
 
 **The extended set.** `npm run eval:word:fetch` downloads each real file from its pinned URL into `INCARNAMIND_WORD_CACHE` (default `~/.cache/incarnamind-eval/word-extended`), refuses one whose SHA-256 differs, and runs `generate-domains.py extended` for the generated ones (needs Python 3). Downloads are untrusted data: nothing opens them except the check. CI's pull request job runs the core set; a nightly job (`.github/workflows/nightly.yml`) runs both.
 

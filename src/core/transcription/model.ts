@@ -15,6 +15,7 @@ import { join } from "node:path";
 import type { EmbeddingModelSource, Transcriber, TranscriptionModelFiles } from "../adapters";
 import type { EmbeddingModelError, EmbeddingModelStatus } from "../api";
 import { downloadModel, isModelDownloaded, ModelDownloadError } from "../embedding/download";
+import type { ModelSources } from "../embedding/modelSources";
 import { QWEN3_ASR } from "./sherpa";
 
 export interface TranscriptionModelDefinition {
@@ -151,6 +152,8 @@ export interface TranscriptionModelOptions {
   transcriber: Transcriber;
   /** Overrides where the files come from (tests: none at all). */
   source?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+  /** Where else the files may come from (#1578). */
+  sources?: ModelSources;
   /** The speed probe kept on this device, by model id. */
   speed(): Readonly<Record<string, number>>;
   emitStatus(status: EmbeddingModelStatus): void;
@@ -207,6 +210,7 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
     await downloadModel({
       directory: vadFolder,
       source: vadSource,
+      ...(options.sources && { sources: options.sources }),
       signal: lifetime.signal,
       onProgress: progress,
     });
@@ -214,6 +218,7 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
     await downloadModel({
       directory: modelFolder,
       source: modelSource,
+      ...(options.sources && { sources: options.sources }),
       signal: lifetime.signal,
       onProgress: progress,
     });
@@ -233,8 +238,13 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
       (error: unknown) => {
         downloading = false;
         if (lifetime.signal.aborted) return;
-        if (error instanceof ModelDownloadError) fail({ kind: error.kind, message: error.message });
-        else
+        if (error instanceof ModelDownloadError) {
+          fail({
+            kind: error.kind,
+            message: error.message,
+            ...(error.sources && { sources: error.sources }),
+          });
+        } else
           fail({
             kind: "storage",
             message: error instanceof Error ? error.message : String(error),
@@ -270,6 +280,7 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
         await downloadModel({
           directory: vadFolder,
           source: vadSource,
+          ...(options.sources && { sources: options.sources }),
           signal: lifetime.signal,
           onProgress: () => {},
         });

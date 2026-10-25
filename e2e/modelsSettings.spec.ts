@@ -201,9 +201,9 @@ test("by keyboard alone, in Chinese: ⌘K opens Add a provider, its groups follo
 
     // Typing narrows it; Tab reaches the tile and Enter opens the page that adds it.
     await window.keyboard.type("kimi");
-    await expect(directory.getByTestId("provider-directory-entry")).toHaveCount(1);
+    await expect(directory.getByTestId("provider-directory-entry")).toHaveCount(2);
     await window.keyboard.press("Tab");
-    await expect(directory.getByTestId("provider-directory-entry")).toBeFocused();
+    await expect(directory.getByTestId("provider-directory-entry").first()).toBeFocused();
     await window.keyboard.press("Enter");
     const add = settings.getByTestId("provider-add");
     await expect(add.getByTestId("provider-page-title")).toHaveText("Kimi（月之暗面）");

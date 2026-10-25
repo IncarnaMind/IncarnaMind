@@ -59,7 +59,9 @@ export function MoveToPicker({
             .sort((a, b) => b.score - a.score)
             .map(({ option }) => option);
     const wanted = query.toLocaleLowerCase();
-    const taken = groups.some((group) => group.name.toLocaleLowerCase() === wanted);
+    const taken = [t("library.unsorted"), ...groups.map((group) => group.name)].some(
+      (label) => label.toLocaleLowerCase() === wanted,
+    );
     if (!onCreate || !query || taken) return [{ options: found }];
     const newFolder: PickerOption<Choice> = {
       id: { newFolder: query },

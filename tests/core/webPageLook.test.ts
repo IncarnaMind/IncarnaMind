@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, DATABASE_FILE } from "../../src/core";
 import type { PageLook } from "../../src/core/adapters";
-import type { Document, WebPageLookFailure } from "../../src/core/api";
+import type { Document, SaveWebPageInput, WebPageLookFailure } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, nextTurn, queryDatabase, startCore } from "../helpers/core";
 import { waitForDocuments, waitForProcessing } from "../helpers/documents";
@@ -50,7 +50,7 @@ async function startSite() {
   };
 }
 
-async function saved(core: Core, input: { address: string; keepLook?: boolean }) {
+async function saved(core: Core, input: SaveWebPageInput) {
   const result = await core.saveWebPage(input);
   if (result.outcome !== "saved") throw new Error(JSON.stringify(result));
   await waitForProcessing(core, [result.document.id]);
@@ -167,6 +167,65 @@ describe("A web page kept as it looks", { timeout: 30_000 }, () => {
     await settled(core, id);
     expect((await lookOf(core, id))?.status).toBe("saved");
     expect(stand.asked).toHaveLength(2);
+  });
+
+  test("in Local mode no look is made: keeping one says why and loads nothing, and it is made once the setting is off", async () => {
+    const site = await startSite();
+    const stand = standInLook();
+    const core = startCore(await createTempDataFolder(), {
+      ...site.adapters,
+      pageLook: stand.look,
+    });
+    const id = await saved(core, { address: site.address });
+    await core.setLocalOnly(true);
+
+    await core.keepWebPageLook(id);
+
+    expect(await lookOf(core, id)).toEqual({ status: "failed", failure: "local-mode" });
+    expect(stand.asked).toEqual([]);
+
+    await core.setLocalOnly(false);
+    await core.keepWebPageLook(id);
+    await settled(core, id);
+    expect((await lookOf(core, id))?.status).toBe("saved");
+    expect(stand.asked).toEqual([site.address]);
+  });
+
+  test("a page let through once in Local mode isn't loaded for its look either", async () => {
+    const site = await startSite();
+    const stand = standInLook();
+    const core = startCore(await createTempDataFolder(), {
+      ...site.adapters,
+      pageLook: stand.look,
+    });
+    await core.setLocalOnly(true);
+
+    const id = await saved(core, { address: site.address, keepLook: true, localModeOnce: true });
+
+    expect(await lookOf(core, id)).toEqual({ status: "failed", failure: "local-mode" });
+    expect(stand.asked).toEqual([]);
+  });
+
+  test("a look waiting when the app quit isn't made at the next start in Local mode", async () => {
+    const site = await startSite();
+    const dataDir = await createTempDataFolder();
+    const first = startCore(dataDir, site.adapters);
+    const id = await saved(first, { address: site.address });
+    await first.setLocalOnly(true);
+    first.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE web_pages SET look_status = 'saving'");
+    } finally {
+      db.close();
+    }
+
+    const stand = standInLook();
+    const second = startCore(dataDir, { ...site.adapters, pageLook: stand.look });
+    await settled(second, id);
+
+    expect(await lookOf(second, id)).toEqual({ status: "failed", failure: "local-mode" });
+    expect(stand.asked).toEqual([]);
   });
 
   test("one being made when the app quit is made at the next start, with the setting off, as that page asked", async () => {
@@ -309,23 +368,29 @@ describe("A web page kept as it looks", { timeout: 30_000 }, () => {
     const restored = await saved(core, { address: site.address, keepLook: true });
     await expect.poll(() => releases.length).toBe(1);
     await core.deleteDocument(restored);
-    releases.shift()?.();
-    await expect.poll(() => (existsSync(looks) ? readdirSync(looks).length : 0)).toBe(1);
-    await core.restore([{ kind: "document", id: restored }]);
-    expect((await lookOf(core, restored))?.status).toBe("saved");
 
     const other = await startWeb({ "/other": () => ({ status: 200, body: REPORT }) });
     const purged = await saved(core, {
       address: `http://127.0.0.1:${other.port}/other`,
       keepLook: true,
     });
+    // The next render starts only after the previous write, status and cleanup finish (#1473).
+    releases.shift()?.();
     await expect.poll(() => releases.length).toBe(1);
+    await core.restore([{ kind: "document", id: restored }]);
+    expect((await lookOf(core, restored))?.status).toBe("saved");
+
     await core.deleteDocument(purged);
     await core.deletePermanently([{ kind: "document", id: purged }]);
+    site.change();
+    await core.fetchWebPageAgain(restored);
+    await waitForProcessing(core, [restored]);
     releases.shift()?.();
-    await expect
-      .poll(() => readdirSync(looks).filter((name) => name.endsWith(".pdf")))
-      .toHaveLength(1);
+    await expect.poll(() => releases.length).toBe(1);
+    expect(readdirSync(looks).filter((name) => name.endsWith(".pdf"))).toHaveLength(1);
+    releases.shift()?.();
+    await settled(core, restored);
+    expect((await lookOf(core, restored))?.status).toBe("saved");
   });
 
   test("deleted permanently, its PDF goes with it", async () => {

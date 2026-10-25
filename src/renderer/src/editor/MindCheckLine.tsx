@@ -3,10 +3,11 @@ import { useEditorState } from "@tiptap/react";
 import type { MindCheckRun } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import { MetaLine } from "../components/MetaLine";
+import { ProblemLine } from "../components/ProblemLine";
 import { buttonStyle } from "../components/ui";
 import { type EstimateLine, runStopParts } from "../cost";
 import { useLanguage, useT } from "../i18n";
-import { checkMind, dismissMindCheck, useMindCheck } from "../mindCheck";
+import { checkMind, dismissMindCheck, startMindCheck, useMindCheck } from "../mindCheck";
 import { shownClaims } from "./claimChecks";
 
 /**
@@ -83,6 +84,26 @@ export function MindCheckAsk({ mindId }: { mindId: string }) {
         onClick: () => dismissMindCheck(mindId),
       }}
     />
+  );
+}
+
+export function MindUnchanged({ mindId, since }: { mindId: string; since: string | null }) {
+  const t = useT();
+  const language = useLanguage();
+  const when = since === null ? "" : formatDateTime(since, language);
+  return (
+    <ProblemLine
+      role="status"
+      testId="mind-check-unchanged"
+      className="mind-health-line"
+      action={{
+        label: t("mindCheck.every"),
+        testId: "mind-check-every",
+        onClick: () => void startMindCheck(mindId, "all"),
+      }}
+    >
+      {when === "" ? t("mindCheck.changed.none") : t("mindCheck.unchanged", { when })}
+    </ProblemLine>
   );
 }
 

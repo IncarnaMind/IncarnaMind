@@ -5,7 +5,7 @@
  * links back as they were. Each says what happened in the words of the undo
  * line, and what it was, for the Edit menu.
  */
-import type { LinkedFolderLayout, RestoreRef, TagLinkState } from "../../core/api";
+import type { RestoreRef, TagLinkState } from "../../core/api";
 import { core } from "./core";
 import { languageNow } from "./i18n";
 import type { Words } from "./lineNames";
@@ -74,6 +74,27 @@ export function deleted(
   };
 }
 
+/**
+ * Documents added: undone by moving to Recently deleted those of the ones this add brought in that
+ * are still its own, done again by bringing back exactly those. `take` says which it took.
+ */
+export function documentsAdded(count: number, take: () => Promise<RestoreRef[]>): Undoable {
+  let taken: RestoreRef[] = [];
+  return {
+    said: (t) =>
+      t(count === 1 ? "undo.documentAdded.one" : "undo.documentsAdded", {
+        count: formatCount(count, languageNow()),
+      }),
+    name: (t) => t("undo.name.addDocuments"),
+    undo: async () => {
+      taken = await take();
+    },
+    redo: async () => {
+      if (taken.length > 0) await core.restore(taken);
+    },
+  };
+}
+
 /** A folder linked: undone by unlinking it, which touches nothing on disk, done again by linking it again. */
 export function folderLinked(
   shown: () => string,
@@ -111,26 +132,6 @@ export function linkedFolderPaused(
   };
 }
 
-/** A Linked folder shown as Folders or as a flat list: undone by the layout it had, done again by the new one. */
-export function linkedFolderShown(
-  shown: string,
-  layouts: { before: LinkedFolderLayout; after: LinkedFolderLayout },
-  setLayout: (layout: LinkedFolderLayout) => Promise<unknown>,
-): Undoable {
-  const { before, after } = layouts;
-  const flat = after === "flat";
-  return {
-    said: (t) => t(flat ? "undo.linkedFolderFlat" : "undo.linkedFolderTree", { name: shown }),
-    name: (t) => t(flat ? "linkedFolders.layout.flat" : "linkedFolders.layout.tree"),
-    undo: async () => {
-      await setLayout(before);
-    },
-    redo: async () => {
-      await setLayout(after);
-    },
-  };
-}
-
 /**
  * A Tag added to or taken off Documents: undone by putting each link back as it
  * was, with who chose it and no removal recorded, so automatic tagging carries on
@@ -148,7 +149,10 @@ export function retagged(
     said: (t) =>
       only !== undefined && count === 1
         ? t(added ? "undo.tagAdded.one" : "undo.tagRemoved.one", { name: only, tag })
-        : t(added ? "undo.tagAdded" : "undo.tagRemoved", { count, tag }),
+        : t(added ? "undo.tagAdded" : "undo.tagRemoved", {
+            count: formatCount(count, languageNow()),
+            tag,
+          }),
     name: (t) => t(added ? "undo.name.tagAdded" : "undo.name.tagRemoved"),
     undo: async () => {
       await core.revertDocumentTags(before);

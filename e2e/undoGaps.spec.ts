@@ -95,7 +95,10 @@ async function startWithADocument(language: "en" | "zh-CN" = "en") {
   const { window } = running;
   await dismissChatSetup(window);
   await writeFile(join(sources, "Tides.txt"), "Neap tides are the smallest of the month.\n");
-  await addDocuments(window, [join(sources, "Tides.txt")]);
+  // Added by the core, not through the sidebar's picker, which leaves a step of its own for ⌘Z.
+  const path = join(sources, "Tides.txt");
+  await (await coreOf(window)).evaluate(async (core, file) => core.addDocuments([file]), path);
+  await expect(window.getByTestId("document-list-item")).toHaveAttribute("data-status", "ready");
   await read(window, (core) => core.createLibraryGroup({ name: "Finance", description: "" }));
   if (language !== "en") await setLanguage(window, language);
   return running;
@@ -296,7 +299,7 @@ async function linkPapers(window: Page, app: ElectronApplication) {
   return { row: linkedFolderRow(window, "Papers"), linked };
 }
 
-test("pausing a Linked folder and showing it as a flat list: ⌘Z sets it back as it was, ⇧⌘Z does it again, with the line in English and Chinese", async () => {
+test("pausing a Linked folder: ⌘Z sets it back as it was, ⇧⌘Z does it again, with the line in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const { row, linked } = await linkPapers(window, app);
@@ -316,17 +319,6 @@ test("pausing a Linked folder and showing it as a flat list: ⌘Z sets it back a
   await undo(window);
   await expect.poll(async () => (await linked())?.status).toBe("watching");
 
-  await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.layout").click();
-  await expect(undoMessage(window)).toHaveText("Showing “Papers” as a flat list");
-  expect((await linked())?.layout).toBe("flat");
-  await leaveText(window);
-  await undo(window);
-  await expect.poll(async () => (await linked())?.layout).toBe("tree");
-  await redo(window);
-  await expect.poll(async () => (await linked())?.layout).toBe("flat");
-  await undo(window);
-  await expect.poll(async () => (await linked())?.layout).toBe("tree");
-
   await setLanguage(window, "zh-CN");
   await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.pause").click();
   await expect(undoMessage(window)).toHaveText("已暂停读取“Papers”");
@@ -339,8 +331,6 @@ test("pausing a Linked folder and showing it as a flat list: ⌘Z sets it back a
   await screenshot(window, "pause-a-linked-folder-zh-1600");
   await undo(window);
   await expect.poll(async () => (await linked())?.status).toBe("watching");
-  await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.layout").click();
-  await expect(undoMessage(window)).toHaveText("已将“Papers”显示为平铺列表");
 });
 
 test("quitting between the change and its Undo leaves the change made, and ⌘Z in the next launch takes back nothing", async () => {

@@ -4,8 +4,10 @@ import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
 import { activeTabOf, focusedGroupOf } from "../../layoutSlice";
 import { useAppStore } from "../../store";
+import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { ExportDialog } from "../ExportDialog";
+import { HomePane } from "../home/HomePane";
 import { LibraryPane } from "../LibraryPane";
 import { ResizeRod } from "../ResizeRod";
 import { DocumentTab } from "./DocumentTab";
@@ -165,6 +167,10 @@ function TabGroup({
   const t = useT();
   const focused = useAppStore((state) => merged || state.layout?.focusedGroupId === group.id);
   const tab = activeTabOf(group);
+  useEffect(() => {
+    resumeTabCloseFocus();
+    return () => forgetTabCloseFocus(group.id, group.activeTabId);
+  }, [group.id, group.activeTabId]);
   return (
     <section
       data-testid="tab-group"
@@ -197,6 +203,8 @@ function TabGroup({
               <MindTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
             ) : tab.item.kind === "library" ? (
               <LibraryPane />
+            ) : tab.item.kind === "home" ? (
+              <HomePane />
             ) : (
               <DocumentTab key={tab.id} tab={tab} />
             )}

@@ -1,5 +1,6 @@
 import { type ModelSource, modelName } from "../../shared/modelName";
 import { useAnswers } from "./answers";
+import { useT } from "./i18n";
 
 /** What shows a model: its name, and its id for the tooltip where the two differ. */
 export interface ShownModel {
@@ -23,4 +24,15 @@ export function useModelNames(): (modelId: string, providerId?: string | null) =
     const name = modelName(modelId, source);
     return { name, id: name === modelId ? undefined : modelId };
   };
+}
+
+/** The company a failed request went to, else its kind: how a problem line says whose side failed. */
+export function useServiceName(providerId: string | null): string {
+  const t = useT();
+  const provider = useAnswers(
+    (state) => state.models?.find((group) => group.provider.id === providerId)?.provider,
+  );
+  return provider
+    ? (provider.service?.name ?? t(`providers.kind.${provider.kind}`))
+    : t("answer.error.thisService");
 }

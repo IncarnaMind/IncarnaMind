@@ -9,9 +9,12 @@
  *    User's own opinions (./findClaims), before the run is asked for, so its
  *    estimate counts them (`findMindClaims`), and only once. In "changed"
  *    mode it is shown only the sentences never checked since the last run,
- *    and the checks that need a re-check are made again without asking it.
- *    In "added" mode only the checks that Documents added since could change
- *    are made again, each in the scope it used (#993).
+ *    and the checks that need a re-check, or that couldn't be made, are made
+ *    again without asking it; with none of those, nothing is sent and the
+ *    plan says so (`unchanged`). "All" mode checks every marked sentence
+ *    again, and names claims only among the sentences never marked or
+ *    skipped. In "added" mode only the checks that Documents added since
+ *    could change are made again, each in the scope it used (#993).
  * 3. Each claim gets a "checking" mark at once, then its result, as Check
  *    against Documents gives it (./runChecks).
  * 4. The run is recorded in the Mind's settings (`MindCheckRun`): when, how
@@ -19,9 +22,16 @@
  *    next run doesn't send them again.
  */
 import { randomUUID } from "node:crypto";
-import { addedCouldChange, claimCheckShown } from "../../../shared/claimChecks";
+import {
+  addedCouldChange,
+  checkedSentence,
+  claimCheckShown,
+  restsOn,
+} from "../../../shared/claimChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
+import { mindScopeIn } from "../../../shared/mindScope";
+import { oneFolderOf } from "../../../shared/searchScope";
 import { isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
@@ -29,6 +39,7 @@ import type {
   CheckMindInput,
   CheckMindMode,
   CheckMindResult,
+  CitedQuote,
   ClaimCheckAttributes,
   DocumentsAddedSince,
   FindMindClaimsResult,
@@ -49,21 +60,19 @@ import {
   markSentence,
   type SelectedSentence,
 } from "./sentences";
-import type { CheckScope, VerifyOptions } from "./verify";
+import type { MindCheckScope, VerifyOptions } from "./verify";
 
 export interface MindCheckOptions extends RunChecksOptions {
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
-  defaultModel(): ChatModelChoice | null;
+  modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
   prepare: VerifyOptions["prepare"];
   unread: VerifyOptions["unread"];
   recordUnread: VerifyOptions["recordUnread"];
-  /** Where the Mind's sentences are checked: no Documents, or how many, and the scope. */
-  scopeOf(
-    mindId: string,
-    allDocuments: boolean,
-  ): { searchable: number; folderId: string | null; check: CheckScope };
+  scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
+  /** What the Citations quote, each Document named as it is now. */
+  citedNow(cited: readonly CitedQuote[]): { documentName: string; quote: string }[];
   /** Each live Document's version now, for which checks need a re-check. */
   documentVersions(): ReadonlyMap<string, string>;
   documents: {
@@ -118,13 +127,17 @@ interface Sending {
   skipped: Set<string>;
   /** In "added" mode, the checks to make again in every Document, as they were made. */
   widened: Set<SelectedSentence>;
+  /** In "changed" mode, when each check that still holds was made. */
+  held: string[];
 }
 
 export function createMindCheck(options: MindCheckOptions) {
   const { content } = options;
 
   const modelOf = (mindId: string): ChatModelChoice | null =>
-    content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null));
+    options.modelInUse(
+      content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null)),
+    );
 
   /**
    * What the model named among each Mind's sentences, by key: the ask before
@@ -171,9 +184,13 @@ export function createMindCheck(options: MindCheckOptions) {
   function addedSince(mindId: string): Map<string, string[]> {
     const versions = options.documentVersions();
     const folderId = options.mindFolder(mindId);
+    const scope = content.readSettings(mindId, mindScopeIn);
     const changeable = content.read(mindId, (blocks) =>
       checkedSentences(blocks).flatMap(({ check, sentence }) =>
-        addedCouldChange(check, claimCheckShown(check, { text: sentence, versions, folderId }))
+        addedCouldChange(
+          check,
+          claimCheckShown(check, { text: sentence, versions, folderId, scope }),
+        )
           ? [check]
           : [],
       ),
@@ -189,7 +206,11 @@ export function createMindCheck(options: MindCheckOptions) {
         options.documents.joinedAfter(
           check.scope.documentIds,
           since,
-          widened ? null : check.marked.folderId,
+          widened
+            ? null
+            : check.marked.chosen
+              ? oneFolderOf(check.marked.chosen)
+              : check.marked.folderId,
         );
       joined.set(widened, known);
       return known;
@@ -212,10 +233,16 @@ export function createMindCheck(options: MindCheckOptions) {
     const skipped = new Set(content.readSettings(mindId, readMindCheck)?.skipped ?? []);
     const versions = options.documentVersions();
     const folderId = options.mindFolder(mindId);
+    const scope = content.readSettings(mindId, mindScopeIn);
     const added = mode === "added" ? addedSince(mindId) : null;
     return content.read(mindId, (blocks) => {
-      const sentences = everySentence(blocks).filter((sentence) => isClaim(sentence.text));
-      const keys = new Set(sentences.map((sentence) => sentenceKey(sentence.text)));
+      // Every sentence is read; the one count decides which have a check to make, whatever makes a claim (#1909).
+      const sentences = everySentence(blocks);
+      const keys = new Set(
+        sentences
+          .filter((sentence) => isClaim(sentence.text))
+          .map((sentence) => sentenceKey(sentence.text)),
+      );
       const widened = new Set<SelectedSentence>();
       const marks = markedSentences(blocks);
       const markOf = (sentence: SelectedSentence) =>
@@ -224,11 +251,42 @@ export function createMindCheck(options: MindCheckOptions) {
             mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
         );
       if (mode === "all") {
-        const fresh = sentences.filter((sentence) => !keptAsView(marks, sentence));
-        return { fresh, again: [], keys, skipped: new Set(), widened };
+        const fresh: SelectedSentence[] = [];
+        const again: SelectedSentence[] = [];
+        for (const sentence of sentences) {
+          const mark = markOf(sentence);
+          const state = checkedSentence({
+            text: sentence.text,
+            check: mark
+              ? claimCheckShown(mark.check, { text: sentence.text, versions, folderId, scope })
+              : null,
+            skipped: skipped.has(sentenceKey(sentence.text)),
+            kept: keptAsView(marks, sentence),
+          });
+          if (state.kind === "kept" || state.kind === "checking" || state.kind === "not-claim") {
+            continue;
+          }
+          if (mark) again.push(sentence);
+          else fresh.push(sentence);
+        }
+        return { fresh, again, keys, skipped, widened, held: [] };
       }
       const fresh: SelectedSentence[] = [];
       const again: SelectedSentence[] = [];
+      const held: string[] = [];
+      const inScope = new Map<boolean, ReadonlySet<string> | null>();
+      const leftScope = (check: ClaimCheckAttributes) => {
+        const { widened: everyDocument } = check.scope;
+        if (!inScope.has(everyDocument)) {
+          const ids = options.scopeOf(mindId, everyDocument).check.scope.documentIds;
+          inScope.set(everyDocument, ids && new Set(ids));
+        }
+        const ids = inScope.get(everyDocument);
+        return (
+          !!ids &&
+          restsOn(check).some((cited) => cited.documentId !== null && !ids.has(cited.documentId))
+        );
+      };
       for (const sentence of sentences) {
         const mark = markOf(sentence);
         if (added) {
@@ -237,23 +295,41 @@ export function createMindCheck(options: MindCheckOptions) {
           if (mark.check.scope.widened) widened.add(sentence);
           continue;
         }
-        if (!mark) {
-          if (!skipped.has(sentenceKey(sentence.text))) fresh.push(sentence);
+        const state = checkedSentence({
+          text: sentence.text,
+          check: mark
+            ? claimCheckShown(mark.check, { text: sentence.text, versions, folderId, scope })
+            : null,
+          skipped: skipped.has(sentenceKey(sentence.text)),
+          kept: keptAsView(marks, sentence),
+        });
+        if (state.kind === "to-check") {
+          if (state.fresh) fresh.push(sentence);
+          else again.push(sentence);
           continue;
         }
-        const shown = claimCheckShown(mark.check, { text: sentence.text, versions, folderId });
-        if (shown.state === "needs-recheck") again.push(sentence);
+        if (state.kind !== "covered" || !mark) continue;
+        if (leftScope(mark.check)) again.push(sentence);
+        else held.push(mark.check.checkedAt);
       }
-      return { fresh, again, keys, skipped, widened };
+      return { fresh, again, keys, skipped, widened, held };
     });
+  }
+
+  function unchangedSince(mindId: string, held: readonly string[]): string | null {
+    const oldest = held.filter((at) => at !== "").sort()[0];
+    return oldest ?? content.readSettings(mindId, readMindCheck)?.at ?? null;
   }
 
   function plan(mindId: string, mode: CheckMindMode, allDocuments: boolean): MindCheckPlan {
     const sent = sending(mindId, mode);
+    if (sent.fresh.length + sent.again.length === 0 && sent.held.length > 0) {
+      return { kind: "unchanged", since: unchangedSince(mindId, sent.held) };
+    }
     const { fresh, again } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
-    const { searchable, folderId } = options.scopeOf(mindId, everywhere(allDocuments, sent));
-    if (searchable === 0) return { kind: "no-documents", folderId };
+    const { empty, folderId } = options.scopeOf(mindId, everywhere(allDocuments, sent));
+    if (empty) return empty;
     return {
       kind: "ready",
       sentences: fresh.length + again.length,
@@ -271,9 +347,9 @@ export function createMindCheck(options: MindCheckOptions) {
     const sent = sending(mindId, mode);
     const { fresh, again } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
-    const { searchable, folderId } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
-    if (searchable === 0) return { kind: "no-documents", folderId };
-    const ready = await options.prepare(input.model ?? modelOf(mindId) ?? options.defaultModel());
+    const { empty } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
+    if (empty) return empty;
+    const ready = await options.prepare(input.model ?? modelOf(mindId));
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
     const found = await sort(mindId, fresh, ready.prepared, signal);
@@ -290,15 +366,11 @@ export function createMindCheck(options: MindCheckOptions) {
     const sent = sending(mindId, mode);
     const { fresh, again, keys, skipped, widened } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
-    const {
-      searchable,
-      folderId,
-      check: scope,
-    } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
-    if (searchable === 0) return { kind: "no-documents", folderId };
+    const { empty, check: scope } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
+    if (empty) return empty;
     const wide = widened.size > 0 ? options.scopeOf(mindId, true).check : scope;
     const scopeFor = (claim: SelectedSentence) => (widened.has(claim) ? wide : scope);
-    const ready = await options.prepare(input.model ?? modelOf(mindId) ?? options.defaultModel());
+    const ready = await options.prepare(input.model ?? modelOf(mindId));
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
 
@@ -348,7 +420,7 @@ export function createMindCheck(options: MindCheckOptions) {
             id: mark.id,
             claim: sentence.text,
             context: sentence.context,
-            cited: sentence.cited,
+            cited: options.citedNow(sentence.cited),
             scope: within.scope,
           },
         ];

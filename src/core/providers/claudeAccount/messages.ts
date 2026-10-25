@@ -7,7 +7,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { isRecord } from "../../errors";
 import type { OAuthCredentials } from "../../oauthAccount";
 import type { ChatLanguageModel } from "../models";
-import { SignInRouteError } from "../providerErrors";
+import { ClaudePlanLimitError, SignInRouteError } from "../providerErrors";
 import { createSignedFetch, errorOf, isAnswer, type RequestTransform } from "../signedFetch";
 
 /** Set on a 429 when the plan's own limit, not a passing rate limit, stopped the request. */
@@ -76,8 +76,7 @@ async function refusalOf(response: Response): Promise<SignInRouteError | null> {
   if (status === 429 && response.headers.get(PLAN_LIMIT_STATUS) === "rejected") {
     const reset = Number(response.headers.get(PLAN_LIMIT_RESET));
     await response.body?.cancel();
-    return new SignInRouteError(
-      "plan-limit",
+    return new ClaudePlanLimitError(
       "Your Claude plan's usage limit is reached.",
       Number.isFinite(reset) && reset > 0 ? reset * 1000 : null,
     );

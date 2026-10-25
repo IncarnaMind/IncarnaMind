@@ -1,11 +1,11 @@
 /**
- * Find support and Check against Documents (`checkReply`): a sentence that shares
+ * Check against Documents (`checkReply`): a sentence that shares
  * three words with a Passage's line is supported, or contradicted when it has a
  * number the line doesn't; otherwise unsupported. A sentence the User cites a
- * quote for that `PARTLY` lists is unsupported and says what the quote covers
- * and what it doesn't. Offered calculate, a sentence
- * that states a multiple ("1.1x") has it worked out as the line's first number
- * over its second (#707).
+ * quote for that `PARTLY` lists, or one with no Citation that `PARTLY_UNCITED`
+ * lists, is unsupported and says what the quote covers and what it doesn't.
+ * Offered calculate, a sentence that states a multiple ("1.1x") has it worked
+ * out as the line's first number over its second (#707).
  */
 
 import { passagesIn, recordFor } from "./passages";
@@ -46,6 +46,19 @@ export const PARTLY = [
 ];
 
 /**
+ * Sentences with no Citation that the scripted model finds partly supported:
+ * it records the line it read for them, then says what that line covers and
+ * what it doesn't.
+ */
+export const PARTLY_UNCITED = [
+  {
+    when: /^Staff /,
+    covered: "home working two days a week",
+    uncovered: "staff in general",
+  },
+];
+
+/**
  * A check of one sentence (#96): it searches for the sentence, then takes the
  * Passage line that shares the most words with it. Three shared words or more
  * support it, unless the sentence has a number the line doesn't while the
@@ -70,7 +83,12 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
   }
   if (/\bno reason\b/i.test(sentence)) return { text: "Verdict: unsupported" };
   const cited = /^The User cites this for it/m.test(lastUserText(prompt));
-  const partly = cited ? PARTLY.find((each) => each.when.test(sentence)) : undefined;
+  const partly = cited
+    ? PARTLY.find((each) => each.when.test(sentence))
+    : PARTLY_UNCITED.find((each) => each.when.test(sentence));
+  if (partly && !cited && best && toolResults(prompt, "cite").length === 0) {
+    return { tool: "cite", input: { citations: [best.record] } };
+  }
   if (partly) {
     return {
       text: `Verdict: unsupported\nCovered: ${partly.covered}\nNot covered: ${partly.uncovered}`,

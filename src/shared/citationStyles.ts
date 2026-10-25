@@ -56,7 +56,15 @@ export interface CitationStyle {
    * Chinese for GB/T 7714, English for the rest.
    */
   language: Language;
-  /** What else the picker's search finds it by, beyond its label in either language. */
+  /**
+   * Its other names, which the picker's search ranks as it ranks its label: "American
+   * Psychological Association", "国标".
+   */
+  aliases: readonly string[];
+  /**
+   * What else the picker's search finds it by, after a style of that name: how it cites
+   * ("author-date", "footnote"), a field it is for ("medicine").
+   */
   keywords: readonly string[];
   /**
    * The Bibliography's heading in an export, as the style's guide names it, in its language;
@@ -82,6 +90,7 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "numeric",
     form: "numbered",
     language: "en",
+    aliases: [],
     keywords: ["footnote", "document", "page", "脚注", "编号"],
     heading: null,
     locators: "in-citation",
@@ -93,7 +102,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "author-date",
     form: "in-text",
     language: "en",
-    keywords: ["American Psychological Association", "author-date"],
+    aliases: ["American Psychological Association"],
+    keywords: ["author-date"],
     heading: "References",
     locators: "in-citation",
   },
@@ -104,7 +114,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "author",
     form: "in-text",
     language: "en",
-    keywords: ["Modern Language Association", "works cited"],
+    aliases: ["Modern Language Association"],
+    keywords: ["works cited"],
     heading: "Works Cited",
     locators: "in-citation",
   },
@@ -115,7 +126,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "author-date",
     form: "in-text",
     language: "en",
-    keywords: ["Cite Them Right", "author-date"],
+    aliases: ["Cite Them Right"],
+    keywords: ["author-date"],
     heading: "Reference list",
     locators: "in-citation",
   },
@@ -126,7 +138,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "note",
     form: "note",
     language: "en",
-    keywords: ["Chicago Manual of Style", "footnote", "notes and bibliography", "脚注"],
+    aliases: ["Chicago Manual of Style"],
+    keywords: ["footnote", "notes and bibliography", "脚注"],
     heading: "Bibliography",
     locators: "in-citation",
   },
@@ -137,7 +150,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "author-date",
     form: "in-text",
     language: "en",
-    keywords: ["Chicago Manual of Style", "author-date"],
+    aliases: ["Chicago Manual of Style"],
+    keywords: ["author-date"],
     heading: "References",
     locators: "in-citation",
   },
@@ -148,7 +162,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "numeric",
     form: "in-text",
     language: "en",
-    keywords: ["Institute of Electrical and Electronics Engineers", "numeric"],
+    aliases: ["Institute of Electrical and Electronics Engineers"],
+    keywords: ["numeric"],
     heading: "References",
     locators: "in-citation",
   },
@@ -159,7 +174,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "numeric",
     form: "in-text",
     language: "zh-CN",
-    keywords: [...GB_T, "numeric", "顺序编码"],
+    aliases: GB_T,
+    keywords: ["numeric", "顺序编码"],
     heading: "参考文献",
     locators: "raised-after",
   },
@@ -170,7 +186,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "author-date",
     form: "in-text",
     language: "zh-CN",
-    keywords: [...GB_T, "author-date", "著者-出版年"],
+    aliases: GB_T,
+    keywords: ["author-date", "著者-出版年"],
     heading: "参考文献",
     locators: "raised-after",
   },
@@ -181,7 +198,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "numeric",
     form: "in-text",
     language: "zh-CN",
-    keywords: [...GB_T, "numeric", "顺序编码"],
+    aliases: GB_T,
+    keywords: ["numeric", "顺序编码"],
     heading: "参考文献",
     locators: "raised-after",
   },
@@ -192,7 +210,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "author-date",
     form: "in-text",
     language: "zh-CN",
-    keywords: [...GB_T, "author-date", "著者-出版年"],
+    aliases: GB_T,
+    keywords: ["author-date", "著者-出版年"],
     heading: "参考文献",
     locators: "raised-after",
   },
@@ -203,7 +222,8 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "numeric",
     form: "in-text",
     language: "en",
-    keywords: ["NLM", "Citing Medicine", "numeric", "medicine"],
+    aliases: ["NLM", "Citing Medicine"],
+    keywords: ["numeric", "medicine"],
     heading: "References",
     locators: "in-citation",
   },
@@ -213,7 +233,7 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
  * The style of a Mind that hasn't chosen one. Numbered, as many Minds cite contracts and reports
  * that no citation style could cite better, so none turns into "(n.d.)" by itself; but GB/T
  * 7714—2015 when the interface and the Mind's text are both Chinese and it cites a paper or a
- * book (`isCitableWork`), as a Chinese thesis is cited.
+ * book (`isPaperOrBook`), as a Chinese thesis is cited.
  */
 export function defaultCitationStyle(
   language: Language,

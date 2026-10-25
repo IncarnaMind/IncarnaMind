@@ -15,6 +15,7 @@ import {
 } from "../../shared/citations";
 import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
 import type { Translate } from "../../shared/locations";
+import { mindScopeOf } from "../../shared/mindScope";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import { textOriginOf } from "../../shared/textOrigins";
 import { groupsOf, isProposed } from "../aiUseStatement/figures";
@@ -146,12 +147,13 @@ export function readRecord(sources: RecordSources): {
   citations: CitationItem[];
 } {
   const { fragment, documents, folderId, model } = sources;
+  const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
 
   const sentences = checkedSentences(fragment).flatMap(
     ({ element, from, to, check, sentence }): SentenceItem[] => {
       const result = sentenceResultOf(
-        claimCheckShown(check, { text: sentence, versions, folderId }),
+        claimCheckShown(check, { text: sentence, versions, folderId, scope }),
       );
       if (!result) return [];
       return [

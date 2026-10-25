@@ -21,9 +21,10 @@ import {
 } from "./app";
 
 /*
- * The check badge (#909): at a Mind's bottom right, the margin marks' counts
- * and the cited or Answer-written claims no check has looked at; nothing on a
- * Mind of plain notes. Its card opens from it, and from ⌘K. The scripted model
+ * The check badge (#909, #1909): at a Mind's bottom right, the margin marks'
+ * counts and every claim no check covers; nothing on a Mind of plain notes
+ * with no Citation and no problem (#1194). Its card opens from it, and from
+ * ⌘K. The scripted model
  * (src/main/fakeChat/checks.ts) finds a sentence supported when it shares
  * three words with a line of a Document, and otherwise unsupported. Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
@@ -73,12 +74,12 @@ test("a Mind of plain notes is bare, whatever it claims; its card, from ⌘K, ha
   await expect(editor).toContainText("Thanks!");
   await expect(badge).toHaveCount(0);
 
-  // A claim in the User's own notes, with no Citation, is not one to check: no badge.
+  // A claim in the User's own notes is one to check, but no Citation shows the badge: it stays bare.
   await window.keyboard.type(` ${SUPPORTED}`);
   await expect(editor).toContainText(SUPPORTED);
   const card = await checkCard(window);
-  await expect(card.getByTestId("health-noCitation")).toContainText("1 with no Citation");
-  await expect(card.getByTestId("health-unchecked")).toHaveCount(0);
+  await expect(card.getByTestId("health-toCheck")).toContainText("1 claim not checked yet");
+  await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
   await expect(badge).toHaveCount(0);
   // One action, and the one under it; no lines about them, and no Close: Esc closes it.
   await expect(card.getByTestId("badge-check-mind")).toHaveText("Check this Mind");
@@ -211,15 +212,20 @@ test("each row's Next goes through its sentences in order and round to the first
   await pointAndClick(window, card.getByTestId("mind-check-ask").getByTestId("mind-check-check"));
   const marks = window.getByTestId("claim-mark");
   await expect(marks.and(window.locator('[data-check="unsupported"]'))).toHaveCount(2);
-  const unsupported = (await checkCard(window)).getByTestId("health-unsupported");
-  await expect(unsupported).toContainText("2 unsupported");
-  await pointAndClick(window, unsupported);
+  const unsupported = async () => (await checkCard(window)).getByTestId("health-unsupported");
+  await expect(await unsupported()).toContainText("2 unsupported");
+  // Each Next ends as a click on the sentence's mark does: its card open, the badge's card closed.
+  const sentenceCard = window.getByTestId("claim-card");
+  await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(0);
-  await pointAndClick(window, unsupported);
+  await expect(sentenceCard).toHaveAttribute("data-check", "unsupported");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
+  await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(first.length + 1);
-  await pointAndClick(window, unsupported);
+  await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(0);
   await window.keyboard.press("Escape");
+  await expect(sentenceCard).toHaveCount(0);
 
   // A sentence the scripted model checks slowly: the badge counts, and Stop ends the run.
   await editor.click();

@@ -111,6 +111,7 @@ describe("The Tools a Run offers", () => {
   test("reserve IncarnaMind's own names: a Connector's Tool named like one of ours is left out, even when ours isn't offered", () => {
     expect([...RESERVED_TOOL_NAMES].sort()).toEqual([
       "add_to_mind",
+      "ask_user",
       "calculate",
       "cite",
       "create_mind",

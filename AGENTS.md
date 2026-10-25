@@ -15,7 +15,7 @@ Issues live in GitHub Issues on `IncarnaMind/IncarnaMind`, managed with the `gh`
 
 ### Triage labels
 
-The default five labels: `needs-triage`, `needs-info`, `ready-to-build`, `needs-owner`, `wontfix`. See `docs/agents/triage-labels.md`.
+The default five labels: `needs-triage`, `needs-info`, `ready-to-build`, `needs-owner`, `wontfix`, and one of `priority:P0` to `priority:P3` on every triaged issue. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
@@ -23,7 +23,7 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 
 ## Writing code
 
-1. **Read before you write.** Read the issue, the ADRs it touches and the code around the change. Use an existing module, helper or shared building block before adding one; when something is needed a second time, move it somewhere shared rather than copying it.
+1. **Read before you write.** Read the issue, the ADRs it touches and the code around the change. Use an existing module, helper or shared building block before adding one; when something is needed a second time, move it somewhere shared rather than copying it. When you take a work item (`docs/agents/issue-tracker.md`), read each member once and build them in one branch.
 2. **Make the smallest change that fully does the job.** Don't add abstractions, options or flags that nothing needs yet. Don't take a shortcut that leaves the User a worse experience either.
 3. **Respect the layers.**
    - `src/core` is the product and never imports Electron; Biome enforces this. Pass a capability in as an adapter instead.
@@ -54,9 +54,9 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 
 ## Tests and CI
 
-Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when the pull request's CI checks are green on GitHub, not when the tests pass on your computer.
+Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when the checks that matter for it pass on a clean machine (CI on the pull request, or your own run of the same commands), not when one test passes on your computer.
 
-- Run what CI runs: `npm run typecheck`, `npm run lint`, `npm test`, and `npm run test:smoke` for the specs your change touches.
+- On your computer, run the light checks: `npm run typecheck`, `npm run lint`, and the unit tests of the files you changed. CI runs the whole unit suite and every smoke spec on the pull request. Run a smoke spec locally only when you need to see the UI you changed or record it.
 - Try the edge cases in `docs/agents/testing.md` that apply (empty and huge input, Chinese, broken files, offline, failing models, quitting halfway, twice and Undo), and say which in the pull request.
 - Update or remove the tests for UI you changed.
 - A feature with a real engine (transcription, OCR, embeddings, the reranker, Python analysis) also needs a test that loads the real module the way the built app does. The fake engines are for everything else.
@@ -90,5 +90,5 @@ Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when the p
 ## Commits and pull requests
 
 - Sign off every commit (`git commit -s`); see [`CONTRIBUTING.md`](CONTRIBUTING.md).
-- One issue per pull request, kept small. Say what the User gets and why, and link the issue ("Closes #123").
-- A pull request merges through GitHub's merge queue once its checks are green. The queue tests it together with `main`, so nobody brings a branch up to date by hand; merge `main` into yours only to resolve a conflict or to pick up something you need.
+- One theme per pull request, under about 600 changed lines. A theme is one screen or one flow the User sees, not only one file: if its issues can't be shown in one recorded flow, split. It may close several small, related issues of the same priority tier and kind; list each issue's acceptance criteria with ticks, use "Closes #123" only for an issue whose criteria are all met, and "Part of #123" with a line "What is left" for any other. Never mix a P0 or P1 issue with a P2 or P3 one, or simple or medium work with hard, and a change to AI behaviour (a prompt, a tool description, a model choice) keeps its real-model numbers and doesn't ride with UI-only issues. A P0 or P1 issue never waits for a batch to fill. File one issue per theme, not one per finding: related small findings of the same theme, priority tier and difficulty go into one issue as a checklist, each part with its own criteria, and a new finding that fits an open issue of its theme is added there (`docs/agents/issue-tracker.md` › Filing an issue). Say what the User gets and why. One set of before and after screenshots and one recording of the built flow covers every issue in a UI theme.
+- A pull request merges once its sign-off check passes and its CI checks are green (about 25 minutes), or each red one is a known flaky spec named with its issue. Open it as a draft while you work (a draft skips the heavy jobs) and push as few times as you can. The whole suite also runs on `main` every night; a red night is fixed before new work. A change to checks, privacy or the User's data is reviewed by someone else first. Merge `main` into your branch to resolve a conflict or to pick up something you need.

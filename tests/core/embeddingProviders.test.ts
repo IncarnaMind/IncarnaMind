@@ -576,7 +576,7 @@ describe("Embedding provider errors", { timeout: 30_000 }, () => {
     embeddings.fail({ status: 401, message: "Incorrect API key provided." });
     expect(await core.testEmbeddingConnection(input)).toEqual({
       ok: false,
-      error: { kind: "auth", message: "Incorrect API key provided." },
+      error: { kind: "auth", message: "Incorrect API key provided.", status: 401 },
     });
     embeddings.fail({ status: 404, message: "The model does not exist." });
     expect(await core.testEmbeddingConnection(input)).toMatchObject({

@@ -3,9 +3,9 @@ import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
 import { showFileLabelKey } from "../fileInfo";
-import { languageNow, translateNow } from "../i18n";
+import { countNow, translateNow } from "../i18n";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
-import { fileStatusLabel, folderName, formatCount } from "../linkedFolders";
+import { fileStatusLabel, folderName } from "../linkedFolders";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { findTab } from "../tabs";
@@ -51,7 +51,7 @@ function bridgeOf(ctx: CommandContext): LibraryBridge | null {
     title:
       documents.length === 1
         ? displayName(first)
-        : translateNow("library.count", { count: documents.length }),
+        : translateNow("library.count", { count: countNow(documents.length) }),
     count: documents.length,
     scope: { folderIds: [], tagIds: [], documentIds: documents.map((each) => each.id) },
   };
@@ -171,7 +171,7 @@ export const documentCommands: readonly Command[] = [
   {
     id: "document.ask",
     label: (ctx, t) =>
-      many(ctx) ? t("library.ask.documents", { count: many(ctx) }) : t("documents.ask"),
+      many(ctx) ? t("library.ask.documents", { count: countNow(many(ctx)) }) : t("documents.ask"),
     group: "main",
     appliesTo: ["document"],
     when: (ctx) => documentsOf(ctx).length >= 1,
@@ -184,7 +184,9 @@ export const documentCommands: readonly Command[] = [
   {
     id: "document.startMind",
     label: (ctx, t) =>
-      many(ctx) ? t("documents.startMind.many", { count: many(ctx) }) : t("documents.startMind"),
+      many(ctx)
+        ? t("documents.startMind.many", { count: countNow(many(ctx)) })
+        : t("documents.startMind"),
     group: "main",
     appliesTo: ["document"],
     when: (ctx) => documentsOf(ctx).length >= 1,
@@ -208,22 +210,23 @@ export const documentCommands: readonly Command[] = [
     id: "document.retry",
     label: (ctx, t) =>
       many(ctx)
-        ? t("documents.retryAction.many", { count: many(ctx) })
+        ? t("documents.retryAction.many", { count: countNow(many(ctx)) })
         : t("documents.retryAction"),
     group: "main",
     appliesTo: ["document"],
-    // Only a failed one, or a scan with no text, whose file is there to be read again; a locked PDF
-    // is unlocked instead.
     when: (ctx) =>
       everyDocument(
         ctx,
         (document) =>
-          (document.status === "failed" || document.status === "no-text") &&
+          ((onlyOne(ctx) && ctx.here?.["document.retry"] !== undefined) ||
+            document.status === "failed" ||
+            document.status === "no-text") &&
           document.fileStatus === "available" &&
           !isLockedPdf(document),
       ),
     reversible: true,
     run: async (ctx) => {
+      if (onlyOne(ctx) && ctx.here?.["document.retry"]) return ctx.here["document.retry"]();
       await Promise.all(idsOf(ctx, "document").map((id) => store().retryDocument(id)));
     },
   },
@@ -306,7 +309,7 @@ export const documentCommands: readonly Command[] = [
     id: "document.delete",
     label: (ctx, t) =>
       many(ctx)
-        ? t("documents.deleteAction.many", { count: many(ctx) })
+        ? t("documents.deleteAction.many", { count: countNow(many(ctx)) })
         : t(
             documentsOf(ctx).every((document) => document.fileStatus === "missing")
               ? "documents.removeAction"
@@ -363,7 +366,7 @@ export const folderCommands: readonly Command[] = [
     // Suggestions are reviewed and taken back from the Library.
     reversible: true,
     async run(ctx) {
-      if (!store().library?.settings.classifier) return store().openSettings("models");
+      if (!store().library?.settings.classifier) return store().openSettings("models", "tagging");
       await core.classifyDocuments(folderDocumentIds(ctx));
     },
   },
@@ -484,7 +487,7 @@ const rowMoveTo = (ctx: CommandContext) =>
 export const mixedSelectionCommands: readonly Command[] = [
   {
     id: "selection.moveTo",
-    label: (ctx, t) => t("selection.moveTo", { count: ctx.selection.length }),
+    label: (ctx, t) => t("selection.moveTo", { count: countNow(ctx.selection.length) }),
     rowKeys: "CmdOrCtrl+Shift+M",
     group: "move",
     // Folders don't go inside Folders until #246.
@@ -495,7 +498,7 @@ export const mixedSelectionCommands: readonly Command[] = [
   },
   {
     id: "selection.delete",
-    label: (ctx, t) => t("selection.delete", { count: ctx.selection.length }),
+    label: (ctx, t) => t("selection.delete", { count: countNow(ctx.selection.length) }),
     rowKeys: "CmdOrCtrl+Backspace",
     group: "danger",
     destructive: true,
@@ -540,31 +543,12 @@ export const linkedFolderCommands: readonly Command[] = [
     },
   },
   {
-    id: "linkedFolder.layout",
-    label: (ctx, t) =>
-      t(
-        linkedOf(ctx)?.layout === "flat"
-          ? "linkedFolders.layout.tree"
-          : "linkedFolders.layout.flat",
-      ),
-    group: "main",
-    appliesTo: ["linkedFolder"],
-    reversible: true,
-    run(ctx) {
-      const linked = linkedOf(ctx);
-      return (
-        linked &&
-        store().setLinkedFolderLayout(linked.id, linked.layout === "flat" ? "tree" : "flat")
-      );
-    },
-  },
-  {
     id: "linkedFolder.download",
     label: (ctx, t) => {
       const count = linkedOf(ctx)?.onlineOnly.files ?? 0;
       return count === 1
         ? t("linkedFolders.downloadOnlineOnly.one")
-        : t("linkedFolders.downloadOnlineOnly.other", { count: formatCount(count, languageNow()) });
+        : t("linkedFolders.downloadOnlineOnly.other", { count: countNow(count) });
     },
     group: "main",
     appliesTo: ["linkedFolder"],

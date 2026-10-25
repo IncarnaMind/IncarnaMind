@@ -89,6 +89,8 @@ test("the Mind sits in a card 8px from the sidebar and the window's edges, with 
     const band = await boxOf(window.getByTestId("tab-strip"));
     expect(band).toMatchObject({ x: card.x, y: 8, width: card.width, height: 36 });
     expect(header.y + header.height).toBe(band.y + band.height);
+    // Tabs that don't all fit rest on whole tabs, the shown one in view: back to the first.
+    await window.getByTestId("tab-list").evaluate((list) => list.scrollTo({ left: 0 }));
     await expectFirstTabAtCardStart(window, window.getByTestId("mind-tab").first());
 
     if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, `shell-${width}.png`) });

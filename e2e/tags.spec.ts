@@ -127,16 +127,19 @@ test("without a model, Documents are ready to search, and one notice, not one pe
     await window.keyboard.press("Escape");
   }
 
-  // Its button opens Settings on its Models page, where a chat model or a Jev key can be set up.
+  // Its button opens Settings on its Models page, at Tagging under Advanced, where a chat model or
+  // a Jev key can be set up.
   await notice.getByTestId("tagging-waiting-setup").click();
   const settings = window.getByTestId("settings");
   await expect(settings).toBeVisible();
   await expect(settings).toHaveAttribute("data-page", "models");
   await expect(settings.getByTestId("model-defaults")).toBeVisible();
+  await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
   await expect(settings.getByTestId("tagging-automatic-line")).toHaveText(
     "No model to tag with yet. Set one up.",
   );
-  await expect(settings.getByTestId("jev-settings")).toBeAttached();
+  await expect(settings.getByTestId("tagging-automatic").getByRole("radio")).toBeFocused();
+  await expect(settings.getByTestId("jev-settings")).toBeVisible();
   await closeSettings(window);
 
   // Once a model is set up, the Documents are tagged and the notice goes.

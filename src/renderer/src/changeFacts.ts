@@ -2,7 +2,8 @@
  * What an Answer's calls did in a Mind, in words: on the Answer's card, with
  * the Mind's name ("Changed 3 paragraphs in “Q3 review”"), and on the Mind's
  * own line, without it ("Changed 3 paragraphs"). One function, so the two
- * counts always agree (#880). Changes count by paragraph (#1028).
+ * counts always agree (#880). What was done counts by paragraph (#1028); what still waits counts
+ * changes, as the Mind's bar and its change card do (#1358).
  */
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { ChangedMind } from "./changedMinds";
@@ -32,13 +33,14 @@ function tablesText(t: Translate, row: ChangeCounts): string {
   });
 }
 
-/** How many of what was done still wait, while that is known and there was something. */
+/** How many changes still wait, while that is known and there was something done: the number the Mind's bar shows. */
 export function leftText(
   t: Translate,
   row: ChangeCounts,
   waiting: number | "gone" | null | undefined,
 ): string | null {
-  if (typeof waiting !== "number" || row.wrote + row.changed + row.tables === 0) return null;
+  const done = row.wrote + row.changed + row.tables + (row.charts ?? 0);
+  if (typeof waiting !== "number" || done === 0) return null;
   if (waiting === 0) return t("mindChanges.left.none");
   return waiting === 1 ? t("mindChanges.left.one") : t("mindChanges.left", { count: waiting });
 }
@@ -67,6 +69,26 @@ export function changeFact(t: Translate, row: ChangeCounts, name: string | null)
   return count === 1
     ? t("mindChanges.changed.one", { mind: name })
     : t("mindChanges.changed", { mind: name, count });
+}
+
+/**
+ * The panel's line for what the assistant applied in one Mind (#1559): "Wrote “{name}”" for a
+ * Mind it made, "Wrote it into “{name}”" for the empty Mind in front, "Changed {n} paragraphs in
+ * “{name}”" for an edit, else the count `changeFact` gives.
+ */
+export function appliedFact(
+  t: Translate,
+  row: ChangeCounts & { filled: boolean },
+  name: string,
+): string {
+  if (row.created) return t("mindChanges.applied.created", { mind: name });
+  if (row.filled) return t("mindChanges.applied.filled", { mind: name });
+  if (row.changed > 0 && row.wrote === 0 && row.tables === 0 && (row.charts ?? 0) === 0) {
+    return row.changed === 1
+      ? t("mindChanges.applied.changed.one", { mind: name })
+      : t("mindChanges.applied.changed", { mind: name, count: row.changed });
+  }
+  return changeFact(t, row, name);
 }
 
 function tablesFact(t: Translate, row: ChangeCounts, name: string | null): string {

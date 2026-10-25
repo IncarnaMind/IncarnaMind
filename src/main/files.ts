@@ -14,7 +14,6 @@ import { basename } from "node:path";
 import {
   app,
   BrowserWindow,
-  dialog,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
   ipcMain,
@@ -35,6 +34,7 @@ import {
   setMenuSidebarHidden,
 } from "./menu";
 import { rememberPick, startFolder, startNear } from "./pickerFolders";
+import { showOpenDialog } from "./systemDialogs";
 import { saveMindCopy } from "./unsavedChanges";
 
 /** What "Add Documents" offers; the core decides what it takes (and says what it skipped). */
@@ -89,10 +89,10 @@ export function serveFileActions(
       properties: ["openDirectory", "createDirectory", "promptToCreate"],
       defaultPath: location ?? startFolder(dataDir, "folders", app.getPath("home")),
     };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     return canceled ? null : (filePaths[0] ?? null);
   });
 
@@ -127,10 +127,10 @@ export function serveFileActions(
             ],
           }
         : { title: translate(language, "skills.import.pickFolder"), properties: ["openDirectory"] };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     return canceled ? null : (filePaths[0] ?? null);
   });
 
@@ -171,10 +171,10 @@ export function serveFileActions(
             properties: ["openDirectory"],
             defaultPath: start,
           };
-      const window = BrowserWindow.fromWebContents(event.sender);
-      const { canceled, filePaths } = window
-        ? await dialog.showOpenDialog(window, openOptions)
-        : await dialog.showOpenDialog(openOptions);
+      const { canceled, filePaths } = await showOpenDialog(
+        BrowserWindow.fromWebContents(event.sender),
+        openOptions,
+      );
       const picked = canceled ? null : (filePaths[0] ?? null);
       if (picked) rememberPick(dataDir, "folders", picked);
       return picked;
@@ -194,10 +194,10 @@ export function serveFileActions(
       ],
       defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
     };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     if (canceled) return [];
     if (filePaths[0]) rememberPick(dataDir, "documents", filePaths[0]);
     return filePaths;
@@ -219,10 +219,10 @@ export function serveFileActions(
       ],
       defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
     };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     const picked = canceled ? null : (filePaths[0] ?? null);
     if (picked) rememberPick(dataDir, "documents", picked);
     return picked;
@@ -243,10 +243,10 @@ export function serveFileActions(
       filters: [{ name: translate(language, filter), extensions: [extension] }],
       defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
     };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     const picked = canceled ? null : (filePaths[0] ?? null);
     if (picked) rememberPick(dataDir, "documents", picked);
     return picked;
@@ -287,6 +287,10 @@ export function serveFileActions(
 
   ipcMain.on(FILES_CHANNELS.editMenu, (event, state: unknown) => {
     if (trusted(event) && isEditMenuState(state)) setEditMenu(state);
+  });
+
+  ipcMain.on(FILES_CHANNELS.paste, (event) => {
+    if (trusted(event)) event.sender.paste();
   });
 
   ipcMain.on(FILES_CHANNELS.examplesRemoved, (event, removed: unknown) => {

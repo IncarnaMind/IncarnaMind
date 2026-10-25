@@ -20,6 +20,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  openAdvancedModels,
   openSettings,
   removeDataFolder,
   setLanguage,
@@ -34,28 +35,28 @@ async function screenshot(window: Page, name: string): Promise<void> {
 
 const SENDS_EN = {
   lead: "Sends your questions and document text to OpenAI. · Details",
-  after: "Tagging starts when you save the key.",
+  onRequest:
+    "Tagging and sorting your Documents send each Document’s name and an excerpt, with your Folder and Tag names, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   items: [
-    "your Questions, the Mind you’re in, matching passages with their Document names and pages, and the names of other Documents in scope",
+    "your Questions, the Mind you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), and a Meeting’s Transcript",
     "each sentence you check",
     "the paragraph you pause on, for writing suggestions",
     "the text you ask the assistant to change",
-    "each Document’s name, outline and short excerpts, with your Folder and Tag names, to tag and file it (page images for scans with no text)",
   ],
 };
 const SENDS_ZH = {
   lead: "会把你的问题和文档内容发送给 OpenAI。 · 详情",
-  after: "保存密钥后就开始打标签。",
+  onRequest:
+    "给文档打标签和整理，会发送每个文档的名称和摘录，以及你的文件夹和标签名称；只有在你开启或要求时才会发送。扫描件的页面图片只有在你于“设置 → 隐私”中允许后才会发送。",
   items: [
-    "你的问题、你所在的 Mind、相关段落及其文档名称和页码，以及范围内其他文档的名称",
+    "你的问题、你所在或在问题中提到的 Mind、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个），以及会议的转写稿",
     "你核对的每一句话",
     "写作建议时你停下的那一段",
     "你让助手修改的文字",
-    "每个文档的名称、目录和简短摘录，以及你的文件夹和标签名称，用于打标签和归档（没有文字的扫描件会发送页面图片）",
   ],
 };
 
-/** The one line, then Details opening and closing the full list by keyboard; and the tagging note under it. */
+/** The one line, then Details opening and closing the full list by keyboard; the list ends with what goes only on the User's word. */
 async function expectSends(sends: Locator, words: typeof SENDS_EN): Promise<void> {
   await expect(sends.locator("p")).toHaveText(words.lead);
   await expect(sends.getByRole("listitem")).toHaveCount(0);
@@ -64,10 +65,9 @@ async function expectSends(sends: Locator, words: typeof SENDS_EN): Promise<void
   await details.press("Enter");
   await expect(details).toHaveAttribute("aria-expanded", "true");
   await expect(sends.getByRole("listitem")).toHaveText(words.items);
+  await expect(sends.getByText(words.onRequest)).toBeVisible();
   await details.press("Enter");
   await expect(sends.getByRole("listitem")).toHaveCount(0);
-  await details.press("Enter");
-  await expect(sends.locator("xpath=..").getByText(words.after)).toBeVisible();
 }
 
 let dataDir: string;
@@ -101,7 +101,7 @@ async function invoice(name: string): Promise<string> {
   return path;
 }
 
-test("first run: choosing a provider with a key is the consent, so no dialog comes before the Answer, and Tags start", async () => {
+test("first run: choosing a provider with a key is the consent for what runs by itself, so no dialog comes before the Answer, and Tags start once they are turned on", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
   const consentAsked = await recordConsentRequests(window);
@@ -127,8 +127,26 @@ test("first run: choosing a provider with a key is the consent, so no dialog com
   await form.getByTestId("provider-use-key").click();
   await continueSetup(window);
 
-  // A Document is tagged without asking.
-  await addDocuments(window, [await invoice("Invoice 41")]);
+  // A cloud model starts with tagging off: nothing is sent for a Document until the User turns it on.
+  await addDocuments(window, [await invoice("Invoice 40")]);
+  await expect(
+    window.getByTestId("document-list-item").filter({ hasText: "Invoice 40" }),
+  ).toHaveAttribute("data-tagging", "off");
+  const models = await openSettings(window, "models");
+  const tagging = await openAdvancedModels(models);
+  await tagging.scrollIntoViewIfNeeded();
+  const automatic = tagging.getByRole("checkbox", {
+    name: /^Tag and sort new Documents automatically/,
+  });
+  await expect(automatic).not.toBeChecked();
+  await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
+    "Sends each new Document’s name and first passages, and your Folder and Tag names, to OpenAI.",
+  );
+  await automatic.check();
+  await closeSettings(window);
+
+  // A Document added since is tagged without asking.
+  await window.getByTestId("add-documents-input").setInputFiles([await invoice("Invoice 41")]);
   const first = window.getByTestId("document-list-item").filter({ hasText: "Invoice 41" });
   await expect(first).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
 
@@ -147,7 +165,7 @@ test("first run: choosing a provider with a key is the consent, so no dialog com
     /^Allowed when you chose OpenAI, /,
   );
   await service.getByTestId("data-service-decision-details").click();
-  for (const flow of ["chat", "edits", "checks", "suggestions", "tagging", "classification"]) {
+  for (const flow of ["chat", "edits", "checks", "suggestions", "tagging"]) {
     await expect(service.locator(`[data-testid="data-flow"][data-flow-id="${flow}"]`)).toHaveCount(
       1,
     );
@@ -219,6 +237,7 @@ test("Settings › Models says in one line what the ChatGPT plan sends, with the
   );
   await sends.getByTestId("provider-sends-details").click();
   await expect(sends.getByRole("listitem")).toHaveText(SENDS_EN.items);
+  await expect(sends.getByText(SENDS_EN.onRequest)).toBeVisible();
   await plan.scrollIntoViewIfNeeded();
   await screenshot(window, "choosing-line-chatgpt-en");
   await app.close();

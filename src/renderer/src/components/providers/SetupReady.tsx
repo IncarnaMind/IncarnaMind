@@ -39,8 +39,8 @@ export function SetupReady() {
   const roles = useModelRoles(groups);
   const next = useRef<HTMLButtonElement>(null);
 
-  // The menus were read before this provider existed.
-  const loadModels = useCallback(() => {
+  // A key or sign-in just worked, so the menus may not hold its models, and the card needs its name.
+  const load = useCallback(() => {
     setListFailed(false);
     core.listChatModels().then(
       (models) => useAnswers.setState({ models }),
@@ -49,17 +49,15 @@ export function SetupReady() {
         setListFailed(true);
       },
     );
+    core.listChatProviders().then(setProviders, (error: unknown) => {
+      console.error("The saved chat providers couldn't be listed for the setup card.", error);
+      setListFailed(true);
+    });
   }, []);
   useEffect(() => {
-    loadModels();
-    // Local, and quick: the name and recipient don't wait for the list of models.
-    core
-      .listChatProviders()
-      .then(setProviders, (error: unknown) =>
-        console.error("The saved chat providers couldn't be listed for the setup card.", error),
-      );
+    load();
     next.current?.focus({ preventScroll: true });
-  }, [loadModels]);
+  }, [load]);
 
   const chosen = user?.chatModel;
   const provider = providers.find((each) => each.id === chosen?.providerId);
@@ -88,7 +86,7 @@ export function SetupReady() {
       {listFailed && (
         <ProblemLine
           testId="setup-jobs-problem"
-          action={{ label: t("setup.jobs.retry"), testId: "setup-jobs-retry", onClick: loadModels }}
+          action={{ label: t("setup.jobs.retry"), testId: "setup-jobs-retry", onClick: load }}
         >
           {t("setup.jobs.listFailed")}
         </ProblemLine>
@@ -104,7 +102,9 @@ export function SetupReady() {
             testId={row.role}
             label={t(row.label)}
             tip={t(row.tip)}
-            summary={<RoleSummary role={row.role} groups={groups} roles={roles} />}
+            summary={
+              <RoleSummary role={row.role} groups={groups} providers={providers} roles={roles} />
+            }
             editor={(done, left) => (
               <RoleSelect
                 id={`${id}-${row.role}`}
@@ -161,13 +161,15 @@ export function SetupReady() {
 function RoleSummary({
   role,
   groups,
+  providers,
   roles,
 }: {
   role: (typeof ROWS)[number]["role"];
   groups: Parameters<typeof useJobSummary>[1];
+  providers: readonly ChatProvider[];
   roles: ReturnType<typeof useModelRoles>;
 }) {
-  return <>{useJobSummary(role, groups, roles)}</>;
+  return <>{useJobSummary(role, groups, roles, providers)}</>;
 }
 
 function RouteSummary() {

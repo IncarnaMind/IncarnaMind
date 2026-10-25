@@ -21,6 +21,7 @@ export interface UndoStack {
   lastChange: number;
   stopCapturing(): void;
   addTrackedOrigin(origin: unknown): void;
+  addToScope: Y.UndoManager["addToScope"];
   on(event: StackEvent, listener: StackListener): void;
   on(event: "stack-cleared", listener: () => void): void;
   off(event: StackEvent, listener: StackListener): void;
@@ -48,8 +49,15 @@ export function asOneStep<T>(editor: Editor, change: () => T): T {
  * Puts the note's last step on the app's undo stack, with its line ("Accepted
  * 2 changes · Undo", or under an Answer with `shownAt`). Once the User edits
  * again, takes it back in the note, or closes the note, it leaves the stack.
+ * `onUndone` puts back what the step left behind outside the note's history,
+ * such as a check's result the core wrote over (#1247).
  */
-export function offerEditorUndo(editor: Editor, said: WordsInLine, shownAt?: string): void {
+export function offerEditorUndo(
+  editor: Editor,
+  said: WordsInLine,
+  shownAt?: string,
+  onUndone?: () => void,
+): void {
   const manager = undoStackOf(editor);
   const step = manager?.undoStack.at(-1);
   if (!manager || step === undefined) return;
@@ -60,15 +68,23 @@ export function offerEditorUndo(editor: Editor, said: WordsInLine, shownAt?: str
     },
     ...(shownAt && { shownAt }),
   };
-  const stale = () => {
-    manager.off("stack-item-added", stale);
-    manager.off("stack-item-popped", stale);
-    editor.off("destroy", stale);
+  const forget = () => {
+    manager.off("stack-item-added", added);
+    manager.off("stack-item-popped", popped);
+    editor.off("destroy", forget);
     useUndo.getState().withdraw(change);
   };
-  manager.on("stack-item-added", stale);
-  manager.on("stack-item-popped", stale);
-  editor.on("destroy", stale);
+  // An Undo puts its reversal on the other stack just before it pops this one: only that isn't an edit.
+  const added = (event: { type: "undo" | "redo" }) => {
+    if (event.type !== "redo") forget();
+  };
+  const popped = (event: { stackItem: UndoStep; type: "undo" | "redo" }) => {
+    forget();
+    if (event.type === "undo" && event.stackItem === step) onUndone?.();
+  };
+  manager.on("stack-item-added", added);
+  manager.on("stack-item-popped", popped);
+  editor.on("destroy", forget);
   useUndo.getState().push(change);
 }
 

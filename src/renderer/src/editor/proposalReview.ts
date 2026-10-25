@@ -7,7 +7,7 @@ import {
   type Selection,
   type Transaction,
 } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
 import {
@@ -22,6 +22,7 @@ import {
   type TextPlace,
   WORD_CHANGE_ID,
 } from "../../../core/api";
+import { originMaps } from "../../../shared/blockOrigins";
 import { citationState } from "../../../shared/citations";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import {
@@ -73,6 +74,8 @@ interface ReviewState {
   proposals: readonly PendingProposal[];
   /** Requests of edits applying (#880), drawn as the text they make. */
   applying: ReadonlySet<string>;
+  /** Every request seen so far: one that comes new and was asked for here is applying from its first frame. */
+  known: ReadonlySet<string>;
   applied: readonly PendingProposal[];
   /** The Proposal under the pointer, by id. */
   hovered: string | null;
@@ -87,6 +90,25 @@ type Meta =
   | { applying: ReadonlySet<string> };
 
 export const proposalReviewKey = new PluginKey<ReviewState>("proposalReview");
+
+/**
+ * How long the pointer rests on another change before the card switches to
+ * it: a move from a change onto its card can cross other changes, and taking
+ * one over on the way would put the card's Accept on the wrong change.
+ */
+const HOVER_SWITCH_MS = 250;
+const hoverSwitches = new WeakMap<EditorView, ReturnType<typeof setTimeout>>();
+
+function clearHoverSwitch(view: EditorView): void {
+  const timer = hoverSwitches.get(view);
+  if (timer !== undefined) clearTimeout(timer);
+  hoverSwitches.delete(view);
+}
+
+/** Keeps a card's change while the pointer travels from the change onto the card. */
+export function keepShownChange(view: EditorView): void {
+  clearHoverSwitch(view);
+}
 
 /** The key that tells one Citation from another, to know whether a Proposal adds it back. */
 const citationKey = (node: ProseMirrorNode) =>
@@ -613,15 +635,20 @@ function proposalMarks(state: EditorState): MarkType[] {
  * text Edit with AI is working on marked until its Proposals come back.
  * Words the User types into a Proposal are theirs: they carry no Proposal.
  */
-export const ProposalReview = Extension.create<{ translate: Translate }>({
+export const ProposalReview = Extension.create<{
+  translate: Translate;
+  /** Whether this window's own Question asked for the request's changes, so they apply as they arrive. */
+  asked(state: EditorState, request: string): boolean;
+}>({
   name: "proposalReview",
 
   addOptions() {
-    return { translate: (key, params) => translate("en", key, params) };
+    return { translate: (key, params) => translate("en", key, params), asked: () => false };
   },
 
   addProseMirrorPlugins() {
     const t: Translate = (key, params) => this.options.translate(key, params);
+    const { asked } = this.options;
     return [
       new Plugin<ReviewState>({
         key: proposalReviewKey,
@@ -631,6 +658,7 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
             return {
               proposals,
               applying: new Set(),
+              known: new Set(proposals.map((each) => each.request)),
               applied: [],
               hovered: null,
               target: null,
@@ -646,7 +674,7 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
           },
           apply(tr, value, oldState, state): ReviewState {
             const meta = tr.getMeta(proposalReviewKey) as Meta | undefined;
-            let { proposals, applying, applied, hovered, target } = value;
+            let { proposals, applying, applied, hovered, target, known } = value;
             const found =
               tr.docChanged &&
               (proposals.length + applied.length > 0 || fromDocument(tr) || bringsProposals(tr));
@@ -654,6 +682,18 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
             // Typing brings no Proposal, only moves or removes one: a Mind with none stays without.
             if (found || applying !== value.applying) {
               const all = found ? proposalsIn(state.doc) : [...proposals, ...applied];
+              // The window hears of a request's Answer a moment after its first change arrives:
+              // asking the Mind's own record keeps the bar from showing for those frames.
+              const fresh = found
+                ? [...new Set(all.map((each) => each.request))].filter(
+                    (request) => !known.has(request),
+                  )
+                : [];
+              if (fresh.length > 0) {
+                known = new Set([...known, ...fresh]);
+                const taken = fresh.filter((request) => asked(state, request));
+                if (taken.length > 0) applying = new Set([...applying, ...taken]);
+              }
               proposals = all.filter((each) => !applying.has(each.request));
               applied = all.filter((each) => applying.has(each.request));
             }
@@ -674,6 +714,7 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
             return {
               proposals,
               applying,
+              known,
               applied,
               hovered,
               target,
@@ -743,10 +784,25 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
               const target = event.target instanceof Element ? event.target : null;
               const id =
                 target?.closest("[data-proposal-id]")?.getAttribute("data-proposal-id") || null;
-              if (!id || id === proposalReviewKey.getState(view.state)?.hovered) return false;
-              view.dispatch(
-                view.state.tr.setMeta(proposalReviewKey, { hovered: id } satisfies Meta),
-              );
+              const current = proposalReviewKey.getState(view.state)?.hovered ?? null;
+              if (!id || id === current) return false;
+              clearHoverSwitch(view);
+              const show = () => {
+                hoverSwitches.delete(view);
+                if (view.isDestroyed || id === proposalReviewKey.getState(view.state)?.hovered) {
+                  return;
+                }
+                view.dispatch(
+                  view.state.tr.setMeta(proposalReviewKey, { hovered: id } satisfies Meta),
+                );
+              };
+              if (current === null) show();
+              else hoverSwitches.set(view, setTimeout(show, HOVER_SWITCH_MS));
+              return false;
+            },
+            mouseout(view, event) {
+              const to = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+              if (!to?.closest("[data-proposal-id]")) clearHoverSwitch(view);
               return false;
             },
           },
@@ -758,7 +814,9 @@ export const ProposalReview = Extension.create<{ translate: Translate }>({
 
 /** The pointer left the Proposal it was on, for the bar (which keeps it while it is pointed at). */
 export function clearHovered(editor: Editor): void {
-  if (editor.isDestroyed || !proposalReviewKey.getState(editor.state)?.hovered) return;
+  if (editor.isDestroyed) return;
+  clearHoverSwitch(editor.view);
+  if (!proposalReviewKey.getState(editor.state)?.hovered) return;
   editor.commands.command(({ tr }) => {
     tr.setMeta(proposalReviewKey, { hovered: null } satisfies Meta);
     return true;
@@ -798,19 +856,22 @@ export function changeReason(
  * (`decideProposals`). The change reaches the core as the User's edits do.
  * `"all"` takes every Proposal the Mind holds when it runs, ones an Undo has
  * just brought back included, rather than a list read earlier, but those an
- * edit is applying and those of the requests `except` names.
+ * edit is applying and those of the requests `except` names. `alsoRecord`
+ * writes more into the Mind in the same step, with what was resolved.
  */
 export function resolveInEditor(
   editor: Editor,
   ids: ReadonlySet<string> | "all",
   outcome: "accept" | "reject",
   except: ReadonlySet<string> = new Set(),
+  alsoRecord?: (doc: Y.Doc, resolved: readonly ResolvedProposal[]) => void,
 ): ResolvedProposal[] {
   const binding = bindingOf(editor);
   if (!binding || (ids !== "all" && ids.size === 0)) return [];
   const undo: Y.UndoManager | undefined = yUndoPluginKey.getState(editor.state)?.undoManager;
-  // The counts of what was decided (`decideProposals`) go back with the Blocks.
-  undo?.addToScope(binding.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD));
+  // The counts of what was decided (`decideProposals`) go back with the Blocks, and so do the
+  // origins a reject gives back (`restoreOrigins`).
+  undo?.addToScope([binding.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD), ...originMaps(binding.doc)]);
   undo?.stopCapturing();
   let resolved: ResolvedProposal[] = [];
   const applying = applyingIn(editor.state);
@@ -824,6 +885,7 @@ export function resolveInEditor(
           : ids.has(proposal.id),
       outcome,
     );
+    alsoRecord?.(binding.doc, resolved);
   }, ySyncPluginKey);
   undo?.stopCapturing();
   return resolved;

@@ -131,6 +131,8 @@ export interface ResearchOptions extends FinishOptions {
   mindName(mindId: string): string | null;
   /** The ids of the live Documents a Search scope covers; null with none (every Document). */
   resolveScope(scope: SearchScope): string[] | null;
+  /** What research from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
+  searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
   tasks: {
     start(kind: string, mindId: string, input: ResearchInput): Task;
     /** A Task's record, with its input; null for none. */
@@ -681,7 +683,7 @@ export function createResearch(options: ResearchOptions) {
       const sources = parseSources(given.sources);
       const writeInto = parseTarget(given.writeInto);
       if ("mindId" in writeInto) options.requireMind(writeInto.mindId);
-      const scope = parseSearchScope(given.scope);
+      const scope = options.searchedScope(parseSearchScope(given.scope), mindId);
       const ready = await readyModel(parseModel(given.model));
       if (!("model" in ready)) return ready;
       const task = options.tasks.start(RESEARCH_TASK, mindId, {

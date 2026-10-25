@@ -18,11 +18,11 @@ import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
-import { changedTitle, useChangedSentences } from "./changedSentences";
+import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
+import { useCardPlace } from "./checkPlace";
 import { shownClaims } from "./claimChecks";
-import { HEALTH_PARTS } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
-import { MindCheckAsk, useMindCheckProgress } from "./MindCheckLine";
+import { MindCheckAsk, MindUnchanged, useMindCheckProgress } from "./MindCheckLine";
 import { HealthCard, PartMark, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useVerifyState, VerifyCard, verifyDone } from "./VerifyLine";
@@ -107,8 +107,13 @@ function MindBadge({
       : shownClaims(editor.state).filter((each) => each.check.request === finished).length,
   );
   const input: BadgeInput = {
-    marks: Object.fromEntries(HEALTH_PARTS.map((part) => [part, health[part].length])),
-    toCheck: health.unchecked.length,
+    marks: {
+      contradicted: health.contradicted.length,
+      unsupported: health.unsupported.length,
+      notFound: health.notFound.length,
+    },
+    toCheck: health.toCheck.length,
+    citable: health.citable.length,
     running: running !== undefined,
     asking: askingMind || askingContradictions,
     problem,
@@ -160,32 +165,38 @@ function CheckActions({
 }) {
   const t = useT();
   const running = useChecks((state) => state.running[mindId] !== undefined);
-  const changed = useChangedSentences(doc, mindId, running);
+  const planned = useCheckThisMindPlan(doc, mindId, running);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
+  const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   if (askingMind) return <MindCheckAsk mindId={mindId} />;
   if (askingContradictions) return <ContradictionAsk doc={doc} mindId={mindId} />;
   return (
-    <div className="check-card-actions">
-      <button
-        type="button"
-        data-testid="badge-check-mind"
-        disabled={running}
-        title={changed === null ? undefined : changedTitle(t, changed)}
-        className={buttonStyle("primary", "sm")}
-        onClick={() => void startCheckThisMind(mindId)}
-      >
-        {t("mindCheck.command")}
-      </button>
-      <button
-        type="button"
-        data-testid="badge-check-contradictions"
-        disabled={running}
-        className="check-card-link"
-        onClick={() => void startContradictionCheck(mindId)}
-      >
-        {t("contradictions.command")}
-      </button>
-    </div>
+    <>
+      {unchanged && planned?.plan.kind === "unchanged" && (
+        <MindUnchanged mindId={mindId} since={planned.plan.since} />
+      )}
+      <div className="check-card-actions">
+        <button
+          type="button"
+          data-testid="badge-check-mind"
+          disabled={running}
+          title={planned === null ? undefined : checkTitle(t, planned.plan)}
+          className={buttonStyle("primary", "sm")}
+          onClick={() => void startCheckThisMind(mindId)}
+        >
+          {t("mindCheck.command")}
+        </button>
+        <button
+          type="button"
+          data-testid="badge-check-contradictions"
+          disabled={running}
+          className="check-card-link"
+          onClick={() => void startContradictionCheck(mindId)}
+        >
+          {t("contradictions.command")}
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -217,9 +228,9 @@ function VerifyBadge({
       contradicted: rows.contradicted.length,
       unsupported: rows.unsupported.length,
       notChecked: rows.notChecked.length,
-      recheck: rows.recheck.length,
     },
     toCheck,
+    citable: toCheck,
     running: state.running !== null,
     asking: state.asking,
     problem: state.problem || nothing,
@@ -265,8 +276,6 @@ function VerifyBadge({
     </BadgeFrame>
   );
 }
-
-const useCardPlace = (mindId: string) => useTabPlace()?.tabId ?? mindId;
 
 /**
  * The badge and its card. The card opens by itself when `ask` turns on: a
@@ -395,16 +404,21 @@ function BadgePill({
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const parts: ReactNode[] = [];
   const said = [
-    ...badge.marks.map(({ part, count }) =>
-      part === "notFound"
-        ? count === 1
-          ? t("health.notFound.one")
-          : t("health.notFound", { count: format(count) })
-        : t(`health.${part}`, { count: format(count) }),
-    ),
+    ...badge.marks.map(({ part, count }) => {
+      const shown = { count: format(count) };
+      switch (part) {
+        case "notFound":
+          return count === 1 ? t("health.notFound.one") : t("health.notFound", shown);
+        case "notChecked":
+          // Verify's own part: the Mind folds a failed check into its sentences to check (#1909).
+          return t("verify.notChecked", shown);
+        default:
+          return t(`health.${part}`, shown);
+      }
+    }),
     ...(badge.toCheck > 0
       ? [
-          t(badge.toCheck === 1 ? "health.unchecked.one" : "health.unchecked", {
+          t(badge.toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
             count: format(badge.toCheck),
           }),
         ]

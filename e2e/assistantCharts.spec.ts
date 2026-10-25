@@ -91,3 +91,32 @@ for (const [language, request, kind, title, fact] of [
     await expect(editor).toContainText("Notes on the year.");
   });
 }
+
+// protects=a chart the assistant draws is a write the User asked for, however they worded it; fails_when=it waits as changes to accept, with "N changes from the assistant" on the page and "none waiting" in the card; no_claim=none beyond protects.
+test("a chart asked for as a question is drawn at once too, and the card and the page count the same", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1440, 900);
+  await writeFile(join(sources, "Annual report.md"), REPORT);
+  await addDocuments(window, [join(sources, "Annual report.md")]);
+  await newMind(window);
+  await nameMind(window, "Year notes");
+  await window.keyboard.type("Notes on the year.");
+
+  const answer = await askInAssistant(window, "Could you make a bar chart of revenue by quarter?");
+
+  const editor = window.getByTestId("mind-editor");
+  await expect(editor.locator("table")).toHaveCount(1);
+  await expect(editor.getByTestId("chart")).toHaveCount(1);
+  await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
+  await expect(editor.getByTestId("applied-line").getByTestId("applied-count")).toHaveText(
+    "Added a table and a chart",
+  );
+  await expect(answer.getByTestId("mind-changes-left")).toHaveCount(0);
+
+  await editor.focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(editor.getByTestId("chart")).toHaveCount(0);
+  await expect(editor.locator("table")).toHaveCount(0);
+});

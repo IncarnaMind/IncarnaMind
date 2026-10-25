@@ -67,8 +67,21 @@ export const bottomMax = (room: number) => Math.max(BOTTOM_MIN, room - GAP - CAR
 /** A side dock's width as drawn: the User's, kept between its minimum and what leaves the card its room. */
 export const sideWidth = (width: number, room: number) => clamp(width, SIDE_MIN, sideMax(room));
 
-export const bottomHeight = (height: number, room: number) =>
-  clamp(height, BOTTOM_MIN, bottomMax(room));
+export const bottomHeight = (height: number, room: number, max = bottomMax(room)) =>
+  clamp(height, BOTTOM_MIN, max);
+
+/** What a waiting question leaves the card when the bottom dock grows to fit it: its tab strip. */
+export const QUESTION_LEAVES = 48;
+
+/**
+ * A bottom dock's height while a question waits in it (#1400): grown to `fits`, the height the
+ * question needs, up to `room` less the card's tab strip; never shorter than the User's `height`.
+ */
+export const questionHeight = (height: number, fits: number, room: number) =>
+  Math.round(Math.max(height, Math.min(fits, questionMax(room))));
+
+/** The tallest a bottom dock may be while a question waits in it, grown or resized: the column less the tab strip. */
+export const questionMax = (room: number) => Math.max(bottomMax(room), room - QUESTION_LEAVES);
 
 /** The largest a floating box may be in this window. */
 export const floatMax = (window: Size): Size => ({

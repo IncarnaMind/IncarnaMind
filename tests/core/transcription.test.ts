@@ -189,10 +189,10 @@ describe("The microphone and the computer's sound as two tracks", () => {
     // The microphone, from 50 ms in: what is 300 ms older than the newest goes out, in whole blocks.
     const out = tracks.add("microphone", tone(5000, 8000), 1050);
     expect(out?.atMs).toBe(1000);
-    expect(out?.microphone.length).toBe(3840);
+    expect(out?.microphone?.length).toBe(3840);
     expect(out?.system?.length).toBe(3840);
     // Not summed: each keeps its own samples.
-    expect([out?.microphone[0], out?.microphone[800], out?.microphone[1700]]).toEqual([
+    expect([out?.microphone?.[0], out?.microphone?.[800], out?.microphone?.[1700]]).toEqual([
       0, 5000, 5000,
     ]);
     expect([out?.system?.[0], out?.system?.[1599], out?.system?.[1700]]).toEqual([
@@ -200,7 +200,7 @@ describe("The microphone and the computer's sound as two tracks", () => {
     ]);
     const rest = tracks.flush();
     expect(rest?.atMs).toBe(1240);
-    expect(rest?.microphone.length).toBe(4960);
+    expect(rest?.microphone?.length).toBe(4960);
     expect(rest?.system?.length).toBe(4960);
     // Samples later than what has gone out go to disk only.
     expect(tracks.add("microphone", tone(5, 160), 1000)).toBeNull();
@@ -210,7 +210,7 @@ describe("The microphone and the computer's sound as two tracks", () => {
   test("a Meeting in a room, whose computer sound never comes, has the microphone's track only", () => {
     const tracks = createTracks(0);
     const out = tracks.add("microphone", tone(4000, 16_000), 0);
-    expect(out?.microphone.length).toBeGreaterThan(0);
+    expect(out?.microphone?.length).toBeGreaterThan(0);
     expect(out?.system).toBeNull();
     expect(tracks.flush()?.system).toBeNull();
   });
@@ -222,6 +222,65 @@ describe("The microphone and the computer's sound as two tracks", () => {
     tracks.add("microphone", tone(4000, 16_000), 1000);
     const next = tracks.flush() ?? later;
     expect(next?.system).not.toBeNull();
+  });
+
+  test("a paused microphone has no track, not even silence, while the computer's sound goes on", () => {
+    const tracks = createTracks(0);
+    const before = [
+      tracks.add("system", tone(3000, 16_000), 0),
+      tracks.add("microphone", tone(5000, 16_000), 0),
+      // What the microphone heard goes out at once, its last: nothing more is waited for.
+      tracks.pauseMicrophone(1000),
+    ].filter((each) => each !== null);
+    expect(before.reduce((sum, each) => sum + (each.microphone?.length ?? 0), 0)).toBe(16_000);
+    expect(before.reduce((sum, each) => sum + (each.system?.length ?? 0), 0)).toBe(16_000);
+
+    const during = [
+      tracks.add("system", tone(3000, 16_000), 1000),
+      tracks.add("system", tone(3000, 16_000), 2000),
+      tracks.flush(),
+    ].filter((each) => each !== null);
+    expect(during.length).toBeGreaterThan(0);
+    expect(during.map((each) => each.microphone)).toEqual(during.map(() => null));
+    expect(during.reduce((sum, each) => sum + (each.system?.length ?? 0), 0)).toBe(32_000);
+    expect(during.every((each) => each.lengthMs > 0)).toBe(true);
+  });
+
+  test("a microphone resumed after a long pause with nothing else playing carries on from there", () => {
+    const tracks = createTracks(0);
+    tracks.add("microphone", tone(5000, 16_000), 0);
+    tracks.pauseMicrophone(1000);
+    expect(tracks.atMs).toBe(1000);
+
+    // Ten minutes on: no block holds the pause, and the first one starts where the microphone does.
+    expect(tracks.resumeMicrophone(600_000)).toBeNull();
+    expect(tracks.atMs).toBe(600_000);
+    const first = [tracks.add("microphone", tone(7000, 16_000), 600_000), tracks.flush()].filter(
+      (each) => each !== null,
+    );
+    expect(first[0]?.atMs).toBe(600_000);
+    expect(first.reduce((sum, each) => sum + (each.microphone?.length ?? 0), 0)).toBe(16_000);
+    expect(first[0]?.microphone?.[0]).toBe(7000);
+  });
+
+  test("what came while paused goes out without the microphone's track, and the track starts again at resume", () => {
+    const tracks = createTracks(0);
+    tracks.add("microphone", tone(5000, 8000), 0);
+    tracks.add("system", tone(3000, 8000), 0);
+    tracks.pauseMicrophone(500);
+    tracks.add("system", tone(3000, 16_000), 500);
+    const waiting = tracks.resumeMicrophone(1500);
+    expect(waiting?.microphone).toBeNull();
+    expect(waiting?.system).not.toBeNull();
+
+    const after = [
+      tracks.add("microphone", tone(6000, 16_000), 1500),
+      tracks.add("system", tone(3000, 16_000), 1500),
+      tracks.flush(),
+    ].filter((each) => each !== null);
+    expect(after.every((each) => each.microphone !== null)).toBe(true);
+    expect(after[0]?.atMs).toBeGreaterThanOrEqual(1500);
+    expect(after.reduce((sum, each) => sum + (each.microphone?.length ?? 0), 0)).toBe(16_000);
   });
 });
 

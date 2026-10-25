@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import type { JSONContent } from "@tiptap/core";
+import { parseHTML } from "linkedom";
 import { describe, expect, test } from "vitest";
 import type {
   CitationCheck,
@@ -121,6 +122,27 @@ function writeBilingual(client: MindClient, tides: Document, chinese: Document):
 const marker = (number: number) => `<sup class="note-ref" data-note="${number}">${number}</sup>`;
 
 describe("exporting a Mind to PDF", () => {
+  test("the print page separates adjacent notes without adding commas across prose", async () => {
+    const { printed, printer } = fakePrinter();
+    const { core, mind, client, tides, chinese } = await setUp({ printer });
+    writeMind(client, [
+      paragraph(
+        text("Spring tides"),
+        citation(tides, 1, "found"),
+        text(". 大潮"),
+        citation(chinese, 1, "found"),
+        citation(tides, 1, "found"),
+      ),
+    ]);
+    await client.settled();
+    await core.exportMind(mind.id, { format: "pdf" });
+    const { document } = parseHTML(`<html><body>${printed[0]?.body ?? ""}</body></html>`);
+    expect(document.body.textContent).toBe("Spring tides1. 大潮2,3");
+    expect(
+      [...document.querySelectorAll("sup.note-ref")].map((node) => node.getAttribute("data-note")),
+    ).toEqual(["1", "2", "3"]);
+  });
+
   test("Word and Markdown are as they were: a fingerprint of the bilingual fixture's", async () => {
     const { core, mind, client, tides, chinese } = await setUp();
     writeBilingual(client, tides, chinese);
@@ -132,7 +154,7 @@ describe("exporting a Mind to PDF", () => {
     );
     const docx = (await core.exportMind(mind.id, { format: "docx" })).data;
     expect(zipFingerprint(docx)).toBe(
-      "a2d8108fece220b9636e48e474e197047990eea40c802de251834bf88a301501",
+      "9f081a86e0c52e4e709d2607c95f38838fe76c5392f8097516db18c466efa9a2",
     );
   });
 
@@ -324,7 +346,9 @@ async function webMind(core: Core, before: Document, after: Document) {
       text("Tea reached Europe through Portuguese merchants"),
       citation(after, 1, "found", { contentHash: before.contentHash, location: HISTORY }),
       text(". It is the most drunk after water"),
-      citation(after, 1, "found", { location: { kind: "section", heading: null } }),
+      citation(after, 1, "found", {
+        location: { kind: "section", heading: null, start: true },
+      }),
       text("."),
     ),
   ]);
@@ -412,17 +436,19 @@ describe("a web page Citation's footnote", () => {
     expect(document?.body).toContain("Accessed October 6, 2026");
   });
 
-  test("a Document with no reference details is in the Bibliography by its name, marked as needing details, in each style", async () => {
+  test("a Document with no reference details is in the Bibliography by its name alone, with no placeholder, in each style", async () => {
     const { printed, printer } = fakePrinter();
     const { core, mind, client, tides } = await setUp({ printer });
     writeMind(client, [paragraph(text("Spring tides"), citation(tides, 1, "found"))]);
     await client.settled();
     for (const style of ["apa", "chicago-notes", "ieee"] as const) {
       await core.setMindCitationStyle(mind.id, style);
-      await core.exportMind(mind.id, { format: "pdf" });
+      const result = await core.exportMind(mind.id, { format: "pdf" });
       const body = printed.at(-1)?.body ?? "";
-      expect(body, style).toContain("Tides. [needs details]");
+      expect(body, style).toContain("Tides.");
+      expect(body, style).not.toContain("needs details");
       expect(body, style).not.toMatch(/added \d/);
+      expect(result.needsDetails, style).toEqual([tides.id]);
     }
   });
 });

@@ -16,6 +16,7 @@ import type {
 } from "../../adapters";
 import type { EmbeddingModelStatus } from "../../api";
 import { createDownloadableModel } from "../../embedding/downloadable";
+import type { ModelSources } from "../../embedding/modelSources";
 import type { TextRecognitionModelDefinition } from "./model";
 
 export { BUILT_IN_TEXT_RECOGNITION_MODEL } from "./model";
@@ -49,6 +50,8 @@ export interface TextRecognitionModelOptions {
   definition: TextRecognitionModelDefinition;
   /** Overrides the definition's source (tests). */
   source?: EmbeddingModelSource;
+  /** Where else its files may come from (#1578). */
+  sources?: ModelSources;
   dataDir: string;
   recognizer: TextRecognizer;
   emitStatus(status: EmbeddingModelStatus): void;
@@ -68,6 +71,7 @@ export function createTextRecognitionModel(
       recognizer: join(directory, definition.files.recognizer),
     }),
     source: options.source ?? definition.source,
+    ...(options.sources && { sources: options.sources }),
     dataDir: options.dataDir,
     loadRunner: (paths) => recognizer.load(paths),
     emitStatus(status) {

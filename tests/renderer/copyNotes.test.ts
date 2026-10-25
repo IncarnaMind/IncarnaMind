@@ -14,12 +14,12 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 const schema = getSchema(noteExtensions());
 const context = { language: "en" as const, documents: [{ id: "tides", contentHash: "h1" }] };
 
-const cite = (pageFrom: number): JSONContent => ({
+const cite = (pageFrom: number, documentId = "tides", contentHash = "h1"): JSONContent => ({
   type: CITATION_NODE,
   attrs: {
-    documentId: "tides",
+    documentId,
     documentName: "Tides",
-    contentHash: "h1",
+    contentHash,
     pageFrom,
     pageTo: pageFrom,
   },
@@ -40,6 +40,53 @@ describe("copying Citations as text", () => {
     );
     expect(copied).toBe(
       "Spring tides[1]\n\nNeap tides[2]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 5",
+    );
+  });
+
+  test("a source and place cited again takes the first note's number, and is listed once", () => {
+    const copied = copiedText(
+      fragmentOf(
+        paragraph(text("Spring"), cite(2)),
+        paragraph(text("Neap"), cite(5)),
+        paragraph(text("Spring again"), cite(2)),
+        paragraph(text("Later"), cite(7)),
+      ),
+      schema,
+      context,
+    );
+    expect(copied).toBe(
+      "Spring[1]\n\nNeap[2]\n\nSpring again[1]\n\nLater[3]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 5\n[3] Tides, p. 7",
+    );
+  });
+
+  test("two Documents with one name take a number each", () => {
+    const copied = copiedText(
+      fragmentOf(
+        paragraph(text("Spring"), cite(2)),
+        paragraph(text("Spring too"), cite(2, "tides-2", "h2")),
+      ),
+      schema,
+      { ...context, documents: [...context.documents, { id: "tides-2", contentHash: "h2" }] },
+    );
+    expect(copied).toBe("Spring[1]\n\nSpring too[2]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 2");
+  });
+
+  test("two deleted Documents with one name, and two versions of one, take a number each", () => {
+    const version = (contentHash: string): JSONContent => ({
+      ...cite(2),
+      attrs: { ...cite(2).attrs, contentHash },
+    });
+    const copied = copiedText(
+      fragmentOf(
+        paragraph(text("First"), cite(2, "gone-1")),
+        paragraph(text("Second"), cite(2, "gone-2")),
+        paragraph(text("Third"), version("h3")),
+      ),
+      schema,
+      context,
+    );
+    expect(copied).toBe(
+      "First[1]\n\nSecond[2]\n\nThird[3]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 2\n[3] Tides, p. 2",
     );
   });
 
@@ -90,6 +137,34 @@ describe("copying Citations as Word footnotes", () => {
     expect(html.match(/<!\[endif\]>/g)).toHaveLength(4);
     expect(html).toContain("mso-footnote-id:ftn1");
     expect(html).toContain("mso-footnote-id:ftn2");
+  });
+
+  test("a source and place cited again repeats the first note's number and adds no note", () => {
+    const { document } = parseHTML("<!doctype html><html><body></body></html>");
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<p>One<span data-type="citation"></span></p><p>Two<span data-type="citation"></span></p><p>Three<span data-type="citation"></span></p>';
+    addFootnotes(
+      root,
+      citationsIn(
+        fragmentOf(
+          paragraph(text("a"), cite(2)),
+          paragraph(text("b"), cite(5)),
+          paragraph(text("c"), cite(2)),
+        ),
+      ),
+      context,
+    );
+    const html = wordFootnoteHtml(root.innerHTML);
+    expect(html.match(/mso-element:footnote"/g)).toHaveLength(2);
+    expect(html.match(/mso-footnote-id:ftn1/g)).toHaveLength(2);
+    expect(html.match(/mso-footnote-id:ftn2/g)).toHaveLength(2);
+    expect(html).not.toContain("mso-footnote-id:ftn3");
+    // The third marker is the first note's number, raised, linked to it, with "[n]" for other apps.
+    expect(html).toContain(
+      '<sup class="MsoFootnoteReference"><a href="#_ftn1"><![if !supportFootnotes]>[<![endif]>1<![if !supportFootnotes]>]<![endif]></a></sup>',
+    );
+    expect(html.match(/data-type="citation"/g)).toHaveLength(3);
   });
 
   test("the footnote list and its Sources stay, and no fixed mark is left as a comment", () => {

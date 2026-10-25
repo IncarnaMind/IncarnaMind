@@ -1,5 +1,11 @@
 import type { ChatProviderKind } from "../core/api";
-import { catalogModel, modelsProviderOfKind, providersWithModels } from "../core/providers/catalog";
+import {
+  catalogModel,
+  catalogProvider,
+  modelsProviderOfKind,
+  providersWithModels,
+  withoutDateSuffix,
+} from "../core/providers/catalog";
 
 /** What names a model: the provider it runs on, and the names that provider's own list gives. */
 export interface ModelSource {
@@ -21,11 +27,25 @@ const SETS = [
 
 const tidy = (name: string) => name.replace(/\s*\(latest\)$/i, "").trim();
 
+const namesForRole = (set: string, modelId: string): boolean => {
+  const provider = catalogProvider(set.split("/")[0] ?? set);
+  const id = withoutDateSuffix(modelId);
+  return Object.values(provider?.roles ?? {}).some(
+    (each) => each !== undefined && withoutDateSuffix(each) === id,
+  );
+};
+
 function catalogName(modelId: string, { kind, endpoint }: ModelSource): string | undefined {
   if (kind) {
     return SERVERS.has(kind)
       ? undefined
       : catalogModel(modelsProviderOfKind(kind, endpoint), modelId)?.name;
+  }
+  // A model a provider names for a role is its own; another provider may resell it under a longer name (#1317).
+  for (const set of SETS) {
+    if (!namesForRole(set, modelId)) continue;
+    const name = catalogModel(set, modelId)?.name;
+    if (name) return name;
   }
   for (const set of SETS) {
     const name = catalogModel(set, modelId)?.name;

@@ -25,7 +25,10 @@
  * - Local mode: a remote Connector whose server isn't on this computer
  *   (`serviceForUrl`) isn't connected to, nor offered to Answers, while
  *   "Keep everything on this computer" is on; it is "paused". Local programs
- *   and servers at a loopback address keep working.
+ *   and servers at a loopback address keep working. One at a loopback
+ *   address whose sign-in server isn't (the MCP server names it) neither
+ *   renews nor starts a sign-in while it is on: it waits for a sign-in, "held
+ *   back", with its tokens kept for when it is off.
  */
 import { randomUUID } from "node:crypto";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -62,7 +65,14 @@ import type { Secrets } from "../secrets";
 import { createSendGate } from "../sendGate";
 import type { Database } from "../storage";
 import type { Tool } from "../tools";
-import { type ConnectorAuth, clientSecret, createConnectorAuth, manualClientRecord } from "./auth";
+import {
+  type ConnectorAuth,
+  causedBy,
+  clientSecret,
+  createConnectorAuth,
+  HeldBackError,
+  manualClientRecord,
+} from "./auth";
 import { type ConnectorConfig, parseAddInput, parseClient, readMcpServers } from "./config";
 import { startError, stoppedError } from "./errors";
 import {
@@ -162,6 +172,8 @@ interface Runtime {
   signingIn: { controller: AbortController; done: Promise<unknown> } | null;
   /** Remote: why the last sign-in didn't work. */
   signInError: ConnectorSignInError | null;
+  /** Remote: Local mode kept its sign-in from renewing or starting, as its server isn't on this computer (see `RemoteConnectorSignIn.heldBack`). */
+  heldBack: boolean;
 }
 
 class MissingSecretsError extends Error {
@@ -340,6 +352,16 @@ export function createConnectors(options: ConnectorsOptions) {
 
   const paused = (row: ConnectorRow) => options.localOnly() && awayFromHere(row);
 
+  /** Local mode is on and `url` isn't on this computer: no request goes there. */
+  const awayInLocalMode = (url: string) => {
+    if (!options.localOnly()) return false;
+    try {
+      return serviceForUrl(url) !== null;
+    } catch {
+      return false;
+    }
+  };
+
   const liveRows = () =>
     db.all<ConnectorRow>(
       `SELECT ${COLUMNS} FROM connectors WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE, created_at`,
@@ -384,6 +406,7 @@ export function createConnectors(options: ConnectorsOptions) {
           return config?.transport === "http" ? config.clientId : null;
         },
         onChange: changed,
+        heldBack: awayInLocalMode,
       });
       auths.set(id, found);
     }
@@ -426,6 +449,7 @@ export function createConnectors(options: ConnectorsOptions) {
         clientId: config.clientId,
         signIn: {
           ...(auths.get(row.id)?.status() ?? { signedIn: false, expired: false }),
+          heldBack: options.localOnly() && runtime?.heldBack === true,
           error: runtime?.signInError ?? null,
         },
       };
@@ -473,6 +497,7 @@ export function createConnectors(options: ConnectorsOptions) {
         retryTimer: null,
         signingIn: null,
         signInError: null,
+        heldBack: false,
       };
       runtimes.set(id, runtime);
     }
@@ -541,12 +566,13 @@ export function createConnectors(options: ConnectorsOptions) {
   };
 
   /** A remote Connector's server wants a sign-in IncarnaMind doesn't have: it waits for the User. */
-  const waitForSignIn = (runtime: Runtime) => {
+  const waitForSignIn = (runtime: Runtime, heldBack = false) => {
     stopProcess(runtime);
     runtime.state = "needs-sign-in";
     runtime.error = null;
     runtime.tools = null;
     runtime.failures = 0;
+    runtime.heldBack = heldBack;
     changed();
   };
 
@@ -699,6 +725,7 @@ export function createConnectors(options: ConnectorsOptions) {
   ): Promise<void> {
     const current = () => !closed && runtime.generation === generation;
     const auth = authOf(id, url);
+    const held = auth.heldBackCount();
     let transport: StreamableHTTPClientTransport | null = null;
     try {
       await auth.load();
@@ -729,7 +756,9 @@ export function createConnectors(options: ConnectorsOptions) {
       if (!current()) return;
       runtime.session = null;
       runtime.client = null;
-      if (needsSignIn(error)) waitForSignIn(runtime);
+      if (causedBy(error, HeldBackError) || auth.heldBackCount() > held) {
+        waitForSignIn(runtime, true);
+      } else if (needsSignIn(error)) waitForSignIn(runtime);
       else fail(id, runtime, remoteError(error));
     }
   }
@@ -750,6 +779,7 @@ export function createConnectors(options: ConnectorsOptions) {
     runtime.state = "connecting";
     runtime.error = null;
     runtime.tools = null;
+    runtime.heldBack = false;
     changed();
     const row = rowById(id);
     if (row && paused(row)) return;
@@ -848,14 +878,43 @@ export function createConnectors(options: ConnectorsOptions) {
     }
   };
 
+  const heldBackMessage =
+    "Everything stays on this computer, and this Connector's sign-in is with a server that isn't on it, so the sign-in isn't renewed or started.";
+
+  /**
+   * A connected remote Connector whose access token needs renewing, while Local
+   * mode is on and its sign-in is with a server elsewhere: held back, its Tools
+   * left out, instead of offered and then refused.
+   */
+  const holdBackIfStale = async (row: ConnectorRow) => {
+    const config = storedConfig(row);
+    const runtime = runtimes.get(row.id);
+    if (config.transport !== "http" || runtime?.state !== "ready") return;
+    const generation = runtime.generation;
+    try {
+      await authOf(row.id, config.url).refreshIfStale();
+    } catch (error) {
+      if (causedBy(error, HeldBackError) && runtime.generation === generation) {
+        waitForSignIn(runtime, true);
+      }
+    }
+  };
+
   /** Why a call through a remote Connector failed: it may now need a sign-in, or its server may be gone. */
   const remoteCallFailed = (
     row: ConnectorRow,
     runtime: Runtime,
     generation: number,
     error: unknown,
+    heldBack: boolean,
   ) => {
     if (closed || runtime.generation !== generation) return;
+    if (heldBack || causedBy(error, HeldBackError)) {
+      waitForSignIn(runtime, true);
+      throw new Error(
+        `The Connector "${row.name}" can't renew its sign-in while everything stays on this computer, so it can't be used now. Go on without it.`,
+      );
+    }
     if (needsSignIn(error)) {
       waitForSignIn(runtime);
       throw new Error(
@@ -914,11 +973,13 @@ export function createConnectors(options: ConnectorsOptions) {
           throw new Error(`The Connector "${row.name}" isn't connected right now.`);
         }
         const generation = runtime.generation;
+        const auth = config.transport === "http" ? authOf(row.id, config.url) : null;
+        const held = auth?.heldBackCount() ?? 0;
         let result: Awaited<ReturnType<Client["callTool"]>>;
         try {
-          if (config.transport === "http") await authOf(row.id, config.url).refreshIfStale();
+          await auth?.refreshIfStale();
         } catch (error) {
-          if (config.transport === "http") remoteCallFailed(row, runtime, generation, error);
+          if (auth) remoteCallFailed(row, runtime, generation, error, auth.heldBackCount() > held);
           throw error;
         }
         // After the sign-in's refresh, which can wait on its server: the call is what sends.
@@ -934,7 +995,7 @@ export function createConnectors(options: ConnectorsOptions) {
             resetTimeoutOnProgress: true,
           });
         } catch (error) {
-          if (config.transport === "http") remoteCallFailed(row, runtime, generation, error);
+          if (auth) remoteCallFailed(row, runtime, generation, error, auth.heldBackCount() > held);
           throw error;
         }
         const text = resultText(result);
@@ -1075,6 +1136,9 @@ export function createConnectors(options: ConnectorsOptions) {
       if (paused(row)) throw new InvalidInputError({ key: "error.connector.localMode" });
       const storage = secrets.status();
       const runtime = runtimeOf(row.id);
+      if (options.localOnly() && runtime.heldBack) {
+        return { ok: false, error: { kind: "held-back", message: heldBackMessage } };
+      }
       // Check before the User signs in, not after: the tokens would have nowhere to go. The
       // Connector says so under its row, or the click would seem to do nothing.
       if (!storage.canSave) {
@@ -1094,9 +1158,11 @@ export function createConnectors(options: ConnectorsOptions) {
       runtime.tools = null;
       runtime.signInError = null;
       const controller = new AbortController();
+      const auth = authOf(row.id, config.url);
+      const held = auth.heldBackCount();
       const done = signInRemote({
         url: config.url,
-        auth: authOf(row.id, config.url),
+        auth,
         browser: options.browser,
         pages: options.signInPages(row.name),
         timeoutMs: timing.signInTimeoutMs,
@@ -1110,7 +1176,10 @@ export function createConnectors(options: ConnectorsOptions) {
       try {
         await done;
       } catch (error) {
-        failure = signInError(error);
+        failure =
+          auth.heldBackCount() > held
+            ? { kind: "held-back", message: heldBackMessage }
+            : signInError(error);
       } finally {
         if (runtime.signingIn?.controller === controller) runtime.signingIn = null;
       }
@@ -1118,8 +1187,9 @@ export function createConnectors(options: ConnectorsOptions) {
       if (closed || runtime.signingIn || runtimes.get(row.id) !== runtime) {
         return { ok: false, error: failure ?? { kind: "cancelled", message: "Cancelled." } };
       }
-      // Cancelling isn't something to report on the Connector.
-      runtime.signInError = failure?.kind === "cancelled" ? null : failure;
+      // Neither is what Local mode held back: the Connector says that itself.
+      runtime.signInError =
+        failure?.kind === "cancelled" || failure?.kind === "held-back" ? null : failure;
       if (rowById(row.id)?.enabled === 1) {
         // Connect with the new tokens; without them, it ends up waiting for a sign-in again.
         start(row.id);
@@ -1199,9 +1269,11 @@ export function createConnectors(options: ConnectorsOptions) {
     /** "Keep everything on this computer" was turned on or off: remote Connectors disconnect, or connect again. */
     localModeChanged(): void {
       for (const row of liveRows()) {
-        if (row.enabled !== 1 || !awayFromHere(row)) continue;
-        if (options.localOnly()) stop(row.id);
-        else start(row.id);
+        if (row.enabled !== 1) continue;
+        const away = awayFromHere(row);
+        if (!away && !runtimes.get(row.id)?.heldBack) continue;
+        if (!options.localOnly()) start(row.id);
+        else if (away) stop(row.id);
       }
       changed();
       options.onEnabledChange();
@@ -1228,6 +1300,7 @@ export function createConnectors(options: ConnectorsOptions) {
       const rows = liveRows().filter((row) => row.enabled === 1 && !paused(row));
       if (rows.length === 0) return [];
       startIdle(rows);
+      if (options.localOnly()) await Promise.all(rows.map(holdBackIfStale));
       const starting = rows.flatMap((row) => runtimes.get(row.id)?.starting ?? []);
       if (starting.length > 0) {
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1289,7 +1362,7 @@ export function createConnectors(options: ConnectorsOptions) {
         if (row.enabled !== 1 || config.transport !== "http" || paused(row)) continue;
         add(config.url);
         const authorizationServer = auths.get(row.id)?.authorizationServer();
-        if (authorizationServer) add(authorizationServer);
+        if (authorizationServer && !awayInLocalMode(authorizationServer)) add(authorizationServer);
       }
       return [...services.values()];
     },

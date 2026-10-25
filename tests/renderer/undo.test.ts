@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import type { Language } from "../../src/core/language";
 import { saidInLine } from "../../src/renderer/src/lineNames";
-import { type Undoable, UndoRefused, useUndo } from "../../src/renderer/src/undo";
+import {
+  nextToRedo,
+  nextToUndo,
+  type Undoable,
+  UndoRefused,
+  useUndo,
+} from "../../src/renderer/src/undo";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
@@ -33,7 +39,7 @@ const noWords = (key: MessageKey) => key;
 const names = (changes: readonly Undoable[]) => changes.map((each) => each.name?.(noWords));
 
 beforeEach(() => {
-  useUndo.setState({ done: [], undone: [], line: null });
+  useUndo.setState({ done: [], undone: [], line: null, running: null });
 });
 
 describe("the undo stack", () => {
@@ -88,6 +94,37 @@ describe("the undo stack", () => {
     finish();
     await Promise.all([first, second]);
     expect(log).toEqual(["undo Slow", "undo A"]);
+  });
+
+  // protects=⇧⌘Z pressed while an undo still runs is offered and waits its turn, and ⌘Z during a redo too, so a fast key is never dropped (#1361 review); fails_when=the menu offers nothing while a step runs, or the key is lost; no_claim=the menu's own timing.
+  test("a step asked while another runs is offered, and waits its turn", async () => {
+    const log: string[] = [];
+    let finish: () => void = () => undefined;
+    const slow: Undoable = {
+      said: () => "Slow",
+      name: () => "Slow",
+      undo: () =>
+        new Promise<void>((resolve) => {
+          finish = () => {
+            log.push("undo Slow");
+            resolve();
+          };
+        }),
+      redo: async () => {
+        log.push("redo Slow");
+      },
+    };
+    push(slow);
+    const back = undo();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(nextToRedo(useUndo.getState())).toBe(slow);
+    expect(nextToUndo(useUndo.getState())).toBeUndefined();
+    const again = redo();
+    finish();
+    await Promise.all([back, again]);
+    expect(log).toEqual(["undo Slow", "redo Slow"]);
+    expect(nextToUndo(useUndo.getState())).toBe(slow);
+    expect(useUndo.getState().running).toBeNull();
   });
 
   test("a new change ends what can be redone", async () => {
@@ -278,6 +315,18 @@ describe("the lines follow the interface language", () => {
     language = "zh-CN";
     expect(change?.also?.label(t)).toBe("更改");
     expect(change?.name?.(t)).toBe("重命名");
+  });
+
+  test("the Edit menu's Undo puts a name the change quotes in ‘ ’, inside its own “ ” (#1405)", () => {
+    language = "zh-CN";
+    const action = (key: MessageKey) => t(key, { name: "交易资料" });
+    expect(t("menu.undo.named", { action: action("undo.name.linkFolder") })).toBe(
+      "撤销“添加同步文件夹‘交易资料’”",
+    );
+    expect(t("menu.undo.named", { action: action("undo.name.move") })).toBe("撤销“移动‘交易资料’”");
+    expect(t("menu.redo.named", { action: action("undo.name.delete") })).toBe(
+      "重做“删除‘交易资料’”",
+    );
   });
 
   test("a refused undo's reason and fix follow it, and stay for the fix", async () => {

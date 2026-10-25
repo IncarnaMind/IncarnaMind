@@ -6,7 +6,12 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkUnreadOf } from "../../src/shared/unreadFiles";
 import { checkingModel, type Plan } from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { createSourceFolder, linkAndProcess, writeSourceFile } from "../helpers/documents";
+import {
+  createSourceFolder,
+  linkAndProcess,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
 import { lockedPdf } from "../helpers/lockedPdf";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
@@ -15,7 +20,7 @@ import { buildPdf } from "../helpers/pdf";
 
 /*
  * Checks say which files in their scope couldn't be read, and why (#740):
- * Find support, Check against Documents, Check this Mind and Verify keep, with the request
+ * Check against Documents, Check this Mind and Verify keep, with the request
  * that made their marks, the files their scope couldn't read as it started,
  * which the line beside them and the AI use statement read back.
  */
@@ -82,7 +87,7 @@ async function mindOf(core: Core, folderId: string | null, sentences: readonly s
     core.checkSentences({
       requestId: randomUUID(),
       mindId: mind.id,
-      action: "find-support",
+      action: "check-against-documents",
       from: { blockId, offset: 0 },
       to: { blockId, offset: body.length },
       allDocuments,
@@ -102,7 +107,7 @@ const named = (files: readonly UnreadFile[]) =>
     .sort((a, b) => a.name.localeCompare(b.name));
 
 describe("What a check couldn't read", () => {
-  test("Find support in a Folder with a .doc, a locked PDF and a scan names the three, with their reasons", async () => {
+  test("Check against Documents in a Folder with a .doc, a locked PDF and a scan names the three, with their reasons", async () => {
     const { core, folderId } = await withUnreadFiles();
     const { client, check } = await mindOf(core, folderId, [SUPPORTED, UNSUPPORTED]);
 
@@ -198,9 +203,20 @@ describe("What a check couldn't read", () => {
   test("a check in another Folder names only what that Folder couldn't read; Search all Documents names every one", async () => {
     const { core } = await withUnreadFiles();
     const elsewhere = await core.createLibraryGroup({ name: "Elsewhere", description: "" });
+    // A Document of its own, which reads, so its checks search Elsewhere alone (#1359).
+    const sources = await createSourceFolder();
+    const added = await core.addDocuments(
+      [await writeSourceFile(sources, "Moon.md", "# Moon\n\nThe moon pulls the sea.\n")],
+      { groupId: elsewhere.id },
+    );
+    await waitForProcessing(
+      core,
+      added.documents.map((document) => document.id),
+    );
     const { client, check } = await mindOf(core, elsewhere.id, [SUPPORTED]);
 
-    expect(await check()).toMatchObject({ kind: "no-documents" });
+    expect(await check()).toMatchObject({ kind: "checked" });
+    expect(named(await unreadOfChecks(client))).toEqual([]);
     expect(await check(true)).toMatchObject({ kind: "checked" });
 
     expect(named(await unreadOfChecks(client))).toEqual(UNREAD);

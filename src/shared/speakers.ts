@@ -11,18 +11,20 @@ export const SPEAKER_THEM = "Them";
 export const SPEAKER_UNKNOWN = "Speaker ?";
 
 /**
- * Someone a cloud service told apart as they spoke (#141), numbered in the order heard in the
- * Meeting: in a call, one of the other side ("Them 2"); in a room, anyone ("Speaker 2"), who may
- * be the User.
+ * Someone told apart (#138, #141), numbered in the order heard in the Meeting, in a call and in
+ * a room alike (DESIGN.md › Speakers): "Speaker 2". In a room it may be the User.
  */
-export const theirVoice = (n: number) => `Them ${n}`;
-export const roomVoice = (n: number) => `Speaker ${n}`;
+export const numberedVoice = (n: number) => `Speaker ${n}`;
+/** How cloud transcription numbered the other side's voices before #138, in Transcripts saved then: shown as "Speaker n". */
 const THEIRS = /^Them (\d+)$/;
 const ROOM = /^Speaker (\d+)$/;
 
-/** Another person's line: the computer's sound in a call, as one voice or told apart. */
+/**
+ * Not the User's microphone, and not unknown: in a call, a line of the other side. A room has
+ * no "Me" line for one to be told from.
+ */
 export const isTheirs = (speaker: string | null) =>
-  speaker !== null && (speaker === SPEAKER_THEM || THEIRS.test(speaker));
+  speaker !== null && speaker !== SPEAKER_ME && speaker !== SPEAKER_UNKNOWN;
 
 const KEYS: Readonly<Record<string, MessageKey>> = {
   [SPEAKER_ME]: "transcript.speaker.me",
@@ -38,8 +40,6 @@ export function speakerName(
 ): string {
   const key = speakerKey(speaker);
   if (key) return t(key);
-  const theirs = THEIRS.exec(speaker);
-  if (theirs) return t("transcript.speaker.themNumbered", { n: theirs[1] as string });
-  const room = ROOM.exec(speaker);
-  return room ? t("transcript.speaker.numbered", { n: room[1] as string }) : speaker;
+  const numbered = THEIRS.exec(speaker) ?? ROOM.exec(speaker);
+  return numbered ? t("transcript.speaker.numbered", { n: numbered[1] as string }) : speaker;
 }

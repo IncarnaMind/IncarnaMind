@@ -61,6 +61,8 @@ const TEXTS = {
     supported: "Supported",
     unsupported: "Unsupported",
     noRecord: "has no record of AI writing",
+    checkedIntro:
+      "Sentences the author had checked against the Documents, with Check against Documents, by result:",
   },
   "zh-CN": {
     heading: "第一章 绪论",
@@ -82,6 +84,7 @@ const TEXTS = {
     supported: "有依据",
     unsupported: "无依据",
     noRecord: "中没有本文档使用 AI 撰写",
+    checkedIntro: "以下是“对照文档核对”的结果：",
   },
 } as const;
 
@@ -293,7 +296,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "Spring tides", { line, words: "harbour cliffs." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     const marks = window.getByTestId("claim-mark");
     await expect(marks.and(window.locator("[data-check=supported]"))).toHaveCount(1);
@@ -314,8 +317,14 @@ for (const language of ["en", "zh-CN"] as const) {
     ]);
     for (const row of rows) expect(days).toContain(row[3]);
     await expect(statement.getByText(text.noRecord)).toHaveCount(0);
+    await expect(statement.getByText(text.checkedIntro, { exact: true })).toBeVisible();
     await screenshot(window, `ai-statement-checks-${language}`);
     await statement.locator(":scope > p").last().scrollIntoViewIfNeeded();
     await screenshot(window, `ai-statement-checks-${language}-end`);
+    for (const width of [900, 1440]) {
+      await setWindowSize(app, window, width, 900);
+      await statement.getByText(text.checkedIntro, { exact: true }).scrollIntoViewIfNeeded();
+      await screenshot(window, `ai-statement-checks-${language}-intro-${width}`);
+    }
   });
 }

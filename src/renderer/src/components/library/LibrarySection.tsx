@@ -18,6 +18,7 @@ import {
   type SearchMatch,
   type LibrarySection as Section,
 } from "../../libraryPage";
+import { formatCount } from "../../linkedFolders";
 import { sayWhenOrganized, useOrganizeAsk } from "../../organizeRun";
 import { useRequests } from "../../requests";
 import { useAppStore } from "../../store";
@@ -60,6 +61,7 @@ export function LibrarySection({
   notSortedOf(documentId: string): string | null;
 }) {
   const t = useT();
+  const language = useLanguage();
   const open = useLibraryFolds((state) => !state.folded.has(section.key));
   const showingAll = useLibraryFolds((state) => state.showingAll.has(section.key));
   const element = useRevealed<HTMLDivElement>(section.key);
@@ -100,7 +102,7 @@ export function LibrarySection({
             onClick={() => useLibraryFolds.getState().showAll(section.key)}
             className={quietButtonClass}
           >
-            {t("library.showAll", { count: documents.length })}
+            {t("library.showAll", { count: formatCount(documents.length, language) })}
           </button>
         </div>
       )}
@@ -384,16 +386,17 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
   const use = () => {
     const settings = useAppStore.getState().library?.settings;
     if (!automatic || !settings) return;
+    // Saving the model sets the waiting Documents going, so what Undo goes back to is read first.
+    const before = new Map(
+      (useAppStore.getState().library?.assignments ?? [])
+        .filter((item) => ids.includes(item.documentId))
+        .map((item) => [item.documentId, item]),
+    );
     core
       .saveLibrarySettings({ ...settings, organizeWith: automatic.classifier })
       .then(() => useAppStore.getState().refreshLibrary())
       .then(() => {
         close();
-        const before = new Map(
-          (useAppStore.getState().library?.assignments ?? [])
-            .filter((item) => ids.includes(item.documentId))
-            .map((item) => [item.documentId, item]),
-        );
         return core
           .classifyDocuments([...ids])
           .then(() => useAppStore.getState().refreshLibrary())
@@ -432,7 +435,7 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
           data-testid="library-organize-set-up"
           onClick={() => {
             close();
-            useAppStore.getState().openSettings("models");
+            useAppStore.getState().openSettings("models", "tagging");
           }}
           className={quietButtonClass}
         >

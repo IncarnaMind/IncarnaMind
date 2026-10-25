@@ -62,9 +62,11 @@ import {
   isFolder,
   isGone,
   isInside,
+  isLegacyCopy,
   kindOf,
   nameFromPath,
   parentOf,
+  pathIn,
   relativePath,
   type StatIdentity,
   statFile,
@@ -147,9 +149,6 @@ interface Place {
 /** At most this many of a Linked folder's files are looked for in a folder offered as its new place. */
 const LOCATE_SAMPLE = 100;
 
-/** The file at `relative` ("/" between names) inside `folder`, on this computer. */
-const pathIn = (folder: string, relative: string) => join(folder, ...relative.split("/"));
-
 interface LinkedFolderRow {
   id: string;
   path: string;
@@ -164,26 +163,6 @@ const FOLDER_COLUMNS = "id, path, layout, paused, ignore_patterns, created_at, u
 
 /** Statuses of a Document once processing has finished with it. */
 const PROCESSED = "('ready', 'no-text', 'failed')";
-
-/**
- * A rough guess at indexing speed with the built-in model on a laptop CPU
- * (ADR-0009: about 25 Passages a second): a PDF holds about 3 seconds of work
- * per megabyte, plain text, which is much denser, about 30, and every file
- * costs a little on top. Office files are zipped, with images: a guess from
- * the samples' text per megabyte (unmeasured).
- */
-const SECONDS_PER_FILE = 0.2;
-const SECONDS_PER_MEGABYTE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 3,
-  text: 30,
-  markdown: 30,
-  docx: 10,
-  pptx: 2,
-  xlsx: 20,
-  csv: 30,
-  web: 30,
-  transcript: 30,
-};
 
 /** A folder is laid out flat when this share of its folders with files hold exactly one. */
 const FLAT_SHARE = 0.9;
@@ -216,6 +195,11 @@ export function suggestLayout(relatives: Iterable<string>): LinkedFolderLayout {
 export interface LibraryHooks {
   /** Processing is due (a new file, or a new version): queue it, unless its Linked folder is paused. */
   process(documentId: string): void;
+  /**
+   * A Document found queued, its file still the version it was: queue it if its job was dropped.
+   * A job still queued, waiting its turn in the scan lane or under way keeps its place.
+   */
+  stillQueued(documentId: string): void;
   /** Push a Document's current state. */
   announce(documentId: string): void;
   /** A new Document was stored and announced; its processing isn't queued yet. */
@@ -253,6 +237,8 @@ export interface LibraryOptions {
   stat: StatIdentity;
   retryMs: number;
   detectDataless: boolean;
+  /** How long reading these files takes on this computer, in seconds (./readingSpeed). */
+  readingSeconds(files: readonly FoundFile[]): number | null;
 }
 
 /** What one pass looks at. */
@@ -308,10 +294,16 @@ const insideRange = (prefix: string) => {
   return [folder, `${folder.slice(0, -1)}${next}`] as const;
 };
 
+/** A Linked folder's id, as the API takes it. */
+function parseLinkedFolderId(idInput: unknown): string {
+  if (typeof idInput !== "string" || idInput === "") {
+    throw new InvalidInputError("A Linked folder id is required.");
+  }
+  return idInput;
+}
+
 export function createLibrary(options: LibraryOptions) {
   const { db, now, folders, hooks } = options;
-  const legacyFolder = join(options.dataDir, "documents");
-  const isLegacyCopy = (path: string) => path !== legacyFolder && isInside(legacyFolder, path);
   /** The data folder as given, then with links resolved, as the files added from it are. */
   const dataFolders = [...new Set([options.dataDir, realpathSync(options.dataDir)])];
   const realDataFolder = dataFolders.at(-1) ?? options.dataDir;
@@ -577,7 +569,7 @@ export function createLibrary(options: LibraryOptions) {
       `SELECT path FROM documents
        WHERE deleted_at IS NULL AND linked_folder_id IS NULL AND file_status <> 'unavailable'`,
     )) {
-      if (!isLegacyCopy(path) && !ownerOf(path, linked)) wanted.add(dirname(path));
+      if (!isLegacyCopy(options.dataDir, path) && !ownerOf(path, linked)) wanted.add(dirname(path));
     }
     for (const [folder, watcher] of singleWatchers) {
       if (wanted.has(folder)) continue;
@@ -732,7 +724,7 @@ export function createLibrary(options: LibraryOptions) {
       }
       if (placeChanged) noteMoved(row, place, changes);
       if (row.file_device === null) await noteIdentity(row);
-      if (row.status === "queued") hooks.process(row.id);
+      if (row.status === "queued") hooks.stillQueued(row.id);
       return true;
     }
     let hashed: Awaited<ReturnType<typeof hashFile>>;
@@ -776,7 +768,8 @@ export function createLibrary(options: LibraryOptions) {
     }
     if (placeChanged) noteMoved(row, place, changes);
     // A new version is processed; its text replaces the old one's in search once indexed.
-    if (newVersion || current.status === "queued") hooks.process(row.id);
+    if (newVersion) hooks.process(row.id);
+    else if (current.status === "queued") hooks.stillQueued(row.id);
     return true;
   }
 
@@ -831,8 +824,8 @@ export function createLibrary(options: LibraryOptions) {
       [contentHash, path],
     );
     for (const row of candidates) {
-      if (single && isLegacyCopy(row.path)) continue;
-      if (row.file_status === "missing" || isLegacyCopy(row.path)) return row;
+      if (single && isLegacyCopy(options.dataDir, row.path)) continue;
+      if (row.file_status === "missing" || isLegacyCopy(options.dataDir, row.path)) return row;
       // Gone, though no event has said so yet: moved before its old path was looked at.
       if (row.file_status === "available" && !(await statFile(row.path).catch(() => true))) {
         return row;
@@ -862,7 +855,9 @@ export function createLibrary(options: LibraryOptions) {
   ): Promise<FileRow | undefined> {
     if (!identity) return undefined;
     const fits = (row: FileRow) =>
-      row.kind === file.kind && !isLegacyCopy(row.path) && (!single || !row.linked_folder_id);
+      row.kind === file.kind &&
+      !isLegacyCopy(options.dataDir, row.path) &&
+      (!single || !row.linked_folder_id);
     let candidates = (await sameFileGone(file.path, identity, removed)).filter(fits);
     const named = candidates.length === 0 ? goneWithName(file, removed).filter(fits) : [];
     if (named.length > 0) candidates = savedAgain(file, identity, named, twins);
@@ -999,7 +994,7 @@ export function createLibrary(options: LibraryOptions) {
     if (name !== row.name) hooks.renamed(row.id);
     if (seen.newVersion || current.status === "queued") hooks.process(row.id);
     // The old layout's copy in the data folder isn't needed once the original is linked.
-    if (isLegacyCopy(row.path)) {
+    if (isLegacyCopy(options.dataDir, row.path)) {
       await rm(row.path, { force: true }).catch((error: unknown) => hooks.reportError(error));
     }
     return true;
@@ -1422,10 +1417,7 @@ export function createLibrary(options: LibraryOptions) {
   }
 
   const getRow = (idInput: unknown): LinkedFolderRow => {
-    if (typeof idInput !== "string" || idInput === "") {
-      throw new InvalidInputError("A Linked folder id is required.");
-    }
-    const row = folderRow(idInput);
+    const row = folderRow(parseLinkedFolderId(idInput));
     if (!row) throw new NotFoundError({ key: "error.linkedFolder.notFound" });
     return row;
   };
@@ -1492,21 +1484,16 @@ export function createLibrary(options: LibraryOptions) {
       });
       const local = files.filter((file) => !file.onlineOnly);
       const placeholders = files.filter((file) => file.onlineOnly);
-      let bytes = 0;
-      let seconds = 0;
-      for (const file of local) {
-        bytes += file.size;
-        seconds += SECONDS_PER_FILE + (file.size / 1_000_000) * SECONDS_PER_MEGABYTE[file.kind];
-      }
+      const seconds = options.readingSeconds(local);
       return {
         path,
         files: local.length,
-        bytes,
+        bytes: local.reduce((sum, file) => sum + file.size, 0),
         onlineOnly: {
           files: placeholders.length,
           bytes: placeholders.reduce((sum, file) => sum + file.size, 0),
         },
-        estimatedSeconds: Math.ceil(seconds),
+        estimatedSeconds: seconds === null ? null : Math.ceil(seconds),
         layout: suggestLayout(local.map((file) => relativePath(path, file.path))),
         insideLinkedFolderId: outer?.id ?? null,
         containsLinkedFolderIds: linked
@@ -1614,6 +1601,37 @@ export function createLibrary(options: LibraryOptions) {
       watchSingles(); // a file added on its own inside it is watched by itself now
       if (foldersChanged) hooks.foldersChanged();
       announceFolders();
+    },
+
+    /**
+     * Brings back a Linked folder the User unlinked, as Undo after Remove the examples
+     * does (#1292), and reads its files again: the Documents that left the index with
+     * it, which the caller restores, and the folder. Refused when there is no such folder.
+     */
+    restore(idInput: unknown): { folder: LinkedFolder; went: string[] } {
+      const row = db.get<LinkedFolderRow & { deleted_at: string | null }>(
+        `SELECT ${FOLDER_COLUMNS}, deleted_at FROM linked_folders WHERE id = ?`,
+        [parseLinkedFolderId(idInput)],
+      );
+      if (!row) throw new NotFoundError({ key: "error.linkedFolder.notFound" });
+      if (row.deleted_at === null) return { folder: toLinkedFolder(row), went: [] };
+      // The Documents that went with it, by the unlink's own moment: one deleted earlier stays deleted.
+      const went = db
+        .all<{ id: string }>(
+          "SELECT id FROM documents WHERE linked_folder_id = ? AND deleted_at = ?",
+          [row.id, row.deleted_at],
+        )
+        .map((each) => each.id);
+      db.run("UPDATE linked_folders SET deleted_at = NULL, updated_at = ? WHERE id = ?", [
+        now(),
+        row.id,
+      ]);
+      statuses.set(row.id, "scanning");
+      request({ folders: [row.id] });
+      announceFolders();
+      const live = folderRow(row.id);
+      if (!live) throw new Error("The Linked folder wasn't saved.");
+      return { folder: toLinkedFolder(live), went };
     },
 
     /**

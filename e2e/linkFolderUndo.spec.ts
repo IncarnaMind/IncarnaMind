@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import {
-  addDocuments,
   confirmLink,
   coreOf,
   createDataFolder,
@@ -110,7 +109,13 @@ test("Undo of a link keeps a Document added on its own, also after Redo links it
   await leaveText(window);
   await window.keyboard.press("ControlOrMeta+z");
   await expect(linkedFolderRow(window, "Deals")).toHaveCount(0);
-  await addDocuments(window, [join(folder, "Teaser.md")]);
+  // Added another way (by the core), not by the sidebar's picker, whose step would end what ⇧⌘Z can redo.
+  const teaserPath = join(folder, "Teaser.md");
+  await (await coreOf(window)).evaluate(
+    async (core, path) => core.addDocuments([path]),
+    teaserPath,
+  );
+  await expect.poll(async () => (await library(window)).documents).toHaveLength(1);
   const teaser = (await library(window)).documents[0];
 
   await leaveText(window);
@@ -245,22 +250,53 @@ test("after a merge and a Locate, ⌘Z links the merged folder again where it is
   await app.close();
 });
 
-test("when a merged folder is gone, the merge's Undo says so and changes nothing", async () => {
+for (const language of ["en", "zh-CN"] as const) {
+  test(`when a merged folder is gone, the merge's Undo names it and changes nothing, and Undo doesn't offer its link (${language})`, async () => {
+    const folder = await folderOfNotes();
+    const { app, window } = await launchApp(dataDir);
+    await start(app, window);
+    await setLanguage(window, language);
+    await linkFolderFromSidebar(app, window, join(folder, "Inner"));
+    await expect.poll(async () => (await library(window)).documents).toHaveLength(1);
+    await linkFolderFromSidebar(app, window, folder);
+    await expect.poll(async () => (await library(window)).linked).toEqual([folder]);
+    await rm(join(folder, "Inner"), { recursive: true });
+
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(window.getByTestId("undo-line")).toContainText(
+      translate(language, "undo.refused", {
+        reason: translate(language, "undo.linkedFolder.mergedGone", { name: "Inner" }),
+      }),
+    );
+    expect((await library(window)).linked).toEqual([folder]);
+    await expect.poll(async () => (await undoItem(app)).enabled).toBe(false);
+    await app.close();
+  });
+}
+
+test("⌘Z ⇧⌘Z ⌘Z pressed at once after a merge end with the inner folder linked, and the Folder before them kept", async () => {
   const folder = await folderOfNotes();
+  const inner = join(folder, "Inner");
   const { app, window } = await launchApp(dataDir);
   await start(app, window);
-  await linkFolderFromSidebar(app, window, join(folder, "Inner"));
+  await makeFolder(window);
+  await linkFolderFromSidebar(app, window, inner);
   await expect.poll(async () => (await library(window)).documents).toHaveLength(1);
+  const memo = (await library(window)).documents[0];
   await linkFolderFromSidebar(app, window, folder);
-  await expect.poll(async () => (await library(window)).linked).toEqual([folder]);
-  await rm(join(folder, "Inner"), { recursive: true });
+  await expect.poll(async () => (await library(window)).documents).toHaveLength(3);
+  await expect(linkedFolderRow(window, "Deals")).toHaveAttribute("data-state", "idle");
 
   await leaveText(window);
   await window.keyboard.press("ControlOrMeta+z");
-  await expect(window.getByTestId("undo-line")).toContainText(
-    translate("en", "undo.refused", { reason: "" }),
-  );
-  expect((await library(window)).linked).toEqual([folder]);
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await window.keyboard.press("ControlOrMeta+z");
+
+  await expect
+    .poll(() => library(window), { timeout: 15_000 })
+    .toEqual({ linked: [inner], documents: [{ name: "Memo", id: memo?.id, in: inner }] });
+  await expect.poll(() => undoItem(app)).toEqual({ label: "Undo Link “Inner”", enabled: true });
   await app.close();
 });
 

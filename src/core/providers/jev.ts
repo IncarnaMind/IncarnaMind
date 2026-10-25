@@ -21,6 +21,7 @@
  */
 import type { ExternalService, ProviderErrorKind } from "../api";
 import { isRecord } from "../errors";
+import { readApiKey } from "./apiKey";
 import { retryAfterMs } from "./retryAfter";
 
 /** TypeSafe's hosted API, the default base URL. */
@@ -142,7 +143,8 @@ async function requestJev(
     questions: Record<string, JevNoulQuestion | JevChoiceQuestion>;
   },
 ): Promise<unknown> {
-  const { baseUrl, apiKey, model, state, questions, signal, retries, timeoutMs } = input;
+  const { baseUrl, model, state, questions, signal, retries, timeoutMs } = input;
+  const apiKey = readApiKey(input.apiKey);
   const body = JSON.stringify({
     state,
     model,

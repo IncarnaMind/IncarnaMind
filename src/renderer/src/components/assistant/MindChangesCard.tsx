@@ -92,7 +92,10 @@ export function MindChangesCard({
           {headLeft && (
             <>
               {" "}
-              <span data-testid="mind-changes-left" className="mind-changes-count">
+              <span
+                data-testid="mind-changes-left"
+                className="mind-changes-count whitespace-nowrap"
+              >
                 {headLeft}
               </span>
             </>
@@ -148,7 +151,10 @@ export function MindChangesCard({
                 {label}
               </span>
               {left && (
-                <span data-testid="mind-changes-left" className="mind-changes-count">
+                <span
+                  data-testid="mind-changes-left"
+                  className="mind-changes-count whitespace-nowrap"
+                >
                   {left}
                 </span>
               )}

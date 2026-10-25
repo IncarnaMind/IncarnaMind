@@ -90,7 +90,7 @@ type Service = ReturnType<typeof counting>;
 async function meetingOn(route: Route, service: Service) {
   const dataDir = await createTempDataFolder();
   const clock = manualClock();
-  const capture = createFakeCapture();
+  const capture = createFakeCapture({ now: () => clock.now().getTime() });
   const transcriber: Transcriber = createChannelTranscriber(() => {
     let deliver: (request: TranscriberRequest) => void = () => {};
     const responses: ((response: TranscriberResponse) => void)[] = [];

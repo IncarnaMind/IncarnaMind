@@ -21,7 +21,7 @@
  */
 import type { Effect, ReadThirdPartySource } from "../api";
 
-/** v1's providers, Find sources, web search, the Minds and the commands; later ones add their kind here. */
+/** v1's providers, Find sources, web search, the Minds, the commands and the assistant's questions; later ones add their kind here. */
 export type ToolProviderKind =
   | "documents"
   | "skills"
@@ -29,7 +29,8 @@ export type ToolProviderKind =
   | "sources"
   | "web"
   | "minds"
-  | "commands";
+  | "commands"
+  | "asks";
 
 /** Which provider a Tool comes from: for its Tool-call card, its approvals and the log. */
 export interface ToolProviderInfo {
@@ -139,6 +140,9 @@ export const MIND_TOOLS = {
 /** The names of the commands' Tools, offered to an Answer in the assistant (#1110). */
 export const COMMAND_TOOLS = { list: "list_commands", run: "run_command" } as const;
 
+/** The name of the Tool that asks the User a question with options, in the assistant (#1374). */
+export const ASK_TOOLS = { ask: "ask_user" } as const;
+
 /**
  * IncarnaMind's own Tools' names. They are reserved: a Tool from outside
  * IncarnaMind (a Connector's) never takes one (see `offeredTools`).
@@ -150,6 +154,7 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   ...Object.values(WEB_TOOLS),
   ...Object.values(MIND_TOOLS),
   ...Object.values(COMMAND_TOOLS),
+  ...Object.values(ASK_TOOLS),
 ]);
 
 /** A Tool from outside IncarnaMind: a Connector's. Every other provider is IncarnaMind's own. */

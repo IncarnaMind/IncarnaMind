@@ -208,7 +208,7 @@ async function laptopMeeting(transcriber: Transcriber) {
       sink = given;
       given.state("microphone", "recording");
       given.state("system", "recording");
-      return { stop: async () => {} };
+      return { setMicrophone: () => {}, stop: async () => {} };
     },
     openSettings: async () => {},
   };

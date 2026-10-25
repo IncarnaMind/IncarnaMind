@@ -14,6 +14,7 @@ import {
 } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import * as Y from "yjs";
+import type { EmbeddingModelSource } from "../src/core/adapters";
 import {
   type AssistantPlace,
   CHOSEN_PROVIDER_FLOWS,
@@ -25,11 +26,20 @@ import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
 import { translate } from "../src/shared/i18n";
+import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 
 const appDir = resolve(__dirname, "..");
+
+// CI runs two workers, each on a virtual display of its own: windows on one display take the
+// keyboard focus from each other and share its clipboard.
+const displays = (process.env.INCARNAMIND_DISPLAYS ?? "").split(",").filter(Boolean);
+const workerIndex = Number(process.env.TEST_PARALLEL_INDEX);
+if (displays.length > 0 && Number.isInteger(workerIndex)) {
+  process.env.DISPLAY = displays[workerIndex % displays.length];
+}
 
 /**
  * The apps this test launched that are still open, by the data folder each
@@ -149,6 +159,17 @@ export interface LaunchOptions {
    * a JSON file of a `FakeScanScript`. Without, it reads nothing on them.
    */
   scans?: string;
+  /** How many scans are read at once (#1502), whatever the computer. A test build honours it. */
+  scansAtOnce?: number;
+  /**
+   * The search model's files at a stand-in, and IncarnaMind's copies at others (#1578): a
+   * `{ source, copies }` the core's model downloads take instead. Needs a test build.
+   */
+  modelDownloads?: {
+    source: EmbeddingModelSource;
+    copies: Record<string, { url: string }>;
+    speech?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+  };
   /**
    * The scripted Task that asks for approval and writes files (src/main/scriptedTask.ts),
    * started with `startScriptedTask`. Needs a test build.
@@ -172,6 +193,23 @@ export interface LaunchOptions {
    * its sandbox, where the line must not show. The sandbox is on in the last two on Linux too.
    */
   sandboxNotice?: "switch" | "environment" | "on";
+  /**
+   * The search, text recognition and speech engines are the real ones instead of the fake ones, on
+   * the models already in the data folder (a test build reaches no model host): for a recording
+   * of the app as the User runs it.
+   */
+  realEngines?: boolean;
+  /**
+   * The first Word export asks whether to mark the text IncarnaMind wrote. Without this, a launch
+   * answers it "Mark it" if nobody has, so a test that exports to Word is not stopped by it;
+   * with it, the app is left asking.
+   */
+  askToMarkAiText?: boolean;
+  /**
+   * The first Word or PDF export of a Mind with Citations asks where they go. Without this, a
+   * launch answers it "Footnotes" if nobody has; with it, the app is left asking.
+   */
+  askCitationPlace?: boolean;
 }
 
 /**
@@ -230,12 +268,17 @@ export async function launchApp(
     noAudioEngine = false,
     transcriber,
     scans,
+    scansAtOnce,
+    modelDownloads,
     web,
     lookLimit,
     scriptedTasks = false,
     contradictionWatchDelayMs,
     sandboxed = false,
     sandboxNotice,
+    realEngines = false,
+    askToMarkAiText = false,
+    askCitationPlace = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const env: Record<string, string> = {};
@@ -265,6 +308,8 @@ export async function launchApp(
   delete env.INCARNAMIND_TEST_COPILOT;
   delete env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS;
   delete env.INCARNAMIND_TEST_SCANS;
+  delete env.INCARNAMIND_TEST_SCANS_AT_ONCE;
+  delete env.INCARNAMIND_TEST_MODEL_DOWNLOADS;
   delete env.INCARNAMIND_TEST_WEB;
   delete env.INCARNAMIND_TEST_LOOK_LIMIT;
   delete env.INCARNAMIND_TEST_TASKS;
@@ -298,6 +343,8 @@ export async function launchApp(
   if (claudeSignInMs) env.INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS = String(claudeSignInMs);
   if (copilot) env.INCARNAMIND_TEST_COPILOT = copilot;
   if (scans) env.INCARNAMIND_TEST_SCANS = scans;
+  if (scansAtOnce) env.INCARNAMIND_TEST_SCANS_AT_ONCE = String(scansAtOnce);
+  if (modelDownloads) env.INCARNAMIND_TEST_MODEL_DOWNLOADS = JSON.stringify(modelDownloads);
   if (web) env.INCARNAMIND_TEST_WEB = String(web);
   if (lookLimit) env.INCARNAMIND_TEST_LOOK_LIMIT = String(lookLimit);
   if (scriptedTasks) env.INCARNAMIND_TEST_TASKS = "1";
@@ -307,8 +354,10 @@ export async function launchApp(
   env.INCARNAMIND_DATA_DIR = dataDir;
   env.INCARNAMIND_TEST_HOOKS = "1";
   if (fakeChat) env.INCARNAMIND_FAKE_CHAT = "1";
-  env.INCARNAMIND_TEST_EMBEDDER = "fake";
-  env.INCARNAMIND_TEST_TRANSCRIBER = "fake";
+  if (!realEngines) {
+    env.INCARNAMIND_TEST_EMBEDDER = "fake";
+    env.INCARNAMIND_TEST_TRANSCRIBER = "fake";
+  }
   if (transcriber) env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS = JSON.stringify(transcriber);
 
   const app = await electron.launch({
@@ -334,7 +383,34 @@ export async function launchApp(
       message: `the window is ${WINDOW_SIZE.width} × ${WINDOW_SIZE.height}: is the screen too short for it?`,
     });
   }
+  await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
+}
+
+async function answerExportQuestions(
+  window: Page,
+  markAiText: boolean,
+  citationPlace: boolean,
+): Promise<void> {
+  await window.evaluate(
+    async ([mark, place]) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { exportOptions } = (await bridge.getSettings()).user;
+      const docx =
+        mark && exportOptions.docx.markAiText === null
+          ? { ...exportOptions.docx, markAiText: "mark" as const }
+          : exportOptions.docx;
+      const citations =
+        place && exportOptions.citationPlace === undefined
+          ? { citationPlace: "footnotes" as const }
+          : {};
+      if (docx === exportOptions.docx && Object.keys(citations).length === 0) return;
+      await bridge.updateSettings({
+        user: { exportOptions: { ...exportOptions, docx, ...citations } },
+      });
+    },
+    [markAiText, citationPlace],
+  );
 }
 
 /**
@@ -369,6 +445,114 @@ export const flushUsageData = (app: ElectronApplication) =>
       throw new Error("Launch with `usageData`: only then has the app a usage data sender.");
     await hooks.flush();
   });
+
+export async function panelOf(app: ElectronApplication): Promise<Page> {
+  const find = () => app.windows().find((page) => page.url().includes("meetingPanel.html"));
+  await expect.poll(() => find() !== undefined, { timeout: 15_000 }).toBe(true);
+  const page = find();
+  if (!page) throw new Error("The floating panel didn't open.");
+  await page.getByTestId("meeting-panel").waitFor();
+  return page;
+}
+
+export async function expectBarOneRow(bar: Locator): Promise<void> {
+  await expect
+    .poll(() =>
+      bar.evaluate((element) => {
+        const controls = element.querySelector<HTMLElement>('[data-testid="meeting-controls"]');
+        if (!controls) throw new Error("The bar has no controls.");
+        const shown = (id: string) => {
+          const found = element.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+          return found !== null && found.offsetParent !== null;
+        };
+        const row = parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue("--meeting-bar-row"),
+        );
+        const frame = controls.getBoundingClientRect();
+        const seen = [...controls.children].filter(
+          (each): each is HTMLElement => each instanceof HTMLElement && each.offsetParent !== null,
+        );
+        const middle = (each: Element) => {
+          const box = each.getBoundingClientRect();
+          return box.top + box.height / 2;
+        };
+        const buttons = [...element.querySelectorAll<HTMLElement>(".meeting-button")].filter(
+          (each) => each.offsetParent !== null,
+        );
+        return {
+          rowHeight: Math.abs(frame.height - row) < 1,
+          oneRow: seen.every(
+            (each) =>
+              Math.abs(middle(each) - middle(controls)) < 2 &&
+              each.getBoundingClientRect().right <= frame.right + 1,
+          ),
+          kept:
+            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop"].every(shown) &&
+            (shown("meeting-pause") || shown("meeting-resume")),
+          fits: element.scrollWidth <= element.clientWidth + 1,
+          cut: buttons.some((button) =>
+            [button, ...button.querySelectorAll("span")].some(
+              (each) => each.scrollWidth > each.clientWidth + 1,
+            ),
+          ),
+          foldedHaveMore:
+            [
+              "meeting-mark",
+              "meeting-call-help",
+              "meeting-transcript-toggle",
+              "meeting-details-toggle",
+            ].every(shown) || shown("meeting-more"),
+        };
+      }),
+    )
+    .toEqual({
+      rowHeight: true,
+      oneRow: true,
+      kept: true,
+      fits: true,
+      cut: false,
+      foldedHaveMore: true,
+    });
+}
+
+export const panelOpen = (app: ElectronApplication) =>
+  app.windows().some((page) => !page.isClosed() && page.url().includes("meetingPanel.html"));
+
+export const focusMainWindow = (app: ElectronApplication, focused: boolean) =>
+  app.evaluate((_electron, front) => {
+    (
+      globalThis as unknown as { incarnamindMainFocused(focused: boolean): void }
+    ).incarnamindMainFocused(front);
+  }, focused);
+
+export const heldGlobalKeys = (app: ElectronApplication, keys: string) =>
+  app.evaluate(({ globalShortcut }, asked) => globalShortcut.isRegistered(asked), keys);
+
+/**
+ * Gives Windows and Linux the keys macOS holds by default (⌃⌥1–7, H and M), which they ship
+ * without, and then `chosen` over them on every system: a spec that presses the meeting's
+ * shortcuts sets them first, as Settings › Meetings does. macOS keeps its own where `chosen`
+ * says nothing.
+ */
+export async function setMeetingKeys(window: Page, chosen: HelpKeys = {}): Promise<void> {
+  const keys: HelpKeys = {};
+  if (process.platform !== "darwin") {
+    for (const shortcut of HELP_SHORTCUTS) keys[shortcut] = defaultHelpKeys(shortcut, true) ?? "";
+  }
+  Object.assign(keys, chosen);
+  if (Object.keys(keys).length === 0) return;
+  await window.evaluate(async (all) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.updateSettings({ device: { meetingHelpKeys: all } });
+  }, keys);
+}
+
+export const pressHeldKeys = (app: ElectronApplication, kind: string) =>
+  app.evaluate((_electron, pressed) => {
+    (
+      globalThis as unknown as { incarnamindPressHelpKeys(kind: string): void }
+    ).incarnamindPressHelpKeys(pressed);
+  }, kind);
 
 /**
  * Stands in for the system's notifications: each one shown is recorded
@@ -410,10 +594,15 @@ export async function forceQuit(app: ElectronApplication): Promise<void> {
   await exited;
 }
 
-/** Chooses the Edit menu's Undo or Redo, as the application menu has it now. */
-export const clickEditItem = (app: ElectronApplication, id: "edit.undo" | "edit.redo") =>
+/** Chooses an editing command, as the application menu has it now. */
+export const clickEditItem = (
+  app: ElectronApplication,
+  id: "edit.undo" | "edit.redo" | "edit.selectAll",
+) =>
   app.evaluate(({ Menu }, itemId) => {
-    Menu.getApplicationMenu()?.getMenuItemById(itemId)?.click();
+    const item = Menu.getApplicationMenu()?.getMenuItemById(itemId);
+    if (!item) throw new Error(`No menu item ${itemId}.`);
+    item.click();
   }, id);
 
 /**
@@ -450,6 +639,41 @@ export async function newMind(
   await expect(first).toHaveJSProperty("tagName", "H1");
   await window.keyboard.press("Backspace");
   await expect(first).toHaveJSProperty("tagName", "P");
+}
+
+/** Runs a command from ⌘K by its label, as the User types and clicks it. */
+export async function runFromPalette(window: Page, label: string): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(label);
+  const item = window.getByTestId("palette-item").filter({ hasText: label }).first();
+  await expect(item).toBeVisible();
+  await item.click();
+}
+
+/** Runs a command from ⌘K by its id, once ⌘K lists it under its label, as the User types and clicks it. */
+export async function runCommand(window: Page, id: string, label: string): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(label);
+  const item = window.getByTestId("palette").locator(`[data-key="command:${id}"]`);
+  await expect(item).toContainText(label);
+  await pointAndClick(window, item);
+}
+
+/** How many times ⌘K lists the command, once its words are typed (0 or 1); then Esc closes it. */
+export async function paletteOffers(window: Page, id: string, words: string): Promise<number> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(`>${words}`);
+  const palette = window.getByTestId("palette");
+  await expect(
+    palette.locator('[data-testid="palette-item"], [data-testid="palette-empty"]').first(),
+  ).toBeVisible();
+  const count = await palette.locator(`[data-key="command:${id}"]`).count();
+  await window.keyboard.press("Escape");
+  await expect(palette).toBeHidden();
+  return count;
 }
 
 /** A Folder's row in the sidebar's Folders view, with what is listed in it, by its name. */
@@ -652,10 +876,24 @@ export async function addProviderPage(settings: Locator, catalogId: string): Pro
   await settings
     .getByTestId("provider-directory")
     .locator(`[data-catalog-id="${catalogId}"]`)
+    .first()
     .click();
   const page = settings.getByTestId("provider-add");
   await expect(page).toHaveAttribute("data-catalog-id", catalogId);
   return page;
+}
+
+/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+export async function openAdvancedModels(settings: Locator): Promise<Locator> {
+  const advanced = settings.getByTestId("models-advanced");
+  const toggle = advanced.getByTestId("models-advanced-toggle");
+  await expect(toggle).toBeVisible();
+  await expect(advanced).not.toHaveAttribute("open");
+  await toggle.click();
+  await expect(advanced).toHaveAttribute("open", "");
+  const tagging = advanced.getByTestId("tagging-settings");
+  await expect(tagging).toBeVisible();
+  return tagging;
 }
 
 /** As `addProviderPage`, returning that page's key form. */
@@ -777,6 +1015,53 @@ export async function savedPath(window: Page, name: string): Promise<string> {
   await expect(done).toContainText(`Saved “${name}” in `, { timeout: 30_000 });
   return (await done.getAttribute("title")) ?? "";
 }
+
+export async function examplesMenu(window: Page): Promise<Locator> {
+  const row = window.getByTestId("not-in-a-folder");
+  await pointAndClick(window, row.getByTestId("examples-menu"));
+  const menu = row.getByTestId("examples-actions");
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/**
+ * Opens a saved page in a window of its own, in a session with the network off that records
+ * every request it is asked for (`requestsMade`), as a reader opening the file in a browser would.
+ */
+export async function openSavedPage(app: ElectronApplication, path: string): Promise<Page> {
+  const opened = app.waitForEvent("window");
+  await app.evaluate(async ({ BrowserWindow, session }, file) => {
+    const offline = session.fromPartition("saved-page", { cache: false });
+    offline.enableNetworkEmulation({ offline: true });
+    const requested: string[] = [];
+    (globalThis as { savedPageRequests?: string[] }).savedPageRequests = requested;
+    offline.webRequest.onBeforeRequest((details, callback) => {
+      requested.push(details.url);
+      callback({ cancel: !details.url.startsWith("file:") });
+    });
+    const window = new BrowserWindow({
+      width: 1100,
+      height: 760,
+      useContentSize: true,
+      // macOS keeps a window no taller than the screen otherwise, and CI's Mac has a small one.
+      enableLargerThanScreen: true,
+      webPreferences: {
+        session: offline,
+        sandbox: true,
+        contextIsolation: true,
+        backgroundThrottling: false,
+      },
+    });
+    await window.loadFile(file);
+  }, path);
+  const page = await opened;
+  await page.waitForLoadState("load");
+  return page;
+}
+
+/** Every address the page `openSavedPage` opened has asked for, the ones it was refused included. */
+export const requestsMade = (app: ElectronApplication) =>
+  app.evaluate(() => (globalThis as { savedPageRequests?: string[] }).savedPageRequests ?? []);
 
 /** The menu of the Mind's tab, opened by a right-click on the tab, as a person opens it. */
 export async function tabMenu(window: Page): Promise<Locator> {
@@ -1182,6 +1467,13 @@ export async function catchCopies(window: Page): Promise<void> {
 export const copied = (window: Page) =>
   window.evaluate(() => (globalThis as unknown as { copied?: string }).copied ?? "");
 
+/** What the Edit menu's Undo would take back now, by its label. */
+export const undoMenuItem = (app: ElectronApplication) =>
+  app.evaluate(({ Menu }) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById("edit.undo");
+    return { label: item?.label ?? "", enabled: item?.enabled ?? false };
+  });
+
 /** Pushes a core event to the window, as the core does when something happens. */
 export const emit = (app: ElectronApplication, name: string, payload: unknown) =>
   app.evaluate(
@@ -1203,6 +1495,9 @@ export function setLanguage(window: Page, language: "en" | "zh-CN"): Promise<unk
     language,
   );
 }
+
+/** The scale a copy's transform says, 1 with none. */
+export const scaleOf = (transform: string) => Number(/^matrix\(([^,]+),/.exec(transform)?.[1] ?? 1);
 
 /** How many animations are running (src/renderer/src/motion.ts), leaving copies included. */
 export function motionRunning(window: Page): Promise<number> {
@@ -1356,6 +1651,17 @@ export async function markSteps(window: Page, done: object): Promise<void> {
     });
   }, done);
 }
+
+/** One step of the Welcome card. */
+export const welcomeStep = (window: Page, key: "citation" | "question" | "files") =>
+  window.locator(`[data-testid="first-open-step"][data-step="${key}"]`);
+
+/** Which steps of the first open the core holds as done. */
+export const gettingStarted = (window: Page) =>
+  window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await bridge.getSettings()).device.gettingStarted;
+  });
 
 /** The id of the Document listed in the sidebar under `name`. */
 export async function documentIdOf(window: Page, name: string): Promise<string> {
@@ -1678,7 +1984,7 @@ export async function dragBlock(window: Page, block: Locator, target: Locator): 
  * Where `words` are drawn in a line of text: their left and right edges, and
  * their middle line. They may run across marks (AI text and the User's, bold).
  */
-async function wordsBox(line: Locator, words: string) {
+export async function wordsBox(line: Locator, words: string) {
   const box = await line.evaluate((element, wanted) => {
     const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     const texts: Text[] = [];
@@ -1776,6 +2082,17 @@ export async function focusSettled(window: Page, editor: Locator): Promise<void>
   await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 20)));
 }
 
+/** The words of the sentences the User keeps as their own view, in the Mind's order. */
+export const keptWords = (editor: Locator) =>
+  editor.evaluate((dom) => {
+    const kept: string[] = [];
+    (dom as unknown as { editor: Editor }).editor.state.doc.descendants((node) => {
+      const marked = node.marks.some((each) => each.type.name === "claimCheck" && each.attrs.kept);
+      if (node.isText && marked) kept.push(node.text ?? "");
+    });
+    return kept;
+  });
+
 /** The page of the Mind the User is in, in the group they are in. */
 export const frontMind = (window: Page) =>
   window.locator('[data-testid="tab-group"][data-focused] [data-testid="mind-pane"]:visible');
@@ -1841,6 +2158,13 @@ export async function nameMind(window: Page, name: string): Promise<void> {
     },
   );
   await expect(frontMindName(window)).toHaveText(name);
+}
+
+/** Hides or shows the sidebar with its button, as a person does: in the sidebar's header or the tab strip. */
+export async function setSidebarShown(window: Page, shown: boolean): Promise<void> {
+  const toggle = window.getByTestId("sidebar-toggle");
+  await pointAndClick(window, toggle);
+  await expect(toggle).toHaveAttribute("aria-expanded", shown ? "true" : "false");
 }
 
 /** Moves the cursor to the start of the text as the system does: ⌘↑ on macOS, where ⌘Home doesn't. */
@@ -1993,6 +2317,62 @@ export async function setSidebarWidth(window: Page, width: number): Promise<void
     .toBeCloseTo(width, 0);
 }
 
+/**
+ * Sizes the assistant as a person does from the keyboard: on its resize line, ← widens and →
+ * narrows, 10px a press and 50px with Shift. It presses them all without waiting, so `width` must
+ * be a whole number of presses away.
+ */
+export async function sizeAssistant(window: Page, width: number): Promise<void> {
+  const assistant = window.getByTestId("assistant");
+  const widthNow = () => assistant.evaluate((el) => Math.round(el.getBoundingClientRect().width));
+  const now = await widthNow();
+  const key = width > now ? "ArrowLeft" : "ArrowRight";
+  const distance = Math.abs(width - now);
+  await window.getByTestId("assistant-resize").focus();
+  for (let press = 0; press < Math.floor(distance / 50); press++) {
+    await window.keyboard.press(`Shift+${key}`);
+  }
+  for (let press = 0; press < (distance % 50) / 10; press++) await window.keyboard.press(key);
+  await expect.poll(widthNow).toBe(width);
+}
+
+export interface TableSample {
+  status: string | null;
+  top: number;
+  button: string | null;
+}
+
+/** From now until `stopSamples`, once a frame, the table and button of the next Answer to be asked. */
+export const startSamples = (window: Page) =>
+  window.evaluate(() => {
+    const holder = globalThis as unknown as { samples: TableSample[]; sampling: boolean };
+    holder.samples = [];
+    holder.sampling = true;
+    const asked = document.querySelectorAll("[data-testid=assistant-answer]").length;
+    const sample = () => {
+      const answer = document.querySelectorAll("[data-testid=assistant-answer]")[asked];
+      const frame = answer?.querySelector(".tableWrapper");
+      const text = answer?.querySelector("[data-testid=assistant-answer-text]");
+      if (answer && frame && text) {
+        const button = answer.querySelector("[data-testid=answer-open-table]");
+        holder.samples.push({
+          status: answer.getAttribute("data-status"),
+          top: frame.getBoundingClientRect().top - text.getBoundingClientRect().top,
+          button: button ? (button.getAttribute("aria-disabled") ?? "false") : null,
+        });
+      }
+      if (holder.sampling) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+
+export const stopSamples = (window: Page) =>
+  window.evaluate(() => {
+    const holder = globalThis as unknown as { samples: TableSample[]; sampling: boolean };
+    holder.sampling = false;
+    return holder.samples;
+  });
+
 /** The assistant's Answers (#201), in the conversation it shows. */
 export const assistantAnswers = (window: Page) =>
   window.getByTestId("assistant").getByTestId("assistant-answer");
@@ -2000,12 +2380,14 @@ export const assistantAnswers = (window: Page) =>
 /**
  * Asks a Question as a person does: ⌘J, the words, Enter. It is asked in the
  * assistant's conversation (#201); resolves with its Answer there once it is
- * written (the scripted model's, with `fakeChat`).
+ * written (the scripted model's, with `fakeChat`). The scripted model streams a word every
+ * 60 ms, so a wide table takes about 7 s on a quiet computer, and a loaded runner took more than
+ * twice the old 15 s ceiling (#1651).
  */
 export async function askInAssistant(
   window: Page,
   question: string,
-  { timeout = 15_000 }: { timeout?: number } = {},
+  { timeout = 45_000 }: { timeout?: number } = {},
 ): Promise<Locator> {
   const answers = assistantAnswers(window);
   const before = await answers.count();
@@ -2347,4 +2729,66 @@ export async function fontsDrawing(window: Page, selector: string) {
   } finally {
     await session.detach();
   }
+}
+
+/**
+ * A local decision server like Ollama's `/v1/systemone` (no model): a Folder chosen by what the
+ * Document says (`folderFor`: Finance for an invoice, Reports otherwise), Invoice in the review
+ * band for an invoice, Report likely for a report, nothing else. `requests` counts what it was asked;
+ * `delayMs` holds each answer back, for a test that does something else while Organize works.
+ */
+export async function decisionServer(
+  folderFor: (text: string) => string = (text) =>
+    text.includes("invoice") ? "Finance" : "Reports",
+  { delayMs = 0 }: { delayMs?: number } = {},
+): Promise<{ server: Server; readonly requests: number }> {
+  let requests = 0;
+  const server = createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    const body = raw ? JSON.parse(raw) : {};
+    response.setHeader("content-type", "application/json");
+    if (request.url !== "/v1/systemone") {
+      response.end(JSON.stringify({ models: [] }));
+      return;
+    }
+    requests++;
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const text = JSON.stringify(body.state).toLowerCase();
+    const answers = Object.fromEntries(
+      Object.entries(
+        body.questions as Record<
+          string,
+          { type: string; instructions: string; criteria?: Record<string, string> }
+        >,
+      ).map(([id, question]) => {
+        if (question.type === "choice") {
+          const wanted = folderFor(text);
+          const choice =
+            Object.entries(question.criteria ?? {}).find(([, value]) =>
+              value.startsWith(wanted),
+            )?.[0] ?? "__unsorted__";
+          return [id, { type: "choice", choice }];
+        }
+        const noul = question.instructions.includes("“Invoice”")
+          ? text.includes("invoice")
+            ? 0.65
+            : 0.01
+          : question.instructions.includes("“Report”")
+            ? text.includes("report")
+              ? 0.95
+              : 0.01
+            : 0.01;
+        return [id, { type: "noul", noul }];
+      }),
+    );
+    response.end(JSON.stringify({ answers }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    server,
+    get requests() {
+      return requests;
+    },
+  };
 }

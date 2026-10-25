@@ -70,6 +70,8 @@ export interface SheetLayout {
   runs: Map<number, TextRun[]>;
   /** Booleans and errors, which Excel centres. */
   centred: Set<number>;
+  /** Formulas the file saved no result for: shown as such, never as 0 (#1514). */
+  noValue: Set<number>;
   /** Notes on cells, which Excel marks with a red corner. */
   notes: Map<number, string>;
   /** By row number, from 1. */
@@ -111,6 +113,7 @@ export function emptyLayout(): SheetLayout {
     shown: new Map(),
     runs: new Map(),
     centred: new Set(),
+    noValue: new Set(),
     notes: new Map(),
     rows: new Map(),
     columns: new Map(),

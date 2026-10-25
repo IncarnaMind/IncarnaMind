@@ -30,8 +30,6 @@ const asked = ({ options }: ModelCall): string => {
     : last.content.map((part) => ("text" in part ? part.text : "")).join("");
 };
 
-const called = (call: ModelCall, tool: string) => call.results.some((each) => each.tool === tool);
-
 async function setUp(model: MockLanguageModelV4, title: string) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -71,37 +69,6 @@ const LANGUAGES = [
     tea: { question: "茶最早是在哪里喝的？", answer: "茶最早在中国西南地区被当作药饮[^1]。" },
   },
 ] as const;
-
-describe("The ask for a page that wasn't written", { timeout: 30_000 }, () => {
-  // protects=a write request whose first try wrote nothing is asked again with the instruction that the User never reads that try and the reply is to be written as for the first time, in English and Chinese, and the User reads only the second reply; fails_when=the instruction is missing from the ask, or the first reply shows; no_claim=that a real model heeds it, which the everyday-requests evaluation checks.
-  test.each(LANGUAGES)("$language: the model is told the first try is never read", async (each) => {
-    let told = "";
-    const model = scriptedModel((call): ScriptedReply => {
-      if (!asked(call).includes("The User asked for this in a Mind")) return { text: each.panel };
-      told = asked(call);
-      return called(call, "create_mind")
-        ? { text: each.done }
-        : {
-            calls: [
-              {
-                tool: "create_mind",
-                input: { title: "Tide notes", content: "## Summary\n\nTides." },
-              },
-            ],
-          };
-    });
-    const { core, mind } = await setUp(model, each.title);
-    const shown: string[] = [];
-    core.on("answer.delta", (event) => shown.push(event.text));
-
-    const answer = await askAssistant(core, { text: each.request, mindId: mind.id });
-
-    expect(told).toContain(UNSEEN);
-    expect(told).toContain(AS_NEW);
-    expect(shown.join("")).not.toContain(each.panel);
-    expect(answer.text).toBe(each.done);
-  });
-});
 
 describe("The ask for a reply that claims a change", { timeout: 30_000 }, () => {
   // protects=a reply claiming a change no Tool made is asked again with the instruction that the User never reads that reply and the new one is to be written as for the first time, in English and Chinese, and the User reads only the second; fails_when=the instruction is missing from the ask, or the claim shows; no_claim=that a real model heeds it, which the everyday-requests evaluation checks.

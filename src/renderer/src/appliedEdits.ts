@@ -17,6 +17,7 @@ import {
   type ProposalRef,
 } from "../../core/api";
 import { waitsForUser } from "../../shared/askedChanges";
+import { originMaps } from "../../shared/blockOrigins";
 import { mindName } from "../../shared/naming";
 import { aiUseOfAccepted, proposalRequestOf, resolveProposals } from "../../shared/proposals";
 import { type ChangeCounts, changeFact } from "./changeFacts";
@@ -24,12 +25,15 @@ import { core } from "./core";
 import {
   type AppliedAction,
   type AppliedChange,
+  appliedChanges,
   appliedLineIn,
   appliedLineKey,
   appliedText,
   type ChangedBlocks,
+  type ChangePlace,
   changedBlocksOf,
   changeGroupsOf,
+  changesLeft,
   type KeptLine,
   placeOfChange,
   setAppliedLine,
@@ -59,9 +63,11 @@ import {
   setApplying,
 } from "./editor/proposalReview";
 import { blockAt } from "./editor/writingPlace";
+import { speak } from "./editWithAi";
 import { translateNow as t } from "./i18n";
 import { EDIT_FROM_CORE, takeEditUpdates } from "./mindCopies";
 import { useAppStore } from "./store";
+import { pageUndoPlace } from "./undo";
 
 // An origin the editor's Undo tracks, and its copy sends to the core.
 class AcceptingEdit {}
@@ -75,16 +81,25 @@ export interface Applying {
   steps: UndoStep[];
   /** Later steps that belong to it: restoring a change, removing what it left out. */
   more: UndoStep[];
-  /** The assistant's changes the User asked for (#880): its steps as Undo and Redo move them. */
+  /** Its steps as Undo and Redo move them, once it applied. */
   followed: FollowedSteps | null;
   leftOut: readonly LeftOutPart[];
+  /** What it changed, once it applied. */
+  changes: readonly AppliedChange[];
+  byAssistant: boolean;
+  /** Each change Restore original put back, by the step that did it. */
+  restored: Map<AppliedChange, FollowedSteps>;
   stopTaking(): void;
   forget(): void;
 }
 
 const latest = new WeakMap<Editor, Applying>();
-// An Answer's card can review an earlier edit than the latest: what Restore original belongs to.
-const reviewed = new WeakMap<Editor, Applying>();
+/**
+ * The last edit that applied in each editor, which Review changes shows
+ * after its line has gone (#1795), for as long as the editor lives: a
+ * newer edit that fails or waits leaves it the last.
+ */
+const lastApplied = new WeakMap<Editor, Applying>();
 
 function asEditStep(edit: Applying, change: () => void): void {
   const stack = undoStackOf(edit.editor);
@@ -153,10 +168,11 @@ function beginEdit(editor: Editor, mindId: string, requestId: string): Applying 
   const stack = undoStackOf(editor);
   if (!doc || !stack || editor.isDestroyed) return null;
   latest.get(editor)?.forget();
-  reviewed.delete(editor);
   setAppliedLine(editor, null);
   stack.addTrackedOrigin(EDIT_FROM_CORE);
   stack.addTrackedOrigin(AcceptingEdit);
+  // A change written over Blocks gives them its origin, which its Undo takes back.
+  stack.addToScope(originMaps(doc));
   const popped = ({ stackItem }: { stackItem: UndoStep }) => {
     if (edit.steps.includes(stackItem) && latest.get(editor) === edit) setAppliedLine(editor, null);
   };
@@ -170,6 +186,9 @@ function beginEdit(editor: Editor, mindId: string, requestId: string): Applying 
     more: [],
     followed: null,
     leftOut: [],
+    changes: [],
+    byAssistant: false,
+    restored: new Map(),
     stopTaking: () => undefined,
     forget: () => {
       edit.stopTaking();
@@ -235,13 +254,13 @@ function whenArrived(
 }
 
 /** Where each of the request's changes will be once accepted, and what it takes out, read before accepting. */
-function changesOf(state: EditorState, request: string): AppliedChange[] {
+function changesOf(state: EditorState, request: string): ChangePlace[] {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return [];
   const relative = (pos: number): unknown =>
     absolutePositionToRelativePosition(pos, binding.type, binding.mapping);
   const { doc } = state;
-  return ofRequest(state, request).map((proposal: PendingProposal): AppliedChange => {
+  return ofRequest(state, request).map((proposal: PendingProposal): ChangePlace => {
     if (proposal.block === "insert") {
       return {
         from: relative(proposal.from),
@@ -324,7 +343,7 @@ export const appliedMessage = (blocks: ChangedBlocks) => appliedText(t, blocks);
 /** Accepts the edit's Proposals as part of its Undo step, and shows the line over it. Returns what changed. */
 function apply(edit: Applying, request: string): ChangedBlocks {
   const { editor } = edit;
-  const changes = changesOf(editor.state, request);
+  const places = changesOf(editor.state, request);
   const blocks = edit.doc.getXmlFragment(MIND_CONTENT_FIELD);
   let resolved: ReturnType<typeof resolveProposals> = [];
   asEditStep(edit, () => {
@@ -338,6 +357,10 @@ function apply(edit: Applying, request: string): ChangedBlocks {
   if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
   if (resolved.length === 0 || editor.isDestroyed) return { paragraphs: 0, tables: 0 };
   const { doc } = editor.state;
+  const changes = appliedChanges(editor.state, places);
+  edit.followed = followSteps(editor, edit.steps);
+  edit.changes = changes;
+  lastApplied.set(editor, edit);
   const changed = changedBlocksOf(editor.state, changes);
   setAppliedLine(editor, {
     kind: "applied",
@@ -347,17 +370,16 @@ function apply(edit: Applying, request: string): ChangedBlocks {
     changes,
     kept: keptLineOf(edit.leftOut.filter((part) => blockAt(doc, part.blockId) !== null)),
   });
-  offerEditorUndo(editor, (t) => appliedText(t, changed));
+  offerEditorUndo(editor, (t) => appliedText(t, changed), pageUndoPlace);
   return changed;
 }
 
 // Setting the assistant's changes aside before writing them as the editor's own: no Undo tracks it.
 class SettingAside {}
 
-/** Changes the User asked for, applied: their steps of Undo, and Review changes for them alone. */
+/** The assistant's changes, applied: their steps of Undo. */
 export interface AppliedAsked {
   followed: FollowedSteps;
-  review(): void;
 }
 
 type AskedApplied = (mindId: string, requests: ReadonlySet<string>, asked: AppliedAsked) => void;
@@ -412,11 +434,15 @@ export function applyArrived(
   const entries = aiUseOfAccepted(edit.doc, mindId, resolved, new Date().toISOString());
   if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
   edit.followed = followSteps(editor, edit.steps);
-  const changes = editor.isDestroyed ? [] : anchorChanges(editor.state, planned);
+  const changes = editor.isDestroyed
+    ? []
+    : appliedChanges(editor.state, anchorChanges(editor.state, planned));
+  edit.changes = changes;
+  edit.byAssistant = true;
+  lastApplied.set(editor, edit);
   const { followed } = edit;
   if (followed) {
-    const asked = { followed, review: () => reviewEdit(edit, changes, true) };
-    for (const listener of applied) listener(mindId, requests, asked);
+    for (const listener of applied) listener(mindId, requests, { followed });
   }
   if (editor.isDestroyed) return "applied";
   setAppliedLine(editor, {
@@ -428,7 +454,7 @@ export function applyArrived(
     changes,
     kept: null,
   });
-  offerEditorUndo(editor, (t) => changeFact(t, facts, null));
+  offerEditorUndo(editor, (t) => changeFact(t, facts, null), pageUndoPlace);
   return "applied";
 }
 
@@ -475,51 +501,67 @@ export async function finishApplying(
 
 function undoEdit(editor: Editor): void {
   const edit =
-    appliedLineIn(editor.state)?.kind === "review" ? reviewed.get(editor) : latest.get(editor);
-  const stack = undoStackOf(editor);
-  if (!edit || !stack || edit.steps.length === 0) return;
-  if (edit.followed) {
-    if (!edit.followed.onTop()) return;
-    edit.followed.undo();
-    setAppliedLine(editor, null);
-    return;
-  }
-  const steps = [...edit.steps, ...edit.more];
-  let top = stack.undoStack.at(-1);
-  while (!editor.isDestroyed && top !== undefined && steps.includes(top)) {
-    editor.commands.undo();
-    if (stack.undoStack.at(-1) === top) break;
-    top = stack.undoStack.at(-1);
-  }
+    appliedLineIn(editor.state)?.kind === "review" ? lastApplied.get(editor) : latest.get(editor);
+  if (!edit?.followed?.onTop()) return;
+  edit.followed.undo();
   setAppliedLine(editor, null);
 }
 
-function review(editor: Editor): void {
-  const line = appliedLineIn(editor.state);
-  const edit = latest.get(editor);
-  if (line?.kind !== "applied" || !edit) return;
-  reviewEdit(edit, line.changes, line.facts !== undefined);
+const restoredIn = (edit: Applying) => (change: AppliedChange) =>
+  edit.restored.get(change)?.state() === "done";
+
+// Redo of a Restore finishes its step after the editor took the change in: drawn again once it has.
+function redrawReview(editor: Editor): void {
+  requestAnimationFrame(() => {
+    const line = editor.isDestroyed ? null : appliedLineIn(editor.state);
+    if (line?.kind === "review") setAppliedLine(editor, { ...line });
+  });
 }
 
-function reviewEdit(edit: Applying, changes: readonly AppliedChange[], byAssistant: boolean): void {
-  const { editor } = edit;
-  if (changes.length === 0 || editor.isDestroyed) return;
-  reviewed.set(editor, edit);
-  const { followed } = edit;
+/**
+ * Whether Review changes is there for the editor's last applied edit (and,
+ * given `followed`, for that one): it is still done, and some change of it
+ * can still be restored, its words untouched since.
+ */
+export function canReviewApplied(editor: Editor, followed?: FollowedSteps | null): boolean {
+  const edit = lastApplied.get(editor);
+  if (editor.isDestroyed || !edit?.followed) return false;
+  if (followed !== undefined && followed !== edit.followed) return false;
+  const kind = appliedLineIn(editor.state)?.kind;
+  if (kind === "held" || kind === "running" || edit.followed.state() !== "done") return false;
+  const restored = restoredIn(edit);
+  const left = edit.changes.filter((change) => !restored(change));
+  return changeGroupsOf(editor.state, left).some((group) => group.restorable);
+}
+
+/** Whether ⌘K and the Mind's ⋯ offer Review changes: it is there, and not already showing. */
+export const offersReview = (editor: Editor): boolean =>
+  canReviewApplied(editor) && appliedLineIn(editor.state)?.kind !== "review";
+
+/** Review changes for the editor's last applied edit, at its first change: from its line, ⌘K, the Mind's ⋯ and the assistant's card. */
+export function reviewApplied(editor: Editor, { focus = false } = {}): void {
+  const edit = lastApplied.get(editor);
+  if (!edit || !canReviewApplied(editor)) return;
+  const { followed, changes } = edit;
   const mind = useAppStore.getState().minds.find((each) => each.id === edit.mindId);
+  const restored = restoredIn(edit);
+  const shows = (change: AppliedChange) => followed?.state() === "done" && !restored(change);
+  const left = changes.filter(shows);
   setAppliedLine(editor, {
     kind: "review",
-    blockId: firstBlockOf(editor.state, changes),
-    changes: [...changes],
-    ...(byAssistant && { byAssistant: true }),
+    blockId: firstBlockOf(editor.state, left),
+    changes,
+    shows,
+    ...(edit.byAssistant && { byAssistant: true }),
     ...(followed && {
       undo: { available: () => followed.onTop(), mind: mind ? mindName(mind) : t("mind.untitled") },
     }),
   });
-  const first = changes
+  const first = left
     .map((change) => placeOfChange(editor.state, change))
     .find((place) => place !== null);
-  if (first) editor.chain().setTextSelection(first.from).scrollIntoView().run();
+  const chain = focus ? editor.chain().focus() : editor.chain();
+  if (first) chain.setTextSelection(first.from).scrollIntoView().run();
 }
 
 /** The group of changes shown again whose words the cursor is in, by its place among the line's groups. */
@@ -527,39 +569,58 @@ export function reviewedChangeAt(state: EditorState): number | null {
   const line = appliedLineIn(state);
   if (line?.kind !== "review") return null;
   const { from } = state.selection;
-  const index = changeGroupsOf(state, line.changes).findIndex(
+  const index = changeGroupsOf(state, changesLeft(line)).findIndex(
     (group) => group.from <= from && from <= group.to,
   );
   return index >= 0 ? index : null;
 }
 
-/** Restore original: a group's old words back in place of its new ones, one step of Undo. */
+/** Whether the group the cursor is in can be restored: the User hasn't changed it since. */
+export function restorableAt(state: EditorState): boolean {
+  const line = appliedLineIn(state);
+  const index = reviewedChangeAt(state);
+  return (
+    line?.kind === "review" &&
+    index !== null &&
+    changeGroupsOf(state, changesLeft(line))[index]?.restorable === true
+  );
+}
+
+/**
+ * Restore original: a group's old words back in place of its new ones, one
+ * step of Undo. Never over words the User changed since: those show "You
+ * changed this since" and have no Restore.
+ */
 export function restoreChange(editor: Editor, index: number): void {
   const line = appliedLineIn(editor.state);
   const group =
-    line?.kind === "review" ? changeGroupsOf(editor.state, line.changes)[index] : undefined;
-  if (line?.kind !== "review" || !group || editor.isDestroyed) return;
+    line?.kind === "review" ? changeGroupsOf(editor.state, changesLeft(line))[index] : undefined;
+  if (line?.kind !== "review" || !group?.restorable || editor.isDestroyed) return;
   const tr = editor.state.tr;
   // Last first, so the places of the ones before it hold.
   const lastFirst = [...group.members].sort(
     (a, b) => b.place.from - a.place.from || b.index - a.index,
   );
   for (const { change, place } of lastFirst) tr.replaceWith(place.from, place.to, change.removed);
-  const restored = new Set(group.members.map((member) => member.index));
+  // Until the change reaches the Mind's document its Yjs place is read against the text before it.
+  const restoring = new Set(group.members.map(({ change }) => change));
   tr.setMeta(appliedLineKey, {
     ...line,
-    changes: line.changes.filter((_, each) => !restored.has(each)),
+    shows: (change: AppliedChange) => !restoring.has(change) && (line.shows?.(change) ?? true),
   });
   asOneStep(editor, () => editor.view.dispatch(tr));
   const top = undoStackOf(editor)?.undoStack.at(-1);
-  const edit = reviewed.get(editor) ?? latest.get(editor);
+  const edit = lastApplied.get(editor);
   if (top && edit) {
     edit.more.push(top);
     edit.followed?.add(top);
+    const back = followSteps(editor, [top]);
+    back?.observe(() => redrawReview(editor));
+    if (back) for (const { change } of group.members) edit.restored.set(change, back);
   }
   // Placed again now that the change has reached the Mind's document.
   const now = appliedLineIn(editor.state);
-  if (now) setAppliedLine(editor, { ...now });
+  if (now?.kind === "review") setAppliedLine(editor, { ...now, shows: line.shows });
   offerEditorUndo(editor, (t) => t("edit.review.restored.one"));
 }
 
@@ -569,12 +630,15 @@ function resolveHeld(editor: Editor, outcome: "accept" | "reject"): void {
   if (line.asked && outcome === "accept") {
     const { mindId, requests, facts } = line.asked;
     setAppliedLine(editor, null);
-    applyArrived(editor, mindId, new Set(requests), facts, { holds: false });
+    if (applyArrived(editor, mindId, new Set(requests), facts, { holds: false }) === "applied") {
+      speak(mindId, changeFact(t, facts, null));
+    }
     return;
   }
   const edit = latest.get(editor);
   if (outcome === "accept" && edit?.request === line.request) {
-    apply(edit, line.request);
+    const changed = apply(edit, line.request);
+    if (changed.paragraphs + changed.tables > 0) speak(edit.mindId, appliedMessage(changed));
     return;
   }
   const asked = new Set(line.asked?.requests ?? [line.request]);
@@ -625,7 +689,7 @@ export function actOnAppliedEdit(editor: Editor, action: AppliedAction): void {
       undoEdit(editor);
       return;
     case "review":
-      review(editor);
+      reviewApplied(editor);
       return;
     case "done":
       setAppliedLine(editor, null);

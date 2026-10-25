@@ -43,6 +43,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://api.anthropic.com/v1" }],
     apiKey: "required",
     keyUrl: "https://platform.claude.com/settings/keys",
+    billingUrl: "https://platform.claude.com/settings/billing",
     keyGuide: [
       {
         en: "Open Anthropic's key page and sign in to the Anthropic Console.",
@@ -130,6 +131,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://api.openai.com/v1" }],
     apiKey: "required",
     keyUrl: "https://platform.openai.com/api-keys",
+    billingUrl: "https://platform.openai.com/settings/organization/billing/overview",
     keyGuide: [
       {
         en: "Open OpenAI's key page and sign in to the OpenAI platform.",
@@ -273,6 +275,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://openrouter.ai/api/v1" }],
     apiKey: "required",
     keyUrl: "https://openrouter.ai/settings/keys",
+    billingUrl: "https://openrouter.ai/credits",
     keyGuide: [
       {
         en: "Open OpenRouter's key page and sign in.",
@@ -387,6 +390,7 @@ const PROVIDERS = [
     endpoints: [{ id: "global", label: GLOBAL, baseUrl: "https://api.deepseek.com" }],
     apiKey: "required",
     keyUrl: "https://platform.deepseek.com/api_keys",
+    billingUrl: "https://platform.deepseek.com/top_up",
     keyGuide: [
       {
         en: "Open DeepSeek's key page and sign up or sign in to the DeepSeek platform.",
@@ -450,7 +454,7 @@ const PROVIDERS = [
     keyGuide: [
       {
         en: "Pick the region of your account above, then open Qwen's key page. A key works only in its own region.",
-        zh: "先在上方选择账号所在的地域，再打开通义千问的密钥页面。密钥只在创建它的地域有效。",
+        zh: "先在上方选择账号所在的区域，再打开通义千问的密钥页面。密钥只在创建它的区域有效。",
       },
       {
         en: "Sign in to Model Studio and turn it on if it asks.",
@@ -480,7 +484,7 @@ const PROVIDERS = [
     notes: [
       {
         en: "A key works only in the region it was made in. Choose the region first.",
-        zh: "密钥只能用于创建它的地域。请先选择地域。",
+        zh: "密钥只能用于创建它的区域。请先选择区域。",
       },
     ],
     checked: "2026-10-18",
@@ -490,6 +494,7 @@ const PROVIDERS = [
     name: { en: "Kimi (Moonshot AI)", zh: "Kimi（月之暗面）" },
     support: "best-effort",
     group: "china",
+    alsoListedIn: "international",
     adapter: "moonshotai",
     endpoints: [
       {
@@ -498,12 +503,14 @@ const PROVIDERS = [
         baseUrl: "https://api.moonshot.cn/v1",
         keyUrl: "https://platform.kimi.com/console/api-keys",
         pricingUrl: "https://platform.moonshot.cn/docs/pricing/chat",
+        billingUrl: "https://platform.kimi.com/console",
       },
       {
         id: "intl",
         label: { en: "International", zh: "国际" },
         baseUrl: "https://api.moonshot.ai/v1",
         keyUrl: "https://platform.kimi.ai/console/api-keys",
+        billingUrl: "https://platform.kimi.ai/console",
       },
     ],
     apiKey: "required",
@@ -616,7 +623,7 @@ const PROVIDERS = [
     keyGuide: [
       {
         en: "Pick the region of your account above, then open SiliconFlow's key page.",
-        zh: "先在上方选择账号所在的地域，再打开硅基流动的密钥页面。",
+        zh: "先在上方选择账号所在的区域，再打开硅基流动的密钥页面。",
       },
       {
         en: "Sign in to SiliconFlow. In mainland China it asks you to verify your identity first.",
@@ -794,18 +801,10 @@ export const KEY_PROVIDERS: readonly string[] = CATALOG_PROVIDERS.filter(
 
 /**
  * The providers to offer for a key, in the two groups the screens show: `main`,
- * the first-class ones and any best-effort one the User already set up (it
- * stays among their providers whatever its tier), and `more`, under "More
- * providers". The first-run setup shows `main` for a User with none set up.
+ * the first-class ones, and `more`, the rest, under "More…".
  */
-export function keyProviderGroups(setUp: readonly string[] = []): {
-  main: string[];
-  more: string[];
-} {
-  const firstClass = KEY_PROVIDERS.filter((id) => catalogProvider(id)?.support === "first-class");
-  // Set up, then listed after the first-class ones rather than among them.
-  const keptSetUp = KEY_PROVIDERS.filter((id) => !firstClass.includes(id) && setUp.includes(id));
-  const main = [...firstClass, ...keptSetUp];
+export function keyProviderGroups(): { main: string[]; more: string[] } {
+  const main = KEY_PROVIDERS.filter((id) => catalogProvider(id)?.support === "first-class");
   return { main, more: KEY_PROVIDERS.filter((id) => !main.includes(id)) };
 }
 
@@ -827,6 +826,11 @@ export function fieldValueOf(endpoint: Endpoint, baseUrl: string | null): string
   return fieldAccepts(endpoint.field, value) ? value : null;
 }
 
+export const billingUrlOf = (
+  provider: CatalogProvider,
+  endpointId: string | null | undefined,
+): string | undefined => endpointOf(provider, endpointId)?.billingUrl ?? provider.billingUrl;
+
 export const pricingUrlOf = (
   provider: CatalogProvider,
   endpointId: string | null | undefined,
@@ -842,7 +846,8 @@ export const endpointOf = (
 
 /**
  * A provider's model for a job that isn't Answers, from the catalog: the
- * ChatGPT plan's from its own roles. Undefined when it names none.
+ * ChatGPT plan's from its own roles, a Claude account's from Anthropic's, as
+ * it serves the same models. Undefined when it names none.
  */
 export const catalogRoleModel = (
   { kind, catalogId }: { kind: ChatProviderKind; catalogId: string | null },
@@ -852,4 +857,4 @@ export const catalogRoleModel = (
     ? role === "images"
       ? undefined
       : CHATGPT_PLAN_ROLES[role]
-    : catalogProviderOf(kind, catalogId)?.roles[role];
+    : catalogProviderOf(kind === "claude-account" ? "anthropic" : kind, catalogId)?.roles[role];

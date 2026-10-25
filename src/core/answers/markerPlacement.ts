@@ -25,6 +25,15 @@
  * change to how a record says where its quote is (pages, or a Location)
  * doesn't touch it.
  */
+import {
+  answerSentences,
+  FENCE,
+  MARKER,
+  type Paragraph,
+  paragraphsOf,
+  type Span,
+} from "../../shared/answerSentences";
+import { FIGURE_MARKER, figureMarkerEnd, type PlacedFigure } from "../../shared/figureMarkers";
 import { delimiterRow, looksLikeTable, tableCellRanges } from "../../shared/markdownTables";
 import type { AnswerEngineEvent, AnswerTools } from "./engine";
 
@@ -45,18 +54,8 @@ export interface PlacedMarker {
   at: "sentence" | "paragraph";
 }
 
-const MARKER = /\[\^(\d{1,4})\]/g;
-/**
- * A sentence ends at one of these, with any markers right after it, followed
- * by a space or the end of its line. CJK ones need no space.
- */
-const SENTENCE_END = /[.!?](?:\[\^\d{1,4}\])*(?=["'”’)\]]*(?:\s|$))|[。！？](?:\[\^\d{1,4}\])*/g;
 /** Closing punctuation a marker goes before, with the quotes and brackets that close the sentence. */
 const CLOSING = /[.!?。！？…:;：；,，]+["'”’」』)）\]]*$/u;
-/** Lines no marker goes into. */
-const SKIPPED_LINE = /^\s*(?:#{1,6}\s|\||\[\^\d{1,4}\]:|(?:-{3,}|\*{3,}|_{3,})\s*$)/;
-const FENCE = /^\s*(?:```|~~~)/;
-const MATH_FENCE = /^\s*\$\$\s*$/;
 
 /** The least an Answer sentence must share with a quote to be the one it supports. */
 const MIN_SHARED = 2;
@@ -105,67 +104,6 @@ export function likeness(
 const matches = (likeness: { shared: number; score: number }) =>
   likeness.shared >= MIN_SHARED && likeness.score >= MIN_SIMILARITY;
 
-interface Span {
-  start: number;
-  end: number;
-}
-
-interface Paragraph extends Span {
-  sentences: Span[];
-}
-
-/** The paragraphs a marker may go into, with their sentences, by offset in `text`. */
-function paragraphsOf(text: string): Paragraph[] {
-  const paragraphs: Paragraph[] = [];
-  let current: Paragraph | null = null;
-  let fenced = false;
-  let math = false;
-  let offset = 0;
-  for (const line of text.split("\n")) {
-    const start = offset;
-    const end = start + line.length;
-    offset = end + 1;
-    const fence = FENCE.test(line);
-    const mathFence = !fenced && MATH_FENCE.test(line);
-    if (fence) fenced = !fenced;
-    if (mathFence) math = !math;
-    if (fence || mathFence || fenced || math || line.trim() === "" || SKIPPED_LINE.test(line)) {
-      current = null;
-      continue;
-    }
-    if (!current) {
-      current = { start, end, sentences: [] };
-      paragraphs.push(current);
-    }
-    current.end = end;
-    // Each line ends a sentence (a list item, a line of its own); so does closing punctuation.
-    let from = start;
-    for (const found of line.matchAll(SENTENCE_END)) {
-      const to = start + found.index + found[0].length;
-      if (text.slice(from, to).trim()) current.sentences.push({ start: from, end: to });
-      from = to;
-    }
-    if (text.slice(from, end).trim()) current.sentences.push({ start: from, end });
-  }
-  return paragraphs.filter((paragraph) => paragraph.sentences.length > 0);
-}
-
-/**
- * The Answer's sentences, outside code, headings, math and footnote
- * definitions, by offset in `text`: each one's text and the markers in it.
- */
-export function answerSentences(
-  text: string,
-): { start: number; end: number; text: string; markers: number[] }[] {
-  return paragraphsOf(text).flatMap((paragraph) =>
-    paragraph.sentences.map((span) => {
-      const sentence = text.slice(span.start, span.end);
-      const markers = [...sentence.matchAll(MARKER)].map((found) => Number(found[1]));
-      return { ...span, text: sentence.trim(), markers };
-    }),
-  );
-}
-
 /**
  * The rows and cells of the Answer's tables, outside code, by offset in
  * `text`: each one's text and the markers in it. `answerSentences` leaves
@@ -173,15 +111,17 @@ export function answerSentences(
  */
 export function answerTableUnits(
   text: string,
-): { start: number; end: number; text: string; markers: number[] }[] {
-  const units: { start: number; end: number; text: string; markers: number[] }[] = [];
-  const unit = (start: number, end: number) => {
+): { start: number; end: number; text: string; markers: number[]; cell: boolean }[] {
+  const units: { start: number; end: number; text: string; markers: number[]; cell: boolean }[] =
+    [];
+  const unit = (start: number, end: number, cell = true) => {
     const found = text.slice(start, end);
     units.push({
       start,
       end,
       text: found.trim(),
       markers: [...found.matchAll(MARKER)].map((each) => Number(each[1])),
+      cell,
     });
   };
   let fenced = false;
@@ -191,10 +131,75 @@ export function answerTableUnits(
     offset += line.length + 1;
     if (FENCE.test(line)) fenced = !fenced;
     if (fenced || !looksLikeTable(line) || delimiterRow(line)) continue;
-    unit(start, start + line.length);
+    unit(start, start + line.length, false);
     for (const cell of tableCellRanges(line)) unit(start + cell.start, start + cell.end);
   }
   return units;
+}
+
+/** A figure ("[=2]") in a sentence or table cell of an Answer, and where its marker ends. */
+interface FigureAt {
+  figure: number;
+  end: number;
+}
+
+// A marker that starts the next sentence ("[=1]. [^1]") is this one's, as in `markedSentence`.
+const citedAfter = (text: string, end: number): number[] => {
+  const marker = /^[ \t\u3000]*\[\^(\d{1,4})\](?!:)/.exec(text.slice(end));
+  return marker ? [Number(marker[1])] : [];
+};
+
+/** The sentences and table cells of an Answer that show figures, with the markers each has. */
+function figurePlaces(
+  text: string,
+): { span: Span; figures: FigureAt[]; cell: boolean; markers: number[] }[] {
+  const places = [
+    ...answerSentences(text).map((sentence) => ({ ...sentence, cell: false })),
+    ...answerTableUnits(text).filter((unit) => unit.cell),
+  ];
+  return places.flatMap(({ start, end, markers, cell }) => {
+    const words = text.slice(start, end);
+    // A marker in code ("`[=1]`") is the text's own, not a figure.
+    const code = [...words.matchAll(/`[^`]*`/g)].map((each) => [
+      each.index,
+      each.index + each[0].length,
+    ]);
+    const figures = [...words.matchAll(FIGURE_MARKER)]
+      .filter((each) => !code.some(([from = 0, to = 0]) => each.index >= from && each.index < to))
+      .map((each) => ({ figure: Number(each[1]), end: start + each.index + each[0].length }));
+    const cited = cell ? markers : [...markers, ...citedAfter(text, end)];
+    return figures.length > 0 ? [{ span: { start, end }, figures, cell, markers: cited }] : [];
+  });
+}
+
+/**
+ * `text` with Citation markers put in where it shows figures without their inputs' (#1831):
+ * right after each figure, past a scale or unit written after its marker ("[=1] million"), or
+ * at the end of its table cell. `citationsOf` gives the markers a figure still needs, given
+ * those its sentence or cell has; one that several figures of a place share goes after the last
+ * of them. `figureOf` gives a figure, for the words after its marker.
+ */
+export function withFigureCitations(
+  text: string,
+  citationsOf: (figure: number, cited: readonly number[]) => readonly number[],
+  figureOf: (figure: number) => PlacedFigure | null,
+): string {
+  const at = new Map<number, number[]>();
+  for (const place of figurePlaces(text)) {
+    const after = new Map<number, number>();
+    for (const { figure, end } of place.figures) {
+      const shown = figureOf(figure);
+      const where = place.cell ? place.span.end : shown ? figureMarkerEnd(text, end, shown) : end;
+      for (const marker of citationsOf(figure, place.markers)) after.set(marker, where);
+    }
+    for (const [marker, where] of after) at.set(where, [...(at.get(where) ?? []), marker]);
+  }
+  let cited = text;
+  for (const [where, markers] of [...at].sort((a, b) => b[0] - a[0])) {
+    const label = markers.map((marker) => `[^${marker}]`).join("");
+    cited = `${cited.slice(0, where)}${label}${cited.slice(where)}`;
+  }
+  return cited;
 }
 
 /**

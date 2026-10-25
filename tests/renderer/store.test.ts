@@ -1,12 +1,14 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-import type {
-  CoreEventName,
-  CoreEvents,
-  Document,
-  DocumentGroupAssignment,
-  Folder,
-  LibrarySnapshot,
-  Mind,
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  type CoreEventName,
+  type CoreEvents,
+  DEFAULT_ASSISTANT,
+  type Document,
+  type DocumentGroupAssignment,
+  type Folder,
+  type LibrarySnapshot,
+  type Mind,
+  type WindowLayout,
 } from "../../src/core/api";
 import type { Translate } from "../../src/renderer/src/objects";
 import { isFreed } from "../helpers/freed";
@@ -87,6 +89,7 @@ const snapshot = (assignments: DocumentGroupAssignment[]): LibrarySnapshot => ({
     organizeWith: null,
     taggingStopped: [],
   },
+  automaticDefault: false,
 });
 
 let useAppStore: typeof import("../../src/renderer/src/store").useAppStore;
@@ -469,7 +472,7 @@ describe("changes the User can take back", () => {
     expect(named(top())).toBe("移动 2 个文档");
     await useAppStore.getState().deleteMind("m");
     expect(said(top())).toBe("已将“Plan”移到回收站");
-    expect(named(top())).toBe("删除“Plan”");
+    expect(named(top())).toBe("删除‘Plan’");
   });
 });
 
@@ -516,6 +519,73 @@ describe("making a Mind", () => {
     expect(method("deleteMind")).not.toHaveBeenCalled();
   });
 
+  describe("its Folder, when none is given (#1362)", () => {
+    const inFolder = { ...made, id: "m", folderId: "contracts" };
+    const alone = (folderId: string) => ({ folderIds: [folderId], tagIds: [], documentIds: [] });
+    const front = (mind: Mind | null) =>
+      useAppStore.setState({
+        minds: mind ? [mind] : [],
+        layout: {
+          groups: [
+            {
+              id: "group",
+              tabs: mind
+                ? [
+                    {
+                      id: "tab",
+                      item: { kind: "mind", mindId: mind.id },
+                      preview: false,
+                      pinned: false,
+                      place: null,
+                      opened: 0,
+                    },
+                  ]
+                : [],
+              activeTabId: mind ? "tab" : null,
+              width: 1,
+            },
+          ],
+          focusedGroupId: "group",
+          reopenable: 0,
+          assistant: DEFAULT_ASSISTANT,
+        } satisfies WindowLayout,
+      });
+    const madeIn = () => method("createMind").mock.lastCall?.[0];
+
+    afterEach(() => useAppStore.setState({ layout: null }));
+
+    test("it is the Folder of the Mind in front, and no Folder when none is", async () => {
+      front(inFolder);
+      await useAppStore.getState().createMind({ titled: true });
+      expect(madeIn()).toEqual({ headed: true, folderId: "contracts" });
+
+      front(null);
+      await useAppStore.getState().createMind({ titled: true });
+      expect(madeIn()).toEqual({ headed: true });
+    });
+
+    test("it is the one Folder a scope names, over the Folder of the Mind in front", async () => {
+      front(inFolder);
+      await useAppStore.getState().createMind({ startQuestion: true, scope: alone("board") });
+      expect(madeIn()).toEqual({ folderId: "board" });
+
+      front(inFolder);
+      await useAppStore
+        .getState()
+        .createMind({ startQuestion: true, scope: { ...alone("board"), tagIds: ["urgent"] } });
+      expect(madeIn()).toEqual({ folderId: "contracts" });
+    });
+
+    test("a Folder given, or none (null), is kept, whichever Mind is in front", async () => {
+      front(inFolder);
+      await useAppStore.getState().createMind({ titled: true, folderId: "board" });
+      expect(madeIn()).toEqual({ headed: true, folderId: "board" });
+
+      await useAppStore.getState().createMind({ titled: true, folderId: null });
+      expect(madeIn()).toEqual({ headed: true });
+    });
+  });
+
   test("a Mind made leaves the line of the change before it, and that change, as they were", async () => {
     const before = { said: () => "Moved “Quarterly” to Finance", undo: async () => undefined };
     useUndo.getState().push(before);
@@ -546,8 +616,11 @@ describe("making a Mind", () => {
 });
 
 describe("Get started's Add your Documents", () => {
-  const inFolder = (id: string, linkedFolderId: string | null) =>
-    ({ ...doc(id), linkedFolderId }) as Document;
+  const inFolder = (
+    id: string,
+    linkedFolderId: string | null,
+    status: Document["status"] = "ready",
+  ) => ({ ...doc(id), linkedFolderId, status }) as Document;
   const example = (linkedFolderId: string) =>
     ({
       group: "credit",
@@ -570,6 +643,7 @@ describe("Get started's Add your Documents", () => {
             started: true,
             hidden: false,
             citationChecked: false,
+            mistakeSeen: false,
             indexed: false,
             askedOwn: false,
             askedReady: false,
@@ -585,6 +659,25 @@ describe("Get started's Add your Documents", () => {
     expect(ticked()).toBe(false);
 
     emit("document.status", inFolder("mine", "theirs"));
+    expect(ticked()).toBe(true);
+  });
+
+  test("a Document the User adds ticks it once it has been read, not while it is read or when it can't be (#1457)", () => {
+    for (const status of ["queued", "extracting", "failed", "no-text"] as const) {
+      emit("document.status", inFolder("mine", null, status));
+      expect(ticked()).toBe(false);
+    }
+    emit("document.status", inFolder("mine", null, "waiting-for-model"));
+    expect(ticked()).toBe(true);
+  });
+
+  test("the Documents already there tick it only when one of the User's own has been read (#1457)", () => {
+    useAppStore.setState({ documents: [inFolder("a", "old"), inFolder("mine", null, "failed")] });
+    emit("connectors.changed", []);
+    expect(ticked()).toBe(false);
+
+    useAppStore.setState({ documents: [inFolder("a", "old"), inFolder("mine", null)] });
+    emit("connectors.changed", []);
     expect(ticked()).toBe(true);
   });
 });
@@ -642,28 +735,12 @@ describe("changing a Linked folder", () => {
     expect(named(change)).toBe("Resume reading");
   });
 
-  test("a layout is undone by the one it had and done again by the new one", async () => {
-    method("setLinkedFolderLayout").mockResolvedValue({ ...linked, layout: "flat" });
-    const change = await useAppStore.getState().setLinkedFolderLayout("l", "flat");
-    expect(said(change)).toBe("Showing “Papers” as a flat list");
-    expect(named(change)).toBe("Show as a flat list");
-    await useUndo.getState().undo();
-    expect(method("setLinkedFolderLayout")).toHaveBeenLastCalledWith("l", "tree");
-    await useUndo.getState().redo();
-    expect(method("setLinkedFolderLayout")).toHaveBeenLastCalledWith("l", "flat");
-    expect(await useAppStore.getState().setLinkedFolderLayout("l", "flat")).toBeUndefined();
-  });
-
   test("the lines in Chinese", async () => {
     useAppStore.setState({ settings: { language: "zh-CN" } as never });
     method("setLinkedFolderPaused").mockResolvedValue({ ...linked, status: "paused" });
     await useAppStore.getState().setLinkedFolderPaused("l", true);
     expect(said(top())).toBe("已暂停读取“Papers”");
     expect(named(top())).toBe("暂停读取");
-    method("setLinkedFolderLayout").mockResolvedValue({ ...linked, layout: "flat" });
-    await useAppStore.getState().setLinkedFolderLayout("l", "flat");
-    expect(said(top())).toBe("已将“Papers”显示为平铺列表");
-    expect(named(top())).toBe("显示为平铺列表");
   });
 });
 
@@ -868,6 +945,7 @@ describe("making a Folder", () => {
 
 describe("loading keeps a list the core pushed after reading it", () => {
   beforeEach(() => {
+    method("listMinds").mockResolvedValue([]);
     method("getSettings").mockResolvedValue({ device: { gettingStarted: { askedOwn: false } } });
     method("getExamples").mockResolvedValue({
       group: "credit",
@@ -974,6 +1052,72 @@ describe("Organize says what it did (#763)", () => {
     const restored = method("restoreAssignment");
     expect(restored).toHaveBeenCalledTimes(1);
     expect(restored.mock.calls[0]?.[0]).toBe("a");
+  });
+});
+
+describe("Undo of an Organize that began with Documents unfinished (#1391)", () => {
+  const FOLDERS = ["g1", "g2", "g3", "g4", "g5"];
+  const ids = (count: number) => Array.from({ length: count }, (_, at) => `d${at}`);
+  const suggestedIn = (id: string, groupId: string) => ({
+    ...assignment(id, "classified", groupId),
+    suggested: true,
+  });
+
+  // protects=Documents that were waiting for a model or queued when Organize was asked go back with no assignment, so none shows "Needs attention" with a model chosen and none is organized again at the next start, and Redo gives each its Folder back, for 70 Documents in 5 Folders; fails_when=Undo puts them back as waiting or queued, or Redo skips Documents that have no assignment; no_claim=the core's restore.
+  test.each([
+    { count: 2, before: "waiting" as const },
+    { count: 70, before: "waiting" as const },
+    { count: 70, before: "pending" as const },
+  ])(
+    "$count Documents $before: Undo puts them back with no assignment, and Redo gives their Folders",
+    async ({ count, before: status }) => {
+      const { sayWhenOrganized } = await import("../../src/renderer/src/organizeRun");
+      const { useUndo } = await import("../../src/renderer/src/undo");
+      method("restoreAssignment").mockClear();
+      const documents = ids(count);
+      const folderOf = (at: number) => FOLDERS[at % FOLDERS.length] ?? "g1";
+      const before = new Map(documents.map((id) => [id, assignment(id, status)]));
+      useAppStore.setState({
+        library: snapshot(documents.map((id) => assignment(id, "pending"))),
+      });
+      sayWhenOrganized(documents, before);
+      useAppStore.setState({
+        library: snapshot(documents.map((id, at) => suggestedIn(id, folderOf(at)))),
+      });
+
+      await useUndo.getState().undo();
+      const restored = method("restoreAssignment");
+      expect(restored).toHaveBeenCalledTimes(count);
+      expect(restored.mock.calls.map((call) => call[1])).toEqual(documents.map(() => null));
+
+      // Nothing is left for Organize to do: the Library holds no assignment for them.
+      restored.mockClear();
+      useAppStore.setState({ library: snapshot([]) });
+      await useUndo.getState().redo();
+      expect(restored).toHaveBeenCalledTimes(count);
+      documents.forEach((id, at) => {
+        const call = restored.mock.calls.find((each) => each[0] === id);
+        expect(call?.[1]).toMatchObject({ groupId: folderOf(at), suggested: true });
+      });
+    },
+  );
+
+  test("a Document that was filed before Organize is put back as it was", async () => {
+    const { sayWhenOrganized } = await import("../../src/renderer/src/organizeRun");
+    const { useUndo } = await import("../../src/renderer/src/undo");
+    method("restoreAssignment").mockClear();
+    const before = new Map([["a", assignment("a", "classified", "g0")]]);
+    useAppStore.setState({ library: snapshot([assignment("a", "pending")]) });
+    sayWhenOrganized(["a"], before);
+    useAppStore.setState({ library: snapshot([suggestedIn("a", "g")]) });
+
+    await useUndo.getState().undo();
+
+    expect(method("restoreAssignment").mock.calls[0]?.[1]).toMatchObject({
+      groupId: "g0",
+      suggested: false,
+      status: "classified",
+    });
   });
 });
 
@@ -1134,5 +1278,55 @@ describe("an undo line keeps only what it shows", () => {
     const change = await stopTagging();
     await freedOnceReplaced(held);
     expect(said(change)).toBe("Stopped Tagging Documents in “Research” and not in a Folder");
+  });
+});
+
+describe("Get started's Ask a question", () => {
+  const finished = (answerId: string, status: "done" | "stopped") =>
+    emit("answer.finished", { answerId, status } as CoreEvents["answer.finished"]);
+  const asked = () => useAppStore.getState().settings?.device.gettingStarted.askedOwn;
+
+  beforeEach(() => {
+    useAppStore.setState({
+      examples: {
+        group: "credit",
+        available: true,
+        mindId: "m",
+        linkedFolderId: "f",
+        answerId: "example",
+        more: [],
+        ready: null,
+      } satisfies CoreEvents["examples.changed"],
+      otherExamples: [],
+      settings: {
+        device: {
+          gettingStarted: {
+            started: true,
+            hidden: false,
+            citationChecked: false,
+            mistakeSeen: false,
+            indexed: false,
+            askedOwn: false,
+            askedReady: false,
+          },
+        },
+      } as unknown as NonNullable<ReturnType<typeof useAppStore.getState>["settings"]>,
+    });
+  });
+
+  test("it ticks once an Answer to the User's own Question arrives, not when it fails, is stopped or is the example's", () => {
+    emit("answer.failed", { answerId: "own" } as CoreEvents["answer.failed"]);
+    finished("own", "stopped");
+    finished("example", "done");
+    expect(asked()).toBe(false);
+
+    finished("own", "done");
+    expect(asked()).toBe(true);
+  });
+
+  test("a later failed Answer doesn't take the tick back", () => {
+    finished("own", "done");
+    emit("answer.failed", { answerId: "again" } as CoreEvents["answer.failed"]);
+    expect(asked()).toBe(true);
   });
 });

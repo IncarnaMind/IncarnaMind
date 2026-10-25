@@ -22,6 +22,7 @@ import {
 import type { Consent } from "../consent";
 import { InvalidInputError, isRecord, TaggingNotReadyError } from "../errors";
 import { decisionGroupClassifier, reviewBandFor } from "../library/classifier";
+import { parseApiKey } from "../providers/apiKey";
 import {
   askJev,
   JEV_HOSTED_URL,
@@ -81,13 +82,6 @@ function parseStored(value: unknown): StoredJev | null {
     model: typeof model === "string" ? model : null,
     reviewBand: isReviewBand(reviewBand) ? reviewBand : { ...JEV_DEFAULT_REVIEW_BAND },
   };
-}
-
-/** undefined: keep the stored key. Blank text counts as "keep". */
-function parseApiKey(value: unknown): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new InvalidInputError("The API key must be text.");
-  return value.trim() || undefined;
 }
 
 /** A base URL, without a trailing `/v1/systemone` if the whole endpoint was pasted; null for TypeSafe's. */

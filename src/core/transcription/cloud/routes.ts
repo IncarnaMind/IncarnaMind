@@ -11,6 +11,7 @@
  * before it is sent (../../cost/meter).
  */
 import { createHash } from "node:crypto";
+import { strayKeyCharacter } from "../../../shared/apiKey";
 import type { CloudStream, Logger } from "../../adapters";
 import type {
   CloudTranscriptionRoute,
@@ -22,6 +23,7 @@ import type {
 import type { Consent } from "../../consent";
 import type { Meter } from "../../cost/meter";
 import { InvalidInputError, isRecord, LocalModeError, SecretStorageError } from "../../errors";
+import { readApiKey } from "../../providers/apiKey";
 import { qwenRegion, TRANSCRIPTION_SERVICES } from "../../providers/catalog/transcription";
 import type { Secrets } from "../../secrets";
 import { createSendGate } from "../../sendGate";
@@ -215,7 +217,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
       if (!isCloudRoute(route) || TRANSCRIPTION_SERVICES[route].key !== "own") {
         throw new InvalidInputError({ key: "error.transcription.noOwnKey" });
       }
-      const apiKey = typeof given.apiKey === "string" ? given.apiKey.trim() : "";
+      const apiKey = typeof given.apiKey === "string" ? readApiKey(given.apiKey) : "";
       if (!apiKey) throw new InvalidInputError({ key: "error.transcription.keyMissing" });
       // Checked before the key goes to the service: one it can't keep shouldn't leave at all.
       const storage = secrets.status();
@@ -271,6 +273,10 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
       const key = await keyOf(route);
       remember(route, key);
       if (!key) return null;
+      if (strayKeyCharacter(key.apiKey)) {
+        refused.add(route);
+        return { route, refused: "key" };
+      }
       const now = sending(route);
       if (now === "local-mode") return { route, refused: "local-mode" };
       if (now !== "ok") return null;

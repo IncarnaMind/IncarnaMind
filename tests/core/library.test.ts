@@ -173,6 +173,76 @@ describe("Library groups", () => {
     expect(specs).toHaveLength(0);
   });
 
+  // protects=Undo of an Organize that began with Documents waiting for a model puts them back waiting and sends nothing; fails_when=putting them back organizes them again, one request each; no_claim=the Organize step's wording.
+  test("a Document put back as waiting waits: restoring it doesn't organize it again", async () => {
+    const fake = classifierModel();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: () => fake.model,
+    });
+    await core.createLibraryGroup({ name: "Research", description: "Scientific research papers." });
+    const first = await add(core, "one.txt", "A research paper about membranes.");
+    const second = await add(core, "two.txt", "A research paper about water filtration.");
+    await core.retagDocuments([first.id, second.id]);
+    const waiting = await settled(core, first.id, "waiting");
+    expect(fake.calls).toHaveLength(0);
+
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    await core.saveLibrarySettings({
+      classifier: {
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "small-classifier" },
+      },
+      automatic: false,
+    });
+    await settled(core, first.id);
+    await settled(core, second.id);
+    expect(fake.calls).toHaveLength(2);
+
+    if (!waiting) throw new Error("No assignment.");
+    const { documentId: _id, ...before } = waiting;
+    await core.restoreAssignment(first.id, before);
+    // Nothing is due, so no request comes: a short window for the one a restore would start.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(fake.calls).toHaveLength(2);
+    expect(await settled(core, first.id, "waiting")).toMatchObject({ groupId: null });
+    expect(await settled(core, second.id)).toMatchObject({ status: "classified" });
+  });
+
+  // protects=Documents Undo puts back with no assignment (Organize hadn't finished with them) show nothing waiting or failed, and the next start doesn't organize them again; fails_when=a Document is left waiting or is organized again at start; no_claim=the Undo step's wording.
+  test("a Document put back with no assignment isn't waiting, and isn't organized at the next start", async () => {
+    const fake = classifierModel();
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, { createChatModel: () => fake.model });
+    await core.createLibraryGroup({ name: "Research", description: "Scientific research papers." });
+    const first = await add(core, "one.txt", "A research paper about membranes.");
+    const second = await add(core, "two.txt", "A research paper about water filtration.");
+    await settled(core, first.id, "waiting");
+    await settled(core, second.id, "waiting");
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    await core.saveLibrarySettings({
+      classifier: {
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "small-classifier" },
+      },
+      automatic: false,
+    });
+    await settled(core, first.id);
+    await settled(core, second.id);
+    expect(fake.calls).toHaveLength(2);
+
+    await core.restoreAssignment(first.id, null);
+    await core.restoreAssignment(second.id, null);
+
+    expect((await core.getLibrary()).assignments).toEqual([]);
+    core.close();
+    const restarted = startCore(dataDir, { createChatModel: () => fake.model });
+    // Nothing is due, so no request comes: a short window for the ones a start would make.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(fake.calls).toHaveLength(2);
+    expect((await restarted.getLibrary()).assignments).toEqual([]);
+  });
+
   test("removing the last folder during inference stops progress until a folder exists", async () => {
     const { core, fake, group } = await setup();
     const doc = await add(core);
@@ -344,7 +414,7 @@ describe("Library groups", () => {
       flow: {
         id: "classification",
         service: { id: "https://api.openai.com", name: "OpenAI" },
-        sends: ["groups", "tags", "document-excerpts", "page-images"],
+        sends: ["groups", "tags", "document-excerpts"],
       },
       consent: "accepted",
       decidedAt: expect.any(String),
@@ -378,7 +448,8 @@ describe("Library groups", () => {
     await core.saveLibrarySettings({ classifier, automatic: false });
     await core.revokeConsent("classification", "https://api.openai.com");
 
-    await core.saveLibrarySettings({ classifier, automatic: true });
+    // Saved again with nothing changed, as any other setting's save does.
+    await core.saveLibrarySettings({ classifier, automatic: false });
     await core.classifyDocuments([doc.id]);
     await settled(core, doc.id, "waiting");
     expect(fake.calls).toHaveLength(0);
@@ -386,7 +457,7 @@ describe("Library groups", () => {
     // Choosing another model is a new choice.
     await core.saveLibrarySettings({
       classifier: { ...classifier, choice: { ...classifier.choice, modelId: "other" } },
-      automatic: true,
+      automatic: false,
     });
     await settled(core, doc.id);
     expect(fake.calls).toHaveLength(1);

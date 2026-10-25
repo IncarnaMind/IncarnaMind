@@ -214,7 +214,7 @@ function LeadingWays({
         <KeyLineIcon className="size-4" />
         {t("setup.key.use")}
       </button>
-      <p data-testid="setup-key-for" className={lineClass}>
+      <p data-testid="setup-key-for" className={`${lineClass} text-balance`}>
         {t("setup.key.for")}
       </p>
     </div>

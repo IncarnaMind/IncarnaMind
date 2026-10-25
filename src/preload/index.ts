@@ -122,6 +122,7 @@ const files: FilesBridge = {
   },
   setSidebarHidden: (hidden) => ipcRenderer.send(FILES_CHANNELS.sidebarHidden, hidden),
   setEditMenu: (state) => ipcRenderer.send(FILES_CHANNELS.editMenu, state),
+  paste: () => ipcRenderer.send(FILES_CHANNELS.paste),
   setExportMenu: (mindName) => ipcRenderer.send(FILES_CHANNELS.exportMenu, mindName),
   setExamplesRemoved: (removed) => ipcRenderer.send(FILES_CHANNELS.examplesRemoved, removed),
   titleBar: titleBarOf(process.platform),
@@ -134,6 +135,7 @@ const files: FilesBridge = {
   },
   onMeetingHelp: (listener) => listen<GeneralHelpKind>(FILES_CHANNELS.meetingHelp, listener),
   globalKeysFree: (keys) => ipcRenderer.invoke(FILES_CHANNELS.globalKeysFree, keys),
+  windowKeys: (forms) => ipcRenderer.send(FILES_CHANNELS.windowKeys, forms),
   showMeetingPanel: (shown) => ipcRenderer.send(FILES_CHANNELS.showMeetingPanel, shown),
   meetingPanelCommand: (command) => ipcRenderer.send(FILES_CHANNELS.meetingPanelCommand, command),
   onMeetingPanel: (listener) => {

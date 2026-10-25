@@ -157,6 +157,42 @@ describe("⌘K's actions", () => {
     expect(actions("zzqx")).toEqual([]);
   });
 
+  test("say what a command is for in a line under its name, in the language shown, and most have none", () => {
+    const itemOf = (key: string, language: "en" | "zh-CN") =>
+      palette
+        .actionGroup(
+          palette.readQuery("verify").words,
+          { selection: [], focus: null, surface: "palette" },
+          language,
+          found.names,
+        )[0]
+        ?.items.find((item) => item.key === key);
+
+    expect(itemOf("command:verify.document", "en")).toMatchObject({
+      purpose: "Check the claims in a PDF someone else wrote",
+    });
+    expect(itemOf("command:verify.document", "zh-CN")).toMatchObject({
+      purpose: "核对别人写的 PDF 里的说法",
+    });
+    const [list] = palette.actionGroup(
+      [],
+      { selection: [], focus: null, surface: "palette" },
+      "en",
+      found.names,
+    );
+    expect(list?.items.find((item) => item.key === "command:mind.new")).toMatchObject({
+      purpose: "",
+    });
+  });
+
+  test("a word inside another word, or one typo across two, doesn't find an action (#1372)", () => {
+    expect(actions("ew mind")).toEqual([]);
+    expect(actions("theme")).toEqual([]);
+    expect(actions("new mind")).toEqual([["actions", ["New Mind"]]]);
+    // A typo of a word's start still finds the action.
+    expect(actions("neww mind")).toEqual([["actions", ["New Mind"]]]);
+  });
+
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {
     const [withTwo] = palette.actionGroup(
       ["new", "folder"],
@@ -315,6 +351,7 @@ describe("what is typed", () => {
       key,
       name: key,
       meta: "",
+      purpose: "",
       shortcut: null,
       ranges: [],
     });

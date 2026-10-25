@@ -63,6 +63,8 @@ export type {
   RerankingModelFiles,
   ScriptRuntimes,
   SpawnOptions,
+  SpeakerModelFiles,
+  SpeakerSeparator,
   SpeechSegment,
   SystemNotifications,
   TextRecognitionFiles,
@@ -72,6 +74,7 @@ export type {
   TranscriptionModelFiles,
   UsageDataSender,
   UsageEventMessage,
+  VoiceTurn,
 } from "./adapters";
 export { MEETING_SAMPLE_RATE } from "./adapters";
 export * from "./api";

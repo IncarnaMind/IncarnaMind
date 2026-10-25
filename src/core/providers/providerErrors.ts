@@ -1,16 +1,36 @@
-import { APICallError, RetryError, UnsupportedFunctionalityError } from "ai";
+import {
+  APICallError,
+  EmptyResponseBodyError,
+  InvalidResponseDataError,
+  JSONParseError,
+  NoOutputGeneratedError,
+  RetryError,
+  StreamProviderError,
+  TypeValidationError,
+  UnsupportedFunctionalityError,
+} from "ai";
 import type { ProviderError, ProviderErrorKind, SignInRouteProblem } from "../api";
 import {
   ConsentDeclinedError,
   ConsentRevokedError,
+  isRecord,
   LocalModeError,
   TranslatableError,
 } from "../errors";
 import { OAuthTokenError } from "../oauth";
+import { KeyCharacterError } from "./apiKey";
 import { ChatGptPlanError, ChatGptSignInRequiredError } from "./chatgpt/errors";
 import { JevRequestError } from "./jev";
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+function keyCharacterOf(message: string): KeyCharacterError | null {
+  const code =
+    /Cannot convert argument to a ByteString because the character at index \d+ has a value of (\d+)/.exec(
+      message,
+    )?.[1];
+  return code === undefined ? null : new KeyCharacterError(String.fromCharCode(Number(code)));
+}
 
 /** A local model can't take a request, found before anything is sent: e.g. it isn't a chat model. */
 export class LocalModelError extends Error {
@@ -69,6 +89,16 @@ export class SignInRouteError extends Error {
   }
 }
 
+/**
+ * A Claude account's plan limit, which tagging waits out (../library/planPace).
+ * Copilot's is a monthly allowance, so its tagging fails instead.
+ */
+export class ClaudePlanLimitError extends SignInRouteError {
+  constructor(message: string, resetsAt: number | null) {
+    super("plan-limit", message, resetsAt);
+  }
+}
+
 const ROUTE_KINDS: Record<SignInRouteError["problem"], ProviderErrorKind> = {
   "signed-out": "not-signed-in",
   "sign-in-expired": "not-signed-in",
@@ -109,10 +139,6 @@ export function contextOverflow(
   };
 }
 
-const refusesWithoutRetention = (error: APICallError) =>
-  error.statusCode === 400 &&
-  /must have data retention enabled/i.test(`${error.message} ${error.responseBody ?? ""}`);
-
 /**
  * Whether a provider refused a request because the model can't use `feature`:
  * e.g. Ollama's "model does not support tools", vLLM's "--enable-auto-tool-choice",
@@ -149,7 +175,9 @@ export function refusesFeature(
 
 /**
  * Sorts a failed provider request into a kind the UI can explain: a bad key,
- * an unknown model, rate limiting, no connection, or the provider's own error.
+ * an unknown model, rate limiting, no connection, a request the provider
+ * refused, a reply that couldn't be read, or the provider's own error. Keeps
+ * the provider's HTTP status, when it gave one, for the log.
  * For the ChatGPT plan, also a missing or expired sign-in, a reached plan
  * limit, or OpenAI refusing the sign-in; for a route signed in with the
  * User's own account (Claude, Copilot), its own problems (`signInRoute`); for an Ollama Cloud model, its
@@ -167,8 +195,57 @@ export function classifyProviderError(error: unknown): ProviderError {
       retried.cause instanceof SignInRouteError)
       ? retried.cause
       : retried;
+  const sorted = sortedError(cause);
+  const status = isRecord(cause) ? (cause.statusCode ?? cause.status) : undefined;
+  return typeof status === "number" ? { ...sorted, status } : sorted;
+}
+
+// What providers say when the account has no credit left: Anthropic's 400, OpenAI's and Kimi's 429,
+// DeepSeek's and OpenRouter's 402, xAI's 403, and Zhipu's and Alibaba's by Chinese words or code.
+const OUT_OF_CREDIT =
+  /credit balance is too low|insufficient[_ ](?:balance|credits?|funds|quota)|exceeded[_ ]current[_ ]quota|billing[_ ]hard[_ ]limit|out of (?:credits?|balance)|used all (?:of )?(?:its |your )?available credits|(?:add|purchase) more credits|balance (?:is |has )?(?:too low|insufficient|exhausted|not enough)|arrearage|余额不足|欠费/i;
+
+// OpenAI's "Country, region, or territory not supported" and Gemini's "User location is not supported".
+const NOT_SERVED_HERE =
+  /unsupported_country_region_territory|country, region, or territory not supported|(?:country|region|location|territory) (?:is )?not supported|not available in your (?:country|region|location)/i;
+
+// Anthropic's 403 where it isn't available, with nothing more to say: any other words after it are a key's own limits.
+const BARE_FORBIDDEN = /^request not allowed\.?$/i;
+
+const TOO_LONG =
+  /context[_ ]length|prompt is too long|maximum context|exceeds? the (?:maximum )?(?:number of )?(?:context|tokens)|exceeds? (?:the )?max(?:imum)? length|input token count|token limit|too many tokens/i;
+
+/**
+ * What a provider says of a failure, for telling its kind: its message and the code and type of
+ * its error, not its whole body, which some servers fill with the request they were sent.
+ */
+function wordsOf(message: string, body: string | undefined): string {
+  let fields: unknown;
+  try {
+    fields = body ? JSON.parse(body) : undefined;
+  } catch {
+    // A body that isn't JSON has no code or type to read.
+    return message;
+  }
+  const error = isRecord(fields) && isRecord(fields.error) ? fields.error : fields;
+  if (!isRecord(error)) return message;
+  const named = [error.code, error.type, error.status].filter(
+    (value): value is string => typeof value === "string",
+  );
+  return [message, ...named].join(" ");
+}
+
+function sortedError(cause: unknown): ProviderError {
   const message = messageOf(cause);
 
+  const badKey = cause instanceof KeyCharacterError ? cause : keyCharacterOf(message);
+  if (badKey) {
+    return {
+      kind: "auth",
+      message: badKey.message,
+      ...(badKey.wording && { wording: badKey.wording }),
+    };
+  }
   if (cause instanceof ConsentDeclinedError) return { kind: "consent-declined", message };
   if (cause instanceof ConsentRevokedError || cause instanceof LocalModeError) {
     return {
@@ -202,26 +279,69 @@ export function classifyProviderError(error: unknown): ProviderError {
   // A plan's sign-in couldn't be refreshed for a passing reason (e.g. the provider's server failed).
   if (cause instanceof OAuthTokenError) return { kind: "provider", message };
 
-  if (APICallError.isInstance(cause)) {
+  // An error the provider sends once its reply has begun, e.g. Anthropic's "Overloaded", has a
+  // status as a refused request does.
+  const streamed = StreamProviderError.isInstance(cause);
+  if (APICallError.isInstance(cause) || streamed) {
     const status = cause.statusCode;
-    // No status: the request never got a response.
-    if (status === undefined) return { kind: "network", message };
-    if (status === 401 || status === 403) return { kind: "auth", message };
-    if (refusesWithoutRetention(cause)) return { kind: "data-retention", message };
-    // Google answers a bad key with 400 "API key not valid", in the body when the message is only the status.
-    if (status === 400 && /api[ _-]?key/i.test(`${message} ${cause.responseBody ?? ""}`)) {
-      return { kind: "auth", message };
+    // No status: the request never got a response, or the provider's error didn't say.
+    if (status === undefined) return { kind: streamed ? "provider" : "network", message };
+    // A reply cut off partway: the SDK wraps the connection's error (Node's "terminated") in an
+    // error that has the status of the reply.
+    if (status >= 200 && status < 300 && APICallError.isInstance(cause) && cause.cause) {
+      const inner = sortedError(cause.cause);
+      if (inner.kind === "network") return inner;
     }
+    const said = streamed ? message : `${message} ${cause.responseBody ?? ""}`;
+    const words = streamed ? message : wordsOf(message, cause.responseBody);
+    // Said with a 402, 429 (OpenAI, Kimi), 400 (Anthropic) or 403 (xAI) alike, so before the key's and the rate limit's.
+    if (
+      status === 402 ||
+      (status >= 400 && status < 500 && status !== 401 && OUT_OF_CREDIT.test(words))
+    ) {
+      return { kind: "out-of-credit", message };
+    }
+    if (
+      ([400, 403, 451].includes(status) && NOT_SERVED_HERE.test(words)) ||
+      (status === 403 && BARE_FORBIDDEN.test(message.trim()))
+    ) {
+      return { kind: "region", message };
+    }
+    if (status === 401 || status === 403) return { kind: "auth", message };
+    if (status === 413 || ([400, 422].includes(status) && TOO_LONG.test(words))) {
+      return { kind: "too-long", message };
+    }
+    if (status === 400 && /must have data retention enabled/i.test(said)) {
+      return { kind: "data-retention", message };
+    }
+    // Google answers a bad key with 400 "API key not valid", in the body when the message is only the status.
+    if (status === 400 && /api[ _-]?key/i.test(said)) return { kind: "auth", message };
     if (status === 404) return { kind: "model", message };
+    if (status === 408) return { kind: "network", message };
     if (status === 429) return { kind: "rate-limit", message };
-    return { kind: "provider", message };
+    // The provider answered, but not in a form that can be read.
+    if (status >= 200 && status < 300) return { kind: "no-answer", message };
+    if (status >= 400 && status < 500) return { kind: "refused", message };
+    if (status >= 500) return { kind: "provider", message };
+    return { kind: "unknown", message };
+  }
+  // A reply that couldn't be read. These errors quote the reply, so only their name is kept.
+  if (
+    JSONParseError.isInstance(cause) ||
+    TypeValidationError.isInstance(cause) ||
+    InvalidResponseDataError.isInstance(cause) ||
+    EmptyResponseBodyError.isInstance(cause) ||
+    NoOutputGeneratedError.isInstance(cause)
+  ) {
+    return { kind: "no-answer", message: `The model's reply couldn't be read (${cause.name}).` };
   }
 
   if (cause instanceof Error) {
     if (cause.name === "AbortError" || cause.name === "TimeoutError") {
       return { kind: "network", message };
     }
-    if (cause instanceof TypeError && /fetch failed|network/i.test(message)) {
+    // Node's fetch says "terminated" when the connection ends partway through a reply.
+    if (cause instanceof TypeError && /fetch failed|network|^terminated$/i.test(message)) {
       return { kind: "network", message };
     }
   }

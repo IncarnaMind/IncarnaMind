@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
+import { modelInUse } from "../../shared/mindModel";
 import {
   CHOSEN_PROVIDER_FLOWS,
   type ChatModelChoice,
@@ -32,6 +33,7 @@ import type { Secrets } from "../secrets";
 import { createSendGate, gateStop } from "../sendGate";
 import type { SettingsStore } from "../settings";
 import type { Database } from "../storage";
+import { parseApiKey as parseKey, storedApiKey } from "./apiKey";
 import {
   cloudWindow,
   type ModelCapabilities,
@@ -88,9 +90,17 @@ const MODEL_LIST_TTL_MS = 5 * 60_000;
 /**
  * The chat flow: what a Question sends to a cloud chat provider. While a
  * Connector is on, the core adds "tool-results" (what its Tools return),
- * which makes it ask again.
+ * which makes it ask again. The names of Documents, another Mind a Question
+ * names and a Meeting's live Transcript went before the lines named them:
+ * a User who allowed the flow earlier is asked once more.
  */
-export const CHAT_FLOW_SENDS = ["blocks", "passages"] as const;
+export const CHAT_FLOW_SENDS = [
+  "blocks",
+  "passages",
+  "document-names",
+  "other-minds",
+  "live-transcript",
+] as const;
 
 const TEST_TIMEOUT_MS = 30_000;
 
@@ -288,9 +298,8 @@ function parseApiKey(
   { kind, catalogId }: { kind: ChatProviderKind; catalogId: string | null },
 ): string | null | undefined {
   if (value === undefined || value === null) return value;
-  if (typeof value !== "string") throw new InvalidInputError("The API key must be text.");
-  const key = value.trim();
-  if (key === "") return undefined;
+  const key = parseKey(value);
+  if (key === undefined) return undefined;
   if (!acceptsApiKey(kind, catalogId)) {
     throw new InvalidInputError("This provider doesn't take an API key.");
   }
@@ -577,11 +586,12 @@ export function createChat(options: {
       };
     }
     const baseUrl = endpointUrl(kind, server.endpoint, server.catalogId) ?? server.baseUrl;
+    const checkedKey = storedApiKey(apiKey);
     if (kind === "ollama") {
       return {
         kind,
         baseUrl,
-        apiKey,
+        apiKey: checkedKey,
         modelId,
         ollama: profile?.settings ?? DEFAULT_OLLAMA_SETTINGS,
       };
@@ -589,7 +599,7 @@ export function createChat(options: {
     return {
       kind,
       baseUrl,
-      apiKey,
+      apiKey: checkedKey,
       modelId,
       // Only a provider's other regions say which they are; its first is the default.
       ...(server.endpoint &&
@@ -857,14 +867,15 @@ export function createChat(options: {
 
     /**
      * Soft-deletes the provider and deletes its key. The quick-tasks and image models it held
-     * go back to Automatic; the default model it held moves to another provider's, when one is
-     * left. Deleting one that doesn't exist does nothing.
+     * go back to Automatic, and the model last chosen on it is forgotten; the default model it
+     * held moves to another provider's, when one is left. Deleting one that doesn't exist does nothing.
      */
     async delete(id: unknown): Promise<void> {
       if (typeof id !== "string") throw new InvalidInputError("A provider id must be text.");
       if (!rowById(id)) return;
       const at = now();
-      const { chatModel, quickTasksModel, imageModel } = settings.get().user;
+      const { user, device } = settings.get();
+      const { chatModel, quickTasksModel, imageModel } = user;
       db.transaction(() => {
         db.run("UPDATE chat_providers SET deleted_at = ?, updated_at = ? WHERE id = ?", [
           at,
@@ -876,7 +887,10 @@ export function createChat(options: {
           ...(quickTasksModel?.providerId === id && { quickTasksModel: null }),
           ...(imageModel?.providerId === id && { imageModel: null }),
         };
-        if (Object.keys(held).length > 0) settings.update({ user: held });
+        const lastPick = device.lastChatModel?.providerId === id ? { lastChatModel: null } : {};
+        if (Object.keys(held).length > 0 || Object.keys(lastPick).length > 0) {
+          settings.update({ user: held, device: lastPick });
+        }
       });
       await secrets.delete(keyName(id));
       if (chatModel?.providerId !== id) return;
@@ -890,6 +904,15 @@ export function createChat(options: {
     },
 
     exists: (id: string) => rowById(id) !== undefined,
+
+    /** The model a request in a Mind whose own pick is `own` is asked with (see `modelInUse`). */
+    modelInUse(own: ChatModelChoice | null): ChatModelChoice | null {
+      const { device, user } = settings.get();
+      return modelInUse(
+        { own, last: device.lastChatModel, fallback: user.chatModel },
+        (id) => rowById(id) !== undefined,
+      );
+    },
 
     /** The key of the saved provider of a hosted catalog entry, with its region, for another service of its (#141). */
     async apiKeyOf(
@@ -1178,20 +1201,23 @@ export function createChat(options: {
             modelId,
           ),
         });
-        const model = meter.wrap(
-          watchedPlan(
-            server.kind,
-            createModel(await specFor(server, apiKey, modelId, profile)),
-            modelId,
+        const model = gate.testModel(
+          meter.wrap(
+            watchedPlan(
+              server.kind,
+              createModel(await specFor(server, apiKey, modelId, profile)),
+              modelId,
+            ),
+            meteredModel(
+              { kind: server.kind, service },
+              rowByServer(server)?.id ?? server.catalogId ?? server.kind,
+              modelId,
+              "test",
+              facts,
+              profile,
+            ),
           ),
-          meteredModel(
-            { kind: server.kind, service },
-            rowByServer(server)?.id ?? server.catalogId ?? server.kind,
-            modelId,
-            "test",
-            facts,
-            profile,
-          ),
+          service,
         );
         await generateText({
           model,
@@ -1335,17 +1361,10 @@ export function createChat(options: {
       checkCanChat(profile, modelId);
       // The calls that don't write the Answer (tagging, classifying, an Answer's search query)
       // skip thinking where they can.
+      const reasoning = thinking ?? (flow === "chat" ? "summary" : "off");
       const model = watchedPlan(
         provider.kind,
-        createModel(
-          await specFor(
-            provider,
-            apiKey,
-            modelId,
-            profile,
-            thinking ?? (flow === "chat" ? "summary" : "off"),
-          ),
-        ),
+        createModel(await specFor(provider, apiKey, modelId, profile, reasoning)),
         modelId,
       );
       const row: ProviderRow = {
@@ -1362,10 +1381,10 @@ export function createChat(options: {
       const capabilities = capabilitiesOf(row, modelId, profile ? ollamaFacts(profile) : undefined);
       // The gate goes outside the meter, so a request it stops reserves nothing.
       const gated = gate.model(
-        meter.wrap(
-          model,
-          meteredModel(provider, provider.id, modelId, flow, capabilities, profile),
-        ),
+        meter.wrap(model, {
+          ...meteredModel(provider, provider.id, modelId, flow, capabilities, profile),
+          reasoning,
+        }),
         flow,
         provider.service,
       );

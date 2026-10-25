@@ -27,6 +27,7 @@ import {
   nameMind,
   newMind,
   openOptions,
+  openSavedPage,
   pathsOpened,
   pathsShown,
   pointAndClick,
@@ -458,7 +459,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await expect(sheet.getByTestId("export-pending-note")).toHaveText(
     "Changes waiting for you go in as IncarnaMind’s tracked changes.",
   );
-  await expect(sheet.getByTestId("export-mark-ai-text")).toBeChecked();
+  await expect(sheet.getByTestId("export-mark-ai-text-mark")).toBeChecked();
   await expect(sheet.getByTestId("export-comment-failed-checks")).toBeChecked();
   await expect(sheet.getByTestId("export-track-changes")).toHaveCount(0);
   await expect(sheet.getByTestId("export-save-to")).toHaveText(
@@ -536,7 +537,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
     "尚未接受的修订会以 IncarnaMind 的修订写入。",
   );
   await expect(sheet.getByTestId("export-mark-ai-text")).toHaveAccessibleName(
-    "为 AI 生成的文字添加批注",
+    "标出 IncarnaMind 写的内容？",
   );
   const [sheetBox, windowWidth] = await Promise.all([
     sheet.boundingBox(),
@@ -562,6 +563,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
 
 test("Export as HTML saves one .html file whose footnotes link both ways, and the sheet offers the format", async () => {
   const { app, window } = await launchApp(dataDir, { home });
+  await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
   await dismissChatSetup(window);
   const mindId = await setUpMind(window, sources, "Tides 潮汐");
   await expect
@@ -572,11 +574,18 @@ test("Export as HTML saves one .html file whose footnotes link both ways, and th
   await bridge(window).write(
     mindId,
     blocksUpdate([
-      paragraph("Spring tides happen at new moon", citation(tides, 1, "found"), "."),
+      paragraph(
+        "Spring tides happen at new moon",
+        citation(tides, 1, "found"),
+        ". 大潮出现在新月前后",
+        citation(chinese, 1, "found"),
+        citation(tides, 1, "found"),
+        "。",
+      ),
       paragraph("大潮出现在新月和满月前后", citation(chinese, 1, "not-found"), "。"),
     ]),
   );
-  await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(2);
+  await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(4);
   const out = await createDataFolder();
   await useOutputLocation(window, out);
 
@@ -588,6 +597,30 @@ test("Export as HTML saves one .html file whose footnotes link both ways, and th
   expect(html).toContain('<li id="note-2">潮汐, p. 1');
   expect(html).toContain('<a class="backref" href="#ref-2"');
   expect(html).not.toMatch(/<script|<link|src="http/);
+
+  const reader = await openSavedPage(app, path);
+  try {
+    for (const width of [1280, 390]) {
+      await setWindowSize(app, reader, width, 844);
+      await expect(reader.locator("main > p").filter({ has: reader.locator("#ref-1") })).toHaveText(
+        "Spring tides happen at new moon1. 大潮出现在新月前后2,3。",
+      );
+      expect(
+        await reader
+          .locator("sup.note-ref")
+          .evaluateAll((markers) =>
+            markers.map((marker) => getComputedStyle(marker, "::before").content),
+          ),
+      ).not.toContain('","');
+      await screenshot(reader, `html-citation-separators-${width}`);
+    }
+    await reader.locator("#ref-2 a").click();
+    await expect(reader).toHaveURL(/#note-2$/);
+    await reader.locator("#note-2 .backref").click();
+    await expect(reader).toHaveURL(/#ref-2$/);
+  } finally {
+    await reader.close();
+  }
 
   // Export now makes HTML, and the sheet offers the format with its note.
   await expect(window.getByTestId("export-mind")).toHaveAttribute("data-format", "html");

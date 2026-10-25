@@ -1,3 +1,5 @@
+import { cleanApiKey } from "../../../shared/apiKey";
+
 /**
  * Key prefixes that name their service, as its own pages show them: Anthropic's keys
  * (platform.claude.com/docs/en/manage-claude/authentication), OpenRouter's example key
@@ -32,7 +34,7 @@ function serviceNamedBy(key: string): string | null {
 }
 
 export function checkKey(catalogId: string, key: string): KeyCheck {
-  const given = key.trim();
+  const given = cleanApiKey(key);
   if (given === "") return { ok: true };
   const named = serviceNamedBy(given);
   if (named !== null) return named === catalogId ? { ok: true } : { ok: false, service: named };
@@ -43,4 +45,4 @@ export function checkKey(catalogId: string, key: string): KeyCheck {
   return { ok: true };
 }
 
-export const serviceOfKey = (key: string): string | null => serviceNamedBy(key.trim());
+export const serviceOfKey = (key: string): string | null => serviceNamedBy(cleanApiKey(key));

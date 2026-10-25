@@ -12,7 +12,14 @@ import { migrate, openDatabase } from "../../src/core/storage";
 import { createTags } from "../../src/core/tags";
 import type { TagClassifier } from "../../src/core/tags/classify";
 import { createTagger } from "../../src/core/tags/tagger";
-import { createTempDataFolder, nextEvent, nextTurn, startCore } from "../helpers/core";
+import { type FlowTag, flowNow, inFlow } from "../../src/core/timing/flows";
+import {
+  createTempDataFolder,
+  nextEvent,
+  nextTurn,
+  startCore,
+  turnOnAutomaticTagging,
+} from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { question, writeMind } from "../helpers/minds";
@@ -81,6 +88,22 @@ function queueFor(errors?: unknown[]) {
 }
 
 describe("The background model queue", () => {
+  // protects=a job that starts as an Answer ends runs in no flow, so its requests aren't timed as that Answer's (#1624 review: tagging showed under the Answer's flow); fails_when=the job runs in the flow that let it start; no_claim=the timing records, which tests/core/aiTimings.test.ts covers.
+  test("a job that starts as an Answer ends isn't that Answer's", async () => {
+    const queue = createBackgroundQueue({ reportError: () => {} });
+    const seen: (FlowTag | null)[] = [];
+    queue.setAnswering(true);
+    queue.add({
+      kind: "tagging",
+      run: async () => {
+        seen.push(flowNow());
+      },
+    });
+    inFlow("question", () => queue.setAnswering(false));
+    await settle();
+    expect(seen).toEqual([null]);
+  });
+
   test("jobs run one at a time, in the order queued, whatever their kind", async () => {
     const log: string[] = [];
     const queue = queueFor();
@@ -302,7 +325,13 @@ describe("Automatic tagging in the background queue", () => {
       reportError: (error) => {
         throw error;
       },
-      rateLimit: { pausedUntil: () => null, pause: () => null, succeeded: () => {} },
+      rateLimit: {
+        pausedUntil: () => null,
+        pause: () => null,
+        succeeded: () => {},
+        refusal: () => null,
+        refuse: () => null,
+      },
       timers: { now: () => 0, sleep: async () => {} },
     });
     /** A classification job, as Organize queues: one model call, which answers at once. */
@@ -407,6 +436,7 @@ async function setUp(provider: SaveChatProviderInput) {
   });
   core.on("consent.requested", ({ requestId }) => void core.respondToConsent(requestId, true));
   await core.saveChatProvider(provider);
+  await turnOnAutomaticTagging(core);
   const mind = await core.createMind({ title: "Tides" });
   const writer = await connectToMind(core, mind.id);
   const asked = question("What is attention?");

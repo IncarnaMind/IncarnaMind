@@ -656,6 +656,10 @@
     border-top: 6px solid #e8202a;
     border-left: 6px solid transparent;
   }
+  /* A formula with no saved result: said in the cell, quietly, not as a number. */
+  .viewer-grid td.viewer-cell--unsaved {
+    @apply text-ink-meta italic;
+  }
   /* Pictures and shapes over the cells, and a chart's placeholder. */
   .viewer-sheet-drawing {
     @apply absolute z-[1] max-w-none;
@@ -818,6 +822,10 @@
 /* A document with comments keeps a margin for their notes beside its pages, as Word does. */
 .docx-view.docx-view--notes .docx-wrapper {
   padding-right: calc(24px + 16px + 220px);
+}
+/* Text selected in a viewer and still acted on while the focus is elsewhere (SelectionMenu). */
+::highlight(viewer-held-selection) {
+  background-color: var(--color-selection-inactive);
 }
 /* The commented text, washed as Word marks it. */
 ::highlight(docx-comments) {

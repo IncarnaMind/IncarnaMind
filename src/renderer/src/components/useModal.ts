@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { type RefObject, useEffect, useRef, useSyncExternalStore } from "react";
 
 /** The native modal dialogs that are open, the one opened last on top. */
 const openModals: HTMLDialogElement[] = [];
@@ -37,6 +37,15 @@ export function useTopModal(): HTMLDialogElement | null {
 }
 
 /**
+ * The modal dialog on top now, or null when none is open, or when one this stack doesn't know
+ * (the command palette) is open too, since that one may be above it.
+ */
+export function topModalNow(): HTMLDialogElement | null {
+  const shown = document.querySelectorAll("dialog:modal").length;
+  return shown === openModals.length ? (openModals.at(-1) ?? null) : null;
+}
+
+/**
  * Keeps a native <dialog> shown as a modal while `open` is true. With
  * `focusDialog`, opening focuses the dialog itself (give it tabIndex={-1})
  * instead of its first control, e.g. so no choice looks picked before the
@@ -71,4 +80,25 @@ export function useModal(open: boolean, { focusDialog = false } = {}) {
     return trackModal(element);
   }, [open]);
   return dialog;
+}
+
+/**
+ * Closes a modal dialog on a press on its dimmed area, as the prototype's scrim does (#1360).
+ * Only a press that starts there counts, so dragging a selection out of a field keeps the dialog.
+ */
+export function useBackdropClose(
+  dialog: RefObject<HTMLDialogElement | null>,
+  close: () => void,
+): void {
+  const latest = useRef(close);
+  latest.current = close;
+  useEffect(() => {
+    const element = dialog.current;
+    if (!element) return;
+    const onPress = (event: MouseEvent) => {
+      if (event.target === element) latest.current();
+    };
+    element.addEventListener("mousedown", onPress);
+    return () => element.removeEventListener("mousedown", onPress);
+  }, [dialog]);
 }

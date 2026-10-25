@@ -36,11 +36,12 @@ import {
   selectionToMath,
   TURN_INTO,
 } from "./selectionCommands";
+import { forgetMenuClosed, keepMenuClosed, menuClosedOver } from "./selectionDismissal";
 import { type EditWithAiField, useEditField } from "./useEditField";
 
 /**
- * One action of the menu's AI section: Edit with AI, Find support and the
- * like. The section is hidden while there are none.
+ * One action of the menu's AI section: Edit with AI, Check against Documents
+ * and the like. The section is hidden while there are none.
  */
 export interface SelectionAction {
   /** A stable name; tests find the action by it (`selection-action-<id>`). */
@@ -140,22 +141,28 @@ function fitToView(frame: HTMLElement | null) {
   frame?.style.setProperty("--selection-menu-room", view ? `${view.clientHeight - 24}px` : "100vh");
 }
 
-/** The selection the User closed the menu over, which keeps it closed until the selection changes, even for an update already waiting. */
-const dismissedOver = new WeakMap<Editor, string>();
-const selectionKey = (editor: Editor) =>
-  `${editor.state.selection.from}-${editor.state.selection.to}`;
-
 function hideMenu(editor: Editor) {
-  dismissedOver.set(editor, selectionKey(editor));
+  keepMenuClosed(editor, editor.state.selection.from, editor.state.selection.to);
   editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, "hide"));
+}
+
+// While the menu is hidden Tiptap takes its contents off the page, where a popover can't open
+// (#1461): what the keys open then goes at the caret, outside the menu.
+function openedAt<Anchor extends Element | VirtualElement>(
+  editor: Editor,
+  menuShown: boolean,
+  inMenu: Anchor | null | undefined,
+) {
+  return menuShown && inMenu
+    ? { at: "menu" as const, anchor: inMenu }
+    : { at: "caret" as const, anchor: caretAnchor(editor) };
 }
 
 /** Shown over selected text, not over code or a selected Block, nor while a mouse button or an input method is working on the selection. */
 function showsOver(editor: Editor, pressed: boolean): boolean {
   const { selection, doc } = editor.state;
   if (pressed || editor.view.composing || !editor.isEditable) return false;
-  if (dismissedOver.get(editor) === selectionKey(editor)) return false;
-  dismissedOver.delete(editor);
+  if (menuClosedOver(editor)) return false;
   if (selection.empty || !(selection instanceof TextSelection)) return false;
   if (editor.isActive("codeBlock")) return false;
   return doc.textBetween(selection.from, selection.to).length > 0;
@@ -187,7 +194,10 @@ export function SelectionMenu({
   const shown = useRef(false);
   const pressed = useRef(false);
   const [turning, setTurning] = useState<"mouse" | "keyboard" | null>(null);
-  const [linking, setLinking] = useState(false);
+  const [linking, setLinking] = useState<{
+    at: "menu" | "caret";
+    anchor: Element | VirtualElement;
+  } | null>(null);
   /**
    * The Aa menu: beside this menu, or at the caret (⌘K), or only its custom line spacing there.
    * Its anchor is made once, as the popover places itself again whenever its anchor changes;
@@ -269,6 +279,10 @@ export function SelectionMenu({
     const press = () => {
       pressed.current = true;
     };
+    // A press changes nothing by itself: only a selection change under it is the User's own (#1355).
+    const selectionMoved = () => {
+      if (pressed.current) forgetMenuClosed(editor);
+    };
     const release = () => {
       if (!pressed.current) return;
       pressed.current = false;
@@ -286,7 +300,7 @@ export function SelectionMenu({
       if (!anywhere && !inMenu && !editor.view.hasFocus()) return;
       if (!inField) {
         if (selectionForEdit(editor.state) === null) return;
-        dismissedOver.delete(editor);
+        forgetMenuClosed(editor);
         if (!showsOver(editor, false)) return;
       }
       event.preventDefault();
@@ -318,22 +332,25 @@ export function SelectionMenu({
       }, 50);
     // ⌘K on a selection: its link's address.
     const editLink = () => {
-      if (!editor.state.selection.empty) setLinking(true);
+      if (!editor.state.selection.empty) {
+        setLinking(openedAt(editor, shown.current, linkButton.current));
+      }
     };
     const openFormat = (event: Event) => {
-      const part = event instanceof CustomEvent && event.detail === "custom" ? "custom" : null;
-      const rect = !part && shown.current ? menu.current?.getBoundingClientRect() : undefined;
-      setFormatting(
-        rect
-          ? { at: "menu", focus: true, anchor: { getBoundingClientRect: () => rect } }
-          : { at: part ?? "caret", focus: true, anchor: caretAnchor(editor) },
-      );
+      if (event instanceof CustomEvent && event.detail === "custom") {
+        setFormatting({ at: "custom", focus: true, anchor: caretAnchor(editor) });
+        return;
+      }
+      const rect = menu.current?.getBoundingClientRect();
+      const beside = rect && { getBoundingClientRect: () => rect };
+      setFormatting({ ...openedAt(editor, shown.current, beside), focus: true });
     };
     dom.addEventListener(LINK_EDIT, editLink);
     dom.addEventListener(EDIT_FIELD, takeEditField);
     dom.addEventListener(FORMAT_OPEN, openFormat);
     dom.addEventListener("compositionend", afterComposition);
     dom.addEventListener("mousedown", press);
+    editor.on("selectionUpdate", selectionMoved);
     document.addEventListener("mouseup", release);
     dom.addEventListener("keydown", onKey, true);
     return () => {
@@ -342,6 +359,7 @@ export function SelectionMenu({
       dom.removeEventListener(FORMAT_OPEN, openFormat);
       dom.removeEventListener("compositionend", afterComposition);
       dom.removeEventListener("mousedown", press);
+      editor.off("selectionUpdate", selectionMoved);
       document.removeEventListener("mouseup", release);
       dom.removeEventListener("keydown", onKey, true);
     };
@@ -362,7 +380,7 @@ export function SelectionMenu({
       shown.current = false;
       fieldNow.current.reset();
       setTurning(null);
-      setLinking(false);
+      setLinking((open) => (open?.at === "menu" ? null : open));
       setChoosing(null);
       setFormatting((open) => (open?.at === "menu" ? null : open));
     },
@@ -468,6 +486,21 @@ export function SelectionMenu({
     hideMenu(editor);
   };
 
+  const linkField = linking && (
+    <LinkField
+      anchor={linking.anchor}
+      current={editor.getAttributes("link").href as string | undefined}
+      onApply={(typed) => {
+        setLinking(null);
+        applyLink(editor, typed);
+      }}
+      onClose={() => {
+        setLinking(null);
+        editor.commands.focus();
+      }}
+    />
+  );
+
   return (
     <>
       <BubbleMenu
@@ -554,7 +587,10 @@ export function SelectionMenu({
               title={`${t("editor.format.link")} ${shortcutLabel("link.edit")}`}
               aria-label={t("editor.format.link")}
               onMouseDown={keepSelection}
-              onClick={() => act(() => setLinking(true))}
+              onClick={(event) => {
+                const anchor = event.currentTarget;
+                act(() => setLinking({ at: "menu", anchor }));
+              }}
               className="selection-format"
             >
               <span aria-hidden="true">↗</span>
@@ -719,22 +755,10 @@ export function SelectionMenu({
             }}
           />
         )}
-        {linking && (
-          <LinkField
-            anchor={shown.current && linkButton.current ? linkButton.current : caretAnchor(editor)}
-            current={editor.getAttributes("link").href as string | undefined}
-            onApply={(typed) => {
-              setLinking(false);
-              applyLink(editor, typed);
-            }}
-            onClose={() => {
-              setLinking(false);
-              editor.commands.focus();
-            }}
-          />
-        )}
+        {linking?.at === "menu" && linkField}
       </BubbleMenu>
-      {/* With nothing selected the menu isn't shown, and what is in it isn't on the page. */}
+      {/* While the menu isn't shown, what is in it isn't on the page. */}
+      {linking?.at === "caret" && linkField}
       {formatting?.at === "caret" && (
         <FormatMenu
           editor={editor}

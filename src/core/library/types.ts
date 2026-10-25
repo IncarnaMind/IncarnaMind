@@ -86,7 +86,7 @@ export interface TaggingModels {
   options: TaggingModelOption[];
   /** "Keep everything on this computer" is on: Automatic picks only local models, and a cloud one waits. */
   localMode: boolean;
-  /** Tagging on the ChatGPT plan waits for its limit to reset, until this time (ISO 8601, UTC); null when it doesn't. */
+  /** Tagging on a plan (ChatGPT's or Claude's) waits for its limit to reset, until this time (ISO 8601, UTC); null when it doesn't. */
   planPausedUntil: string | null;
 }
 
@@ -106,9 +106,12 @@ export interface LibrarySettings {
    */
   organizeWith: TaggingClassifier | null;
   /**
-   * Organize new and changed Documents by itself, once a classifier is chosen.
-   * Off, automatic tagging still tags them and only the moves into Folders wait
-   * for Organize. On until the User turns it off.
+   * Tag and sort new and changed Documents by itself, once a model is chosen
+   * (#1617). Until the User sets it, it is on for a model on this computer
+   * and off for a cloud model, since each Document's name and an excerpt go
+   * to it. Off, nothing is sent by itself: what the User starts by hand
+   * (Organize, a re-tag) still goes. A Document added while it is off isn't
+   * tagged or sorted when it is turned on.
    */
   automatic: boolean;
   /**
@@ -173,6 +176,17 @@ export interface LibrarySnapshot {
   deletedGroups: LibraryGroup[];
   assignments: DocumentGroupAssignment[];
   settings: LibrarySettings;
+  /**
+   * What `settings.automatic` would be if the User hadn't set the switch: on for a model
+   * on this computer, off for a cloud model (#1617). Settings › Models compares the two, so
+   * a switch that only follows the model never counts as a choice of the User's own.
+   */
+  automaticDefault: boolean;
+  /**
+   * Automatic tagging and sorting was turned off for a cloud model once (#1617), since it sent
+   * each Document's name and an excerpt: the Library says so once, until the User closes the line.
+   */
+  automaticOffNotice?: boolean;
 }
 
 export interface LibraryGroupInput {

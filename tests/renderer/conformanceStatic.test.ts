@@ -62,6 +62,8 @@ describe("the right-click", () => {
   const KNOWN: Record<string, string> = {
     "src/renderer/src/editor/tableCommands.ts":
       "a table's right-click opens the Block's menu from the note's own listener (#608)",
+    "src/renderer/src/editor/numbering.ts":
+      "a list item's right-click opens its menu from the note's own listener, as a table's does (#1419)",
   };
 
   const handlers = (files: readonly Source[]) =>
@@ -133,6 +135,10 @@ describe("a label that says Back to", () => {
     "comparison.back": "the comparison table's Expand",
     // A link in an exported HTML file, from a footnote back to its text: the file has no Mind.
     "export.html.back": "a footnote's link back in an exported file",
+    // A composer chip's ×: the Search scope goes back, in place, to the one it narrowed; no
+    // screen or Mind is left.
+    "composer.scope.back": "a narrowed Search scope back to the one it narrowed",
+    "composer.scope.backAll": "a narrowed Search scope back to All Documents",
   };
   const BACK_TO = { en: /^[←<\s]*Back to\b/i, "zh-CN": /^[←<\s]*返回(?!$)/u } as const;
 

@@ -2,7 +2,7 @@
  * Verify (#97): a PDF someone else wrote becomes a Mind of its text, its
  * claims are found, and each is checked against the User's Documents, the
  * PDF and its copies never evidence, with marks that go "needs re-check" as
- * Find support's do (#96).
+ * Check against Documents' do (#96).
  */
 import { copyFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { verificationOf } from "../../src/shared/verification";
-import { checkGenerate, checkingModel, type Plan, sentenceOf } from "../helpers/checks";
+import { checkGenerate, checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -94,7 +94,12 @@ async function shownChecks(core: Core, client: MindClient) {
   return claimSpans(readMind(client)).map((span) => ({
     sentence: span.sentence.text,
     check: span.check,
-    shown: claimCheckShown(span.check, { text: span.sentence.text, versions, folderId: null }),
+    shown: claimCheckShown(span.check, {
+      text: span.sentence.text,
+      versions,
+      folderId: null,
+      scope: null,
+    }),
   }));
 }
 
@@ -308,7 +313,7 @@ describe("Verify a document", () => {
     expect(calls).toEqual([]);
   });
 
-  test("results go “needs re-check” as Find support's do: an edited claim", async () => {
+  test("results go “needs re-check” as Check against Documents' do: an edited claim", async () => {
     const { core, report } = await setUp();
     const { mind, client } = await verified(core, report);
     await core.findClaims(request(mind.id));
@@ -373,6 +378,161 @@ describe("Verify a document", () => {
       ["heading", "2 Progress"],
       ["paragraph", "Forty-two operatives worked on site during March."],
     ]);
+  });
+
+  // protects=a verified PDF's tables keep their rows and columns, and each row is checked as one claim with its label and headings (#1368); fails_when=a table is flattened into a paragraph, a figure runs into the next label, or a row's claim reaches the model without its label and headings; no_claim=tables in scanned pages.
+  test("a PDF's tables are tables in its Mind, and each row is a claim said with its columns' headings", async () => {
+    const FIXED_ASSETS = "固定资产 — 期末余额: 9,470; 期初余额: 8,860";
+    const NET_PROFIT = "净利润 — 本年金额: 1,620; 上年金额: 1,215";
+    const LEDGER = "Fleet ledger.md";
+    const calls: ModelCall[] = [];
+    const { core, sources } = await setUp(
+      checkingModel(
+        {
+          [FIXED_ASSETS]: {
+            verdict: "supported",
+            quote: "固定资产期末余额 9,470 万元",
+            says: "The fleet ledger gives 9,470 at the year's end.",
+          },
+          [NET_PROFIT]: { verdict: "contradicted", quote: "净利润 1,580 万元" },
+        },
+        calls,
+      ),
+    );
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        LEDGER,
+        "# 车队台账\n\n2025 年固定资产期末余额 9,470 万元。净利润 1,580 万元。\n",
+      ),
+    ]);
+    const statement = join(sources, "2025年度财务报表.pdf");
+    await copyFile(join(__dirname, "../fixtures/organize/files/2025年度财务报表.pdf"), statement);
+    const { mind, client } = await verified(core, statement);
+
+    const blocks: JSONContent[] = readMind(client).toJSON().content ?? [];
+    expect(blocks.map((block) => block.type)).toEqual([
+      "paragraph",
+      "paragraph",
+      "table",
+      "paragraph",
+      "table",
+      "paragraph",
+      "table",
+      "heading",
+      "paragraph",
+    ]);
+    const cells = (table: JSONContent | undefined) =>
+      (table?.content ?? []).map((row) =>
+        (row.content ?? []).map((cell) => [cell.type, cell.content?.[0]?.content?.[0]?.text ?? ""]),
+      );
+    const balance = cells(blocks[2]);
+    expect(balance[0]).toEqual([
+      ["tableHeader", "项目"],
+      ["tableHeader", "期末余额"],
+      ["tableHeader", "期初余额"],
+    ]);
+    expect(balance[3]).toEqual([
+      ["tableCell", "固定资产"],
+      ["tableCell", "9,470"],
+      ["tableCell", "8,860"],
+    ]);
+    expect(balance).toHaveLength(9);
+    expect(blocks[3]?.content?.[0]?.text).toBe("二、利润表（2025 年度）");
+
+    expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 2 });
+    await client.settled();
+    expect(verificationOf(client.doc)?.claims?.map((claim) => claim.text)).toEqual([
+      "固定资产",
+      "净利润",
+    ]);
+    // Each row's page is the PDF's, so the PDF beside it turns there.
+    const pages = verificationOf(client.doc)?.pages ?? {};
+    for (const claim of verificationOf(client.doc)?.claims ?? []) {
+      expect(pages[claim.blockId]).toBe(1);
+    }
+
+    expect(await core.verifyClaims(request(mind.id))).toMatchObject({ kind: "checked", claims: 2 });
+    const checks = await shownChecks(core, client);
+    expect(checks.map((each) => [each.sentence, each.shown])).toEqual([
+      ["固定资产", { state: "supported" }],
+      ["净利润", { state: "contradicted" }],
+    ]);
+    const asked = calls.filter(isCheckRun).map(sentenceOf);
+    expect(new Set(asked)).toEqual(new Set([FIXED_ASSETS, NET_PROFIT]));
+  });
+
+  // protects=a table that goes on over the page is one table with its headings, each row with its page, and a section's name and the caption are what a row's claim refers to (#1368); fails_when=the second page's rows lose their headings, carry the first page's, or a table is taken for a caption; no_claim=tables with a running head between them.
+  test("a table that goes on over the page is one table, each row with its page; a row's claim refers to its section and caption", async () => {
+    const CASH = "Cash — 2025: 3,820; 2024: 3,145";
+    const FIXED = "Fixed assets — 2025: 9,470; 2024: 8,860";
+    const calls: ModelCall[] = [];
+    const { core, sources } = await setUp(
+      checkingModel(
+        { [CASH]: { verdict: "unsupported" }, [FIXED]: { verdict: "unsupported" } },
+        calls,
+      ),
+    );
+    const row = (y: number, cells: readonly string[]) =>
+      cells.map((text, column) => ({ text, x: [72, 260, 340][column] ?? 72, y }));
+    const balance = await writeSourceFile(
+      sources,
+      "Balance sheet.pdf",
+      buildPdf([
+        {
+          lines: ["Balance sheet at 31 December (in thousands)"],
+          placed: [
+            ...row(720, ["Item", "2025", "2024"]),
+            ...row(706, ["Current assets:"]),
+            ...row(692, ["Cash", "3,820", "3,145"]),
+            ...row(678, ["Receivables", "2,610", "2,290"]),
+            ...row(664, ["Inventory", "1,100", "950"]),
+          ],
+        },
+        {
+          placed: [
+            ...row(760, ["Fixed assets", "9,470", "8,860"]),
+            ...row(746, ["Total assets", "17,350", "15,920"]),
+            ...row(732, ["Loans", "1,500", "2,000"]),
+          ],
+        },
+      ]),
+    );
+    const { mind, client } = await verified(core, balance);
+
+    const blocks: JSONContent[] = readMind(client).toJSON().content ?? [];
+    expect(blocks.map((block) => block.type)).toEqual(["paragraph", "table"]);
+    const rows = (blocks[1]?.content ?? []).map((each) =>
+      (each.content ?? []).map((cell) => cell.content?.[0]?.content?.[0]?.text ?? ""),
+    );
+    expect(rows).toEqual([
+      ["Item", "2025", "2024"],
+      ["Current assets:", "", ""],
+      ["Cash", "3,820", "3,145"],
+      ["Receivables", "2,610", "2,290"],
+      ["Inventory", "1,100", "950"],
+      ["Fixed assets", "9,470", "8,860"],
+      ["Total assets", "17,350", "15,920"],
+      ["Loans", "1,500", "2,000"],
+    ]);
+    const pages = verificationOf(client.doc)?.pages ?? {};
+    const pageOfRow = (index: number) =>
+      pages[String(blocks[1]?.content?.[index]?.content?.[0]?.content?.[0]?.attrs?.id)];
+    expect([pageOfRow(2), pageOfRow(5), pageOfRow(7)]).toEqual([1, 2, 2]);
+
+    expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 2 });
+    await client.settled();
+    expect(verificationOf(client.doc)?.claims?.map((claim) => claim.text)).toEqual([
+      "Cash",
+      "Fixed assets",
+    ]);
+    await core.verifyClaims(request(mind.id));
+    const promptOf = (claim: string) =>
+      calls.find((call) => sentenceOf(call) === claim)?.prompt ?? "";
+    expect(promptOf(CASH)).toContain("Current assets:");
+    expect(promptOf(CASH)).toContain("Balance sheet at 31 December (in thousands)");
+    expect(promptOf(FIXED)).toContain("Balance sheet at 31 December (in thousands)");
+    expect(promptOf(FIXED)).not.toContain("\uFFFC");
   });
 
   test("a PDF with no text, or one that can't be read, makes no Mind and says why", async () => {

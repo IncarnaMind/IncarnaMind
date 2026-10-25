@@ -283,7 +283,19 @@ describe("Research", { timeout: 30_000 }, () => {
   });
 
   test("the plan asks the model not to think where it can: Kimi K2.6's thinking took its whole reply (#1369)", async () => {
-    const { createChatModel, specs } = scriptedModels(researcher([]));
+    // As Kimi K2.6 does, the model thinks through its whole reply unless thinking is off.
+    let thinkingOff = false;
+    const thinker = scriptedModel(() => ({ text: "" }), {
+      generate: () =>
+        thinkingOff
+          ? { text: "TITLE: How did tea reach Europe?\n1. Find who first brought tea" }
+          : { text: "", cutOff: true },
+    });
+    const { createChatModel: inner, specs } = scriptedModels(thinker);
+    const createChatModel: typeof inner = (spec) => {
+      thinkingOff = spec.thinking === "off";
+      return inner(spec);
+    };
     const core = startCore(await createTempDataFolder(), { createChatModel });
     const provider = await core.saveChatProvider({
       kind: "anthropic",
@@ -294,7 +306,7 @@ describe("Research", { timeout: 30_000 }, () => {
     const mind = await core.createMind({ title: "Tea" });
     const planned = await core.planResearch({
       mindId: mind.id,
-      topic: "Research how tea reached Europe",
+      topic: "Thinks too long",
       sources: { web: false, library: true },
     });
     expect(planned).toMatchObject({ planned: true });

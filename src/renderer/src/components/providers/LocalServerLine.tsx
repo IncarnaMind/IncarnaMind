@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LocalServerStatus } from "../../../../core/api";
+import { checkApiKey } from "../../../../shared/apiKey";
 import { core } from "../../core";
 import { useT } from "../../i18n";
 import { buttonClass, hintClass } from "../ui";
@@ -14,12 +15,12 @@ export function useLocalServer(catalogId: string | null) {
       if (!catalogId) return;
       const mine = ++latest.current;
       setStatus(null);
-      const key = apiKey.trim();
+      const { key, stray } = checkApiKey(apiKey);
       const where = address.trim();
       const found = await core
         .detectLocalServer({
           catalogId,
-          ...(key && { apiKey: key }),
+          ...(key && !stray && { apiKey: key }),
           ...(where && { address: where }),
         })
         .catch((): LocalServerStatus => ({ running: false, address: "" }));

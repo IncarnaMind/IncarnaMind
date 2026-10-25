@@ -3,6 +3,7 @@ import type { AudioSource, CoreApiMethod } from "../core/api";
 import type { MenuCommandId } from "./commands";
 import type { GeneralHelpKind } from "./meetingHelp";
 import type { PanelCommand, PanelState } from "./meetingPanel";
+import type { PanelName } from "./panels";
 import type { GuidePlacement, PermissionGuideState } from "./permissionGuide";
 import type { TitleBar } from "./titleBar";
 
@@ -107,6 +108,8 @@ export interface FilesBridge {
   setSidebarHidden(hidden: boolean): void;
   /** Tells the Edit menu where Undo and Redo go now, and what they would take back or do again. */
   setEditMenu(state: EditMenuState): void;
+  /** Pastes where the focus is, as Edit › Paste does, for a menu's Paste: the page can't read the clipboard. */
+  paste(): void;
   /** The Mind File › Export names: its name, or null when no Mind is open, which disables the item. */
   setExportMenu(mindName: string | null): void;
   /** Whether the examples are removed: Help › Show the examples again appears only then. */
@@ -125,6 +128,11 @@ export interface FilesBridge {
   onMeetingHelp(listener: (kind: GeneralHelpKind) => void): () => void;
   /** Whether no other app holds these keys as its global shortcut, as far as the system says. */
   globalKeysFree(keys: string): Promise<boolean>;
+  /**
+   * Says which keys the window binds itself, in the form `keysForm` gives. A meeting shortcut the
+   * User set to one of them is held only while another app is in front.
+   */
+  windowKeys(forms: readonly string[]): void;
   /** Shows the floating panel during a call again after the User closed it, or hides it. */
   showMeetingPanel(shown: boolean): void;
   /** Calls `listener` with the floating panel's state, now and when it changes. Returns how to stop. */
@@ -162,12 +170,18 @@ export interface EditMenuState {
 
 export type SkillPickKind = "folder" | "zip";
 
-/** An error nothing in the window caught: a thrown error, or a rejected promise nobody handled. */
+/**
+ * An error nothing in the window caught: a thrown error, or a rejected promise nobody handled.
+ * Or, with `panel`, one a panel's boundary caught while it drew (#1500): the panel that failed,
+ * and React's component stack, the components it was drawing.
+ */
 export interface RendererErrorReport {
   kind: "error" | "rejection";
   name: string;
   message: string;
   stack: string;
+  panel?: PanelName;
+  componentStack?: string;
 }
 
 /** The main process's channels for the `FilesBridge` methods that need it. */
@@ -193,6 +207,8 @@ export const FILES_CHANNELS = {
   sidebarHidden: "app:sidebarHidden",
   /** From the page: where the Edit menu's Undo and Redo go now (`EditMenuState`). */
   editMenu: "app:editMenu",
+  /** From the page: paste where the focus is (`paste`). */
+  paste: "app:paste",
   exportMenu: "app:exportMenu",
   examplesRemoved: "app:examplesRemoved",
   /** From the main process: a command chosen in the application menu. */
@@ -202,6 +218,8 @@ export const FILES_CHANNELS = {
   /** From the main process: a help button's shortcut was pressed with no floating panel shown. */
   meetingHelp: "app:meetingHelp",
   globalKeysFree: "app:globalKeysFree",
+  /** From the page: the keys the window binds itself (`windowKeys`). */
+  windowKeys: "app:windowKeys",
   /** From the page: show (true) or hide (false) the floating panel. */
   showMeetingPanel: "app:showMeetingPanel",
   /** From the page: what the floating panel's state is now; the main process answers on `meetingPanel`. */

@@ -1,8 +1,9 @@
 import { create } from "zustand";
 import type { DocumentGroupAssignment } from "../../core/api";
 import { core } from "./core";
+import { isShown } from "./layoutSlice";
 import { useAppStore } from "./store";
-import { useUndo } from "./undo";
+import { type Undoable, useUndo } from "./undo";
 
 const working = (item: DocumentGroupAssignment) =>
   item.status === "pending" || item.status === "classifying";
@@ -10,6 +11,25 @@ const working = (item: DocumentGroupAssignment) =>
 /** The Folder an assignment puts a Document in, and whether it only waits to be accepted. */
 const placeOf = (item: DocumentGroupAssignment | undefined) =>
   item ? `${item.groupId ?? ""}|${item.suggested}` : "";
+
+let lastOrganize: Undoable | null = null;
+
+/** The step Organize last put on the undo stack, which To review offers to undo while it is next. */
+export const lastOrganizeStep = (): Undoable | null => lastOrganize;
+
+/**
+ * What Undo puts a Document back to: as it was before Organize, except that one Organize hadn't
+ * finished with (waiting for a model, or queued) goes back with no assignment at all. Put back as
+ * waiting it would show "Needs attention" with a model chosen, and be organized again at the next
+ * start (#1391).
+ */
+const wasBefore = (
+  before: ReadonlyMap<string, DocumentGroupAssignment>,
+  id: string,
+): DocumentGroupAssignment | undefined => {
+  const item = before.get(id);
+  return item && (working(item) || item.status === "waiting") ? undefined : item;
+};
 
 /**
  * Says what Organize did once it has gone through `ids` (#763): how many
@@ -28,34 +48,55 @@ export function sayWhenOrganized(
   const finish = () => {
     unsubscribe();
     const changed = itemsNow().filter(
-      (item) => item.suggested && placeOf(item) !== placeOf(before.get(item.documentId)),
+      (item) => item.suggested && placeOf(item) !== placeOf(wasBefore(before, item.documentId)),
     );
     if (changed.length === 0) return;
+    const stays = (now: ReadonlyMap<string, DocumentGroupAssignment>, wanted: "undone" | "done") =>
+      changed.filter((item) => {
+        const then = wanted === "undone" ? wasBefore(before, item.documentId) : item;
+        return placeOf(now.get(item.documentId)) === placeOf(then);
+      });
+    const assignmentsNow = () =>
+      new Map(
+        (useAppStore.getState().library?.assignments ?? []).map((item) => [item.documentId, item]),
+      );
     const put = (item: DocumentGroupAssignment) => {
-      const previous = before.get(item.documentId);
+      const previous = wasBefore(before, item.documentId);
       if (!previous) return core.restoreAssignment(item.documentId, null);
       const { documentId: _id, ...rest } = previous;
       return core.restoreAssignment(item.documentId, rest);
     };
-    useUndo.getState().push({
+    const step: Undoable = {
       said: (t) =>
         t(changed.length === 1 ? "library.organize.done.one" : "library.organize.done", {
           count: changed.length,
         }),
+      name: (t) => t("undo.name.organize"),
+      // From another tab, where To review isn't in sight.
+      ...(!isShown(useAppStore.getState().layout, { kind: "library" }) && {
+        also: {
+          label: (t) => t("library.review.review"),
+          testId: "undo-review",
+          run: () => useAppStore.getState().openLibrary("review"),
+        },
+      }),
       undo: async () => {
         // A Document the User has moved since is theirs now: it stays where they put it.
-        const now = new Map(
-          (useAppStore.getState().library?.assignments ?? []).map((item) => [
-            item.documentId,
-            item,
-          ]),
-        );
+        await Promise.all(stays(assignmentsNow(), "done").map(put));
+        await useAppStore.getState().refreshLibrary();
+      },
+      redo: async () => {
+        // The same again, in one step: the Documents still as Undo left them get their Suggested Folder back.
         await Promise.all(
-          changed.filter((item) => placeOf(now.get(item.documentId)) === placeOf(item)).map(put),
+          stays(assignmentsNow(), "undone").map(({ documentId, ...suggestion }) =>
+            core.restoreAssignment(documentId, suggestion),
+          ),
         );
         await useAppStore.getState().refreshLibrary();
       },
-    });
+    };
+    lastOrganize = step;
+    useUndo.getState().push(step);
   };
   // Organize has queued its Documents by now: with nothing working, there is nothing to wait for.
   let sawWorking = itemsNow().some(working);
