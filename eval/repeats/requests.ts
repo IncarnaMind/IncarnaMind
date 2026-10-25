@@ -68,6 +68,16 @@ function read(prompt: LanguageModelV4Prompt) {
   return { system, asked, queries, handed };
 }
 
+/** A search's query as the model wrote it; its raw input when that isn't JSON, as a model may write. */
+function queryOf(input: string): string {
+  try {
+    const parsed = JSON.parse(input || "{}") as { query?: unknown };
+    return String(parsed.query ?? "");
+  } catch {
+    return input;
+  }
+}
+
 export interface RequestWatch {
   chatModels(inner: ChatModelFactory): ChatModelFactory;
   /** Each sentence's requests since the last call, in order. */
@@ -110,8 +120,7 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
           transform(part, controller) {
             if (part.type === "text-delta") request.reply += part.delta;
             else if (part.type === "tool-call" && part.toolName === "search_documents") {
-              const input = JSON.parse(part.input || "{}") as { query?: unknown };
-              request.asked.push(String(input.query ?? ""));
+              request.asked.push(queryOf(part.input));
             } else if (part.type === "finish") {
               request.inputTokens = part.usage.inputTokens.total ?? 0;
               request.outputTokens = part.usage.outputTokens.total ?? 0;

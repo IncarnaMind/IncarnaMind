@@ -20,7 +20,9 @@ export function searchAgain(searches: () => number): TurnCheck {
     check(text) {
       if (searches() !== 1) return null;
       const read = readVerdict(text);
-      if (read?.verdict !== "unsupported" || (read.covered && read.uncovered)) return null;
+      if (read?.verdict !== "unsupported") return null;
+      // The check keeps a part only for a sentence whose topic a Passage is about (./claimCheck).
+      if (read.covered && read.uncovered && read.topic !== "not found") return null;
       return { claims: [], note: SEARCH_AGAIN };
     },
   };
