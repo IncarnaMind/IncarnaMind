@@ -1,12 +1,7 @@
 import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test } from "vitest";
-import {
-  CITATION_NODE,
-  type CitationAttributes,
-  CLAIM_CHECK_MARK,
-  type ClaimCheckAttributes,
-} from "../../src/core/api";
+import { CITATION_NODE, type CitationAttributes } from "../../src/core/api";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import {
   HEALTH_PARTS,
@@ -15,6 +10,7 @@ import {
 } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { sentenceKey } from "../../src/shared/mindCheck";
+import { checked } from "../helpers/claimChecks";
 
 const schema = getSchema(noteExtensions());
 
@@ -33,38 +29,6 @@ const citation = (check: CitationAttributes["check"]): JSONContent => ({
   type: CITATION_NODE,
   attrs: { documentId: "results", documentName: "Q3 results", quote: "38.6%", check },
 });
-
-/** A sentence's check, as its mark holds it. */
-function checked(
-  sentence: string,
-  state: ClaimCheckAttributes["state"],
-  reason: ClaimCheckAttributes["reason"] = null,
-  more: Partial<ClaimCheckAttributes> = {},
-): JSONContent {
-  const check: ClaimCheckAttributes = {
-    id: `check-${sentence.length}-${state}`,
-    request: "r1",
-    action: "check-against-documents",
-    state,
-    reason,
-    detail: null,
-    providerId: null,
-    modelId: null,
-    text: sentence,
-    evidence: null,
-    says: null,
-    unsupported: null,
-    calculation: null,
-    citedCaseUnchecked: false,
-    citedCaseFound: false,
-    scope: { folderId: null, widened: false },
-    versions: [],
-    excluded: [],
-    checkedAt: "2026-10-12T09:00:00.000Z",
-    ...more,
-  };
-  return text(sentence, [{ type: CLAIM_CHECK_MARK, attrs: check }]);
-}
 
 const docOf = (...blocks: JSONContent[]) => schema.nodeFromJSON({ type: "doc", content: blocks });
 

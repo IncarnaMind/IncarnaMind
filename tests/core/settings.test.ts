@@ -89,6 +89,7 @@ describe("Settings", () => {
           indexed: false,
           askedOwn: false,
           askedReady: false,
+          exported: false,
           hidden: false,
         },
         skillScriptsEnabled: true,
@@ -198,6 +199,7 @@ describe("Settings", () => {
         indexed: false,
         askedOwn: false,
         askedReady: false,
+        exported: false,
         hidden: false,
       },
       skillScriptsEnabled: true,
@@ -352,6 +354,7 @@ describe("Settings", () => {
     expect((await after.getSettings()).device.gettingStarted).toEqual({
       ...kept,
       askedReady: false,
+      exported: false,
     });
   });
 
@@ -377,6 +380,7 @@ describe("Settings", () => {
       const after = startCore(dataDir);
       expect((await after.getSettings()).device.gettingStarted).toEqual({
         ...older,
+        exported: false,
         citationChecked,
         mistakeSeen,
       });
@@ -396,6 +400,28 @@ describe("Settings", () => {
       mistakeSeen: false,
     });
     core.close();
+  });
+
+  test("old device progress defaults to not exported; a successful export milestone survives restart", async () => {
+    const dataDir = await createTempDataFolder();
+    const before = startCore(dataDir);
+    const { exported: _exported, ...oldProgress } = (await before.getSettings()).device
+      .gettingStarted;
+    await before.updateSettings({ device: { gettingStarted: oldProgress as GettingStarted } });
+    before.close();
+    const after = startCore(dataDir);
+    const progress = (await after.getSettings()).device.gettingStarted;
+    expect(progress.exported).toBe(false);
+    await expect(
+      after.updateSettings({
+        device: { gettingStarted: { ...progress, exported: "yes" } },
+      } as unknown as Parameters<typeof after.updateSettings>[0]),
+    ).rejects.toThrow(InvalidInputError);
+    await after.updateSettings({ device: { gettingStarted: { ...progress, exported: true } } });
+    after.close();
+    const reopened = startCore(dataDir);
+    expect((await reopened.getSettings()).device.gettingStarted.exported).toBe(true);
+    reopened.close();
   });
 
   test("a width must be a number", async () => {
@@ -422,6 +448,7 @@ describe("Settings", () => {
         indexed: false,
         askedOwn: false,
         askedReady: true,
+        exported: true,
         hidden: true,
       },
       skillScriptsEnabled: false,

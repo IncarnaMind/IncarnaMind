@@ -4,7 +4,7 @@ import type { Mind } from "../../core/api";
 import { core } from "./core";
 import { isProcessing } from "./documentStatus";
 import { useSelection } from "./selection";
-import { exampleMindIds, useAppStore } from "./store";
+import { type AppState, exampleMindIds, useAppStore } from "./store";
 
 const NO_MINDS: readonly Mind[] = [];
 
@@ -15,15 +15,23 @@ export const useHomeView = create<{ all: boolean; scrollTop: number }>()(() => (
   scrollTop: 0,
 }));
 
+export function ownMindsOf(
+  state: Pick<AppState, "minds" | "examples" | "otherExamples">,
+): readonly Mind[] {
+  const examples = new Set(exampleMindIds(state));
+  return state.minds
+    .filter((mind) => !examples.has(mind.id))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 export function useOwnMinds(): readonly Mind[] {
   const minds = useAppStore((state) => state.minds);
-  const examples = useAppStore((state) => exampleMindIds(state).join(" "));
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
   return useMemo(() => {
-    const left = new Set(examples.split(" "));
-    const own = minds.filter((mind) => !left.has(mind.id));
-    if (own.length === 0) return NO_MINDS;
-    return own.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [minds, examples]);
+    const own = ownMindsOf({ minds, examples, otherExamples });
+    return own.length > 0 ? own : NO_MINDS;
+  }, [minds, examples, otherExamples]);
 }
 
 const SAVED_MS = 500;

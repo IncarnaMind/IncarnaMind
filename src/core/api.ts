@@ -2108,6 +2108,8 @@ export interface GettingStarted {
   askedOwn: boolean;
   /** The User asked the first open's ready Question (`askReadyQuestion`). */
   askedReady: boolean;
+  /** An own note was exported successfully on this device. */
+  exported: boolean;
   /** The User hid the checklist. */
   hidden: boolean;
 }
