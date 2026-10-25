@@ -21,6 +21,10 @@ export interface Plan {
   reply?: ScriptedReply;
   /** What it says when asked to confirm a contradiction it found. */
   judgement?: "conflict" | "same" | "neither";
+  /** Its reply to the strict judgement, a contradiction's second; `judgement` when absent. */
+  strict?: GeneratedReply;
+  /** Its reply when asked for the parts of a sentence it called contradicted that the strict judgement didn't uphold. */
+  part?: string;
   /**
    * A figure it works out with calculate before its verdict (#707), each
    * input from the Passage that holds its quote, as marker 1.
@@ -55,6 +59,9 @@ function plannedNumbers(prompt: string, plans: Record<string, Plan>): number[] {
     return listed?.[2] !== undefined && listed[2] in plans ? [Number(listed[1])] : [];
   });
 }
+
+/** The strict judgement's instructions, which ask for the sentence's detail and the quote's before the word. */
+export const isStrict = (call: { system: string }) => call.system.includes("Judgement: one word");
 
 /** A check Run's instructions (src/core/answers/checks/prompt.ts). */
 export const isCheckRun = (call: ModelCall) => call.system.startsWith("You check one sentence");
@@ -117,9 +124,13 @@ export const checkGenerate =
     if (call.system.startsWith("You sort the sentences")) {
       return { text: JSON.stringify({ claims: plannedNumbers(call.prompt, plans) }) };
     }
+    if (call.system.startsWith("A sentence the User wrote says more")) {
+      return { text: plans[SENTENCE.exec(call.prompt)?.[1] ?? ""]?.part ?? "" };
+    }
     if (call.system.startsWith("Compare a sentence")) {
-      const sentence = SENTENCE.exec(call.prompt)?.[1] ?? "";
-      return { text: plans[sentence]?.judgement ?? "conflict" };
+      const plan = plans[SENTENCE.exec(call.prompt)?.[1] ?? ""];
+      if (plan?.strict && isStrict(call)) return plan.strict;
+      return { text: plan?.judgement ?? "conflict" };
     }
     return { text: evidence };
   };

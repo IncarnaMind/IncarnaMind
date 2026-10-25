@@ -51,6 +51,9 @@ describe("An Answer as a cell", () => {
     ["1,2 Mio.", 1_200_000, '#,##0.0,," Mio."'],
     ["$1.2m.", 1_200_000, '"$"#,##0.0,,"m"'],
     ["0.5", 0.5, "#,##0.0"],
+    ["£1.5bn", 1_500_000_000, '"£"#,##0.0,,,"bn"'],
+    ["£1,583m", 1_583_000_000, '"£"#,##0,,"m"'],
+    ["1.5亿元", 150_000_000, '#,##0"元"'],
   ])("%s is the number %d", (answer, number, format) => {
     expect(figureCell(answer, "en")).toEqual({ value: { kind: "number", number }, format });
   });

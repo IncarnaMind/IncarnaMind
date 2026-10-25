@@ -1,6 +1,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { AskInConversationInput, ConversationAnswer, Core, MindFocus } from "../../src/core";
+import { CHAT_FLOW_SENDS } from "../../src/core/providers/chat";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { answerChats, GIB, messagesOf, QWEN35, setUpLocalModel } from "../helpers/localModels";
@@ -469,7 +470,7 @@ describe("Consent for the Mind read", { timeout: 30_000 }, () => {
     expect(asked).toBe(false);
     expect(lastSent(model)).toContain("My draft.");
     expect(await core.listDataFlows()).toContainEqual({
-      flow: { id: "chat", service: provider.service, sends: ["blocks", "passages"] },
+      flow: { id: "chat", service: provider.service, sends: [...CHAT_FLOW_SENDS] },
       consent: "accepted",
       decidedAt: expect.any(String),
       chosen: false,
@@ -513,8 +514,7 @@ describe("A Question whose Search scope holds no Documents (#748)", { timeout: 3
       scope: { folderIds: [empty.id], tagIds: [], documentIds: [] },
     });
 
-    // Asked to shorten, a reply that changed nothing is asked for once more.
-    expect(model.doStreamCalls).toHaveLength(2);
+    expect(model.doStreamCalls).toHaveLength(1);
     expect(answer.text).toBe("It is shorter now.");
     expect(answer.model).not.toBeNull();
     expect(answer.read).not.toBeNull();

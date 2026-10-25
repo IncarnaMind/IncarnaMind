@@ -8,11 +8,13 @@ import {
   assistantAnswers,
   closeSettings,
   createDataFolder,
+  examplesMenu,
   flushUsageData,
   launchApp,
   leaveFirstOpen,
   newMind,
   openPrivacySettings,
+  pointAndClick,
   removeDataFolder,
   showSettingsPage,
   useLocalChatModel,
@@ -208,13 +210,11 @@ test("a release waits for the steps: with them open the card comes at the next l
 test("nothing is sent or kept to send before Send; after it, an example opened carries its group only", async () => {
   const { app, window } = await launchApp(dataDir, releaseOptions());
   const card = window.getByTestId("usage-data-card");
-  const banner = window.getByTestId("first-open-steps");
 
   // An example opened before the question: its event is neither sent nor kept.
-  await banner.locator('[data-testid="example-more-link"][data-group="meetings"]').click();
-  await expect(
-    window.locator('[data-testid="example-more-link"][data-group="credit"]'),
-  ).toBeVisible();
+  const examples = await examplesMenu(window);
+  await pointAndClick(window, examples.locator('[data-group="meetings"]'));
+  await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
   await useLocalChatModel(window);
   await askOwnQuestion(window, card);
   await expect(card).toBeVisible();
@@ -223,7 +223,12 @@ test("nothing is sent or kept to send before Send; after it, an example opened c
 
   await card.getByTestId("usage-data-send").click();
   await expect(card).toBeHidden();
-  await window.locator('[data-testid="example-more-link"][data-group="contracts"]').first().click();
+  // The Examples row is only in the quiet first open; the example Mind's banner has the others.
+  await leaveFirstOpen(window);
+  await pointAndClick(
+    window,
+    window.locator('[data-testid="example-more-link"][data-group="contracts"]').first(),
+  );
   await expect
     .poll(() => posthog.events().map((each) => each.event), { timeout: 10_000 })
     .toContain("example_opened");
@@ -279,6 +284,8 @@ test("a test build says so from the first run, in the sidebar, with the switch, 
     usageData: { host: posthog.host, testerBuild: true },
     examples: true,
   });
+  await expect(again.window.getByTestId("home")).toBeVisible();
+  await again.window.getByTestId("mind-tab").click();
   await expect(again.window.getByTestId("first-open-steps")).toBeVisible();
   await expect(again.window.getByTestId("usage-data-card")).toBeHidden();
   await again.app.close();

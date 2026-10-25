@@ -34,12 +34,16 @@ interface MoveRequest {
 }
 
 /** Opens Move to… from a row's menu, beside its ⋯, for the row or the selection it is in. */
-export function moveFromMenu(row: HTMLElement | null, object: ObjectRef): void {
+export function moveFromMenu(
+  row: HTMLElement | null,
+  object: ObjectRef,
+  surface: SelectSurface = "sidebar",
+): void {
   // Once the menu has closed and given the focus back, so the picker opens beside the button.
   requestAnimationFrame(() =>
     useSidebarMove
       .getState()
-      .show(row?.querySelector<HTMLElement>("[data-object-menu]") ?? null, object),
+      .show(row?.querySelector<HTMLElement>("[data-object-menu]") ?? null, object, surface),
   );
 }
 
@@ -87,12 +91,12 @@ export function moveFromPalette(targets: readonly ObjectRef[]): void {
 // One picker for the whole sidebar: each row opening its own would leave several open at once.
 export const useSidebarMove = create<{
   request: MoveRequest | null;
-  show(anchor: HTMLElement | null, row: ObjectRef): void;
+  show(anchor: HTMLElement | null, row: ObjectRef, surface?: SelectSurface): void;
   hide(): void;
 }>()((set) => ({
   request: null,
-  show: (anchor, row) => {
-    if (anchor) set({ request: { anchor, items: itemsOfRefs(movedFrom(row, "sidebar")) } });
+  show: (anchor, row, surface = "sidebar") => {
+    if (anchor) set({ request: { anchor, items: itemsOfRefs(movedFrom(row, surface)) } });
   },
   hide: () => set({ request: null }),
 }));

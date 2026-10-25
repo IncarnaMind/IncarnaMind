@@ -7,6 +7,7 @@ import { useAppStore } from "../../store";
 import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { ExportDialog } from "../ExportDialog";
+import { HomePane } from "../home/HomePane";
 import { LibraryPane } from "../LibraryPane";
 import { ResizeRod } from "../ResizeRod";
 import { DocumentTab } from "./DocumentTab";
@@ -202,6 +203,8 @@ function TabGroup({
               <MindTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
             ) : tab.item.kind === "library" ? (
               <LibraryPane />
+            ) : tab.item.kind === "home" ? (
+              <HomePane />
             ) : (
               <DocumentTab key={tab.id} tab={tab} />
             )}

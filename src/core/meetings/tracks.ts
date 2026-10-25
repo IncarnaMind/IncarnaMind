@@ -8,6 +8,9 @@
  * placed where they belong; both tracks are let out together, a moment
  * behind the newest, so a source a little late still joins in. Samples later
  * than that go to disk only. A stretch a source doesn't cover is silence.
+ *
+ * While the User has paused their microphone, no block carries a microphone
+ * track: nothing is sent for it, not even silence.
  */
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import type { AudioSource } from "../api";
@@ -20,9 +23,11 @@ const sampleAt = (ms: number) => Math.round((ms * MEETING_SAMPLE_RATE) / 1000);
 const msAt = (sample: number) => (sample * 1000) / MEETING_SAMPLE_RATE;
 
 export interface TrackedAudio {
-  /** Where both tracks start, in the Meeting's time. */
+  /** Where both tracks start, in the Meeting's time, and how long they last. */
   atMs: number;
-  microphone: Int16Array;
+  lengthMs: number;
+  /** Null while the User has paused it. */
+  microphone: Int16Array | null;
   /** The computer's sound; null while none has been heard: a Meeting in a room has none. */
   system: Int16Array | null;
 }
@@ -38,6 +43,7 @@ export function createTracks(startMs: number) {
   let newest = out;
   /** Made when the computer's sound first comes: until then there is no echo to take out. */
   let canceller: EchoCanceller | null = null;
+  let microphonePaused = false;
 
   function room(end: number): void {
     const needed = end - out;
@@ -79,7 +85,8 @@ export function createTracks(startMs: number) {
     const count = until - out;
     const audio = {
       atMs: msAt(out),
-      microphone: clipped(cleanMicrophone(count), count),
+      lengthMs: msAt(count),
+      microphone: microphonePaused ? null : clipped(cleanMicrophone(count), count),
       system: canceller ? clipped(system, count) : null,
     };
     for (const buffer of [system, microphone]) {
@@ -124,6 +131,30 @@ export function createTracks(startMs: number) {
     /** Lets out everything heard. */
     flush(): TrackedAudio | null {
       return take(newest);
+    },
+
+    /**
+     * The microphone is paused at `atMs` in the Meeting's time: what it heard up to there is let
+     * out now, its last, and no block has its track until `resumeMicrophone`.
+     */
+    pauseMicrophone(atMs: number): TrackedAudio | null {
+      // Either source can be stamped a little past the press (the computer's sound runs ahead
+      // when its first frame was heard late): that goes out later, without the microphone's track.
+      const audio = take(Math.max(out, Math.min(newest, sampleAt(atMs))));
+      microphonePaused = true;
+      return audio;
+    },
+
+    /**
+     * The microphone is on again from `atMs` in the Meeting's time: what came meanwhile is let
+     * out now, without its track, and its samples are placed from here.
+     */
+    resumeMicrophone(atMs: number): TrackedAudio | null {
+      const audio = take(newest);
+      microphonePaused = false;
+      // With nothing else coming, nothing waited through the pause: carry on from here.
+      out = newest = Math.max(out, sampleAt(atMs));
+      return audio;
     },
 
     /** Where the audio not yet let out starts, in the Meeting's time. */

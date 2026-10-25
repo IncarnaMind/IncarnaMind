@@ -637,7 +637,7 @@ function Grid({
   /** Whether text may spill over this cell from the left: empty, unmerged, plain. */
   const spillable = (row: number, column: number) => {
     const at = cellIndex(row, column);
-    if (model.cells.has(at) || model.merges.has(at)) return false;
+    if (model.cells.has(at) || model.merges.has(at) || model.look?.noValue.has(at)) return false;
     const style = styleOf(row, column);
     return !style?.fill && !style?.border.left && !style?.border.right;
   };
@@ -684,6 +684,30 @@ function Grid({
       const wraps = style?.wrap || horizontal === "justify" || horizontal === "distributed";
       const numeric = cell?.numeric ?? false;
       let display = text;
+      const spillOver = (measured: number) => {
+        let next = index + 1;
+        while (width - 2 * CELL_PADDING < measured && next < shownColumns.length) {
+          const over = shownColumns[next] as number;
+          if (!spillable(row, over)) break;
+          width += columns.size(over);
+          spanColumns++;
+          right = over;
+          next++;
+        }
+      };
+      // A formula the file saved no result for says so; it is never shown as 0 (#1514).
+      const unsaved = !csv && !cell && (model.look?.noValue.has(at) ?? false);
+      let unsavedMark = false;
+      if (unsaved) {
+        display = t("sheet.noSavedValue");
+        const measured = measure(display, canvasFont(font, model.points));
+        if (!merge && column >= model.frozen.columns) spillOver(measured);
+        // Words the cell still can't hold would be cut mid-letter: a dash, and the words on hover.
+        if (width - 2 * CELL_PADDING < measured) {
+          display = "\u2014";
+          unsavedMark = true;
+        }
+      }
       if (!csv && cell && !merge && text) {
         let measured = model.widths.get(at);
         if (measured === undefined) {
@@ -704,15 +728,7 @@ function Grid({
           column >= model.frozen.columns
         ) {
           // Text runs on over the empty cells to its right.
-          let next = index + 1;
-          while (width - 2 * CELL_PADDING < measured && next < shownColumns.length) {
-            const over = shownColumns[next] as number;
-            if (!spillable(row, over)) break;
-            width += columns.size(over);
-            spanColumns++;
-            right = over;
-            next++;
-          }
+          spillOver(measured);
         } else if (horizontal === "centerContinuous" && column >= model.frozen.columns) {
           // Centred across the empty cells to its right that are centred across too.
           let next = index + 1;
@@ -801,8 +817,9 @@ function Grid({
           data-quote-highlight={isHighlighted ? "" : undefined}
           rowSpan={spanRows > 1 ? spanRows : undefined}
           colSpan={spanColumns > 1 ? spanColumns : undefined}
-          title={note}
-          className={`${csv && numeric ? "viewer-cell--number" : ""} ${isHighlighted ? "viewer-cell--quote" : ""} ${note ? "viewer-cell--note" : ""}`}
+          title={note ?? (unsavedMark ? t("sheet.noSavedValue") : undefined)}
+          aria-label={unsavedMark ? t("sheet.noSavedValue") : undefined}
+          className={`${csv && numeric ? "viewer-cell--number" : ""} ${isHighlighted ? "viewer-cell--quote" : ""} ${note ? "viewer-cell--note" : ""} ${unsaved ? "viewer-cell--unsaved" : ""}`}
           style={css}
         >
           {csv ? (

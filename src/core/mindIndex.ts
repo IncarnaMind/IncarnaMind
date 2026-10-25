@@ -13,6 +13,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { cutAtWord, cutTitle } from "../shared/naming";
 import { BLOCK_ID_ATTRIBUTE, type MindTextMatch } from "./api";
 import { keywordText } from "./documents/keywords";
 import { InvalidInputError } from "./errors";
@@ -43,6 +44,44 @@ interface StoredBlock {
   position: number;
   text: string;
   deleted: number;
+}
+
+export interface LeadingLine {
+  kind: string;
+  text: string;
+}
+
+const LEADING_LINES = 2;
+/** Enough for a row that cuts it to one line, without carrying a pasted paragraph whole. */
+const LINE_LENGTH = 300;
+
+const firstLine = (text: string) => {
+  const line = text
+    .split("\n")
+    .find((each) => each.trim() !== "")
+    ?.trim();
+  return line && cutAtWord(line, LINE_LENGTH);
+};
+
+function leadingLinesOf(blocks: readonly Pick<ReadBlock, "kind" | "text">[]): LeadingLine[] {
+  const lines: LeadingLine[] = [];
+  for (const block of blocks) {
+    const text = firstLine(block.text);
+    if (text) lines.push({ kind: block.kind, text });
+    if (lines.length === LEADING_LINES) break;
+  }
+  return lines;
+}
+
+/**
+ * The line Home's Recent shows under a Mind's name: its first line, or the next one when the
+ * first is its title heading, or is the name or the line the name was cut from.
+ */
+export function lineUnderName(lines: readonly LeadingLine[], name: string): string | undefined {
+  const [first, second] = lines;
+  if (!first) return undefined;
+  const named = first.kind === "heading" || first.text === name || cutTitle(first.text) === name;
+  return named ? second?.text : first.text;
 }
 
 function readTopLevel(blocks: Y.XmlFragment): ReadBlock[] {
@@ -77,11 +116,12 @@ export function forgetMindBlocks(db: Database, mindIds: readonly string[], at: s
 export function createMindIndex(options: {
   db: Database;
   now: () => string;
-  content: MindContent;
+  content: Pick<MindContent, "peek">;
   reportError(error: unknown): void;
 }) {
   const { db, now, content } = options;
   const dirty = new Set<string>();
+  let leading: Map<string, LeadingLine[]> | null = null;
   /** The Minds the walk has still to read; null until they are looked up. */
   let unread: string[] | null = null;
   let quiet: ReturnType<typeof setTimeout> | undefined;
@@ -125,6 +165,7 @@ export function createMindIndex(options: {
     // A Mind in Recently deleted keeps its rows as they were, for when it is restored.
     if (!live) return;
     const blocks = content.peek(mindId, readTopLevel);
+    leading?.set(mindId, leadingLinesOf(blocks));
     const stored = new Map(
       db
         .all<StoredBlock>(
@@ -302,6 +343,34 @@ export function createMindIndex(options: {
         // On one line, so the excerpt's offsets stay those of the text.
         ...excerptOf(row.text.replaceAll("\n", " "), terms),
       }));
+    },
+
+    /**
+     * Each Mind's first lines of text, as typed a moment ago. They are read from the index once,
+     * then kept: only a Mind stored to since is read again.
+     */
+    leadingLines(): ReadonlyMap<string, readonly LeadingLine[]> {
+      if (!leading) {
+        const rows = db.all<{ mind_id: string; kind: string; text: string }>(
+          `SELECT mind_id, kind, text FROM (
+             SELECT b.mind_id, b.kind, b.text,
+               ROW_NUMBER() OVER (PARTITION BY b.mind_id ORDER BY b.position) AS n
+             FROM mind_blocks b JOIN minds m ON m.id = b.mind_id
+             WHERE b.deleted_at IS NULL AND m.deleted_at IS NULL AND trim(b.text) <> '')
+           WHERE n <= ?
+           ORDER BY mind_id, n`,
+          [BigInt(LEADING_LINES)],
+        );
+        const filled = new Map<string, LeadingLine[]>();
+        for (const row of rows) {
+          const lines = filled.get(row.mind_id) ?? [];
+          lines.push(...leadingLinesOf([row]));
+          filled.set(row.mind_id, lines);
+        }
+        leading = filled;
+      }
+      readChanged();
+      return leading;
     },
 
     /** Reads the Minds just stored to, and stops. Run before the database closes. */

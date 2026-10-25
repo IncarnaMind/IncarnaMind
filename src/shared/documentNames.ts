@@ -74,7 +74,22 @@ export function titleWithoutSite(title: string, site: string): string {
   return title;
 }
 
-/** Where a Document comes from, as its tooltip names it: its file's name, or a web page's address. */
-export function sourceOf(document: { path: string; web?: { address: string } | null }): string {
-  return document.web?.address ?? fileNameOf(document.path);
+/**
+ * Where a Document comes from, as its tooltip names it: its file's name, or a web page's address.
+ * A file IncarnaMind keeps under a machine-made name (a Transcript's until it is saved, #1347)
+ * reads as the Document's name, the name its saved file has.
+ */
+export function sourceOf(document: {
+  name: string;
+  path: string;
+  web?: { address: string } | null;
+}): string {
+  if (document.web) return document.web.address;
+  const file = fileNameOf(document.path);
+  const base = file.replace(/\.[^.]+$/, "");
+  if (!looksMachineMade(base)) return file;
+  const extension = file.slice(base.length);
+  return document.name.toLowerCase().endsWith(extension.toLowerCase())
+    ? document.name
+    : `${document.name}${extension}`;
 }

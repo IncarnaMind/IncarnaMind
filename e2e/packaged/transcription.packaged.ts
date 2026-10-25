@@ -61,8 +61,8 @@ async function launchPackaged(home: string, data: string): Promise<ElectronAppli
   });
 }
 
-// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), keeps going past its first stretch, and saves the Transcript; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, or it stops after the first line; no_claim=the computer's sound, Windows and Linux, or a cloud transcription service.
-test("the packaged app transcribes a meeting from the microphone on this computer", async () => {
+// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), keeps going past its first stretch, and saves the Transcript; then the speaker pass runs to the end on its real engine and models in its own process (#138), and the room's lines are numbered; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, it stops after the first line, or the speaker process, its bundle or its models are broken, which leaves every line "Speaker ?"; no_claim=the computer's sound, how well voices are told apart (eval/speakers), Windows and Linux, or a cloud transcription service.
+test("the packaged app transcribes a meeting from the microphone on this computer, and tells its speakers apart", async () => {
   expect(existsSync(executable), `${executable}: run npm run dist:dir first`).toBe(true);
   const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
   dataDir = await mkdtemp(join(tmpdir(), "incarnamind-data-"));
@@ -106,6 +106,23 @@ test("the packaged app transcribes a meeting from the microphone on this compute
     .filter({ hasText: "Transcript saved" });
   await expect(saved).toBeVisible({ timeout: 5 * 60_000 });
   expect(await readdir(output)).not.toHaveLength(0);
+
+  const speakers = lines.getByTestId("transcript-speaker");
+  const failed = window
+    .getByTestId("meeting-transcript-line")
+    .filter({ hasText: "speakers couldn’t be told apart" });
+  await expect
+    .poll(
+      async () => {
+        if ((await failed.count()) > 0) return "failed";
+        const labels = await speakers.allTextContents();
+        return labels.length > 0 && labels.every((label) => /^Speaker \d+$/.test(label))
+          ? "numbered"
+          : "waiting";
+      },
+      { timeout: 10 * 60_000 },
+    )
+    .toBe("numbered");
 
   await app.close();
   app = undefined;

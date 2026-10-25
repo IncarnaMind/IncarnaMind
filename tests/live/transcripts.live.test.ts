@@ -73,6 +73,7 @@ function playingCapture() {
       sink = given;
       given.state("microphone", "recording");
       return {
+        setMicrophone: () => {},
         stop: async () => {
           sink = null;
         },

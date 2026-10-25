@@ -1,5 +1,4 @@
 import { writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
@@ -7,6 +6,7 @@ import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
   createDataFolder,
+  decisionServer,
   dismissChatSetup,
   launchApp,
   openManageTags,
@@ -239,62 +239,6 @@ test("Tags are added, created and removed with the keyboard, on one Document and
     await app.close();
   }
 });
-
-/**
- * A local decision server like Ollama's `/v1/systemone`: Finance for an
- * invoice, Reports otherwise; Invoice in the review band for an invoice,
- * Report likely for a report.
- */
-async function decisionServer(): Promise<{ server: Server; readonly requests: number }> {
-  let requests = 0;
-  const server = createServer(async (request, response) => {
-    let raw = "";
-    for await (const chunk of request) raw += chunk;
-    const body = raw ? JSON.parse(raw) : {};
-    response.setHeader("content-type", "application/json");
-    if (request.url !== "/v1/systemone") {
-      response.end(JSON.stringify({ models: [] }));
-      return;
-    }
-    requests++;
-    const text = JSON.stringify(body.state).toLowerCase();
-    const answers = Object.fromEntries(
-      Object.entries(
-        body.questions as Record<
-          string,
-          { type: string; instructions: string; criteria?: Record<string, string> }
-        >,
-      ).map(([id, question]) => {
-        if (question.type === "choice") {
-          const wanted = text.includes("invoice") ? "Finance" : "Reports";
-          const choice =
-            Object.entries(question.criteria ?? {}).find(([, value]) =>
-              value.startsWith(wanted),
-            )?.[0] ?? "__unsorted__";
-          return [id, { type: "choice", choice }];
-        }
-        const noul = question.instructions.includes("“Invoice”")
-          ? text.includes("invoice")
-            ? 0.65
-            : 0.01
-          : question.instructions.includes("“Report”")
-            ? text.includes("report")
-              ? 0.95
-              : 0.01
-            : 0.01;
-        return [id, { type: "noul", noul }];
-      }),
-    );
-    response.end(JSON.stringify({ answers }));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return {
-    server,
-    get requests() {
-      return requests;
-    },
-  };
-}
 
 test("a Tag automatic tagging wasn't sure of is confirmed or removed in one click, and + Filter's Tags narrow the Library", async () => {
   const decisions = await decisionServer();

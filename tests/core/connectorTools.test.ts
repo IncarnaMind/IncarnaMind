@@ -1,6 +1,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, Connector, Core, CoreEvents } from "../../src/core";
+import { CHAT_FLOW_SENDS } from "../../src/core/providers/chat";
 import {
   answerEnded,
   askAndFinish,
@@ -367,7 +368,7 @@ describe("The chat flow with Connectors", { timeout: 30_000 }, () => {
 
     expect(await core.getChatReadiness()).toMatchObject({ ready: true, consent: "needed" });
     const chat = (await core.listDataFlows()).find((status) => status.flow.id === "chat");
-    expect(chat?.flow.sends).toEqual(["blocks", "passages", "tool-results"]);
+    expect(chat?.flow.sends).toEqual([...CHAT_FLOW_SENDS, "tool-results"]);
 
     // Off again, chat sends what the User accepted.
     await core.setConnectorEnabled(connector.id, false);
@@ -411,6 +412,6 @@ describe("The chat flow with Connectors", { timeout: 30_000 }, () => {
 
     expect(await core.getChatReadiness()).toMatchObject({ ready: true, consent: "accepted" });
     const chat = (await core.listDataFlows()).find((status) => status.flow.id === "chat");
-    expect(chat?.flow.sends).toEqual(["blocks", "passages"]);
+    expect(chat?.flow.sends).toEqual([...CHAT_FLOW_SENDS]);
   });
 });

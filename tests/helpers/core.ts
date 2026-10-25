@@ -30,6 +30,17 @@ export const CITATION_STYLES = fileURLToPath(
 /** A model source with nothing to download: the fake embedding model needs no files. */
 export const NO_MODEL_FILES = { baseUrl: "http://127.0.0.1/", files: [] } as const;
 
+/**
+ * Model downloads reach only a test's own servers on this computer: the sources' probe of the
+ * real hosts, and any real source, get no answer.
+ */
+export const LOCAL_FETCH: typeof fetch = (input, init) => {
+  const url = new URL(input instanceof Request ? input.url : String(input));
+  return url.hostname === "127.0.0.1"
+    ? fetch(input, init)
+    : Promise.reject(new TypeError(`Tests reach no host: ${url.host}.`));
+};
+
 /** An address nothing answers at (the discard port), for services a test doesn't stand in for. */
 const NOWHERE = "http://127.0.0.1:9";
 
@@ -118,6 +129,7 @@ export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
     embeddingModelSource: NO_MODEL_FILES,
     crossEncoder: createFakeCrossEncoder(),
     rerankingModelSource: NO_MODEL_FILES,
+    modelDownloads: { fetch: LOCAL_FETCH, copies: {} },
     // Find sources never reaches the real services from a test: a test that searches gives its stand-in.
     sourceProviders: {
       openalex: NOWHERE,
@@ -221,4 +233,13 @@ export async function saveProviderUnasked(
     for (const flow of CHOSEN_PROVIDER_FLOWS) await core.revokeConsent(flow, service.id);
   }
   return provider;
+}
+
+/**
+ * Turns on tagging and sorting new Documents by themselves, which a cloud model starts without
+ * (#1617), as the switch in Settings does: where a line says what goes, that is the consent too.
+ */
+export async function turnOnAutomaticTagging(core: Core): Promise<void> {
+  const { settings } = await core.getLibrary();
+  await core.saveLibrarySettings({ ...settings, automatic: true });
 }

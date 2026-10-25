@@ -9,6 +9,7 @@ import {
   precision,
   recall,
   summarise,
+  thresholdSweep,
 } from "../../eval/organize/lib/scoring";
 import { definitions } from "../../eval/organize/lib/set";
 
@@ -99,6 +100,32 @@ describe("the Organize benchmark's scoring", () => {
       ["report", { tp: 0, fp: 1, fn: 1 }],
       ["notes", { tp: 1, fp: 0, fn: 0 }],
     ]);
+  });
+
+  test("scores Tags at each threshold from the probabilities of every Tag", () => {
+    const pairs = [
+      {
+        doc: b,
+        prediction: predicted("b", "reports", [], {
+          scores: { slides: 0.9, report: 0.4, notes: 0.6 },
+        }),
+      },
+      { doc: d, prediction: predicted("d", "contracts", [], { scores: { contract: 0.7 } }) },
+      // A failed request applies nothing, whatever it carries.
+      {
+        doc: a,
+        prediction: predicted("a", undefined as unknown as null, [], {
+          error: "timeout",
+          scores: { invoice: 0.99 },
+        }),
+      },
+    ];
+    const [low, high] = thresholdSweep(pairs, [0.5, 0.8]);
+    expect(low).toMatchObject({ threshold: 0.5 });
+    expect(low?.p).toBeCloseTo(2 / 3);
+    expect(low?.r).toBeCloseTo(2 / 4);
+    expect(high?.p).toBe(1);
+    expect(high?.r).toBeCloseTo(1 / 4);
   });
 
   test("uses the app's own starter Folders and preset Tags, in either language", () => {

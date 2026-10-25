@@ -1,0 +1,83 @@
+name: Install an apt package from a cache
+description: >
+  Installs one apt package. On some runners the package mirror serves package files at about
+  50 kB/s (#1731), so the package's .deb files are restored from a cache that the "Warm CI caches"
+  workflow saves on main, and apt downloads only what the cache lacks. A pull request or a merge
+  group can't save a cache that other refs read, so this action saves one only with `warm`. A run
+  without a matching cache installs as it always did.
+
+inputs:
+  package:
+    description: The apt package to install. A new one also goes in the matrix of warm-ci-caches.yml.
+    required: true
+  warm:
+    description: Download the package and save its files for other runs, unless the cache has them.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # The runner image sets the package versions apt resolves, so a new image gets a new key until
+    # the daily warm-up has saved it. The prefix restores the last image's files meanwhile, and apt
+    # downloads only the ones that differ.
+    - id: key
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+      run: |
+        echo "key=apt-$PACKAGE-${ImageOS:-linux}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+        echo "prefix=apt-$PACKAGE-${ImageOS:-linux}-" >> "$GITHUB_OUTPUT"
+    - id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/ci-apt/${{ inputs.package }}
+        key: ${{ steps.key.outputs.key }}
+        # A warm-up starts from nothing, so the files it saves are only the ones this image needs.
+        restore-keys: ${{ inputs.warm != 'true' && steps.key.outputs.prefix || '' }}
+        lookup-only: ${{ inputs.warm == 'true' }}
+    - name: Install ${{ inputs.package }}
+      if: inputs.warm != 'true' || steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+      run: |
+        dir="$HOME/.cache/ci-apt/$PACKAGE"
+        mkdir -p "$dir/partial"
+        printf 'Acquire::Retries "1";\nAcquire::http::Timeout "15";\nAcquire::https::Timeout "15";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+        options=(-y --no-install-recommends -o "Dir::Cache::archives=$dir" -o APT::Sandbox::User=root -o APT::Keep-Downloaded-Packages=true)
+        # A download is dropped after 5 minutes and tried from the other mirror, which also stops
+        # a slow one from holding the runner; the last try has no limit, so an install that
+        # would pass slowly still passes. It is downloaded before it is installed so that the
+        # limit never stops dpkg half way.
+        for attempt in 1 2 3; do
+          case $attempt in
+            1) host=archive.ubuntu.com limit=300 ;;
+            2) host=azure.archive.ubuntu.com limit=300 ;;
+            3) host=archive.ubuntu.com limit=0 ;;
+          esac
+          sudo sed -i -E "s#//(azure\.)?archive\.ubuntu\.com/#//$host/#g" /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+          sudo timeout 120 apt-get update -qq || echo "::warning::apt-get update failed, so apt uses the package lists the runner has"
+          if sudo timeout "$limit" apt-get install --download-only "${options[@]}" "$PACKAGE"; then
+            sudo apt-get install "${options[@]}" "$PACKAGE"
+            exit 0
+          fi
+          echo "::warning::Downloading $PACKAGE from $host did not finish (try $attempt of 3)"
+        done
+        exit 1
+    # apt leaves root's lock file and the _apt user's download folder in the directory; the cache's
+    # archiver runs as the runner user and fails on both.
+    - name: Save the downloaded files
+      if: inputs.warm == 'true' && steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+      run: |
+        dir="$HOME/.cache/ci-apt/$PACKAGE"
+        sudo rm -rf "$dir/partial" "$dir/lock"
+        sudo chown -R "$(id -u):$(id -g)" "$dir"
+        ls -l "$dir"/*.deb
+    - if: inputs.warm == 'true' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/ci-apt/${{ inputs.package }}
+        key: ${{ steps.key.outputs.key }}

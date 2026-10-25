@@ -205,7 +205,7 @@ export function CitationView({
 
   const onClick = () => {
     setPinned(true);
-    // Step 1 of the first open's steps, and step 3 of the steps in an empty Mind.
+    // Step 3 of the steps in an empty Mind.
     useAppStore.getState().updateGettingStarted({ citationChecked: true });
     if (groupsMerged()) return;
     if (quoteSaysSo(state.check)) openCited(true);

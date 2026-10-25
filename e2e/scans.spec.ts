@@ -133,3 +133,60 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 }
+
+const LANE = {
+  en: { line: "Reading 1 scan, 2 waiting", one: "Reading 1 scan…" },
+  "zh-CN": { line: "正在识别 1 个扫描件，2 个排队中", one: "正在识别 1 个扫描件…" },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  // protects=a text PDF added after three scans is ready while they are still read, and the sidebar says how many scans are read and how many wait, in English and Chinese (#1502); fails_when=the text PDF waits behind the scans, or the line counts pages or Documents instead of scans; no_claim=how many scans a computer reads at once, which the unit tests cover.
+  test(`a text PDF is ready while scans are still read, and the sidebar says how many scans wait (${language})`, async () => {
+    const script = join(sources, "scans.json");
+    const lines = { lines: linesOf("en-clean") };
+    await writeFile(
+      script,
+      JSON.stringify({
+        pages: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((page) => [page, lines])),
+      }),
+    );
+    const scan = buildPdf([1, 2, 3, 4, 5, 6, 7, 8].map(() => ({ scan: picture("en-clean") })));
+    const files = ["Scan A.pdf", "Scan B.pdf", "Scan C.pdf"].map((name) => join(sources, name));
+    for (const file of files) await writeFile(file, scan);
+    const text = join(sources, "Board minutes.pdf");
+    await writeFile(
+      text,
+      buildPdf([{ lines: ["The board approved the draft budget for 2026-27."] }]),
+    );
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      scans: script,
+      scansAtOnce: 1,
+    });
+    await dismissChatSetup(window);
+    await window.evaluate(async (chosenLanguage) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.updateSettings({ user: { language: chosenLanguage } });
+    }, language);
+    // With a model chosen, no "Tags come once you choose an AI model" takes the status row.
+    await useLocalChatModel(window);
+
+    await window.getByTestId("add-documents-input").setInputFiles([...files, text]);
+    const rows = window.getByTestId("document-list-item");
+    const status = window.getByTestId("processing-status");
+    await expect(status).toHaveAttribute("title", LANE[language].line);
+    const minutes = rows.filter({ hasText: "Board minutes" });
+    await expect(minutes).toHaveAttribute("data-status", "ready");
+    // Ready while the scans are still read: the last of them is still queued.
+    await expect(rows.filter({ hasText: "Scan C" })).toHaveAttribute("data-status", "queued");
+
+    await expect(status).toHaveAttribute("title", LANE[language].one, { timeout: 30_000 });
+    for (const name of ["Scan A", "Scan B", "Scan C"]) {
+      await expect(rows.filter({ hasText: name })).toHaveAttribute("data-status", "ready", {
+        timeout: 30_000,
+      });
+    }
+    await expect(status).toHaveCount(0);
+    await app.close();
+  });
+}

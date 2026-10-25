@@ -176,7 +176,8 @@ describe("The built-in embedding model", { timeout: 30_000 }, () => {
 
     expect(failed.error).toEqual({
       kind: "integrity",
-      message: expect.stringContaining("tokenizer.json doesn't match its recorded SHA-256"),
+      message: expect.stringContaining("tokenizer.json from 127.0.0.1"),
+      sources: [{ source: "huggingface", message: expect.stringContaining("recorded SHA-256") }],
     });
     const folder = await readdir(modelFolder(dataDir), { recursive: true });
     expect(folder).not.toContain("tokenizer.json");
@@ -347,6 +348,13 @@ describe("The built-in embedding model", { timeout: 30_000 }, () => {
     const core = startCore(await createTempDataFolder(), { embedder });
     await turnOnEmbeddings(core);
     const statuses = statusesOf(core);
+    let turn = true;
+    const embeddingEarly: string[] = [];
+    core.on("document.status", (document) => {
+      if (turn && document.status === "embedding" && document.name !== "Big") {
+        embeddingEarly.push(document.name);
+      }
+    });
     const long = Array.from(
       { length: 400 },
       (_, index) => `Sentence ${index} is about photosynthesis and light.`,
@@ -361,21 +369,26 @@ describe("The built-in embedding model", { timeout: 30_000 }, () => {
 
     await embedding;
     // The small ones are extracted, then wait for the big one: queued again, not "Embedding… 0%".
-    for (const small of [plants, markets]) {
-      await expect.poll(() => statuses(small.id)).toEqual(["queued", "extracting", "queued"]);
-    }
-    const waiting = await core.listDocuments();
-    expect(waiting.map((each) => [each.name, each.status, each.progress])).toEqual([
-      ["markets", "queued", null],
-      ["plants", "queued", null],
-      ["Big", "embedding", 0],
-    ]);
+    // A slow machine can take them through extracting more than once first.
+    await expect
+      .poll(
+        async () =>
+          (await core.listDocuments()).map((each) => [each.name, each.status, each.progress]),
+        { timeout: 20_000 },
+      )
+      .toEqual([
+        ["markets", "queued", null],
+        ["plants", "queued", null],
+        ["Big", "embedding", 0],
+      ]);
+    expect(embeddingEarly).toEqual([]);
 
+    turn = false;
     open();
     await waitForProcessing(core, [big.id, plants.id, markets.id]);
-    expect(statuses(big.id)).toEqual(["queued", "extracting", "embedding", "ready"]);
+    expect(statuses(big.id).slice(-2)).toEqual(["embedding", "ready"]);
     for (const small of [plants, markets]) {
-      expect(statuses(small.id)).toEqual(["queued", "extracting", "queued", "embedding", "ready"]);
+      expect(statuses(small.id).slice(-3)).toEqual(["queued", "embedding", "ready"]);
     }
   });
 

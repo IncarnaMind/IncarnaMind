@@ -1,21 +1,34 @@
-import { useState } from "react";
-import type { RegisteredDataFlow } from "../../../core/api";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { DataFlowId, RegisteredDataFlow } from "../../../core/api";
 import { formatDate } from "../../../shared/dates";
 import { core } from "../core";
 import { useLanguage, useT } from "../i18n";
 import { decisionOf, groupByService, type ServiceGroup, type ServiceUse } from "../privacyServices";
 import { useAppStore } from "../store";
-import { useUndo } from "../undo";
+import { type Undoable, useUndo } from "../undo";
 import { DetailsLine } from "./DetailsLine";
-import { UndoLineAt } from "./UndoLine";
 import { buttonStyle, rowButtonsClass, rowTextClass, ruledListClass, ruledRowClass } from "./ui";
 
-const SERVICES_UNDO_PLACE = "settings:privacy:services";
+export const SERVICES_UNDO_PLACE = "settings:privacy:services";
 
 const reportError = (failure: unknown) => useAppStore.getState().reportError(failure);
 
-async function revokeAll(service: string, uses: readonly ServiceUse[]): Promise<void> {
-  for (const use of uses) await core.revokeConsent(use.flow, service);
+interface Revoked {
+  flow: DataFlowId;
+  at: string;
+}
+
+async function revokeAll(service: string, uses: readonly ServiceUse[]): Promise<Revoked[]> {
+  const revoked: Revoked[] = [];
+  for (const use of uses) {
+    const at = await core.revokeConsent(use.flow, service);
+    if (at) revoked.push({ flow: use.flow, at });
+  }
+  return revoked;
+}
+
+async function restoreAll(service: string, revoked: readonly Revoked[]): Promise<void> {
+  for (const { flow, at } of revoked) await core.restoreConsent(flow, service, at);
 }
 
 async function allowAll(service: string, uses: readonly ServiceUse[]): Promise<void> {
@@ -24,14 +37,11 @@ async function allowAll(service: string, uses: readonly ServiceUse[]): Promise<v
 
 export function PrivacyServices({ flows }: { flows: readonly RegisteredDataFlow[] }) {
   return (
-    <div className="flex flex-col">
-      <ul className={ruledListClass}>
-        {groupByService(flows).map((group) => (
-          <ServiceItem key={group.service.id} group={group} />
-        ))}
-      </ul>
-      <UndoLineAt place={SERVICES_UNDO_PLACE} />
-    </div>
+    <ul className={ruledListClass}>
+      {groupByService(flows).map((group) => (
+        <ServiceItem key={group.service.id} group={group} />
+      ))}
+    </ul>
   );
 }
 
@@ -48,10 +58,21 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
   const t = useT();
   const language = useLanguage();
   const [busy, setBusy] = useState(false);
+  const item = useRef<HTMLLIElement>(null);
+  const stopping = useRef<string | null>(null);
   const { service, uses } = group;
   const decision = decisionOf(uses);
 
-  const run = async (action: () => Promise<void>) => {
+  // A use nothing else holds goes from the list once stopped, and its button with it: the focus
+  // goes to the service's own button then, not to the page, whenever the list is updated.
+  useLayoutEffect(() => {
+    if (stopping.current === null || uses.some((use) => use.flow === stopping.current)) return;
+    stopping.current = null;
+    if (document.activeElement?.isConnected && document.activeElement !== document.body) return;
+    item.current?.querySelector<HTMLElement>('button[data-testid^="data-service-"]')?.focus();
+  });
+
+  const run = async (action: () => Promise<unknown>) => {
     if (busy) return;
     setBusy(true);
     try {
@@ -64,16 +85,33 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
   };
   const withConsent = (consent: ServiceUse["status"]["consent"]) =>
     uses.filter((use) => use.status.consent === consent);
+  const stopped = async (stopping: readonly ServiceUse[], said: Undoable["said"]) => {
+    let revoked = await revokeAll(service.id, stopping);
+    if (revoked.length === 0) return;
+    useUndo.getState().push({
+      said,
+      undo: () => restoreAll(service.id, revoked),
+      redo: async () => {
+        revoked = await revokeAll(service.id, stopping);
+      },
+      shownAt: SERVICES_UNDO_PLACE,
+    });
+  };
   const stop = () =>
-    run(async () => {
-      const allowed = withConsent("accepted");
-      await revokeAll(service.id, allowed);
-      useUndo.getState().push({
-        said: (words) => words("privacy.flows.stopped", { service: service.name }),
-        undo: () => allowAll(service.id, allowed),
-        redo: () => revokeAll(service.id, allowed),
-        shownAt: SERVICES_UNDO_PLACE,
-      });
+    run(() =>
+      stopped(withConsent("accepted"), (words) =>
+        words("privacy.flows.stopped", { service: service.name }),
+      ),
+    );
+  const stopUse = (use: ServiceUse) =>
+    run(() => {
+      stopping.current = use.flow;
+      return stopped([use], (words) =>
+        words("privacy.flows.stoppedFlow", {
+          flow: words(`consent.flow.${use.flow}`),
+          service: service.name,
+        }),
+      );
     });
   const allow = () =>
     run(() =>
@@ -148,6 +186,7 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
 
   return (
     <li
+      ref={item}
       data-testid="data-service"
       data-service-id={service.id}
       data-consent={decision.kind}
@@ -158,7 +197,14 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
         <DetailsLine
           testId="data-service-decision"
           className={rowTextClass}
-          details={<Uses uses={uses} partly={decision.kind === "partly"} onAllow={allowUse} />}
+          details={
+            <Uses
+              uses={uses}
+              partly={decision.kind === "partly"}
+              onAllow={allowUse}
+              onStop={(use) => void stopUse(use)}
+            />
+          }
         >
           {line}
         </DetailsLine>
@@ -192,16 +238,22 @@ function Uses({
   uses,
   partly,
   onAllow,
+  onStop,
 }: {
   uses: readonly ServiceUse[];
   partly: boolean;
   onAllow(use: ServiceUse): void;
+  onStop(use: ServiceUse): void;
 }) {
   const t = useT();
+  // A service with one use has its button above: a second one would say the same.
+  const eachOwn = uses.length > 1;
   return (
     <ul className="flex flex-col gap-2 pt-1.5">
       {uses.map((use) => {
-        const waiting = partly && use.status.consent !== "accepted";
+        const allowed = use.status.consent === "accepted";
+        const waiting = partly && !allowed;
+        const flow = t(`consent.flow.${use.flow}`);
         return (
           <li
             key={use.flow}
@@ -209,22 +261,25 @@ function Uses({
             data-flow-id={use.flow}
             data-consent={use.status.consent}
           >
-            <p className="font-semibold text-ink">{t(`consent.flow.${use.flow}`)}</p>
+            <p className="font-semibold text-ink">{flow}</p>
             <ul aria-label={t("privacy.flows.sends")} className="list-disc pl-4">
               {use.sends.map((kind) => (
                 <li key={kind}>{t(`consent.data.${kind}`)}</li>
               ))}
             </ul>
-            {waiting && (
+            {eachOwn && (
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="text-ink-meta">{t(waitingStatus(use))}</span>
+                {waiting && <span className="text-ink-meta">{t(waitingStatus(use))}</span>}
                 <button
                   type="button"
-                  data-testid="data-flow-allow"
-                  onClick={() => onAllow(use)}
+                  data-testid={allowed ? "data-flow-revoke" : "data-flow-allow"}
+                  aria-label={t(allowed ? "privacy.flows.stopFlow" : "privacy.flows.allowFlow", {
+                    flow,
+                  })}
+                  onClick={() => (allowed ? onStop(use) : onAllow(use))}
                   className={buttonStyle("secondary", "sm")}
                 >
-                  {t("privacy.flows.allow")}
+                  {t(allowed ? "consent.settings.revoke" : "privacy.flows.allow")}
                 </button>
               </p>
             )}
