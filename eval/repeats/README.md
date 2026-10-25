@@ -19,15 +19,16 @@ The cases are in `cases.ts`; `repeat.ts` checks any Mind's sentences in any core
 
 ## The sets
 
-An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), and ten Minds:
+An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), an annual report and a supply agreement in each language for the periods sets, and twelve Minds:
 
 | Set | Sentences |
 |---|---|
 | `en`, `zh` | The three sentences of #1608 (notice as a paraphrase; holiday with a wrong figure; "Staff" for "the Employee"), the agreement's own words, a car allowance it doesn't mention, and a near miss that names days it doesn't |
 | `en-control`, `zh-control` | The home-working clause four ways: a paraphrase about the same Employee, the Employee by name, "Staff" (员工) and "Employees" (职工) |
-| `en-conflicts`, `zh-conflicts` | Genuine contradictions of the agreements, one of each kind, each expected Contradicted: a number, a date and a year, a negation, a unit (per month for per year), the parties reversed (who reports to whom, who pays whom, employer and employee, seller and buyer, landlord and tenant), a name, a condition (seven days' notice for 24 hours), a scope word ("only during employment"), a place (the governing law), an entitlement turned off, and "unlimited"; in English also the pension shares swapped; in both, a duty for a permission and the reverse ("must" for "may", 须 for 可) in several sentences, and more parties reversed (who keeps whose secrets, who may pay in lieu of notice, who pays the social insurance, who may call whom in); a duty or permission in words other than must, may, 须 and 可 (shall, should and can for may or must, the Employee "entitled to" what the Company may do; 需, 应, 应当 for 可, 可以 for 须, 不得 for 可); and a figure for another year ("In 2026 … 25 days"), which still contradicts the agreement's yearly figure |
+| `en-conflicts`, `zh-conflicts` | Genuine contradictions of the agreements, one of each kind, each expected Contradicted: a number, a date and a year, a start date and a length of time (the probation, the notice), a negation, a unit (per month for per year), the parties reversed (who reports to whom, who pays whom, employer and employee, seller and buyer, landlord and tenant), a name, a condition (seven days' notice for 24 hours), a scope word ("only during employment"), a place (the governing law), an entitlement turned off, and "unlimited"; in English also the pension shares swapped; in both, a duty for a permission and the reverse ("must" for "may", 须 for 可) in several sentences, and more parties reversed (who keeps whose secrets, who may pay in lieu of notice, who pays the social insurance, who may call whom in); a duty or permission in words other than must, may, 须 and 可 (shall, should and can for may or must, the Employee "entitled to" what the Company may do; 需, 应, 应当 for 可, 可以 for 须, 不得 for 可); and a figure for 2026 ("In 2026 … 25 days"), a year the dated holiday clause covers |
 | `en-paraphrases`, `zh-paraphrases` | A clause's duty or permission in other words, each expected Supported: "shall" for "must", "can" for "may", "is entitled to" for "may" and as the agreement says it; 需, 应, 应当, 必须 for 须, 可以 for 可, 不得泄露 for 须保密 |
-| `en-near-misses`, `zh-near-misses` | Near misses, each expected not Contradicted: a figure or a detail of another person or role than the agreement's (the Director of People, 人力资源总监, Managers, 经理), and "Staff" (员工) with a detail the agreement doesn't give (named days, a condition, bank transfer) |
+| `en-near-misses`, `zh-near-misses` | Near misses, each expected not Contradicted: a figure or a detail of another person or role than the agreement's (the Director of People, 人力资源总监, Managers, 经理), and "Staff" (员工) with a detail the agreement doesn't give (named days, a condition, bank transfer); and a holiday figure for 2024, the year before the holiday clause starts, expected "I didn’t find this" |
+| `en-periods`, `zh-periods` | An annual report for 2025 with the figures for 2024 beside it, and a supply agreement that runs from 2025 to 2027, in their own Library: a 2024 figure, a fourth-quarter figure and a 2026 delivery, each expected Supported; a wrong 2024 figure and a wrong 2026 price, expected Contradicted; and a 2023 figure, which neither states, expected "I didn’t find this" |
 
 ## Running it
 
@@ -46,7 +47,7 @@ npm run eval:repeats
 
 **Cost and time:** ten checks of the first four Minds take about 5 minutes and $0.10 on Claude Haiku 5.5, and about 9 minutes and $2.20 on Claude Sonnet 5.5. The two conflict Minds add about 9 minutes and $0.25 on Haiku 5.5, and roughly $4 on Sonnet 5.5 (from the other sets' ratio, not measured), so run them there with fewer checks.
 
-**The conflicts:** a change to a verdict's instructions or to a judgement is measured against the conflicts it loses, not only the near misses it fixes. The report gives "Genuine conflicts Contradicted: n of m", and counts a conflict Supported as a false Supported. A sentence the check misses today is marked with its issue (`knownMiss` in `cases.ts`), stays in its set, and is listed with its counts under a heading of its own, "Known misses (#…)", outside every other count; take the mark off once the issue is fixed. Marked today: the Chinese negation the claims leave out (#1682), and near misses about another person or role that the check's first verdict calls contradicted (#1718).
+**The conflicts:** a change to a verdict's instructions or to a judgement is measured against the conflicts it loses, not only the near misses it fixes. The report gives "Genuine conflicts Contradicted: n of m", and counts a conflict Supported as a false Supported. A sentence the check misses today is marked with its issue (`knownMiss` in `cases.ts`), stays in its set, and is listed with its counts under a heading of its own, "Known misses (#…)", outside every other count; take the mark off once the issue is fixed. Marked today: the Chinese negation the claims leave out (#1682), near misses about another person or role that the check's first verdict calls contradicted (#1718), the figures for a year the Documents don't cover, which should say "I didn’t find this" (#1765), and the Chinese wrong 2026 price, shown as "says something different" about half the time (#1708).
 
 ## Scope of a check from a Mind
 
@@ -58,6 +59,23 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_SCOPE_CASES` picks cases by id, `INCARNAMIND_EVAL_SCOPE_BUDGET` stops the run past that many dollars (1), and `INCARNAMIND_EVAL_REPEATS` is the checks a case (10). Ten checks of one case cost $0.02 to $0.05 on Claude Haiku 5.5 and $0.30 to $0.60 on Claude Sonnet 5.5, a Mind in no Folder the most.
 
 ## Results
+
+### 2026-10-25: figures of their own period, and dates and lengths that stay conflicts (#1765)
+
+New sets and members: the periods sets (`en-periods`, `zh-periods`), and in the conflict sets a start date in another month (in English; the Chinese set had one), a longer probation and a shorter notice. `main` (its check unchanged), Claude Haiku 5.5, 40 checks a sentence, measured on 2026-10-25:
+
+| Sentence | Expected | English | Chinese |
+|---|---|---|---|
+| A 2024 figure of the report's comparatives | Supported | 40 of 40 | 38 of 40 (1 partly, 1 not checked) |
+| A fourth-quarter figure of the 2025 report | Supported | 40 of 40 | 40 of 40 |
+| A 2026 delivery under the 2025–2027 agreement | Supported | 40 of 40 | 37 of 40 (3 partly) |
+| A wrong 2024 figure | Contradicted | 40 of 40 | 37 of 40 (3 says something different) |
+| A wrong 2026 price | Contradicted | 39 of 40 | 18 of 40 (19 says something different, 3 partly), known miss (#1708) |
+| A 2023 figure neither Document states | "I didn’t find this" | 7 of 40 (33 says something different), known miss | 27 of 40 (8 partly, 5 says something different), known miss |
+| The start date (another year, another month), the carry-over deadline, the probation and notice lengths, "only during employment" | Contradicted | 40 of 40 each | 40 of 40 each |
+
+- The 2024 holiday sentences of the near-miss sets are known misses too: "I didn’t find this" in 0 of 20 checks in each language (partly 12 and 16, says something different 8 and 4).
+- A field in the check's reply for the period (the sentence's period, inside or outside the Documents', with the check reading "outside" as not found) was tried on the same Documents and left out. On Haiku 5.5 it gave the 2024 sentences "I didn’t find this" in 20 of 20 checks in each language and lost no Supported figure of the periods sets, but it took a date the sentence states as its own detail for the period the claim holds for: "The Employee starts on 11 January 2028." became "I didn’t find this" in 20 of 20 checks (乙方自2028年1月11日起入职。 7 of 20). Worded with examples of a start date and a length of time as no period, it still did in 16 and 15 of 20; with the Passage's own period beside the sentence's, Haiku wrote the agreement's start date as that period ("11 January 2028 / 11 January 2027, outside") and lost both start dates and the carry-over deadline. A question about the period asked apart, only of a sentence found contradicted, is the next thing to try (#1765).
 
 ### 2026-10-24: the holiday clause is dated, so the 2026 sentences are conflicts (#1765)
 
