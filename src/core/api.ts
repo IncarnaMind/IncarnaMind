@@ -1100,6 +1100,12 @@ export interface MindChange {
    * are gone, and its request holds the new text and the rest of them.
    */
   revised?: true;
+  /**
+   * Of the text it revised, what earlier calls of the same Answer had written: their counts
+   * already hold it, so the Answer's card counts it once. Absent: none, or the text was an
+   * earlier Answer's.
+   */
+  replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
