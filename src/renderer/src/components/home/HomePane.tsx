@@ -1,13 +1,23 @@
 import { useLayoutEffect, useRef } from "react";
+import { useExports } from "../../exports";
 import { useHomeView, useMinuteClock } from "../../home";
 import { rowsIn, useSelectionOrder } from "../../selection";
+import { useAppStore } from "../../store";
+import { useHomeNextStep } from "../../useHomeNextStep";
 import { ComingUp } from "./ComingUp";
 import { FolderCards } from "./FolderCards";
 import { HomeHeader } from "./HomeHeader";
+import { HomeNextStep } from "./HomeNextStep";
 import { RecentMinds } from "./RecentMinds";
 
 export function HomePane() {
   const now = useMinuteClock();
+  const exported = useAppStore((state) => state.settings?.device.gettingStarted.exported ?? false);
+  const result = useExports((state) => state.result);
+  const next = useHomeNextStep(
+    exported,
+    result?.state === "saved" && result.format === "docx" ? result : null,
+  );
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = useHomeView.getState().scrollTop;
@@ -31,6 +41,11 @@ export function HomePane() {
       >
         <div className="mx-auto w-full max-w-[760px] px-6 pt-10 pb-24 @max-[760px]/home:px-4 @max-[760px]/home:pt-8">
           <HomeHeader now={now} />
+          {next && (
+            <div className="mb-6 text-[13px] leading-5">
+              <HomeNextStep step={next} />
+            </div>
+          )}
           <ComingUp now={now} />
           <RecentMinds now={now} />
           <FolderCards now={now} />

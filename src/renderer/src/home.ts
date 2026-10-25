@@ -36,23 +36,32 @@ export function useOwnMinds(): readonly Mind[] {
 
 const SAVED_MS = 500;
 
-export function useMindSnippets(): ReadonlyMap<string, string> {
-  const minds = useAppStore((state) => state.minds);
-  const [snippets, setSnippets] = useState<ReadonlyMap<string, string>>(new Map());
+export function useHomeChanges(): number {
   const [saves, setSaves] = useState(0);
   // The Minds list changes at most every few seconds while a Mind is typed in; a Mind open
   // beside Home is followed as it is saved, once the typing pauses.
   useEffect(() => {
     let pause: ReturnType<typeof setTimeout> | undefined;
-    const stop = core.on("mind.update", () => {
+    const later = () => {
       clearTimeout(pause);
       pause = setTimeout(() => setSaves((count) => count + 1), SAVED_MS);
-    });
+    };
+    const stop = core.on("mind.update", later);
+    const stopAnswer = core.on("conversation.message", later);
     return () => {
       clearTimeout(pause);
       stop();
+      stopAnswer();
     };
   }, []);
+  return saves;
+}
+
+export function useMindSnippets(): ReadonlyMap<string, string> {
+  const minds = useAppStore((state) => state.minds);
+  const [snippets, setSnippets] = useState<ReadonlyMap<string, string>>(new Map());
+  const saves = useHomeChanges();
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: a change to any Mind, or a save, can change its line.
   useEffect(() => {
     let current = true;
