@@ -34,7 +34,7 @@ interface Budget {
   rows: { label: string; quote: string; values: [string, string] }[];
   /** Each cell as its check is sent it, and how the scripted model judges it. */
   plans: Record<string, Plan>;
-  /** The cells' words, the wrong one's among them. */
+  /** The wrong cell's words. */
   wrong: string;
 }
 
@@ -239,7 +239,7 @@ const plansOf = (budget: Budget, unit = "") =>
   );
 
 describe("A table the assistant writes is checked cell by cell, each with its row and column", () => {
-  // protects=each cited cell of a written table is checked as "row — column: value" beside the table's caption, headings and row, also when a contradiction is confirmed, so right cells land Supported and a wrong one Contradicted (#1459); fails_when=a cell is sent alone, the table isn't sent, or the confirmation judges it without the table; no_claim=how well a real model judges it (tests/live/tableCellChecks.live.test.ts).
+  // protects=each cited cell of a written table is checked as "row — column: value" beside the table's caption, headings and its row without the other values, also when a contradiction is confirmed, so right cells land Supported and a wrong one Contradicted (#1459); fails_when=a cell is sent alone, the table isn't sent, or the confirmation judges it without the table; no_claim=how well a real model judges it (tests/live/tableCellChecks.live.test.ts).
   test.each(BUDGETS)(
     "$language: right cells land Supported and the wrong one Contradicted",
     async (budget) => {
