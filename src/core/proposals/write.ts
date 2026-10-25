@@ -1291,15 +1291,9 @@ function wordsOf(tokens: readonly { key: string; text?: string }[]): string[] {
 
 /** How alike two runs of words are, from 0 to 1: the share of their words they have in common. */
 function likeness(old: readonly OldToken[], next: readonly NewToken[]): number {
-  return shareOf(wordsOf(old), wordsOf(next));
-}
-
-function shareOf(a: readonly string[], b: readonly string[]): number {
+  const a = wordsOf(old);
+  const b = wordsOf(next);
   if (a.length + b.length === 0) return 1;
-  return (2 * sharedWords(a, b)) / (a.length + b.length);
-}
-
-function sharedWords(a: readonly string[], b: readonly string[]): number {
   const counts = new Map<string, number>();
   for (const word of a) counts.set(word, (counts.get(word) ?? 0) + 1);
   let shared = 0;
@@ -1309,7 +1303,7 @@ function sharedWords(a: readonly string[], b: readonly string[]): number {
     shared++;
     counts.set(word, left - 1);
   }
-  return shared;
+  return (2 * shared) / (a.length + b.length);
 }
 
 /** How alike a paragraph of unknown kind must be to one of the selection's to pair with it. */
@@ -1972,7 +1966,12 @@ const childBlocks = (element: Y.XmlElement) =>
 
 const idOf = (element: Y.XmlElement) => stringOf(element.getAttribute(BLOCK_ID_ATTRIBUTE));
 
-/** The words of all the text a Block holds, in the Mind or in the new text, as `wordsOf` reads them. */
+const PAIRED_WORDS = /\p{Script=Han}+|[\p{L}\p{N}]+/gu;
+
+/**
+ * The words of all the text a Block holds, in the Mind or in the new text, as `wordsOf` reads
+ * them, without `splitWords`: a long Mind compares every Block with every other.
+ */
 function wordsIn(block: Y.XmlElement | NodeJSON): string[] {
   const texts: string[] = [];
   const visit = (node: Y.XmlElement | Y.XmlText | NodeJSON) => {
@@ -1994,7 +1993,26 @@ function wordsIn(block: Y.XmlElement | NodeJSON): string[] {
     texts.push(" ");
   };
   visit(block);
-  return wordsOf(splitWords(texts.join("")).map((text) => ({ key: text, text })));
+  const words: string[] = [];
+  for (const [run] of texts.join("").matchAll(PAIRED_WORDS)) {
+    if (!HAN.test(run)) words.push(run.toLowerCase());
+    else if (run.length === 1) words.push(run);
+    else for (let at = 1; at < run.length; at++) words.push(run.slice(at - 1, at + 1));
+  }
+  return words;
+}
+
+/** How many words two sorted lists of word numbers have in common, each as often as both have it. */
+function sharedIn(a: Int32Array, b: Int32Array): number {
+  let shared = 0;
+  for (let i = 0, j = 0; i < a.length && j < b.length; ) {
+    const x = a[i] ?? 0;
+    const y = b[j] ?? 0;
+    if (x === y) shared++;
+    if (x <= y) i++;
+    if (y <= x) j++;
+  }
+  return shared;
 }
 
 /**
@@ -2005,17 +2023,31 @@ function wordsIn(block: Y.XmlElement | NodeJSON): string[] {
  * with one close to it (DESIGN.md, How a change reads).
  */
 function pairBlocks(old: readonly Y.XmlElement[], content: readonly NodeJSON[]): (number | null)[] {
-  const oldWords = old.map(wordsIn);
-  const newWords = content.map(wordsIn);
+  const numbers = new Map<string, number>();
+  const read = (name: string, attributes: Attributes, block: Y.XmlElement | NodeJSON) => {
+    const words = Int32Array.from(wordsIn(block), (word) => {
+      const known = numbers.get(word);
+      if (known !== undefined) return known;
+      numbers.set(word, numbers.size);
+      return numbers.size - 1;
+    }).sort();
+    const pairs = TEXT_BLOCKS.has(name) || WRAPPERS.has(name);
+    return { shape: pairs ? shapeOf(name, attributes) : null, words };
+  };
+  const olds = old.map((element) =>
+    read(element.nodeName, element.getAttributes() as Attributes, element),
+  );
+  const news = content.map((node) => read(node.type, node.attrs ?? {}, node));
   return bestPairing(old.length, content.length, (i, j) => {
-    const element = old[i] as Y.XmlElement;
-    const node = content[j] as NodeJSON;
-    if (!comparable(element, node) && !nested(element, node)) return null;
-    const a = oldWords[i] ?? [];
-    const b = newWords[j] ?? [];
-    const shorter = Math.min(a.length, b.length);
-    const held = shorter === 0 ? Number(a.length === b.length) : sharedWords(a, b) / shorter;
-    if (element.nodeName === "listItem" && shareOf(a, b) < COUNTERPART_LIKENESS) return null;
+    const a = olds[i];
+    const b = news[j];
+    if (!a || !b || a.shape === null || a.shape !== b.shape) return null;
+    const total = a.words.length + b.words.length;
+    const shorter = Math.min(a.words.length, b.words.length);
+    const shared = shorter === 0 ? 0 : sharedIn(a.words, b.words);
+    const held = shorter === 0 ? Number(total === 0) : shared / shorter;
+    const alike = total === 0 ? 1 : (2 * shared) / total;
+    if (old[i]?.nodeName === "listItem" && alike < COUNTERPART_LIKENESS) return null;
     return 1 + 2 * held;
   });
 }
