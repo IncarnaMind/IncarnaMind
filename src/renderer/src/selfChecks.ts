@@ -1,7 +1,8 @@
 /**
  * What the checks of an Answer's writes left to do (#1111, #1909), from its
  * calls: the lines under it, and the sentences their Check again and Check
- * the rest check. Only data.
+ * the rest check. The written check reads the sentences with Citations; the
+ * claims with none are left to the one count and Check the rest. Only data.
  */
 import type { AnswerToolCall, MindChange } from "../../core/api";
 import type { Language } from "../../core/language";
@@ -14,7 +15,7 @@ export type SelfCheck = NonNullable<MindChange["selfCheck"]> & { mindId: string 
 export const checkableOf = (check: NonNullable<MindChange["selfCheck"]>): number =>
   check.checkable ?? check.cited;
 
-/** Each write's check, in the order of the calls, with something left to check: a failure, or sentences past the most one write checks. */
+/** Each write's check, in the order of the calls, with something left to check: a failure, or sentences the write did not check (with no Citation, or past the most one check sends). */
 export const selfChecksOf = (toolCalls: readonly AnswerToolCall[]): SelfCheck[] =>
   toolCalls.flatMap((call) => {
     const change = call.mindChange;
@@ -32,7 +33,7 @@ export const selfChecksOf = (toolCalls: readonly AnswerToolCall[]): SelfCheck[] 
  * Local mode): checking again can't succeed.
  */
 export interface SelfCheckLine {
-  kind: "failed" | "cost-cap" | "plan-limit" | "consent-revoked" | "local-mode" | "capped";
+  kind: "failed" | "cost-cap" | "plan-limit" | "consent-revoked" | "local-mode" | "left";
   text: string;
   details: string[];
   action: { label: string; does: "check" | "change-cap" } | null;
@@ -92,8 +93,8 @@ export function selfCheckLines(
   const checkable = checkableOf(check);
   if (check.sent < checkable) {
     lines.push({
-      kind: "capped",
-      text: t("selfCheck.capped", { checked: check.checked, count: checkable }),
+      kind: "left",
+      text: t("selfCheck.left", { checked: check.checked, left: checkable - check.checked }),
       details: [],
       action: { label: t("selfCheck.checkRest"), does: "check" },
     });

@@ -1,11 +1,12 @@
 /**
  * What the assistant writes into a Mind, checked before it lands (#1111).
  *
- * The sentences it wrote that make a claim, cited or not, the first
- * `SENTENCES_CHECKED_AT_MOST` of them, are checked as Check this Mind would
- * check them (./claimCheck: the Mind's Folder, the Citations' quotes sent), a
- * few at a time, each within a time limit. The words are still the
- * assistant's changes then, not the Mind's.
+ * The sentences it wrote with Citations, the first `SENTENCES_CHECKED_AT_MOST`
+ * of them, are checked as Check this Mind would check them (./claimCheck: the
+ * Mind's Folder, the Citations' quotes sent), a few at a time, each within a
+ * time limit. The claims it wrote with no Citation are left to the one count
+ * and Check the rest (#1909). The words are still the assistant's changes
+ * then, not the Mind's.
  *
  * - A part its Citations don't support, as the check names it, is taken out
  *   with Edit with AI's own request (`cut-unsupported`); the Citations stay on
@@ -102,12 +103,12 @@ export interface CheckWrittenInput {
 }
 
 /**
- * What the check did: of the sentences a check reads that the write holds
- * (`checkable`), how many have a Citation (`cited`), how many it sent, how
- * many got a verdict and how many couldn't be checked, and what stopped it;
- * each part it cut, as it named it; how many land marked. Its marks share
- * `request`. `blocked`: the sentences the User's own choice kept from being
- * sent, among those that couldn't be checked.
+ * What the check did: of the claims the write holds (`checkable`), how many
+ * have a Citation and were checked (`cited`), how many it sent, how many got a
+ * verdict and how many couldn't be checked, and what stopped it; each part it
+ * cut, as it named it; how many land marked. Its marks share `request`.
+ * `blocked`: the sentences the User's own choice kept from being sent, among
+ * those that couldn't be checked.
  */
 export interface WrittenCheck {
   request: string;
@@ -493,7 +494,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   async function checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null> {
     const { mindId, blocks, signal } = input;
     if (judgesUnreliably(input.prepared)) return null;
-    const sentences = checkableSentences(blocks);
+    const checkable = checkableSentences(blocks);
+    // The claims with no Citation are left to the one count and Check the rest (#1909).
+    const sentences = checkable.filter((sentence) => sentence.cited.length > 0);
     if (sentences.length === 0) return null;
     const prepared = await options.prepare(input.prepared);
     if (!prepared) return null;
@@ -522,8 +525,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
 
     const done: WrittenCheck = {
       request,
-      checkable: sentences.length,
-      cited: sentences.filter((sentence) => sentence.cited.length > 0).length,
+      checkable: checkable.length,
+      cited: sentences.length,
       sent: sending.length,
       checked: 0,
       failed: 0,

@@ -5240,7 +5240,7 @@ export const en = {
   "mindCall.checking.one": "Checking 1 sentence in “{mind}”…",
   "selfCheck.failed": "{count} sentences couldn’t be checked",
   "selfCheck.failed.one": "1 sentence couldn’t be checked",
-  "selfCheck.capped": "Checked {checked} of {count} sentences",
+  "selfCheck.left": "Checked {checked} sentences · {left} left to check",
   "selfCheck.checkRest": "Check the rest",
   "selfCheck.costCap": "{count} sentences couldn’t be checked: spending cap reached",
   "selfCheck.costCap.one": "1 sentence couldn’t be checked: spending cap reached",

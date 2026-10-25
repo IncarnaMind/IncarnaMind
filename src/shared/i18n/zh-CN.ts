@@ -5010,7 +5010,7 @@ export const zhCN = {
   "mindCall.checking.one": "正在核对“{mind}”中的 1 句话…",
   "selfCheck.failed": "{count} 句未能核对",
   "selfCheck.failed.one": "1 句未能核对",
-  "selfCheck.capped": "已核对 {count} 句中的 {checked} 句",
+  "selfCheck.left": "已核对 {checked} 句 · 仍有 {left} 句待核对",
   "selfCheck.checkRest": "核对其余",
   "selfCheck.costCap": "{count} 句未能核对：已达到费用上限",
   "selfCheck.costCap.one": "1 句未能核对：已达到费用上限",

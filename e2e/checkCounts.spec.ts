@@ -48,7 +48,7 @@ const REPORT = [
 const WORDS = {
   en: {
     request: "Add a revenue table for checking",
-    line: "Checked 12 of 22 sentences",
+    line: "Checked 12 sentences · 10 left to check",
     rest: "Check the rest",
     badgeWords: "to check",
     toCheck: "10 claims not checked yet",
@@ -60,7 +60,7 @@ const WORDS = {
   },
   "zh-CN": {
     request: "添加核对用的收入表格",
-    line: "已核对 22 句中的 12 句",
+    line: "已核对 12 句 · 仍有 10 句待核对",
     rest: "核对其余",
     badgeWords: "条待核对",
     toCheck: "10 条说法待核对",
@@ -116,8 +116,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await newMind(window);
 
     const answer = await askInAssistant(window, words.request);
-    // Its check ran before the reply: 12 of the 22 claims it wrote were checked, 10 are left.
-    const line = answer.getByTestId("self-check-capped");
+    // Its check ran before the reply: the 12 cited claims it checked are covered, 10 are left.
+    const line = answer.getByTestId("self-check-left");
     await expect(line).toContainText(words.line, { timeout: 120_000 });
     const badge = window.getByTestId("check-badge");
     await expect(badge).toContainText("10");
@@ -147,11 +147,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
 
-    // Check the rest checks every sentence left: the count closes, and the card says so plainly.
-    await expect(answer.getByTestId("self-check-capped-action")).toHaveText(words.rest);
-    await pointAndClick(window, answer.getByTestId("self-check-capped-action"));
+    // Check the rest checks every sentence left, the uncited claims included: the count closes, and the card says so plainly.
+    await expect(answer.getByTestId("self-check-left-action")).toHaveText(words.rest);
+    await pointAndClick(window, answer.getByTestId("self-check-left-action"));
     await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
-    await expect(window.getByTestId("self-check-capped")).toHaveCount(0);
+    await expect(window.getByTestId("self-check-left")).toHaveCount(0);
     await expect(badge.locator(".check-badge-words")).toHaveCount(0);
     const done = await checkCard(window);
     await expect(done.getByTestId("health-toCheck")).toHaveCount(0);

@@ -30,21 +30,24 @@ const change = (selfCheck?: MindChange["selfCheck"]): MindChange => ({
 });
 
 describe("What a write's check left to do", () => {
-  // protects=a line shows only for a write whose check failed somewhere or stopped at the cap; fails_when=a write checked whole shows one, or a failed or capped one doesn't; no_claim=the words.
-  test("a write whose check failed or stopped at the most it checks has a line; one checked whole has none", () => {
+  // protects=a line shows only for a write whose check failed or left sentences it did not check (uncited claims or past the cap); fails_when=a write checked whole shows one, or a failed or left one doesn't; no_claim=the words.
+  test("a write whose check failed or left sentences has a line; one checked whole has none", () => {
     const failed = { request: "w1", checkable: 2, cited: 2, sent: 2, checked: 1, failed: 1 };
-    const capped = { request: "w2", checkable: 20, cited: 13, sent: 12, checked: 12, failed: 0 };
+    const left = { request: "w2", checkable: 20, cited: 13, sent: 12, checked: 12, failed: 0 };
+    const uncited = { request: "w4", checkable: 4, cited: 2, sent: 2, checked: 2, failed: 0 };
     const whole = { request: "w3", checkable: 3, cited: 3, sent: 3, checked: 3, failed: 0 };
     expect(
       selfChecksOf([
         call(change(failed)),
         call(change(whole)),
         call(change()),
-        call(change(capped)),
+        call(change(left)),
+        call(change(uncited)),
       ]),
     ).toEqual([
       { mindId: "mind-1", ...failed },
-      { mindId: "mind-1", ...capped },
+      { mindId: "mind-1", ...left },
+      { mindId: "mind-1", ...uncited },
     ]);
   });
 
@@ -56,8 +59,8 @@ describe("What a write's check left to do", () => {
     ).toHaveLength(1);
   });
 
-  // protects=the lines say how many couldn't be checked and why, with the action that can help, and the cap's line counts the sentences checked, not those sent; fails_when=a failure overstates the count, a capped or limited run offers Check again, or a plan's limit hides when it resumes; no_claim=design's final words beyond these.
-  test("the lines say how many couldn't be checked and why, and the cap's line counts those checked of every claim the write holds", () => {
+  // protects=the lines say how many couldn't be checked and why, with the action that can help, and the left line counts what no check covers, not what was sent; fails_when=a failure overstates the count, a left or limited run offers Check again, or a plan's limit hides when it resumes; no_claim=design's final words beyond these.
+  test("the lines say how many couldn't be checked and why, and the left line says what is left", () => {
     const words = (language: "en" | "zh-CN", check: Parameters<typeof selfCheckLines>[0]) =>
       selfCheckLines(
         check,
@@ -80,8 +83,8 @@ describe("What a write's check left to do", () => {
         action: { label: "Check again", does: "check" },
       },
       {
-        kind: "capped",
-        text: "Checked 10 of 20 sentences",
+        kind: "left",
+        text: "Checked 10 sentences · 10 left to check",
         details: [],
         action: { label: "Check the rest", does: "check" },
       },
