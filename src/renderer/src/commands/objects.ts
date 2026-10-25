@@ -543,25 +543,6 @@ export const linkedFolderCommands: readonly Command[] = [
     },
   },
   {
-    id: "linkedFolder.layout",
-    label: (ctx, t) =>
-      t(
-        linkedOf(ctx)?.layout === "flat"
-          ? "linkedFolders.layout.tree"
-          : "linkedFolders.layout.flat",
-      ),
-    group: "main",
-    appliesTo: ["linkedFolder"],
-    reversible: true,
-    run(ctx) {
-      const linked = linkedOf(ctx);
-      return (
-        linked &&
-        store().setLinkedFolderLayout(linked.id, linked.layout === "flat" ? "tree" : "flat")
-      );
-    },
-  },
-  {
     id: "linkedFolder.download",
     label: (ctx, t) => {
       const count = linkedOf(ctx)?.onlineOnly.files ?? 0;
