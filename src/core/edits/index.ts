@@ -36,6 +36,7 @@ import {
   proposalRequestOf,
   recordProposalRequest,
   resolveProposals,
+  waitingChanges,
 } from "../../shared/proposals";
 import { topLevelBlocks } from "../answers/blocks";
 import { createWindowBudget } from "../answers/window";
@@ -54,7 +55,13 @@ import {
   type WritingPlace,
 } from "../api";
 import type { Consent } from "../consent";
-import { ChatNotReadyError, ConsentDeclinedError, InvalidInputError, isRecord } from "../errors";
+import {
+  ChatNotReadyError,
+  ConsentDeclinedError,
+  InvalidInputError,
+  isRecord,
+  LocalModeError,
+} from "../errors";
 import type { MindContent } from "../mindContent";
 import { parseMindId } from "../minds";
 import { docOf, forkChanges } from "../proposals/merge";
@@ -80,6 +87,8 @@ import {
 } from "../proposals/write";
 import type { PreparedChatModel } from "../providers/chat";
 import { classifyProviderError } from "../providers/providerErrors";
+import { gateStop } from "../sendGate";
+import { inFlow } from "../timing/flows";
 import { asksToRemove, waitsForUser } from "./applies";
 import {
   EDIT_INSTRUCTIONS,
@@ -90,6 +99,11 @@ import {
   reasonOf,
   sameText,
 } from "./prompt";
+
+const failedEdit = (failure: unknown): EditWithAiResult =>
+  gateStop(failure) instanceof LocalModeError
+    ? { kind: "local-mode" }
+    : { kind: "failed", error: classifyProviderError(failure) };
 
 // The whole passage deleted, as `asksToRemove` reads a part named: "Remove it", "Delete the part
 // about pensions". Never a shortening ("Cut it down to two sentences").
@@ -109,7 +123,7 @@ const REQUEST_TIMEOUT_MS = 180_000;
 type Attributes = Record<string, unknown>;
 
 export interface EditsOptions {
-  content: Pick<MindContent, "read" | "edit" | "state" | "apply">;
+  content: Pick<MindContent, "read" | "edit" | "state" | "stateVector" | "apply">;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
   /** The default chat model, used when the Mind has none of its own. */
@@ -204,7 +218,10 @@ function parseInput(input: unknown): ParsedInput {
     throw new InvalidInputError(`Unknown Edit with AI action "${String(action)}".`);
   }
   const words = typeof instruction === "string" ? instruction.trim() : "";
-  if ((action === "translate" || action === "instruction") && words === "") {
+  if (
+    (action === "translate" || action === "instruction" || action === "cut-unsupported") &&
+    words === ""
+  ) {
     throw new InvalidInputError({ key: "error.edit.noInstruction" });
   }
   if (words.length > MAX_INSTRUCTION_CHARACTERS) {
@@ -329,8 +346,17 @@ interface EditCall {
   maxOutputTokens: number;
 }
 
+const quotesOf = (selection: Selection): string[] =>
+  selection.citations.map((citation) => (typeof citation.quote === "string" ? citation.quote : ""));
+
 /** The request for `ask` over `selection`; null when it is more than the model can take at once. */
-function editCall(prepared: PreparedChatModel, ask: Ask, selection: Selection): EditCall | null {
+function editCall(
+  prepared: PreparedChatModel,
+  ask: Pick<Ask, "action" | "instruction">,
+  selection: Pick<Selection, "text" | "context" | "before" | "after" | "characters"> & {
+    quotes?: readonly string[];
+  },
+): EditCall | null {
   const explain = ask.action === "explain";
   const instructions = explain ? EXPLAIN_INSTRUCTIONS : EDIT_INSTRUCTIONS;
   const prompt = editPrompt({
@@ -340,6 +366,7 @@ function editCall(prepared: PreparedChatModel, ask: Ask, selection: Selection): 
     context: selection.context,
     // Explain writes under the passage, not into it: the words around it don't matter.
     ...(!explain && { before: selection.before, after: selection.after }),
+    ...(ask.action === "cut-unsupported" && { quotes: selection.quotes }),
   });
   // The reply is about as long as the passage; a translation into Chinese can count more.
   let maxOutputTokens = Math.min(16_000, Math.max(1_024, Math.ceil(selection.characters * 1.5)));
@@ -368,15 +395,17 @@ async function streamEdit(
   let failure: unknown = null;
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   try {
-    const result = streamText({
-      model: prepared.model,
-      instructions: call.instructions,
-      prompt: call.prompt,
-      maxOutputTokens: call.maxOutputTokens,
-      maxRetries: 1,
-      abortSignal: AbortSignal.any([signal, timeout]),
-      onError: () => undefined,
-    });
+    const result = inFlow("edit-with-ai", () =>
+      streamText({
+        model: prepared.model,
+        instructions: call.instructions,
+        prompt: call.prompt,
+        maxOutputTokens: call.maxOutputTokens,
+        maxRetries: 1,
+        abortSignal: AbortSignal.any([signal, timeout]),
+        onError: () => undefined,
+      }),
+    );
     for await (const part of result.fullStream) {
       if (part.type === "error") throw part.error;
       if (part.type === "abort") {
@@ -392,6 +421,35 @@ async function streamEdit(
     failure = error;
   }
   return { raw, failure };
+}
+
+/**
+ * The new text Edit with AI gives for a passage that isn't in a Mind yet (#1111: a sentence
+ * the assistant is about to write), its Citations as numbered markers: the same request and
+ * the same reading of the reply, with no Proposals. Null when the model fails, gives nothing,
+ * or the passage is more than it can take at once.
+ */
+export async function editText(
+  prepared: PreparedChatModel,
+  ask: Pick<Ask, "action" | "instruction">,
+  passage: { text: string; context: string; quotes: readonly string[] },
+  signal: AbortSignal,
+): Promise<string | null> {
+  const call = editCall(prepared, ask, {
+    ...passage,
+    before: "",
+    after: "",
+    characters: passage.text.length,
+  });
+  if (!call) return null;
+  const { raw, failure } = await streamEdit(prepared, call, signal);
+  if (signal.aborted) return null;
+  if (failure !== null) {
+    console.warn(`Edit with AI (${ask.action}) of a passage not in a Mind failed:`, failure);
+    return null;
+  }
+  const text = readEditReply(raw, passage.text);
+  return text === "" ? null : text;
 }
 
 export function createEdits(options: EditsOptions) {
@@ -439,6 +497,7 @@ export function createEdits(options: EditsOptions) {
     try {
       prepared = await chat.prepareModel(choice ?? undefined, "edits");
     } catch (error) {
+      if (error instanceof LocalModeError) return { kind: "local-mode" };
       if (error instanceof ChatNotReadyError)
         return { kind: "not-ready", readiness: error.readiness };
       if (error instanceof ConsentDeclinedError) {
@@ -465,7 +524,7 @@ export function createEdits(options: EditsOptions) {
     const { mindId, fork, selection } = draft;
     const explain = ask.action === "explain";
     const ended = (result: EditWithAiResult) => ({ result, reply: "", reason: null });
-    const call = editCall(prepared, ask, selection);
+    const call = editCall(prepared, ask, { ...selection, quotes: quotesOf(selection) });
     if (!call) return ended({ kind: "too-long" });
 
     const request = randomUUID();
@@ -529,6 +588,7 @@ export function createEdits(options: EditsOptions) {
         ...(stream && someNotes(stream.written().notes)),
         ...(held && { held: true as const }),
         ...(leftOut.length > 0 && { leftOut }),
+        stateVector: content.stateVector(mindId),
       };
     };
     const holdsBack = (written: RewriteStream) =>
@@ -622,7 +682,7 @@ export function createEdits(options: EditsOptions) {
     }
     if (failure !== null && !refused) {
       takeBackWritten();
-      return ended({ kind: "failed", error: classifyProviderError(failure) });
+      return ended(failedEdit(failure));
     }
     const reply = readEditReply(raw, selection.text);
     // No text back removes the passage only when that is what was asked; otherwise its reason
@@ -785,7 +845,7 @@ export function createEdits(options: EditsOptions) {
       }
       if (input.signal.aborted) return nothing({ kind: "cancelled" });
       if (streamed.failure !== null) {
-        return nothing({ kind: "failed", error: classifyProviderError(streamed.failure) });
+        return nothing(failedEdit(streamed.failure));
       }
       const reply = readEditReply(streamed.raw, selection.text);
       if (sameText(reply, selection.text)) return nothing({ kind: "unchanged" });
@@ -821,9 +881,8 @@ export function createEdits(options: EditsOptions) {
         return ids;
       });
       if (!blockIds) return nothing({ kind: "changed" });
-      const proposals = content.read(
-        input.mindId,
-        (mind) => pendingProposals(mind).filter((each) => each.request === request).length,
+      const proposals = content.read(input.mindId, (mind) =>
+        waitingChanges(mind, (each) => each.request === request),
       );
       input.written(request, proposals);
       return {
@@ -834,6 +893,7 @@ export function createEdits(options: EditsOptions) {
           droppedCitations,
           outOfDate: 0,
           ...someNotes(notes),
+          stateVector: content.stateVector(input.mindId),
         },
         length: { before: selection.text, after: reply },
         reason: reasonOf(streamed.raw),

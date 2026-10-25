@@ -251,7 +251,7 @@ test("Copy path puts a Document's full path, and a Linked folder's, on the clipb
   await expect(row).toHaveAttribute("data-state", "unavailable", { timeout: 15_000 });
   await row.getByTestId("row-text").focus();
   await window.keyboard.press(`${PRIMARY}+i`);
-  await expect(panel.getByTestId("info-status")).toContainText("can't be reached");
+  await expect(panel.getByTestId("info-status")).toContainText("Can’t reach this folder");
   await expect(panel.getByTestId("info-show")).toHaveCount(0);
   await app.close();
 });
@@ -270,7 +270,7 @@ test("Get info on a file that is missing says so, and a long path and Chinese na
   await setWindowSize(app, window, 900, 700);
   await linkFolderFromSidebar(app, window, sources);
   await showSourceLocations(window);
-  const items = window.getByTestId("document-list-item");
+  const items = window.getByTestId("not-in-a-folder").getByTestId("document-list-item");
   await expect(items).toHaveCount(2);
   await expect(items.first()).toHaveAttribute("data-status", "ready");
   await expect(items.nth(1)).toHaveAttribute("data-status", "ready");
@@ -282,7 +282,7 @@ test("Get info on a file that is missing says so, and a long path and Chinese na
   await gone.getByTestId("open-document").focus();
   await window.keyboard.press(`${PRIMARY}+i`);
   await expect(panel.getByTestId("info-status")).toContainText(
-    "File missing: it was removed from its folder.",
+    "File missing: Citations keep its text; searches skip it.",
   );
   await expect(panel.getByTestId("info-show")).toHaveCount(0);
   await expect(panel.getByTestId("info-copy-path")).toBeVisible();

@@ -2,6 +2,7 @@ import { useId } from "react";
 import type { WordOrigin } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { useLanguage, useT } from "../i18n";
+import { saidInLine } from "../lineNames";
 import { refusalKey, useWordImport } from "../wordImport";
 import { DocumentLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
@@ -50,6 +51,9 @@ export function WordImportDialog() {
   const id = useId();
   const fileName = check?.fileName ?? path?.split(/[\\/]/).pop() ?? "";
   const refused = refusal ?? check?.refusal ?? null;
+  const refusedSaid = refused
+    ? saidInLine(t, (t) => t(refusalKey(refused), { name: fileName }))
+    : null;
   const authors = check?.authors ?? [];
   const named =
     authors.length > NAMED
@@ -84,16 +88,17 @@ export function WordImportDialog() {
           <p role="status" className="text-[13px] leading-5 text-ink-meta">
             {t("wordImport.reading", { name: fileName })}
           </p>
-        ) : refused ? (
+        ) : refusedSaid ? (
           <ProblemLine
             testId="word-import-refusal"
+            title={refusedSaid.fullMessage}
             action={{
               label: t("wordImport.chooseAnother"),
               testId: "word-import-choose-another",
               onClick: () => void state.pick(),
             }}
           >
-            {t(refusalKey(refused), { name: fileName })}
+            {refusedSaid.message}
           </ProblemLine>
         ) : (
           <fieldset disabled={importing}>

@@ -45,6 +45,7 @@ export function AiUseSettings() {
     <section data-testid="ai-use-record" className="flex flex-col">
       <h4 className={sectionTitleClass}>{t("privacy.aiUse.title")}</h4>
       <p className={`mt-0.5 ${rowTextClass}`}>{t("privacy.aiUse.body")}</p>
+      <p className={rowTextClass}>{t("privacy.aiUse.private")}</p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-2">
         <span data-testid="ai-use-entries" className={rowStatusClass}>
           {t("privacy.aiUse.entries", { count: entries ?? 0 })}

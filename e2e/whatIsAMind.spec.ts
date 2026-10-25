@@ -22,8 +22,8 @@ const SENTENCE = {
   "zh-CN": "Mind：在这里写作、向文档提问，每条引文都会核对。",
 } as const;
 const TOOLTIP = {
-  en: "New Mind: a page to write in and ask your Documents",
-  "zh-CN": "新建 Mind：写作并就文档提问的页面",
+  en: "New Mind: write and ask your Documents",
+  "zh-CN": "新建 Mind：写作并向文档提问",
 } as const;
 
 let dataDir: string;

@@ -1,14 +1,18 @@
 import type * as Y from "yjs";
-import { claimCheckShown } from "../../shared/claimChecks";
+import { checkedScope, claimCheckShown, coveredPart } from "../../shared/claimChecks";
+import { type ScopeKind, scopeName } from "../../shared/searchScope";
 import { checkedSentences } from "../answers/checks/sentences";
-import type { CitationAttributes } from "../api";
+import type { CitationAttributes, SearchScope } from "../api";
 import type { FailedSentence } from "../mindText";
 
 /** What the checks of a Mind's sentences are compared with, and how an export names things. */
 export interface SentenceCheckContext {
   versions: ReadonlyMap<string, string>;
   folderId: string | null;
-  folderName(folderId: string): string | null;
+  /** The Search scope the User set for the Mind; null for none. */
+  scope: SearchScope | null;
+  /** A Folder's, Tag's or Document's name; null for one that isn't there. */
+  scopeItemName(kind: ScopeKind, id: string): string | null;
   /** A Passage's Document and Location, as a footnote says it. */
   sourceOf(passage: CitationAttributes): string;
 }
@@ -19,12 +23,13 @@ export function failedSentences(
   context: SentenceCheckContext,
 ): Map<string, FailedSentence> {
   const failed = new Map<string, FailedSentence>();
-  for (const { check, sentence } of checkedSentences(fragment)) {
+  for (const { check, sentence, cited } of checkedSentences(fragment)) {
     const { id } = check;
     const shown = claimCheckShown(check, {
       text: sentence,
       versions: context.versions,
       folderId: context.folderId,
+      scope: context.scope,
     });
     if (shown.state === "contradicted") {
       const { calculation } = check;
@@ -34,24 +39,47 @@ export function failedSentences(
         says: check.says,
         worked:
           calculation && !calculation.agrees
-            ? { shown: calculation.figure.shown, stated: calculation.stated }
+            ? {
+                shown: calculation.figure.shown,
+                stated: calculation.stated,
+                ...(calculation.relation && { relation: calculation.relation }),
+              }
             : null,
       });
+    } else if (shown.state === "unsupported" && check.citedCaseUnchecked) {
+      failed.set(id, { id, check: "cited-case-unchecked", unsupported: true });
+    } else if (
+      shown.state === "unsupported" &&
+      check.excluded.some((left) => left.reason === "own-workings")
+    ) {
+      failed.set(id, { id, check: "own-workings" });
     } else if (shown.state === "unsupported") {
-      const { evidence, scope } = check;
+      const { evidence } = check;
+      const covers = evidence ? null : coveredPart(check.unsupported);
+      const why = check.unsupported;
+      const looked = checkedScope(check.scope);
       failed.set(id, {
         id,
         check: "unsupported",
-        folder:
-          !scope.widened && scope.folderId !== null ? context.folderName(scope.folderId) : null,
+        citations:
+          !evidence && cited.length > 0 && why?.covered && why.uncovered
+            ? { count: cited.length, covered: why.covered, uncovered: why.uncovered }
+            : null,
+        scope: looked && scopeName(looked, context.scopeItemName),
         nearest: evidence?.quote
           ? { quote: evidence.quote, source: context.sourceOf(evidence) }
           : null,
+        covers: covers && {
+          covered: covers.covered,
+          uncovered: covers.uncovered,
+          quote: covers.quote,
+          source: context.sourceOf(covers.quoted),
+        },
       });
     } else if (shown.state === "needs-recheck") {
       failed.set(id, { id, check: "needs-recheck", why: shown.why });
     } else if (shown.state === "supported" && check.citedCaseUnchecked) {
-      failed.set(id, { id, check: "cited-case-unchecked" });
+      failed.set(id, { id, check: "cited-case-unchecked", unsupported: false });
     }
   }
   return failed;

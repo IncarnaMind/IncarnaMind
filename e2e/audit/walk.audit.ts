@@ -182,7 +182,7 @@ test("A1 first run: the example Mind and its Citation card", async () => {
         "Draft: credit committee paper",
         { timeout: 20_000 },
       );
-      await expect(window.getByTestId("margin-check")).toHaveCount(2, { timeout: 20_000 });
+      await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 20_000 });
       await window.mouse.move(700, 400);
       await shot(window, "A01-first-run-example-mind");
       await scan(window, "A01-first-run-example-mind");
@@ -539,8 +539,8 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
     await step(T, "export dialog", async () => {
       const tab = window.getByTestId("mind-tab").filter({ hasText: "Harbour survey" });
       await click(window, tab);
-      await tab.click({ button: "right" });
-      await click(window, tab.getByTestId("tab-actions").getByTestId("mind.exportOptions"));
+      await click(window, window.getByTestId("export-mind"));
+      await click(window, window.getByTestId("export-options"));
       const dialog = window.getByTestId("export-dialog");
       await expect(dialog).toBeVisible();
       await window.waitForTimeout(500);

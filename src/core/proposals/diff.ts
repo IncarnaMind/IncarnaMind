@@ -6,13 +6,38 @@
  * document to compare, so it compares the words itself.
  */
 
-/** One token of text: a word, a run of spaces, one mark of punctuation, or one CJK character. */
-const TOKEN =
-  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{M}\p{N}_]+(?:['’][\p{L}\p{M}\p{N}_]+)*|\s+|[^\s]/gu;
+/** A number with its sign and unit, "£1.2m", "41.8%", "3.1×", "2017.05", "12:04". */
+const NUMBER = String.raw`\p{Sc}?\d+(?:[.,:/]\d+)*(?:\s?(?:%|‰|×|[kKmMbB]n?(?![\p{L}\p{N}])))?`;
 
-/** Text cut into tokens; joined again, they are the text. */
+/**
+ * A number, date or range read as one word ("2017.05—2018.09", "pp. 3-5"), so
+ * a change never cuts one: not inside a word ("Q3", "3rd").
+ */
+const UNIT = new RegExp(
+  String.raw`(?<![\p{L}\p{N}_])${NUMBER}(?:\s?[—–~～-]\s?${NUMBER})?(?![\p{Script=Latin}\p{N}_])`,
+  "gu",
+);
+
+/** Words as the language has them: Chinese and Japanese by their words, not by character. */
+const WORDS = new Intl.Segmenter(undefined, { granularity: "word" });
+
+/**
+ * Text cut into tokens: a word, a number with its unit, a run of spaces, or a
+ * mark of punctuation. Joined again, they are the text.
+ */
 export function splitWords(text: string): string[] {
-  return text.match(TOKEN) ?? [];
+  const tokens: string[] = [];
+  const words = (part: string) => {
+    for (const { segment } of WORDS.segment(part)) tokens.push(segment);
+  };
+  let at = 0;
+  for (const unit of text.matchAll(UNIT)) {
+    words(text.slice(at, unit.index));
+    tokens.push(unit[0]);
+    at = unit.index + unit[0].length;
+  }
+  words(text.slice(at));
+  return tokens;
 }
 
 /** One step from the old tokens to the new: keep one, remove one, or add one. */

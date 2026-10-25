@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import type { Editor } from "@tiptap/core";
 import {
   askInAssistant,
   assistantAnswers,
@@ -13,7 +12,6 @@ import {
   newMind,
   openSteps,
   pointAndClick,
-  pointAt,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -21,12 +19,12 @@ import {
 } from "./app";
 
 /**
- * The assistant changes Minds and makes them (#202): what the User types
- * decides. The scripted model (src/main/fakeChat/minds.ts) calls edit_mind for
- * a request to shorten, which drops "very" and "really" (非常), and
- * create_mind for a new note; anything else is answered. Each change waits in
- * its Mind as changes to accept or reject. Set INCARNAMIND_SCREENSHOTS to a
- * folder to also save screenshots.
+ * The assistant changes Minds and makes them (#202). The scripted model
+ * (src/main/fakeChat/minds.ts) calls edit_mind for a request to shorten,
+ * which drops "very" and "really" (非常), and create_mind for a new note;
+ * anything else is answered. Each change applies in its Mind at once, and
+ * the Answer's line says so, with Undo (#1559). Set INCARNAMIND_SCREENSHOTS to
+ * a folder to also save screenshots.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -54,7 +52,7 @@ async function writeMind(window: Page, title: string, notes: string[]): Promise<
   await expect(window.getByTestId("mind-editor").locator("p")).toHaveText(notes);
 }
 
-test("a Question is answered and changes nothing; a request to shorten comes back as changes in the Mind, which the steps name", async () => {
+test("a Question is answered and changes nothing; a request to shorten applies in the Mind at once, which the steps name, and its line's Undo takes it back", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -66,26 +64,29 @@ test("a Question is answered and changes nothing; a request to shorten comes bac
 
   const answered = await askInAssistant(window, "How was the quarter?");
   await expect(answered.getByTestId("assistant-answer-text")).toContainText("scripted");
-  await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
+  await expect(answered.getByTestId("mind-changes")).toHaveCount(0);
   await expect(editor.locator("p")).toHaveText([note]);
 
   const changed = await askInAssistant(window, "Could you shorten the summary?");
-  const bar = window.getByTestId("proposals-bar");
-  await expect(bar.getByTestId("proposals-count")).toHaveText("2 changes from the assistant");
-  await expect(changed.getByTestId("assistant-answer-text")).toHaveText(
-    "Proposed 2 changes in “Q3 review” (from 10 to 8 words).",
+  await expect(editor.locator("p")).toHaveText(["The quarter was good, and sales were strong."]);
+  await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
+  await expect(changed.getByTestId("mind-changes-title")).toHaveText(
+    "Changed 1 paragraph in “Q3 review”",
   );
+  // The Mind is the one in front, so its line has no Open.
+  await expect(changed.getByTestId("mind-changes-open")).toHaveCount(0);
   const timeline = await openSteps(window, changed);
   await expect(timeline.getByTestId("answer-mind-call")).toHaveText(
     /Edited “Q3 review” · 2 changes/,
   );
   await screenshot(window, "assistant-changed-mind");
 
-  await pointAndClick(window, bar.getByTestId("proposals-accept-all"));
-  await expect(editor.locator("p")).toHaveText(["The quarter was good, and sales were strong."]);
+  await pointAndClick(window, changed.getByTestId("mind-changes-undo"));
+  await expect(editor.locator("p")).toHaveText([note]);
+  await expect(changed.getByTestId("mind-changes-undone")).toHaveText("Undone");
 });
 
-test("a request for a new note makes a Mind beside the one in focus, its text as changes; in Chinese", async () => {
+test("a request for a new note makes a Mind beside the one in focus, its text applied, and its line has Open and Undo; in Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -99,13 +100,16 @@ test("a request for a new note makes a Mind beside the one in focus, its text as
   await expect(tab).toBeVisible();
   await expect(window.getByTestId("mind-tab").filter({ hasText: "第三季度" })).toBeVisible();
   await expect(frontMindName(window)).toHaveText("田野计划");
-  await expect(window.getByTestId("proposals-count")).toHaveText("来自助手的 2 处修订");
+  await expect(window.getByTestId("proposals-count")).toHaveCount(0);
+  await expect(answer.getByTestId("mind-changes-title")).toHaveText("已写入“田野计划”");
+  await expect(answer.getByTestId("mind-changes-open")).toHaveText("打开");
+  await expect(answer.getByTestId("mind-changes-undo")).toHaveText("撤销");
   const timeline = await openSteps(window, answer);
-  await expect(timeline.getByTestId("answer-mind-call")).toHaveText(/新建了“田野计划” · 2 处修订/);
+  await expect(timeline.getByTestId("answer-mind-call")).toHaveText(/新建了“田野计划”/);
   await screenshot(window, "assistant-made-mind-zh");
 });
 
-test("the card lists each Mind changed: Open shows the change, Reject all removes the new Mind and its tab, Undo brings both back, Accept all keeps them", async () => {
+test("a change in a Mind not in front names it, with Open and Undo, beside the line of the Mind the turn made", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -118,45 +122,25 @@ test("the card lists each Mind changed: Open shows the change, Reject all remove
     window,
     "Add Ship the beta in May to Project plan and make a new note called Fieldwork plan",
   );
-  const card = answer.getByTestId("mind-changes");
-  await expect(card.getByTestId("mind-changes-title")).toHaveText("2 Minds changed");
-  const rows = card.getByTestId("mind-changes-row");
-  await expect(rows.nth(0)).toContainText("Edited: Project plan· 1 waiting");
-  await expect(rows.nth(1)).toContainText("Created: Fieldwork plan· 2 waiting");
-  await expect(rows.nth(0).locator(".mind-changes-name")).toHaveAttribute(
-    "title",
+  const titles = answer.getByTestId("mind-changes-title");
+  await expect(titles).toHaveText([
     "Wrote 1 paragraph in “Project plan”",
-  );
+    "Wrote “Fieldwork plan”",
+  ]);
+  await expect(window.getByTestId("proposals-count")).toHaveCount(0);
   await screenshot(window, "card-two-minds");
 
-  await pointAndClick(window, rows.nth(0).getByTestId("mind-changes-open"));
+  await pointAndClick(window, answer.getByTestId("mind-changes-open").first());
   await expect(frontMindName(window)).toHaveText("Project plan");
-  await expect(window.getByTestId("proposals-count")).toHaveText("1 change from the assistant");
-
-  await pointAndClick(window, card.getByTestId("mind-changes-reject-all"));
-  const made = window.getByTestId("mind-tab").filter({ hasText: "Fieldwork plan" });
-  await expect(made).toHaveCount(0);
-  await expect(rows.nth(0)).toContainText("Edited: Project plan· none waiting");
-  await expect(rows.nth(1)).toContainText("Removed: Fieldwork plan");
-  await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
-  await expect(answer.getByTestId("answer-added")).toContainText("Rejected 3 changes");
-
-  await pointAndClick(window, answer.getByTestId("answer-added-undo"));
-  await expect(rows.nth(1)).toContainText("Created: Fieldwork plan· 2 waiting");
-  await expect(made).toHaveCount(1);
-  await expect(rows.nth(0)).toContainText("· 1 waiting");
-
-  await pointAndClick(window, card.getByTestId("mind-changes-accept-all"));
-  await expect(rows.nth(0)).toContainText("· none waiting");
-  await expect(card.getByTestId("mind-changes-accept-all")).toHaveCount(0);
-  await pointAndClick(window, rows.nth(0).getByTestId("mind-changes-open"));
-  await expect(window.getByTestId("mind-editor").locator("p")).toHaveText([
-    "Hire a designer.",
-    "Ship the beta in May",
-  ]);
+  const editor = window.getByTestId("mind-editor");
+  await expect(editor.locator("p")).toHaveText(["Hire a designer.", "Ship the beta in May"]);
+  // In front now, the Mind's line keeps its Undo.
+  await pointAndClick(window, answer.getByTestId("mind-changes-undo").first());
+  await expect(editor.locator("p")).toHaveText(["Hire a designer."]);
+  await expect(window.getByTestId("mind-tab").filter({ hasText: "Fieldwork plan" })).toHaveCount(1);
 });
 
-test("one Mind changed: the card says what was changed and how much of it waits, Review goes to the first, Accept all applies them, and ⌘Z takes them back", async () => {
+test("one Mind changed: its line counts the paragraphs, and ⌘Z in the Mind takes the change back; in Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -165,26 +149,17 @@ test("one Mind changed: the card says what was changed and how much of it waits,
   await writeMind(window, "第三季度", ["销售非常好，利润真的很高。"]);
 
   const answer = await askInAssistant(window, "能把这段缩短吗？");
-  const card = answer.getByTestId("mind-changes");
-  const title = card.getByTestId("mind-changes-title");
-  const left = card.getByTestId("mind-changes-left");
-  await expect(title).toHaveText("在“第三季度”中已修改 2 处");
-  await expect(left).toHaveText("· 2 处待确认");
-  await expect(card.getByTestId("mind-changes-row")).toHaveCount(0);
-  await screenshot(window, "card-one-mind-zh");
-
-  await pointAndClick(window, card.getByTestId("mind-changes-review"));
-  await expect(window.getByTestId("mind-editor")).toBeFocused();
-
-  await pointAndClick(window, card.getByTestId("mind-changes-accept-all"));
+  const title = answer.getByTestId("mind-changes-title");
+  await expect(title).toHaveText("已修改“第三季度”中的 1 段");
+  await expect(answer.getByTestId("mind-changes-left")).toHaveCount(0);
   const editor = window.getByTestId("mind-editor");
   await expect(editor.locator("p")).toHaveText(["销售好，利润很高。"]);
-  await expect(title).toHaveText("在“第三季度”中已修改 2 处");
-  await expect(left).toHaveText("· 没有待确认的修订");
+  await screenshot(window, "card-one-mind-zh");
 
+  await editor.focus();
   await window.keyboard.press("ControlOrMeta+z");
-  await expect(left).toHaveText("· 2 处待确认");
-  await expect(window.getByTestId("proposals-count")).toHaveText("来自助手的 2 处修订");
+  await expect(editor.locator("p")).toHaveText(["销售非常好，利润真的很高。"]);
+  await expect(answer.getByTestId("mind-changes-undone")).toHaveText("已撤销");
 });
 
 test("“Create a new note called Fieldwork plan” makes a Mind at once, its title its first line and the cursor under it, with no Answer", async () => {
@@ -242,127 +217,17 @@ test("with no Mind open, a request to change one says so, and New Mind makes one
   await expect(again.getByTestId("mind-changes-no-mind")).toHaveCount(0);
 });
 
-test("changes stay in their Mind when the User moves to another and back, and go out of date once their words are edited", async () => {
+test("a change the assistant makes in a Mind comes in paragraph by paragraph, with Writing… on the next, applies, and its line counts them", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
   await setLanguage(window, "en");
   await setWindowSize(app, window, 1440, 900);
-  await writeMind(window, "Q3 review", ["Sales were really strong, and margins were very high."]);
-  await askInAssistant(window, "Could you shorten the summary?");
-  const count = window.getByTestId("proposals-count");
-  await expect(count).toHaveText("2 changes from the assistant");
-
-  await writeMind(window, "Project plan", ["Hire a designer."]);
-  await expect(count).toHaveCount(0);
-  await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "Q3 review" }));
-  await expect(count).toHaveText("2 changes from the assistant");
-
-  const editor = window.getByTestId("mind-editor");
-  await editor.focus();
-  await editor.evaluate((dom) => {
-    const { view, commands } = (dom as unknown as { editor: Editor }).editor;
-    let at = -1;
-    view.state.doc.descendants((node, pos) => {
-      const removed = node.marks.some((mark) => mark.type.name === "proposalDelete");
-      if (at < 0 && node.isText && removed) at = pos + 2;
-    });
-    commands.setTextSelection(at);
-  });
-  await window.keyboard.type("l");
-  await expect(window.getByTestId("change-out-of-date")).toHaveCount(1);
-});
-
-test("Reject all keeps a Mind the assistant made once the User has written in it, and Undo brings its changes back", async () => {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await dismissChatSetup(window);
-  await useLocalChatModel(window);
-  await setLanguage(window, "en");
-  await setWindowSize(app, window, 1440, 900);
-  await writeMind(window, "Q3 review", ["The quarter was good."]);
-
-  const answer = await askInAssistant(
-    window,
-    "Can you make a new note called Fieldwork plan with a summary",
-  );
-  const card = answer.getByTestId("mind-changes");
-  const fact = "Created “Fieldwork plan with a summary” and wrote 1 paragraph";
-  await expect(card.getByTestId("mind-changes-title")).toHaveText(fact);
-  await expect(card.getByTestId("mind-changes-left")).toHaveText("· 2 waiting");
-  const made = window.getByTestId("mind-tab").filter({ hasText: "Fieldwork plan with a summary" });
-  await expect(made).toHaveCount(1);
-
-  // The scripted draft begins with a heading of its own, so no title goes above it (#908).
-  // The User writes a line of their own in it, under the changes: from its start, then the end.
-  await pointAndClick(window, made);
-  await expect(frontMindName(window)).toHaveText("Fieldwork plan with a summary");
-  await expect(window.getByTestId("proposals-count")).toHaveText("2 changes from the assistant");
-  const editor = window.getByTestId("mind-editor");
-  await expect(editor.locator(":scope > h1")).toHaveCount(0);
-  await editor.focus();
-  await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
-  await expect(editor).toBeFocused();
-  // The cursor is in the first change once its bar shows.
-  await expect(window.getByTestId("change-bar")).toContainText("Change 1 of 2");
-  await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
-  await expect(window.getByTestId("change-bar")).toContainText("Change 2 of 2");
-  await window.keyboard.press("Enter");
-  await window.keyboard.type("Ask the roastery about Tuesdays.");
-  await expect(editor.locator("p").last()).toHaveText("Ask the roastery about Tuesdays.");
-
-  await pointAndClick(window, card.getByTestId("mind-changes-reject-all"));
-  await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
-  await expect(made).toHaveCount(1);
-  await expect(editor.locator("p")).toHaveText(["Ask the roastery about Tuesdays."]);
-  await expect(card.getByTestId("mind-changes-title")).toHaveText(fact);
-  await expect(card.getByTestId("mind-changes-left")).toHaveText("· none waiting");
-  await expect(answer.getByTestId("answer-added")).toContainText("Rejected 2 changes");
-
-  await pointAndClick(window, answer.getByTestId("answer-added-undo"));
-  await expect(window.getByTestId("proposals-count")).toHaveText("2 changes from the assistant");
-  await expect(card.getByTestId("mind-changes-left")).toHaveText("· 2 waiting");
-  await expect(editor).toContainText("Ask the roastery about Tuesdays.");
-  await expect(made).toHaveCount(1);
-});
-
-test("Reject all keeps a Mind the assistant made once something of it was accepted", async () => {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await dismissChatSetup(window);
-  await useLocalChatModel(window);
-  await setLanguage(window, "en");
-  await setWindowSize(app, window, 1440, 900);
-  await writeMind(window, "Project plan", ["Hire a designer."]);
-  await writeMind(window, "Q3 review", ["The quarter was good."]);
-  const answer = await askInAssistant(
-    window,
-    "Add Ship the beta in May to Project plan and make a new note called Fieldwork plan",
-  );
-  const rows = answer.getByTestId("mind-changes-row");
-  await expect(rows.nth(1)).toContainText("Created: Fieldwork plan· 2 waiting");
-
-  // Fieldwork plan is open beside, with the cursor in its first change: ⌘↵ accepts that one.
-  await pointAndClick(window, rows.nth(1).getByTestId("mind-changes-open"));
-  await expect(frontMindName(window)).toHaveText("Fieldwork plan");
-  await expect(window.getByTestId("change-bar")).toContainText("Change 1 of 2");
-  await window.keyboard.press("ControlOrMeta+Enter");
-  await expect(rows.nth(1)).toContainText("· 1 waiting");
-
-  await pointAndClick(window, answer.getByTestId("mind-changes-reject-all"));
-  await expect(rows.nth(1)).toContainText("Created: Fieldwork plan· none waiting");
-  await expect(window.getByTestId("mind-tab").filter({ hasText: "Fieldwork plan" })).toHaveCount(1);
-  await expect(rows.nth(0)).toContainText("· none waiting");
-});
-
-test("a change the assistant makes in a Mind comes in paragraph by paragraph, with Writing… on the next, and its card counts the changes as they come", async () => {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await dismissChatSetup(window);
-  await useLocalChatModel(window);
-  await setLanguage(window, "en");
-  await setWindowSize(app, window, 1440, 900);
+  const last = "Hiring was very slow, and the new office opened really late in the year.";
   await writeMind(window, "Q3 review", [
     "The quarter was very good, and sales were really strong.",
     "Margins were really thin in the north, and very wide in the south.",
-    "Hiring was very slow, and the new office opened really late in the year.",
+    last,
   ]);
   const editor = window.getByTestId("mind-editor");
   const paragraphs = editor.locator("p");
@@ -372,22 +237,24 @@ test("a change the assistant makes in a Mind comes in paragraph by paragraph, wi
   await window.keyboard.type("Shorten the summary slowly");
   await window.keyboard.press("Enter");
 
-  // The first paragraph is changes, and counted on the card, while the last is still to come.
+  // The first paragraph is changed, and counted on the line, while the last is still to come.
   const answer = assistantAnswers(window).last();
-  await expect(paragraphs.first().locator("del.proposal-delete")).toHaveText(["very ", "really "], {
-    timeout: 15_000,
-  });
   const writing = editor.getByTestId("mind-writing");
-  await expect(writing).toHaveText("Writing…");
-  await expect(paragraphs.nth(2).locator("del.proposal-delete")).toHaveCount(0);
+  await expect(writing).toHaveText("Writing…", { timeout: 15_000 });
   await expect(answer.getByTestId("mind-changes-title")).toContainText("in “Q3 review”");
+  await expect(paragraphs.nth(2)).toHaveText(last);
   await screenshot(window, "assistant-edit-streaming");
 
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
   await expect(writing).toHaveCount(0);
-  await expect(window.getByTestId("proposals-count")).toHaveText("6 changes from the assistant");
+  await expect(paragraphs).toHaveText([
+    "The quarter was good, and sales were strong.",
+    "Margins were thin in the north, and wide in the south.",
+    "Hiring was slow, and the new office opened late in the year.",
+  ]);
+  await expect(window.getByTestId("proposals-count")).toHaveCount(0);
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Changed 6 places in “Q3 review”",
+    "Changed 3 paragraphs in “Q3 review”",
   );
   await screenshot(window, "assistant-edit-done");
 });
@@ -416,13 +283,13 @@ test("a new Mind's text comes in Block by Block as the assistant writes it, with
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect(writing).toHaveCount(0);
-  await expect(window.getByTestId("proposals-count")).toHaveText("2 changes from the assistant");
+  await expect(window.getByTestId("proposals-count")).toHaveCount(0);
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Created “Field notes with a summary” and wrote 1 paragraph",
+    "Wrote “Field notes with a summary”",
   );
 });
 
-test("a table the assistant writes into a Mind is a table, and the card counts it as one, in English and Chinese (#961)", async () => {
+test("a table the assistant writes into a Mind is a table, and its line counts it as one, in English and Chinese (#961)", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -437,67 +304,15 @@ test("a table the assistant writes into a Mind is a table, and the card counts i
   await expect(rows.nth(0).locator("th")).toHaveText(["Term", "What it says"]);
   await expect(rows.nth(1).locator("td")).toHaveText(["The quarter", "was good."]);
   await expect(editor.locator("p", { hasText: "|" })).toHaveCount(0);
-  await expect(window.getByTestId("proposals-count")).toHaveText("1 change from the assistant");
+  await expect(window.getByTestId("proposals-count")).toHaveCount(0);
   const title = answer.getByTestId("mind-changes").getByTestId("mind-changes-title");
   await expect(title).toHaveText("Added a table to “Q3 review”");
   const kept = answer.getByTestId("mind-changes").getByTestId("mind-changes-kept");
-  await expect(kept).toHaveText(
-    "· 1 source in the table couldn't be linked, so it's shown as text",
-  );
+  await expect(kept).toHaveText("· 1 source shown as text, not linked");
   await screenshot(window, "assistant-table");
-
-  await pointAndClick(window, window.getByTestId("proposals-accept-all"));
-  await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
-  await expect(rows).toHaveCount(4);
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 760);
   await expect(title).toHaveText("在“Q3 review”中添加了 1 个表格");
-  await expect(kept).toHaveText("· 表格中有 1 处出处无法关联，已作为文字显示");
+  await expect(kept).toHaveText("· 1 处出处未关联，显示为文字");
   await screenshot(window, "assistant-table-zh");
 });
-
-for (const [width, language] of [
-  [1100, "en"],
-  [1440, "en"],
-  [1100, "zh-CN"],
-  [1440, "zh-CN"],
-] as const) {
-  test(`a change bar near the right edge stays beside the assistant, never under it, at ${width} px in ${language}`, async () => {
-    const { app, window } = await launchApp(dataDir, { fakeChat: true });
-    await dismissChatSetup(window);
-    await useLocalChatModel(window);
-    await setLanguage(window, language);
-    await setWindowSize(app, window, width, 900);
-    const zh = language === "zh-CN";
-    const note = (
-      zh ? "销售非常好，利润真的很高。" : "Sales were very good and the margin was really strong. "
-    ).repeat(zh ? 14 : 7);
-    await writeMind(window, zh ? "第三季度" : "Q3 review", [note.trim()]);
-    await askInAssistant(window, zh ? "缩短摘要" : "Could you shorten the summary?");
-
-    // The change farthest to the right, on one line (a change that wraps has no one place to point at):
-    // where a bar the width of its words reaches under the assistant.
-    const changes = window.getByTestId("mind-editor").locator(".proposal-delete");
-    const rights = await changes.evaluateAll((each) =>
-      each.map((element) =>
-        element.getClientRects().length === 1 ? element.getBoundingClientRect().right : -1,
-      ),
-    );
-    expect(rights.length).toBeGreaterThan(4);
-    const far = changes.nth(rights.indexOf(Math.max(...rights)));
-    await pointAt(window, far);
-
-    const bar = window.getByTestId("change-bar");
-    await expect(bar).toBeVisible();
-    await screenshot(window, `change-bar-${width}-${language}`);
-    const [shown, panel, change] = await Promise.all([
-      bar.boundingBox(),
-      window.getByTestId("assistant").boundingBox(),
-      far.boundingBox(),
-    ]);
-    if (!shown || !panel || !change) throw new Error("Something isn't visible.");
-    // Where the Mind fills the card, the change is near enough the edge for the bar to need to move; at 1,440 its column ends well short of it.
-    if (width < 1200) expect(change.x + shown.width).toBeGreaterThan(panel.x);
-    expect(shown.x + shown.width).toBeLessThanOrEqual(panel.x);
-  });
-}

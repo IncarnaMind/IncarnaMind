@@ -63,7 +63,7 @@ const WORDS = {
     source: "values, each quoted from Acme",
     uncited: "1 with no Citation",
     noCitation: "No Citation",
-    noUnit: "1 cell has no unit, so it isn't drawn",
+    noUnit: "1 cell has no unit, so it isn’t drawn",
     noUnitCard: "No unit, so not drawn",
     noUnitNote: "no unit",
     uncitedSeveral: "3 with no Citation",
@@ -806,7 +806,9 @@ test("a chart exports to Word as a picture the app draws, with its caption and i
   const captions = paragraphsOf(document).filter((paragraph) => paragraph.style === "Caption");
   expect(captions.map((paragraph) => paragraph.text)).toEqual([
     "Chart",
-    expect.stringMatching(/^Source: \[\d+\] 1 value has no Citation\.$/),
+    // The chart's source is Acme, p. 1, which a cell of the table above cited first: the caption
+    // shows that footnote's number as a cross-reference (#1552).
+    expect.stringMatching(/^Source: \d+ 1 value has no Citation\.$/),
   ]);
   expect(Object.values(footnotesOf(part(files, "word/footnotes.xml")))).toContain("Acme, p. 1");
   await app.close();

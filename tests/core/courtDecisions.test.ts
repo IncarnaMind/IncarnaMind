@@ -212,6 +212,23 @@ describe("A sentence that cites a court decision", () => {
 
     expect(summary(checks)).toEqual([[HARBOUR_CITED, "supported", true, false]]);
   });
+
+  test("gets no verdict from a model that never searches, though the check looked the case up", async () => {
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (isCheckRun(call)) calls.push(call);
+        return { text: "Verdict: unsupported" };
+      },
+      { generate: checkGenerate(PLANS) },
+    );
+    const { core } = await setUpWithDocuments(model, [TIDES, OPINION]);
+
+    const checks = await checkParagraph(core, [INVENTED]);
+
+    expect(checks).toMatchObject([{ state: "not-checked", reason: "unread" }]);
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe("A saved web page as the opinion", { timeout: 30_000 }, () => {

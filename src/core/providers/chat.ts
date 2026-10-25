@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
+import { modelInUse } from "../../shared/mindModel";
 import {
   CHOSEN_PROVIDER_FLOWS,
   type ChatModelChoice,
@@ -16,15 +17,23 @@ import {
   type ConnectionTestResult,
   type DataFlowId,
   type ExternalService,
+  type ModelAbout,
+  type ModelCost,
   type OtherModel,
+  type ProviderError,
+  type ProviderErrorKind,
+  type ProviderTestResult,
   type SetChatModelInMenuInput,
 } from "../api";
 import type { Consent } from "../consent";
 import type { Meter, MeteredModel } from "../cost/meter";
-import { ChatNotReadyError, InvalidInputError, isRecord } from "../errors";
+import { typicalAnswerCost } from "../cost/price";
+import { ChatNotReadyError, InvalidInputError, isRecord, LocalModeError } from "../errors";
 import type { Secrets } from "../secrets";
+import { createSendGate, gateStop } from "../sendGate";
 import type { SettingsStore } from "../settings";
 import type { Database } from "../storage";
+import { parseApiKey as parseKey, storedApiKey } from "./apiKey";
 import {
   cloudWindow,
   type ModelCapabilities,
@@ -46,8 +55,8 @@ import {
   type Price,
   withRolesFirst,
 } from "./catalog";
-import { billingOf, ollamaCloudPrice } from "./catalog/billing";
-import { endpointOf, fieldAccepts, fieldUrl } from "./catalog/providers";
+import { billingOf, OLLAMA_CLOUD_PRICES_CHECKED, ollamaCloudPrice } from "./catalog/billing";
+import { endpointOf, fieldAccepts, fieldUrl, pricingUrlOf } from "./catalog/providers";
 import type { ChatGptPlan } from "./chatgpt/plan";
 import type { ClaudeSignIn } from "./claudeAccount/account";
 import type { CopilotSignIn } from "./copilot/account";
@@ -59,7 +68,7 @@ import {
   requiresApiKey,
   serviceFor,
 } from "./kinds";
-import { type ListedModel, listProviderModels } from "./modelLists";
+import { fetchProviderModels, type ListedModel, listProviderModels } from "./modelLists";
 import {
   type ChatLanguageModel,
   type ChatModelFactory,
@@ -81,11 +90,35 @@ const MODEL_LIST_TTL_MS = 5 * 60_000;
 /**
  * The chat flow: what a Question sends to a cloud chat provider. While a
  * Connector is on, the core adds "tool-results" (what its Tools return),
- * which makes it ask again.
+ * which makes it ask again. The names of Documents, another Mind a Question
+ * names and a Meeting's live Transcript went before the lines named them:
+ * a User who allowed the flow earlier is asked once more.
  */
-export const CHAT_FLOW_SENDS = ["blocks", "passages"] as const;
+export const CHAT_FLOW_SENDS = [
+  "blocks",
+  "passages",
+  "document-names",
+  "other-minds",
+  "live-transcript",
+] as const;
 
 const TEST_TIMEOUT_MS = 30_000;
+
+/** Room for a test's one word, and for a model that thinks a little first. */
+const TEST_OUTPUT_TOKENS = 64;
+
+function notReadyError(error: ChatNotReadyError): ProviderError {
+  const { reason } = error.readiness;
+  const kind: ProviderErrorKind =
+    reason === "local-mode" || reason === "consent-declined"
+      ? reason
+      : reason === "missing-api-key"
+        ? "auth"
+        : reason === "sign-in-required"
+          ? "not-signed-in"
+          : "unknown";
+  return { kind, message: error.message };
+}
 
 interface ProviderRow {
   id: string;
@@ -265,9 +298,8 @@ function parseApiKey(
   { kind, catalogId }: { kind: ChatProviderKind; catalogId: string | null },
 ): string | null | undefined {
   if (value === undefined || value === null) return value;
-  if (typeof value !== "string") throw new InvalidInputError("The API key must be text.");
-  const key = value.trim();
-  if (key === "") return undefined;
+  const key = parseKey(value);
+  if (key === undefined) return undefined;
   if (!acceptsApiKey(kind, catalogId)) {
     throw new InvalidInputError("This provider doesn't take an API key.");
   }
@@ -323,6 +355,17 @@ export function createChat(options: {
     ollamaModels,
     meter,
   } = options;
+  const gate = createSendGate(consent, options.localOnly);
+
+  const gateAllows = (flowId: DataFlowId, service: ExternalService): boolean => {
+    try {
+      gate.check(flowId, service);
+      return true;
+    } catch (error) {
+      if (gateStop(error)) return false;
+      throw error;
+    }
+  };
 
   const needsSignIn = async (kind: ChatProviderKind) =>
     (kind === "chatgpt" && !(await chatGpt.hasSignIn())) ||
@@ -408,8 +451,9 @@ export function createChat(options: {
 
   /** The models a saved provider lists, kept for a few minutes; none for a cloud service the User hasn't allowed yet. */
   const listedModels = async (row: ProviderRow, provider: ChatProvider): Promise<ListedModel[]> => {
-    // A cloud service isn't asked for its list before the User allows the chat flow to it.
-    const mayAsk = !provider.service || consent.status("chat", provider.service) === "accepted";
+    // The list request carries the key, so it goes only where a Question could: never in Local
+    // mode, and only once the User allows the chat flow to the service.
+    const mayAsk = !provider.service || gateAllows("chat", provider.service);
     const cacheKey = listKey(row);
     const cached = modelLists.get(cacheKey);
     let listed = cached && Date.now() - cached.at < MODEL_LIST_TTL_MS ? cached.models : null;
@@ -434,13 +478,13 @@ export function createChat(options: {
     return listed;
   };
 
-  /** The ids the User added to a provider's menu, in the order added. */
-  const menuModelsOf = (providerId: string): string[] =>
+  /** The ids the User put in a provider's menu (`inMenu`), or took out of it, in the order they did. */
+  const menuModelsOf = (providerId: string, inMenu = true): string[] =>
     db
       .all<{ model_id: string }>(
         `SELECT model_id FROM chat_menu_models
-          WHERE provider_id = ? AND deleted_at IS NULL ORDER BY created_at, id`,
-        [providerId],
+          WHERE provider_id = ? AND in_menu = ? AND deleted_at IS NULL ORDER BY created_at, id`,
+        [providerId, inMenu ? 1 : 0],
       )
       .map((each) => each.model_id);
 
@@ -542,11 +586,12 @@ export function createChat(options: {
       };
     }
     const baseUrl = endpointUrl(kind, server.endpoint, server.catalogId) ?? server.baseUrl;
+    const checkedKey = storedApiKey(apiKey);
     if (kind === "ollama") {
       return {
         kind,
         baseUrl,
-        apiKey,
+        apiKey: checkedKey,
         modelId,
         ollama: profile?.settings ?? DEFAULT_OLLAMA_SETTINGS,
       };
@@ -554,7 +599,7 @@ export function createChat(options: {
     return {
       kind,
       baseUrl,
-      apiKey,
+      apiKey: checkedKey,
       modelId,
       // Only a provider's other regions say which they are; its first is the default.
       ...(server.endpoint &&
@@ -617,6 +662,67 @@ export function createChat(options: {
       price: capabilities.facts.price,
     };
   }
+
+  const costOf = (row: ProviderRow, price: Price | undefined, cloud: boolean): ModelCost | null => {
+    const billing = billingOf(row.kind as ChatProviderKind, cloud ? OLLAMA_CLOUD : rowService(row));
+    if (billing !== "per-token") return { kind: billing };
+    return price
+      ? { kind: "estimate", currency: price.currency, amount: typicalAnswerCost(price) }
+      : null;
+  };
+
+  const aboutOf = (row: ProviderRow, modelId: string, cloud: boolean): ModelAbout => {
+    const { facts } = capabilitiesOf(row, modelId);
+    return {
+      tools: facts.tools ?? null,
+      readsImages: facts.input?.includes("image") ?? false,
+      reasoning: facts.reasoning ?? null,
+      context: facts.context ?? null,
+      cost: costOf(row, cloud ? ollamaCloudPrice(modelId) : facts.price, cloud),
+    };
+  };
+
+  const pricesOf = (row: ProviderRow, provider: ChatProvider): ChatModelGroup["prices"] => {
+    const catalog = catalogProviderOf(provider.kind, row.catalog_id);
+    if (provider.kind === "ollama") {
+      const url = catalog?.pricingUrl;
+      return url ? { url, checked: OLLAMA_CLOUD_PRICES_CHECKED } : null;
+    }
+    if (billingOf(provider.kind, provider.service) !== "per-token" || !catalog) return null;
+    const url = pricingUrlOf(catalog, row.endpoint);
+    return url ? { url, checked: catalog.checked } : null;
+  };
+
+  const answersModelOf = async (row: ProviderRow): Promise<string | undefined> => {
+    const kind = row.kind as ChatProviderKind;
+    const catalog =
+      kind === "claude-account"
+        ? catalogProvider("anthropic")
+        : catalogProviderOf(kind, row.catalog_id);
+    const role = kind === "ollama" ? undefined : catalog?.roles.answers;
+    if (role) return role;
+    const listed = await listedModels(row, await toProvider(row));
+    return listed.find((each) => !each.other)?.id ?? menuModelsOf(row.id)[0];
+  };
+
+  // A model server the User runs does its own small calls, so it has no quick-tasks model of its own.
+  const testModelOf = (row: ProviderRow, listed: readonly ListedModel[]): string | undefined => {
+    const { quickTasksModel, chatModel } = settings.get().user;
+    if (quickTasksModel?.providerId === row.id) return quickTasksModel.modelId;
+    const kind = row.kind as ChatProviderKind;
+    const role =
+      rowService(row) === null || kind === "ollama"
+        ? undefined
+        : catalogRoleModel({ kind, catalogId: row.catalog_id }, "quickTasks");
+    const answers = chatModel?.providerId === row.id ? chatModel.modelId : undefined;
+    return (
+      role ??
+      answers ??
+      listed.find((each) => !each.other)?.id ??
+      menuModelsOf(row.id)[0] ??
+      listed[0]?.id
+    );
+  };
 
   /**
    * A role's model for Answers asked with `base` (see `quickTasksModel` and
@@ -718,6 +824,7 @@ export function createChat(options: {
       const server = parseServer(input);
       const apiKey = parseApiKey(input.apiKey, server);
       const modelId = parseModelId(input.modelId);
+      const makeDefault = input.keepDefault !== true || settings.get().user.chatModel === null;
 
       const existing = rowByServer(server);
       const id = existing?.id ?? randomUUID();
@@ -744,7 +851,7 @@ export function createChat(options: {
             [id, server.kind, server.baseUrl, server.catalogId, server.endpoint, at, at],
           );
         }
-        settings.update({ user: { chatModel: { providerId: id, modelId } } });
+        if (makeDefault) settings.update({ user: { chatModel: { providerId: id, modelId } } });
       });
       if (apiKey === null) await secrets.delete(keyName(id));
 
@@ -758,25 +865,64 @@ export function createChat(options: {
       return toProvider(row);
     },
 
-    /** Soft-deletes the provider and deletes its key. Deleting one that doesn't exist does nothing. */
+    /**
+     * Soft-deletes the provider and deletes its key. The quick-tasks and image models it held
+     * go back to Automatic, and the model last chosen on it is forgotten; the default model it
+     * held moves to another provider's, when one is left. Deleting one that doesn't exist does nothing.
+     */
     async delete(id: unknown): Promise<void> {
       if (typeof id !== "string") throw new InvalidInputError("A provider id must be text.");
       if (!rowById(id)) return;
       const at = now();
+      const { user, device } = settings.get();
+      const { chatModel, quickTasksModel, imageModel } = user;
       db.transaction(() => {
         db.run("UPDATE chat_providers SET deleted_at = ?, updated_at = ? WHERE id = ?", [
           at,
           at,
           id,
         ]);
-        if (settings.get().user.chatModel?.providerId === id) {
-          settings.update({ user: { chatModel: null } });
+        const held = {
+          ...(chatModel?.providerId === id && { chatModel: null }),
+          ...(quickTasksModel?.providerId === id && { quickTasksModel: null }),
+          ...(imageModel?.providerId === id && { imageModel: null }),
+        };
+        const lastPick = device.lastChatModel?.providerId === id ? { lastChatModel: null } : {};
+        if (Object.keys(held).length > 0 || Object.keys(lastPick).length > 0) {
+          settings.update({ user: held, device: lastPick });
         }
       });
       await secrets.delete(keyName(id));
+      if (chatModel?.providerId !== id) return;
+      for (const row of knownRows()) {
+        const modelId = await answersModelOf(row);
+        if (modelId) {
+          settings.update({ user: { chatModel: { providerId: row.id, modelId } } });
+          return;
+        }
+      }
     },
 
     exists: (id: string) => rowById(id) !== undefined,
+
+    /** The model a request in a Mind whose own pick is `own` is asked with (see `modelInUse`). */
+    modelInUse(own: ChatModelChoice | null): ChatModelChoice | null {
+      const { device, user } = settings.get();
+      return modelInUse(
+        { own, last: device.lastChatModel, fallback: user.chatModel },
+        (id) => rowById(id) !== undefined,
+      );
+    },
+
+    /** The key of the saved provider of a hosted catalog entry, for another service of its (#141). */
+    async apiKeyOf(catalogId: string): Promise<{ providerId: string; apiKey: string } | null> {
+      for (const row of knownRows()) {
+        if ((row.catalog_id ?? row.kind) !== catalogId || row.base_url !== null) continue;
+        const apiKey = await secrets.tryGet(keyName(row.id));
+        if (apiKey) return { providerId: row.id, apiKey };
+      }
+      return null;
+    },
 
     /**
      * How requests to `choice` (the default model when left out) are metered,
@@ -894,6 +1040,7 @@ export function createChat(options: {
           const defaultModel = chatModel?.providerId === row.id ? [chatModel.modelId] : [];
           const inMenu = listed.filter((each) => !each.other).map((each) => each.id);
           const addedIds = menuModelsOf(row.id);
+          const takenOut = menuModelsOf(row.id, false);
           const other = listed.flatMap((each): OtherModel[] =>
             each.other ? [{ id: each.id, ...each.other }] : [],
           );
@@ -901,13 +1048,16 @@ export function createChat(options: {
             (id) =>
               !inMenu.includes(id) && other.find((each) => each.id === id)?.why !== "cannot-answer",
           );
-          const models = [
+          const offered = [
             ...new Set([
               ...defaultModel,
               ...withRolesFirst(catalogProviderOf(provider.kind, row.catalog_id)?.roles, inMenu),
-              ...added,
             ]),
           ];
+          const hidden = offered.filter(
+            (id) => takenOut.includes(id) && !defaultModel.includes(id),
+          );
+          const models = [...new Set([...offered.filter((id) => !hidden.includes(id)), ...added])];
           const unknown = models.filter((id) => !capabilitiesOf(row, id).known);
           // Ollama says which of its models run on ollama.com; the default one may not be in the list.
           const cloud = models.filter(
@@ -926,7 +1076,29 @@ export function createChat(options: {
           const names = Object.fromEntries(
             listed.flatMap((each) => (each.name ? [[each.id, each.name]] : [])),
           );
-          return { provider, models, names, other, added, unknown, cloud };
+          const inCloud = (id: string) =>
+            cloud.includes(id) ||
+            (row.kind === "ollama" &&
+              (listed.some((each) => each.id === id && each.cloud) || isCloudModelName(id)));
+          const about = Object.fromEntries(
+            [...new Set([...offered, ...added, ...other.map((each) => each.id)])].map((id) => [
+              id,
+              aboutOf(row, id, inCloud(id)),
+            ]),
+          );
+          return {
+            provider,
+            models,
+            names,
+            other,
+            added,
+            offered,
+            hidden,
+            about,
+            prices: pricesOf(row, provider),
+            unknown,
+            cloud,
+          };
         }),
       );
     },
@@ -950,17 +1122,21 @@ export function createChat(options: {
       }
       if (typeof inMenu !== "boolean") throw new InvalidInputError("inMenu must be true or false.");
       const at = now();
-      if (inMenu) {
-        db.run(
-          `INSERT OR IGNORE INTO chat_menu_models (id, provider_id, model_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [randomUUID(), providerId, modelId, at, at],
-        );
+      const kept = db.get<{ id: string }>(
+        "SELECT id FROM chat_menu_models WHERE provider_id = ? AND model_id = ? AND deleted_at IS NULL",
+        [providerId, modelId],
+      );
+      if (kept) {
+        db.run("UPDATE chat_menu_models SET in_menu = ?, updated_at = ? WHERE id = ?", [
+          inMenu ? 1 : 0,
+          at,
+          kept.id,
+        ]);
       } else {
         db.run(
-          `UPDATE chat_menu_models SET deleted_at = ?, updated_at = ?
-            WHERE provider_id = ? AND model_id = ? AND deleted_at IS NULL`,
-          [at, at, providerId, modelId],
+          `INSERT INTO chat_menu_models (id, provider_id, model_id, in_menu, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [randomUUID(), providerId, modelId, inMenu ? 1 : 0, at, at],
         );
       }
     },
@@ -1023,31 +1199,100 @@ export function createChat(options: {
             modelId,
           ),
         });
-        const model = meter.wrap(
-          watchedPlan(
-            server.kind,
-            createModel(await specFor(server, apiKey, modelId, profile)),
-            modelId,
+        const model = gate.testModel(
+          meter.wrap(
+            watchedPlan(
+              server.kind,
+              createModel(await specFor(server, apiKey, modelId, profile)),
+              modelId,
+            ),
+            meteredModel(
+              { kind: server.kind, service },
+              rowByServer(server)?.id ?? server.catalogId ?? server.kind,
+              modelId,
+              "test",
+              facts,
+              profile,
+            ),
           ),
-          meteredModel(
-            { kind: server.kind, service },
-            rowByServer(server)?.id ?? server.catalogId ?? server.kind,
-            modelId,
-            "test",
-            facts,
-            profile,
-          ),
+          service,
         );
         await generateText({
           model,
           prompt: "Reply with the word OK.",
-          maxOutputTokens: 64,
+          maxOutputTokens: TEST_OUTPUT_TOKENS,
           maxRetries: 0,
           abortSignal: AbortSignal.timeout(TEST_TIMEOUT_MS),
         });
         return { ok: true };
       } catch (error) {
         return { ok: false, error: classifyProviderError(error) };
+      }
+    },
+
+    async testProvider(providerId: unknown): Promise<ProviderTestResult> {
+      const row = typeof providerId === "string" ? rowById(providerId) : undefined;
+      if (!row || !isKnownRow(row)) {
+        throw new InvalidInputError({ key: "error.provider.removed" });
+      }
+      const provider = await toProvider(row);
+      const failed = (
+        step: "list" | "answer",
+        modelId: string | null,
+        error: unknown,
+      ): ProviderTestResult => ({
+        ok: false,
+        step,
+        modelId,
+        error:
+          error instanceof ChatNotReadyError ? notReadyError(error) : classifyProviderError(error),
+      });
+      let listed: ListedModel[];
+      try {
+        if (provider.service) {
+          // Local mode first: a prompt for what couldn't be sent anyway would only be in the way.
+          if (options.localOnly()) {
+            throw new ChatNotReadyError({
+              ready: false,
+              reason: "local-mode",
+              provider,
+              modelId: "",
+            });
+          }
+          await consent.ensure("chat", provider.service);
+          gate.check("chat", provider.service);
+        }
+        listed =
+          provider.kind === "chatgpt" || provider.kind === "copilot"
+            ? await listedModels(row, provider)
+            : await fetchProviderModels({
+                kind: provider.kind,
+                baseUrl: row.base_url,
+                apiKey: provider.hasApiKey ? await secrets.tryGet(keyName(row.id)) : null,
+                endpoint: row.endpoint,
+                catalogId: row.catalog_id,
+              });
+      } catch (error) {
+        return failed("list", null, error);
+      }
+      if (listed.length > 0) modelLists.set(listKey(row), { at: Date.now(), models: listed });
+      const modelId = testModelOf(row, listed);
+      if (!modelId) {
+        return failed("answer", null, new LocalModelError("model", "It lists no models to try."));
+      }
+      try {
+        const prepared = await chat.prepareModel({ providerId: row.id, modelId }, "chat", "off");
+        const started = Date.now();
+        await generateText({
+          model: prepared.model,
+          prompt: "Reply with the word OK.",
+          maxOutputTokens: TEST_OUTPUT_TOKENS,
+          maxRetries: 0,
+          abortSignal: AbortSignal.timeout(TEST_TIMEOUT_MS),
+        });
+        return { ok: true, modelId, ms: Date.now() - started };
+      } catch (error) {
+        return failed("answer", modelId, error);
       }
     },
 
@@ -1086,7 +1331,17 @@ export function createChat(options: {
       const readiness = await readinessFor(choice ?? settings.get().user.chatModel, flow);
       if (!readiness.ready) throw new ChatNotReadyError(readiness);
       const { provider, modelId } = readiness;
-      if (provider.service) await consent.ensure(flow, provider.service);
+      if (provider.service) {
+        try {
+          await consent.ensure(flow, provider.service);
+        } catch (error) {
+          // Its prompt closed as Local mode came on: a Question says so as it does when asked in Local mode.
+          if (error instanceof LocalModeError && flow === "chat") {
+            throw new ChatNotReadyError({ ready: false, reason: "local-mode", provider, modelId });
+          }
+          throw error;
+        }
+      }
       const apiKey = acceptsApiKey(provider.kind, provider.catalogId)
         ? await secrets.get(keyName(provider.id))
         : null;
@@ -1104,17 +1359,10 @@ export function createChat(options: {
       checkCanChat(profile, modelId);
       // The calls that don't write the Answer (tagging, classifying, an Answer's search query)
       // skip thinking where they can.
+      const reasoning = thinking ?? (flow === "chat" ? "summary" : "off");
       const model = watchedPlan(
         provider.kind,
-        createModel(
-          await specFor(
-            provider,
-            apiKey,
-            modelId,
-            profile,
-            thinking ?? (flow === "chat" ? "summary" : "off"),
-          ),
-        ),
+        createModel(await specFor(provider, apiKey, modelId, profile, reasoning)),
         modelId,
       );
       const row: ProviderRow = {
@@ -1129,13 +1377,18 @@ export function createChat(options: {
         await listedModels(row, provider);
       }
       const capabilities = capabilitiesOf(row, modelId, profile ? ollamaFacts(profile) : undefined);
-      const metered = meter.wrap(
-        model,
-        meteredModel(provider, provider.id, modelId, flow, capabilities, profile),
+      // The gate goes outside the meter, so a request it stops reserves nothing.
+      const gated = gate.model(
+        meter.wrap(model, {
+          ...meteredModel(provider, provider.id, modelId, flow, capabilities, profile),
+          reasoning,
+        }),
+        flow,
+        provider.service,
       );
       const support = startingSupport(capabilities);
       const prepared = {
-        model: metered,
+        model: gated,
         provider,
         modelId,
         capabilities,

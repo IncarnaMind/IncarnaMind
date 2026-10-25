@@ -23,6 +23,7 @@ const ORDINAL_AND =
 
 /** Unless asked for, what an edit's new text leaves out is kept, as a model may return only what it changed (#880). */
 export function asksToRemove(action: EditAction, instruction: string): boolean {
+  if (action === "cut-unsupported") return true;
   if (action !== "instruction") return false;
   for (const table of instruction.matchAll(AS_TABLE)) {
     const opening = instruction.slice(0, table.index).split(CLAUSE).at(-1) ?? "";

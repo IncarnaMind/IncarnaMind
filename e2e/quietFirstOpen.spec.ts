@@ -1,7 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import {
+  acceptPlainTextKeys,
   assistantAnswers,
   createDataFolder,
   launchApp,
@@ -37,9 +39,10 @@ test("a first open shows only the example page: no tab strip, no assistant, a sl
   await expect(window.getByTestId("ask-pill")).toContainText("Ask anything");
 
   await expect(sidebar.getByTestId("open-library")).toHaveCount(0);
-  await expect(sidebar.getByTestId("browse-views")).toHaveCount(0);
+  await expect(sidebar.getByTestId("folders-section")).toHaveCount(0);
+  await expect(sidebar.getByTestId("sidebar-tags")).toHaveCount(0);
   await expect(sidebar.getByTestId("document-list-item")).toHaveCount(0);
-  await expect(sidebar.getByTestId("not-in-a-folder-toggle")).toHaveText("Examples");
+  await expect(sidebar.getByTestId("not-in-a-folder-title")).toHaveText("Examples");
   await expect(sidebar.getByTestId("mind-list-item")).toHaveCount(1);
   await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(0);
   await expect(window.getByTestId("mind-count-button")).toHaveCount(0);
@@ -55,7 +58,7 @@ test("a first open shows only the example page: no tab strip, no assistant, a sl
 test("the quiet first open keeps the example's marks to its margin, but a check the User asks for shows the badge and its card (#909)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
   await setWindowSize(app, window, 1440, 900);
-  await expect(window.getByTestId("margin-check")).toHaveCount(2, { timeout: 30_000 });
+  await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 30_000 });
   await expect(window.getByTestId("check-badge")).toHaveCount(0);
 
   // No model yet: Check this Mind can't run, and says so where the User asked.
@@ -99,12 +102,129 @@ test("a file the first open can't take still says so in the footer, though its o
   await app.close();
 });
 
+const taggingOf = (window: Page) =>
+  window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await bridge.listDocuments()).map((each) => ({
+      name: each.name,
+      tagging: each.tagging,
+    }));
+  });
+
+test("the examples alone keep the footer quiet, but the User's own file waiting for a Tagging model says so, and a saved model clears it (#1128)", async () => {
+  const notes = join(sources, "Harbour notes.md");
+  await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  const sidebar = window.getByTestId("sidebar");
+  const line = sidebar.getByTestId("tagging-waiting");
+  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+
+  // The examples need no model, so their Tags waiting for one is no news.
+  await expect
+    .poll(async () => {
+      const documents = await taggingOf(window);
+      return (
+        documents.length > 0 && documents.every((each) => each.tagging === "waiting-for-provider")
+      );
+    })
+    .toBe(true);
+  await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(0);
+
+  await window.getByTestId("add-documents-input").setInputFiles([notes]);
+  await expect(line).toBeVisible();
+  await expect(line).toContainText("No AI model for Tags");
+  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await expect(window.getByTestId("tab-list")).toHaveCount(0);
+
+  const choose = line.getByTestId("tagging-waiting-setup");
+  await expect(choose).toHaveText("Choose…");
+  await setLanguage(window, "zh-CN");
+  await expect(line).toContainText("打标签需要 AI 模型");
+  await expect(choose).toHaveText("选择…");
+  for (const [width, height] of [
+    [900, 700],
+    [1440, 900],
+  ] as const) {
+    await setWindowSize(app, window, width, height);
+    const within = await sidebar.boundingBox();
+    const button = await choose.boundingBox();
+    expect(within && button && button.x + button.width <= within.x + within.width).toBe(true);
+  }
+
+  await choose.focus();
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("settings")).toBeHidden();
+
+  await useLocalChatModel(window);
+  await expect(line).toHaveCount(0);
+  await expect
+    .poll(
+      async () => (await taggingOf(window)).find((each) => each.name === "Harbour notes")?.tagging,
+    )
+    .toBe("tagged");
+  await app.close();
+});
+
+test("Tagging stopped for the User's own files shows in the footer on the first open, with Resume (#1129)", async () => {
+  const notes = join(sources, "Harbour notes.md");
+  await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await useLocalChatModel(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.setTaggingWithAi(null, false);
+  });
+  const sidebar = window.getByTestId("sidebar");
+  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await window.getByTestId("add-documents-input").setInputFiles([notes]);
+  const row = sidebar.getByTestId("tagging-stopped");
+  await expect(row).toContainText("Tagging stopped");
+  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await row.getByTestId("tagging-resume").focus();
+  await window.keyboard.press("Enter");
+  await expect(row).toHaveCount(0);
+  await expect
+    .poll(
+      async () => (await taggingOf(window)).find((each) => each.name === "Harbour notes")?.tagging,
+    )
+    .toBe("tagged");
+  await app.close();
+});
+
+test("Tagging paused by a rate limit shows in the footer on the first open, with Retry", async () => {
+  const limited = join(sources, "Harbour notes.md");
+  await writeFile(limited, "# Harbour notes\n\nThe invoice server was rate-limited.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
+    await bridge.saveLibrarySettings({ ...(await bridge.getLibrary()).settings, automatic: true });
+  });
+  const sidebar = window.getByTestId("sidebar");
+  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await window.getByTestId("add-documents-input").setInputFiles([limited]);
+  const row = sidebar.getByTestId("tagging-rate-limited");
+  await expect(row.getByTestId("status-label")).toContainText("Rate limit reached");
+  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await row.getByTestId("tagging-rate-limited-retry").focus();
+  await window.keyboard.press("Enter");
+  await expect(row).toHaveCount(0);
+  await app.close();
+});
+
 test("a Mind of one's own made on the first open isn't listed under Examples (#123)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
-  const section = window.getByTestId("sidebar").getByTestId("not-in-a-folder-toggle");
+  const section = window.getByTestId("sidebar").getByTestId("not-in-a-folder-title");
   await expect(section).toHaveText("Examples");
   await newMind(window);
   await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
+  // "Not in a Folder", though there is no Folder yet.
   await expect(section).toHaveText("Not in a Folder");
   await app.close();
 });
@@ -136,7 +256,7 @@ test("the quiet first open holds at 1,100 px in Chinese (#123)", async () => {
   const box = await pill.boundingBox();
   const card = await window.getByTestId("card").boundingBox();
   expect(box && card && box.x >= card.x && box.x + box.width <= card.x + card.width).toBe(true);
-  await expect(window.getByTestId("sidebar").getByTestId("not-in-a-folder-toggle")).toHaveText(
+  await expect(window.getByTestId("sidebar").getByTestId("not-in-a-folder-title")).toHaveText(
     "示例",
   );
   await app.close();

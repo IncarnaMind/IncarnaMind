@@ -4,11 +4,17 @@ import { useShallow } from "zustand/react/shallow";
 import type { ApprovalRequest, Task, TaskEffect } from "../../../core/api";
 import { useApprovals } from "../approvals";
 import { keysLabel } from "../commands/keys";
-import { ApprovalCard, withShortcut } from "../editor/AnswerView";
+import { useConversations } from "../conversations";
+import { ApprovalCard } from "../editor/AnswerView";
+import { withShortcut } from "../editor/withShortcut";
 import { useT } from "../i18n";
+import { saidInLine } from "../lineNames";
 import type { Translate } from "../objects";
+import { useQuestionRoom } from "../questionRoom";
+import { useQuestions } from "../questions";
 import { useResearch } from "../research";
 import { answerTaskAsk, loadTasks, useTasks } from "../tasks";
+import { QuestionCard } from "./assistant/QuestionCard";
 import { QueuedMessages } from "./QueuedMessages";
 import { ResearchPlanCard } from "./ResearchPlanCard";
 import { ResearchPlanView } from "./ResearchPlanView";
@@ -21,8 +27,27 @@ const MIN_TRAY = 220;
 const MIN_ROOM = 56;
 /** What the conversation keeps above the tray and the composer, at the least: a few lines (#678). */
 const MIN_THREAD = 120;
+/** While the assistant's question waits, the conversation gives it room for its options: the Question's line stays. */
+const MIN_THREAD_ASKING = 40;
 
 const ALLOW_KEYS = "CmdOrCtrl+Enter";
+
+function hiddenIn(card: HTMLElement): number {
+  const head = card.querySelector<HTMLElement>(".approval-head");
+  const options = card.querySelector<HTMLElement>(".choice-options");
+  const cap = options ? Number.parseFloat(getComputedStyle(options).maxHeight) : Number.NaN;
+  const rows = options
+    ? Math.max(
+        0,
+        Math.min(options.scrollHeight + options.clientTop, cap || Infinity) - options.offsetHeight,
+      )
+    : 0;
+  return (
+    (head ? head.scrollHeight - head.clientHeight : 0) +
+    rows +
+    (card.scrollHeight - card.clientHeight)
+  );
+}
 
 const isCommand = (event: { metaKey: boolean; ctrlKey: boolean }) =>
   isMacOS() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
@@ -39,6 +64,7 @@ function effectText(effect: TaskEffect, t: Translate): string {
 /** IncarnaMind can't tell whether an Effect happened: do it again, or go on without it. */
 function UnknownOutcomeCard({ task, effect }: { task: Task; effect: TaskEffect }) {
   const t = useT();
+  const explained = saidInLine(t, (t) => effectText(effect, t));
   const titleId = useId();
   const mac = isMacOS();
   return (
@@ -53,7 +79,9 @@ function UnknownOutcomeCard({ task, effect }: { task: Task; effect: TaskEffect }
           <span aria-hidden="true" className="approval-dot" />
           <span className="approval-title-text">{t("task.unknown.title")}</span>
         </p>
-        <p className="approval-explanation">{effectText(effect, t)}</p>
+        <p title={explained.fullMessage} className="approval-explanation">
+          {explained.message}
+        </p>
       </div>
       <div className="approval-actions task-ask-actions">
         <button
@@ -145,12 +173,14 @@ function TaskAskView({ task }: { task: Task }) {
  * The Task tray (#126, narrowed by #657; DESIGN.md, Task tray): joined to the
  * top of the assistant's composer, only what waits for the User, nearest the
  * keyboard. Top to bottom: the plan card before a Task starts, the one
- * waiting ask, then queued messages, which wrap. Progress is in the thread
+ * waiting ask (a Task's, else the assistant's question in the open
+ * conversation, #1374), then queued messages, which wrap. Progress is in the thread
  * (`TaskProgress`). The plan card is Research's (#130). It takes at most 40%
- * of the column, and at least room for the ask's buttons; the ask scrolls
- * inside with its buttons pinned. Nothing in it goes into the Mind.
+ * of the column, a question all the column's room (#1400), and at least room
+ * for the ask's buttons; the ask scrolls inside with its buttons pinned.
+ * Nothing in it goes into the Mind.
  */
-export function TaskTray({ mindId }: { mindId: string }) {
+export function TaskTray({ mindId }: { mindId: string | null }) {
   const t = useT();
   useEffect(loadTasks, []);
   const asking = useTasks((state) =>
@@ -158,8 +188,12 @@ export function TaskTray({ mindId }: { mindId: string }) {
       (task) => task.mindId === mindId && task.finishedAt === null && task.ask !== null,
     ),
   );
-  const planning = useResearch((state) => state.plans[mindId] !== undefined);
-  const viewingId = useResearch((state) => state.viewing[mindId]);
+  const openId = useConversations((state) => state.openId);
+  const question = useQuestions((state) =>
+    Object.values(state.waiting).find((each) => each.conversationId === openId),
+  );
+  const planning = useResearch((state) => mindId !== null && state.plans[mindId] !== undefined);
+  const viewingId = useResearch((state) => (mindId === null ? undefined : state.viewing[mindId]));
   const viewing = useTasks((state) => {
     const task = viewingId ? state.tasks[viewingId] : undefined;
     return task && task.finishedAt === null ? task : undefined;
@@ -173,25 +207,46 @@ export function TaskTray({ mindId }: { mindId: string }) {
   );
   const tray = useRef<HTMLElement>(null);
   const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined);
-  const present = asking !== undefined || planning || viewing !== undefined || queued.length > 0;
+  const present =
+    asking !== undefined ||
+    question !== undefined ||
+    planning ||
+    viewing !== undefined ||
+    queued.length > 0;
+  const choosing = asking === undefined && question !== undefined;
 
   useLayoutEffect(() => {
     const element = tray.current;
     const column = element?.closest<HTMLElement>(".assistant-main");
     if (!present || !element || !column) return;
+    const assistant = column.closest<HTMLElement>(".assistant");
     const fitTray = () => {
       // The composer and the room under it, which the slot's padding keeps.
       const slot = element.parentElement?.getBoundingClientRect().height ?? 0;
       const composer = slot - element.getBoundingClientRect().height;
-      const room = Math.max(MIN_ROOM, column.clientHeight - composer - MIN_THREAD);
+      const thread = choosing ? MIN_THREAD_ASKING : MIN_THREAD;
+      const room = Math.max(MIN_ROOM, column.clientHeight - composer - thread);
       const share = Math.floor(column.clientHeight * TRAY_SHARE);
-      setMaxHeight(Math.min(room, Math.max(share, MIN_TRAY)));
+      // A question takes what room the column has, as the prototype's card shows every row.
+      setMaxHeight(choosing ? room : Math.min(room, Math.max(share, MIN_TRAY)));
+      if (choosing && assistant) {
+        const card = element.querySelector<HTMLElement>(".choice-card");
+        const needs = element.offsetHeight + (card ? hiddenIn(card) : 0);
+        useQuestionRoom.setState({ fits: assistant.offsetHeight - room + needs });
+      }
     };
     fitTray();
     const observer = new ResizeObserver(fitTray);
     observer.observe(column);
-    return () => observer.disconnect();
-  }, [present]);
+    if (choosing) {
+      observer.observe(element);
+      for (const part of element.querySelectorAll(".choice-card > *")) observer.observe(part);
+    }
+    return () => {
+      observer.disconnect();
+      if (choosing) useQuestionRoom.setState({ fits: null, resized: false });
+    };
+  }, [present, choosing]);
 
   if (!present) return null;
   return (
@@ -202,9 +257,17 @@ export function TaskTray({ mindId }: { mindId: string }) {
       className="task-tray"
       style={{ maxHeight }}
     >
-      {planning && <ResearchPlanCard mindId={mindId} />}
+      {planning && mindId !== null && <ResearchPlanCard mindId={mindId} />}
       {!planning && viewing && <ResearchPlanView task={viewing} />}
-      {asking && <TaskAskView task={asking} />}
+      {asking ? (
+        <TaskAskView task={asking} />
+      ) : (
+        question && (
+          <div data-testid="task-ask" className="task-ask">
+            <QuestionCard key={question.requestId} request={question} />
+          </div>
+        )
+      )}
       {queued.map((task) => (
         <QueuedMessages key={task.id} task={task} />
       ))}

@@ -163,7 +163,7 @@ describe("Adding a remote Connector", { timeout: 30_000 }, () => {
     expect(waiting).toMatchObject({
       error: null,
       tools: null,
-      signIn: { signedIn: false, expired: false, error: null },
+      signIn: { signedIn: false, expired: false, heldBack: false, error: null },
     });
     // Discovery happened: the protected-resource metadata the 401 pointed to, then the authorization server's.
     const paths = fake.requests.map((request) => request.path);
@@ -207,9 +207,9 @@ describe("Adding a remote Connector", { timeout: 30_000 }, () => {
 
     await expect(add("http://mcp.example.com/mcp")).rejects.toThrow(/must start with https/);
     await expect(add("ftp://mcp.example.com/mcp")).rejects.toThrow(/must start with https/);
-    await expect(add("mcp.example.com")).rejects.toThrow(/isn't a valid URL/);
-    await expect(add("https://me:secret@mcp.example.com/mcp")).rejects.toThrow(/user name/);
-    await expect(add("  ")).rejects.toThrow(/Enter the server's URL/);
+    await expect(add("mcp.example.com")).rejects.toThrow(/isn’t a valid URL/);
+    await expect(add("https://me:secret@mcp.example.com/mcp")).rejects.toThrow(/login/);
+    await expect(add("  ")).rejects.toThrow(/Enter the server’s URL/);
     await expect(
       core.addConnector({ name: "Both", url: "https://a.example", command: "npx" } as never),
     ).rejects.toThrow(/either a command or a URL/);
@@ -362,6 +362,7 @@ describe("Signing in", { timeout: 30_000 }, () => {
     expect(after.signIn).toEqual({
       signedIn: false,
       expired: false,
+      heldBack: false,
       error: { kind: "denied", message: expect.any(String) },
     });
     expect(tokensIn(setup.keychain, added.id)).toBeNull();
@@ -580,7 +581,12 @@ describe("Tokens", { timeout: 30_000 }, () => {
     const failed = model.doStreamCalls.length;
     const expired = await connectorState(core, id, "needs-sign-in");
 
-    expect(expired.signIn).toEqual({ signedIn: false, expired: true, error: null });
+    expect(expired.signIn).toEqual({
+      signedIn: false,
+      expired: true,
+      heldBack: false,
+      error: null,
+    });
     expect(expired.tools).toBeNull();
     expect(tokensIn(keychain, id)).toEqual({ expired: true });
     expect(fake.toolCalls).toEqual([]);
@@ -623,7 +629,7 @@ describe("Tokens", { timeout: 30_000 }, () => {
     expect(after).toMatchObject({
       state: "needs-sign-in",
       tools: null,
-      signIn: { signedIn: false, expired: false, error: null },
+      signIn: { signedIn: false, expired: false, heldBack: false, error: null },
     });
     expect(keychain.secrets.has(`connector:${id}:oauth-tokens`)).toBe(false);
     expect(keychain.secrets.get(`connector:${id}:oauth-client`)).toContain("registered-client-1");

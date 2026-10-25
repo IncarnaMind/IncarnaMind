@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { useApprovals } from "./approvals";
 import { core } from "./core";
+import { useQuestions } from "./questions";
 
 /**
  * The Minds with an Answer being written, and those with an Answer waiting
@@ -62,8 +63,8 @@ export function useMindStatus(mindId: string): MindStatus {
 }
 
 /**
- * Whether an Answer in the assistant waits for the User, to approve a call or
- * to allow its Question to be sent: the assistant shows the amber dot a
+ * Whether an Answer in the assistant waits for the User, to approve a call,
+ * to allow its Question to be sent, or to answer its question (#1374): the assistant shows the amber dot a
  * Mind's row did, folded too, where its card is out of sight (#201).
  */
 export function useAssistantWaiting(): boolean {
@@ -71,7 +72,8 @@ export function useAssistantWaiting(): boolean {
     Object.values(state.waiting).some((request) => request.conversationId !== undefined),
   );
   const consenting = useWritingAnswers((state) => Object.keys(state.consentingInChat).length > 0);
-  return approving || consenting;
+  const asking = useQuestions((state) => Object.keys(state.waiting).length > 0);
+  return approving || consenting || asking;
 }
 
 /** Whether an Answer is being written into the Mind now: for what runs outside React, such as the editor's plugins. */

@@ -6,6 +6,8 @@ import {
   fitName,
   mindName,
   NAME_LENGTH,
+  numberedName,
+  shortenMiddle,
 } from "../../src/shared/naming";
 
 describe("cutting a title", () => {
@@ -163,10 +165,52 @@ describe("fitting a name on one line", () => {
   });
 });
 
+describe("shortening in the middle", () => {
+  const ADDRESS =
+    "https://www.txcourts.example/opinions/2017/supreme-court/hallmark-builders-v-rio-grande-supply-512-sw3d-101.html";
+
+  test("keeps a text that fits whole", () => {
+    expect(shortenMiddle("https://example.com/a", 40)).toBe("https://example.com/a");
+  });
+
+  test("keeps the start and the end of a long address, to the length asked", () => {
+    const shortened = shortenMiddle(ADDRESS, 40);
+    expect(Array.from(shortened)).toHaveLength(40);
+    expect(shortened.startsWith("https://www.txcourts")).toBe(true);
+    expect(shortened.endsWith("sw3d-101.html")).toBe(true);
+    expect(shortened.match(/…/g)).toHaveLength(1);
+  });
+
+  test("keeps a file's extension", () => {
+    const name = "Summary for the manager of the quarterly review of harbour dues.docx";
+    expect(shortenMiddle(name, 40)).toBe("Summary for the mana…f harbour dues.docx");
+  });
+
+  test("counts characters, not code units", () => {
+    expect(shortenMiddle("🙂".repeat(30), 11)).toBe(`${"🙂".repeat(5)}…${"🙂".repeat(5)}`);
+  });
+
+  test("counts a Chinese character as two columns, as it is drawn", () => {
+    const name = `${"信贷委员会合同审阅笔记".repeat(4)}.docx`;
+    expect(shortenMiddle(name, 40)).toBe("信贷委员会合同审阅笔…会合同审阅笔记.docx");
+    expect(shortenMiddle("合同审阅笔记.docx", 40)).toBe("合同审阅笔记.docx");
+  });
+});
+
 describe("the name of a Mind", () => {
   test("a title the User typed wins over the first line", () => {
     expect(mindName({ title: "Reading list", autoTitle: "Notes on tides" })).toBe("Reading list");
     expect(mindName({ title: "", autoTitle: "Notes on tides" })).toBe("Notes on tides");
     expect(mindName({ title: "", autoTitle: "" })).toBe("");
+  });
+});
+
+describe("a name another Mind has", () => {
+  // protects=a second Mind made from the same Answer reads apart, " 2" then " 3", whatever the case of the name; fails_when=it takes the same name, or numbers a free one; no_claim=none beyond protects.
+  test("gets the next free number", () => {
+    expect(numberedName("Lease summary", ["Q3 review"])).toBeNull();
+    expect(numberedName("Lease summary", ["lease summary"])).toBe("Lease summary 2");
+    expect(numberedName("租约总结", ["租约总结", "租约总结 2"])).toBe("租约总结 3");
+    expect(numberedName("", [""])).toBeNull();
   });
 });

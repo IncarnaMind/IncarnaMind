@@ -20,14 +20,14 @@ const TEXTS = {
   en: {
     settings: "Settings",
     title: "AI use record",
-    stays: "stays on this computer",
+    stays: "never sent",
     cleared: "Cleared the AI use record.",
     entries: (count: number) => `Entries: ${count}`,
   },
   "zh-CN": {
     settings: "设置",
     title: "AI 使用记录",
-    stays: "只保存在这台电脑上",
+    stays: "绝不发送",
     cleared: "已清除 AI 使用记录。",
     entries: (count: number) => `共 ${count} 条`,
   },

@@ -85,7 +85,7 @@ test("an organization's policy stops a Copilot Answer: GitHub's line, an API key
 
   const line = answer.getByTestId("answer-error");
   await expect(line).toHaveText(
-    "Your organization doesn't allow this app · Use an API key instead · Use another model",
+    "Your organization doesn’t allow this app · Use an API key instead · Use another model",
   );
   await expect(line).not.toContainText("ChatGPT");
   await screenshot(answer, "copilot-policy-line");
@@ -114,7 +114,7 @@ test("signed out of Copilot, the lines name GitHub Copilot with its ways back, a
 
   const readiness = window.getByTestId("chat-readiness");
   await expect(readiness).toHaveText(
-    "You're not signed in to GitHub Copilot · Sign in with GitHub · Use an API key instead",
+    "You’re not signed in to GitHub Copilot · Sign in with GitHub · Use an API key instead",
   );
   await window.getByTestId("mind-editor").click();
   await window.keyboard.press("ControlOrMeta+j");
@@ -122,7 +122,7 @@ test("signed out of Copilot, the lines name GitHub Copilot with its ways back, a
   await window.keyboard.press("Enter");
   const refused = window.getByTestId(/^(composer|answer)-not-ready$/);
   await expect(refused).toHaveText(
-    "You're not signed in to GitHub Copilot · Sign in with GitHub · Use an API key instead",
+    "You’re not signed in to GitHub Copilot · Sign in with GitHub · Use an API key instead",
   );
   await screenshot(window, "copilot-readiness-lines");
 
@@ -130,7 +130,7 @@ test("signed out of Copilot, the lines name GitHub Copilot with its ways back, a
   const settings = window.getByTestId("settings");
   await expect(settings).toHaveAttribute("data-page", "models");
   await expect(window.getByTestId("plans-settings")).toBeInViewport();
-  await expect(settings.getByRole("note")).toHaveText("You're not signed in to GitHub Copilot.");
+  await expect(settings.getByRole("note")).toHaveText("You’re not signed in to GitHub Copilot.");
   const row = settings.getByTestId("plans-copilot");
   await expect(row).toBeInViewport();
   await pointAndClick(window, row.getByTestId("copilot-sign-in"));

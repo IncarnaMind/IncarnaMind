@@ -106,7 +106,7 @@ test("off by default; Connect asks once, writes Codex's settings as shown, and U
 
     const dialog = window.getByTestId("connect-agent-dialog");
     await expect(dialog).toContainText("Let the ChatGPT app or Codex read your Documents?");
-    await expect(dialog).toContainText("Some plans may use it to train their models.");
+    await expect(dialog).toContainText("some plans may train on it.");
     await expect(dialog.getByTestId("connect-agent-change")).toContainText(codexSettings);
     const skillFile = join(home, ".agents", "skills", "incarnamind", "SKILL.md");
     await expect(dialog.getByTestId("connect-agent-skill")).toContainText(skillFile);
@@ -254,7 +254,7 @@ test("an agent set up by pasting its settings searches, its activity shows each 
       // Its Folders change in place.
       await row.getByTestId("agent-folders").click();
       await row.getByTestId("agent-pairing-folders").getByRole("checkbox").uncheck();
-      await expect(row.getByTestId("agent-pairing-reads")).toHaveText("Reads no folders yet");
+      await expect(row.getByTestId("agent-pairing-reads")).toHaveText("Reads no Folders yet");
 
       // Its name renames in place: a double-click, or F2; Esc cancels and leaves Settings open.
       await row.getByTestId("agent-pairing-name").dblclick();
@@ -459,6 +459,11 @@ test("Local mode pauses agents, and the page reads in Chinese at a narrow window
       "智能体已暂停：已开启“所有内容都留在这台电脑上”",
     );
     await shot(window, "agents-paused-zh-narrow");
+    // Its link goes to where the switch is.
+    await page.getByTestId("agents-paused").getByRole("button", { name: "隐私设置" }).click();
+    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "privacy");
+    await expect(window.getByTestId("local-only")).toBeFocused();
+    await showSettingsPage(window, "agents");
     // The first-class agents and "Other agent" (其他智能体), and nothing spills out at either width.
     const list = page.getByTestId("agents-list");
     await expect(list.getByTestId("agent-client")).toHaveCount(7);

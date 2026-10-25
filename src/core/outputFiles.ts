@@ -35,7 +35,7 @@ import {
   NotFoundError,
 } from "./errors";
 import type { createEventHub } from "./events";
-import { safeFileName, writeNewFile } from "./fileNames";
+import { removeStalePartials, safeFileName, writeNewFile } from "./fileNames";
 import type { SettingsStore } from "./settings";
 import type { Database } from "./storage";
 
@@ -55,9 +55,12 @@ export interface NewFile {
   ownFile: OwnFileKind | null;
   /**
    * The folder to save it in, if not the Output location: one inside a Linked
-   * folder, e.g. next to the original it was made from. Anywhere else is refused.
+   * folder, e.g. next to the original it was made from. Anywhere else is refused,
+   * unless `approved`.
    */
   folder?: string;
+  /** The User allowed `folder` for this one file (#1110): it may be anywhere. */
+  approved?: boolean;
 }
 
 export interface OutputFilesOptions {
@@ -148,6 +151,10 @@ export function createOutputFiles(options: OutputFilesOptions) {
     const value = settings.readDeviceValue(OUTPUT_LOCATION);
     return typeof value === "string" ? value : null;
   };
+
+  // What a force-quit left in the Output location goes now, not at its next save.
+  const chosen = location();
+  if (chosen !== null) void removeStalePartials(chosen);
 
   const liveFolder = (linkedFolderId: string) =>
     options.linkedFolders().find((each) => each.id === linkedFolderId);
@@ -285,14 +292,17 @@ export function createOutputFiles(options: OutputFilesOptions) {
     return { folder: real, defaulted: false };
   };
 
-  /** A folder the caller named: inside the Output location or a Linked folder, links followed. */
-  const givenFolder = async (folder: unknown): Promise<string> => {
+  /**
+   * A folder the caller named, links followed: inside the Output location or a Linked folder,
+   * or anywhere the User allowed for this file.
+   */
+  const givenFolder = async (folder: unknown, approved: boolean): Promise<string> => {
     if (typeof folder !== "string" || !isAbsolute(folder)) {
       throw new InvalidInputError("A folder must be given as an absolute path.");
     }
     const real = await realFolder(folder);
     const chosen = location();
-    if ((chosen === null || !isInside(chosen, real)) && !ownerOf(real)) {
+    if (!approved && (chosen === null || !isInside(chosen, real)) && !ownerOf(real)) {
       throw new InvalidInputError({ key: "error.files.outside" });
     }
     return real;
@@ -367,7 +377,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         const { folder, defaulted } =
           file.folder === undefined
             ? await outputFolder(name)
-            : { folder: await givenFolder(file.folder), defaulted: false };
+            : { folder: await givenFolder(file.folder, file.approved === true), defaulted: false };
         const linked = ownerOf(folder);
         if (linked && !(await allowedIn(linked, name))) continue;
         // Before the file exists, so a Linked folder can't index it as the User's.

@@ -1,5 +1,4 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
-import type { CoreBridge } from "../src/core/api";
+import { expect, type Locator, test } from "@playwright/test";
 import {
   createDataFolder,
   dismissChatSetup,
@@ -13,7 +12,14 @@ import {
   sidebarFolder,
   useLocalChatModel,
 } from "./app";
-import { addLibrary, FIXTURE_COUNT, FOLDERS, NOT_IN_A_FOLDER, SCAN_NAME } from "./libraryFixture";
+import {
+  DELETED,
+  FIXTURE_COUNT,
+  FOLDERS,
+  NOT_IN_A_FOLDER,
+  openFullLibrary,
+  SCAN_NAME,
+} from "./libraryFixture";
 
 /*
  * The Library as one page grouped by Folder (#240): its head, one section per
@@ -36,28 +42,7 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-const DELETED = ["Holiday rota", "Office floor plan"];
 const LOOSE = NOT_IN_A_FOLDER.length - DELETED.length;
-
-/** Opens a Library of about 100 Documents, two of them deleted since. */
-async function openFullLibrary(window: Page): Promise<Locator> {
-  await dismissChatSetup(window);
-  await addLibrary(window, sources);
-  await window.evaluate(async (names) => {
-    const api = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const documents = await api.listDocuments();
-    for (const name of names) {
-      const doc = documents.find((each) => each.name === name);
-      if (doc) await api.deleteDocument(doc.id);
-    }
-  }, DELETED);
-  await window.getByTestId("open-library").click();
-  const library = window.getByTestId("library");
-  await expect(library.getByTestId("library-count")).toHaveText(
-    String(FIXTURE_COUNT - DELETED.length),
-  );
-  return library;
-}
 
 const sections = (library: Locator) => library.getByTestId("library-section");
 
@@ -82,7 +67,7 @@ test("the page is grouped by Folder in the sidebar's order, with Not in a Folder
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 900);
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     await expect(library.getByTestId("library-heading")).toContainText("Library");
     await expect(window.getByTestId("tab-title").filter({ hasText: "Library" })).toHaveCount(1);
     await expect(window.getByTestId("open-library")).toContainText("Library");
@@ -106,7 +91,12 @@ test("the page is grouped by Folder in the sidebar's order, with Not in a Folder
     }
     await expect(section(library, "Not in a Folder")).toHaveAttribute("data-count", String(LOOSE));
     const finance = section(library, "Finance");
-    await expect(finance.getByTestId("library-section-head")).toContainText(
+    // The Folder's description is no line on the page: it shows pointing at the head.
+    await expect(finance.getByTestId("library-section-head")).not.toContainText(
+      "Invoices, budgets and statements",
+    );
+    await expect(finance.getByTestId("library-section-head")).toHaveAttribute(
+      "title",
       "Invoices, budgets and statements",
     );
 
@@ -178,7 +168,7 @@ test("sections fold and remember it after a restart, by the mouse and by ← and
   const first = await launchApp(dataDir);
   try {
     const { window } = first;
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     const board = section(library, "Board");
     await pointAndClick(window, board.getByTestId("library-section-toggle"));
     await expect(board.getByTestId("library-section-head")).toHaveAttribute("data-open", "false");
@@ -225,7 +215,7 @@ test("sections fold and remember it after a restart, by the mouse and by ← and
 test("search narrows every section and hides the empty ones; a filter chip and the problem line's Show narrow it too", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     const search = library.getByTestId("library-search");
 
     // / focuses the search from the list.
@@ -284,10 +274,32 @@ test("search narrows every section and hides the empty ones; a filter chip and t
   }
 });
 
+test("the Source location filter is 文件位置 in the Chinese interface (#1507)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const library = await openFullLibrary(window, sources);
+    await setLanguage(window, "zh-CN");
+    await pointAndClick(window, library.getByTestId("library-add-filter"));
+    await pointAndClick(
+      window,
+      window.locator('[data-testid="library-filter-kind"][data-facet="source"]'),
+    );
+    await pointAndClick(
+      window,
+      window.locator('[data-testid="library-filter-option"][data-value="other"]'),
+    );
+    await window.keyboard.press("Escape");
+    await expect(library.getByTestId("library-filter")).toHaveText("文件位置：其他文档");
+  } finally {
+    await app.close();
+  }
+});
+
 test("words nothing in the Library matches are asked about in the assistant, by Enter or the line's button, in English and Chinese (#763)", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
-  const library = await openFullLibrary(window);
+  const library = await openFullLibrary(window, sources);
   await useLocalChatModel(window);
   const search = library.getByTestId("library-search");
   const asked = window.getByTestId("assistant-question");
@@ -313,7 +325,7 @@ test("search finds the words inside Documents too, in every section: the line th
   try {
     await setWindowSize(app, window, 1600, 900);
     await placeAssistant(window, { folded: true });
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     const search = library.getByTestId("library-search");
     await expect(search).toHaveAttribute("placeholder", "Search names, words inside, Tags");
 
@@ -380,7 +392,7 @@ test("every task on the page by keyboard alone: / and ↓ into the rows, ↑ bac
   try {
     await setWindowSize(app, window, 1600, 900);
     await placeAssistant(window, { folded: true });
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     const search = library.getByTestId("library-search");
     const contracts = section(library, "Contracts");
     const focusedRow = library.locator("[data-document-id]:has([data-row-main]:focus)");
@@ -470,7 +482,7 @@ test("a Document is found and asked about in four steps by keyboard: /, its word
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 900);
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     // 1 and 2: the search, and words of what is wanted.
     await window.keyboard.press("/");
     await window.keyboard.type("rotterdam lease");
@@ -502,7 +514,7 @@ test("five Documents go into a Folder with Move to…, from the selection bar an
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 900);
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     const loose = section(library, "Not in a Folder");
     const contracts = section(library, "Contracts");
     const five = [
@@ -571,7 +583,7 @@ test("Tags are edited on the row: a click in the cell opens the picker over it, 
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 760);
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     await placeAssistant(window, { folded: true });
     const finance = section(library, "Finance");
     await pointAndClick(window, finance.getByTestId("library-show-all"));
@@ -591,9 +603,9 @@ test("Tags are edited on the row: a click in the cell opens the picker over it, 
     expect(Math.abs(pickerBox.x - cellBox.x)).toBeLessThanOrEqual(8);
     expect(pickerBox.y).toBeLessThanOrEqual(cellBox.y);
     expect(pickerBox.y + pickerBox.height).toBeGreaterThan(cellBox.y + cellBox.height);
-    await expect(picker.getByTestId("tag-picker-keys")).toHaveText(
-      /^↵ adds or removes · ⌫ removes the last · (⌘Z|Ctrl\+Z) undoes · Esc closes$/,
-    );
+    // No legend of keys under the list: the field's tooltip has them.
+    await expect(picker.getByTestId("tag-picker-keys")).toHaveCount(0);
+    await expect(field).toHaveAttribute("title", "Enter adds · Backspace removes");
 
     // Two Tags added; ⌘Z in the empty field takes back one change at a time, and ⇧⌘Z does it again.
     const tokens = picker.getByTestId("tag-token");
@@ -664,8 +676,10 @@ test("Tags are edited on the row: a click in the cell opens the picker over it, 
     await setWindowSize(app, window, 900, 660);
     await invoice.scrollIntoViewIfNeeded();
     await pointAndClick(window, chips.first());
-    await expect(picker.getByTestId("tag-picker-keys")).toHaveText(
-      /^Enter 添加或移除 · Backspace 移除最后一个 · (⌘Z|Ctrl\+Z) 撤销 · Esc 关闭$/,
+    await expect(picker.getByTestId("tag-picker-keys")).toHaveCount(0);
+    await expect(picker.getByTestId("tag-picker-input")).toHaveAttribute(
+      "title",
+      "Enter 添加 · Backspace 移除",
     );
     const narrow = await picker.boundingBox();
     const width = await window.evaluate(() => innerWidth);
@@ -681,7 +695,7 @@ test("Tags are edited on the row: a click in the cell opens the picker over it, 
 test("the selection's bar holds at 900px and at 1,100px beside the viewer, in English and Chinese: no sideways scroll, Esc in sight, the rest under ⋯", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     const bar = library.getByTestId("library-selection");
     const scroller = library.locator(":scope > div");
     const holds = async () => {
@@ -750,21 +764,20 @@ test("a Folder opened from the sidebar brings its section into view, open, with 
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 660);
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     const last = FOLDERS.find((folder) => folder.name === "财务报表");
     if (!last) throw new Error("The fixture has no Chinese Folder.");
     const target = section(library, last.name);
     await pointAndClick(window, target.getByTestId("library-section-toggle"));
     await expect(rowsOf(target)).toHaveCount(0);
     await library.evaluate((element) => element.querySelector(":scope > div")?.scrollTo(0, 0));
-    // A Tag filter from the sidebar that none of its Documents has gives way too.
-    await pointAndClick(window, window.getByTestId("tag-filter-menu"));
+    // A Tag filter from the sidebar's Tags that none of its Documents has gives way too.
+    const tagFilter = library.locator('[data-testid="library-filter"][data-facet="tag"]');
     await pointAndClick(
       window,
-      window.getByTestId("tag-filters").getByTestId("tag-filter").filter({ hasText: "Slides" }),
+      window.getByTestId("sidebar-tag").filter({ hasText: "Slides" }).getByTestId("row-text"),
     );
-    await window.keyboard.press("Escape");
-    await expect(window.getByTestId("tag-filter-active")).toContainText("Slides");
+    await expect(tagFilter).toContainText("Slides");
     await expect(target).toHaveCount(0);
 
     const folder = sidebarFolder(window, last.name);
@@ -776,7 +789,7 @@ test("a Folder opened from the sidebar brings its section into view, open, with 
     await expect(rowsOf(target)).toHaveCount(last.documents.length);
     // The page still shows every Folder.
     await expect(sections(library)).toHaveCount(FOLDERS.length + 1);
-    await expect(window.getByTestId("tag-filter-active")).toHaveCount(0);
+    await expect(tagFilter).toHaveCount(0);
   } finally {
     await app.close();
   }
@@ -785,7 +798,7 @@ test("a Folder opened from the sidebar brings its section into view, open, with 
 test("as the window narrows the columns give way, Added first, then Format, then Tags, and names never break by letter", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
-    const library = await openFullLibrary(window);
+    const library = await openFullLibrary(window, sources);
     await placeAssistant(window, { folded: true });
     const first = rowsOf(library).first();
     const shown = async () =>
@@ -842,7 +855,7 @@ test("an empty Library offers one Add Documents, its ways in, and a place to dro
     await expect(
       window.getByTestId("library-add-documents-items").getByRole("menuitem"),
     ).toHaveText([
-      "Files…",
+      /^Files…(⌘O|Ctrl\+O)$/,
       "A folder that stays in sync…",
       "A web page…",
       "Find sources…",

@@ -1,16 +1,18 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { parseCsv } from "../tests/helpers/csv";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
   createDataFolder,
   dismissChatSetup,
+  interceptOpenPath,
   launchApp,
   nameMind,
   newMind,
+  pathsOpened,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -40,10 +42,12 @@ const SENTENCES = [
 
 const TEXTS = {
   en: {
-    csv: "Export check record as CSV",
-    pdf: "Export check record as PDF",
-    csvFile: "Tides - check record.csv",
-    pdfFile: "Tides - check record.pdf",
+    entry: "Export check record…",
+    found: (name: string, folder: string) => `Saved “${name}” and its CSV in ${folder}`,
+    search: "csv",
+    csvFile: "Check record – Tides.csv",
+    pdfFile: "Check record – Tides.pdf",
+    secondPdf: "Check record – Tides 2.pdf",
     columns: ["Kind", "Sentence", "Result"],
     supported: "Supported",
     unsupported: "Unsupported",
@@ -54,10 +58,12 @@ const TEXTS = {
     thisComputer: "On this computer",
   },
   "zh-CN": {
-    csv: "将核对记录导出为 CSV",
-    pdf: "将核对记录导出为 PDF",
-    csvFile: "Tides - 核对记录.csv",
-    pdfFile: "Tides - 核对记录.pdf",
+    entry: "导出核对记录…",
+    found: (name: string, folder: string) => `已保存“${name}”和 CSV 文件到“${folder}”`,
+    search: "核对记录",
+    csvFile: "核对记录 – Tides.csv",
+    pdfFile: "核对记录 – Tides.pdf",
+    secondPdf: "核对记录 – Tides 2.pdf",
     columns: ["类型", "句子", "核对结果"],
     supported: "有依据",
     unsupported: "无依据",
@@ -83,16 +89,8 @@ test.afterEach(async () => {
   await removeDataFolder(out);
 });
 
-/** The file the result line says it saved. */
-async function saved(window: Page, name: string): Promise<string> {
-  const done = window.getByTestId("export-result").getByTestId("export-done");
-  await expect(done).toContainText(name, { timeout: 30_000 });
-  await expect(done).toContainText(`${basename(out)}`);
-  return (await done.getAttribute("title")) ?? "";
-}
-
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the Mind's menu and ⌘K save the check record as CSV and as PDF, listing each checked sentence (${language})`, async () => {
+  test(`one Export check record entry, in the Mind's menu and ⌘K, saves the PDF and its CSV side by side, listing each checked sentence (${language})`, async () => {
     const text = TEXTS[language];
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -110,23 +108,34 @@ for (const language of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "Spring tides", { line, words: "harbour cliffs." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     const marks = window.getByTestId("claim-mark");
     await expect(marks.and(window.locator("[data-check=supported]"))).toHaveCount(1);
     await expect(marks.and(window.locator("[data-check=unsupported]"))).toHaveCount(1);
     await useOutputLocation(window, out);
 
-    // From the Mind's ⋯ menu, as a CSV.
+    // From the Mind's ⋯ menu: one entry, which saves the PDF and its CSV side by side, said in one line.
+    await interceptOpenPath(app);
     const row = window.getByTestId("mind-row").filter({ hasText: "Tides" });
     await pointAt(window, row);
     await pointAndClick(window, row.getByTestId("mind-menu"));
     const menu = row.getByTestId("mind-actions");
-    await expect(menu.getByTestId("mind.checkRecord.csv")).toHaveText(text.csv);
-    await expect(menu.getByTestId("mind.checkRecord.pdf")).toHaveText(text.pdf);
-    await pointAndClick(window, menu.getByTestId("mind.checkRecord.csv"));
-    const csv = await readFile(await saved(window, text.csvFile), "utf8");
+    await expect(menu.getByTestId("mind.checkRecord")).toHaveText(text.entry);
+    await expect(menu.locator('[data-testid^="mind.checkRecord."]')).toHaveCount(0);
+    await pointAndClick(window, menu.getByTestId("mind.checkRecord"));
+    const result = window.getByTestId("export-result");
+    const done = result.getByTestId("export-done");
+    await expect(done).toHaveText(text.found(text.pdfFile, basename(out)), { timeout: 30_000 });
+    expect((await readdir(out)).sort()).toEqual([text.csvFile, text.pdfFile].sort());
+    const pdf = await readFile(join(out, text.pdfFile));
+    expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
 
+    // Open opens the PDF.
+    await result.getByTestId("export-open").click();
+    await expect.poll(() => pathsOpened(app)).toEqual([join(await realpath(out), text.pdfFile)]);
+
+    const csv = await readFile(join(out, text.csvFile), "utf8");
     const rows = parseCsv(csv);
     const at = rows.findIndex((each) => each[0] === text.columns[0] && each[1] === text.columns[1]);
     expect(at).toBeGreaterThan(0);
@@ -144,21 +153,21 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(items[0]?.[column(text.checked)]).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
     expect(items[1]?.[column("SHA-256")]).toBe("");
 
-    // From ⌘K, as a PDF.
+    // From ⌘K, found by "csv" (or 核对记录): the same one command, under the next free name.
     await window.keyboard.press("ControlOrMeta+k");
     await expect(window.getByTestId("palette-search")).toBeFocused();
-    await window.keyboard.type(">");
-    const item = window.getByTestId("palette").locator('[data-key="command:mind.checkRecord.pdf"]');
-    await expect(item).toContainText(text.pdf);
+    await window.keyboard.type(`>${text.search}`);
+    const item = window.getByTestId("palette").locator('[data-key="command:mind.checkRecord"]');
+    await expect(item).toContainText(text.entry);
     await pointAndClick(window, item);
-    const pdf = await readFile(await saved(window, text.pdfFile));
-    expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
-    expect((await readdir(out)).sort()).toEqual([text.csvFile, text.pdfFile].sort());
+    await expect(done).toHaveText(text.found(text.secondPdf, basename(out)), { timeout: 30_000 });
+    expect(await readdir(out)).toHaveLength(4);
 
     const keep = process.env.INCARNAMIND_SCREENSHOTS;
     if (keep) {
       await writeFile(join(keep, `check-record-${language}.pdf`), pdf);
       await writeFile(join(keep, `check-record-${language}.csv`), csv);
+      await result.screenshot({ path: join(keep, `check-record-line-${language}.png`) });
     }
     await app.close();
   });

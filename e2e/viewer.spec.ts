@@ -713,7 +713,6 @@ test("the open viewer follows its file on disk: the new version once indexed, an
   await notesItem.getByTestId("open-document").click();
   const gone = window.getByTestId("viewer-removed");
   await expect(gone).toContainText("The file for Notes is missing from its folder");
-  await expect(gone).toContainText("It shows here again once it is back");
   await expect(gone).not.toContainText("deleted");
   await screenshot(viewer, "viewer-missing");
   // ...until the file comes back: then the viewer shows it, by itself.

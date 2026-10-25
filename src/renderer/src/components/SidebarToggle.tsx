@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef } from "react";
 import { shortcutLabel } from "../commands/keymap";
 import { files } from "../core";
 import { useT } from "../i18n";
+import { useTaggingAlert } from "../taggingAlert";
 import { SidebarLineIcon } from "./lineIcons";
 import { iconButtonClass } from "./ui";
 
@@ -29,6 +30,7 @@ export function SidebarToggle({ place }: { place: "header" | "band" }) {
   const control = useContext(SidebarControlContext);
   const button = useRef<HTMLButtonElement>(null);
   const takeRefocus = control?.takeRefocus;
+  const taggingNeedsYou = useTaggingAlert((state) => state.needsYou);
   const inHeader =
     files.titleBar === "inset" && control !== null && (!control.hidden || control.peeking);
   const here = place === "header" ? inHeader : !inHeader;
@@ -39,7 +41,10 @@ export function SidebarToggle({ place }: { place: "header" | "band" }) {
   }, [here, takeRefocus]);
 
   if (!control || !here) return null;
-  const label = control.hidden ? t("sidebar.show") : t("sidebar.hide");
+  const alert = control.hidden && taggingNeedsYou;
+  const label = control.hidden
+    ? t(alert ? "sidebar.show.taggingNeedsYou" : "sidebar.show")
+    : t("sidebar.hide");
   return (
     <button
       ref={button}
@@ -50,9 +55,17 @@ export function SidebarToggle({ place }: { place: "header" | "band" }) {
       aria-controls="sidebar"
       title={`${label} (${shortcutLabel("sidebar.toggle")})`}
       onClick={control.toggle}
-      className={`${iconButtonClass} sidebar-toggle text-ink-secondary`}
+      data-needs-you={alert || undefined}
+      className={`${iconButtonClass} sidebar-toggle relative text-ink-secondary`}
     >
       <SidebarLineIcon className="size-4" />
+      {alert && (
+        <span
+          aria-hidden="true"
+          data-testid="sidebar-toggle-dot"
+          className="absolute top-[3px] right-[3px] size-1.5 rounded-full bg-attention"
+        />
+      )}
     </button>
   );
 }

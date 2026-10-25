@@ -26,8 +26,8 @@ describe("The gap between two pieces of text on a screen", () => {
       const after = translate(language, "meetings.audio.kept");
       return `${before}${gap(language, before, after)}${after}`;
     };
-    expect(join("zh-CN")).toContain("声音。音频");
-    expect(join("en")).toContain("meeting. Audio stays");
+    expect(join("zh-CN")).toContain("所有人。音频");
+    expect(join("en")).toContain("call. Audio stays");
   });
 
   test("is none beside a space already there, so a name in a spaced template keeps one space", () => {

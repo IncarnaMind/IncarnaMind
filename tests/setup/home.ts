@@ -23,6 +23,7 @@ const chosen = [
   "INCARNAMIND_EVAL_CACHE",
   "INCARNAMIND_EVAL_MODELS",
   "INCARNAMIND_WORD_PDFS",
+  "INCARNAMIND_EXCEL_OUT",
   "INCARNAMIND_LIVE_REPORT",
 ].flatMap((name) => process.env[name]?.trim() || []);
 const guard = createHomeGuard(realHome, [

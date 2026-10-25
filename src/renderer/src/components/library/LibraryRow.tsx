@@ -3,6 +3,8 @@ import type { Document, ReferenceField, ReferenceRecord } from "../../../../core
 import { displayName, sourceOf } from "../../../../shared/documentNames";
 import { missingDetails, needsCheck } from "../../../../shared/references";
 import { commands } from "../../commands/registry";
+import { nameWithPlace, useDocumentPlace } from "../../documentPlaces";
+import { useDraggedRef, useDragSource } from "../../dragDrop";
 import { useLanguage, useT } from "../../i18n";
 import { FORMAT_LABELS } from "../../libraryFilters";
 import { addedLabel, foundLine, type SearchMatch } from "../../libraryPage";
@@ -10,7 +12,9 @@ import { atPassage, passagePlace } from "../../palette";
 import { usePeekKey } from "../../peek";
 import { missingList } from "../../referenceEditing";
 import { useSelectable } from "../../selection";
+import { rowDrag } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
+import { acceptSuggestions } from "../../suggestionReview";
 import { isDeleteKey, isMoveToKey, isTagsKey, TREE_ROW } from "../../treeKeys";
 import { typesText } from "../../undo";
 import { useRename } from "../../useRename";
@@ -21,33 +25,44 @@ import { LibrarySelectBox } from "../LibrarySelection";
 import { DocumentLineIcon, FolderLineIcon } from "../lineIcons";
 import { Marked } from "../Marked";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
-import { rowActionButtonClass } from "../sidebarRows";
+import { draggedRowClass, rowActionButtonClass } from "../sidebarRows";
 import { ReviewRing } from "../TagColour";
 import { useTabPlace } from "../tabs/tabItems";
 import { DocumentFix } from "./DocumentFix";
 import { documentsToMove, useDocumentMove } from "./DocumentMoveTo";
+import {
+  moveFromReview,
+  REVIEW_COLUMNS,
+  REVIEW_ROW,
+  ReviewAccept,
+  ReviewFolder,
+  SuggestedAccept,
+} from "./ReviewCells";
 import { RowTags } from "./RowTags";
 
 /**
- * The columns past the name, and the widths of the page at which they give
- * way, Added first, then Format, then Tags, so the name keeps its room.
+ * The columns past the name: as far as it takes for no name to be cut (`useFittingColumns`),
+ * Added goes first, then Format, then the Tags' room shrinks, then the chips go. Narrow, only the
+ * chips go: the "+" stays, so Tags… from the menu still has its place.
  */
 export const COLUMN_CLASSES = {
-  // Narrow, only the chips go: the "+" stays, so Tags… from the menu still has its place.
-  tags: "w-[200px] shrink-0 @max-[512px]/page:w-auto @max-[512px]/page:[&_[data-testid^=tag-chip]]:hidden",
-  format: "w-[76px] shrink-0 @max-[704px]/page:hidden",
-  added: "w-24 shrink-0 @max-[768px]/page:hidden",
+  tags: "w-[200px] shrink-0 group-data-[hide~=narrow]/page:w-[152px] group-data-[hide~=narrower]/page:w-[112px] group-data-[hide~=narrowest]/page:w-[88px] group-data-[hide~=chips]/page:w-auto group-data-[hide~=chips]/page:[&_[data-testid^=tag-chip]]:hidden",
+  format: "w-[76px] shrink-0 group-data-[hide~=format]/page:hidden",
+  added: "w-24 shrink-0 group-data-[hide~=added]/page:hidden",
   more: "flex w-7 shrink-0 justify-end",
 } as const;
 
 /**
  * A row of the page: 40px folded, washed when pointed at, its focus ring
- * around the whole row, as while its Tags or its menu are open over it.
+ * around the whole row, as while its Tags or its menu are open over it; one
+ * a drag carries is quieter and not washed.
  */
-export const pageRowClass = (selected: boolean) =>
+export const pageRowClass = (selected: boolean, dragged = false) =>
   `group/row relative border-b border-rule ${
-    selected ? "bg-accent-wash" : "hover:bg-frame"
-  } has-[[data-row-main]:focus-visible]:shadow-[inset_0_0_0_2px_var(--color-accent)] has-[:popover-open]:shadow-[inset_0_0_0_2px_var(--color-accent)]`;
+    selected ? "bg-accent-wash" : dragged ? "" : "hover:bg-frame"
+  } has-[[data-row-main]:focus-visible]:shadow-[inset_0_0_0_2px_var(--color-accent)] has-[:popover-open]:shadow-[inset_0_0_0_2px_var(--color-accent)] ${
+    dragged ? draggedRowClass : ""
+  }`;
 
 /** Keeps the preview showing a Document, if one does. */
 function keepPreviewOf(documentId: string): void {
@@ -81,6 +96,10 @@ function deleteFrom(row: HTMLElement | null, documentId: string): void {
   const ids = documentsToMove(documentId);
   const gone = new Set(ids);
   const grid = row?.closest('[role="grid"]');
+  // With every row gone, Add Documents: the focus stays in the Library, where ⌘Z still works.
+  const add = row
+    ?.closest('[data-testid="library"]')
+    ?.querySelector<HTMLElement>('[data-testid="library-add-documents"]');
   const rows = [...(grid?.querySelectorAll<HTMLElement>("[data-document-id]") ?? [])];
   const at = rows.findIndex((each) => each.dataset.documentId === documentId);
   const stays = (each: HTMLElement) => !gone.has(each.dataset.documentId ?? "");
@@ -93,10 +112,12 @@ function deleteFrom(row: HTMLElement | null, documentId: string): void {
       surface: "library",
     })
     .then(() => {
-      if (!nextId) return;
-      grid
-        ?.querySelector<HTMLElement>(`[data-document-id="${CSS.escape(nextId)}"] [data-row-main]`)
-        ?.focus();
+      const target = nextId
+        ? grid?.querySelector<HTMLElement>(
+            `[data-document-id="${CSS.escape(nextId)}"] [data-row-main]`,
+          )
+        : add;
+      target?.focus();
     })
     .catch(useAppStore.getState().reportError);
 }
@@ -104,17 +125,23 @@ function deleteFrom(row: HTMLElement | null, documentId: string): void {
 /** Clicks on these, inside a row, are theirs, not the row's. */
 const OWN_CLICKS = "button:not([data-row-main]), input, a, [role=menu], [role=dialog]";
 
+/** Where a modifier-click is still its own: a field, a link, a menu or the open Cite as panel. */
+const KEEPS_MODIFIER_CLICKS =
+  "input, textarea, select, a, [role=menu], [role=dialog], [data-cite-panel]";
+
 /**
  * A Document's row on the Library page: its name (with the kind's icon, a
  * problem's word, and "Suggested" while Organize's Folder waits), its Tags, its
  * format and when it was added, then ⋯; the checkbox hangs in the margin. A
  * click anywhere but its Tags, checkbox and ⋯ opens it beside the list; ⌘-click
- * and Shift-click select. Memoised (#156): while Organize goes through
+ * and Shift-click select. It drags onto a Folder or a Tag, with the rows
+ * selected with it. Memoised (#156): while Organize goes through
  * thousands of Documents, only the rows whose Document changed are drawn again.
  */
 export const LibraryRow = memo(function LibraryRow({
   doc,
   suggestedIn,
+  review = false,
   notSorted,
   match,
   path,
@@ -122,6 +149,7 @@ export const LibraryRow = memo(function LibraryRow({
   doc: Document;
   /** The Suggested Folder it waits in, if Organize suggested one. */
   suggestedIn: string | null;
+  review?: boolean;
   /** Why Organize couldn't sort it, if it couldn't. */
   notSorted: string | null;
   /** How it matches the search, while there is one. */
@@ -133,7 +161,10 @@ export const LibraryRow = memo(function LibraryRow({
   const language = useLanguage();
   const place = useTabPlace();
   const name = displayName(doc);
+  const where = useDocumentPlace(doc.id);
   const source = sourceOf(doc);
+  const format = t(FORMAT_LABELS[doc.kind]);
+  const added = addedLabel(doc.createdAt, new Date(), language);
   const [citing, setCiting] = useState<{ focus: ReferenceField | null } | null>(null);
   const citeToggle = useRef<HTMLButtonElement>(null);
   const citePanelId = useId();
@@ -151,20 +182,38 @@ export const LibraryRow = memo(function LibraryRow({
   );
   const peek = usePeekKey(doc.id, "library");
   // A double-click keeps the preview it opened, then renames.
-  const rename = useRename<HTMLButtonElement>(`library-document:${doc.id}`, () =>
-    keepPreviewOf(doc.id),
+  const rename = useRename<HTMLButtonElement>(
+    `${review ? "library-review" : "library-document"}:${doc.id}`,
+    () => keepPreviewOf(doc.id),
   );
   const renameDocument = useAppStore((state) => state.renameDocument);
   const row = useRef<HTMLDivElement>(null);
   const moveTo = (anchor: HTMLElement | null) => {
-    if (anchor) useDocumentMove.getState().show({ anchor, documentIds: documentsToMove(doc.id) });
+    if (!anchor) return;
+    if (review) moveFromReview(doc.id, anchor);
+    else useDocumentMove.getState().show({ anchor, documentIds: documentsToMove(doc.id) });
   };
   const menuButton = () => row.current?.querySelector<HTMLElement>("[data-object-menu]") ?? null;
+  const dragSource = useDragSource(() => rowDrag({ kind: "document", id: doc.id }, "library"));
+  const dragged = useDraggedRef({ kind: "document", id: doc.id });
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     objectMenu.rowProps.onKeyDown(event);
     if (event.defaultPrevented || typesText(event.target)) return;
-    if (isMoveToKey(event)) {
+    // Enter accepts in To review (#241), where it opens everywhere else.
+    if (
+      review &&
+      event.key === "Enter" &&
+      !(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) &&
+      event.target instanceof Element &&
+      event.target.matches("[data-row-main]")
+    ) {
+      event.preventDefault();
+      // A held key accepts one row, not the whole list.
+      if (!event.repeat) {
+        void acceptSuggestions(documentsToMove(doc.id)).catch(useAppStore.getState().reportError);
+      }
+    } else if (isMoveToKey(event)) {
       event.preventDefault();
       moveTo(menuButton());
     } else if (isTagsKey(event)) {
@@ -172,7 +221,7 @@ export const LibraryRow = memo(function LibraryRow({
       openTags(row.current, doc.id);
     } else if (isDeleteKey(event)) {
       event.preventDefault();
-      deleteFrom(row.current, doc.id);
+      if (!event.repeat) deleteFrom(row.current, doc.id);
     }
   };
 
@@ -181,24 +230,41 @@ export const LibraryRow = memo(function LibraryRow({
     // biome-ignore lint/a11y/useFocusableInteractive: the name's button takes the focus, and the arrow keys move between them.
     <div
       ref={row}
-      data-testid="library-document"
+      data-testid={review ? "library-review-document" : "library-document"}
       data-document-id={doc.id}
       data-suggested={suggestedIn !== null ? "" : undefined}
+      data-dragging={dragged || undefined}
       role="row"
       {...select.rowProps}
       {...peek.rowProps}
       {...objectMenu.rowProps}
       onKeyDown={onKeyDown}
+      // ⌘-, Ctrl- and Shift-click only change the selection, wherever in the row they land, a chip
+      // or the Tags included: nothing else opens (interaction rule 6, #1509).
+      onClickCapture={(event) => {
+        if (!(event.metaKey || event.ctrlKey || event.shiftKey)) return;
+        const target = event.target instanceof Element ? event.target : null;
+        if (!target || target.closest(KEEPS_MODIFIER_CLICKS)) return;
+        event.stopPropagation();
+        select.onClick(event);
+      }}
       onClick={(event) => {
         const target = event.target instanceof Element ? event.target : null;
         if (target?.closest(OWN_CLICKS) || target?.closest("[data-row-cell=tags]")) return;
         select.onClick(event);
       }}
-      className={`${pageRowClass(select.selected)} cursor-default`}
+      className={`${pageRowClass(select.selected, dragged)} cursor-default`}
     >
       <LibrarySelectBox document={doc} />
-      <div className="flex min-h-[39px] items-center gap-4 pr-1.5 pl-3">
-        <div className="flex min-w-0 flex-1 items-center">
+      <div
+        {...(rename.renaming ? {} : dragSource)}
+        className={
+          review
+            ? REVIEW_ROW
+            : "flex min-h-[39px] items-center gap-4 pr-1.5 pl-3 group-data-[hide~=narrowest]/page:gap-2"
+        }
+      >
+        <div className={`flex min-w-0 flex-1 items-center ${review ? REVIEW_COLUMNS.name : ""}`}>
           <span aria-hidden="true" className="w-5 shrink-0" />
           <div className={`min-w-0 flex-1 ${match ? "py-1.5" : ""}`}>
             <div className="flex min-w-0 items-center gap-2">
@@ -217,15 +283,31 @@ export const LibraryRow = memo(function LibraryRow({
                   type="button"
                   {...TREE_ROW}
                   data-row-main=""
-                  title={name === source ? name : `${name}\n${source}`}
+                  title={[
+                    nameWithPlace(name, where),
+                    ...(name === source ? [] : [source]),
+                    `${format} · ${added}`,
+                  ].join("\n")}
                   className="flex min-w-0 items-center gap-2 text-left focus-visible:outline-0"
                 >
                   <DocumentLineIcon kind={doc.kind} className="size-4 shrink-0 text-ink-meta" />
-                  <span
-                    data-testid="library-document-name"
-                    className="min-w-0 truncate text-ui text-ink"
-                  >
-                    {match ? <Marked text={name} ranges={match.ranges} /> : name}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      data-testid="library-document-name"
+                      data-fit-name=""
+                      className="max-w-full shrink-0 truncate text-ui text-ink"
+                    >
+                      {match ? <Marked text={name} ranges={match.ranges} /> : name}
+                    </span>
+                    {where && (
+                      <span
+                        data-testid="library-document-place"
+                        data-fit-name=""
+                        className="min-w-0 truncate text-[12px] text-ink-meta"
+                      >
+                        {where}
+                      </span>
+                    )}
                   </span>
                 </button>
               )}
@@ -249,15 +331,18 @@ export const LibraryRow = memo(function LibraryRow({
                     {t("library.notSorted")}
                   </span>
                 )}
-                {suggestedIn !== null && (
-                  <span
-                    data-testid="library-suggested"
-                    title={t("library.suggested.title", { folder: suggestedIn })}
-                    className="inline-flex shrink-0 items-center gap-1 text-label font-semibold text-review"
-                  >
-                    <ReviewRing />
-                    {t("library.suggested")}
-                  </span>
+                {suggestedIn !== null && !review && (
+                  <>
+                    <span
+                      data-testid="library-suggested"
+                      title={t("library.suggested.title", { folder: suggestedIn })}
+                      className="inline-flex shrink-0 items-center gap-1 text-label font-semibold text-review"
+                    >
+                      <ReviewRing />
+                      {t("library.suggested")}
+                    </span>
+                    <SuggestedAccept doc={doc} folder={suggestedIn} />
+                  </>
                 )}
               </span>
               {doc.reference && !rename.renaming && (
@@ -291,21 +376,37 @@ export const LibraryRow = memo(function LibraryRow({
             )}
           </div>
         </div>
-        <div data-row-cell="tags" className={`${COLUMN_CLASSES.tags} flex min-w-0 items-center`}>
+        <div
+          data-row-cell="tags"
+          className={`${review ? REVIEW_COLUMNS.tags : COLUMN_CLASSES.tags} flex min-w-0 items-center overflow-hidden`}
+        >
           <RowTags document={doc} />
         </div>
-        <span
-          data-testid="library-document-format"
-          className={`${COLUMN_CLASSES.format} truncate text-[13px] text-ink-secondary`}
-        >
-          {t(FORMAT_LABELS[doc.kind])}
-        </span>
-        <span
-          data-testid="library-document-added"
-          className={`${COLUMN_CLASSES.added} truncate text-[13px] whitespace-nowrap text-ink-secondary`}
-        >
-          {addedLabel(doc.createdAt, new Date(), language)}
-        </span>
+        {review && suggestedIn !== null ? (
+          <>
+            <span className={REVIEW_COLUMNS.folder}>
+              <ReviewFolder doc={doc} folder={suggestedIn} onChange={moveTo} />
+            </span>
+            <span className={REVIEW_COLUMNS.accept}>
+              <ReviewAccept doc={doc} folder={suggestedIn} />
+            </span>
+          </>
+        ) : (
+          <>
+            <span
+              data-testid="library-document-format"
+              className={`${COLUMN_CLASSES.format} truncate text-[13px] text-ink-secondary`}
+            >
+              {format}
+            </span>
+            <span
+              data-testid="library-document-added"
+              className={`${COLUMN_CLASSES.added} truncate text-[13px] whitespace-nowrap text-ink-secondary`}
+            >
+              {added}
+            </span>
+          </>
+        )}
         <span className={COLUMN_CLASSES.more}>
           <ObjectMenu
             target={{ kind: "document", id: doc.id }}
@@ -320,7 +421,7 @@ export const LibraryRow = memo(function LibraryRow({
         </span>
       </div>
       {citing && doc.reference && (
-        <div id={citePanelId} className="min-w-0 pr-1.5 pb-3 pl-14">
+        <div id={citePanelId} data-cite-panel="" className="min-w-0 pr-1.5 pb-3 pl-14">
           <CiteAsPanel
             document={doc}
             record={doc.reference}

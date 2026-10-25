@@ -17,7 +17,7 @@ import type { ChatProviderKind, ConversationAnswer, Core } from "../../src/core"
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { createOllamaModels, outputTokensFor } from "../../src/core/providers/ollamaModels";
-import { answerBlocks } from "../../src/renderer/src/answerBlocks";
+import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { readFigures } from "../../src/shared/figures";
 import { createTempDataFolder, startCore } from "../helpers/core";

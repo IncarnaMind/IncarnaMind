@@ -84,6 +84,7 @@ async function readyToVerify({ app, window }: Awaited<ReturnType<typeof launch>>
 /** "Verify a document…" from the + menu. */
 async function verifyFromPlusMenu(window: Page, label: string) {
   await pointAndClick(window, window.getByTestId("plus-menu"));
+  await pointAndClick(window, window.getByTestId("plus-more"));
   const item = window.getByTestId("plus-verify-document");
   await expect(item).toHaveText(label);
   await pointAndClick(window, item);
@@ -157,6 +158,21 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(claimCard.getByTestId("claim-reason")).toHaveText("The model declined to check it.");
   await window.keyboard.press("Escape");
 
+  // The PDF being verified holds every claim of it: no card calls it a copy that was left out.
+  await pointAndClick(window, marks(window).and(window.locator('[data-check="unsupported"]')));
+  await expect(claimCard).toBeVisible();
+  await expect(claimCard.getByTestId("claim-left-out")).toHaveCount(0);
+  // Someone else's words: the claim can be kept as the User's view, never cut.
+  await expect(claimCard.getByTestId("claim-keep")).toBeVisible();
+  await expect(claimCard.getByTestId("claim-cut-sentence")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+
+  // A contradicted claim can be kept as the User's view too.
+  await pointAndClick(window, marks(window).and(window.locator('[data-check="contradicted"]')));
+  await expect(claimCard).toBeVisible();
+  await expect(claimCard.getByTestId("claim-keep")).toBeVisible();
+  await window.keyboard.press("Escape");
+
   // Each row goes to the next claim of its kind.
   const caretIn = () =>
     editor.evaluate(() => getSelection()?.anchorNode?.parentElement?.closest("p")?.textContent);
@@ -168,7 +184,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await pointAndClick(window, done.getByTestId("verify-unsupported"));
   await expect.poll(caretIn).toContain(UNSUPPORTED);
 
-  // Editing a claim makes its check need a re-check, as Find support's do: a row of its own.
+  // Editing a claim makes its check need a re-check, as Check against Documents' do: a row of its own.
   const first = editor.locator(":scope > p").nth(1);
   await slideSelect(window, first, "Spring");
   await window.keyboard.type("Some spring");
@@ -307,6 +323,55 @@ test("In Chinese and a narrow window: the same, in Chinese", async () => {
   await expect(pageMenu.getByTestId("page-from")).toHaveText("来自 Harbour report");
 });
 
+const STATEMENT = join(__dirname, "../tests/fixtures/organize/files/2025年度财务报表.pdf");
+
+for (const [language, width] of [
+  ["en", 1440],
+  ["zh-CN", 900],
+] as const) {
+  test(`a PDF's tables keep their rows and columns, and each row's mark is level with it (${language}, ${width}px)`, async () => {
+    await writeFile(join(sources, "Fleet ledger.md"), "# 车队台账\n\n车队共有冷链车 42 台。\n");
+    const running = await launch();
+    const { app, window } = running;
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, width, 820);
+    await addDocuments(window, [join(sources, "Fleet ledger.md")]);
+    await interceptOpenDialog(app, STATEMENT);
+    await verifyFromPlusMenu(window, language === "en" ? "Verify a document…" : "核对文档…");
+
+    const editor = window.getByTestId("mind-editor");
+    const tables = editor.locator("table");
+    await expect(tables).toHaveCount(3);
+    const row = tables.first().locator("tr").filter({ hasText: "固定资产" });
+    await expect(row.locator("td")).toHaveText(["固定资产", "9,470", "8,860"]);
+    await expect(tables.first().locator("th")).toHaveText(["项目", "期末余额", "期初余额"]);
+    await expect(editor.locator("p").filter({ hasText: "3,145应收账款" })).toHaveCount(0);
+    const [above, below] = await Promise.all([
+      tables.first().locator("tr").nth(1).locator("td").nth(1).boundingBox(),
+      row.locator("td").nth(1).boundingBox(),
+    ]);
+    expect(Math.abs((above?.x ?? 0) - (below?.x ?? 1))).toBeLessThan(1);
+    expect(below?.y ?? 0).toBeGreaterThan(above?.y ?? 0);
+    await screenshot(window, `verify-tables-${language}`);
+
+    const card = await checkCard(window);
+    await pointAndClick(window, card.getByTestId("verify-check"));
+    await expect(card.getByTestId("verify-done")).toBeVisible({ timeout: 30_000 });
+    const claimed = row.locator("td").first().locator("[data-claim-check]");
+    await expect(claimed).toHaveText("固定资产");
+    await expect(row.locator("td").nth(1).locator("[data-claim-check]")).toHaveCount(0);
+    const id = await claimed.getAttribute("data-claim-check");
+    const mark = window.locator(`[data-testid="claim-mark"][data-claim="${id}"]`);
+    await expect(mark).toHaveAttribute("data-check", "unsupported");
+    const [markBox, rowBox] = await Promise.all([mark.boundingBox(), row.boundingBox()]);
+    const middle = (markBox?.y ?? 0) + (markBox?.height ?? 0) / 2;
+    expect(middle).toBeGreaterThan(rowBox?.y ?? 0);
+    expect(middle).toBeLessThan((rowBox?.y ?? 0) + (rowBox?.height ?? 0));
+    await screenshot(window, `verify-tables-checked-${language}`);
+  });
+}
+
 test("Empty states: nothing to check against, then no claims found", async () => {
   const running = await launch();
   const { app, window } = running;
@@ -339,7 +404,7 @@ test("Empty states: nothing to check against, then no claims found", async () =>
 test("a provider failure while finding the claims is worded like an Answer's, with its next step (#764)", async () => {
   const running = await launch();
   const { app, window } = running;
-  // The scripted model fails as one its provider doesn't know.
+  // The scripted model fails as one its provider doesn’t know.
   await useLocalChatModel(window, "ghost-claims-not-found");
   await readyToVerify(running);
   await setWindowSize(app, window, 1440, 900);
@@ -348,8 +413,39 @@ test("a provider failure while finding the claims is worded like an Answer's, wi
 
   const failure = window.getByTestId("answer-error");
   await expect(failure).toHaveAttribute("data-error-kind", "model");
-  await expect(failure).toContainText("doesn't know");
+  await expect(failure).toContainText("doesn’t know");
   await expect(failure.getByTestId("answer-error-action")).toBeVisible();
   await expect(window.getByTestId("verify-problem")).toHaveCount(0);
+  await app.close();
+});
+
+test("a check that fails says why in the interface language, and again in the other after a switch (#627)", async () => {
+  const running = await launch();
+  const { app, window } = running;
+  await useLocalChatModel(window);
+  await readyToVerify(running);
+  await setWindowSize(app, window, 1440, 900);
+  await verifyFromPlusMenu(window, "Verify a document…");
+  const card = window.getByTestId("check-card");
+  await expect(card.getByTestId("verify-ask")).toBeVisible();
+
+  // The core refuses the check as it does a Mind that verifies nothing: its sentence, and its wording after it.
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("core:verifyClaims");
+    ipcMain.handle("core:verifyClaims", () => {
+      const refused = new Error(
+        `This Mind doesn't verify a document.\n\u2063wording:${JSON.stringify({ key: "error.verify.notVerifying" })}`,
+      );
+      refused.name = "InvalidInputError";
+      throw refused;
+    });
+  });
+  await pointAndClick(window, card.getByTestId("verify-check"));
+  const problem = window.getByTestId("verify-problem");
+  await expect(problem).toContainText("Couldn’t check: This Mind doesn’t verify a document.");
+  await setLanguage(window, "zh-CN");
+  await expect(problem).toContainText("无法核对：这个 Mind 没有在核对文档。");
+  await setLanguage(window, "en");
+  await expect(problem).toContainText("Couldn’t check: This Mind doesn’t verify a document.");
   await app.close();
 });

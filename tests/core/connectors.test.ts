@@ -256,7 +256,7 @@ describe("Importing an mcpServers configuration", { timeout: 30_000 }, () => {
   test("text that isn't a configuration is refused, saying why", async () => {
     const { core } = await setUp();
 
-    await expect(core.previewConnectorImport("{ mcpServers: ")).rejects.toThrow(/isn't valid JSON/);
+    await expect(core.previewConnectorImport("{ mcpServers: ")).rejects.toThrow(/isn’t valid JSON/);
     await expect(core.previewConnectorImport('{"theme": "dark"}')).rejects.toThrow(
       /No MCP servers found/,
     );
@@ -398,7 +398,7 @@ describe("Connector status and errors", { timeout: 30_000 }, () => {
       { deleted_at: expect.any(String) },
     ]);
     await vi.waitFor(() => expect(isRunning(pid)).toBe(false), { timeout: 10_000 });
-    await expect(core.deleteConnector(added.id)).rejects.toThrow(/doesn't exist/);
+    await expect(core.deleteConnector(added.id)).rejects.toThrow(/doesn’t exist/);
     // The name is free again.
     await core.addConnector(tideServer(logFile));
   });

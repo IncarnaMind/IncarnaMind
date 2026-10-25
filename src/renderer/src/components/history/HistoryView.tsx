@@ -138,11 +138,14 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
     setRestoring(true);
     try {
       const { before } = await core.restoreCheckpoint(mindId, leftCheckpoint.id);
-      const version = versionLabel(leftCheckpoint, new Date(), languageNow(), translateNow);
+      const restoredAt = new Date();
       const restoredId = leftCheckpoint.id;
       useUndo.getState().push({
-        message: translateNow("history.restored", { version }),
-        name: translateNow("history.restored.name"),
+        said: (t) =>
+          t("history.restored", {
+            version: versionLabel(leftCheckpoint, restoredAt, languageNow(), t),
+          }),
+        name: (t) => t("history.restored.name"),
         undo: async () => {
           await core.restoreCheckpoint(mindId, before.id);
         },

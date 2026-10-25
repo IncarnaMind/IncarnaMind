@@ -118,7 +118,7 @@ export function PasteSignInAddress({
   };
 
   return (
-    <div data-testid={words.testId} className="flex w-full flex-col gap-1">
+    <div data-testid={words.testId} data-setup-foot className="flex w-full flex-col gap-1">
       <label htmlFor={id} className="text-[13px] leading-5 text-ink-secondary">
         {label}
       </label>

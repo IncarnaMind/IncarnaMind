@@ -1,6 +1,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import { askAssistant, changesIn } from "../helpers/assistant";
+import { answerRequests, askAssistant, changesIn } from "../helpers/assistant";
+import { checkReply, isCheckRun } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
@@ -49,7 +50,9 @@ async function setUp(model: MockLanguageModelV4) {
 
 /** A model that searches, then calls `create_mind` and `cite` in one step, in the order `order` gives. */
 function oneStep(order: "cite-first" | "write-first") {
-  return scriptedModel(({ results }: ModelCall): ScriptedReply => {
+  return scriptedModel((call: ModelCall): ScriptedReply => {
+    if (isCheckRun(call)) return checkReply(call, {});
+    const { results } = call;
     const search = results.find((result) => result.tool === "search_documents");
     if (!search) return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
     if (results.some((result) => result.tool === "create_mind")) return { text: REPORT };
@@ -95,7 +98,7 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
       .join("\n");
     expect(told).not.toContain("left out.");
     // Search, the step with both calls, the report: nothing more was asked to cite it.
-    expect(model.doStreamCalls).toHaveLength(3);
+    expect(answerRequests(model)).toHaveLength(3);
   });
 
   // protects=a revision with new text, written in the same step as its cite, keeps its Citation whichever comes first; fails_when=the revised page loses its marker; no_claim=how a real provider orders the calls.
@@ -103,7 +106,9 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
     const LONGER =
       "## Tides\n\nSpring tides come at new and full moon [^1].\n\nNeap tides come between, at half moon.";
     let turn = 0;
-    const model = scriptedModel(({ results, prompt }: ModelCall): ScriptedReply => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      const { results, prompt } = call;
       const second = prompt.includes("make it longer");
       const search = results.find((result) => result.tool === "search_documents");
       if (!search)

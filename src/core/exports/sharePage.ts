@@ -10,7 +10,14 @@ import type { Translate } from "../../shared/locations";
 import type { Language } from "../language";
 import type { Block, Footnote } from "../mindText";
 import type { CardContent, CardRun, CitationCard } from "./citationCards";
-import { bodyFontStyle, HTML_STYLES, htmlFile, notesSection, withTableBodies } from "./html";
+import {
+  bodyFontStyle,
+  bodyLineStyle,
+  HTML_STYLES,
+  htmlFile,
+  notesSection,
+  withTableBodies,
+} from "./html";
 import type { ExportLabels } from "./labels";
 import { escapeHtml, renderPrintHtml, sourceHtml, webLink } from "./printHtml";
 
@@ -31,6 +38,10 @@ a.cite[aria-expanded=true]{outline:2px solid var(--accent);outline-offset:1px}
 a.cite:focus-visible,.card-close:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .card:focus{outline:none}
 .date{white-space:nowrap}
+.notes{margin-top:1.6rem;padding-top:.75rem;font-family:var(--sans);font-size:12px;line-height:18px;color:var(--ink-meta)}
+.notes h2{margin:.75rem 0 .4rem;font-family:var(--sans);font-size:12px;line-height:18px;font-weight:600;color:var(--ink-meta)}
+.notes ol{margin:0;padding:0;list-style:none}
+.notes li{margin:0 0 6px}
 .shared-foot{max-width:42rem;margin:0 auto;padding:0 1.25rem 3rem;font-family:var(--sans);font-size:.72rem;line-height:1.5;color:var(--ink-meta)}
 .shared-foot p{margin:0 0 .3rem}
 .scrim{position:fixed;inset:0;z-index:9;background:rgba(23,25,28,.25)}
@@ -224,6 +235,8 @@ export interface SharePage {
   checkedLine: boolean;
   /** The Mind's font by name, or null for the default. */
   font: string | null;
+  /** The Mind's line spacing, or null for the default. */
+  lineSpacing: number | null;
 }
 
 export interface SharePicture {
@@ -275,14 +288,14 @@ export function renderSharePage(page: SharePage): string {
   ].join("");
   const body = [
     `<main>${head}${withTableBodies(printed.body)}</main>`,
-    notesSection(printed.notes, labels),
+    notesSection(printed.notes, labels, { compact: true, title: t("share.page.notes") }),
     `<footer class="shared-foot">${foot}</footer>`,
     '<div class="scrim" hidden></div>',
     picturesHtml(page.pictures),
     ...written.map(({ number, card }) => cardHtml(number, card, date, t)),
     `<script>${SCRIPT}</script>`,
   ].join("\n");
-  const styles = STYLES + bodyFontStyle(page.font);
+  const styles = STYLES + bodyFontStyle(page.font) + bodyLineStyle(page.lineSpacing);
   return htmlFile({ language, name: page.name, policy: policyFor(styles), styles, body });
 }
 

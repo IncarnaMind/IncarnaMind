@@ -39,7 +39,7 @@ test("a fresh data folder has the three built-in Skills: labelled in Settings, a
     await expect(item).toHaveAttribute("data-skill-name", name);
     await expect(item).toHaveAttribute("data-built-in", "true");
     await expect(item.getByTestId("skill-enabled")).toBeChecked();
-    await expect(item).toContainText("Licence: Apache-2.0");
+    await expect(item).toContainText("License: Apache-2.0");
   }
   const restore = section.getByTestId("skill-restore-built-ins");
   await expect(restore).toHaveCount(0);
@@ -88,14 +88,14 @@ test("a fresh data folder has the three built-in Skills: labelled in Settings, a
   );
   await window.keyboard.press("Enter");
   const composerChip = window.getByTestId("composer").getByTestId("composer-skill");
-  await expect(composerChip).toHaveText("literature-review");
+  await expect(composerChip).toHaveText("Literature review");
   await expect(composerChip).toHaveAttribute("data-state", "enabled");
 
   // Asked, the Question carries it and the Answer follows it, as with any forced Skill.
   await window.keyboard.type("What do my Documents say about tides?");
   await window.keyboard.press("Enter");
   const chip = window.getByTestId("assistant-question").getByTestId("assistant-question-skill");
-  await expect(chip).toHaveText("literature-review");
+  await expect(chip).toHaveText("Literature review");
   const answer = assistantAnswers(window).first();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   const card = (await openSteps(window, answer)).getByTestId("answer-skill");

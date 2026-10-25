@@ -566,6 +566,95 @@ describe("which way round a chart from a table goes", () => {
   });
 });
 
+describe("a bare number that looks like a year, in a table's body (#1131)", () => {
+  const rows = (...lines: string[][]): SourceGrid =>
+    lines.map((line, index) => line.map((text) => (index === 0 ? head(text) : cell(text))));
+  const valuesOf = (chart: ChartAttributes | null) =>
+    chart?.data.rows.map((row) => row.values.map((value) => value?.value ?? null));
+
+  test("is a value when its column is a quantity: 2000 units sold is drawn with 1899 and 2100", () => {
+    const chart = fromTable(
+      rows(["Product", "Units sold"], ["A", "1899"], ["B", "2000"], ["C", "2100"]),
+    );
+    expect(valuesOf(chart)).toEqual([[1899], [2000], [2100]]);
+    expect(chartPoints(chart as ChartAttributes).map((point) => point.value.value)).toEqual([
+      1899, 2000, 2100,
+    ]);
+    expect(chartSources(chart as ChartAttributes).notDrawn).toBe(0);
+  });
+
+  const HEADINGS: readonly [string, string, string][] = [
+    ["en", "Units sold", "Revenue"],
+    ["zh-CN", "销量", "收入"],
+  ];
+  const cases = HEADINGS.flatMap(([language, ...headings]) =>
+    headings.flatMap((heading) =>
+      ["1999", "2000", "2099"].map((value) => [language, heading, value] as const),
+    ),
+  );
+  test.each(cases)(
+    "%s: %s of %s sits between 1899 and 2100 and is drawn",
+    (language, heading, value) => {
+      const chart = fromTable(
+        rows(["Product", heading], ["A", "1899"], ["B", value], ["C", "2100"]),
+        language,
+      );
+      expect(valuesOf(chart)).toEqual([[1899], [Number(value)], [2100]]);
+      expect(chartPoints(chart as ChartAttributes)).toHaveLength(3);
+      expect(chartSources(chart as ChartAttributes).notDrawn).toBe(0);
+    },
+  );
+
+  test("is a value when the header says quantity, even beside other years", () => {
+    const chart = fromTable(rows(["Product", "Units sold"], ["A", "2000"], ["B", "2001"]));
+    expect(valuesOf(chart)).toEqual([[2000], [2001]]);
+    expect(
+      valuesOf(fromTable(rows(["产品", "销量"], ["A", "2000"], ["B", "2001"]), "zh-CN")),
+    ).toEqual([[2000], [2001]]);
+  });
+
+  test("is a value under a period heading when the periods run across the table", () => {
+    const chart = fromTable(
+      rows(["Metric", "2023", "2024", "2025"], ["Units sold", "1899", "2000", "2100"]),
+    ) as ChartAttributes;
+    expect(chart.source).toMatchObject({ switched: true });
+    expect(valuesOf(chart)).toEqual([[1899], [2000], [2100]]);
+    expect(chartPoints(chart)).toHaveLength(3);
+  });
+
+  test("stays a value when written with a currency", () => {
+    const chart = fromTable(
+      rows(["Product", "Revenue"], ["A", "$1999"], ["B", "$2000"], ["C", "$2099"]),
+    );
+    expect(valuesOf(chart)).toEqual([[1999], [2000], [2099]]);
+  });
+
+  test("is a label in a column of years: a Year column, or one that holds nothing else", () => {
+    for (const heading of ["Year", "Founded", "年份"]) {
+      const chart = fromTable(
+        rows(["Company", heading, "Employees"], ["A", "1999", "150"], ["B", "2005", "40"]),
+      ) as ChartAttributes;
+      expect(chart.data.series).toEqual(["Employees"]);
+    }
+    const bare = fromTable(
+      rows(["Company", "Listed", "Employees"], ["A", "1999", "150"], ["B", "2005", "40"]),
+    ) as ChartAttributes;
+    expect(bare.data.series).toEqual(["Employees"]);
+  });
+
+  test("is still a label in the first column, and a heading when the years run across", () => {
+    const down = fromTable(
+      rows(["Year", "Revenue", "Net income"], ["2023", "289.4", "41.2"], ["2024", "301.2", "45.0"]),
+    ) as ChartAttributes;
+    expect(down.data.rows.map((row) => row.label)).toEqual(["2023", "2024"]);
+    expect(down.data.series).toEqual(["Revenue", "Net income"]);
+    const across = fromTable(
+      rows(["Metric", "2023", "2024", "2025"], ["Revenue", "289.4", "301.2", "340.1"]),
+    ) as ChartAttributes;
+    expect(across.data.rows.map((row) => row.label)).toEqual(["2023", "2024", "2025"]);
+  });
+});
+
 describe("a table that is a series of numbers", () => {
   const rows = (...lines: string[][]): SourceGrid =>
     lines.map((line, index) => line.map((text) => (index === 0 ? head(text) : cell(text))));

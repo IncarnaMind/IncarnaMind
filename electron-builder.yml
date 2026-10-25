@@ -50,9 +50,17 @@ extraResources:
     to: citation-styles
     filter:
       - "**/*"
+  # What Analyses run with (ADR-0023): Pyodide's files, unmodified, and the wheels of numpy, pandas
+  # and what they depend on, which the build fetches into resources/python
+  # (scripts/pythonRuntime.ts), each checked against Pyodide's lock file. Their licences are in
+  # notices/python.txt.
+  - from: resources/python
+    to: python
+    filter:
+      - "**/*"
   # The licence notices: what the model catalog is generated from (scripts/catalogModels.ts),
-  # the citation-style engine's crates and where the CSL styles come from, and the Speex code the
-  # Meetings echo canceller is derived from.
+  # the citation-style engine's crates and where the CSL styles come from, the Speex code the
+  # Meetings echo canceller is derived from, and what Analyses run with.
   - from: resources/notices
     to: notices
     filter:
@@ -157,8 +165,14 @@ linux:
     - "!**/node_modules/**/coverage/**"
     - "!**/node_modules/onnxruntime-node/bin/napi-v*/{darwin,win32}{,/**}"
     - "!**/node_modules/onnxruntime-node/bin/napi-v*/linux/!(${arch}){,/**}"
+  # The .deb needs a maintainer with an address; this one reaches no one's inbox.
+  maintainer: IncarnaMind <noreply@users.noreply.github.com>
+  # On Ubuntu 24.04 and later an AppImage runs without Chromium's sandbox: its AppRun script
+  # adds --no-sandbox when AppArmor refuses user namespaces. The .deb installs an AppArmor
+  # profile that allows them (#1178).
   target:
     - AppImage
+    - deb
 
 publish:
   provider: github

@@ -55,22 +55,21 @@ const HELD = `A supplier lien attaches when the materials are delivered to the j
 const WORDS = {
   en: {
     title: "This cites a court decision.",
-    body: "IncarnaMind can't check that the case exists or that it says this. Look it up in your legal research service before you rely on it.",
-    nothing: "Nothing in your Documents says this.",
+    body: "IncarnaMind can’t check that this case exists or says this. Check it in your legal research service before you rely on it.",
+    nothing: "I didn’t find this in “All Documents”.",
     unchecked:
-      "The case this sentence cites isn't in your Documents, so it hasn't been checked. Look it up in your legal research service before you rely on it.",
+      "Not checked: the cited case isn’t in your Documents. Check it in your legal research service before you rely on it.",
     held: (document: string, location: string) =>
-      `This cites a court decision. The quoted words were found in your saved copy of the opinion (${document}, ${location}). Whether it has been overruled or changed isn't checked: look it up in your legal research service before you rely on it.`,
+      `Quote found in your copy of the opinion (${document}, ${location}). Not checked whether it was overruled or changed. Check it in your legal research service before you rely on it.`,
     page: "p. 1",
   },
   "zh-CN": {
     title: "本句引用了法院判决。",
-    body: "IncarnaMind 无法核对这个判决是否存在、是否这样说。依赖它之前，请在你使用的法律数据库中查一下。",
-    nothing: "你的文档中没有内容提到这一点。",
-    unchecked:
-      "本句引用的判决不在你的文档中，因此尚未核对。依赖它之前，请在你使用的法律数据库中查一下。",
+    body: "IncarnaMind 无法核对该判决是否存在、是否这样说。依赖前请在你的法律数据库中查证。",
+    nothing: "未在“全部文档”中找到。",
+    unchecked: "未核对：引用的判决不在你的文档中。依赖前请在你的法律数据库中查证。",
     held: (document: string, location: string) =>
-      `本句引用了法院判决。引用的文字已在你保存的判决书副本中找到（${document}，${location}）。之后有没有法院推翻或修改这个判决，尚未核对；依赖它之前，请在你使用的法律数据库中查一下。`,
+      `已在你保存的判决书中找到引文（${document}，${location}）。未核对是否已被推翻或修改。依赖前请在你的法律数据库中查证。`,
     page: "第 1 页",
   },
 } as const;
@@ -90,7 +89,7 @@ async function findSupportFor(window: Page, texts: readonly string[], firstWords
   });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   const marks = window.getByTestId("claim-mark");
   await expect(marks).toHaveCount(texts.length);
@@ -123,6 +122,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-nothing")).toHaveCount(0);
     await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
     await expect(card.getByTestId("claim-search-web")).toHaveCount(0);
+    await expect(card.getByTestId("claim-cut-sentence")).toHaveCount(0);
+    await expect(card.getByTestId("claim-keep")).toHaveCount(0);
     await expect(card.getByTestId("claim-remove")).toBeVisible();
 
     await window.keyboard.press("Escape");
@@ -242,6 +243,7 @@ test.describe("a web page the User saved", () => {
       await useLocalChatModel(window);
       await setLanguage(window, language);
       await window.getByTestId("plus-menu").click();
+      await window.getByTestId("plus-more").click();
       await window.getByTestId("plus-add-web-page").click();
       const dialog = window.getByTestId("add-web-page-dialog");
       await dialog.getByTestId("add-web-page-addresses").fill(address);

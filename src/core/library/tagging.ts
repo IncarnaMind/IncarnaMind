@@ -149,7 +149,7 @@ export interface TaggingOptions {
   ollamaUrl: string;
   /** The models Ollama on this computer has installed, at an address; none when it can't be reached. */
   localModels(baseUrl: string): Promise<readonly string[]>;
-  /** Until when tagging on the ChatGPT plan waits for its limit to reset (ISO 8601), or null. */
+  /** Until when tagging on a plan (ChatGPT's or Claude's) waits for its limit to reset (ISO 8601), or null. */
   planPausedUntil(): string | null;
   now(): number;
 }
@@ -226,12 +226,16 @@ export function createTagging(options: TaggingOptions) {
     });
   }
 
-  /** The model a setting tags with: itself, or Automatic's pick (null when there is none). */
+  /**
+   * The model a setting tags with: itself, or Automatic's pick (null when there is none).
+   * `fresh` asks Ollama what it has installed now, not what it said a moment ago.
+   */
   async function resolve(
     setting: LibraryClassifier = options.setting(),
+    fresh = false,
   ): Promise<TaggingClassifier | null> {
     const resolved =
-      setting.kind === "automatic" ? ((await automatic())?.classifier ?? null) : setting;
+      setting.kind === "automatic" ? ((await automatic(fresh))?.classifier ?? null) : setting;
     last = resolved;
     return resolved;
   }
@@ -394,6 +398,7 @@ export function createTagging(options: TaggingOptions) {
         (a, b) =>
           order[a.group] - order[b.group] || Number(b.goodForTagging) - Number(a.goodForTagging),
       );
+      if (options.setting().kind === "automatic") last = picked?.classifier ?? null;
       const option = picked && optionOf(picked.classifier, PICKED_FOR_TAGGING.has(picked.reason));
       return {
         automatic: option && picked ? { ...option, reason: picked.reason } : null,

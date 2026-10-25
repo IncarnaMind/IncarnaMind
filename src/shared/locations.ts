@@ -92,6 +92,7 @@ export function parseLocation(value: unknown): CitationLocation | null {
       return {
         kind,
         heading: typeof location.heading === "string" ? location.heading : null,
+        ...(location.start === true ? { start: true } : {}),
         ...(location.notes === true ? { notes: true } : {}),
         ...(author !== undefined
           ? { comment: { author: typeof author === "string" && author ? author : null } }
@@ -111,14 +112,33 @@ export function parseLocation(value: unknown): CitationLocation | null {
 }
 
 /**
+ * Whether a Location names a place. A section does when it has a heading,
+ * is the start of a Document that has headings, or is its notes, a paragraph,
+ * a figure or a comment; the text of a Document with no headings is no
+ * place, and "§ Start" on every Citation of one points nowhere.
+ */
+export function saysWhere(location: CitationLocation): boolean {
+  if (location.kind !== "section") return true;
+  return Boolean(
+    location.heading ||
+      location.start ||
+      location.notes ||
+      location.paragraphs ||
+      location.figure ||
+      location.comment,
+  );
+}
+
+/**
  * A Citation's Location: the one stored with it, or for a Citation from
- * before Locations, its pages (null for a whole TXT or Markdown file).
+ * before Locations, its pages (null for a whole TXT or Markdown file, and
+ * for a Document with no headings where no paragraph is known).
  */
 export function citationLocation(
   attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo">> & { location?: unknown },
 ): CitationLocation | null {
   const stored = parseLocation(attributes.location);
-  if (stored) return stored;
+  if (stored) return saysWhere(stored) ? stored : null;
   const { pageFrom, pageTo } = attributes;
   if (!isCount(pageFrom)) return null;
   return {
@@ -134,6 +154,7 @@ export type Translate = (key: MessageKey, params?: MessageParams) => string;
 /**
  * A Location's short label, e.g. "slide 4" or "Revenue, rows 12–14", and in a
  * Transcript "Me · 12:03": who said it, then the time, unless `speaker` is false.
+ * A section that names no place (see `saysWhere`) has none: its label is "".
  */
 export function formatLocation(location: CitationLocation, t: Translate, speaker = true): string {
   switch (location.kind) {
@@ -171,23 +192,28 @@ export function formatLocation(location: CitationLocation, t: Translate, speaker
         ? t("location.section.notes")
         : location.heading
           ? t("location.section", { heading: location.heading })
-          : t("location.section.start");
-      const { paragraphs } = location;
+          : location.start
+            ? t("location.section.start")
+            : null;
+      const after = (inSection: MessageKey, alone: MessageKey, params: MessageParams) =>
+        section === null ? t(alone, params) : t(inSection, { ...params, section });
+      const { paragraphs, comment } = location;
       if (location.figure) {
-        return t("location.section.figure", { section, number: location.figure });
+        return after("location.section.figure", "location.figure", { number: location.figure });
       }
       if (paragraphs) {
-        return t(
+        return after(
           paragraphs.to !== paragraphs.from
             ? "location.section.paragraph.other"
             : "location.section.paragraph.one",
-          { section, range: span(paragraphs.from, paragraphs.to) },
+          "location.paragraph",
+          { range: span(paragraphs.from, paragraphs.to) },
         );
       }
-      if (!location.comment) return section;
-      return location.comment.author
-        ? t("location.section.comment", { section, author: location.comment.author })
-        : t("location.section.comment.anonymous", { section });
+      if (!comment) return section ?? "";
+      return comment.author
+        ? after("location.section.comment", "location.comment", { author: comment.author })
+        : after("location.section.comment.anonymous", "location.comment.anonymous", {});
     }
   }
 }
@@ -213,6 +239,10 @@ export const englishLocation = (location: CitationLocation, speaker = true): str
     english,
     speaker,
   );
+
+/** The English label of a place, for a prompt: null where there is none to name. */
+export const englishPlace = (location: CitationLocation | null): string | null =>
+  location && saysWhere(location) ? englishLocation(location) : null;
 
 /** A Citation copied as text names the page the Document prints. */
 export const englishPrintedLocation = (location: CitationLocation): string =>
@@ -256,6 +286,7 @@ export function unitLocation(unit: UnitText): CitationLocation | null {
       return {
         kind: "section",
         heading: label?.path?.at(-1) ?? null,
+        ...(label?.beforeHeading ? { start: true } : {}),
         ...(label?.notes ? { notes: true } : {}),
       };
     default:
@@ -356,22 +387,27 @@ function commentAt(unit: UnitText, offset: number): { author: string | null } | 
   return null;
 }
 
+// A Word file with no headings has no place but its paragraphs.
+function numbersParagraphs({ label }: UnitText): boolean {
+  if (label?.paragraphs) return true;
+  return label?.path?.length === 0 && !label.beforeHeading && !label.notes;
+}
+
 /**
- * The paragraphs of a web page's section a quote covers, numbered from its
- * heading (see `UnitLabel.paragraphs`): in the parts of the section the
- * quote starts in. Null where paragraphs aren't numbered, or none is covered.
+ * The paragraphs of a section a quote covers (see `numbersParagraphs`): in the parts of the
+ * section the quote starts in. Null where paragraphs aren't numbered, or none is covered.
  */
 function paragraphsCovered(
   units: readonly UnitText[],
   parts: readonly { unit: number; start: number; end: number }[],
   where: UnitText,
 ): { from: number; to: number } | null {
-  if (!where.label?.paragraphs) return null;
-  const path = JSON.stringify(where.label.path ?? []);
+  if (!numbersParagraphs(where)) return null;
+  const path = JSON.stringify(where.label?.path ?? []);
   const numbers: number[] = [];
   for (const part of parts) {
     const unit = units[part.unit] as UnitText;
-    if (!unit.label?.paragraphs || JSON.stringify(unit.label.path ?? []) !== path) continue;
+    if (!numbersParagraphs(unit) || JSON.stringify(unit.label?.path ?? []) !== path) continue;
     for (const anchor of anchorsOf(unit)) {
       const number = /^p(\d+)$/.exec(anchor.target)?.[1];
       if (number && anchor.start < part.end && anchor.end > part.start)

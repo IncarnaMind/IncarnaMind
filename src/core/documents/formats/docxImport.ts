@@ -26,11 +26,14 @@
  */
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
 import { NODE_CHARACTER, targetHash } from "../../../shared/proposals";
+import { groupWordLists } from "../../../shared/wordLists";
 import { runLookOf } from "../../../shared/wordLook";
+import { mindHeadingLevel } from "../../../shared/wordStyles";
 import {
   BLOCK_ID_ATTRIBUTE,
   IMAGE_NODE,
   type KeptChangeKind,
+  PARAGRAPH_FORMAT_ATTRIBUTE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -62,7 +65,16 @@ import {
   type WordReview,
 } from "./docxPackage";
 import { dataUrlOf, imageTypeOf } from "./images";
-import { child, descendants, elements, onOff, parseXml, walk, type XmlElement } from "./xml";
+import {
+  child,
+  descendants,
+  elements,
+  onOff,
+  ordinalsOf,
+  parseXml,
+  walk,
+  type XmlElement,
+} from "./xml";
 
 /** The largest picture made editable; a larger one is kept as is. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -555,7 +567,7 @@ class Reader {
   private readonly absorbed = new Set<XmlElement>();
   /** Someone's changes kept as is, by kind. */
   private readonly kept: Partial<Record<KeptChangeKind, number>> = {};
-  private paragraphLook: ParagraphLookContext = { look: {}, runs: [] };
+  private paragraphLook: ParagraphLookContext = { look: {}, format: {}, runs: [] };
   private tableLook: TableLookContext | null = null;
 
   private constructor(
@@ -673,12 +685,9 @@ class Reader {
 
   /** Gives every element its place among the elements of its name, in document order. */
   private numberElements(root: XmlElement): void {
-    const counts = new Map<string, number>();
+    for (const [element, ordinal] of ordinalsOf(root)) this.ordinals.set(element, ordinal);
     const paraIds = new Set<string>();
     for (const element of walk(root)) {
-      const count = counts.get(element.name) ?? 0;
-      counts.set(element.name, count + 1);
-      this.ordinals.set(element, count);
       const named = this.byName.get(element.name);
       if (named) named.push(element);
       else this.byName.set(element.name, [element]);
@@ -1088,7 +1097,7 @@ class Reader {
     const node =
       level === null
         ? paragraphNode("paragraph", {})
-        : paragraphNode("heading", { level: Math.min(6, Math.max(1, level)) });
+        : paragraphNode("heading", { level: mindHeadingLevel(level) });
     node.content.push(...this.pending);
     this.pending = [];
     this.fieldDepth = 0;
@@ -1107,6 +1116,9 @@ class Reader {
     if (main !== null) this.markOnlyOtherRuns(node.content, main);
     const look = this.look.paragraphKey(this.paragraphLook, main);
     if (look) node.attrs[WORD_LOOK_ATTRIBUTE] = look;
+    if (Object.keys(this.paragraphLook.format).length > 0) {
+      node.attrs[PARAGRAPH_FORMAT_ATTRIBUTE] = this.paragraphLook.format;
+    }
     this.noteWhole(node, pPr, inCell);
     const sectPr = pPr && child(pPr, "w:sectPr");
     if (sectPr) {
@@ -1451,13 +1463,14 @@ class Reader {
     }
   }
 
-  /** Bold, italic, underline and strike as Word resolves them, styles included, so the editor's toggles act on them. */
+  /** Bold, italic, underline and strike as Word resolves them, styles included, so the editor's toggles act on them; then the run's own colour and raise. */
   private marksOfRun(run: XmlElement): MarkJSON[] {
     const rPr = child(run, "w:rPr");
-    const { key, look } = this.look.run(rPr, this.paragraphLook, textIn(run).length);
+    const { key, look, marks } = this.look.run(rPr, this.paragraphLook, textIn(run).length);
     return [
       ...formattingMarks(look),
       ...runMarks(rPr).filter((mark) => !RESOLVED_MARKS.has(mark.type)),
+      ...marks,
       ...(key ? [{ type: WORD_RUN_MARK, attrs: { k: key } }] : []),
     ];
   }
@@ -1857,40 +1870,31 @@ function rowsOf(
   return rows;
 }
 
-/**
- * Groups list items into the editor's lists: consecutive items of one
- * numbering, nested by level (a level deeper than the one before goes one
- * deeper only), numbered from where Word's numbering has got to.
- */
-function groupLists(items: readonly Item[]): NodeJSON[] {
-  const out: NodeJSON[] = [];
-  const open: { list: NodeJSON; ordered: boolean; numId: string }[] = [];
-  for (const { node, list } of items) {
-    if (!list) {
-      open.length = 0;
-      out.push(node);
-      continue;
-    }
-    const depth = Math.min(list.level, open.length);
-    open.length = Math.min(open.length, depth + 1);
-    const top = open[depth];
-    if (top && (top.ordered !== list.ordered || (depth === 0 && top.numId !== list.numId))) {
-      open.length = depth;
-    }
-    if (open.length === depth) {
-      const created: NodeJSON = list.ordered
-        ? {
-            type: "orderedList",
-            attrs: { [BLOCK_ID_ATTRIBUTE]: newId(), start: list.number },
-            content: [],
-          }
-        : { type: "bulletList", attrs: { [BLOCK_ID_ATTRIBUTE]: newId() }, content: [] };
-      const parent = open[depth - 1];
-      if (parent) parent.list.content?.at(-1)?.content?.push(created);
-      else out.push(created);
-      open.push({ list: created, ordered: list.ordered, numId: list.numId });
-    }
-    open[depth]?.list.content?.push({ type: "listItem", content: [node] });
-  }
-  return out;
-}
+const groupLists = (items: readonly Item[]): NodeJSON[] =>
+  groupWordLists(
+    items.map(({ node, list }) => ({
+      node,
+      list: list && {
+        listId: list.numId,
+        level: list.level,
+        ordered: list.ordered,
+        number: list.number,
+      },
+    })),
+    {
+      list: (place) =>
+        place.ordered
+          ? {
+              type: "orderedList",
+              attrs: { [BLOCK_ID_ATTRIBUTE]: newId(), start: place.number },
+              content: [],
+            }
+          : { type: "bulletList", attrs: { [BLOCK_ID_ATTRIBUTE]: newId() }, content: [] },
+      item: (list, block) => {
+        list.content?.push({ type: "listItem", content: [block] });
+      },
+      nest: (parent, list) => {
+        parent.content?.at(-1)?.content?.push(list);
+      },
+    },
+  );

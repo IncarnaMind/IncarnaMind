@@ -1,19 +1,20 @@
-import { type KeyboardEvent, useRef, useState } from "react";
+import { type KeyboardEvent, useRef } from "react";
 import type { Mind } from "../../../core/api";
 import { mindName } from "../../../shared/naming";
 import { useCitationStylePicker } from "../citationStylePicker";
-import { startMoveDrag } from "../folderDrag";
+import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
+import { onMiddleClick } from "../middleClick";
 import { useMindStatus } from "../mindStatus";
-import { selectedOn, useSelectable } from "../selection";
+import { useSelectable, useSeveralSelected } from "../selection";
+import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
 import { useAppStore } from "../store";
 import { isMoveToKey, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { ExampleChip, useIsExample } from "./GettingStarted";
 import { InlineName } from "./InlineName";
 import { MindLineIcon } from "./lineIcons";
-import { MoveToPicker } from "./MoveToPicker";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import {
   clearsActions,
@@ -30,8 +31,8 @@ import {
  * User's approval. Clicking or Enter opens it and selects just it; ⌘-click
  * and Shift-click select; a middle click opens it in a new tab. It renames in place: double-click it or press F2;
  * Enter saves, Esc cancels, and a blank title changes nothing.
- * It drags onto a Folder; its menu (⋯, or a right-click) and ⇧⌘M offer the
- * same as "Move to…".
+ * It drags onto a Folder, with the rows selected with it; its menu (⋯, or a
+ * right-click) and ⇧⌘M offer the same as "Move to…" (see `SidebarMoveTo`).
  */
 export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
   const t = useT();
@@ -44,22 +45,20 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
   const waiting = useMindStatus(mind.id) === "waiting-for-approval";
   const isExample = useIsExample(mind.id);
   const rename = useRename<HTMLButtonElement>(`mind:${mind.id}`);
-  const [moving, setMoving] = useState<HTMLElement | null>(null);
   const row = useRef<HTMLLIElement>(null);
   const title = mindName(mind) || t("mind.untitled");
-  const objectMenu = useObjectMenu({ kind: "mind", id: mind.id });
-  const select = useSelectable({ kind: "mind", id: mind.id }, "sidebar", () => openMind(mind.id));
-  const lit = isOpen || select.selected;
+  const object = { kind: "mind", id: mind.id } as const;
+  const objectMenu = useObjectMenu(object);
+  const select = useSelectable(object, "sidebar", () => openMind(mind.id));
+  const lit = select.selected;
+  const several = useSeveralSelected("sidebar");
   const treeItem = useTreeItem({ depth, selected: select.selected });
-  /** The Minds a drag or "Move to…" from this row takes: all those selected, if it is one of them. */
-  const mindIdsHere = () => {
-    const chosen = selectedOn("sidebar").flatMap((each) => (each.kind === "mind" ? [each.id] : []));
-    return chosen.includes(mind.id) ? chosen : [mind.id];
-  };
+  const dragSource = useDragSource(() => rowDrag(object, "sidebar"));
+  const dragged = useDraggedRef(object);
 
   if (rename.renaming) {
     return (
-      <li className={rowClass(lit)} data-testid="mind-row" data-mind-id={mind.id}>
+      <li className={rowClass(lit, "app", several)} data-testid="mind-row" data-mind-id={mind.id}>
         <span
           className="flex h-full w-full min-w-0 items-center gap-2 pr-1"
           style={rowPadding(depth)}
@@ -81,7 +80,7 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (isMoveToKey(event)) {
       event.preventDefault();
-      setMoving(event.currentTarget);
+      useSidebarMove.getState().show(event.currentTarget, object);
     }
   };
 
@@ -90,13 +89,13 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
       data-testid="mind-row"
       data-mind-id={mind.id}
       data-folder-id={mind.folderId ?? ""}
+      data-dragging={dragged || undefined}
       role="none"
       {...select.refProps}
-      draggable
-      onDragStart={(event) => startMoveDrag(event, { mindIds: mindIdsHere() })}
+      {...dragSource}
       {...objectMenu.rowProps}
       ref={row}
-      className={rowClass(lit)}
+      className={rowClass(lit, "app", several, dragged)}
     >
       <button
         {...rename.nameProps}
@@ -106,14 +105,9 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
         data-mind-id={mind.id}
         aria-current={isOpen ? "page" : undefined}
         title={title}
-        // A click opens it; ⌘-click and Shift-click select (`useSelectable`). A middle click opens it to the side.
+        // A click opens it; ⌘-click and Shift-click select (`useSelectable`).
         onClick={select.onClick}
-        onMouseDown={(event) => {
-          if (event.button === 1) event.preventDefault(); // no autoscroll
-        }}
-        onAuxClick={(event) => {
-          if (event.button === 1) openMind(mind.id, { side: true });
-        }}
+        {...onMiddleClick(() => openMind(mind.id, { newTab: true }))}
         onKeyDown={(event) => {
           rename.nameProps.onKeyDown(event);
           onKeyDown(event);
@@ -141,7 +135,7 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
       </button>
       <div className={rowActionsClass}>
         <ObjectMenu
-          target={{ kind: "mind", id: mind.id }}
+          target={object}
           label={t("mind.more", { title })}
           tabIndex={-1}
           here={{
@@ -155,30 +149,10 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
                     row.current?.querySelector<HTMLElement>("[data-object-menu]") ?? null,
                   ),
               ),
-            // Once the menu has closed and given the focus back, so the picker opens beside the button.
-            "mind.moveTo": () =>
-              requestAnimationFrame(() =>
-                setMoving(row.current?.querySelector<HTMLElement>("[data-object-menu]") ?? null),
-              ),
+            "mind.moveTo": () => moveFromMenu(row.current, object),
           }}
         />
       </div>
-      <MoveToPicker
-        anchor={moving}
-        name={
-          moving && mindIdsHere().length > 1
-            ? t("mind.count", { count: mindIdsHere().length })
-            : title
-        }
-        current={moving && mindIdsHere().length > 1 ? undefined : mind.folderId}
-        onChoose={(folderId) => {
-          const mindIds = mindIdsHere();
-          if (mindIds.length > 1 || folderId !== mind.folderId) {
-            void useAppStore.getState().moveToFolder({ mindIds }, folderId);
-          }
-        }}
-        onClose={() => setMoving(null)}
-      />
     </li>
   );
 }

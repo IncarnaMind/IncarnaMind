@@ -1,66 +1,37 @@
-import { type DragEvent, useState } from "react";
+import { useDropArea } from "../dragDrop";
 import { useT } from "../i18n";
-import { carriesLinks, linksIn } from "../webPages";
-
-const carriesFiles = (event: DragEvent) => event.dataTransfer.types.includes("Files");
+import { linksIn } from "../webPages";
 
 /**
  * Lets files and folders be dropped anywhere on an element, and with
  * `onLinks`, links from a browser too. `active` is true while they are
- * dragged over it, and `links` while what is dragged is links. Counting
- * enters and leaves keeps it steady as the pointer crosses child elements.
- * `onDrop` gets every dropped item, and those of them the drop says are
- * folders; `onLinks` the web addresses dropped, unless a target inside, such
- * as a Folder, took them.
+ * dragged over it, and `links` while what is dragged is links. `onDrop` gets
+ * every dropped item, and those of them the drop says are folders; `onLinks`
+ * the web addresses dropped, unless a target inside, such as a Folder, took
+ * them.
  */
 export function useFileDrop(
   onDrop: (files: File[], folders: File[]) => void,
   onLinks?: (addresses: string[]) => void,
 ) {
-  const [depth, setDepth] = useState(0);
-  const [links, setLinks] = useState(false);
-  const accepts = (event: DragEvent) =>
-    carriesFiles(event) || (onLinks !== undefined && carriesLinks(event));
-  return {
-    active: depth > 0,
-    links,
-    handlers: {
-      onDragEnter(event: DragEvent) {
-        if (!accepts(event)) return;
-        event.preventDefault();
-        setLinks(!carriesFiles(event));
-        setDepth((current) => current + 1);
-      },
-      onDragLeave(event: DragEvent) {
-        if (!accepts(event)) return;
-        setDepth((current) => Math.max(0, current - 1));
-      },
-      onDragOver(event: DragEvent) {
-        if (!accepts(event)) return;
-        // Accepting the drop also stops Electron from opening the file in the window.
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-      },
-      onDrop(event: DragEvent) {
-        if (!accepts(event)) return;
-        const taken = event.defaultPrevented;
-        event.preventDefault();
-        setDepth(0);
-        if (taken) return;
-        // Read now: the drop's items are only there while it is handled.
-        const items = Array.from(event.dataTransfer.items).filter((item) => item.kind === "file");
-        const folders = items.flatMap((item) => {
-          const file = item.webkitGetAsEntry()?.isDirectory ? item.getAsFile() : null;
-          return file ? [file] : [];
-        });
-        const files = Array.from(event.dataTransfer.files);
-        if (files.length > 0) onDrop(files, folders);
-        else if (onLinks) {
-          const addresses = linksIn(event.dataTransfer);
-          if (addresses.length > 0) onLinks(addresses);
-        }
-      },
+  const area = useDropArea({
+    accepts: (dragged) =>
+      dragged.kind === "files" || (dragged.kind === "links" && onLinks !== undefined)
+        ? { kind: "import" }
+        : null,
+    drop(dropped) {
+      if (dropped.kind === "files") {
+        if (dropped.files.length > 0) onDrop(dropped.files, dropped.folders);
+      } else if (dropped.kind === "links" && onLinks) {
+        const addresses = linksIn(dropped.data);
+        if (addresses.length > 0) onLinks(addresses);
+      }
     },
+  });
+  return {
+    active: area.over !== null,
+    links: area.dragged?.kind === "links",
+    handlers: area.props,
   };
 }
 

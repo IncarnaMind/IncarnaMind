@@ -286,18 +286,17 @@ describe("A Linked folder found somewhere else keeps its Documents", { timeout: 
     const [single] = (await core.addDocuments([join(copy, "tides.md")])).documents;
 
     await expect(core.locateLinkedFolder(linked, empty)).rejects.toMatchObject({
-      message:
-        "None of the files in “Library” are in that folder. Choose the folder that holds them now.",
+      message: "That folder doesn’t hold “Library”’s files. Choose the folder that does.",
       wording: { key: "error.linkedFolder.notThis", values: { name: "Library" } },
     });
     await expect(core.locateLinkedFolder(linked, join(other, "Inside"))).rejects.toThrow(
-      /inside a Linked folder, or holds one/,
+      /overlaps a Linked folder/,
     );
     await expect(core.locateLinkedFolder(linked, drive)).rejects.toThrow(
-      /inside a Linked folder, or holds one/,
+      /overlaps a Linked folder/,
     );
     await expect(core.locateLinkedFolder(linked, copy)).rejects.toThrow(
-      "“tides.md” in that folder is in IncarnaMind already, added on its own.",
+      "“tides.md” is already in IncarnaMind. Delete it, then locate the folder again.",
     );
 
     expect((await core.listLinkedFolders()).find((each) => each.id === linked)?.path).toBe(library);

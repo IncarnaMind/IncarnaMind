@@ -26,9 +26,13 @@ interface HintLine {
 const isEmptyLine = (node: ProseMirrorNode | null) =>
   node?.type.name === "paragraph" && node.content.size === 0;
 
-/** A Mind with nothing in it: one empty line. (An empty Question is something.) */
+/** The line a new Mind starts with: an empty Heading 1, its title to be typed. */
+export const isTitleLine = (node: ProseMirrorNode | null) =>
+  node?.type.name === "heading" && node.attrs.level === 1 && node.content.size === 0;
+
+/** A Mind with nothing in it: one empty line, or its empty title. (An empty Question is something.) */
 export const isEmptyMind = (doc: ProseMirrorNode) =>
-  doc.childCount === 1 && isEmptyLine(doc.firstChild);
+  doc.childCount === 1 && (isEmptyLine(doc.firstChild) || isTitleLine(doc.firstChild));
 
 /**
  * The line that shows a hint, if any: an empty Mind's line; the empty line
@@ -38,7 +42,10 @@ export const isEmptyMind = (doc: ProseMirrorNode) =>
 export function hintLine(state: EditorState, focused: boolean): HintLine | null {
   const { doc, selection } = state;
   const isCurrent = (pos: number) => focused && selection.empty && selection.$from.pos === pos + 1;
-  if (isEmptyMind(doc)) return { pos: 0, place: "empty", armed: isCurrent(0) };
+  // An empty title shows its placeholder, "Title", instead.
+  if (isEmptyMind(doc)) {
+    return isTitleLine(doc.firstChild) ? null : { pos: 0, place: "empty", armed: isCurrent(0) };
+  }
   let found: HintLine | null = null;
   doc.forEach((node, offset, index) => {
     if (found || index === 0 || !isEmptyLine(node)) return;

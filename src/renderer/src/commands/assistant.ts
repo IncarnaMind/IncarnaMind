@@ -1,7 +1,7 @@
 import type { AssistantDock, ConversationAnswer } from "../../../core/api";
+import { answerBlocks, hasText } from "../../../shared/answerBlocks";
 import type { MessageKey } from "../../../shared/i18n";
 import { addAnswer } from "../addToNote";
-import { answerBlocks, hasText } from "../answerBlocks";
 import { copyAnswer, notesToAdd } from "../answerEditors";
 import { shownDock } from "../assistantPlace";
 import { useComposer } from "../composer";
@@ -15,10 +15,11 @@ import {
   stopWriting,
   useConversations,
 } from "../conversations";
+import { requestEditField } from "../editor/selectionCommands";
 import { startEditing } from "../editWithAi";
 import { assistantTabOf, groupsMerged } from "../layoutSlice";
 import { useAppStore } from "../store";
-import { assistantHandle, noteHandle } from "./handles";
+import { assistantHandle, noteHandle, viewerSelectionHandle } from "./handles";
 import type { Command } from "./registry";
 
 /*
@@ -65,12 +66,20 @@ export function focusComposer(): void {
 
 /**
  * ⌘J: the assistant's composer. From a note with text selected in it, the
- * composer says what to change in that text (Edit with AI…, #93), as Cursor's ⌘K does.
+ * Edit with AI… field of the selection menu takes the cursor; where that menu
+ * can't open (all of the Mind selected), the composer says what to change in
+ * the selection. With words selected in a Document, it asks about them.
  */
 function askOrEdit(): void {
+  const viewer = viewerSelectionHandle.current;
+  if (viewer?.ask) {
+    viewer.ask();
+    return;
+  }
   const note = noteHandle.current;
-  if (note && !note.editor.isDestroyed && note.editor.view.hasFocus()) {
-    startEditing(note.editor, note.mindId);
+  if (note && !note.editor.isDestroyed) {
+    if (requestEditField(note.editor)) return;
+    if (note.editor.view.hasFocus()) startEditing(note.editor, note.mindId);
   }
   focusComposer();
 }
@@ -123,9 +132,9 @@ function addAnswerInFocus(): void {
   );
 }
 
-/** "Add the last Answer to a new Mind", as Add to note ▾ → New Mind does. */
+/** New Mind under the Answer in focus, or the newest (#1559), as Add to note ▾ → New Mind does. */
 function lastToNewMind(): void {
-  const answer = lastAnswer();
+  const answer = answerInFocus();
   if (!keepable(answer)) return;
   const conversation = conversationById(answer.conversationId);
   void addAnswer({ answer, conversation, blocks: notesToAdd(answer) }, { kind: "new" });
@@ -162,6 +171,7 @@ export const assistantCommands: readonly Command[] = [
     label: "command.composer.focus",
     shortcut: { keys: "CmdOrCtrl+J" },
     group: "main",
+    top: 10,
     reversible: true,
     when: isThere,
     run: askOrEdit,
@@ -216,6 +226,20 @@ export const assistantCommands: readonly Command[] = [
     },
   },
   {
+    id: "answer.useAllDocuments",
+    label: "command.answer.useAll",
+    group: "main",
+    // Its new text is one change in the Mind it wrote, which that Mind's Undo takes back.
+    reversible: true,
+    when: isThere,
+    enabled: () =>
+      answerInFocus()?.steps?.writtenFrom ? true : { reason: "command.answer.useAll.unavailable" },
+    run: () => {
+      const answer = answerInFocus();
+      if (answer?.steps?.writtenFrom) void regenerateAnswer(answer.id, { clearScope: true });
+    },
+  },
+  {
     // The composer's Stop, which its send button is while an Answer is written.
     id: "answer.stop",
     label: "command.answer.stop",
@@ -231,11 +255,10 @@ export const assistantCommands: readonly Command[] = [
     id: "assistant.lastToNewMind",
     label: "assistant.lastToNewMind",
     group: "main",
-    // Undo deletes the Mind it made.
+    // Filling the empty Mind in front is one step of its Undo; a Mind it makes, Delete takes back.
     reversible: true,
     when: isThere,
-    enabled: () =>
-      keepable(lastAnswer()) ? true : { reason: "assistant.lastToNewMind.unavailable" },
+    enabled: noAnswer,
     run: lastToNewMind,
   },
   {

@@ -229,7 +229,23 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
     );
     expect(system).toMatch(/The User has added 1 Document /);
     // Short: it is sent with every Question.
-    expect(system.length).toBeLessThan(4200);
+    expect(system.length).toBeLessThan(5000);
+  });
+
+  // protects=what the model is sent tells it a cited sentence says only what its quote supports, with an inference in a sentence of its own; fails_when=the rule is left out of the answering prompt or loses its examples in either language; no_claim=whether a model follows it (eval/everyday).
+  test("the answering prompt says a cited sentence says only what its quote supports, and an inference goes in a sentence of its own", async () => {
+    const model = citingModel({ query: "tides", records: () => [], answer: "Twice a day." });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Tides.pdf", contents: TIDES },
+    ]);
+
+    await askAndFinish(core, client, mind.id, "How often are there high tides?");
+
+    const system = promptOf(model)[0]?.text ?? "";
+    expect(system).toContain("A sentence with a Citation says only what its quote supports.");
+    expect(system).toContain(
+      'in a sentence of its own with no marker, worded as a reading: "This suggests…" / "这意味着…"',
+    );
   });
 
   test("a marker with no record is removed, and a record naming no Passage is dropped: both are counted", async () => {
@@ -1077,7 +1093,7 @@ describe("Citations in the Mind", { timeout: 30_000 }, () => {
     await answerEnded(core, result.answerId);
 
     expect(promptOf(model, 0)[1]?.text).toBe(
-      "Spring tides come at full moon[Tides, p. 2].\n\nIs that right?",
+      "Spring tides come at full moon[Tides, p. 2 · C1].\n\nIs that right?",
     );
   });
 });

@@ -1,5 +1,8 @@
 import { type RefObject, useEffect } from "react";
 
+export const scrollsSideways = (frame: HTMLElement): boolean =>
+  frame.scrollWidth > frame.clientWidth;
+
 /**
  * A table wider than its frame (`.tableWrapper`) scrolls sideways in it:
  * each side that still has table beyond it is marked, and the styles fade it,
@@ -21,7 +24,7 @@ export function useTableFades(frame: RefObject<HTMLElement | null>, label: strin
         wrapper.toggleAttribute("data-more-before", start > 1);
         wrapper.toggleAttribute("data-more-after", end > 1);
         if (label === null) continue;
-        const scrolls = wrapper.scrollWidth > wrapper.clientWidth;
+        const scrolls = scrollsSideways(wrapper);
         const region = { tabindex: "0", role: "region", "aria-label": label };
         for (const [name, value] of Object.entries(region)) {
           if (scrolls) wrapper.setAttribute(name, value);

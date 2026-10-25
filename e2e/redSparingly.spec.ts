@@ -4,6 +4,7 @@ import { expect, type Locator, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
+  addProviderForm,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -71,11 +72,8 @@ test("a refused key and a variable with no name read in ink after the amber mark
     });
 
     const settings = await openSettings(window, "models");
-    await settings.getByTestId("chat-choice-api-key").check();
-    const form = settings.getByTestId("provider-form");
-    // The provider chips are labels around visually hidden radios.
-    await form.getByRole("radio", { name: "OpenAI", exact: true }).locator("xpath=..").click();
-    await form.getByLabel(/^API key/).fill("sk-wrong-key");
+    const form = await addProviderForm(settings, "openai");
+    await form.getByLabel(/^API key/).fill("sk-proj-wrong-key");
     await form.getByTestId("provider-use-key").click();
     const refused = form.getByTestId("connection-test");
     await expect(refused).toContainText("This key isn’t valid for OpenAI");

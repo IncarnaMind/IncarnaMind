@@ -9,6 +9,7 @@ import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import type { SpeechEngine, VoiceDetector } from "./speech";
 import { textOfResult, wordsOnly } from "./speechText";
+import { writtenNumbers } from "./spokenNumbers";
 
 /** Silero's window at 16 kHz: it reads audio 512 samples at a time. */
 const WINDOW = 512;
@@ -16,11 +17,80 @@ const WINDOW = 512;
 /** The engine id the model definitions use (./model). */
 export const QWEN3_ASR = "qwen3-asr";
 
+function hasDefault<T extends object>(loaded: T | { default: T }): loaded is { default: T } {
+  return "default" in loaded;
+}
+
+// A native `import()` of a CommonJS package, as the built process makes, has all its exports on
+// `default`: Node finds named ones only where it can read them off the file. A bundler's interop has both.
+const exportsOf = <T extends object>(loaded: T | { default: T }): T =>
+  hasDefault(loaded) ? loaded.default : loaded;
+
+// Loaded only when needed: the native runtime is large.
+export async function loadSherpa() {
+  return exportsOf(await import("sherpa-onnx-node"));
+}
+
+type Sherpa = Awaited<ReturnType<typeof loadSherpa>>;
+
+function sileroDetector(sherpa: Sherpa, vadFile: string): VoiceDetector {
+  const vad = new sherpa.Vad(
+    {
+      sileroVad: {
+        model: vadFile,
+        threshold: 0.5,
+        minSpeechDuration: 0.25,
+        minSilenceDuration: 0.5,
+        // Long speech is cut, so its final text never waits long.
+        maxSpeechDuration: 20,
+        windowSize: WINDOW,
+      },
+      sampleRate: MEETING_SAMPLE_RATE,
+      numThreads: 1,
+      debug: 0,
+    },
+    60,
+  );
+  let waiting = new Float32Array(0);
+  return {
+    accept(samples) {
+      const all = new Float32Array(waiting.length + samples.length);
+      all.set(waiting);
+      all.set(samples, waiting.length);
+      let at = 0;
+      for (; at + WINDOW <= all.length; at += WINDOW)
+        vad.acceptWaveform(all.subarray(at, at + WINDOW));
+      waiting = all.slice(at);
+    },
+    speaking: () => vad.isDetected(),
+    next() {
+      if (vad.isEmpty()) return null;
+      const segment = vad.front(false);
+      vad.pop();
+      return { start: segment.start, samples: segment.samples };
+    },
+    flush() {
+      if (waiting.length > 0) {
+        const padded = new Float32Array(WINDOW);
+        padded.set(waiting);
+        vad.acceptWaveform(padded);
+        waiting = new Float32Array(0);
+      }
+      vad.flush();
+    },
+  };
+}
+
+/** Silero VAD alone, for a cloud service that needs our own turns (OpenAI's live model, #141). */
+export async function createSileroDetectors(vadFile: string): Promise<() => VoiceDetector> {
+  const sherpa = await loadSherpa();
+  return () => sileroDetector(sherpa, vadFile);
+}
+
 export async function createSherpaEngine(model: TranscriptionModelFiles): Promise<SpeechEngine> {
   if (model.engine !== QWEN3_ASR)
     throw new Error(`Unknown speech-to-text engine "${model.engine}".`);
-  // Loaded only when needed: the native runtime is large.
-  const sherpa = await import("sherpa-onnx-node");
+  const sherpa = await loadSherpa();
   const { files } = model;
   const required = (name: string) => {
     const path = files[name];
@@ -44,53 +114,7 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
     },
   });
 
-  const detector = (): VoiceDetector => {
-    const vad = new sherpa.Vad(
-      {
-        sileroVad: {
-          model: model.vad,
-          threshold: 0.5,
-          minSpeechDuration: 0.25,
-          minSilenceDuration: 0.5,
-          // Long speech is cut, so its final text never waits long.
-          maxSpeechDuration: 20,
-          windowSize: WINDOW,
-        },
-        sampleRate: MEETING_SAMPLE_RATE,
-        numThreads: 1,
-        debug: 0,
-      },
-      60,
-    );
-    let waiting = new Float32Array(0);
-    return {
-      accept(samples) {
-        const all = new Float32Array(waiting.length + samples.length);
-        all.set(waiting);
-        all.set(samples, waiting.length);
-        let at = 0;
-        for (; at + WINDOW <= all.length; at += WINDOW)
-          vad.acceptWaveform(all.subarray(at, at + WINDOW));
-        waiting = all.slice(at);
-      },
-      speaking: () => vad.isDetected(),
-      next() {
-        if (vad.isEmpty()) return null;
-        const segment = vad.front(false);
-        vad.pop();
-        return { start: segment.start, samples: segment.samples };
-      },
-      flush() {
-        if (waiting.length > 0) {
-          const padded = new Float32Array(WINDOW);
-          padded.set(waiting);
-          vad.acceptWaveform(padded);
-          waiting = new Float32Array(0);
-        }
-        vad.flush();
-      },
-    };
-  };
+  const detector = () => sileroDetector(sherpa, model.vad);
 
   return {
     detector,
@@ -99,13 +123,14 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         const stream = recognizer.createStream();
         stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
         try {
-          return wordsOnly((await recognizer.decodeAsync(stream)).text);
+          return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
         } catch (error) {
           if (!(error instanceof SyntaxError)) throw error;
           // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
-          const loaded = await import("sherpa-onnx-node/addon.js");
-          const addon = "default" in loaded ? loaded.default : loaded;
-          return wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle)));
+          const addon = exportsOf(await import("sherpa-onnx-node/addon.js"));
+          return writtenNumbers(
+            wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
+          );
         }
       },
     },

@@ -143,6 +143,21 @@ export function descendants(node: XmlElement, name: string, into: XmlElement[] =
 }
 
 /**
+ * Each element's number among the elements of its name, in document order: the "4" of the
+ * place "w:p#4" that the Word import names the atoms it makes by, for readers that must name the same ones.
+ */
+export function ordinalsOf(root: XmlElement): Map<XmlElement, number> {
+  const counts = new Map<string, number>();
+  const ordinals = new Map<XmlElement, number>();
+  for (const element of walk(root)) {
+    const count = counts.get(element.name) ?? 0;
+    counts.set(element.name, count + 1);
+    ordinals.set(element, count);
+  }
+  return ordinals;
+}
+
+/**
  * Every element under a node, in document order, not going inside those
  * `inside` refuses. A stack, not recursion: a file can nest thousands deep (a
  * table in a cell of a table…).

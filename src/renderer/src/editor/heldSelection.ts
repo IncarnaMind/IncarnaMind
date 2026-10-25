@@ -49,8 +49,16 @@ export const HeldSelection = Extension.create({
   },
 });
 
-/** Whether the selection is drawn when the editor has no focus. */
-export function holdSelection(editor: Editor, held: boolean): void {
-  if (editor.isDestroyed || KEY.getState(editor.state) === held) return;
-  editor.view.dispatch(editor.state.tr.setMeta(KEY, held).setMeta("addToHistory", false));
+const holders = new WeakMap<Editor, Set<string>>();
+
+/** Whether `holder` needs the selection drawn when the editor has no focus; it is drawn while any holder does. */
+export function holdSelection(editor: Editor, held: boolean, holder = "composer"): void {
+  if (editor.isDestroyed) return;
+  const all = holders.get(editor) ?? new Set<string>();
+  holders.set(editor, all);
+  if (held) all.add(holder);
+  else all.delete(holder);
+  const drawn = all.size > 0;
+  if (KEY.getState(editor.state) === drawn) return;
+  editor.view.dispatch(editor.state.tr.setMeta(KEY, drawn).setMeta("addToHistory", false));
 }

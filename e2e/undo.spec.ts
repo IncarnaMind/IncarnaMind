@@ -17,6 +17,7 @@ import {
   newMind,
   openDocumentMenu,
   openDocumentTags,
+  openManageTags,
   pointAndClick,
   removeDataFolder,
   sidebarFolder,
@@ -334,12 +335,8 @@ test("Tags: renamed, recoloured, merged and deleted in Manage Tags, each back wi
     read(window, async (core) => (await core.listDocuments())[0]?.tags.map((link) => link.tagId));
   const dialog = window.getByTestId("tags-dialog");
   const row = (id: string) => dialog.locator(`[data-testid="tag-row"][data-tag-id="${id}"]`);
-  // Manage Tags, from the sidebar's Tags menu.
-  const manage = async () => {
-    await pointAndClick(window, window.getByTestId("tag-filter-menu"));
-    await pointAndClick(window, window.getByTestId("manage-tags"));
-    await expect(dialog).toBeVisible();
-  };
+  // Manage Tags, from ⌘K.
+  const manage = () => openManageTags(window);
   const done = async () => {
     await pointAndClick(window, dialog.getByRole("button", { name: "Done" }));
     await expect(dialog).toBeHidden();

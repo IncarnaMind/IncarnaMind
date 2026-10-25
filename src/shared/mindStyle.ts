@@ -8,6 +8,9 @@ import type * as Y from "yjs";
 import { isRecord } from "../core/errors";
 import { fontKind } from "./fontKinds";
 
+/** Word's single line spacing for common fonts: a line is this many times the text's size. */
+export const SINGLE_LINE = 1.15;
+
 export const FONT_PRESETS = ["default", "serif", "mono"] as const;
 export type FontPreset = (typeof FONT_PRESETS)[number];
 
@@ -17,15 +20,27 @@ export type MindFont = FontPreset | { family: string };
 export const TEXT_SIZES = ["small", "default", "large"] as const;
 export type TextSize = (typeof TEXT_SIZES)[number];
 
+/**
+ * A Mind's line spacing: its text size's own leading ("default"), or a multiple of a single
+ * line, as a paragraph's line spacing is (`SINGLE_LINE`).
+ */
+export type LineSpacing = "default" | number;
+
+export const LEAST_LINE_SPACING = 0.5;
+export const MOST_LINE_SPACING = 5;
+
 export interface MindStyle {
   font: MindFont;
   size: TextSize;
+  /** Left out: "default", as a style kept before Minds had a line spacing. */
+  lineSpacing?: LineSpacing;
 }
 
 export const DEFAULT_MIND_STYLE: MindStyle = { font: "default", size: "default" };
 
 const FONT_KEY = "font";
 const SIZE_KEY = "textSize";
+const LINE_SPACING_KEY = "lineSpacing";
 const MAX_FAMILY_LENGTH = 200;
 
 const hasControlCharacter = (text: string) =>
@@ -46,6 +61,12 @@ export const isFontPreset = (value: unknown): value is FontPreset =>
 export const isTextSize = (value: unknown): value is TextSize =>
   TEXT_SIZES.some((size) => size === value);
 
+export const isLineSpacing = (value: unknown): value is LineSpacing =>
+  value === "default" ||
+  (typeof value === "number" && value >= LEAST_LINE_SPACING && value <= MOST_LINE_SPACING);
+
+export const lineSpacingOf = (style: MindStyle): LineSpacing => style.lineSpacing ?? "default";
+
 export function isMindFont(value: unknown): value is MindFont {
   if (isFontPreset(value)) return true;
   if (!isRecord(value)) return false;
@@ -55,8 +76,13 @@ export function isMindFont(value: unknown): value is MindFont {
 
 export function isMindStyle(value: unknown): value is MindStyle {
   if (!isRecord(value)) return false;
-  const { font, size, ...rest } = value;
-  return Object.keys(rest).length === 0 && isMindFont(font) && isTextSize(size);
+  const { font, size, lineSpacing, ...rest } = value;
+  return (
+    Object.keys(rest).length === 0 &&
+    isMindFont(font) &&
+    isTextSize(size) &&
+    (lineSpacing === undefined || isLineSpacing(lineSpacing))
+  );
 }
 
 export const familyOf = (font: MindFont): string | null =>
@@ -66,15 +92,17 @@ export const sameFont = (a: MindFont, b: MindFont): boolean =>
   typeof a === "string" || typeof b === "string" ? a === b : a.family === b.family;
 
 export const sameStyle = (a: MindStyle, b: MindStyle): boolean =>
-  a.size === b.size && sameFont(a.font, b.font);
+  a.size === b.size && sameFont(a.font, b.font) && lineSpacingOf(a) === lineSpacingOf(b);
 
 /** The style a Mind is in; anything malformed counts as no choice. */
 export function mindStyleOf(settings: Y.Map<unknown>): MindStyle {
   const font = settings.get(FONT_KEY);
   const size = settings.get(SIZE_KEY);
+  const lineSpacing = settings.get(LINE_SPACING_KEY);
   return {
     font: isMindFont(font) ? font : DEFAULT_MIND_STYLE.font,
     size: isTextSize(size) ? size : DEFAULT_MIND_STYLE.size,
+    ...(typeof lineSpacing === "number" && isLineSpacing(lineSpacing) && { lineSpacing }),
   };
 }
 
@@ -89,6 +117,12 @@ export function writeMindStyle(settings: Y.Map<unknown>, style: MindStyle): void
     if (settings.has(SIZE_KEY)) settings.delete(SIZE_KEY);
   } else if (settings.get(SIZE_KEY) !== style.size) {
     settings.set(SIZE_KEY, style.size);
+  }
+  const lineSpacing = lineSpacingOf(style);
+  if (lineSpacing === "default") {
+    if (settings.has(LINE_SPACING_KEY)) settings.delete(LINE_SPACING_KEY);
+  } else if (settings.get(LINE_SPACING_KEY) !== lineSpacing) {
+    settings.set(LINE_SPACING_KEY, lineSpacing);
   }
 }
 
@@ -171,9 +205,13 @@ export function fontFamilyList(font: MindFont, installed: boolean): string {
 export function writingType(style: MindStyle, installed: boolean): WritingType {
   const factor = SCALE[style.size];
   const body = BODY[style.font === "serif" ? "serif" : "other"][style.size];
+  const lineSpacing = lineSpacingOf(style);
   return {
     family: fontFamilyList(style.font, installed),
-    body,
+    body:
+      lineSpacing === "default"
+        ? body
+        : { size: body.size, leading: Math.round(body.size * SINGLE_LINE * lineSpacing) },
     heading: scaled(HEADING, factor),
     display: scaled(DISPLAY, factor),
     note: { size: body.size - NOTE_STEP.size, leading: body.leading - NOTE_STEP.leading },
@@ -187,6 +225,8 @@ export function writingType(style: MindStyle, installed: boolean): WritingType {
 export function writingProperties(type: WritingType): Record<`--${string}`, string> {
   return {
     "--writing-font": type.family,
+    // A point of the User's formatting, in proportion to the writing: Word export writes its body text at 11 pt.
+    "--word-pt": `${type.body.size / 11}px`,
     "--text-body": `${type.body.size}px`,
     "--text-body--line-height": `${type.body.leading}px`,
     "--text-heading": `${type.heading.size}px`,

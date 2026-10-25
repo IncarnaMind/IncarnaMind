@@ -3,9 +3,10 @@
  * User's Documents.
  *
  * 1. `verifyDocument` adds the PDF to the Library, or finds it there, waits
- *    until its text is read, and makes a Mind of it: a paragraph to a Block,
- *    each Block's page recorded, all of it third-party text (#78). The Mind's
- *    settings say which Document it verifies (src/shared/verification.ts).
+ *    until its text is read, and makes a Mind of it: its paragraphs, and its
+ *    tables as tables (#1368), with each Block's page and each table row's,
+ *    all of it third-party text (#78). The Mind's settings say which
+ *    Document it verifies (src/shared/verification.ts).
  * 2. `findClaims` has the model name its sentences that make claims (./claims)
  *    and records them there.
  * 3. `verifyClaims` checks each claim as Check against Documents does, with
@@ -18,7 +19,7 @@
  * One verify run, finding or checking, goes at a time.
  */
 import { randomUUID } from "node:crypto";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import {
@@ -29,6 +30,7 @@ import {
 import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
+  type CheckSentencesResult,
   type ClaimCheckAttributes,
   type ClaimCheckResult,
   type Document,
@@ -38,11 +40,13 @@ import {
   MIND_SETTINGS_FIELD,
   type Mind,
   type RecordAiUseInput,
+  type ScannedText,
   type SearchScope,
   type UnreadFile,
   type VerifyClaimsResult,
   type VerifyDocumentResult,
 } from "../../api";
+import type { PagePart } from "../../documents/extract";
 import { parseModel } from "../../edits";
 import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
 import type { MindContent } from "../../mindContent";
@@ -50,10 +54,10 @@ import { parseFolderChoice, parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { createElement } from "../blocks";
 import type { ClaimCheckRequest } from "./claimCheck";
-import { paragraphsOf } from "./claims";
 import { claimsAmong } from "./findClaims";
 import { runChecks } from "./runChecks";
-import { everySentence, markSentence } from "./sentences";
+import { everySentence, markSentence, type SelectedSentence } from "./sentences";
+import { documentBlocks, tableClaim } from "./verifyTables";
 
 /** A Document whose text is read: its Passages can be searched and its pages read. */
 const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "ready"];
@@ -78,15 +82,13 @@ export interface VerifyOptions {
   document(documentId: string): Document;
   onStatus(listener: (document: Document) => void): () => void;
   readText(documentId: string): DocumentText;
+  /** A PDF's text-layer pages that hold a table, laid out (#1368); none when it can't be read again. */
+  readTables(documentId: string): Promise<ReadonlyMap<number, PagePart[]>>;
+  readScanned(documentId: string): ScannedText;
   createMind(title: string, folderId: string | null): Mind;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
-  /** Where the Mind's claims are checked: no Documents, or how many, and the scope. */
-  evidenceScope(
-    mindId: string,
-    allDocuments: boolean,
-    verification: Verification,
-  ): { searchable: number; folderId: string | null; check: CheckScope };
+  evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult(
     check: ClaimCheckAttributes,
@@ -114,6 +116,17 @@ export interface CheckScope {
   wanted: SearchScope | null;
 }
 
+export type NoDocuments = Extract<CheckSentencesResult, { kind: "no-documents" }>;
+
+/** Where a Mind's claims are checked: how many Documents there, and the scope. */
+export interface MindCheckScope {
+  searchable: number;
+  folderId: string | null;
+  /** What a check gives back when there are none; null while there are. */
+  empty: NoDocuments | null;
+  check: CheckScope;
+}
+
 function parseRequest(input: unknown) {
   if (!isRecord(input)) throw new InvalidInputError({ key: "error.verify.request" });
   const { requestId } = input;
@@ -126,6 +139,12 @@ function parseRequest(input: unknown) {
     allDocuments: input.allDocuments === true,
     model: parseModel(input.model),
   };
+}
+
+function claimOf(sentence: SelectedSentence): { claim: string; context: string } | undefined {
+  const row = tableClaim(sentence);
+  if (row === "not-a-claim") return undefined;
+  return row ?? { claim: sentence.text, context: sentence.context };
 }
 
 export function createVerify(options: VerifyOptions) {
@@ -186,25 +205,31 @@ export function createVerify(options: VerifyOptions) {
     signal: AbortSignal,
   ): Promise<FindClaimsResult> {
     const verification = verificationOf(mindId);
-    const { searchable, folderId } = options.evidenceScope(mindId, false, verification);
-    if (searchable === 0) return { kind: "no-documents", folderId };
+    const { empty } = options.evidenceScope(mindId, false, verification);
+    if (empty) return empty;
     const ready = await options.prepare(model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
 
     const sentences = content.read(mindId, (blocks) =>
-      everySentence(blocks)
-        .filter((each) => each.blockId in verification.pages && isClaim(each.text))
-        .map(({ blockId, text }) => ({ blockId, text })),
+      everySentence(blocks).flatMap((sentence) => {
+        if (!(sentence.blockId in verification.pages)) return [];
+        const said = claimOf(sentence)?.claim;
+        return said !== undefined && isClaim(said)
+          ? [{ blockId: sentence.blockId, text: sentence.text, said }]
+          : [];
+      }),
     );
     const found = await claimsAmong(
       ready.prepared,
-      sentences.map((each) => each.text),
+      sentences.map((each) => each.said),
       "someone-else",
       signal,
     );
     if (found.kind !== "found") return found;
-    const claims = sentences.filter((_, index) => found.claims.has(index));
+    const claims = sentences
+      .filter((_, index) => found.claims.has(index))
+      .map(({ blockId, text }) => ({ blockId, text }));
     content.edit(mindId, (blocks) => {
       const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
       const now = settings && readVerification(settings);
@@ -220,12 +245,8 @@ export function createVerify(options: VerifyOptions) {
     const { mindId, requestId } = input;
     const verification = verificationOf(mindId);
     if (!verification.claims || verification.claims.length === 0) return { kind: "nothing" };
-    const { searchable, folderId, check } = options.evidenceScope(
-      mindId,
-      input.allDocuments,
-      verification,
-    );
-    if (searchable === 0) return { kind: "no-documents", folderId };
+    const { empty, check } = options.evidenceScope(mindId, input.allDocuments, verification);
+    if (empty) return empty;
     const ready = await options.prepare(input.model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
@@ -252,6 +273,7 @@ export function createVerify(options: VerifyOptions) {
           text: sentence.text,
           evidence: null,
           says: null,
+          unsupported: null,
           calculation: null,
           citedCaseUnchecked: false,
           citedCaseFound: false,
@@ -261,7 +283,8 @@ export function createVerify(options: VerifyOptions) {
           checkedAt: startedAt,
         };
         markSentence(sentence.element, sentence.from, sentence.to, marked);
-        return [{ id: marked.id, claim: sentence.text, context: sentence.context }];
+        const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
+        return [{ id: marked.id, ...said }];
       });
       if (marked.length > 0) options.recordUnread(blocks, requestId, unread);
       return marked;
@@ -300,27 +323,35 @@ export function createVerify(options: VerifyOptions) {
         return { ok: false, reason: now.status === "no-text" ? "no-text" : "unreadable" };
       }
       const text = options.readText(document.id);
-      const paragraphs = paragraphsOf(text.pages);
-      if (paragraphs.length === 0) return { ok: false, reason: "no-text" };
+      const found = documentBlocks(
+        text.pages,
+        await options.readTables(document.id),
+        options.readScanned(document.id).pages,
+      );
+      if (found.length === 0) return { ok: false, reason: "no-text" };
 
       const { name } = options.document(document.id);
       const mind = options.createMind(name, folderId);
       content.edit(mind.id, (blocks) => {
         const doc = blocks.doc;
         if (!doc) return;
-        const elements = paragraphs.map(({ text, heading }) =>
-          createElement({
-            type: heading ? "heading" : "paragraph",
-            ...(heading && { attrs: { level: 2 } }),
-            content: [{ type: "text", text }],
-          }),
-        );
+        const elements = found.map(({ node }) => createElement(node));
         blocks.insert(0, elements);
         const pages: Record<string, number> = {};
+        const record = (element: Y.XmlElement, page: number | undefined) => {
+          if (page === undefined) return;
+          for (const each of [element, ...element.createTreeWalker(() => true)]) {
+            const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+            if (typeof id === "string") pages[id] = page;
+          }
+        };
         elements.forEach((element, index) => {
-          const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
-          const page = paragraphs[index]?.page;
-          if (typeof id === "string" && page !== undefined) pages[id] = page;
+          const shown = found[index]?.pages ?? [];
+          record(element, shown[0]);
+          // A table over two pages: each row's cells have the page the row is on.
+          element.toArray().forEach((row, at) => {
+            if (row instanceof Y.XmlElement) record(row, shown[at]);
+          });
         });
         setTextOrigin(doc, Object.keys(pages), "checked-document");
         writeVerification(doc.getMap(MIND_SETTINGS_FIELD), {

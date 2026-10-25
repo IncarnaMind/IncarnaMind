@@ -325,7 +325,7 @@ test("⌃⌘N on a selected row does the same for the whole selection, in the si
   }
 });
 
-test("a sidebar selection of Documents and a Mind makes one Folder with all of them by the right-click menu; one ⌘Z puts each back", async () => {
+test("a sidebar selection of Documents makes one Folder with all of them by the right-click menu, one ⌘Z puts each back; with a Mind in it, the menu is Move to… and Delete", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 700);
@@ -342,33 +342,48 @@ test("a sidebar selection of Documents and a Mind makes one Folder with all of t
     const mind = sidebar.getByTestId("mind-row").filter({ hasText: "Plan" });
     await pointAndClick(window, documentRow("Alpha"));
     await pointAndClick(window, documentRow("Beta"), { modifiers: ["ControlOrMeta"] });
-    await pointAndClick(window, mind.getByTestId("mind-list-item"), {
-      modifiers: ["ControlOrMeta"],
-    });
-    await expect(window.getByTestId("sidebar-selection")).toContainText("3 selected");
+    await expect(window.getByTestId("sidebar-selection")).toContainText("2 selected");
 
-    // A selected row's menu is for the selection, whatever kinds are in it.
+    // A selected row's menu is for the selection.
     await pointAndClick(window, documentRow("Beta"), { button: "right" });
     const entry = window.getByTestId("folder.newWith");
-    await expect(entry).toHaveText(/New Folder with 3 items/);
+    await expect(entry).toHaveText(/New Folder with 2 Documents/);
     await pointAndClick(window, entry);
     await expect(nameField(window)).toBeFocused();
-    await window.keyboard.type("Mixed");
+    await window.keyboard.type("Pair");
     await window.keyboard.press("Enter");
-    await expect(sidebarFolder(window, "Mixed")).toHaveAttribute("data-count", "2");
-    await expect(sidebarFolder(window, "Mixed")).toHaveAttribute("data-minds", "1");
-    expect(await filedIn(window, ["Alpha", "Beta", "Gamma"])).toEqual(["Mixed", "Mixed", null]);
-    await expect(undoMessage(window)).toHaveText("Made “Mixed” with 3 items");
+    await expect(sidebarFolder(window, "Pair")).toHaveAttribute("data-count", "2");
+    await expect(sidebarFolder(window, "Pair")).toHaveAttribute("data-minds", "0");
+    expect(await filedIn(window, ["Alpha", "Beta", "Gamma"])).toEqual(["Pair", "Pair", null]);
+    await expect(undoMessage(window)).toHaveText("Made “Pair” with 2 Documents");
     // The selection is spent once its items are in the Folder.
     await expect(window.getByTestId("sidebar-selection")).toHaveText("");
 
     await window.keyboard.press("ControlOrMeta+z");
-    await expect(sidebarFolder(window, "Mixed")).toHaveCount(0);
+    await expect(sidebarFolder(window, "Pair")).toHaveCount(0);
     expect(await filedIn(window, ["Alpha", "Beta", "Gamma"])).toEqual([null, null, null]);
     const mindFolders = await (await coreOf(window)).evaluate(async (core) =>
       (await core.listMinds()).map((each) => each.folderId),
     );
     expect(mindFolders).toEqual([null]);
+
+    // With a Mind in the selection too, its kinds mixed, the menu holds Move to… and Delete only.
+    await pointAndClick(window, documentRow("Alpha"));
+    await pointAndClick(window, documentRow("Beta"), { modifiers: ["ControlOrMeta"] });
+    await pointAndClick(window, mind.getByTestId("mind-list-item"), {
+      modifiers: ["ControlOrMeta"],
+    });
+    await expect(window.getByTestId("sidebar-selection")).toContainText("3 selected");
+    await pointAndClick(window, documentRow("Beta"), { button: "right" });
+    await expect(
+      sidebar
+        .getByTestId("document-list-item")
+        .filter({ hasText: "Beta" })
+        .getByTestId("document-file-actions")
+        .getByRole("menuitem"),
+    ).toHaveText([/^Move 3 items to…/, /^Delete 3 items/]);
+    await window.keyboard.press("Escape");
+    await window.keyboard.press("Escape");
 
     // An unselected row's menu is for that row alone.
     await pointAndClick(window, documentRow("Gamma"), { button: "right" });
@@ -458,7 +473,7 @@ test("in Chinese: “未命名文件夹”, a name typed through an input method
   }
 });
 
-test("with the sidebar hidden, or showing Tags, the name is still typed in the Folder's row", async () => {
+test("with the sidebar hidden, the name is still typed in the Folder's row", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 700);
@@ -470,8 +485,7 @@ test("with the sidebar hidden, or showing Tags, the name is still typed in the F
     await addDocuments(window, await writeTexts("Tide notes"));
     const field = nameField(window);
 
-    // The Tags view has no Folder rows: it gives way to Folders.
-    await window.getByTestId("browse-views").getByRole("button", { name: "Tags" }).click();
+    // ⇧⌘N from anywhere in the window.
     await window.keyboard.press("ControlOrMeta+Shift+n");
     await expect(field).toBeFocused();
     await window.keyboard.type("Reading");

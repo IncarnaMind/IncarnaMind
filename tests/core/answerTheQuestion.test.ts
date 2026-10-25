@@ -8,7 +8,7 @@ import type { Language } from "../../src/core/language";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
-import { promptOf, scriptedModel } from "../helpers/models";
+import { type ModelCall, promptOf, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { paragraph, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
 
@@ -86,14 +86,17 @@ function sentSince(model: MockLanguageModelV4, seen: number) {
   };
 }
 
-async function setUp(language: Language) {
+async function setUp(language: Language, script?: (call: ModelCall, walk: Walk) => ScriptedReply) {
   const walk = WALKS[language];
   const ready = EXAMPLE_SETS.credit[language].ready;
   if (!ready) throw new Error("The credit example has no ready Question.");
   // Reads the example's Question in what it is sent, and goes back to it.
-  const model = scriptedModel((call) => ({
-    text: call.prompt.includes(ready.question) ? walk.reconciled : walk.plain,
-  }));
+  const model = scriptedModel(
+    (call) =>
+      script?.(call, walk) ?? {
+        text: call.prompt.includes(ready.question) ? walk.reconciled : walk.plain,
+      },
+  );
   const core = startCore(await createTempDataFolder(), {
     paths: { dataDir: await createTempDataFolder(), examples: EXAMPLES },
     systemLanguages: () => [walk.system],
@@ -196,6 +199,39 @@ for (const language of ["en", "zh-CN"] as const) {
         text: ready.answer,
         steps: expect.objectContaining({ example: true }),
       });
+    });
+
+    // protects=asked from the example's own Mind about the User's own Document, the model is told the page and its Documents are the example's, so a model that would contrast them says nothing of the example; from another Mind it isn't told; fails_when=the note is missing, names other Documents, or goes with a Question from another Mind; no_claim=how a real model follows it (eval/everyday).
+    test("asked from the example's own Mind about the User's own file, the Answer says nothing of the example", async () => {
+      const contrasted =
+        language === "en" ? "It has nothing to do with Northwind." : "这与 Northwind 无关。";
+      const { walk, core, model, made, conversationId } = await setUp(language, (call, walk) => ({
+        text: call.system.includes("is an example IncarnaMind made") ? walk.plain : contrasted,
+      }));
+      if (!made?.mindId) throw new Error("The example Mind wasn't made.");
+      const sources = await createSourceFolder();
+      await addAndProcess(
+        core,
+        await Promise.all(walk.own.map((file) => writeSourceFile(sources, file.name, file.text))),
+      );
+
+      const inExample = await askFrom(core, model, conversationId, made.mindId, walk.ownQuestion);
+
+      expect(inExample.answer.text).toBe(walk.plain);
+      const exampleDocuments = [
+        ...new Set(EXAMPLE_SETS.credit[language].quotes.map((quote) => quote.document)),
+      ];
+      for (const instructions of inExample.instructions) {
+        for (const name of exampleDocuments) expect(instructions).toContain(`"${name}"`);
+        for (const file of walk.own) {
+          expect(instructions).not.toContain(`"${file.name.replace(/\.md$/, "")}"`);
+        }
+      }
+      const ownMind = await core.createMind({ title: "My flat" });
+      const elsewhere = await askFrom(core, model, conversationId, ownMind.id, walk.ownQuestion);
+      for (const instructions of elsewhere.instructions) {
+        expect(instructions).not.toContain("is an example IncarnaMind made");
+      }
     });
 
     // protects=asked from the example's own Mind, a Question still follows the example's Question and Answer, so "where is that?" can be answered; fails_when=the example's turn is left out where it was asked; no_claim=none beyond protects.

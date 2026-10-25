@@ -31,7 +31,7 @@ Delete this section if the change has no UI. Otherwise check each line against [
 - [ ] Adds nothing to first run or onboarding; a tip, if any, appears once at the moment it helps and goes away for good
 - [ ] Tested like a person in the built app, with the mouse and the keyboard
 - [ ] Before and after screenshots attached (narrow and wide)
-- [ ] A screenshot of the built screen beside its design board, with every difference listed and explained
+- [ ] A short recording of the flow in the built app beside the same flow in the prototype, with the mouse and the keyboard, with every difference in behaviour or looks listed and explained
 
 ## Sign-off
 

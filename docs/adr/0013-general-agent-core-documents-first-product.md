@@ -58,10 +58,11 @@ The owner asked why we write our own harness rather than use Claude Code's, Code
 - We start it in its most restrictive mode, and never in one that skips permissions.
 - Its own Tools are outside our Effects, and we say so in its consent.
 
-**Vendor terms decide which agents.**
-- We never show a vendor's sign-in, read its tokens, or bundle its proprietary binary.
+**Which agents.**
+- We never bundle an agent's proprietary binary.
 - Codex, Goose, OpenCode, and Gemini CLI on a paid key are hosted first.
-- Claude is not hosted for now. Claude Code and Claude Desktop connect through the MCP server above, on the User's own sign-in. Hosting it can be reconsidered if Anthropic confirms subscription use in a third-party app.
+- Claude Code and Claude Desktop connect through the MCP server above, on the User's own sign-in. The User's own Claude Code can also run on their Claude plan, as an opt-in (#385).
+- Signing in with a Claude or GitHub Copilot plan is an experimental sign-in route (ADR-0019): off until the User signs in, never preselected. With either plan, the setup and Settings say that Answers count toward the plan's usage limits.
 
 **Considered options.**
 - **Run the User's harness as our engine.** Rejected for the reasons above.
@@ -100,3 +101,40 @@ Web search gives an Answer two Tools of IncarnaMind's own, offered only when the
 ## Amendment, 2026-10-16: edits the User asked for apply at once (#880)
 
 An edit the User asks for applies at once, with one Undo and a line over it saying what changed: one started on the text (Edit with AI, the selection menu's AI actions), and one asked of the assistant to write into a Mind or change it, whose requests `routeRequest` tags. Changes the User didn't ask for stay Proposals, and so does what the guards hold back: an edit that would remove most of the selection without mapping onto it, or an assistant change that would take out most of the User's own text. The core still writes every AI change as Proposals; the window that asked accepts them, and they stay Proposals otherwise.
+
+## Amendment, 2026-10-21: the model decides, and the assistant's changes apply at once (#1559)
+
+The 2026-10-16 amendment's tagging by `routeRequest` is gone: keywords couldn't cover how Users ask ("帮我总结一下这个知识库" fell through), and requests it left unclear were answered in the panel. Every turn in the assistant now has the Minds' Tools, and the model decides by one rule in its instructions: a piece of writing goes into the empty Mind in front or a new Mind, a change to the User's text is made in place, and a question is answered in the reply.
+
+- **Every change the assistant makes applies at once,** in every Mind it touches, with one Undo, and the Answer's line says so. A change in a second Mind no longer waits. The guard still holds back an assistant change that would take out most of the User's own text, and a rewrite over words the User typed since. The core still writes them as Proposals, tagged by what they are (written or edited); the window that asked accepts them.
+- **A claim needs its command.** A reply that says it wrote or changed something no call did, or names a fix or a count its edits didn't make, is asked about once, with the record of what the calls did, where a change that applies at once reads as applied. If it still claims it, the reply stays, with a line under it that says nothing was written, or that not every change it describes was made, and Try again.
+
+## Amendment, 2026-10-18: model-written code in a sandbox runs without asking (ADR-0023)
+
+Code a model writes for an analysis runs in Pyodide, in a hidden, sandboxed renderer with no network, no Node and no files (ADR-0023). That is a new Effect scope, **sandboxed code**, which runs without asking. It needs no ask because its only inputs are values cited from the Documents, which reading already does without asking, and it can neither write a file nor send anything. The OS sandbox's levels above stay as they are for the processes a Tool starts; this sandbox is Chromium's, and runs on Windows too.
+
+## Amendment, 2026-10-18: the assistant runs the app's commands (#1110)
+
+The assistant can do what the User does with the app's commands. A **Commands** Tool provider gives an Answer in the assistant two Tools: `list_commands` finds the Documents or Minds a command would act on, and `run_command` runs one command on what it found, by id. It matches exactly, by words in a name, a Tag or a Folder, never by meaning. A command added later needs its mark, its check and run in the core, and a line in the Tool's description, but no new Tool.
+
+- **Only commands marked for the assistant run.** The table is `ASSISTANT_COMMANDS`, keyed by the command list's ids. Adding files has its own entry, `documents.addFromFolder`: it reads the folder named and always asks, unlike the Add Documents command, which opens the system's file picker and is never the assistant's. An unmarked command is refused before anything runs.
+  - The marked ones rename, move to a Folder, tag, delete to Recently deleted, export a Mind, and add files from a folder.
+  - None changes consent, Local mode, keys, sign-ins, approval policies, Privacy or usage data, or deletes for good.
+  - A test pins the table and what each entry does.
+- **The core runs them**, through its own public interface, as the window's clicks do. The renderer's command list stays the window's.
+- **Whether a call asks is decided in one place**, from what the command's entry says it does and what checking the call found, never by the command's own code.
+  - **A change inside the Library runs at once.** This holds even after the Run read Passages or third-party text, and so departs from #78's rule that new side-effecting Tools ask unless a scope grant covers them: the Library is now that grant. Each Run's changes are one step of Undo for the session. That step goes on the stack as the Run's first change lands, and back on top as each later one lands, so ⌘Z takes back what just landed first.
+  - **Except these, which ask:**
+    - **Every delete the assistant starts**, whatever the Run read, since a web page's title or a Document's text could ask for it. One card lists what would go, each by the name the User knew, with what the Conversation's commands renamed it, and "and 10 more" past the 50 it names. It offers Delete and Don't delete. It is the one exception to Undo instead of confirmations, and only for the assistant's deletes: the User's own still happen at once, with Undo.
+    - **A change that would take one Answer past 20 changes**, counted across all its calls, renames included. Calls are checked one at a time. Once the User allows one, the count starts again.
+  - **Export into the Output location itself runs at once.** The Output location is a new scope, the folder the User chose for new files. A folder inside it may be one a sync service shares, so it asks, as any other folder does.
+  - **Reading a folder's files always asks.** The ask lists the files right in that folder, of the kinds asked for, and reads nothing a link leads to outside it.
+  - **An ask offers only Allow or Don't allow** (Delete or Don't delete for a delete). It never offers "always", and no stored policy applies to a command.
+  - **An ask says when its Run had read text the User didn't write**: Passages, a Connector's reply, a web page, or a saved web page's title among the names it was given. This helps the User judge the request, but doesn't change what asks.
+  - None of the marked commands sends anything off the computer. A later one that does asks the same way.
+- **Undo is all or nothing per change, and leaves the User's own things alone.**
+  - A command that fails part way takes back what it did. A Folder or Tag it made for that change is removed for good, so it never waits in Recently deleted.
+  - An Undo that can't take back one change takes back the rest, says which failed and what it kept, and takes back what is left when tried again. Once a try again takes back nothing more, it stops offering one, so ⌘Z reaches older changes. Redo then makes it all again.
+  - Undo leaves a Folder or Tag the Run made in place, and says so, when the User has put their own things in it since: Documents, Minds or conversations.
+- **Reported from results.** The card under the reply says only what each `run_command` call returned, including the failed and the denied ones.
+- **Not for every Run.** Check Runs and outside agents aren't offered them.

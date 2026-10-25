@@ -21,6 +21,7 @@
 import { type AnimationOptions, type AnimationPlaybackControlsWithThen, animate } from "motion";
 import { type RefObject, useLayoutEffect, useRef } from "react";
 import type { MotionPreference } from "../../core/api";
+import { typesText } from "./undo";
 
 // Tokens (DESIGN.md, Motion, Tokens) ------------------------------------------
 
@@ -134,6 +135,23 @@ function between(from: Pose, to: Pose): Keyframes {
 }
 
 const tween = (token: FadeToken, delay = 0) => ({ ...token, delay });
+
+/**
+ * A live dot's breath: its opacity eases down to 0.45 and back, 1.6 s a round, for as long as it
+ * lives. Reduced keeps it, as DESIGN.md has it; Off stills it.
+ */
+export function planBreathe(mode: MotionMode): Plan | null {
+  if (mode === "off") return null;
+  return {
+    keyframes: { opacity: [1, 0.45] },
+    transition: {
+      duration: 0.8,
+      ease: "easeInOut",
+      repeat: Number.POSITIVE_INFINITY,
+      repeatType: "reverse",
+    },
+  };
+}
 
 /**
  * Entering from an offset: On, a spring there with the opacity fading in;
@@ -329,6 +347,7 @@ function update(): void {
 /** Follows the system's Reduce motion, and says the mode on <html data-motion> for styles.css. */
 export function installMotion(): void {
   window.matchMedia(REDUCE_QUERY).addEventListener("change", update);
+  document.addEventListener("focusout", discardRetired);
   update();
 }
 
@@ -554,6 +573,43 @@ function copyOf(element: HTMLElement, box: Box): HTMLElement {
   return frame;
 }
 
+/** Finished copies still on the page because the User is typing: see `retire`. Oldest first. */
+const retiring = new Set<HTMLElement>();
+/** More than this many and the oldest go at once: a long stay in one field mustn't pile them up. */
+const MOST_RETIRING = 16;
+
+function discard(copy: HTMLElement): void {
+  copy.remove();
+  if (layer && !layer.root.childElementCount && layer.host.matches(":popover-open")) {
+    layer.host.hidePopover();
+  }
+}
+
+/**
+ * Takes a finished leaving copy off the page. Chromium ends the run of typing that Undo takes back
+ * as one whenever a node leaves the page, any node (FrameSelection::NodeWillBeRemoved), so while the
+ * User is in a field that takes text the copy only hides, and goes once the focus has left it (#1140).
+ */
+function retire(copy: HTMLElement): void {
+  if (!typesText(document.activeElement)) {
+    discard(copy);
+    return;
+  }
+  copy.style.display = "none";
+  retiring.add(copy);
+  for (const oldest of retiring) {
+    if (retiring.size <= MOST_RETIRING) break;
+    retiring.delete(oldest);
+    discard(oldest);
+  }
+}
+
+function discardRetired(event: FocusEvent): void {
+  if (typesText(event.relatedTarget)) return;
+  for (const copy of retiring) discard(copy);
+  retiring.clear();
+}
+
 /**
  * Takes a copy of `element` as it shows now, to leave toward `to`, or
  * (`source`) toward what it came from; returns what plays it, or null when
@@ -600,12 +656,7 @@ function leaving(
         return;
       }
       copy.firstElementChild?.scrollTo({ top: scrollTop });
-      run(copy, plan, toward?.origin ?? how.origin, () => {
-        copy.remove();
-        if (layer && !layer.root.childElementCount && layer.host.matches(":popover-open")) {
-          layer.host.hidePopover();
-        }
-      });
+      run(copy, plan, toward?.origin ?? how.origin, () => retire(copy));
     });
   };
 }
@@ -681,10 +732,12 @@ export function useExitToward(
 /**
  * Fades in when the component holding `ref` shows, and out when it goes, in
  * place (DESIGN.md: status lines and the undo line). A new one shown as the old
- * one goes cross-fades with it.
+ * one goes cross-fades with it. `on` off: what it holds fades instead, and it
+ * stays as it is.
  */
-export function useFade(ref: RefObject<HTMLElement | null>): void {
+export function useFade(ref: RefObject<HTMLElement | null>, on = true): void {
   useLayoutEffect(() => {
+    if (!on) return;
     const element = ref.current;
     if (element) enter(element, {});
     return () => {
@@ -693,7 +746,43 @@ export function useFade(ref: RefObject<HTMLElement | null>): void {
       // Only once it's gone: React runs effects twice in development, and the element stays.
       if (play) queueMicrotask(() => element.isConnected || play());
     };
-  }, [ref]);
+  }, [ref, on]);
+}
+
+/**
+ * Makes the element of `ref` breathe while `active`: a live dot. It never settles, so it isn't
+ * among the animations the tests wait for (`motionRunning`).
+ */
+export function useBreathing(ref: RefObject<Element | null>, active: boolean): void {
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!active || !element) return;
+    let controls: AnimationPlaybackControlsWithThen | null = null;
+    const rest = () => {
+      controls?.stop();
+      controls = null;
+      if (element instanceof HTMLElement || element instanceof SVGElement) {
+        element.style.removeProperty("opacity");
+      }
+    };
+    const start = () => {
+      rest();
+      const plan = planBreathe(motionMode());
+      if (!plan) return;
+      try {
+        controls = animate(element, plan.keyframes, { ...plan.transition, reduceMotion: false });
+        controls.speed = speed;
+      } catch (error) {
+        report(error);
+      }
+    };
+    start();
+    const unsubscribe = subscribeMotion(start);
+    return () => {
+      unsubscribe();
+      rest();
+    };
+  }, [ref, active]);
 }
 
 /**
@@ -943,7 +1032,7 @@ export function leavingCopies(): {
 }[] {
   if (!layer) return [];
   return Array.from(layer.root.children)
-    .filter((child): child is HTMLElement => child instanceof HTMLElement)
+    .filter((child): child is HTMLElement => child instanceof HTMLElement && !retiring.has(child))
     .map((copy) => {
       const style = getComputedStyle(copy);
       return {

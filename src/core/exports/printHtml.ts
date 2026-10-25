@@ -10,7 +10,9 @@
  * them, inserted words underlined and deleted ones struck, each with a note of
  * who made it and when (#734).
  */
-import type { StyledRun } from "../api";
+import { cssString } from "../../shared/mindStyle";
+import { paragraphFormatDeclarations } from "../../shared/paragraphFormat";
+import type { ParagraphFormat, StyledRun } from "../api";
 import { type Block, type Footnote, type Inline, type Marks, tableLayout } from "../mindText";
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
 import type { ExportLabels } from "./labels";
@@ -126,9 +128,25 @@ function imageHtml(src: string, alt: string): string {
   return alt ? `<span class="image-missing">[${escapeHtml(alt)}]</span>` : "";
 }
 
+/** A point in proportion to the page's text, which is 11 pt in the Mind as in Word export. */
+const pointLength = (points: number) => `calc(1.0625rem * ${points} / 11)`;
+
+function formatStyle(format: ParagraphFormat | undefined): string {
+  const declarations = format ? paragraphFormatDeclarations(format, pointLength) : [];
+  return declarations.length > 0 ? ` style="${escapeHtml(declarations.join(";"))}"` : "";
+}
+
 /** Marks as HTML, outermost first. */
 function wrap(text: string, marks: Marks, isLink: LinkTest): string {
   let html = escapeHtml(text);
+  if (marks.vertical)
+    html = marks.vertical === "superscript" ? `<sup>${html}</sup>` : `<sub>${html}</sub>`;
+  const style = [
+    marks.color ? `color:#${marks.color}` : "",
+    marks.font ? `font-family:${cssString(marks.font)}` : "",
+    marks.size ? `font-size:${pointLength(marks.size)}` : "",
+  ].filter(Boolean);
+  if (style.length > 0) html = `<span style="${escapeHtml(style.join(";"))}">${html}</span>`;
   if (marks.code) html = `<code>${html}</code>`;
   if (marks.highlight) html = `<mark>${html}</mark>`;
   if (marks.underline) html = `<u>${html}</u>`;
@@ -154,21 +172,22 @@ class PrintWriter {
     return blocks.map((block) => this.block(block)).join("");
   }
 
-  private marker(note: string): string {
+  private marker(note: string, adjacent = false): string {
     const number = this.number(note);
+    const separator = adjacent ? "," : "";
     if (this.linkNotes) {
-      return `<sup class="note-ref" id="ref-${number}"><a href="#note-${number}">${number}</a></sup>`;
+      return `<sup class="note-ref" id="ref-${number}">${separator}<a href="#note-${number}">${number}</a></sup>`;
     }
-    return `<sup class="note-ref" data-note="${number}">${number}</sup>`;
+    return `<sup class="note-ref" data-note="${number}">${separator}${number}</sup>`;
   }
 
   private block(block: Block): string {
     switch (block.kind) {
       case "paragraph":
-        return `<p>${this.inline(changedContent(block))}</p>`;
+        return `<p${formatStyle(block.format)}>${this.inline(changedContent(block))}</p>`;
       case "heading": {
         const level = Math.min(block.level + 1, 6);
-        return `<h${level}>${this.inline(changedContent(block))}</h${level}>`;
+        return `<h${level}${formatStyle(block.format)}>${this.inline(changedContent(block))}</h${level}>`;
       }
       case "question":
         return `<p class="question"><span class="question-label">${escapeHtml(this.labels.question)}</span> ${this.inline(changedContent(block))}</p>`;
@@ -259,24 +278,37 @@ class PrintWriter {
   /** Inline content, someone's changes in it marked, each with a note of who made it and when. */
   inline(content: readonly Inline[], inNote = false): string {
     const spans = changeSpans(content);
+    const state = { lastWasNote: false };
     return spans
       .map(({ change, content: part }, at) => {
-        const html = this.marked(part, inNote);
+        const html = this.marked(part, inNote, state);
         if (!change) return html;
         const tag = change.kind === "insert" ? "ins" : "del";
         const marked = `<${tag} class="change">${html}</${tag}>`;
         const ended = changeEnding(spans, at);
         if (!ended) return marked;
         const note = escapeHtml(this.labels.change(ended));
-        return inNote ? `${marked} (${note})` : marked + this.marker(note);
+        if (inNote) {
+          state.lastWasNote = false;
+          return `${marked} (${note})`;
+        }
+        const marker = this.marker(note, state.lastWasNote);
+        state.lastWasNote = true;
+        return marked + marker;
       })
       .join("");
   }
 
   /** Inline content: text with its marks, maths, footnote markers and breaks. */
-  private marked(content: readonly Inline[], inNote: boolean): string {
+  private marked(
+    content: readonly Inline[],
+    inNote: boolean,
+    state: { lastWasNote: boolean },
+  ): string {
     let html = "";
     for (const item of content) {
+      const before = html.length;
+      let lastWasNote = false;
       switch (item.kind) {
         case "text":
           html += wrap(item.text, item.marks, this.isLink);
@@ -299,19 +331,27 @@ class PrintWriter {
             const number = this.number(this.citations.note(item.footnote));
             html += this.citations.marker(item.footnote, number);
           } else {
-            html += this.marker(sourceHtml(item.footnote, this.labels, this.isLink));
+            html += this.marker(
+              sourceHtml(item.footnote, this.labels, this.isLink),
+              state.lastWasNote,
+            );
+            lastWasNote = true;
           }
           break;
         case "footnote":
-          html += this.marker(this.inline(item.content, true));
+          html += this.marker(this.inline(item.content, true), state.lastWasNote);
+          lastWasNote = true;
           break;
         case "cite": {
           const marker = item.unverified ? unverifiedHtml(this.labels) : "";
-          if (item.note && !inNote) html += this.marker(runsHtml(item.runs, this.isLink) + marker);
-          else html += runsHtml(item.runs, this.isLink) + marker;
+          if (item.note && !inNote) {
+            html += this.marker(runsHtml(item.runs, this.isLink) + marker, state.lastWasNote);
+            lastWasNote = true;
+          } else html += runsHtml(item.runs, this.isLink) + marker;
           break;
         }
       }
+      if (html.length !== before) state.lastWasNote = lastWasNote;
     }
     return html;
   }

@@ -74,7 +74,7 @@ function checked(
   return {
     id: randomUUID(),
     request: "request-1",
-    action: "find-support",
+    action: "check-against-documents",
     state,
     reason: state === "not-checked" ? "refused" : null,
     detail: null,
@@ -82,6 +82,7 @@ function checked(
     text: asked,
     evidence: null,
     says: null,
+    unsupported: null,
     calculation: null,
     citedCaseUnchecked: false,
     citedCaseFound: false,
@@ -349,7 +350,7 @@ describe("The AI use statement", () => {
       ["Answers added to the document", haiku, "3"],
       ["Changes from Edit with AI accepted", "local-model", "1"],
       ["Writing suggestions accepted", "local-model", "1"],
-      ["Searches of the author's own Documents", haiku, "2"],
+      ["Searches of the author’s own Documents", haiku, "2"],
       ["Searches of public scholarly sources (Find sources)", haiku, "1"],
       ["Web searches", haiku, "1"],
       ["Sentences checked against the Documents", haiku, "6"],
@@ -570,6 +571,10 @@ describe("The AI use statement", () => {
       );
     expect(counts(chinese.parts)).toEqual(counts(english.parts));
     expect(chinese.title).toBe("AI 使用声明：Thesis");
+    expect(paragraphsOf(english.parts)).toContain(
+      "Sentences the author had checked against the Documents, with Check against Documents, by result:",
+    );
+    expect(paragraphsOf(chinese.parts)).toContain("以下是“对照文档核对”的结果：");
   });
 
   test("refuses a Mind that isn't there", async () => {

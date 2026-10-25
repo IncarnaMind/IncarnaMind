@@ -12,95 +12,18 @@
  * folder's `models/` does; by default ~/.cache/incarnamind-eval/models, where
  * they are downloaded and checked the first time.
  */
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
-import { loadavg, tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
+import { loadavg } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { MEETING_SAMPLE_RATE, type SpeechSegment } from "../../src/core/adapters";
-import { downloadModel } from "../../src/core/embedding/download";
-import {
-  QWEN3_ASR_0_6B,
-  SILERO_VAD,
-  transcriptionModelFiles,
-} from "../../src/core/transcription/model";
+import { QWEN3_ASR_0_6B, transcriptionModelFiles } from "../../src/core/transcription/model";
 import { createSherpaEngine } from "../../src/core/transcription/sherpa";
 import { createSpeechHost } from "../../src/core/transcription/speech";
-import { evalCache } from "../lib/cache";
+import { clipsOf, FRAME, modelData, streamOf } from "./clips";
 import { characters, type ErrorRate, errorRate, words } from "./scoring";
 
 const CLIPS = process.env.INCARNAMIND_EVAL_CLIPS;
-const MODELS = process.env.INCARNAMIND_EVAL_MODELS ?? join(evalCache(), "models");
-/** Silence before each clip and after the last, as pauses between speakers. */
-const PAUSE_MS = 1500;
-const FRAME = MEETING_SAMPLE_RATE / 10;
-
-interface Clip {
-  file: string;
-  reference: string;
-}
-
-/** A FLEURS clip's samples, mono at 16 kHz: 32-bit float, as FLEURS keeps them, or 16-bit PCM. */
-async function samplesOf(path: string): Promise<Float32Array> {
-  const bytes = await readFile(path);
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let at = 12;
-  let format: { code: number; channels: number; rate: number; bits: number } | null = null;
-  while (at + 8 <= bytes.length) {
-    const id = bytes.toString("ascii", at, at + 4);
-    const size = view.getUint32(at + 4, true);
-    if (id === "fmt ") {
-      format = {
-        code: view.getUint16(at + 8, true),
-        channels: view.getUint16(at + 10, true),
-        rate: view.getUint32(at + 12, true),
-        bits: view.getUint16(at + 22, true),
-      };
-    }
-    if (id === "data") {
-      const float = format?.code === 3 && format.bits === 32;
-      const pcm = format?.code === 1 && format.bits === 16;
-      if (format?.channels !== 1 || format.rate !== MEETING_SAMPLE_RATE || !(float || pcm)) {
-        throw new Error(`${path} isn't mono 16 kHz audio we read: ${JSON.stringify(format)}`);
-      }
-      const width = float ? 4 : 2;
-      const out = new Float32Array(Math.floor(size / width));
-      for (let i = 0; i < out.length; i++) {
-        const offset = at + 8 + i * width;
-        out[i] = float ? view.getFloat32(offset, true) : view.getInt16(offset, true) / 32768;
-      }
-      return out;
-    }
-    at += 8 + size + (size % 2);
-  }
-  throw new Error(`${path} has no audio.`);
-}
-
-async function clipsOf(language: string): Promise<{ clips: Clip[]; folder: string }> {
-  const folder = join(CLIPS as string, language);
-  const rows = (await readFile(join(folder, "clips.tsv"), "utf8")).trim().split("\n");
-  return {
-    folder,
-    clips: rows.map((row) => {
-      const [file, raw] = row.split("\t");
-      return { file: file as string, reference: raw as string };
-    }),
-  };
-}
-
-/** The model's files, checked against their pinned SHA-256, downloaded the first time. */
-async function modelData(): Promise<string> {
-  const dataDir = await mkdtemp(join(tmpdir(), "incarnamind-transcription-"));
-  await mkdir(MODELS, { recursive: true });
-  await symlink(MODELS, join(dataDir, "models"));
-  const signal = new AbortController().signal;
-  for (const [folder, source] of [
-    [SILERO_VAD.folder, SILERO_VAD.source],
-    [QWEN3_ASR_0_6B.folder, QWEN3_ASR_0_6B.source],
-  ] as const) {
-    await downloadModel({ directory: join(MODELS, folder), source, signal, onProgress: () => {} });
-  }
-  return dataDir;
-}
 
 interface LanguageResult {
   language: string;
@@ -128,17 +51,8 @@ describe.runIf(CLIPS)("Transcription on this computer", () => {
     const results: LanguageResult[] = [];
 
     for (const language of ["en", "zh"]) {
-      const { clips, folder } = await clipsOf(language);
-      const pause = new Float32Array((MEETING_SAMPLE_RATE * PAUSE_MS) / 1000);
-      const parts: Float32Array[] = [];
-      for (const clip of clips) parts.push(pause, await samplesOf(join(folder, clip.file)));
-      parts.push(pause);
-      const stream = new Float32Array(parts.reduce((sum, part) => sum + part.length, 0));
-      let offset = 0;
-      for (const part of parts) {
-        stream.set(part, offset);
-        offset += part.length;
-      }
+      const clips = await clipsOf(CLIPS as string, language);
+      const stream = await streamOf(clips);
 
       const segments: SpeechSegment[] = [];
       let lastFinalAt = 0;

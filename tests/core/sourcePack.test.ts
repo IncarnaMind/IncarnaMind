@@ -434,7 +434,7 @@ describe("the source pack: after the file is gone, and without the page", () => 
       ["1", null, []],
       ["2", null, []],
     ]);
-    const unsaved = "This page wasn&#39;t saved when it was cited, so only the quotes are shown.";
+    const unsaved = "This page wasn’t saved when it was cited, so only the quotes are shown.";
     expect(sheets.map((sheet) => sheet.notes)).toEqual([[unsaved], [unsaved]]);
     expect(sheets.map((sheet) => [sheet.badges, sheet.quotes])).toEqual([
       [[1], ["“Spring tides happen at new moon.”"]],
@@ -453,11 +453,11 @@ describe("the source pack: after the file is gone, and without the page", () => 
       citations: 0,
     });
     await expect(core.exportMind(mind.id, { format: "source-pack" })).rejects.toThrow(
-      "This Mind has no Citations yet, so there are no cited pages to put in a pack.",
+      "No Citations yet, so no cited pages to export.",
     );
     await core.updateSettings({ user: { language: "zh-CN" } });
     await expect(core.exportMind(mind.id, { format: "source-pack" })).rejects.toThrow(
-      "此 Mind 还没有引用，没有可收入合集的引用页面。",
+      "还没有引用，没有可导出的引用页面。",
     );
     expect(printed).toEqual([]);
   });

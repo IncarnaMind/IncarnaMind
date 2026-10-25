@@ -8,6 +8,7 @@ import type { ChatGptSignInErrorKind, ChatProvider } from "../../core/api";
 import { core } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
+import { clearModelFailure } from "./modelHealth";
 import { useAppStore } from "./store";
 
 /** Whether the once-only "You're using your ChatGPT plan" message is showing. */
@@ -54,6 +55,7 @@ export async function continueWithChatGpt(
   try {
     const result = await signIn(options);
     if (result && "kind" in result) useSignIn.setState({ failure: result });
+    else if (result) clearModelFailure(result.provider.id);
     return result;
   } catch (error) {
     const failure: ChatGptSignInFailure = {

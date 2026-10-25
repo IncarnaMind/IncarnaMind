@@ -170,7 +170,7 @@ describe("the tabs of a Mind imported from Word", () => {
 });
 
 describe("Minds written before tab stops", () => {
-  test("a Mind written at content schema 21 or 22 opens to edit, and records 23 once written to", async () => {
+  test("a Mind written at content schema 21 or 22 opens to edit, and records the newest once written to", async () => {
     const core = startCore(await createTempDataFolder());
     onTestFinished(() => core.close());
     for (const version of [21, 22]) {
@@ -195,6 +195,6 @@ describe("Minds written before tab stops", () => {
         CONTENT_SCHEMA_VERSION,
       );
     }
-    expect(CONTENT_SCHEMA_VERSION).toBe(23);
+    expect(CONTENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(23);
   });
 });

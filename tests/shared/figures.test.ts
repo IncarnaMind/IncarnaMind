@@ -134,6 +134,15 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
     ],
   },
   {
+    name: "German scale words",
+    context: { language: "de" },
+    cases: [
+      ["1,2 Mio. €", [f("1,2 Mio. €", 1200000, { unit: "EUR", scale: "Mio." })]],
+      ["3,4 Mrd. €", [f("3,4 Mrd. €", 3400000000, { unit: "EUR", scale: "Mrd." })]],
+      ["250 Tsd. EUR", [f("250 Tsd. EUR", 250000, { unit: "EUR", scale: "Tsd." })]],
+    ],
+  },
+  {
     name: "Indian grouping and scales",
     context: { language: "en-IN" },
     cases: [
@@ -943,6 +952,27 @@ describe("what an ambiguous figure could be", () => {
     });
   });
 
+  test("a header written as a power of ten and a scale word, '100million USD', gives the reading with it (#1444)", () => {
+    const stated = readings("34,002.51", { ...EN, header: "100million USD" }, "scale")?.at(-1);
+    expect(stated).toEqual({
+      value: 3400251000000,
+      scale: 100000000,
+      scaleWord: "100million",
+      unit: { kind: "currency", code: "USD" },
+      decimals: 2,
+    });
+    expect(
+      readings("1.5", { ...EN, header: "Unit: 10 thousand yuan" }, "scale")?.at(-1)?.value,
+    ).toBe(15000);
+    // Anywhere else it is a figure, so a "100 million" in a sentence states no unit.
+    expect(
+      readings("34,002.51", { ...EN, header: "raised 3 million dollars" }, "scale"),
+    ).toBeUndefined();
+    expect(
+      readings("34,002.51", { ...EN, header: "Revenue was 10 million" }, "scale"),
+    ).toBeUndefined();
+  });
+
   test("△ and a whole number in brackets may be negative or not", () => {
     expect(readings("△1,250", ZH, "sign")?.map((each) => each.value)).toEqual([1250, -1250]);
     expect(readings("(250)", EN, "sign")?.map((each) => each.value)).toEqual([250, -250]);
@@ -995,6 +1025,26 @@ describe("stated units", () => {
       scaleWord,
       unit,
     }));
+
+  test("a line given as a header may state its scale as a power of ten and a scale word, which in a sentence is a figure", () => {
+    const asHeader = (text: string) =>
+      readStatedUnits(text, EN, true).map(({ scale, scaleWord, unit }) => ({
+        scale,
+        scaleWord,
+        unit,
+      }));
+    expect(asHeader("100million USD")).toEqual([
+      { scale: 100000000, scaleWord: "100million", unit: { kind: "currency", code: "USD" } },
+    ]);
+    expect(asHeader("官方储备资产 Official reserve assets")).toEqual([]);
+    expect(asHeader("3 million dollars")).toEqual([]);
+    expect(asHeader("Unit: 10 thousand yuan")).toHaveLength(1);
+    // A sentence that happens to hold a power of ten states no unit, however it is asked.
+    expect(asHeader("The company raised 100 million dollars in 2025")).toEqual([]);
+    expect(asHeader("Revenue was 10 million")).toEqual([]);
+    expect(asHeader("a total of 100 million shares")).toEqual([]);
+    expect(stated("100million USD", EN)).toEqual([]);
+  });
 
   test("a Chinese header states a scale and a currency", () => {
     expect(stated("单位：万元")).toEqual([

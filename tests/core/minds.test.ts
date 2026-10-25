@@ -71,6 +71,17 @@ describe("Minds", () => {
     expect(readMind(await connectToMind(core, plain.id)).textContent).toBe("");
   });
 
+  test("a new Mind to write in, headed with no name, starts with an empty Heading 1, its title to be typed, and is named Untitled (#1088)", async () => {
+    const core = startCore(await createTempDataFolder());
+
+    const mind = await core.createMind({ headed: true });
+
+    expect(readMind(await connectToMind(core, mind.id)).toJSON().content).toEqual([
+      expect.objectContaining({ type: "heading", attrs: expect.objectContaining({ level: 1 }) }),
+    ]);
+    expect(mind.title).toBe("");
+  });
+
   test("every Mind gets its own id", async () => {
     const core = startCore(await createTempDataFolder());
 

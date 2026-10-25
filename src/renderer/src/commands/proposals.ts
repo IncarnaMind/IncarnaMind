@@ -1,13 +1,28 @@
 import type { Editor } from "@tiptap/core";
 import type { EditAction } from "../../../core/api";
 import { translate } from "../../../shared/i18n";
-import { actOnAppliedEdit, restoreChange, reviewedChangeAt } from "../appliedEdits";
+import {
+  actOnAppliedEdit,
+  offersReview,
+  restorableAt,
+  restoreChange,
+  reviewApplied,
+  reviewedChangeAt,
+} from "../appliedEdits";
 import { useComposer } from "../composer";
 import { holdsAiText } from "../editor/aiText";
-import { type AppliedAction, type AppliedLine, appliedLineIn } from "../editor/appliedEditLine";
+import {
+  type AppliedAction,
+  type AppliedLine,
+  appliedLineIn,
+  appliedOriginalAt,
+  toggleAppliedOriginal,
+} from "../editor/appliedEditLine";
 import { selectionForEdit } from "../editor/editSelection";
 import { noteHolding } from "../editor/noteKeymap";
 import { pendingAtSelection, pendingIn } from "../editor/proposalReview";
+import { proposalOriginalAt, toggleProposalOriginal } from "../editor/proposalRewrites";
+import { requestEditField } from "../editor/selectionCommands";
 import {
   regenerateChange,
   requestEdit,
@@ -39,6 +54,20 @@ function noteOnProposal(ctx: CommandContext): Editor | null {
 function noteOnReviewedChange(ctx: CommandContext): Editor | null {
   const editor = ctx.focus?.kind === "block" ? noteHolding(ctx.focus.id) : null;
   return editor && !editor.isDestroyed && reviewedChangeAt(editor.state) !== null ? editor : null;
+}
+
+function restorableHere(ctx: CommandContext): boolean {
+  const editor = noteOnReviewedChange(ctx);
+  return editor !== null && restorableAt(editor.state);
+}
+
+function originalAt() {
+  const editor = noteHandle.current?.editor;
+  if (!editor || editor.isDestroyed) return null;
+  const applied = appliedOriginalAt(editor.state);
+  if (applied) return { editor, ...applied, toggle: toggleAppliedOriginal };
+  const waiting = proposalOriginalAt(editor.state);
+  return waiting && { editor, ...waiting, toggle: toggleProposalOriginal };
 }
 
 function resolveAt(ctx: CommandContext, outcome: "accept" | "reject"): void {
@@ -108,6 +137,12 @@ function withAppliedLine(kinds: readonly AppliedLine["kind"][], also = (_: Appli
   return note && line && kinds.includes(line.kind) && also(line) ? note : null;
 }
 
+/** The Mind last written in, while it offers Review changes for the last edit it applied. */
+function withReview() {
+  const note = noteHandle.current;
+  return note && offersReview(note.editor) ? note : null;
+}
+
 /** What the line over an applied edit offers, from ⌘K while it shows. */
 const appliedCommand = (
   id: `edit.${string}`,
@@ -129,14 +164,27 @@ const appliedCommand = (
 });
 
 export const proposalCommands: readonly Command[] = [
-  appliedCommand("edit.undoApplied", "command.edit.undoApplied", "undo", ["applied", "review"]),
   appliedCommand(
-    "edit.reviewApplied",
-    "edit.applied.review",
-    "review",
-    ["applied"],
-    (line) => line.kind === "applied" && line.changes.length > 0,
+    "edit.undoApplied",
+    "command.edit.undoApplied",
+    "undo",
+    ["applied", "review"],
+    // Changed since, it can't take the edit back: its line says so on Undo all.
+    (line) => line.kind !== "review" || !line.undo || line.undo.available(),
   ),
+  {
+    // After the line has gone too, while some of the edit's words are as it wrote them (#1795).
+    id: "edit.reviewApplied",
+    label: "edit.applied.review",
+    group: "main",
+    // It shows what was applied; nothing in the Mind changes.
+    reversible: true,
+    when: () => withReview() !== null,
+    run() {
+      const note = withReview();
+      if (note) reviewApplied(note.editor, { focus: true });
+    },
+  },
   appliedCommand(
     "edit.removeKept",
     "command.edit.removeKept",
@@ -168,7 +216,10 @@ export const proposalCommands: readonly Command[] = [
     group: "main",
     appliesTo: ["block"],
     reversible: true,
-    when: (ctx) => noteOnProposal(ctx) !== null || noteOnReviewedChange(ctx) !== null,
+    // In the text, ⌘⌫ in a change the User changed since does nothing, rather than delete their line.
+    when: (ctx) =>
+      noteOnProposal(ctx) !== null ||
+      (ctx.surface === "palette" ? restorableHere(ctx) : noteOnReviewedChange(ctx) !== null),
     run(ctx) {
       if (noteOnProposal(ctx)) {
         resolveAt(ctx, "reject");
@@ -177,6 +228,19 @@ export const proposalCommands: readonly Command[] = [
       const editor = noteOnReviewedChange(ctx);
       const index = editor ? reviewedChangeAt(editor.state) : null;
       if (editor && index !== null) restoreChange(editor, index);
+    },
+  },
+  {
+    // A paragraph or section written anew: its "Was: …" or "Show original" line, from ⌘K.
+    id: "change.original",
+    label: (_ctx, t) => t(originalAt()?.shown ? "change.hideOriginal" : "change.showOriginal"),
+    group: "main",
+    // It shows or hides the old text; nothing in the Mind changes.
+    reversible: true,
+    when: () => originalAt() !== null,
+    run() {
+      const found = originalAt();
+      found?.toggle(found.editor, found.key);
     },
   },
   {
@@ -222,7 +286,8 @@ export const proposalCommands: readonly Command[] = [
     when: () => withSelection() !== null,
     run() {
       const note = withSelection();
-      if (note && startEditing(note.editor, note.mindId)) useComposer.getState().requestFocus();
+      if (!note || requestEditField(note.editor, true)) return;
+      if (startEditing(note.editor, note.mindId)) useComposer.getState().requestFocus();
     },
   },
   editAction("improve", "editor.ai.improve"),

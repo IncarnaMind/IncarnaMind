@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import {
   BLOCK_ID_ATTRIBUTE,
   MIND_WORD_LOOK_FIELD,
+  PARAGRAPH_FORMAT_ATTRIBUTE,
   WORD_LOOK_ATTRIBUTE,
   WORD_RUN_MARK,
   type WordCellLook,
@@ -267,17 +268,20 @@ describe("indents in characters", () => {
       ].join(""),
     );
     const looks = new Map<string, WordParagraphLook>();
+    const formats = new Map<string, unknown>();
     readMind(client).descendants((node) => {
       const key = node.attrs[WORD_LOOK_ATTRIBUTE];
-      if (node.type.name === "paragraph" && typeof key === "string") {
-        looks.set(node.textContent, look.paragraphs[key] ?? {});
-      }
+      if (node.type.name !== "paragraph") return true;
+      looks.set(node.textContent, typeof key === "string" ? (look.paragraphs[key] ?? {}) : {});
+      formats.set(node.textContent, node.attrs[PARAGRAPH_FORMAT_ATTRIBUTE]);
       return true;
     });
-    expect(looks.get("首行缩进两个字")).toMatchObject({ firstLine: 24 });
+    // A paragraph's own indent in characters stays in characters, measured in its style's size.
+    expect(formats.get("首行缩进两个字")).toEqual({ firstLineChars: 2 });
+    expect(looks.get("首行缩进两个字")).toMatchObject({ characterSize: 12 });
     expect(looks.get("Indented by its style")).toMatchObject({ left: 24 });
-    expect(looks.get("Indented by a length")).toMatchObject({ left: 36 });
-    expect(looks.get("Hanging one character")).toMatchObject({ firstLine: -12 });
+    expect(formats.get("Indented by a length")).toEqual({ left: 36 });
+    expect(formats.get("Hanging one character")).toEqual({ firstLineChars: -1 });
   });
 });
 

@@ -3,6 +3,7 @@ import { useDismissOnEscape } from "../escapeDismiss";
 import { useT } from "../i18n";
 import { type ErrorNotice as ErrorNoticeState, useNotices } from "../notices";
 import { ProblemMark } from "./ProblemLine";
+import { UnsavedNotices, useUnsavedShown } from "./UnsavedNotice";
 import { buttonStyle } from "./ui";
 import { useTopModal } from "./useModal";
 
@@ -17,10 +18,12 @@ import { useTopModal } from "./useModal";
  */
 export function ErrorNotices() {
   const errors = useNotices((state) => state.errors);
+  const unsaved = useUnsavedShown();
   const modal = useTopModal();
-  if (errors.length === 0) return null;
+  if (errors.length === 0 && !unsaved) return null;
   const list = (
     <div className="fixed right-4 bottom-4 z-20 flex max-w-sm flex-col gap-2">
+      <UnsavedNotices />
       {errors.map((notice) => (
         <Notice key={notice.id} notice={notice} />
       ))}
@@ -71,7 +74,7 @@ function Notice({ notice }: { notice: ErrorNoticeState }) {
           }}
           className={buttonStyle("secondary", "sm")}
         >
-          {notice.action.label}
+          {notice.action.label(t)}
         </button>
       )}
       <button

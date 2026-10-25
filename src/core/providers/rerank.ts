@@ -33,7 +33,9 @@ import type { Reranker, SearchCandidate } from "../documents/searchTool";
 import { InvalidInputError, isRecord } from "../errors";
 import type { RerankingModel } from "../reranking";
 import type { Secrets } from "../secrets";
+import { createSendGate, gateStop } from "../sendGate";
 import type { SettingsStore } from "../settings";
+import { parseApiKey, readApiKey, storedApiKey } from "./apiKey";
 import { classifyProviderError } from "./providerErrors";
 
 /** A model object, never a model id string (which the AI SDK would send to its gateway). */
@@ -96,13 +98,6 @@ function parseStored(value: unknown): StoredRerank | null {
   return { kind: value.kind, modelId: typeof value.modelId === "string" ? value.modelId : null };
 }
 
-/** undefined: keep the stored key. Blank text counts as "keep". */
-function parseApiKey(value: unknown): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new InvalidInputError("The API key must be text.");
-  return value.trim() || undefined;
-}
-
 function parseModel(value: unknown): string | null {
   if (value === null || (typeof value === "string" && value.trim() === "")) return null;
   if (typeof value !== "string" || value.length > 200) {
@@ -136,6 +131,7 @@ export function createRerank(options: {
   reportError?: (error: unknown) => void;
 }) {
   const { settings, secrets, consent, createModel, builtIn, signal } = options;
+  const gate = createSendGate(consent, options.localOnly);
   const reportError = options.reportError ?? ((error) => console.error(error));
 
   const stored = () => parseStored(settings.readDeviceValue(SETTINGS_VALUE));
@@ -210,7 +206,11 @@ export function createRerank(options: {
     try {
       await consent.ensure("rerank", RERANK_SERVICES[kind]);
       const { ranking } = await rerank({
-        model: createModel({ kind, apiKey, modelId }),
+        model: gate.rerankingModel(
+          createModel({ kind, apiKey: readApiKey(apiKey), modelId }),
+          "rerank",
+          RERANK_SERVICES[kind],
+        ),
         documents: candidates.map(candidateText),
         query,
         topN: candidates.length,
@@ -235,7 +235,7 @@ export function createRerank(options: {
     } catch (error) {
       // The Answer was stopped: stop too.
       if (abortSignal?.aborted) throw error;
-      if (!signal.aborted) reportError(error);
+      if (!signal.aborted && !gateStop(error)) reportError(error);
       return [...candidates];
     }
   };
@@ -353,7 +353,8 @@ export function createRerank(options: {
             : null
           : parseModel(input.modelId);
       const apiKey =
-        parseApiKey(input?.apiKey) ?? (sameKind ? await secrets.tryGet(KEY_NAME) : null);
+        parseApiKey(input?.apiKey) ??
+        (sameKind ? storedApiKey(await secrets.tryGet(KEY_NAME)) : null);
       if (!apiKey)
         throw new InvalidInputError({
           key: "error.provider.keyMissing",

@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "vitest";
 import {
   buildMenu,
   type MenuEntry,
+  menuEntries,
   menuIds,
   registerMenu,
 } from "../../src/renderer/src/commands/menus";
@@ -11,6 +12,9 @@ import {
   commands,
 } from "../../src/renderer/src/commands/registry";
 import type { ObjectKind, ObjectRef } from "../../src/renderer/src/objects";
+import { translate } from "../../src/shared/i18n";
+import { en } from "../../src/shared/i18n/en";
+import { zhCN } from "../../src/shared/i18n/zh-CN";
 
 /*
  * Every object has one menu, in one order (docs/agents/interaction.md, rule
@@ -48,7 +52,7 @@ beforeAll(async () => {
 });
 
 describe("the menus", () => {
-  test("a Mind's is Open, Open to the side, Outline, Export as… and Export options…, Export AI use statement, Export check record as PDF and as CSV, History, Check this Mind, Check for contradictions, Style, Make this a Skill, Move to and New Folder with this Mind, Rename, then Delete after a rule", () => {
+  test("a Mind's is Open, Open in new tab, Outline, Export…, Export AI use statement, Export check record…, History, Check this Mind, Check for contradictions, Style, Make this a Skill, Move to and New Folder with this Mind, Rename, then Delete after a rule", () => {
     const here = {
       "mind.citationStyle": () => undefined,
       "mind.moveTo": () => undefined,
@@ -56,21 +60,14 @@ describe("the menus", () => {
     };
     expect(idsIn(buildMenu("mind", focusOn("mind", here)))).toEqual([
       "mind.open",
-      "mind.openSide",
+      "mind.openTab",
       "—",
       "mind.outline",
-      "mind.export",
-      "mind.exportAs.pdf",
-      "mind.exportAs.source-pack",
-      "mind.exportAs.html",
-      "mind.exportAs.share-page",
-      "mind.exportAs.markdown",
-      "mind.exportOptions",
+      "mind.exportMenu",
       "mind.aiUseStatement",
-      "mind.checkRecord.pdf",
-      "mind.checkRecord.csv",
+      "mind.checkRecord",
       "mind.history",
-      "mind.checkAll",
+      "mind.check",
       "mind.checkContradictions",
       "mind.citationStyle",
       "mind.style",
@@ -86,21 +83,14 @@ describe("the menus", () => {
     // Rename and Move to start in the row, so a place without one doesn't offer them.
     expect(idsIn(buildMenu("mind", focusOn("mind")))).toEqual([
       "mind.open",
-      "mind.openSide",
+      "mind.openTab",
       "—",
       "mind.outline",
-      "mind.export",
-      "mind.exportAs.pdf",
-      "mind.exportAs.source-pack",
-      "mind.exportAs.html",
-      "mind.exportAs.share-page",
-      "mind.exportAs.markdown",
-      "mind.exportOptions",
+      "mind.exportMenu",
       "mind.aiUseStatement",
-      "mind.checkRecord.pdf",
-      "mind.checkRecord.csv",
+      "mind.checkRecord",
       "mind.history",
-      "mind.checkAll",
+      "mind.check",
       "mind.checkContradictions",
       "mind.style",
       "skill.fromMind",
@@ -109,10 +99,68 @@ describe("the menus", () => {
       "—",
       "mind.delete",
     ]);
-    // The page's ⋯ offers Style as a submenu of its own, so its list leaves the command out.
-    const page = idsIn(buildMenu("mind", focusOn("mind"), ["mind.style"]));
+    // The page's ⋯ offers Style as a submenu of its own, and nothing to open the Mind it is on.
+    const page = idsIn(
+      buildMenu("mind", focusOn("mind"), ["mind.style", "mind.open", "mind.openTab"]),
+    );
     expect(page).not.toContain("mind.style");
+    expect(page).not.toContain("mind.open");
+    expect(page).not.toContain("mind.openTab");
     expect(page).toContain("skill.fromMind");
+    expect(page).toContain("mind.exportMenu");
+  });
+
+  test("no Mind menu lists the export formats, which the Export button's menu and ⌘K have", () => {
+    for (const kind of ["mind", "tab"] as const) {
+      const ids = menuIds(kind);
+      expect(
+        ids.filter((id) => id.startsWith("mind.exportAs") || id === "mind.export"),
+        kind,
+      ).toEqual([]);
+      expect(
+        ids.filter((id) => id === "mind.exportMenu"),
+        kind,
+      ).toHaveLength(1);
+    }
+  });
+
+  test("a Mind's and a Document's menus start with Open and Open in new tab, named alike; the tab menu's one row for a split is Split to the right", () => {
+    const here = { "document.rename": () => undefined };
+    expect(idsIn(buildMenu("mind", focusOn("mind"))).slice(0, 2)).toEqual([
+      "mind.open",
+      "mind.openTab",
+    ]);
+    expect(idsIn(buildMenu("document", focusOn("document", here))).slice(0, 2)).toEqual([
+      "document.open",
+      "document.openTab",
+    ]);
+    for (const id of ["mind.openTab", "document.openTab"] as const) {
+      expect(commands.get(id)?.label).toBe("mind.openTab");
+      expect(commands.get(id)?.shortcut).toBeUndefined();
+      expect(commands.get(id)?.rowKeys).toBeUndefined();
+    }
+    expect(translate("en", "mind.openTab")).toBe("Open in new tab");
+    expect(translate("zh-CN", "mind.openTab")).toBe("在新标签页中打开");
+
+    expect(menuIds("tab").filter((id) => id.startsWith("tab.split"))).toEqual(["tab.split"]);
+    expect(commands.get("tab.split")?.menuLabel).toBe("tabs.menu.split");
+    expect(translate("en", "tabs.menu.split")).toBe("Split to the right");
+    expect(translate("zh-CN", "tabs.menu.split")).toBe("向右拆分");
+    // One act, one name: no string calls the same act "Open to the side".
+    expect(Object.values(en).filter((words) => /^open to the side$/i.test(words))).toEqual([]);
+    expect(
+      Object.values(zhCN).filter((words) => /^(?:在旁边打开|在侧边打开)$/.test(words)),
+    ).toEqual([]);
+  });
+
+  test("Delete is the last item of a Mind's menu, and a tab's is its own items, then Delete", () => {
+    expect(idsIn(buildMenu("mind", focusOn("mind"))).at(-1)).toBe("mind.delete");
+    // A tab's menu has no layout here to build from: Delete is the one item of its last section.
+    const entries = menuEntries("tab");
+    const last = Math.max(...entries.map((each) => each.section));
+    expect(entries.filter((each) => each.section === last).map((each) => each.id)).toEqual([
+      "mind.delete",
+    ]);
   });
 
   test("a Document's file group is Open in default app, Show the file, Copy path, then Get info", () => {

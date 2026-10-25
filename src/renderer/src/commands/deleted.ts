@@ -1,5 +1,6 @@
 import type { DeletedItem } from "../../../core/api";
 import { LIBRARY_DELETED } from "../deletedItems";
+import { countNow } from "../i18n";
 import { restoreItems, useDeleted } from "../recentlyDeleted";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
@@ -15,7 +16,7 @@ const itemsOf = (ctx: CommandContext): readonly DeletedItem[] => {
 const countLabel = (one: "deleted.restore" | "deleted.deletePermanently") =>
   ((ctx, t) => {
     const count = itemsOf(ctx).length;
-    return count > 1 ? t(`${one}.count`, { count }) : t(one);
+    return count > 1 ? t(`${one}.count`, { count: countNow(count) }) : t(one);
   }) satisfies Command["label"];
 
 export const deletedCommands: readonly Command[] = [

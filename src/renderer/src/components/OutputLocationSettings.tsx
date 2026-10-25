@@ -6,6 +6,7 @@ import { translateNow, useT } from "../i18n";
 import { folderName } from "../linkedFolders";
 import { chooseOutputLocation } from "../outputFiles";
 import { useSettingsTarget } from "../settingsTarget";
+import { InfoTip } from "./InfoTip";
 import { PathText } from "./PathText";
 import { ProblemLine } from "./ProblemLine";
 import {
@@ -69,10 +70,12 @@ export function OutputLocationSettings() {
   return (
     <section ref={section} data-testid="output-location-settings" className="flex flex-col gap-7">
       <div>
-        <h4 id={titleId} className={sectionTitleClass}>
-          {t("outputLocation.title")}
-        </h4>
-        <p className={sectionNoteClass}>{t("outputLocation.body")}</p>
+        <div className="mb-2 flex items-center">
+          <h4 id={titleId} className={sectionTitleClass}>
+            {t("outputLocation.title")}
+          </h4>
+          <InfoTip text={t("outputLocation.body.tip")} />
+        </div>
         <div className="flex min-w-0 items-center gap-2">
           <PathText
             path={location ?? settings.suggested}

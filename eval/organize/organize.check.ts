@@ -43,6 +43,7 @@ const results = join(root, "eval", "results", "organize");
 const save = (file: string, data: unknown) => writeFile(file, `${JSON.stringify(data, null, 2)}\n`);
 const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const log = (line: string) => console.log(`[organize] ${line}`);
+const NOT_ORGANIZED = "Not organized:";
 
 /** The code whose change changes the results: a cached result is reused only without one. */
 async function codeFingerprint(): Promise<string> {
@@ -55,6 +56,7 @@ async function codeFingerprint(): Promise<string> {
     "src/core/providers/models.ts",
     "src/shared/i18n/en.ts",
     "src/shared/i18n/zh-CN.ts",
+    "eval/organize/lib/routes.ts",
   ];
   for (const directory of ["src/core/library", "src/core/documents", "src/core/documents/formats"])
     for (const name of await readdir(join(root, directory)))
@@ -121,6 +123,12 @@ test("Organize on the labelled set", async () => {
     "all",
   );
   const splits: Split[] = splitChoice === "all" ? ["tune", "heldout"] : [splitChoice];
+  const documentLanguage = choice(
+    "INCARNAMIND_ORGANIZE_DOCUMENTS",
+    env.INCARNAMIND_ORGANIZE_DOCUMENTS,
+    ["all", "en", "zh"],
+    "all",
+  );
   const showHeldOut = env.INCARNAMIND_ORGANIZE_SHOW_HELDOUT === "1";
   const batch = Number(env.INCARNAMIND_ORGANIZE_BATCH ?? 10);
   if (!Number.isInteger(batch) || batch < 1)
@@ -131,10 +139,22 @@ test("Organize on the labelled set", async () => {
   )
     .split(",")
     .map((name) => choice<RouteName>("INCARNAMIND_ORGANIZE_ROUTES", name.trim(), ROUTES, "auto"));
-  const documents = set.documents.filter((doc) => splits.includes(doc.split));
+  const thinking = choice(
+    "INCARNAMIND_ORGANIZE_THINKING",
+    env.INCARNAMIND_ORGANIZE_THINKING,
+    ["off", "default"],
+    "off",
+  );
+  const documents = set.documents.filter(
+    (doc) =>
+      splits.includes(doc.split) &&
+      (documentLanguage === "all" || doc.language === documentLanguage),
+  );
   const { folders, tags } = definitions(language);
 
-  log(`Preparing ${documents.length} Documents (${splits.join(" + ")})…`);
+  log(
+    `Preparing ${documents.length} Documents (${splits.join(" + ")}${documentLanguage === "all" ? "" : `, ${documentLanguage} only`})…`,
+  );
   const prepared: Prepared[] = [];
   for (const doc of documents) prepared.push(await prepare(doc));
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
@@ -186,7 +206,7 @@ test("Organize on the labelled set", async () => {
   await mkdir(join(results, "cache"), { recursive: true });
 
   for (const name of routeNames) {
-    const route = buildRoute(name, { ollama, chat: config.chat });
+    const route = buildRoute(name, { ollama, chat: config.chat, thinking });
     const fingerprint = hash(
       JSON.stringify({
         code,
@@ -194,6 +214,7 @@ test("Organize on the labelled set", async () => {
         folders,
         tags,
         route: route.label,
+        thinking,
         models: route.models.map(
           (model) => models.find((m) => m.name.startsWith(model))?.digest ?? model,
         ),
@@ -202,7 +223,12 @@ test("Organize on the labelled set", async () => {
     const cacheFile = join(results, "cache", `${name}-${fingerprint}.json`);
     const cached = new Map<string, Prediction>(
       await readFile(cacheFile, "utf8")
-        .then((text) => (JSON.parse(text) as Prediction[]).map((p) => [p.id, p] as const))
+        .then((text) =>
+          (JSON.parse(text) as Prediction[])
+            // A failed request is asked again; a Document left for a route that can't read pages stays so.
+            .filter((p) => p.error === null || p.error.startsWith(NOT_ORGANIZED))
+            .map((p) => [p.id, p] as const),
+        )
         .catch(() => []),
     );
     log(`${route.label}: ${cached.size} cached results reused.`);
@@ -232,7 +258,7 @@ test("Organize on the labelled set", async () => {
           const readsPages = organizeReadsPages(classifier.pageImages, item.source);
           // As the Library: a PDF without text waits unless the classifier reads its pages.
           if (item.noText && !readsPages)
-            throw new Error("Not organized: no text, and this route can't read page images.");
+            throw new Error(`${NOT_ORGANIZED} no text, and this route can't read page images.`);
           let images: DocumentPageImage[] = [];
           if (readsPages) {
             const rendering = performance.now();
@@ -241,6 +267,7 @@ test("Organize on the labelled set", async () => {
           }
           // Only this Document's calls count: none before it, whatever stopped it.
           route.tokens?.();
+          route.scores?.();
           const started = performance.now();
           const decision = await classifier.organize(
             folders,
@@ -263,6 +290,8 @@ test("Organize on the labelled set", async () => {
         }
         const tokens = route.tokens?.();
         if (tokens) prediction.tokens = tokens;
+        const scores = route.scores?.();
+        if (scores && Object.keys(scores).length) prediction.scores = scores;
         predictions.push(prediction);
         cached.set(prediction.id, prediction);
         await save(cacheFile, [...cached.values()]);

@@ -1,20 +1,36 @@
 import { type ReactNode, type ToggleEvent, useEffect, useId, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { DocumentStatus, EmbeddingModelError } from "../../../core/api";
+import { formatDateTime } from "../../../shared/dates";
 import type { MessageKey } from "../../../shared/i18n";
-import { organizes } from "../../../shared/libraryModels";
+import { organizeHeld, organizes, organizesNewDocuments } from "../../../shared/libraryModels";
 import { commands } from "../commands/registry";
 import { core } from "../core";
 import { useLanguage, useT } from "../i18n";
-import { useCapturing } from "../meetings";
+import { useKeyRefusals } from "../keyRefusals";
+import { saidInLine } from "../lineNames";
+import { useCapturing, useMeetings } from "../meetings";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
 import { rerankingModelStatus } from "../rerankStatus";
+import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
+import { useSettled } from "../settling";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
+import { useTaggingAlert } from "../taggingAlert";
 import { useTaggingExplained } from "../taggingExplained";
-import { placesText, taggingPlaces } from "../taggingStop";
+import { planLimitLine, taggingProblem } from "../taggingProblem";
+import { failedTagging, retryTagging } from "../taggingRetry";
+import { placesText, resumeTagging, stoppedDocumentPlaces, taggingPlaces } from "../taggingStop";
 import { textRecognitionStatus, useTextRecognition } from "../textRecognition";
-import { canTryAgain, outsideDialog, reasonKey, useWebPages } from "../webPages";
+import {
+  canTryAgain,
+  heldInLocalMode,
+  outsideDialog,
+  reasonKey,
+  siteOf,
+  useWebPages,
+} from "../webPages";
+import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { CloseLineIcon } from "./lineIcons";
 import { embeddingProviderLabel } from "./providers/EmbeddingSettings";
 import { testErrorKey } from "./providers/shared";
@@ -62,10 +78,18 @@ interface Status {
   full: string;
   action?: { label: string; testId?: string; title?: string; run(): void };
   dismiss?: () => void;
+  /** What the dismissing control says, where "Dismiss" isn't what it does. */
+  dismissLabel?: string;
   /** It may take two lines, its action said after it, so nothing it names is cut off. */
   wraps?: boolean;
+  /** A failed model download's Details (./DownloadSources): their toggle in the line, their panel under it. */
+  details?: { toggle: ReactNode; panel: ReactNode };
   /** It asks the User's consent, which is never hidden (ADR-0022). */
   asks?: true;
+  /** The User's own Documents wait for them to act, so the quiet first open shows it too. */
+  needsYou?: true;
+  /** Tagging needs the User: a hidden sidebar's toggle shows a dot for it. Progress never does. */
+  alerts?: true;
 }
 
 /**
@@ -76,10 +100,37 @@ interface Status {
  * files, files that were in IncarnaMind already). One line:
  * the most pressing status, and "+N" for the others, which lists them above
  * the row. Its 28px are kept even when there is nothing to say, so the tree
- * above moves only for a status that takes two lines.
+ * above moves only for a status that takes two lines. A status that is only
+ * progress shows after it has lasted 300 ms and stays at least 500 ms once shown,
+ * so none flashes; a failure or a question shows at once.
  */
 export function SidebarStatus({ problemsOnly = false }: { problemsOnly?: boolean }) {
-  const [first, ...others] = useStatuses().filter((status) => !problemsOnly || isProblem(status));
+  const statuses = useStatuses();
+  const shown = useSettled(
+    statuses.filter((status) => !isProblem(status)).map((status) => status.testId),
+  );
+  // A status the work has left stays its last 500 ms as it was.
+  const seen = useRef(new Map<string, Status>());
+  for (const status of statuses) seen.current.set(status.testId, status);
+  const alerting = statuses.some((status) => status.alerts === true);
+  useEffect(() => {
+    useTaggingAlert.setState({ needsYou: alerting });
+  }, [alerting]);
+  useEffect(
+    () => () => {
+      useTaggingAlert.setState({ needsYou: false });
+    },
+    [],
+  );
+  const kept = [...shown]
+    .filter((id) => !statuses.some((status) => status.testId === id))
+    .flatMap((id) => seen.current.get(id) ?? []);
+  const [first, ...others] = [
+    ...statuses.filter((status) =>
+      problemsOnly ? isProblem(status) : isProblem(status) || shown.has(status.testId),
+    ),
+    ...(problemsOnly ? [] : kept),
+  ];
   if (problemsOnly && !first) return null;
   return (
     <div data-testid="sidebar-status" className="flex min-h-7 shrink-0 flex-col">
@@ -92,14 +143,19 @@ export function SidebarStatus({ problemsOnly = false }: { problemsOnly?: boolean
   );
 }
 
-// A failure, a one-off the User dismisses (skipped files, a web page not added), or a consent
-// question: the quiet first open hides the footer's other news, never these (DESIGN.md, Problems).
+// A failure, a one-off the User dismisses (skipped files, a web page not added), a consent
+// question, or the User's own files waiting for a model: the quiet first open hides the footer's
+// other news, never these (DESIGN.md, Problems).
 const isProblem = (status: Status) =>
-  status.tone === "error" || status.dismiss !== undefined || status.asks === true;
+  status.tone === "error" ||
+  status.dismiss !== undefined ||
+  status.asks === true ||
+  status.needsYou === true;
 
 function StatusRow({ status, children }: { status: Status; children?: ReactNode }) {
   const t = useT();
-  const { tone, short, figure, full, action, dismiss, wraps } = status;
+  const { tone, short, figure, full, action, dismiss, details } = status;
+  const wraps = status.wraps === true || details !== undefined;
   return (
     <div
       role={tone === "error" ? "alert" : "status"}
@@ -135,6 +191,13 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
               </button>
             </span>
           )}
+          {details && (
+            <span className="whitespace-nowrap">
+              <span aria-hidden="true"> · </span>
+              {details.toggle}
+            </span>
+          )}
+          {details?.panel}
         </span>
       ) : (
         <span aria-hidden="true" className="flex min-w-0 flex-1 items-center gap-1">
@@ -164,8 +227,8 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
       {dismiss && (
         <button
           type="button"
-          aria-label={t("error.dismiss")}
-          title={t("error.dismiss")}
+          aria-label={status.dismissLabel ?? t("error.dismiss")}
+          title={status.dismissLabel ?? t("error.dismiss")}
           onClick={dismiss}
           className={rowActionButtonClass}
         >
@@ -241,23 +304,32 @@ function useStatuses(): Status[] {
   const t = useT();
   const language = useLanguage();
   const skipped = useAppStore((state) => state.skippedFiles);
+  const cantRecord = useMeetings((state) => state.cantRecord);
   const alreadyAdded = useAppStore((state) => state.alreadyAdded);
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
   const organizing = organizes(library);
+  const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();
   const counts = useAppStore(
     useShallow((state) => {
       let processing = 0;
-      // Scanned pages still to read, of the Documents being read (#397).
-      let scannedPages = 0;
+      // Scans being read (#397), and those found, waiting their turn beside the others (#1502).
+      let scansReading = 0;
+      let scansWaiting = 0;
       let tagging = 0;
       // Only the User's own Documents: the examples need no model, so they alone don't ask for one.
       let waitingForTagger = 0;
       let waitingForPlan = 0;
+      let organizeWaitsForPlan = false;
+      let planResetsAt: string | null = null;
+      let rateLimited = 0;
+      let keyRefused = 0;
+      let rateLimitEnds: string | null = null;
       let failedTagging = 0;
       let unreached = 0;
+      const heldByOrganize = organizeHeld(state.library);
       // A paused Linked folder's Documents wait for the User: its row says so, not the footer.
       const paused = new Set(
         state.linkedFolders.filter((each) => each.status === "paused").map((each) => each.id),
@@ -266,17 +338,43 @@ function useStatuses(): Status[] {
         if (PROCESSING.has(item.status)) {
           if (item.linkedFolderId === null || !paused.has(item.linkedFolderId)) {
             processing++;
-            if (item.scan?.of === "scanned-pages") scannedPages += item.scan.pages - item.scan.read;
+            if (item.scan?.of === "scanned-pages") {
+              if (item.status === "extracting") scansReading++;
+              else scansWaiting++;
+            }
           }
         } else if (item.status === "ready") {
-          if (item.tagging === "pending" || item.tagging === "tagging") tagging++;
-          else if (
+          const held = heldByOrganize.has(item.id);
+          if (item.tagging === "pending" || item.tagging === "tagging") {
+            if (!held) tagging++;
+          } else if (
             item.tagging === "waiting-for-provider" &&
             isOwnDocument(item, allExamples(state))
           ) {
-            waitingForTagger++;
-            if (item.taggingError?.kind === "plan-limit") waitingForPlan++;
-          } else if (item.tagging === "failed" && isOwnDocument(item, allExamples(state))) {
+            if (item.taggingError?.kind === "rate-limit") {
+              rateLimited++;
+              const ends = item.taggingError.resetsAt ?? null;
+              if (ends !== null && (rateLimitEnds === null || ends > rateLimitEnds)) {
+                rateLimitEnds = ends;
+              }
+            } else if (item.taggingError?.kind === "auth") {
+              keyRefused++;
+            } else {
+              if (!held) waitingForTagger++;
+              if (item.taggingError?.kind === "plan-limit") {
+                waitingForPlan++;
+                if (held) organizeWaitsForPlan = true;
+                const resets = item.taggingError.resetsAt ?? null;
+                if (resets !== null && (planResetsAt === null || resets > planResetsAt)) {
+                  planResetsAt = resets;
+                }
+              }
+            }
+          } else if (
+            item.tagging === "failed" &&
+            !held &&
+            isOwnDocument(item, allExamples(state))
+          ) {
             failedTagging++;
             if (item.taggingError?.kind === "network") unreached++;
           }
@@ -284,10 +382,16 @@ function useStatuses(): Status[] {
       }
       return {
         processing,
-        scannedPages,
+        scansReading,
+        scansWaiting,
         tagging,
         waitingForTagger,
         waitingForPlan,
+        organizeWaitsForPlan,
+        planResetsAt,
+        rateLimited,
+        keyRefused,
+        rateLimitEnds,
         failedTagging,
         unreached,
       };
@@ -301,26 +405,64 @@ function useStatuses(): Status[] {
     t,
   );
   const retryTextRecognition = useTextRecognition((state) => state.download);
+  const textRecognitionModel = useTextRecognition((state) => state.status);
+  const embeddingSources = useDownloadSources(
+    model?.state === "failed" ? model.error : null,
+    () => void retryDownload(),
+    "embedding-model",
+  );
+  const rerankingSources = useDownloadSources(
+    rerank?.model?.state === "failed" ? rerank.model.error : null,
+    () => void retryRerankingDownload(),
+    "reranking-model",
+  );
+  const textRecognitionSources = useDownloadSources(
+    textRecognitionModel?.state === "failed" ? textRecognitionModel.error : null,
+    () => void retryTextRecognition(),
+    "text-recognition",
+  );
   const retryEmbedding = useAppStore((state) => state.retryEmbedding);
   const dismissSkipped = useAppStore((state) => state.dismissSkippedFiles);
   const dismissAlreadyAdded = useAppStore((state) => state.dismissAlreadyAdded);
   const openSettings = useAppStore((state) => state.openSettings);
-  const taggingWaits = !organizing && counts.waitingForTagger > 0;
-  const tagging = !organizing && counts.tagging > 0;
+  const updateSettings = useAppStore((state) => state.updateSettings);
+  const sandboxOff = useRunsWithoutSandbox();
+  const sandboxNoticeDismissed = useAppStore(
+    (state) => state.settings?.device.sandboxNoticeDismissed === true,
+  );
+  const taggingWaits = counts.waitingForTagger > 0;
+  const tagging = !organizesNew && counts.tagging > 0;
   const organizingNow =
     organizing &&
     !!library?.assignments.some(
       (item) => item.status === "pending" || item.status === "classifying",
     );
   const taggingService = useTaggingService(
-    organizing ? "classification" : "tagging",
+    organizingNow ? "classification" : "tagging",
     taggingWaits || tagging || organizingNow,
   );
   const taggingNeedsOk =
     taggingWaits && taggingService && !taggingService.allowed ? taggingService.service : null;
+  const refusedService = useTaggingService(
+    organizesNew ? "classification" : "tagging",
+    counts.keyRefused > 0,
+  );
+  // The plan the waiting work sends to: while tagging is Automatic, Organize has a model of its own.
+  const planService = useTaggingService(
+    counts.organizeWaitsForPlan ? "classification" : "tagging",
+    counts.waitingForPlan > 0,
+  );
   const places = useAppStore(
     useShallow((state) =>
       tagging || organizingNow ? taggingPlaces(state.documents, state.library) : [],
+    ),
+  );
+  const stoppedPlaces = useAppStore(
+    useShallow((state) =>
+      stoppedDocumentPlaces(
+        state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
+        state.library,
+      ),
     ),
   );
   const service = taggingService?.service.name;
@@ -373,11 +515,12 @@ function useStatuses(): Status[] {
     full: rerankingStatus.full,
     ...(rerankingStatus.retry && {
       action: {
-        label: t("status.retry"),
+        label: t(rerankingSources.toggle ? "modelSource.tryAgain" : "status.retry"),
         testId: "reranking-model-retry",
         run: () => void retryRerankingDownload(),
       },
     }),
+    ...(rerankingSources.toggle && { details: rerankingSources }),
   };
 
   if (model?.state === "failed" && model.error) {
@@ -389,13 +532,16 @@ function useStatuses(): Status[] {
     statuses.push({
       testId: "embedding-model-failed",
       tone: "error",
-      short: t(kind === "load" ? "status.modelFailed" : "status.downloadFailed"),
+      short: failedEverySource(model.error)
+        ? t("status.downloadFailed.everySource")
+        : t(kind === "load" ? "status.modelFailed" : "status.downloadFailed"),
       full: `${full}\n${message}`,
       action: {
-        label: t("status.retry"),
+        label: t(embeddingSources.toggle ? "modelSource.tryAgain" : "status.retry"),
         testId: "embedding-model-retry",
         run: () => void retryDownload(),
       },
+      ...(embeddingSources.toggle && { details: embeddingSources }),
     });
   }
 
@@ -404,8 +550,9 @@ function useStatuses(): Status[] {
   if (textRecognition?.tone === "error") {
     statuses.push({
       ...textRecognition,
+      ...(textRecognitionSources.toggle && { details: textRecognitionSources }),
       action: {
-        label: t("status.retry"),
+        label: t(textRecognitionSources.toggle ? "modelSource.tryAgain" : "status.retry"),
         testId: "text-recognition-retry",
         run: () => void retryTextRecognition(),
       },
@@ -426,13 +573,16 @@ function useStatuses(): Status[] {
     });
   }
 
-  if (!organizing && counts.failedTagging > 0) {
-    const failed = useAppStore
-      .getState()
-      .documents.filter((each) => each.status === "ready" && each.tagging === "failed");
+  if (counts.failedTagging > 0) {
+    const reasons = failedTagging(useAppStore.getState()).flatMap((each) =>
+      each.taggingError && each.taggingError.kind !== "network"
+        ? [taggingProblem(each.taggingError, t)]
+        : [],
+    );
     statuses.push({
       testId: "tagging-failed",
       tone: "error",
+      alerts: true,
       short:
         counts.failedTagging === 1
           ? t("status.taggingFailed.one")
@@ -443,14 +593,12 @@ function useStatuses(): Status[] {
             ? "status.taggingFailed.offline"
             : "status.taggingFailed.full",
         ),
-        failed[0]?.taggingError?.message ?? "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
+        ...new Set(reasons),
+      ].join("\n"),
       action: {
         label: t("status.retry"),
         testId: "tagging-failed-retry",
-        run: () => void useAppStore.getState().retagDocuments(failed.map((each) => each.id)),
+        run: () => void retryTagging(),
       },
     });
   }
@@ -458,25 +606,53 @@ function useStatuses(): Status[] {
   for (const problem of pageProblems) {
     const refused = !canTryAgain(problem);
     const reason = t(reasonKey(problem.reason));
-    const short = problem.document
-      ? t("webPages.fetchAgainFailed", { name: problem.document.name, reason })
-      : t(refused ? "webPages.notAdded" : "webPages.couldNotFetch", { reason });
+    const held = heldInLocalMode(problem);
+    const { message: short, fullMessage = short } = saidInLine(t, (t) =>
+      held
+        ? t("webPages.localMode", { site: siteOf(problem.address) })
+        : problem.document
+          ? t("webPages.fetchAgainFailed", { name: problem.document.name, reason })
+          : t(refused ? "webPages.notAdded" : "webPages.couldNotFetch", { reason }),
+    );
     const { tryAgain, dismiss } = useWebPages.getState();
     statuses.push({
       testId: `web-page-problem:${problem.key}`,
       tone: refused ? "waiting" : "error",
       short,
-      full: `${short}\n${problem.address}\n${problem.message}`,
+      full: held
+        ? `${fullMessage}\n${problem.address}`
+        : `${fullMessage}\n${problem.address}\n${problem.message}`,
       ...(refused
         ? {}
         : {
             action: {
-              label: t("webPages.tryAgain"),
-              testId: "web-page-try-again",
-              run: () => void tryAgain(problem),
+              label: t(held ? "webPages.localMode.once" : "webPages.tryAgain"),
+              testId: held ? "web-page-fetch-once" : "web-page-try-again",
+              run: () => void tryAgain(problem, held ? true : undefined),
             },
           }),
       dismiss: () => dismiss(problem),
+      ...(held && { dismissLabel: t("webPages.localMode.keep") }),
+    });
+  }
+
+  if (cantRecord) {
+    const text = t("meetings.settings.cantRecord");
+    statuses.push({
+      testId: "cant-record",
+      tone: "waiting",
+      short: text,
+      full: text,
+      wraps: true,
+      action: {
+        label: t("meetings.cantRecord.notes"),
+        testId: "cant-record-notes",
+        run() {
+          useMeetings.getState().clearCantRecord();
+          void useAppStore.getState().createMind({ titled: true });
+        },
+      },
+      dismiss: () => useMeetings.getState().clearCantRecord(),
     });
   }
 
@@ -506,12 +682,74 @@ function useStatuses(): Status[] {
     });
   }
 
+  if (sandboxOff && !sandboxNoticeDismissed) {
+    statuses.push({
+      testId: "no-sandbox",
+      tone: "waiting",
+      short: t("sandbox.off"),
+      full: t("sandbox.off"),
+      wraps: true,
+      action: { label: t("sandbox.off.fix"), testId: "no-sandbox-fix", run: openSandboxHelp },
+      dismiss: () => void updateSettings({ device: { sandboxNoticeDismissed: true } }),
+    });
+  }
+
+  if (counts.rateLimited > 0) {
+    const time = counts.rateLimitEnds ? formatDateTime(counts.rateLimitEnds, language) : "";
+    const limited = useAppStore
+      .getState()
+      .documents.filter(
+        (each) =>
+          each.status === "ready" &&
+          each.tagging === "waiting-for-provider" &&
+          each.taggingError?.kind === "rate-limit",
+      );
+    statuses.push({
+      testId: "tagging-rate-limited",
+      tone: "waiting",
+      short: t("status.taggingRateLimited", { time }),
+      full: t("status.taggingRateLimited.full", { time }),
+      wraps: true,
+      needsYou: true,
+      action: {
+        label: t("status.retry"),
+        testId: "tagging-rate-limited-retry",
+        run: () => void useAppStore.getState().retagDocuments(limited.map((each) => each.id)),
+      },
+    });
+  }
+
+  if (counts.keyRefused > 0) {
+    statuses.push({
+      testId: "tagging-key-refused",
+      tone: "waiting",
+      short: t("status.taggingKeyRefused"),
+      full: t("status.taggingKeyRefused.full"),
+      wraps: true,
+      needsYou: true,
+      alerts: true,
+      action: {
+        label: t("answer.error.checkKey"),
+        testId: "tagging-key-refused-check",
+        run: () => void useKeyRefusals.getState().checkService(refusedService?.service.id ?? null),
+      },
+    });
+  }
+
   if (counts.waitingForPlan > 0) {
+    const line = planLimitLine(planService?.service ?? null, counts.planResetsAt, t, language);
     statuses.push({
       testId: "tagging-paused",
       tone: "waiting",
-      short: t("status.taggingPaused"),
-      full: t("status.taggingPaused.full"),
+      short: line,
+      full: t("status.planLimit.full", { line }),
+      wraps: true,
+      needsYou: true,
+      action: {
+        label: t("signInRoute.wayBack.pasteApiKey"),
+        testId: "tagging-paused-use-key",
+        run: () => openSettings("models"),
+      },
     });
   } else if (taggingWaits && taggingNeedsOk) {
     statuses.push({
@@ -520,6 +758,7 @@ function useStatuses(): Status[] {
       short: t("status.taggingPermission"),
       full: t("jev.waiting.permission", { service: taggingNeedsOk.name }),
       asks: true,
+      alerts: true,
       action: {
         label: t("privacy.flows.allow"),
         testId: "tagging-waiting-allow",
@@ -535,10 +774,30 @@ function useStatuses(): Status[] {
       tone: "waiting",
       short: t("status.taggingWaiting"),
       full: t("jev.waiting.notice"),
+      needsYou: true,
+      alerts: true,
       action: {
         label: t("status.choose"),
         testId: "tagging-waiting-setup",
-        run: () => openSettings("models"),
+        run: () => openSettings("models", "tagging"),
+      },
+    });
+  }
+
+  if (stoppedPlaces.length > 0) {
+    statuses.push({
+      testId: "tagging-stopped",
+      tone: "waiting",
+      short: t("status.taggingStopped"),
+      full: t("tagging.stoppedIn", { places: placesText(stoppedPlaces, library, t, language) }),
+      needsYou: true,
+      action: {
+        label: t("tagging.resume"),
+        testId: "tagging-resume",
+        run: () =>
+          void resumeTagging(stoppedPlaces).catch((error: unknown) =>
+            useAppStore.getState().reportError(error),
+          ),
       },
     });
   }
@@ -591,12 +850,17 @@ function useStatuses(): Status[] {
       full: t("status.readingPaused.full"),
     });
   } else if (counts.processing > 0) {
-    // While scanned pages are read, they are what takes the time: the row says so.
+    // While scans are read, they are what takes the time: the row says so, and how many wait.
+    const { scansReading: reading, scansWaiting: waiting } = counts;
     const text =
-      counts.scannedPages > 0
-        ? counts.scannedPages === 1
-          ? t("status.scanning.one")
-          : t("status.scanning.other", { count: counts.scannedPages })
+      reading > 0
+        ? waiting > 0
+          ? reading === 1
+            ? t("status.scansWaiting.one", { waiting })
+            : t("status.scansWaiting.other", { count: reading, waiting })
+          : reading === 1
+            ? t("status.scans.one")
+            : t("status.scans.other", { count: reading })
         : counts.processing === 1
           ? t("status.processing.one")
           : t("status.processing.other", { count: counts.processing });
@@ -637,12 +901,18 @@ function useStatuses(): Status[] {
       (item) => item.status === "pending" || item.status === "classifying",
     ).length;
     const attention = library.assignments.filter(
-      (item) => item.status === "waiting" || item.status === "failed",
+      (item) =>
+        (item.status === "waiting" &&
+          item.error?.kind !== "rate-limit" &&
+          item.error?.kind !== "auth" &&
+          item.error?.kind !== "plan-limit") ||
+        item.status === "failed",
     ).length;
     if (attention)
       statuses.push({
         testId: "organization-attention",
         tone: "waiting",
+        alerts: true,
         short: t("library.needsAttention"),
         full: t("library.waiting", { count: attention }),
         action: { label: t("library.review"), run: () => useAppStore.getState().openLibrary() },

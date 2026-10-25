@@ -169,6 +169,7 @@ export function createRecentlyDeleted(options: {
   tags: TagsStore;
   library: ReturnType<typeof createLibrary>;
   mindsChanged(): void;
+  mindsRestored(mindIds: readonly string[]): void;
   conversationsChanged(): void;
   tagsChanged(): void;
   tagged(documentIds: string[]): void;
@@ -193,7 +194,7 @@ export function createRecentlyDeleted(options: {
           ? say("conversation.untitled")
           : "";
 
-  function checkDocument(id: string, name: string): void {
+  function checkDocument(id: string, name: string, coming: Set<string>): void {
     const row = db.get<{ path: string; linked_folder_id: string | null }>(
       "SELECT path, linked_folder_id FROM documents WHERE id = ?",
       [id],
@@ -206,8 +207,12 @@ export function createRecentlyDeleted(options: {
       ])
     )
       throw new NotFoundError({ key: "error.restore.unlinked", values: { name } });
-    if (db.get("SELECT 1 FROM documents WHERE path = ? AND deleted_at IS NULL", [row.path]))
+    if (
+      coming.has(row.path) ||
+      db.get("SELECT 1 FROM documents WHERE path = ? AND deleted_at IS NULL", [row.path])
+    )
       throw new InvalidInputError({ key: "error.restore.documentBack", values: { name } });
+    coming.add(row.path);
   }
 
   function checkLinks(links: readonly TagLinkState[]): void {
@@ -294,14 +299,25 @@ export function createRecentlyDeleted(options: {
       const done = db.transaction(() => {
         const restored = {
           minds: false,
+          mindIds: [] as string[],
+          mindsDeletedAt: [] as { id: string; deletedAt: string }[],
           conversations: false,
           documents: [] as string[],
           folders: false,
           tags: false,
           tagged: new Set<string>(),
         };
+        const coming = new Set<string>();
+        // Documents go back together, in one statement a table (#1349), before whatever comes
+        // after them in `refs`, so the order stays the order asked.
+        let waiting: string[] = [];
+        const bringBack = () => {
+          documents.restore(waiting);
+          waiting = [];
+        };
         for (const ref of refs) {
           const { kind } = ref;
+          if (kind !== "document") bringBack();
           const row = rowOf(kind, ref.id);
           if (!row) throw new NotFoundError({ key: "error.restore.unknown" });
           const name = nameOf(kind, row);
@@ -320,12 +336,14 @@ export function createRecentlyDeleted(options: {
               minds.restore(ref.id);
               content.restore(ref.id, row.deleted_at);
               restored.minds = true;
+              restored.mindIds.push(ref.id);
+              restored.mindsDeletedAt.push({ id: ref.id, deletedAt: row.deleted_at });
             } else if (kind === "conversation") {
               conversations.restore(ref.id);
               restored.conversations = true;
             } else if (kind === "document") {
-              checkDocument(ref.id, name);
-              documents.restore([ref.id]);
+              checkDocument(ref.id, name, coming);
+              waiting.push(ref.id);
               restored.documents.push(ref.id);
             } else if (kind === "folder") {
               const taken = library.restore(ref.id);
@@ -345,13 +363,16 @@ export function createRecentlyDeleted(options: {
             }
           }
         }
+        bringBack();
         // Once every ref is back, so a Document restored in the same call counts.
         const links = refs.flatMap((ref) => ref.links ?? []);
         checkLinks(links);
         for (const id of tags.revert(links)) restored.tagged.add(id);
         return restored;
       });
+      for (const { id, deletedAt } of done.mindsDeletedAt) content.restored(id, deletedAt);
       if (done.minds) options.mindsChanged();
+      if (done.mindIds.length > 0) options.mindsRestored(done.mindIds);
       if (done.conversations) options.conversationsChanged();
       if (done.documents.length > 0) {
         documents.restored(done.documents);
@@ -392,6 +413,8 @@ export function createRecentlyDeleted(options: {
           purge(db, kind, [id], at, documentText);
         }
       });
+      // Only once purged for good: a rollback keeps the Minds, and what still waits in them.
+      for (const { kind, id } of refs) if (kind === "mind") content.forget(id);
     },
   };
 }

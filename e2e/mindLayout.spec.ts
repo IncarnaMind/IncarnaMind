@@ -19,11 +19,14 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  paintOf,
   pointAndClick,
   removeDataFolder,
   setGroupBeside,
   setWindowSize,
+  slideSelect,
   slideToHandle,
+  tokenColor,
   useLocalChatModel,
 } from "./app";
 
@@ -134,9 +137,9 @@ async function citeMore(editor: Locator) {
   });
 }
 
-test("every text in a Mind starts at one edge, its controls sit in the left margin, and each Citation's check is level with its marker in the right margin", async () => {
+test("every text in a Mind starts at one edge, its controls sit in the left margin, and a Citation's check shows on its marker, not in the right margin", async () => {
   // Notes added from an Answer (#201) are Notes: they keep the edge, their link back sits in
-  // the left margin, and their Citations' checks in the right one.
+  // the left margin, and their Citations' checks on their markers.
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -173,13 +176,12 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
     "So spring tides follow the Moon. Check whether the tables put numbers on how much higher they are.",
   );
 
-  // One text edge: the title, a Note, a heading, a list item, and a Note added from an Answer.
+  // One text edge: the title, a Note, a heading, and a Note added from an Answer.
   const edge = (await textColumn(editor)).x;
   const texts = {
     title: title,
     note: editor.locator(":scope > p").first(),
     heading: editor.locator(":scope > h2"),
-    "list item": editor.locator(":scope > ul > li").first(),
     added: editor
       .locator(":scope > p")
       .filter({ has: window.getByTestId("citation") })
@@ -188,6 +190,13 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   for (const [name, locator] of Object.entries(texts)) {
     expectNear((await box(locator)).x, edge, 1, `the ${name} starts at the text edge`);
   }
+  // A list is indented as Word indents it: its text starts 48px in (DESIGN.md, #1341).
+  expectNear(
+    (await box(editor.locator(":scope > ul > li").first())).x,
+    edge + 48,
+    1,
+    "the list item starts one indent in",
+  );
   // The measure is 680px, with its margins inside the pane.
   expectNear((await textColumn(editor)).width, MEASURE, 1, "the measure");
 
@@ -216,19 +225,17 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   await expect(markers.nth(0)).toHaveAttribute("aria-label", /Tides, p\. 2\. Quote found on p\. 2/);
   await expect(markers.nth(2)).toHaveAttribute("data-check", "not-found");
 
-  // A mark for each in the right margin, with its state, level with its marker's line.
-  const marks = window.locator(".mind-editor-frame").getByTestId("margin-check");
-  await expect(marks).toHaveCount(3);
-  await expect(marks).toHaveText(["1", "2", "3"]);
-  for (const [index, check] of ["found", "found", "not-found"].entries()) {
-    const mark = marks.nth(index);
-    await expect(mark).toHaveAttribute("data-check", check);
-    const markRect = await box(mark);
-    const markerRect = await box(markers.nth(index));
-    expectNear(middle(markRect), middle(markerRect), 4, `mark ${index + 1}'s middle`);
-    expect.soft(markRect.x).toBeGreaterThanOrEqual(edge + MEASURE);
-    expect.soft(markRect.x + markRect.width).toBeLessThanOrEqual(edge + MEASURE + RIGHT_MARGIN);
-  }
+  // The right margin holds a sentence's own check, never a Citation's: the markers carry theirs.
+  const margin = window.locator(".mind-editor-frame").getByTestId("margin-checks");
+  await expect(margin.getByRole("button")).toHaveCount(0);
+  const [neutral, warning] = [
+    await tokenColor(window, "--color-chip"),
+    await tokenColor(window, "--color-warning-wash"),
+  ];
+  expect((await paintOf(markers.nth(0))).background).toBe(neutral);
+  expect((await paintOf(markers.nth(1))).background).toBe(neutral);
+  expect((await paintOf(markers.nth(2))).background).toBe(warning);
+  await expect(markers.nth(2)).toHaveAccessibleName(/Quote not found on p\. 2/);
   await screenshot(window, "mind.png");
 
   // Clicking somewhere empty, right of the margin column, closes a card.
@@ -241,7 +248,6 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   await expect(markers.nth(0)).toHaveAttribute("aria-expanded", "true");
   await setGroupBeside(window, false);
   await expect(window.getByTestId("viewer")).toHaveCount(0);
-  await expect(marks.nth(0)).toHaveAttribute("data-open", "true");
   // Measured once it has grown from its marker.
   await motionSettled(window);
   expectNear((await box(card.locator(".citation-card"))).width, 360, 1, "the card's width");
@@ -249,19 +255,20 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   await window.mouse.click(away.x, away.y);
   await expect(card).toHaveCount(0);
 
-  // So does its mark: here the one whose quote wasn't found, which doesn't open the page.
-  await marks.nth(2).click();
+  // So does the marker whose quote wasn't found, which doesn't open the page.
+  await markers.nth(2).click();
   await expect(card.getByTestId("citation-badge")).toHaveText("Quote not found on p. 2");
-  await expect(card.getByTestId("citation-reason")).toContainText("isn't in the text");
+  await expect(card.getByTestId("citation-reason")).toContainText("isn’t in the text");
   await expect(window.getByTestId("viewer")).toHaveCount(0);
   await screenshot(window, "mind-card-not-found.png");
   await window.mouse.click(away.x, away.y);
   await expect(card).toHaveCount(0);
 
-  // Under 760px (here, the viewer open beside it) the margins fold away: the markers show the checks.
+  // Under 760px (here, the viewer open beside it) the markers keep their states.
   await setGroupBeside(window, true);
-  await expect(window.locator(".mind-editor-frame").getByTestId("margin-checks")).toBeHidden();
-  await expect(markers.nth(0).locator(".citation-marker-icon")).toBeVisible();
+  expect((await paintOf(markers.nth(0))).background).toBe(neutral);
+  expect((await paintOf(markers.nth(2))).background).toBe(warning);
+  await expect(margin.getByRole("button")).toHaveCount(0);
   expectNear((await box(texts.note)).x, (await textColumn(editor)).x, 1, "narrow: the Note's edge");
   expectNear(
     (await box(texts.added)).x,
@@ -271,9 +278,8 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   );
   await screenshot(window, "mind-narrow.png");
   await setGroupBeside(window, false);
-  await expect(window.locator(".mind-editor-frame").getByTestId("margin-checks")).toBeVisible();
 
-  // Two markers on one line: their marks stack, the first level with the line.
+  // Two markers on one line sit side by side.
   await editor.evaluate((dom) => {
     const { view, commands } = (dom as unknown as { editor: Editor }).editor;
     const found: Record<string, unknown>[] = [];
@@ -291,10 +297,12 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
       ],
     });
   });
-  await expect(marks).toHaveCount(5);
-  const [first, second] = [await box(marks.nth(3)), await box(marks.nth(4))];
-  expectNear(middle(first), middle(await box(markers.nth(3))), 4, "the first stacked mark");
-  expectNear(second.y, first.y + first.height + 4, 1, "the second stacked mark");
+  await expect(markers).toHaveCount(5);
+  const [first, second] = [await box(markers.nth(3)), await box(markers.nth(4))];
+  expectNear(middle(first), middle(second), 1, "the two markers' middles");
+  expect
+    .soft(second.x, "the second marker is right of the first")
+    .toBeGreaterThanOrEqual(first.x + first.width);
   await app.close();
 });
 
@@ -522,7 +530,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the margins narrow to 40px before they fold at 760px, where the checks move inline and both gutters stay 40px, with the composer under the text (${language})`, async () => {
+  test(`the margins narrow to 40px before they fold at 760px, where a sentence's mark keeps to the gutter and both gutters stay 40px, with the composer under the text (${language})`, async () => {
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
@@ -545,7 +553,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await askInAssistant(window, "When do spring tides happen, and what makes them stronger?"),
     );
     await expect(editor.getByTestId("citation").first()).toBeVisible();
-    // The Mind's checks, not the assistant's.
+    // A sentence the Mind has checked has a mark in the margin: the Mind's checks, not the assistant's.
+    const first = editor.locator(":scope > p").first();
+    await slideSelect(window, first, "Spring tides follow the Moon.");
+    await pointAndClick(
+      window,
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
+    );
     const card = window.getByTestId("card");
     const column = window.locator(".mind-column");
     const gutters = async () => {
@@ -556,30 +570,33 @@ for (const language of ["en", "zh-CN"] as const) {
     // A 1,440px window with the assistant docked at its default width: the checks stay in the margin.
     await expect(window.getByTestId("assistant")).toHaveAttribute("data-dock", "right");
     expect(await (await box(window.getByTestId("assistant"))).width).toBeCloseTo(320, 0);
-    const marks = card.getByTestId("margin-check");
+    const marks = card.getByTestId("claim-mark");
     await expect(marks.first()).toBeVisible();
     expect((await box(column)).width, "the Mind is under the old 900px fold").toBeLessThan(900);
     const wide = await gutters();
     expect.soft(wide.left, "the left margin holds the controls").toBeGreaterThanOrEqual(40);
     expect.soft(wide.right, "the right margin holds the checks").toBeGreaterThanOrEqual(40);
 
-    // Narrowed, not folded, at 760px: both margins 40px, the checks still beside the text.
+    // Narrowed, not folded, at 760px: both margins 40px, the mark still beside the text.
     await sizeMind(app, window, 760);
-    await expect(card.getByTestId("margin-checks")).toBeVisible();
     const at760 = await gutters();
     expectNear(at760.left, 40, 1, "the left margin at 760px");
     expectNear(at760.right, 40, 1, "the right margin at 760px");
+    await expect(marks.first()).toBeVisible();
     const mark = await box(marks.first());
     const text = await textColumn(editor);
     expect.soft(mark.x).toBeGreaterThanOrEqual(text.x + text.width);
     expect.soft(mark.x + mark.width).toBeLessThanOrEqual(text.x + text.width + 40);
 
-    // Folded under 760px: the checks move inline, both gutters stay 40px, and the text edge doesn't move.
+    // Folded under 760px: the mark keeps to the gutter, both gutters stay 40px, and the text edge doesn't move.
     await sizeMind(app, window, 650);
-    await expect(card.getByTestId("margin-checks")).toBeHidden();
-    await expect(
-      editor.getByTestId("citation-chip").first().locator(".citation-marker-icon"),
-    ).toBeVisible();
+    await expect(marks.first()).toBeVisible();
+    const foldedMark = await box(marks.first());
+    const foldedText = await textColumn(editor);
+    expect.soft(foldedMark.x).toBeGreaterThanOrEqual(foldedText.x + foldedText.width);
+    expect
+      .soft(foldedMark.x + foldedMark.width)
+      .toBeLessThanOrEqual(foldedText.x + foldedText.width + 40);
     const folded = await gutters();
     expectNear(folded.left, 40, 1, "the left gutter when folded");
     expectNear(folded.right, 40, 1, "the right gutter when folded");

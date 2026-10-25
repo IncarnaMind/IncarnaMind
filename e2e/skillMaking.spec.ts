@@ -124,14 +124,20 @@ test("Make this a Skill: the model drafts it from the Mind, the User edits it in
   await app.close();
 });
 
-test("Make this a Skill from the assistant's ⋯ menu and ⌘K; an empty Mind says there is nothing to learn from", async () => {
+/** ⌘K, "Make this a Skill", Enter: as the User types it. */
+async function makeSkillFromPalette(window: Page) {
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("Make this a Skill");
+  await window.keyboard.press("Enter");
+}
+
+test("Make this a Skill from ⌘K; an empty Mind says there is nothing to learn from", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
 
   await newMind(window);
-  await window.getByTestId("assistant-more").click();
-  await window.getByTestId("assistant-menu-make-skill").click();
+  await makeSkillFromPalette(window);
   const empty = window.getByTestId("make-skill-empty");
   await expect(empty).toContainText("nothing in this Mind to make a Skill from");
   await empty.getByRole("button", { name: "Close" }).click();
@@ -139,8 +145,7 @@ test("Make this a Skill from the assistant's ⋯ menu and ⌘K; an empty Mind sa
 
   await window.getByTestId("mind-editor").click();
   await window.keyboard.type("Notes on the Halvard contract.");
-  await window.getByTestId("assistant-more").click();
-  await window.getByTestId("assistant-menu-make-skill").click();
+  await makeSkillFromPalette(window);
   const editor = window.getByTestId("make-skill-editor");
   await expect(editor.getByTestId("make-skill-editor-name")).toHaveValue("scripted-review");
 
@@ -159,7 +164,7 @@ test("a Skill name that is taken, an empty field and a too-long description are 
 
   const settings = await openSettings(window, "skills");
   const section = settings.getByTestId("skills-settings");
-  await expect(section.getByTestId("skills-yours")).toContainText("You haven't made a Skill yet");
+  await expect(section.getByTestId("skills-yours")).toContainText("No Skills yet.");
   await expect(section.getByTestId("skills-built-in").getByTestId("skill-item")).toHaveCount(3);
 
   // New Skill…: a Built-in Skill's name is taken, and each field says what is wrong.

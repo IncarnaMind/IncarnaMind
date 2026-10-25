@@ -14,27 +14,22 @@ import { MeetingsSettings } from "./MeetingsSettings";
 import { MotionSettings } from "./MotionSettings";
 import { OutputLocationSettings } from "./OutputLocationSettings";
 import { PrivacySettings } from "./PrivacySettings";
-import { ChatGptPlanSettings } from "./providers/ChatGptPlanSettings";
-import { ChatModelSettings } from "./providers/ChatModelSettings";
 import { EmbeddingSettingsSection } from "./providers/EmbeddingSettings";
-import { OtherModelsSettings } from "./providers/OtherModelsSettings";
-import { PlansSettings } from "./providers/PlansSettings";
+import { ModelsSettings } from "./providers/ModelsSettings";
 import { RerankSettingsSection } from "./providers/RerankSettings";
 import { SavedWebPagesSettings } from "./SavedWebPagesSettings";
 import { SkillScriptsSettings, SkillsSettings } from "./SkillsSettings";
 import { SpendingCapSettings } from "./SpendingCapSettings";
 import { SuggestionSettings } from "./SuggestionSettings";
-import { TaggingSettings } from "./TaggingSettings";
 import {
   buttonClass,
   dialogFrameClass,
-  hintClass,
   navRowClass,
   ruledListClass,
   sectionNoteClass,
   sectionTitleClass,
 } from "./ui";
-import { useModal } from "./useModal";
+import { useBackdropClose, useModal } from "./useModal";
 import { WebSearchSettings } from "./WebSearchSettings";
 
 const languageOptions: readonly { value: LanguagePreference; label: MessageKey }[] = [
@@ -56,6 +51,7 @@ export function SettingsDialog() {
   const showPage = useAppStore((state) => state.showSettingsPage);
   const close = useAppStore((state) => state.closeSettings);
   const dialog = useModal(open);
+  useBackdropClose(dialog, close);
   /** The pages shown since Settings opened. Closing forgets them. */
   const [visited, setVisited] = useState<readonly SettingsPage[]>([]);
   if (open && !visited.includes(page)) setVisited([...visited, page]);
@@ -158,17 +154,7 @@ function PageContent({ page }: { page: SettingsPage }) {
         </Page>
       );
     case "models":
-      return (
-        <Page>
-          <Titled title="providers.settings.title">
-            <ChatModelSettings />
-          </Titled>
-          <OtherModelsSettings />
-          <PlansSettings />
-          <ChatGptPlanSettings />
-          <TaggingSettings />
-        </Page>
-      );
+      return <ModelsSettings />;
     case "search":
       return (
         <Page>
@@ -284,7 +270,11 @@ function DataFolderSettings() {
   return (
     <section data-testid="data-folder-settings">
       <h4 className={sectionTitleClass}>{t("export.dataFolder.title")}</h4>
-      <p className={sectionNoteClass}>{t("export.dataFolder.body")}</p>
+      <p className={sectionNoteClass}>
+        {t("export.dataFolder.body")}
+        <br />
+        {t("export.dataFolder.backup")}
+      </p>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -297,13 +287,13 @@ function DataFolderSettings() {
         <button
           type="button"
           data-testid="open-logs-folder"
+          title={t("export.dataFolder.logs.tip")}
           onClick={() => void open(files.openLogsFolder())}
           className={buttonClass}
         >
           {t("export.dataFolder.openLogs")}
         </button>
       </div>
-      <p className={hintClass}>{t("export.dataFolder.logs")}</p>
     </section>
   );
 }

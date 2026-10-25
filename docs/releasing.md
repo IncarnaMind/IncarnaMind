@@ -16,8 +16,10 @@ npm run dist         # the installers for the current system; never published
 3. The tag starts the **Release** workflow (`.github/workflows/release.yml`). It checks that the tag matches `package.json`, creates a draft GitHub Release, builds, checks each package's contents and size (`npm run check:package`), and only then uploads:
    - for macOS, a dmg and a zip, each for Apple silicon and Intel;
    - for Windows, an NSIS installer, signed once SignPath is set up (see Windows signing);
-   - for Linux, an AppImage;
+   - for Linux, an AppImage and a .deb. The .deb is the one that runs with Chromium's sandbox on Ubuntu 24.04 and later. It can't update itself: like the unsigned macOS build, it tells the user a new version is out;
    - the `latest*.yml` files that auto-update reads.
+
+   On macOS, before its upload, the packaged Apple silicon app also transcribes a meeting with its real speech engine (`npm run test:packaged`, #1239). If that check fails, the macOS files aren't uploaded, but the Windows and Linux legs still upload theirs. Never publish a draft without its macOS files: a failed transcription check most likely means transcription is broken on the other platforms too.
 4. Review the draft, edit its notes (ending with the code signing policy line, see below), try the installers, and click **Publish release**. Installed apps only see an update once its release is published.
 
 After the first release is published, follow the comments in `README.md` and `README.zh-CN.md`: remove the "not released yet" notes, and add the release badge.

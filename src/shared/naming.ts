@@ -124,6 +124,39 @@ export function fitName(name: string, fits: (text: string) => boolean): string {
   return `${kept || characters.slice(0, shown).join("")}…`;
 }
 
+const wide =
+  /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6\u{20000}-\u{3fffd}]/u;
+const columnsOf = (character: string): number => (wide.test(character) ? 2 : 1);
+
+/**
+ * `text` cut in the middle to at most `max` columns, ended and joined by "…", so its start and its
+ * end stay: a web address keeps its site and its page, a file its extension. A Latin character is
+ * a column and a Chinese, Japanese or Korean one two, as they are drawn.
+ */
+export function shortenMiddle(text: string, max: number): string {
+  const characters = Array.from(text);
+  if (characters.reduce((sum, character) => sum + columnsOf(character), 0) <= max) return text;
+  const head = Math.ceil((max - 1) / 2);
+  const tail = max - 1 - head;
+  const kept = (from: readonly string[], room: number): string[] => {
+    const taken: string[] = [];
+    let used = 0;
+    for (const character of from) {
+      used += columnsOf(character);
+      if (used > room) break;
+      taken.push(character);
+    }
+    return taken;
+  };
+  return `${kept(characters, head).join("")}…${kept(characters.toReversed(), tail).toReversed().join("")}`;
+}
+
+/** Wide enough for a name that reads, narrow enough that a sentence holding it stays in a few lines in a half-width group or the sidebar. */
+export const NAME_IN_LINE_COLUMNS = 40;
+
+/** A name inside a line or sentence, cut in the middle; the line's own words are never cut. */
+export const nameInLine = (name: string): string => shortenMiddle(name, NAME_IN_LINE_COLUMNS);
+
 /** What a Mind is called: the title the User typed, else its first line of text. Empty when it has neither. */
 export const mindName = (mind: { title: string; autoTitle: string }): string =>
   mind.title || mind.autoTitle;
@@ -143,3 +176,13 @@ export const SHORT_TITLE_INSTRUCTION =
 /** The model's short title, cleaned: its first line, without quotes or trailing punctuation. Empty if it gave none. */
 export const cleanShortTitle = (reply: string): string =>
   cutTitle(reply.trim().replace(quotes, "")).replace(quotes, "");
+
+/** The first of "{name} 2", "{name} 3"… that none of `taken` is; null when none of `taken` is `name`. */
+export function numberedName(name: string, taken: readonly string[]): string | null {
+  const names = new Set(taken.map((each) => each.trim().toLocaleLowerCase()));
+  if (name.trim() === "" || !names.has(name.trim().toLocaleLowerCase())) return null;
+  for (let next = 2; ; next++) {
+    const numbered = `${name} ${next}`;
+    if (!names.has(numbered.toLocaleLowerCase())) return numbered;
+  }
+}

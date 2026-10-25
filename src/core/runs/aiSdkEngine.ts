@@ -150,17 +150,25 @@ function checkedSchema(schema: Record<string, unknown>) {
  * JSON Schema and call. Arguments a model sends that aren't an object are
  * taken as none. (The one place Tools meet the loop's library.)
  */
-export function toToolSet(tools: readonly RunTool[], signal: AbortSignal): ToolSet {
+export function toToolSet(
+  tools: readonly RunTool[],
+  signal: AbortSignal,
+  canCallAgain: () => boolean = () => true,
+  refused: () => boolean = () => false,
+): ToolSet {
   const set: ToolSet = {};
   for (const each of tools) {
     set[each.name] = tool({
       description: each.description,
       inputSchema: checkedSchema(each.inputSchema),
       execute: async (input, { abortSignal, toolCallId }) =>
-        each.call(isPlainObject(input) ? forTool(input, each.inputSchema) : {}, {
-          toolCallId,
-          signal: abortSignal ?? signal,
-        }),
+        refused()
+          ? NO_MORE_CALLS
+          : each.call(isPlainObject(input) ? forTool(input, each.inputSchema) : {}, {
+              toolCallId,
+              signal: abortSignal ?? signal,
+              canCallAgain,
+            }),
     });
   }
   return set;
@@ -300,6 +308,21 @@ function fromModelMessages(messages: readonly ModelMessage[]): RunMessage[] {
   return out;
 }
 
+/**
+ * What the last step is told. A model that wanted another call writes it out as text (a tag, JSON,
+ * "Let me search…", "I need to record the citations first") when it may make none, and may think
+ * for pages first, as Kimi K2.6 does (#1344).
+ */
+const LAST_STEP_NOTE =
+  "You can make no more calls, and none can record a Citation now. Write the Answer now from what has been read, without Citation markers, and say plainly what you didn't check. Don't write a call, and don't say what you would do next.";
+
+/** The most the last step may write, its thinking included, unless the model's own most is less. */
+const LAST_STEP_TOKENS = 8_000;
+
+/** What a call on the last step is answered with: it isn't made. */
+const NO_MORE_CALLS =
+  "No more calls are allowed: that was the last step. Write the Answer now from what has been read, and say plainly what you didn't check.";
+
 /** Messages with others put in where they were taken: `at` counts the messages before, without them. */
 function splice(
   messages: readonly ModelMessage[],
@@ -366,9 +389,14 @@ function failure(
 
 async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
   const { signal, window, maxSteps } = request;
+  let canCallAgain = maxSteps > 2;
+  /** The step now drawn is one that must write: a call in it is refused. */
+  let writing = false;
   const tools = toToolSet(
     request.tools.map((each) => gated(each, request)),
     signal,
+    () => canCallAgain && (window === undefined || window.canCallTools()),
+    () => writing,
   );
   const initial = toModelMessages(request.messages);
   /** Steering messages, where each was taken among the responses. */
@@ -382,7 +410,9 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
     temperature: request.temperature,
     providerOptions: cacheProviderOptions(request.cacheKey),
     stopWhen: [
-      stepCountIs(maxSteps) as StopCondition<ToolSet>,
+      // One more than `maxSteps`: a model that calls a Tool on the last step has it refused and
+      // gets one more call to write.
+      stepCountIs(maxSteps + 1) as StopCondition<ToolSet>,
       ({ steps }) => {
         const last = steps.at(-1);
         return (
@@ -410,8 +440,19 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
         if (compact) messages = toModelMessages(compact(fromModelMessages(messages)));
       }
       // The last step must write; so must a step with no room left for a Tool's result.
-      const write = stepNumber >= maxSteps - 1 || (window !== undefined && !window.canCallTools());
-      return { ...(messages && { messages }), ...(write && { toolChoice: "none" as const }) };
+      const noRoom = window !== undefined && !window.canCallTools();
+      const write = stepNumber >= maxSteps - 1 || noRoom;
+      writing = write;
+      canCallAgain = stepNumber + 1 < maxSteps - 1;
+      if (!write) return { ...(messages && { messages }) };
+      return {
+        messages: [
+          ...(messages ?? [...initialMessages, ...splice(responseMessages, inserted)]),
+          { role: "user" as const, content: LAST_STEP_NOTE },
+        ],
+        ...((noRoom || !request.lastStep?.keepTools) && { toolChoice: "none" as const }),
+        maxOutputTokens: Math.min(LAST_STEP_TOKENS, request.lastStep?.tokens ?? LAST_STEP_TOKENS),
+      };
     },
     abortSignal: signal,
     // Errors arrive as stream parts; don't also log them.

@@ -6,7 +6,7 @@
  */
 import { runMarks } from "../../documents/formats/docxImport";
 import { decodeEntities, elements, parseXml } from "../../documents/formats/xml";
-import { escapeXml } from "../wordml";
+import { escapeXml, fontsXml, halfPoints } from "../wordml";
 import { marksOf, type TextMarks } from "./mind";
 import { sliceOf } from "./text";
 
@@ -257,6 +257,25 @@ export function runPropertiesFor(
     ['<w:highlight w:val="yellow"/>'],
     ['<w:highlight w:val="none"/>'],
   );
+  if (to.color !== from.color) {
+    if (to.color) properties.set("w:color", `<w:color w:val="${to.color}"/>`);
+    else properties.remove("w:color");
+  }
+  if (to.vertical !== from.vertical) {
+    if (to.vertical) properties.set("w:vertAlign", `<w:vertAlign w:val="${to.vertical}"/>`);
+    else properties.remove("w:vertAlign");
+  }
+  if (to.font !== from.font) {
+    if (to.font) properties.set("w:rFonts", fontsXml(to.font));
+    else properties.remove("w:rFonts");
+  }
+  if (to.size !== from.size) {
+    if (to.size) {
+      const half = halfPoints(to.size);
+      properties.set("w:sz", `<w:sz w:val="${half}"/>`);
+      properties.set("w:szCs", `<w:szCs w:val="${half}"/>`);
+    } else properties.remove("w:sz", "w:szCs");
+  }
   if (to.code) properties.set("w:rFonts", CODE_FONT);
   const style = valueIn(properties.get("w:rStyle"));
   if (to.link && linkStyle && !style) {

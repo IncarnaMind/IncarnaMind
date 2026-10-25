@@ -5,16 +5,22 @@ import {
   type FontPreset,
   familyOf,
   fontFamilyList,
+  type LineSpacing,
+  lineSpacingOf,
   sameFont,
   sameStyle,
   TEXT_SIZES,
 } from "../../../shared/mindStyle";
+import { CustomSpacing } from "../editor/FormatMenu";
+import { LINE_SPACINGS } from "../editor/formatCommands";
 import { useT } from "../i18n";
 import { useMindStylePanel } from "../mindStylePanel";
 import {
   chooseFont,
+  chooseLineSpacing,
   chooseSize,
   installedFamilies,
+  lineSpacingLabel,
   makeDefaultForNewMinds,
   SIZE_LABELS,
   useFontInstalled,
@@ -65,13 +71,16 @@ export function MindStyleHost() {
     }
   }, [open, menu.buttonProps.ref, menu.menuProps.ref]);
 
-  const pickFont = () => {
+  const spacing = useMindStylePanel((state) => state.spacing);
+  // Each opens beside the button that asked for Style once the menu is gone, as the menu would close under it.
+  const besideAnchor = (show: (shown: { mindId: string; anchor: HTMLButtonElement }) => void) => {
     if (!open) return;
     const anchor = menu.buttonProps.ref.current;
     menu.close();
-    if (anchor)
-      requestAnimationFrame(() => useMindStylePanel.getState().pickFont(open.mindId, anchor));
+    if (anchor) requestAnimationFrame(() => show({ mindId: open.mindId, anchor }));
   };
+  const pickFont = () =>
+    besideAnchor(({ mindId, anchor }) => useMindStylePanel.getState().pickFont(mindId, anchor));
 
   return (
     <>
@@ -99,9 +108,25 @@ export function MindStyleHost() {
         }}
       >
         {open && (
-          <MindStyleChoices mindId={open.mindId} close={menu.close} onOtherFonts={pickFont} />
+          <MindStyleChoices
+            mindId={open.mindId}
+            close={menu.close}
+            onOtherFonts={pickFont}
+            onCustomLineSpacing={() =>
+              besideAnchor(({ mindId, anchor }) =>
+                useMindStylePanel.getState().typeSpacing(mindId, anchor),
+              )
+            }
+          />
         )}
       </div>
+      {spacing && (
+        <CustomLineSpacing
+          mindId={spacing.mindId}
+          anchor={spacing.anchor}
+          onClose={() => useMindStylePanel.getState().closeSpacing()}
+        />
+      )}
       {picking && (
         <FontPicker
           mindId={picking.mindId}
@@ -130,16 +155,20 @@ export function MindStyleChoices({
   mindId,
   close,
   onOtherFonts,
+  onCustomLineSpacing,
 }: {
   mindId: string;
   close(): void;
   onOtherFonts(): void;
+  onCustomLineSpacing(): void;
 }) {
   return (
     <>
       <FontChoices mindId={mindId} onOtherFonts={onOtherFonts} />
       <div className={menuRuleClass} />
       <SizeChoice mindId={mindId} />
+      <div className={menuRuleClass} />
+      <LineSpacingChoice mindId={mindId} onCustom={onCustomLineSpacing} />
       <div className={menuRuleClass} />
       <MakeDefault mindId={mindId} close={close} />
     </>
@@ -260,6 +289,88 @@ function SizeChoice({ mindId }: { mindId: string }) {
   );
 }
 
+const LINE_SPACING_CHOICES: readonly LineSpacing[] = ["default", ...LINE_SPACINGS];
+
+/** As Text size is chosen, so Style stays short enough to open beside its item in the page's ⋯. */
+function LineSpacingChoice({ mindId, onCustom }: { mindId: string; onCustom(): void }) {
+  const t = useT();
+  const lineSpacing = lineSpacingOf(useMindStyle(mindId));
+  const typed = !LINE_SPACING_CHOICES.includes(lineSpacing);
+  return (
+    <>
+      <p className={menuTitleClass}>{t("mindStyle.lineSpacing")}</p>
+      {/* biome-ignore lint/a11y/useSemanticElements: a menu's radio items are grouped by role; a fieldset is for a form's. */}
+      <div
+        role="group"
+        aria-label={t("mindStyle.lineSpacing")}
+        className="mx-2 mt-0.5 mb-1 flex gap-0.5 rounded-lg bg-chip p-0.5"
+      >
+        {LINE_SPACING_CHOICES.map((each) => {
+          const chosen = lineSpacing === each;
+          return (
+            <button
+              key={each}
+              type="button"
+              role="menuitemradio"
+              aria-checked={chosen}
+              data-testid={`mind-style-line-${each}`}
+              onClick={() => void chooseLineSpacing(mindId, each)}
+              className={`h-6 flex-auto truncate rounded-md px-1 text-[13px] leading-5 -outline-offset-2 ${
+                chosen
+                  ? "bg-sheet font-semibold text-ink shadow-[0_0_0_1px_var(--color-rule),0_1px_2px_rgb(23_25_28/0.08)]"
+                  : "text-ink-secondary hover:text-ink"
+              }`}
+            >
+              {lineSpacingLabel(each)}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        role="menuitemradio"
+        aria-checked={typed}
+        data-testid="mind-style-line-custom"
+        onClick={onCustom}
+        className={`${menuItemClass} px-2`}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {typed && <CheckLineIcon className="size-4" />}
+        </span>
+        <span className="min-w-0 flex-1 truncate">
+          {`${t("format.lineSpacing.custom")}${typed ? ` ${lineSpacing}` : ""}`}
+        </span>
+      </button>
+    </>
+  );
+}
+
+function CustomLineSpacing({
+  mindId,
+  anchor,
+  onClose,
+}: {
+  mindId: string;
+  anchor: HTMLButtonElement;
+  onClose(): void;
+}) {
+  const lineSpacing = lineSpacingOf(useMindStyle(mindId));
+  return (
+    <CustomSpacing
+      anchor={anchor}
+      current={typeof lineSpacing === "number" ? lineSpacing : null}
+      onApply={(multiple) => {
+        onClose();
+        void chooseLineSpacing(mindId, multiple);
+      }}
+      onClose={() => {
+        onClose();
+        if (anchor.isConnected) anchor.focus();
+      }}
+    />
+  );
+}
+
 function MakeDefault({ mindId, close }: { mindId: string; close(): void }) {
   const t = useT();
   const style = useMindStyle(mindId);
@@ -294,6 +405,37 @@ function FontPicker({
 }) {
   const t = useT();
   const { font } = useMindStyle(mindId);
+  return (
+    <InstalledFontPicker
+      anchor={anchor}
+      current={familyOf(font)}
+      currentLabel={t("mindStyle.font.current")}
+      onChoose={(family) => {
+        if (!sameFont(font, { family })) void chooseFont(mindId, { family });
+      }}
+      onClose={onClose}
+      testId="mind-style-font"
+    />
+  );
+}
+
+/** The fonts installed on this computer, each name in its own face, found by typing. */
+export function InstalledFontPicker({
+  anchor,
+  current,
+  currentLabel,
+  onChoose,
+  onClose,
+  testId,
+}: {
+  anchor: HTMLElement;
+  current: string | null;
+  currentLabel: string;
+  onChoose(family: string): void;
+  onClose(): void;
+  testId: string;
+}) {
+  const t = useT();
   const [families, setFamilies] = useState<readonly string[] | null>(null);
   useEffect(() => {
     void installedFamilies().then(setFamilies);
@@ -318,13 +460,11 @@ function FontPicker({
             : t("mindStyle.font.noMatch", { query })
       }
       options={options}
-      current={familyOf(font) ?? undefined}
-      currentLabel={t("mindStyle.font.current")}
-      onChoose={(family) => {
-        if (!sameFont(font, { family })) void chooseFont(mindId, { family });
-      }}
+      current={current ?? undefined}
+      currentLabel={currentLabel}
+      onChoose={onChoose}
       onClose={onClose}
-      testId="mind-style-font"
+      testId={testId}
       className="w-72"
     />
   );

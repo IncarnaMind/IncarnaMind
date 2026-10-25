@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
   askInAssistant,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -13,6 +14,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
   slideSelect,
   useLocalChatModel,
@@ -112,6 +114,32 @@ test("the words inside a Mind are found as soon as they are typed", async () => 
   await expect(group(window, "notes").locator("b")).toHaveText("Ålesund");
 });
 
+test("a press on the dimmed area closes ⌘K, and one inside it doesn't", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1280, 660);
+    await dismissChatSetup(window);
+    await writeMind(window, ["Harbour log", "Tides in Bergen"]);
+
+    await openPalette(window);
+    // Inside: the press lands in the field and the palette stays.
+    await window.getByTestId("palette-search").click();
+    await window.keyboard.type("Bergen");
+    await expect(palette(window)).toBeVisible();
+    await expect(group(window, "notes")).toContainText("Harbour log");
+
+    // Outside: the press lands on the dimmed area, clear of the palette, and closes it.
+    const box = await palette(window).boundingBox();
+    if (!box) throw new Error("The palette isn't on the page.");
+    expect(box.x).toBeGreaterThan(24);
+    await window.mouse.click(box.x - 24, box.y + box.height / 2);
+    await expect(palette(window)).toBeHidden();
+    await expect.poll(() => focusInNote(window)).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
+
 test("names, commands and the words in Documents, all by keyboard; Esc closes and gives the focus back", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1280, 660);
@@ -121,6 +149,7 @@ test("names, commands and the words in Documents, all by keyboard; Esc closes an
   const msa = join(sources, "Aldermoor MSA.txt");
   await writeFile(msa, "Either party may end this contract on ninety days' written notice.");
   await addDocuments(window, [msa]);
+  await writeMind(window, ["Stand-up notes"]);
   await writeMind(window, ["Contract checklist"]);
 
   // From the sidebar's Search, by keyboard: the row takes the focus back.
@@ -129,8 +158,9 @@ test("names, commands and the words in Documents, all by keyboard; Esc closes an
   await search.focus();
   await window.keyboard.press("Enter");
   await expect(palette(window)).toBeVisible();
-  // Nothing typed: the Minds edited last, then every action.
-  await expect(group(window, "recent")).toContainText("Contract checklist");
+  // Nothing typed: the Minds edited last, but not the one in front, then the few actions on top.
+  await expect(group(window, "recent")).toContainText("Stand-up notes");
+  await expect(group(window, "recent")).not.toContainText("Contract checklist");
   await expect(group(window, "actions")).toBeVisible();
   await window.keyboard.press("Escape");
   await expect(palette(window)).toBeHidden();
@@ -350,7 +380,89 @@ test("runs a command on the Documents selected in the sidebar, taken back with U
   await expect(rows).toHaveCount(3);
 });
 
-test("with nothing named so, “Ask about …” asks in the assistant; the assistant's commands are in the list", async () => {
+test("with a sentence selected, ⌘K finds the one check by check, find support, 核对 and 出处, and the checks say what each is for", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await writeMind(window, ["Harbours publish the times of high water every year."]);
+  const line = window.locator(".ProseMirror p").filter({ hasText: "Harbours publish" });
+  const row = (key: string) => palette(window).locator(`[data-key="command:${key}"]`);
+
+  // The selection stays in the Mind while the palette opens from the sidebar.
+  const search = async (query: string) => {
+    await slideSelect(window, line, "Harbours publish");
+    await pointAndClick(window, window.getByTestId("sidebar-search"));
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(query);
+  };
+
+  for (const query of ["check", "find support"]) {
+    await search(query);
+    await expect(row("check.againstDocuments")).toHaveText("Check against Documents");
+    await expect(palette(window).locator('[data-key^="command:check."]')).toHaveCount(1);
+    if (query === "check") {
+      await expect(row("mind.check").getByTestId("palette-purpose")).toHaveText(
+        "Whether each claim has support in your Documents",
+      );
+      await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
+        "Where your Documents disagree with this Mind’s Citations",
+      );
+    }
+    await window.keyboard.press("Escape");
+    await expect(palette(window)).toBeHidden();
+  }
+
+  // Words that belong to other commands don't list it.
+  for (const query of ["verify", "cite", "find sources"]) {
+    await search(query);
+    await expect(row("check.againstDocuments")).toHaveCount(0);
+    if (query === "verify") {
+      const verify = row("verify.document");
+      await expect(verify.getByTestId("palette-purpose")).toHaveText(
+        "Check the claims in a PDF someone else wrote",
+      );
+      // The hint sits under the name and inside the row.
+      const rowBox = await verify.boundingBox();
+      const purposeBox = await verify.getByTestId("palette-purpose").boundingBox();
+      const nameBox = await verify.locator("span.truncate").first().boundingBox();
+      expect(purposeBox?.y ?? 0).toBeGreaterThanOrEqual((nameBox?.y ?? 0) + (nameBox?.height ?? 0));
+      expect((purposeBox?.x ?? 0) + (purposeBox?.width ?? 0)).toBeLessThanOrEqual(
+        (rowBox?.x ?? 0) + (rowBox?.width ?? 0),
+      );
+    }
+    await window.keyboard.press("Escape");
+    await expect(palette(window)).toBeHidden();
+  }
+
+  await setLanguage(window, "zh-CN");
+  for (const query of ["核对", "出处"]) {
+    await search(query);
+    await expect(row("check.againstDocuments")).toHaveText("对照文档核对");
+    await expect(palette(window).locator('[data-key^="command:check."]')).toHaveCount(1);
+    if (query === "核对") {
+      await expect(row("mind.check").getByTestId("palette-purpose")).toHaveText(
+        "每条说法在你的文档里有没有依据",
+      );
+    }
+    await window.keyboard.press("Escape");
+    await expect(palette(window)).toBeHidden();
+  }
+
+  await search("核对文档");
+  await expect(row("verify.document").getByTestId("palette-purpose")).toHaveText(
+    "核对别人写的 PDF 里的说法",
+  );
+  await window.keyboard.press("Escape");
+  await expect(palette(window)).toBeHidden();
+
+  await search("矛盾");
+  await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
+    "你的文档与这个 Mind 的引用不一致的地方",
+  );
+});
+
+test("with nothing named so, “Ask …” asks in the assistant; the assistant's commands are in the list", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 760);
   await dismissChatSetup(window);
@@ -367,7 +479,7 @@ test("with nothing named so, “Ask about …” asks in the assistant; the assi
   await window.keyboard.type(question);
   await expect(window.getByTestId("palette-empty")).toHaveText("No matches in names or text");
   const ask = group(window, "ask").getByTestId("palette-item");
-  await expect(ask).toContainText(`Ask about “${question}”`);
+  await expect(ask).toContainText(`Ask “${question}”`);
   await expect(ask).toHaveAttribute("aria-selected", "true");
   await window.keyboard.press("Enter");
   await expect(palette(window)).toBeHidden();
@@ -378,4 +490,301 @@ test("with nothing named so, “Ask about …” asks in the assistant; the assi
     "done",
     { timeout: 15_000 },
   );
+});
+
+test("while the words inside are still being searched for, the Ask row is not lit; the match, once found, is the row lit", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await writeMind(window, ["Supplier review", "The pilot boarded near Rotterdam at dawn."]);
+  await newMind(window);
+
+  await openPalette(window);
+  // Every kind of row that is lit from now on, in order: a lit row that Enter can't act on is seen even if it is gone a moment later.
+  await window.evaluate(() => {
+    const lit: string[] = [];
+    (globalThis as unknown as { lit: string[] }).lit = lit;
+    new MutationObserver(() => {
+      for (const row of document.querySelectorAll(
+        '[data-testid="palette-item"][aria-selected="true"]',
+      )) {
+        const kind = row.getAttribute("data-kind") ?? "";
+        if (lit.at(-1) !== kind) lit.push(kind);
+      }
+    }).observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["aria-selected"],
+    });
+  });
+  await window.keyboard.type("Rotterdam");
+  await expect(group(window, "ask")).toBeVisible();
+  const note = group(window, "notes").getByTestId("palette-item");
+  await expect(note).toHaveAttribute("aria-selected", "true");
+  const lit = await window.evaluate(() => (globalThis as unknown as { lit: string[] }).lit);
+  expect(lit).not.toContain("ask");
+  await app.close();
+});
+
+/** What ⌘K lists for each kind in focus whatever else is in the registry: the rest is read from its ">" list. */
+const OFFERED = {
+  mind: ["mind.moveTo", "mind.rename", "mind.exportMenu"],
+  document: ["document.moveTo", "document.tags", "document.rename"],
+  folder: ["folder.open", "folder.organize", "folder.sort", "folder.rename"],
+} as const;
+
+/** Offered whatever is in focus, and found by name too (#1245, #1190). */
+const EVERYWHERE = [
+  "documents.add",
+  "linkedFolder.add",
+  "language.switch",
+  "library.open",
+] as const;
+
+/** The name a command goes by in the open list, without what it acts on. */
+const nameInList = (window: Page, id: string) =>
+  palette(window).locator(`[data-key="command:${id}"] .truncate`).first();
+
+test.describe("every command is found by its name, for the object in focus, and the empty state is short", () => {
+  for (const language of ["en", "zh-CN"] as const) {
+    test(`in ${language === "en" ? "English" : "Chinese"}`, async () => {
+      test.setTimeout(300_000);
+      const { app, window } = await launchApp(dataDir);
+      await setWindowSize(app, window, 1440, 900);
+      await dismissChatSetup(window);
+      const sources = join(dataDir, "sources");
+      await mkdir(sources);
+      const inFolder = join(sources, "Tides.txt");
+      const loose = join(sources, "Loose.txt");
+      await writeFile(inFolder, "Neap tides are the smallest of the month.\n");
+      await writeFile(loose, "Some loose words.\n");
+      await addDocuments(window, [inFolder, loose]);
+      const ids = await (await coreOf(window)).evaluate(async (core: CoreBridge) => {
+        const mind = await core.createMind({ title: "Shortlist" });
+        const folder = await core.createLibraryGroup({ name: "Finance", description: "" });
+        const documents = await core.listDocuments();
+        const tides = documents.find((each) => each.name.startsWith("Tides"));
+        const free = documents.find((each) => each.name.startsWith("Loose"));
+        if (tides) await core.assignDocumentGroup(tides.id, folder.id);
+        return { mind: mind.id, folder: folder.id, document: free?.id ?? "" };
+      });
+      await setLanguage(window, language);
+
+      const row = (kind: keyof typeof OFFERED) =>
+        window
+          .locator(`[data-object-menu="${kind}:${ids[kind]}"]`)
+          .first()
+          .locator("xpath=ancestor::*[@data-object-row][1]")
+          .locator("[data-row-main], [data-tree-row]")
+          .first();
+
+      for (const kind of ["mind", "document", "folder"] as const) {
+        await row(kind).focus();
+        await openPalette(window);
+        // Nothing typed: Recent, then six actions at most, in the menus' order.
+        await expect(group(window, "actions")).toBeVisible();
+        const first = await group(window, "actions").getByTestId("palette-item").count();
+        expect(first).toBeGreaterThan(0);
+        expect(first).toBeLessThanOrEqual(6);
+        await window.keyboard.type(">");
+        // Every action there is for it, each found by typing its own name.
+        const offered = await palette(window)
+          .locator('[data-key^="command:"]')
+          .evaluateAll((items) =>
+            items.map((item) => item.getAttribute("data-key")?.slice(8) ?? ""),
+          );
+        expect(offered).toEqual(expect.arrayContaining([...OFFERED[kind], ...EVERYWHERE]));
+        for (const id of offered) {
+          const listed = nameInList(window, id);
+          await expect(listed, `${id} is offered for a ${kind} in focus`).toBeVisible();
+          const name = ((await listed.textContent()) ?? "").replace(/…$/, "");
+          await window.keyboard.press("ControlOrMeta+a");
+          await window.keyboard.type(name);
+          await expect(
+            group(window, "actions").locator(`[data-key="command:${id}"]`),
+            `${name} finds ${id}`,
+          ).toBeVisible();
+          await window.keyboard.press("ControlOrMeta+a");
+          await window.keyboard.type(">");
+        }
+        await window.keyboard.press("Escape");
+        await expect(palette(window)).toBeHidden();
+      }
+    });
+  }
+});
+
+test('with words typed, the last row is Ask “words”: Enter opens the first match, and Enter on the last row asks the assistant; ">" is for actions only', async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await writeMind(window, ["Supplier review"]);
+  await newMind(window);
+
+  await openPalette(window);
+  await window.keyboard.type("supplier");
+  await expect(group(window, "minds")).toContainText("Supplier review");
+  const rows = palette(window).getByTestId("palette-item");
+  await expect(rows.last()).toHaveAttribute("data-kind", "ask");
+  await expect(rows.last()).toContainText("Ask “supplier”");
+  await expect(group(window, "ask")).toBeVisible();
+  // Enter takes the first match, not the question.
+  await expect(rows.first()).toHaveAttribute("aria-selected", "true");
+  await window.keyboard.press("ArrowUp");
+  await expect(rows.last()).toHaveAttribute("aria-selected", "true");
+  await window.keyboard.press("Enter");
+  await expect(palette(window)).toBeHidden();
+  const assistant = window.getByTestId("assistant");
+  await expect(assistant.getByTestId("assistant-question").last()).toContainText("supplier");
+
+  // The command typed has the question after it too.
+  await openPalette(window);
+  await window.keyboard.type("new mind");
+  await expect(group(window, "actions")).toContainText("New Mind");
+  await expect(rows.last()).toContainText("Ask “new mind”");
+
+  // ">" asks for actions only: no question to ask there.
+  await window.keyboard.press("ControlOrMeta+a");
+  await window.keyboard.type(">rename");
+  await expect(group(window, "ask")).toHaveCount(0);
+  await app.close();
+});
+
+test("a word is never matched across words, and a name read two ways is found by either (#1372, #1416)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+  await (await coreOf(window)).evaluate(async (core) => {
+    await core.createMind({ title: "重命名" });
+  });
+
+  await openPalette(window);
+  // The action is offered by its own name, so the failure is the match, not a missing command.
+  await window.keyboard.type("> remove the examples");
+  await expect(group(window, "actions")).toContainText("Remove the examples");
+  // "theme" is not "the e" of "the examples": nothing is highlighted, and the row says so.
+  await window.keyboard.press("ControlOrMeta+a");
+  await window.keyboard.type("> theme");
+  await expect(window.getByTestId("palette-empty")).toHaveText("No actions match");
+  await expect(palette(window).getByTestId("palette-item")).toHaveCount(0);
+
+  // 重命名 is found by the reading people say ("chong") and by the collation's ("zhong").
+  for (const typed of ["chongming", "zhongming"]) {
+    await window.keyboard.press("ControlOrMeta+a");
+    await window.keyboard.type(typed);
+    await expect(group(window, "minds")).toContainText("重命名");
+  }
+  await app.close();
+});
+
+test("Interface language: 中文 switches the interface at once, and the Chinese one switches back", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+
+  await openPalette(window);
+  await window.keyboard.type("interface language");
+  await expect(group(window, "actions").getByTestId("palette-item").first()).toContainText(
+    "Interface language: 中文",
+  );
+  await window.keyboard.press("Enter");
+  await expect(palette(window)).toBeHidden();
+  await expect(window.getByTestId("sidebar")).toContainText("设置");
+
+  await openPalette(window);
+  await expect(window.getByTestId("palette-search")).toHaveAttribute("placeholder", /^搜索/);
+  await window.keyboard.type("yuyan");
+  await expect(group(window, "actions").getByTestId("palette-item").first()).toContainText(
+    "界面语言：English",
+  );
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("sidebar")).toContainText("Settings");
+  await app.close();
+});
+
+test("Add Documents… and Link a folder… are found by name, and an empty ⌘K shows Export… and the keys of Move to… and Rename", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+  await writeMind(window, ["Supplier review"]);
+
+  await openPalette(window);
+  await window.keyboard.type("add documents");
+  await expect(
+    group(window, "actions").locator('[data-key="command:documents.add"]'),
+  ).toBeVisible();
+  await window.keyboard.press("ControlOrMeta+a");
+  await window.keyboard.type("link a folder");
+  await expect(
+    group(window, "actions").locator('[data-key="command:linkedFolder.add"]'),
+  ).toBeVisible();
+  await window.keyboard.press("Escape");
+
+  // With a Mind in front, the empty list leads with Export… after Check, and Rename shows F2.
+  await openPalette(window);
+  const keys = group(window, "actions").locator('[data-testid="palette-item"]');
+  await expect(keys.locator("xpath=.").filter({ hasText: "Export…" })).toBeVisible();
+  const rename = group(window, "actions").locator('[data-key="command:mind.rename"]');
+  await expect(rename).toContainText("F2");
+  await app.close();
+});
+
+test("Rename, Move to… and Tags… run from ⌘K on the Mind or Document in front, and on a row in focus", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  const sources = join(dataDir, "sources");
+  await mkdir(sources);
+  const file = join(sources, "Tides.txt");
+  await writeFile(file, "Neap tides are the smallest of the month.\n");
+  await addDocuments(window, [file]);
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await core.createLibraryGroup({ name: "Finance", description: "" });
+  });
+  await writeMind(window, ["Supplier review", "Pilots board near Rotterdam."]);
+
+  // The Mind in front, with the caret in its text: Rename edits its tab.
+  await openPalette(window);
+  await window.keyboard.type("rename");
+  await expect(group(window, "actions").locator('[data-key="command:mind.rename"]')).toBeVisible();
+  await expect(group(window, "actions").locator('[data-key="command:tab.rename"]')).toHaveCount(0);
+  await window.keyboard.press("Enter");
+  const field = window.locator("input:focus");
+  await expect(field).toBeFocused();
+  await window.keyboard.type("Supplier shortlist");
+  await window.keyboard.press("Enter");
+  await expect(frontMindName(window)).toHaveText("Supplier shortlist");
+
+  // Move to… opens the Folder picker; choosing Finance files the Mind there.
+  await openPalette(window);
+  await window.keyboard.type("move to");
+  await expect(group(window, "actions").locator('[data-key="command:mind.moveTo"]')).toBeVisible();
+  await window.keyboard.press("Enter");
+  const picker = window.locator('[data-testid="move-to-picker"]:visible');
+  await expect(picker).toBeVisible();
+  await window.keyboard.type("finance");
+  await window.keyboard.press("Enter");
+  await expect(picker).toBeHidden();
+  await expect(window.getByTestId("undo-message")).toContainText("Finance");
+
+  // A Document in front: Tags… opens its picker and Move to… the Folder picker.
+  await pointAndClick(window, window.getByTestId("open-document").first());
+  await expect(window.getByTestId("viewer-header")).toBeVisible();
+  await openPalette(window);
+  await window.keyboard.type("tags");
+  await expect(
+    group(window, "actions").locator('[data-key="command:document.tags"]'),
+  ).toBeVisible();
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("document-tags-popover").first()).toBeVisible();
+  await window.keyboard.press("Escape");
+  await openPalette(window);
+  await window.keyboard.type("move to");
+  await window.keyboard.press("Enter");
+  await expect(picker).toBeVisible();
+  await window.keyboard.press("Escape");
 });

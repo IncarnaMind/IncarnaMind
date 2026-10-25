@@ -15,7 +15,7 @@ const settings = (leaveOutOwnFiles: boolean): Pick<Settings, "user"> => ({
       docx: {
         includeQuestions: false,
         trackChanges: true,
-        markAiText: true,
+        markAiText: "mark",
         commentFailedChecks: true,
       },
       pdf: { includeQuestions: false },

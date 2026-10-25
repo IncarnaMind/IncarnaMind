@@ -182,11 +182,6 @@ sup.note-ref {
   vertical-align: super;
 }
 
-/* Markers side by side, as a chart's sources are: "¹,²", not "¹²". */
-sup.note-ref + sup.note-ref::before {
-  content: ",";
-}
-
 .unverified {
   color: var(--warning);
 }

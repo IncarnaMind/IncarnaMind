@@ -10,6 +10,24 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
+  # CodeRabbit only reviews. Its tick-box actions would write to a branch, and its docstring coverage
+  # check asks for the comments AGENTS.md rule 11 forbids.
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
   path_filters:
     # Third-party documents the evaluation reads, not code.
     - "!eval/**/fixtures/**"

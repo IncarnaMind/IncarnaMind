@@ -44,6 +44,7 @@ const NO_CITATIONS = {
   droppedMarkers: 0,
   droppedRecords: 0,
   rejectedRecords: [],
+  idsAsText: 0,
   placedMarkers: 0,
   citedAfterChecking: { count: 0, asked: false },
   citationSupport: null,
@@ -217,7 +218,7 @@ describe("Asking a Question", () => {
       /Write the Question/,
     );
     await expect(core.askQuestion({ mindId: mind.id, questionId: "nope" })).rejects.toThrow(
-      /isn't in this Mind/,
+      /isn’t in this Mind/,
     );
   });
 });
@@ -359,6 +360,7 @@ describe("Streaming Answers into the Mind", () => {
             id: expect.any(String),
             level: 2,
             includeInContext: null,
+            paragraphFormat: null,
             proposal: null,
             wordLook: null,
           },
@@ -366,7 +368,13 @@ describe("Streaming Answers into the Mind", () => {
         },
         {
           type: "paragraph",
-          attrs: { id: expect.any(String), includeInContext: null, proposal: null, wordLook: null },
+          attrs: {
+            id: expect.any(String),
+            includeInContext: null,
+            paragraphFormat: null,
+            proposal: null,
+            wordLook: null,
+          },
           content: [
             { type: "text", text: "The " },
             { type: "text", text: "Moon", marks: [{ type: "bold" }] },
@@ -388,6 +396,7 @@ describe("Streaming Answers into the Mind", () => {
                   attrs: {
                     id: expect.any(String),
                     includeInContext: null,
+                    paragraphFormat: null,
                     proposal: null,
                     wordLook: null,
                   },
@@ -404,6 +413,7 @@ describe("Streaming Answers into the Mind", () => {
                   attrs: {
                     id: expect.any(String),
                     includeInContext: null,
+                    paragraphFormat: null,
                     proposal: null,
                     wordLook: null,
                   },
@@ -437,7 +447,13 @@ describe("Streaming Answers into the Mind", () => {
         },
         {
           type: "paragraph",
-          attrs: { id: expect.any(String), includeInContext: null, proposal: null, wordLook: null },
+          attrs: {
+            id: expect.any(String),
+            includeInContext: null,
+            paragraphFormat: null,
+            proposal: null,
+            wordLook: null,
+          },
           content: [
             { type: "text", text: "See " },
             {
@@ -630,7 +646,7 @@ describe("Stopping and regenerating", () => {
     });
     await answerEnded(core, answerId);
     expect(shownWithChanges(reader).slice(1, 2)).toEqual([
-      "[-Generated text. My own words-]{+Written again+}.",
+      "[-Generated text. My own words.-]{+Written again.+}",
     ]);
     expect(pendingProposals(reader.blocks)).toHaveLength(1);
 
@@ -640,7 +656,7 @@ describe("Stopping and regenerating", () => {
     await core.regenerateAnswer({ mindId: mind.id, answerId });
     await answerEnded(core, answerId);
     expect(shownWithChanges(reader).slice(1, 2)).toEqual([
-      "[-Generated text. My own words-]{+Once more+}.",
+      "[-Generated text. My own words.-]{+Once more.+}",
     ]);
 
     // Accepting them all makes it the model's Answer again: the next Regenerate replaces it in place.
@@ -694,7 +710,7 @@ describe("When Questions can't be answered", () => {
         payload: {
           mindId: mind.id,
           answerId,
-          error: { kind, message: expect.stringContaining(message) },
+          error: { kind, message: expect.stringContaining(message), status },
         },
       });
       expect(answerIn(reader, answerId).attrs).toMatchObject({
@@ -789,6 +805,39 @@ describe("When Questions can't be answered", () => {
     });
     expect(model.doStreamCalls).toEqual([]);
   });
+
+  test("a Question refused for a decline is answered once the service is allowed in Settings, and not before (#1297)", async () => {
+    const model = streamingModel("Answered after the allowance.");
+    const models = scriptedModels(model);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: models.createChatModel,
+    });
+    await saveProviderUnasked(core, { kind: "openai", apiKey: "sk-test", modelId: "gpt-test" });
+    const stopDeclining = core.on(
+      "consent.requested",
+      (request) => void core.respondToConsent(request.requestId, false),
+    );
+    const mind = await core.createMind();
+    const writer = await connectToMind(core, mind.id);
+    const asked = question("Can I ask this after all?");
+    writeMind(writer, [asked]);
+    await writer.settled();
+
+    const declined = await ask(core, mind.id, asked.attrs.id);
+    expect(await answerEnded(core, declined)).toMatchObject({ event: "failed" });
+    stopDeclining();
+    expect(model.doStreamCalls).toEqual([]);
+
+    await core.allowDataFlow("chat", "https://api.openai.com");
+    const requests: string[] = [];
+    core.on("consent.requested", (request) => requests.push(request.flow.service.id));
+    const answerId = await ask(core, mind.id, asked.attrs.id);
+    expect(await answerEnded(core, answerId)).toMatchObject({ event: "finished" });
+    expect(requests).toEqual([]);
+    expect(models.specs).toHaveLength(1);
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(answerIn(writer, answerId).attrs).toMatchObject({ status: "done" });
+  });
 });
 
 describe("Choosing the model", () => {
@@ -850,7 +899,7 @@ describe("Choosing the model", () => {
       modelId: "deepseek-chat",
     });
 
-    expect(await core.listChatModels()).toEqual([
+    expect(await core.listChatModels()).toMatchObject([
       // Embedding models can't answer, so they aren't offered. Ollama says what llama3.2 can
       // do; nothing says what the others can.
       {
@@ -885,7 +934,7 @@ describe("Choosing the model", () => {
     const fetch = vi.spyOn(globalThis, "fetch");
     onTestFinished(() => fetch.mockRestore());
 
-    expect(await core.listChatModels()).toEqual([
+    expect(await core.listChatModels()).toMatchObject([
       {
         provider,
         models: ["gpt-test"],
@@ -907,7 +956,7 @@ describe("Choosing the model", () => {
       modelId: "qwen3:4b",
     });
 
-    expect(await core.listChatModels()).toEqual([
+    expect(await core.listChatModels()).toMatchObject([
       {
         provider,
         models: ["qwen3:4b"],

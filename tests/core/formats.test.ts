@@ -52,7 +52,7 @@ describe("Word", () => {
     const { units, headings } = await extractDocx(DOCX);
 
     expect(units.map((unit) => unit.label)).toEqual([
-      { path: [] },
+      { path: [], beforeHeading: true },
       { path: ["1 Introduction"] },
       { path: ["1 Introduction", "1.1 Scope"] },
       { path: ["2 Results"] },
@@ -193,6 +193,7 @@ describe("Word", () => {
 
     expect(units[0]?.label).toEqual({
       path: [],
+      beforeHeading: true,
       comments: [{ target: "comment0", author: "J. Moreau" }],
     });
     expect(
@@ -336,6 +337,8 @@ describe("Excel", () => {
     expect(formatNumber(1234.5, "General")).toBe("1234.5");
     expect(formatNumber(46114, "yyyy-mm-dd")).toBe("2026-04-02");
     expect(formatNumber(12345, "0.00E+00")).toBe("12345");
+    expect(formatNumber(1_200_000, '"$"#,##0.0,,"m"')).toBe("$1.2m");
+    expect(formatNumber(4_500, "#,##0,")).toBe("5");
   });
 });
 
@@ -576,7 +579,7 @@ describe("Markdown", () => {
     const units = markdownUnits(source);
 
     expect(units.map((unit) => unit.label)).toEqual([
-      { path: [] },
+      { path: [], beforeHeading: true },
       { path: ["Methods"] },
       { path: ["Methods", "Calibration"] },
       { path: ["Results"] },

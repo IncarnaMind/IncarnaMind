@@ -6,7 +6,6 @@ import {
   closeSettings,
   createDataFolder,
   dismissChatSetup,
-  filterByTag,
   launchApp,
   motionSettled,
   openDocumentTags,
@@ -56,10 +55,10 @@ test("a new Document is tagged automatically, and a Tag the User removes stays r
   await window.keyboard.press("Escape");
   await expect(item.getByTestId("document-tags-popover")).toBeHidden();
 
-  // A new Tag, made in the Tags dialog (from the Documents label's Tags menu), which
-  // re-tagging can apply.
-  await window.getByTestId("tag-filter-menu").click();
-  await window.getByTestId("manage-tags").click();
+  // A new Tag, made in the Tags dialog (from the Tag picker's Manage Tags…), which re-tagging
+  // can apply.
+  await openDocumentTags(item);
+  await item.getByTestId("open-tags-dialog").click();
   const dialog = window.getByTestId("tags-dialog");
   await expect(dialog.getByTestId("tag-row")).toHaveCount(7);
   await dialog.getByTestId("tag-name-input").fill("Quarterly");
@@ -78,32 +77,15 @@ test("a new Document is tagged automatically, and a Tag the User removes stays r
   await expect(tags).toHaveText(["Invoice", "Quarterly"]);
   await window.keyboard.press("Escape");
 
-  // The sidebar filters by Tags, showing Documents with any chosen, and says which;
-  // choosing one again takes it out.
-  await filterByTag(window, "Report");
-  await expect(item).toHaveCount(0);
-  await expect(window.getByTestId("tag-filter-active")).toContainText("Report");
-  await filterByTag(window, "Quarterly");
-  await expect(item).toHaveCount(1);
-  await expect(window.getByTestId("tag-filter-active")).toContainText("Report, Quarterly");
-  await filterByTag(window, "Report");
-  await expect(window.getByTestId("tag-filter-active")).toHaveText("Tagged Quarterly");
-  await expect(item).toHaveCount(1);
-  await filterByTag(window, "Quarterly");
-  await expect(window.getByTestId("tag-filter-active")).toHaveCount(0);
-  await window.getByTestId("tag-filter-menu").click();
-  await expect(
-    window
-      .getByTestId("tag-filters")
-      .getByRole("menuitemcheckbox", { name: "Quarterly", exact: true }),
-  ).toHaveAttribute("aria-checked", "false");
-  await window.keyboard.press("Escape");
-  await expect(item).toHaveCount(1);
-  // The filter's row clears it too.
-  await filterByTag(window, "Report");
-  await expect(item).toHaveCount(0);
-  await window.getByTestId("tag-filter-clear").click();
-  await expect(item).toHaveCount(1);
+  // The sidebar lists the Tags in use; one clicked shows its Documents in the Library.
+  const tagRows = window.getByTestId("sidebar-tag");
+  await expect(tagRows.getByTestId("row-text")).toHaveText(["Invoice", "Quarterly"]);
+  await tagRows.filter({ hasText: "Quarterly" }).getByTestId("row-text").click();
+  const library = window.getByTestId("library");
+  await expect(library.locator('[data-testid="library-filter"][data-facet="tag"]')).toHaveText(
+    "Tags: Quarterly",
+  );
+  await expect(library.getByTestId("library-document")).toHaveCount(1);
   await first.app.close();
 
   // Everything is still there after a restart.
@@ -145,16 +127,19 @@ test("without a model, Documents are ready to search, and one notice, not one pe
     await window.keyboard.press("Escape");
   }
 
-  // Its button opens Settings on its Models page, where a chat model or a Jev key can be set up.
+  // Its button opens Settings on its Models page, at Tagging under Advanced, where a chat model or
+  // a Jev key can be set up.
   await notice.getByTestId("tagging-waiting-setup").click();
   const settings = window.getByTestId("settings");
   await expect(settings).toBeVisible();
   await expect(settings).toHaveAttribute("data-page", "models");
-  await expect(settings.getByTestId("chat-model-settings")).toBeVisible();
+  await expect(settings.getByTestId("model-defaults")).toBeVisible();
+  await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
   await expect(settings.getByTestId("tagging-automatic-line")).toHaveText(
-    "No model to tag with yet: set up an AI model, or install Tev1 in Ollama. Documents wait until then.",
+    "No model to tag with yet. Set one up.",
   );
-  await expect(settings.getByTestId("jev-settings")).toBeAttached();
+  await expect(settings.getByTestId("tagging-automatic").getByRole("radio")).toBeFocused();
+  await expect(settings.getByTestId("jev-settings")).toBeVisible();
   await closeSettings(window);
 
   // Once a model is set up, the Documents are tagged and the notice goes.

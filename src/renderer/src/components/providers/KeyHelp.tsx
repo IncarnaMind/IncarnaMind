@@ -6,7 +6,7 @@ const linkClass = `${hintClass} mt-0 underline`;
 
 /**
  * What the catalog knows of getting a key, under the key field. First run keeps it all in
- * "Where do I find it?", closed; Settings shows the notes and the plan's credits under the
+ * "Where do I find it?", closed; Settings shows the notes and the key line under the
  * field, and keeps the steps and the key page in the disclosure.
  */
 export function KeyHelp({
@@ -28,23 +28,26 @@ export function KeyHelp({
       {note[words]}
     </span>
   ));
-  const plan = catalog.planCredits && (
-    <span data-testid="provider-plan-credits" className={hintClass}>
-      {catalog.planCredits[words]}{" "}
-      <a href={catalog.planCredits.url} target="_blank" rel="noreferrer" className="underline">
-        {t("providers.form.details")} ↗
+  const linkLabel = t(
+    catalog.keyLine?.link === "pricing" ? "providers.form.pricing" : "providers.form.details",
+  );
+  const line = catalog.keyLine && (
+    <span data-testid="provider-key-line" className={hintClass}>
+      {catalog.keyLine[words]} <span aria-hidden="true">· </span>
+      <a href={catalog.keyLine.url} target="_blank" rel="noreferrer" className="underline">
+        {linkLabel} ↗
       </a>
     </span>
   );
   const aboveHelp =
-    !firstRun && (notes.length > 0 || plan) ? (
+    !firstRun && (notes.length > 0 || line) ? (
       <div className="flex flex-col">
         {notes}
-        {plan}
+        {line}
       </div>
     ) : null;
   const steps = catalog.keyGuide ?? [];
-  if (!keyUrl && steps.length === 0 && (!firstRun || (notes.length === 0 && !plan))) {
+  if (!keyUrl && steps.length === 0 && (!firstRun || (notes.length === 0 && !line))) {
     return aboveHelp;
   }
   return (
@@ -72,7 +75,7 @@ export function KeyHelp({
               ))}
             </ol>
           )}
-          {firstRun && plan}
+          {firstRun && line}
           {keyUrl && (
             <a
               href={keyUrl}

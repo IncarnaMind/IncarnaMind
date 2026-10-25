@@ -2,7 +2,7 @@
 
 How well, and how fast, the first speech-to-text engine (#136) transcribes: Qwen3-ASR-0.6B int8 with Silero VAD, through sherpa-onnx-node, on the CPU. It runs the transcription process's own code (`createSpeechHost` in `src/core/transcription/speech.ts`, `createSherpaEngine` in `src/core/transcription/sherpa.ts`) on a stream made of read clips, fed in 100 ms frames at the pace it was spoken, as a Meeting's audio is.
 
-This is a stand-in until #85's meeting audio set and scorer exist. #137 runs the bake-off on that set, on three machines, and sets the gate.
+This is the quick check, on read speech. The meeting audio set and its scorer are in [`eval/meetings`](../meetings/README.md) (#85); #137 runs the bake-off on that set, on three machines, and sets the gate.
 
 ## Running it
 
@@ -18,14 +18,11 @@ INCARNAMIND_EVAL_CLIPS=~/.cache/incarnamind-eval/fleurs npm run eval:transcripti
 
 ## Normalisation
 
-The rules are in `scoring.ts` and tested in `tests/eval/transcriptionScoring.test.ts`:
-
-- case is folded, and full-width letters and digits become ASCII (NFKC);
-- punctuation and symbols are dropped, in both scripts;
-- English is compared word by word; Chinese character by character, each run of Latin letters or digits as one unit;
-- numbers are left as written: "6" and "六" differ. #85 fixes a rule for them.
+The rules are in `scoring.ts` and tested in `tests/eval/transcriptionScoring.test.ts`. They are the meeting set's too, and are written out in [`eval/meetings/README.md`](../meetings/README.md#normalisation): case is folded; tags and hesitations ("uh", "呃") are dropped; punctuation and symbols are dropped; Traditional characters become simplified; numbers are digits ("6", "六" and "six" are the same); English is compared by word, Chinese by character with each run of Latin letters or digits as one unit.
 
 ## Results
+
+The tables below were scored with the rules of their day, which left numbers as written and kept hesitations. A run now scores a little differently: "六英里" for "6 英里" below is no longer an error.
 
 2026-10-11, Apple M2 Max (12 cores, 32 GB), 4 threads, while the machine ran other work (load average 28 to 35 over the run):
 
@@ -39,3 +36,25 @@ The rules are in `scoring.ts` and tested in `tests/eval/transcriptionScoring.tes
 - FLEURS is read speech, one speaker at a time, recorded close: easier than a meeting.
 - Load matters. Earlier the same day, with the machine far busier (load average 124 to 183), decoding single clips took 1.3 to 1.7 times their length: slower than real time. Live text then falls behind, the meeting bar says "Recording…", and the rest is transcribed after Stop (#136).
 - The FLEURS clips are recorded quietly (a peak of 0.5% to 2.4% of full scale for most English ones). Before the speech host raised quiet audio (up to 30 dB), Silero VAD missed four of the eight English clips: WER 48.2%.
+
+## Each route: this computer, OpenAI and Soniox (#141)
+
+`routes.transcription.ts` sends the same clips to each place meeting audio can be transcribed. It runs three streams per route: the English clips, the Chinese clips, and the two taking turns. A route runs only with its key in the environment, and `INCARNAMIND_EVAL_ROUTES` picks some of them. The cloud streams go through the app's own adapters (`src/core/transcription/cloud`). The mixed stream counts each Han character and each English word as one unit. `INCARNAMIND_EVAL_RECORD` writes what each service sent back, which is how the adapters' contract-test fixtures were made.
+
+```sh
+set -a; . ./.env.local; set +a   # OPENAI_API_KEY, SONIOX_API_KEY
+INCARNAMIND_EVAL_CLIPS=~/.cache/incarnamind-eval/fleurs npx vitest run --config eval/transcription/vitest.config.ts eval/transcription/routes.transcription.ts
+```
+
+It checks that each route works in both languages, not which is best: 8 clips per language is 141 English words and 231 Chinese characters, errors cluster by clip, OpenAI varies from run to run, its lead-in was tuned on these clips, and the results above were scored before numbers and Traditional characters were folded. A ranking waits for the meeting set (`eval/meetings`).
+
+2026-10-19, Apple M2 Max, the three routes at once (load average about 40):
+
+| Route | English (WER) | Chinese (CER) | Both taking turns |
+|---|---|---|---|
+| This computer, Qwen3-ASR 0.6B | 12.8% (18 of 141) | 1.7% (4 of 231) | 4.3% (16 of 372) |
+| OpenAI `gpt-live-transcribe` | 7.1% (10 of 141) | 6.9% (16 of 231) | 7.0% (26 of 372) |
+| Soniox `stt-rt-v5` | 9.9% (14 of 141) | 1.3% (3 of 231) | 3.5% (13 of 372) |
+
+- OpenAI varies most from run to run. Another run of the same code gave 6.4%, 4.8% and 6.7%.
+- Before its turns started 1.2 s ahead of the detector, OpenAI cut first words, and Chinese was 7.8%.

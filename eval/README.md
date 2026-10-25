@@ -161,6 +161,7 @@ Keys are read from these variables only, never from `OPENAI_API_KEY` and the lik
 | `INCARNAMIND_EVAL_CHAT_MODEL` | none | The model id. |
 | `INCARNAMIND_EVAL_CHAT_KEY` | none | Required for `anthropic`, `openai` and `google`. |
 | `INCARNAMIND_EVAL_CHAT_BASE_URL` | none | Required for `openai-compatible`; Ollama's address for `ollama`. |
+| `INCARNAMIND_EVAL_CHAT_ENDPOINT` | its first | A hosted provider's endpoint, by its id in the app's catalog: `intl` for Kimi International (`api.moonshot.ai`), for example. The run uses the app's own provider for the kind, as Settings does, so it sends what the app sends. The judge's `INCARNAMIND_EVAL_JUDGE_ENDPOINT` works the same way. |
 | `INCARNAMIND_EVAL_CHAT_NUM_CTX` | the app's choice | `ollama` only: the context window (`num_ctx`) every request carries, instead of the one the app chooses from this computer's memory, so local runs are comparable. The output cap follows it, as in the app. |
 | `INCARNAMIND_EVAL_CHAT_CITING` | the app's rule | `ollama` only: `tools`, `structured-output` or `none`, how the model cites instead of the app's rule (`citingMode`), to compare the citing modes. |
 | `INCARNAMIND_EVAL_EMBED_KIND` | none | `openai` or `google`. Turns on the cloud embedding run. |
@@ -478,6 +479,10 @@ The check now ignores letter case, reads "[^36]" as "[36]", and finds a quote wi
 
 `npm run eval` also runs the checks evaluation when a chat model is given (`npm run eval -- eval/checks` runs it alone): Find support's 200 labelled sentences and verify's 10 received documents, run end to end against one Folder and scored against the labels, with the bars of #86, #96 and #97 reported until those exist (#86). See `checks/README.md`.
 
+## Repeated checks
+
+`npm run eval:repeats` presses Check this Mind ten times on Minds nobody edits, with a real chat model and the app's real search, and counts each sentence's verdict and how its card shows it: how steady the verdicts are, false Supported, and a sentence a Document states reported as not found (#1608). `npm run eval` doesn't run it. See `repeats/README.md`; `tests/eval/repeatsScoring.test.ts` checks its scoring.
+
 ## The hard tier
 
 `npm run eval:hard` asks harder Questions of a library at scale: public Documents across domains, fetched at evaluation time and never committed, in every retrieval mode with embeddings on, reported per domain and difficulty and never gating. `npm run eval` doesn't run it. See `hard/README.md`.
@@ -489,3 +494,11 @@ The check before building the Library's grouping (#51) found that clustering Doc
 ## The Organize benchmark
 
 `npm run eval:organize` measures how well Organize puts Documents in the right Folder with the right Tags (ADR-0012), per classifier route, on 80 labelled English and Chinese Documents split into a tuning half and a held-out half. It reads the chat route's model from the same `INCARNAMIND_EVAL_CHAT_*` variables. `npm run eval` doesn't run it. See `organize/README.md` and `organize/RESULTS.md`.
+
+## The harness bake-off
+
+`npm run eval:harness` asks 30 requests, in English and Chinese, of IncarnaMind's Run engine, Claude Code and Codex on the same model, the outside two reaching the Documents only through IncarnaMind's MCP server, and reports one results table per model (#1208). `npm run eval` doesn't run it. See `harness/README.md`; `tests/eval/harnessScoring.test.ts` checks its scoring and its adapter to Anthropic's API.
+
+## Reports from a cited Mind
+
+`npm run eval:reports` turns a Mind whose Notes cite two sample papers (6 Citations, in English and in Chinese, and 20) into a report with the built-in Skill "mind-to-report" forced, on a real chat model, in the Answer and in a new Mind (#1800). Each run counts the claims kept with a working Citation that opens the Mind's Location (and how many are its very record), the claims kept with none (a model judges that), every source or id left as text in the report and its Markdown export, and how often the app had to make an id written as text its Citation. `INCARNAMIND_EVAL_REPORTS` lists case ids (`reports/cases.ts`), `INCARNAMIND_EVAL_REPORTS_RUNS` sets the runs of each (10). About $0.003 a run on Claude Haiku 5.5 and $0.08 on Sonnet 5.5.

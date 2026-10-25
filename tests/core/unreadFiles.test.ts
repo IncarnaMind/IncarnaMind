@@ -27,16 +27,12 @@ describe("listUnreadFiles", () => {
     return { core };
   }
 
-  test("names each file with its reason: a format not read, a password, a scan, damage", async () => {
+  test("names each file with its reason, by name: a format not read, a password, a scan, damage", async () => {
     const { core } = await folderWithUnreadFiles();
 
     const unread = await core.listUnreadFiles(null);
 
-    expect(
-      unread
-        .map(({ name, reason, extension }) => ({ name, reason, extension }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    ).toEqual([
+    expect(unread.map(({ name, reason, extension }) => ({ name, reason, extension }))).toEqual([
       { name: "Broken.pdf", reason: "damaged", extension: null },
       { name: "Budget.XLS", reason: "format", extension: ".xls" },
       { name: "Contract.doc", reason: "format", extension: ".doc" },

@@ -12,6 +12,7 @@ import {
   motionSettled,
   openSettings,
   removeDataFolder,
+  scaleOf,
   setMotionSpeed,
   setWindowSize,
 } from "./app";
@@ -31,9 +32,6 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
-
-/** The scale a copy's transform says, 1 with none. */
-const scaleOf = (transform: string) => Number(/^matrix\(([^,]+),/.exec(transform)?.[1] ?? 1);
 
 async function chooseLanguage(window: Page, language: "en" | "zh-CN"): Promise<void> {
   await window.evaluate(async (chosen) => {
@@ -136,7 +134,7 @@ test("Reduced, chosen in Settings, fades a menu without moving it; Off shows and
   await expect(motion.getByRole("heading")).toHaveText("Motion");
   await expect(motion.getByRole("radio")).toHaveCount(3);
   await expect(motion.getByRole("radio", { name: "On" })).toBeChecked();
-  await expect(motion).toContainText("Until you choose, this follows your system's setting.");
+  await expect(motion).toContainText("Until you choose, this follows your system’s setting.");
 
   await motion.getByRole("radio", { name: "Reduced" }).check();
   await expect(window.locator("html")).toHaveAttribute("data-motion", "reduced");

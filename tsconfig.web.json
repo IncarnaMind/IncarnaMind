@@ -9,6 +9,7 @@
     "src/renderer/src/**/*",
     "src/renderer/capture/**/*",
     "src/renderer/print/**/*",
+    "src/renderer/analysis/**/*",
     "src/shared/**/*"
   ]
 }

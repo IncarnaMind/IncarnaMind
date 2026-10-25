@@ -9,7 +9,6 @@ import {
   templateLabel,
 } from "../../../shared/meetingHelp";
 import { core, files } from "../core";
-import { translateNow } from "../i18n";
 import {
   addHelpToNotes,
   askHelpInAssistant,
@@ -133,7 +132,7 @@ export const meetingHelpCommands: readonly Command[] = [
       if (!meeting?.help) return;
       const { mindId, blockIds } = await addHelpToNotes(meeting, meeting.help);
       return {
-        message: translateNow("meetings.help.added"),
+        said: (t) => t("meetings.help.added"),
         undo: () => core.undoAddToNote({ mindId, blockIds }),
       };
     },

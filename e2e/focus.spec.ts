@@ -129,7 +129,10 @@ test("every Tab stop in a Mind, the sidebar and Settings shows the blue focus ri
     });
   });
   await expect(window.getByTestId("composer-model")).toBeVisible();
-  const checks = window.getByTestId("mind-pane").getByTestId("margin-check");
+  const checks = window
+    .getByTestId("mind-pane")
+    .getByTestId("mind-editor")
+    .getByTestId("citation-chip");
   await expect(checks.nth(1)).toHaveAttribute("data-check", "found", { timeout: 30_000 });
 
   const stops = await tabRound(window, 120);

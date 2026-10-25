@@ -11,12 +11,12 @@ import {
   launchApp,
   nameMind,
   newMind,
+  openExportOptions,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
   slideSelect,
-  tabMenu,
   useLocalChatModel,
   useOutputLocation,
 } from "./app";
@@ -63,7 +63,7 @@ test("a Contradicted sentence goes into a Word file as a comment and the line sa
   await slideSelect(window, line, "Harbours", { line, words: "months." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");
   await useOutputLocation(window, out);
@@ -108,7 +108,7 @@ test("a Contradicted sentence goes into a Word file as a comment and the line sa
   await expect(result.getByTestId("export-unmarked")).toHaveCount(0);
 
   // Word with the option off: the same warning, and its fix opens the options.
-  await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.exportOptions"));
+  await openExportOptions(window);
   const sheet = window.getByTestId("export-dialog");
   await sheet.getByTestId("export-comment-failed-checks").uncheck();
   await sheet.getByTestId("export-save").click();

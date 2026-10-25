@@ -870,6 +870,7 @@ describe("The evaluation's settings for a model in Ollama", () => {
       modelId: "qwen3.5:4b",
       apiKey: null,
       baseUrl: null,
+      endpoint: null,
     };
     expect(evalOllamaModels({ ...chat, numCtx: null, citing: null }, app)).toBeNull();
     const models = evalOllamaModels({ ...chat, numCtx: 8_192, citing: "structured-output" }, app);

@@ -3,9 +3,9 @@ import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
 import { showFileLabelKey } from "../fileInfo";
-import { languageNow, translateNow } from "../i18n";
+import { countNow, translateNow } from "../i18n";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
-import { fileStatusLabel, folderName, formatCount } from "../linkedFolders";
+import { fileStatusLabel, folderName } from "../linkedFolders";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { findTab } from "../tabs";
@@ -51,7 +51,7 @@ function bridgeOf(ctx: CommandContext): LibraryBridge | null {
     title:
       documents.length === 1
         ? displayName(first)
-        : translateNow("library.count", { count: documents.length }),
+        : translateNow("library.count", { count: countNow(documents.length) }),
     count: documents.length,
     scope: { folderIds: [], tagIds: [], documentIds: documents.map((each) => each.id) },
   };
@@ -89,13 +89,13 @@ export const mindCommands: readonly Command[] = [
     run: (ctx) => store().openMind(idsOf(ctx, "mind")[0] ?? ""),
   },
   {
-    id: "mind.openSide",
-    label: "mind.openSide",
+    id: "mind.openTab",
+    label: "mind.openTab",
     group: "open",
     appliesTo: ["mind"],
     when: onlyOne,
     reversible: true,
-    run: (ctx) => store().openMind(idsOf(ctx, "mind")[0] ?? "", { side: true }),
+    run: (ctx) => store().openMind(idsOf(ctx, "mind")[0] ?? "", { newTab: true }),
   },
   // Exporting (Export as…, Export options…) is in ./exports.
   {
@@ -103,6 +103,7 @@ export const mindCommands: readonly Command[] = [
     label: "mind.moveTo",
     rowKeys: "CmdOrCtrl+Shift+M",
     group: "move",
+    top: 30,
     appliesTo: ["mind", "tab"],
     when: (ctx) => ofMind(ctx) && ctx.here?.["mind.moveTo"] !== undefined,
     reversible: true,
@@ -111,8 +112,10 @@ export const mindCommands: readonly Command[] = [
   {
     id: "mind.rename",
     label: "mind.rename",
+    keywords: ["command.rename.keywords"],
     rowKeys: RENAME_KEYS,
     group: "edit",
+    top: 32,
     appliesTo: ["mind"],
     reversible: true,
     ...needsHere("mind.rename"),
@@ -145,7 +148,7 @@ export const documentCommands: readonly Command[] = [
   },
   {
     id: "document.openTab",
-    label: "document.openTab",
+    label: "mind.openTab",
     group: "open",
     appliesTo: ["document"],
     when: onlyOne,
@@ -168,7 +171,7 @@ export const documentCommands: readonly Command[] = [
   {
     id: "document.ask",
     label: (ctx, t) =>
-      many(ctx) ? t("library.ask.documents", { count: many(ctx) }) : t("documents.ask"),
+      many(ctx) ? t("library.ask.documents", { count: countNow(many(ctx)) }) : t("documents.ask"),
     group: "main",
     appliesTo: ["document"],
     when: (ctx) => documentsOf(ctx).length >= 1,
@@ -181,7 +184,9 @@ export const documentCommands: readonly Command[] = [
   {
     id: "document.startMind",
     label: (ctx, t) =>
-      many(ctx) ? t("documents.startMind.many", { count: many(ctx) }) : t("documents.startMind"),
+      many(ctx)
+        ? t("documents.startMind.many", { count: countNow(many(ctx)) })
+        : t("documents.startMind"),
     group: "main",
     appliesTo: ["document"],
     when: (ctx) => documentsOf(ctx).length >= 1,
@@ -196,6 +201,7 @@ export const documentCommands: readonly Command[] = [
     label: "documents.moveTo",
     rowKeys: "CmdOrCtrl+Shift+M",
     group: "move",
+    top: 30,
     appliesTo: ["document"],
     reversible: true,
     ...needsHere("document.moveTo"),
@@ -204,22 +210,23 @@ export const documentCommands: readonly Command[] = [
     id: "document.retry",
     label: (ctx, t) =>
       many(ctx)
-        ? t("documents.retryAction.many", { count: many(ctx) })
+        ? t("documents.retryAction.many", { count: countNow(many(ctx)) })
         : t("documents.retryAction"),
     group: "main",
     appliesTo: ["document"],
-    // Only a failed one, or a scan with no text, whose file is there to be read again; a locked PDF
-    // is unlocked instead.
     when: (ctx) =>
       everyDocument(
         ctx,
         (document) =>
-          (document.status === "failed" || document.status === "no-text") &&
+          ((onlyOne(ctx) && ctx.here?.["document.retry"] !== undefined) ||
+            document.status === "failed" ||
+            document.status === "no-text") &&
           document.fileStatus === "available" &&
           !isLockedPdf(document),
       ),
     reversible: true,
     run: async (ctx) => {
+      if (onlyOne(ctx) && ctx.here?.["document.retry"]) return ctx.here["document.retry"]();
       await Promise.all(idsOf(ctx, "document").map((id) => store().retryDocument(id)));
     },
   },
@@ -256,6 +263,7 @@ export const documentCommands: readonly Command[] = [
     id: "document.tags",
     label: "document.tags",
     group: "tags",
+    top: 31,
     appliesTo: ["document"],
     reversible: true,
     ...needsHere("document.tags"),
@@ -263,8 +271,10 @@ export const documentCommands: readonly Command[] = [
   {
     id: "document.rename",
     label: "documents.renameAction",
+    keywords: ["command.rename.keywords"],
     rowKeys: RENAME_KEYS,
     group: "edit",
+    top: 32,
     appliesTo: ["document"],
     reversible: true,
     ...needsHere("document.rename"),
@@ -299,7 +309,7 @@ export const documentCommands: readonly Command[] = [
     id: "document.delete",
     label: (ctx, t) =>
       many(ctx)
-        ? t("documents.deleteAction.many", { count: many(ctx) })
+        ? t("documents.deleteAction.many", { count: countNow(many(ctx)) })
         : t(
             documentsOf(ctx).every((document) => document.fileStatus === "missing")
               ? "documents.removeAction"
@@ -328,9 +338,10 @@ export const folderCommands: readonly Command[] = [
     id: "folder.newMind",
     label: "folder.newMindHere",
     group: "main",
+    top: 22,
     appliesTo: ["folder"],
     reversible: true,
-    run: (ctx) => store().createMind({ folderId: idsOf(ctx, "folder")[0] ?? null }),
+    run: (ctx) => store().createMind({ titled: true, folderId: idsOf(ctx, "folder")[0] ?? null }),
   },
   {
     id: "folder.ask",
@@ -348,19 +359,21 @@ export const folderCommands: readonly Command[] = [
     id: "folder.organize",
     label: "folder.organize",
     group: "main",
+    top: 24,
     appliesTo: ["folder"],
     enabled: (ctx) =>
       folderDocumentIds(ctx).length > 0 ? true : { reason: "folder.organize.empty" },
     // Suggestions are reviewed and taken back from the Library.
     reversible: true,
     async run(ctx) {
-      if (!store().library?.settings.classifier) return store().openSettings("models");
+      if (!store().library?.settings.classifier) return store().openSettings("models", "tagging");
       await core.classifyDocuments(folderDocumentIds(ctx));
     },
   },
   {
     id: "folder.tagWithAi",
     label: "folder.tagWithAi",
+    keywords: ["tagging.resume.keywords"],
     group: "main",
     appliesTo: ["folder"],
     when: (ctx) => {
@@ -389,8 +402,10 @@ export const folderCommands: readonly Command[] = [
   {
     id: "folder.rename",
     label: "folder.rename",
+    keywords: ["command.rename.keywords"],
     rowKeys: RENAME_KEYS,
     group: "edit",
+    top: 32,
     appliesTo: ["folder"],
     reversible: true,
     ...needsHere("folder.rename"),
@@ -425,6 +440,7 @@ export const tagCommands: readonly Command[] = [
   {
     id: "tag.rename",
     label: "tag.rename",
+    keywords: ["command.rename.keywords"],
     rowKeys: RENAME_KEYS,
     group: "edit",
     appliesTo: ["tag"],
@@ -452,6 +468,44 @@ export const tagCommands: readonly Command[] = [
     appliesTo: ["tag"],
     reversible: true,
     run: () => store().openTagsDialog(),
+  },
+  {
+    // From anywhere, as ⌘K offers it: the sidebar lists only the Tags in use.
+    id: "tags.manage",
+    label: "tags.menu.manage",
+    group: "main",
+    reversible: true,
+    run: () => store().openTagsDialog(),
+  },
+];
+
+const kindsIn = (ctx: CommandContext) => new Set(ctx.selection.map((each) => each.kind)).size;
+const rowMoveTo = (ctx: CommandContext) =>
+  ctx.here?.["mind.moveTo"] ?? ctx.here?.["document.moveTo"];
+
+/** A selection of several kinds: only what applies to all of it, as `registerMixedMenu` lists. */
+export const mixedSelectionCommands: readonly Command[] = [
+  {
+    id: "selection.moveTo",
+    label: (ctx, t) => t("selection.moveTo", { count: countNow(ctx.selection.length) }),
+    rowKeys: "CmdOrCtrl+Shift+M",
+    group: "move",
+    // Folders don't go inside Folders until #246.
+    appliesTo: ["mind", "document"],
+    when: (ctx) => kindsIn(ctx) > 1 && rowMoveTo(ctx) !== undefined,
+    reversible: true,
+    run: (ctx) => rowMoveTo(ctx)?.(),
+  },
+  {
+    id: "selection.delete",
+    label: (ctx, t) => t("selection.delete", { count: countNow(ctx.selection.length) }),
+    rowKeys: "CmdOrCtrl+Backspace",
+    group: "danger",
+    destructive: true,
+    appliesTo: ["mind", "document", "folder"],
+    when: (ctx) => kindsIn(ctx) > 1,
+    reversible: true,
+    run: (ctx) => store().deleteSelection(ctx.selection),
   },
 ];
 
@@ -489,31 +543,12 @@ export const linkedFolderCommands: readonly Command[] = [
     },
   },
   {
-    id: "linkedFolder.layout",
-    label: (ctx, t) =>
-      t(
-        linkedOf(ctx)?.layout === "flat"
-          ? "linkedFolders.layout.tree"
-          : "linkedFolders.layout.flat",
-      ),
-    group: "main",
-    appliesTo: ["linkedFolder"],
-    reversible: true,
-    run(ctx) {
-      const linked = linkedOf(ctx);
-      return (
-        linked &&
-        store().setLinkedFolderLayout(linked.id, linked.layout === "flat" ? "tree" : "flat")
-      );
-    },
-  },
-  {
     id: "linkedFolder.download",
     label: (ctx, t) => {
       const count = linkedOf(ctx)?.onlineOnly.files ?? 0;
       return count === 1
         ? t("linkedFolders.downloadOnlineOnly.one")
-        : t("linkedFolders.downloadOnlineOnly.other", { count: formatCount(count, languageNow()) });
+        : t("linkedFolders.downloadOnlineOnly.other", { count: countNow(count) });
     },
     group: "main",
     appliesTo: ["linkedFolder"],

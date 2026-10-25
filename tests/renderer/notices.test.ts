@@ -53,11 +53,11 @@ beforeEach(() => {
 
 describe("an error", () => {
   test("says the core's sentence in plain words, with the technical text for Details", () => {
-    notices.getState().showError(failed("A Document's name can't be empty."));
+    notices.getState().showError(failed("A Document’s name can’t be empty."));
     const [notice] = notices.getState().errors;
-    expect(notice?.message).toBe("A Document's name can't be empty.");
+    expect(notice?.message).toBe("A Document’s name can’t be empty.");
     expect(notice?.detail).toBe(
-      "core:renameDocument\nInvalidInputError: A Document's name can't be empty.",
+      "core:renameDocument\nInvalidInputError: A Document’s name can’t be empty.",
     );
     const everything = JSON.stringify(notices.getState().errors);
     expect(everything).not.toContain("Error invoking remote method");
@@ -72,14 +72,14 @@ describe("an error", () => {
       );
     const [notice] = notices.getState().errors;
     expect(notice?.wording).toEqual({ key: "error.document.nameEmpty" });
-    expect(notice?.message).toBe("A Document's name can't be empty.");
+    expect(notice?.message).toBe("A Document’s name can’t be empty.");
     expect(notice?.detail).toBe(
-      "core:renameDocument\nInvalidInputError: A Document's name can't be empty.",
+      "core:renameDocument\nInvalidInputError: A Document’s name can’t be empty.",
     );
   });
 
   test("stays however long it is left, whether or not anything else happens", () => {
-    notices.getState().showError(failed("A Document's name can't be empty."));
+    notices.getState().showError(failed("A Document’s name can’t be empty."));
     time.advance(CONFIRMATION_SHOWN_MS * 1000);
     notices.getState().confirm("info.copied");
     time.advance(CONFIRMATION_SHOWN_MS * 1000);

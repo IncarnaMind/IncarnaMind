@@ -13,10 +13,10 @@ import type {
   Settings,
 } from "../../core/api";
 import { messageReference } from "../../core/references";
+import { pageBlocks } from "../../shared/answerBlocks";
+import { keysForm } from "../../shared/keyForms";
 import { type HelpShortcut, helpKeysOf, helpLabel, isHelpShortcut } from "../../shared/meetingHelp";
 import type { PanelState } from "../../shared/meetingPanel";
-import { withoutFraming } from "../../shared/noteBlocks";
-import { answerBlocks } from "./answerBlocks";
 import { keysHere } from "./commands/keymap";
 import { openConversation, useConversations } from "./conversations";
 import { core, files } from "./core";
@@ -24,6 +24,7 @@ import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { isLive, useMeetings } from "./meetings";
 import { useAppStore } from "./store";
+import { windowKeysOf } from "./windowKeys";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -127,31 +128,33 @@ export async function addHelpToNotes(
   if (answer?.kind !== "answer" || answer.status !== "done") {
     throw new Error(translateNow("meetings.help.stillWriting"));
   }
+  const question = translateNow(helpLabel(help.kind));
   const { blockIds } = await core.addToNote({
     mindId: meeting.mindId,
-    blocks: withoutFraming(answerBlocks(answer)),
-    origin: {
-      from: messageReference(answer.conversationId, answer.id),
-      question: translateNow(helpLabel(help.kind)),
-    },
+    blocks: pageBlocks(answer, question),
+    origin: { from: messageReference(answer.conversationId, answer.id), question },
     model: answer.model,
   });
   return { mindId: meeting.mindId, blockIds };
 }
 
-/** A button's or Call help's shortcut on this device, as this system writes it; null for none. */
+/**
+ * A button's or Call help's shortcut on this device, as this system writes it, where the window
+ * shows it; null for none, or for a key the window binds itself, which works only over another app.
+ */
 export function helpKeysLabel(
   kind: MeetingHelpKind | HelpShortcut,
   settings: Settings | null,
 ): string | null {
   if (!isHelpShortcut(kind) || !settings) return null;
   const keys = helpKeysOf(kind, settings.device.meetingHelpKeys, isMac);
-  return keys ? keysHere(keys) : null;
+  return keys && !windowKeysOf(isMac).has(keysForm(keys, isMac)) ? keysHere(keys) : null;
 }
 
 /**
  * In the app's window: a help shortcut pressed with no floating panel asks in the assistant;
- * the panel's Set up opens where a model is chosen; and whether the panel shows.
+ * the panel's Set up opens where a model is chosen; whether the panel shows; and which keys the
+ * window binds itself, which a meeting shortcut doesn't take while the window is in front.
  */
 export function useMeetingHelpInWindow(): void {
   useEffect(() => {
@@ -160,6 +163,7 @@ export function useMeetingHelpInWindow(): void {
       files.onSetUpModel(() => useAppStore.getState().openSettings("models")),
       files.onMeetingPanel((panel) => useMeetingHelp.setState({ panel })),
     ];
+    files.windowKeys([...windowKeysOf(isMac)]);
     return () => {
       for (const stop of stops) stop();
     };

@@ -2,7 +2,7 @@ import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import { describe, expect, onTestFinished, test } from "vitest";
-import { WORD_LOOK_ATTRIBUTE, WORD_RUN_MARK } from "../../src/core";
+import { PARAGRAPH_FORMAT_ATTRIBUTE, WORD_LOOK_ATTRIBUTE, WORD_RUN_MARK } from "../../src/core";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor, typeText } from "../helpers/editor";
 import { readMind } from "../helpers/minds";
@@ -28,7 +28,10 @@ async function editorOnImport() {
   return { editor: boundEditor(client), client };
 }
 
-const lookOf = (node: ProseMirrorNode | undefined) => node?.attrs[WORD_LOOK_ATTRIBUTE] ?? null;
+const lookOf = (node: ProseMirrorNode | undefined) => ({
+  look: node?.attrs[WORD_LOOK_ATTRIBUTE] ?? null,
+  format: node?.attrs[PARAGRAPH_FORMAT_ATTRIBUTE] ?? null,
+});
 
 const runsOf = (node: ProseMirrorNode | undefined) => {
   const runs: [string, string | null][] = [];
@@ -54,12 +57,13 @@ describe("typing in a Mind imported from Word keeps the file's look", () => {
   test("Enter gives the new paragraph the look of the one it came from, and Undo takes it back", async () => {
     const { editor } = await editorOnImport();
     const first = lookOf(editor.state.doc.child(0));
-    expect(first).not.toBeNull();
+    expect(first.format).toEqual({ align: "center" });
+    expect(first.look).not.toBeNull();
     cursorAfter(editor, "bold");
     editor.commands.splitBlock();
     typeText(editor, "Typed");
     expect(editor.state.doc.childCount).toBe(3);
-    expect(lookOf(editor.state.doc.child(1))).toBe(first);
+    expect(lookOf(editor.state.doc.child(1))).toEqual(first);
 
     editor.commands.undo();
     expect(editor.state.doc.childCount).toBe(2);
@@ -83,15 +87,15 @@ describe("typing in a Mind imported from Word keeps the file's look", () => {
     const { editor } = await editorOnImport();
     const first = lookOf(editor.state.doc.child(0));
     const second = editor.state.doc.child(1);
-    expect(lookOf(second)).not.toBe(first);
+    expect(lookOf(second)).not.toEqual(first);
     cursorAfter(editor, "bold");
     editor.commands.joinForward();
     expect(editor.state.doc.childCount).toBe(1);
-    expect(lookOf(editor.state.doc.child(0))).toBe(first);
+    expect(lookOf(editor.state.doc.child(0))).toEqual(first);
     expect(runsOf(editor.state.doc.child(0)).at(-1)).toEqual(runsOf(second).at(-1));
 
     editor.commands.undo();
     expect(editor.state.doc.childCount).toBe(2);
-    expect(lookOf(editor.state.doc.child(1))).toBe(lookOf(second));
+    expect(lookOf(editor.state.doc.child(1))).toEqual(lookOf(second));
   });
 });

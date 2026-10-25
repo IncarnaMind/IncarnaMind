@@ -11,6 +11,7 @@ import {
   launchApp,
   openSettings,
   removeDataFolder,
+  showSettingsPage,
 } from "./app";
 
 type Page = typeof globalThis & { incarnamind: CoreBridge };
@@ -38,16 +39,14 @@ test("embeddings are off by default; turning them on with a cloud provider warns
   const section = window.getByTestId("embedding-settings");
   const current = section.getByTestId("embedding-current");
   await expect(current).toHaveText("Search model: Off");
-  await expect(section).toContainText(
-    "Documents are searched by their words, with the best matches first. Nothing leaves this computer.",
-  );
+  await expect(section).toContainText("Documents are searched by their words.");
 
   // "Turn on…": Off is chosen, and the line says what an embedding model adds and costs.
   await section.getByTestId("embedding-change").click();
   const form = section.getByTestId("embedding-form");
   await expect(form.getByLabel("Off", { exact: true })).toBeChecked();
   await expect(form.getByTestId("embedding-trade-off")).toHaveText(
-    "A search model also finds passages worded differently from your Question, at the cost of slower reading and, for the built-in model, a 135 MB download.",
+    "Finds passages worded differently, but reads slower.",
   );
   // Choose OpenAI, with a key; its suggested model is filled in.
   await form.getByLabel("OpenAI", { exact: true }).check();
@@ -60,9 +59,7 @@ test("embeddings are off by default; turning them on with a cloud provider warns
   const confirm = window.getByTestId("embedding-confirm");
   await expect(confirm).toBeVisible();
   await expect(confirm).toContainText("Turn on OpenAI · text-embedding-3-small?");
-  await expect(confirm).toContainText(
-    "Every Document (1 in all) will be read for search in the background",
-  );
+  await expect(confirm).toContainText("Reads all 1 Documents; search matches words until then.");
   await expect(confirm.getByTestId("embedding-confirm-cloud")).toHaveText(
     "OpenAI will receive the full text of all your Documents, and every search you make.",
   );
@@ -113,7 +110,7 @@ test("turned on with the built-in model, Documents are embedded; turned off agai
   await expect(confirm).toContainText("Everything stays on this computer.");
   await confirm.getByTestId("embedding-confirm-switch").click();
 
-  await expect(current).toHaveText("Search model: Built-in (multilingual-e5-small)");
+  await expect(current).toHaveText("Search model: Built-in model");
   const vector = () =>
     window.evaluate(() =>
       (globalThis as Page).incarnamind.searchPassages("light into energy", { mode: "vector" }),
@@ -122,12 +119,10 @@ test("turned on with the built-in model, Documents are embedded; turned off agai
 
   await section.getByTestId("embedding-change").click();
   await form.getByLabel("Off", { exact: true }).check();
-  await expect(form).toContainText(
-    "Documents are searched by their words, best matches first, as soon as they are read. Nothing is downloaded.",
-  );
+  await expect(form).toContainText("Searches words only. Nothing is downloaded.");
   await form.getByTestId("embedding-switch").click();
   await expect(confirm).toContainText("Turn off search by meaning?");
-  await expect(confirm).toContainText("What the search model has read so far is kept");
+  await expect(confirm).toContainText("What it read is kept");
   await confirm.getByTestId("embedding-confirm-switch").click();
 
   await expect(current).toHaveText("Search model: Off");
@@ -138,9 +133,11 @@ test("turned on with the built-in model, Documents are embedded; turned off agai
 test("in local mode, a server elsewhere and reranking are turned down as they're chosen, saying why", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  await openSettings(window, "search");
+  const settings = await openSettings(window, "privacy");
+  await settings.getByTestId("local-only").check();
+  await showSettingsPage(window, "search");
   const section = window.getByTestId("embedding-settings");
-  await section.getByTestId("local-only").check();
+  await expect(section.getByTestId("local-only")).toHaveCount(0);
 
   await section.getByTestId("embedding-change").click();
   const form = section.getByTestId("embedding-form");
@@ -161,7 +158,7 @@ test("in local mode, a server elsewhere and reranking are turned down as they're
   // Reranking: only the built-in model, on this computer, can be chosen, and it stays on.
   const rerank = window.getByTestId("rerank-settings");
   await expect(rerank.getByTestId("rerank-current")).toContainText(
-    "the built-in model puts the best search results first",
+    "the built-in model puts the best results first",
   );
   await rerank.getByTestId("rerank-change").click();
   const rerankForm = rerank.getByTestId("rerank-form");
@@ -180,9 +177,9 @@ test("reranking is on by default with the built-in model, can be turned off, and
 
   // The smoke tests' fake model has nothing to download: it is ready at once.
   await expect(current().getByTestId("rerank-current")).toHaveText(
-    /^By default, the built-in model puts the best search results first \(.+\)\.$/,
+    "By default, the built-in model puts the best results first.",
   );
-  await expect(current()).toContainText("Nothing leaves this computer.");
+  await expect(current()).toContainText("Each search takes a little longer.");
   await expect(current().getByTestId("rerank-model-state")).toHaveCount(0);
   expect(
     await launched.window.evaluate(() => (globalThis as Page).incarnamind.getRerankSettings()),
@@ -202,14 +199,12 @@ test("reranking is on by default with the built-in model, can be turned off, and
   await rerank.getByTestId("rerank-set-up").click();
   const form = rerank.getByTestId("rerank-form");
   await form.getByLabel("On this computer (built-in model)").check();
-  await expect(form.getByTestId("rerank-built-in-note")).toContainText(
-    "Your searches and Documents stay on this computer.",
-  );
+  await expect(form.getByTestId("rerank-built-in-note")).toContainText("runs on this computer.");
   await expect(form.getByLabel("API key")).toHaveCount(0);
   await form.getByRole("button", { name: "Use for ordering results" }).click();
 
   await expect(rerank.getByTestId("rerank-current")).toHaveText(
-    /^The built-in model puts the best search results first \(.+\)\.$/,
+    "The built-in model puts the best results first.",
   );
   const settings = await window.evaluate(() =>
     (globalThis as Page).incarnamind.getRerankSettings(),

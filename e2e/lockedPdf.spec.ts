@@ -63,27 +63,43 @@ test("a locked PDF is unlocked in place: a wrong password says so, the right one
   await expect(field).toBeFocused();
 
   // A wrong password: said under the field, which keeps its text, selected, to type over.
+  const wrong = locked.getByTestId("pdf-password-wrong");
+  const expectWrongUnderField = async (typed: number) => {
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    await expect(field).toHaveAttribute("aria-describedby", (await wrong.getAttribute("id")) ?? "");
+    const fieldBox = await field.boundingBox();
+    const wrongBox = await wrong.boundingBox();
+    expect(wrongBox?.y ?? 0).toBeGreaterThan((fieldBox?.y ?? 0) + (fieldBox?.height ?? 0) - 1);
+    await expect(field).toBeFocused();
+    expect(
+      await field.evaluate((input: HTMLInputElement) => [
+        input.selectionStart,
+        input.selectionEnd,
+        input.value.length,
+      ]),
+    ).toEqual([0, typed, typed]);
+  };
   await window.keyboard.type("not-it");
   await window.keyboard.press("Enter");
-  await expect(locked.getByTestId("pdf-password-wrong")).toHaveText(
-    "That password doesn't open it.",
-  );
-  await expect(field).toBeFocused();
-  expect(
-    await field.evaluate((input: HTMLInputElement) => [
-      input.selectionStart,
-      input.selectionEnd,
-      input.value.length,
-    ]),
-  ).toEqual([0, 6, 6]);
+  await expect(wrong).toHaveText("That password doesn’t open it.");
+  await expectWrongUnderField(6);
+
+  // Typing replaces it, and the line goes.
+  await window.keyboard.type("n");
+  await expect(field).toHaveValue("n");
+  await expect(wrong).toHaveCount(0);
+  await expect(field).not.toHaveAttribute("aria-invalid");
 
   await setLanguage(window, "zh-CN");
   await expect(locked).toContainText("这个 PDF 已加密");
-  await expect(locked.getByTestId("pdf-password-wrong")).toHaveText("这个密码打不开它。");
   await expect(locked.getByTestId("pdf-unlock")).toHaveText("解锁");
+  await window.keyboard.type("ot-it-either");
+  await window.keyboard.press("Enter");
+  await expect(wrong).toHaveText("密码不正确，无法打开。");
+  await expectWrongUnderField(13);
 
-  // The right one: the pages open, and the PDF is read.
-  await field.fill(PASSWORD);
+  // The right one, typed over the wrong: the pages open, and the PDF is read.
+  await window.keyboard.type(PASSWORD);
   await locked.getByTestId("pdf-unlock").click();
   await expect(locked).toHaveCount(0);
   await expect(window.getByTestId("pdf-page-count")).toBeVisible();

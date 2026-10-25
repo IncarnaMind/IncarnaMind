@@ -6,7 +6,7 @@ import { translate } from "../../src/shared/i18n";
 /*
  * The rows of an Answer's card of Minds changed (#202): one per Mind, in the
  * order the Answer first changed each, with every request of its changes there
- * and what its calls did: paragraphs written whole, places changed.
+ * and what its calls did: paragraphs written whole, paragraphs changed.
  */
 
 let calls = 0;
@@ -26,7 +26,7 @@ describe("The Minds an Answer changed", () => {
     const rows = changedMinds({
       toolCalls: [
         call("read_mind"),
-        call("edit_mind", { mindId: "a", created: false, request: "r1", proposals: 2 }),
+        call("edit_mind", { mindId: "a", created: false, request: "r1", proposals: 5, changed: 2 }),
         call("create_mind", {
           mindId: "b",
           created: true,
@@ -55,21 +55,29 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "a",
         created: false,
+        filled: false,
         requests: ["r1", "r3"],
         wrote: 1,
         changed: 2,
         tables: 0,
+        charts: 0,
+        chartNotDrawn: null,
         unlinkedSources: 0,
+        droppedSources: 0,
         extraCells: 0,
       },
       {
         mindId: "b",
         created: true,
+        filled: false,
         requests: ["r2", "r4"],
         wrote: 3,
         changed: 0,
         tables: 0,
+        charts: 0,
+        chartNotDrawn: null,
         unlinkedSources: 0,
+        droppedSources: 0,
         extraCells: 0,
       },
     ]);
@@ -85,11 +93,15 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "c",
         created: true,
+        filled: false,
         requests: [],
         wrote: 0,
         changed: 0,
         tables: 0,
+        charts: 0,
+        chartNotDrawn: null,
         unlinkedSources: 0,
+        droppedSources: 0,
         extraCells: 0,
       },
     ]);
@@ -115,11 +127,15 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "a",
         created: false,
+        filled: false,
         requests: ["r1"],
         wrote: 3,
         changed: 0,
         tables: 0,
+        charts: 0,
+        chartNotDrawn: null,
         unlinkedSources: 0,
+        droppedSources: 0,
         extraCells: 0,
       },
     ]);
@@ -139,14 +155,45 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "a",
         created: false,
+        filled: false,
         requests: ["r1"],
         wrote: 0,
         changed: 0,
         tables: 0,
+        charts: 0,
+        chartNotDrawn: null,
         unlinkedSources: 0,
+        droppedSources: 0,
         extraCells: 0,
       },
     ]);
+  });
+
+  // protects=a revision of text the same Answer wrote counts what it wrote in its place, not both versions; fails_when=the row counts the first version too; no_claim=what the core counts.
+  test("a revision of the Answer's own text counts once", () => {
+    const [row] = changedMinds({
+      toolCalls: [
+        call("create_mind", {
+          mindId: "a",
+          created: true,
+          request: "r1",
+          proposals: 6,
+          paragraphs: 3,
+          tables: 1,
+        }),
+        call("edit_mind", {
+          mindId: "a",
+          created: false,
+          request: "r2",
+          proposals: 4,
+          paragraphs: 2,
+          tables: 1,
+          revised: true,
+          replacedOwn: { paragraphs: 3, tables: 1, charts: 0 },
+        }),
+      ],
+    });
+    expect(row).toMatchObject({ created: true, requests: ["r1", "r2"], wrote: 2, tables: 1 });
   });
 
   // protects=a table counts as a table, never as a place or as nothing: a rewrite's table isn't one of its places changed, and an added table alone still makes the row say what was added (#961); fails_when=a table alone reads as 0 changes, or a rewrite's table is also counted as a place; no_claim=how the card words it.
@@ -181,31 +228,43 @@ describe("The Minds an Answer changed", () => {
       {
         mindId: "a",
         created: false,
+        filled: false,
         requests: ["r1"],
         wrote: 0,
         changed: 4,
         tables: 1,
+        charts: 0,
+        chartNotDrawn: null,
         unlinkedSources: 0,
+        droppedSources: 0,
         extraCells: 0,
       },
       {
         mindId: "b",
         created: false,
+        filled: false,
         requests: ["r2"],
         wrote: 0,
         changed: 0,
         tables: 1,
+        charts: 0,
+        chartNotDrawn: null,
         unlinkedSources: 0,
+        droppedSources: 0,
         extraCells: 0,
       },
       {
         mindId: "c",
         created: false,
+        filled: false,
         requests: ["r3"],
         wrote: 0,
         changed: 0,
         tables: 1,
+        charts: 0,
+        chartNotDrawn: null,
         unlinkedSources: 0,
+        droppedSources: 0,
         extraCells: 0,
       },
     ]);
@@ -222,6 +281,7 @@ describe("The Minds an Answer changed", () => {
           proposals: 1,
           tables: 1,
           unlinkedSources: 2,
+          droppedSources: 1,
         }),
         call("edit_mind", {
           mindId: "a",
@@ -234,16 +294,17 @@ describe("The Minds an Answer changed", () => {
         }),
       ],
     });
-    expect(row).toMatchObject({ tables: 2, unlinkedSources: 3, extraCells: 3 });
+    expect(row).toMatchObject({ tables: 2, unlinkedSources: 3, droppedSources: 1, extraCells: 3 });
   });
 
   // protects=the card's note on a table's sources uses the glossary's word for a Citation's source, 出处, in Chinese (#961); fails_when=it says 来源; no_claim=how the card lays it out.
   test("the note on a table's sources says 出处 in Chinese", () => {
-    expect(translate("zh-CN", "mindChanges.unlinked.one")).toBe(
-      "· 表格中有 1 处出处无法关联，已作为文字显示",
-    );
+    expect(translate("zh-CN", "mindChanges.unlinked.one")).toBe("· 1 处出处未关联，显示为文字");
     expect(translate("zh-CN", "mindChanges.unlinked", { count: 3 })).toBe(
-      "· 表格中有 3 处出处无法关联，已作为文字显示",
+      "· 3 处出处未关联，显示为文字",
+    );
+    expect(translate("zh-CN", "mindChanges.dropped", { count: 2 })).toBe(
+      "· 有 2 处出处无法匹配，已删去",
     );
   });
 });

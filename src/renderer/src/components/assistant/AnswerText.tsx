@@ -5,6 +5,7 @@ import type { NodeJSON } from "../../../../shared/blockJson";
 import { lendAnswerEditor } from "../../answerEditors";
 import { AnswerTableSlots } from "../../editor/answerTables";
 import { CitationView } from "../../editor/CitationView";
+import { checklistLabel } from "../../editor/checklistLabel";
 import { CitationGlue, withCitationGlue } from "../../editor/citationGlue";
 import { CitationNumbers } from "../../editor/citationNumbers";
 import { CopyCitations } from "../../editor/copyCitations";
@@ -42,8 +43,8 @@ const editorPropsFor = (label: string) => ({
  * schema and node views, read only, with its Citations numbered from 1, each
  * badge holding its check in the line. Text can be selected in it, to copy or
  * add just that part (`selectedNotes`). While the Answer is written its Blocks
- * are drawn again as they change, and only then; once it is written, each
- * table has "Open as a table" under it.
+ * are drawn again as they change, and only then. A table wider than the Answer
+ * has "Open as a table" as an icon on its corner, greyed out until the Answer is written.
  */
 export function AnswerText({
   answerId,
@@ -70,7 +71,7 @@ export function AnswerText({
       content: docOf(blocks),
       editorProps: editorPropsFor(label),
       extensions: [
-        ...noteExtensions({ citationView }),
+        ...noteExtensions({ citationView, checklistLabel }),
         CitationGlue,
         CitationNumbers,
         CopyCitations,
@@ -102,7 +103,7 @@ export function AnswerText({
     <RegenerateAnswerContext.Provider value={regenerate}>
       <div ref={frame} className="assistant-answer-frame">
         <EditorContent editor={editor} />
-        {!streaming && <OpenAsTable frame={frame} editor={editor} onOpen={onOpenTable} />}
+        <OpenAsTable frame={frame} editor={editor} streaming={streaming} onOpen={onOpenTable} />
       </div>
     </RegenerateAnswerContext.Provider>
   );

@@ -1,19 +1,24 @@
 import { create } from "zustand";
 import type {
+  AskedQuote,
   AskInConversationInput,
   Conversation,
   ConversationAnswer,
+  ConversationAskResult,
   ConversationMessage,
   ConversationQuestion,
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
 import { applyWhatWasAsked } from "./askedChanges";
+import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
 import { translateNow } from "./i18n";
+import { documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { useModelSetup, waitForModel } from "./modelSetup";
+import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -34,6 +39,8 @@ interface ConversationsState {
   asking: string | null;
   /** What that Question is about in its Mind (#565); "" when it is about nothing. */
   askingQuote: string;
+  /** The words selected in Documents that Question is about. */
+  askingQuotes: readonly AskedQuote[];
   /** Stop was pressed while that Question was on its way: its Answer stops as it starts. */
   stopWanted: boolean;
   /** An Answer to bring into view and flash once it shows: a link back from a Note leads there. */
@@ -46,6 +53,7 @@ export const useConversations = create<ConversationsState>()(() => ({
   messages: [],
   asking: null,
   askingQuote: "",
+  askingQuotes: [],
   stopWanted: false,
   sought: null,
 }));
@@ -154,6 +162,20 @@ export async function askReadyQuestion(): Promise<void> {
   }
 }
 
+function sayLeftOut(result: ConversationAskResult): void {
+  if (!result.asked) return;
+  const { documents } = useAppStore.getState();
+  for (const quote of result.leftOut ?? []) {
+    const here = documents.some((each) => each.id === quote.documentId);
+    const said = here ? "assistant.quote.leftOut" : "assistant.quote.leftOut.deleted";
+    useNotices
+      .getState()
+      .showError(new Error(translateNow(said, { document: quote.documentName })));
+  }
+}
+
+const documentsOnScreen = () => documentsOnScreenOf(useAppStore.getState().layout, groupsMerged());
+
 /**
  * Asks a Question from the composer in the assistant's conversation (a
  * new one for a new chat): it shows at once, and its Answer streams in there.
@@ -167,6 +189,7 @@ export async function askInAssistant(
   useConversations.setState({
     asking: input.text,
     askingQuote: input.mindId ? (input.focus?.selection ?? "") : "",
+    askingQuotes: input.quotes ?? [],
     stopWanted: false,
     sought: null,
   });
@@ -174,6 +197,7 @@ export async function askInAssistant(
     const result = await core.askInConversation({
       ...input,
       conversationId: useConversations.getState().openId,
+      onScreen: documentsOnScreen(),
     });
     if (
       !result.asked &&
@@ -186,9 +210,11 @@ export async function askInAssistant(
       return true;
     }
     settleAsk(key, result);
+    sayLeftOut(result);
     if (!result.asked) return false;
     watchMindsMadeBy(result.answerId);
     applyWhatWasAsked(result.answerId);
+    watchCommands(result.answerId);
     const id = result.conversation.id;
     if (useConversations.getState().stopWanted) {
       core.stopConversationAnswer({ conversationId: id, answerId: result.answerId }).catch(report);
@@ -225,13 +251,23 @@ function askWaitingQuestion(): void {
 }
 
 core.on("chatReadiness.changed", (readiness) => {
-  if (!readiness.ready) return;
+  if (!readiness.ready) {
+    // The model that worked is gone: the card asks for one again.
+    useModelSetup.setState({ ready: false });
+    return;
+  }
   const { wanted, waiting } = useModelSetup.getState();
-  useModelSetup.setState({ wanted: false });
-  // The setup card goes with the focus in it: the composer, where the User asks next, takes it.
-  if (wanted || waiting) useComposer.getState().requestFocus();
-  askWaitingQuestion();
+  // The setup card stays, saying what each job uses, until the User continues.
+  if (wanted || waiting) useModelSetup.setState({ ready: true });
 });
+
+/** Continue on the setup card: the Question that waited is asked, and the composer takes the card's place. */
+export function continueSetup(): void {
+  useModelSetup.setState({ wanted: false, ready: false });
+  // The setup card goes with the focus in it: the composer, where the User asks next, takes it.
+  useComposer.getState().requestFocus();
+  askWaitingQuestion();
+}
 
 /**
  * Writes an Answer of the open conversation again; why it couldn't be is kept under its id.
@@ -246,15 +282,16 @@ export async function regenerateAnswer(
   settleAsk(answerId, null);
   try {
     watchMindsMadeBy(answerId);
-    applyWhatWasAsked(answerId);
-    settleAsk(
+    applyWhatWasAsked(answerId, { keepWritten: clearScope });
+    watchCommands(answerId);
+    const result = await core.regenerateConversationAnswer({
+      conversationId,
       answerId,
-      await core.regenerateConversationAnswer({
-        conversationId,
-        answerId,
-        ...(clearScope && { clearScope }),
-      }),
-    );
+      ...(clearScope && { clearScope }),
+      onScreen: documentsOnScreen(),
+    });
+    settleAsk(answerId, result);
+    sayLeftOut(result);
   } catch (error) {
     settleAsk(answerId, null, error);
   }
@@ -276,6 +313,10 @@ const answerOnItsWay = (state: ConversationsState): boolean =>
 
 /** Whether an Answer is on its way (see `answerOnItsWay`), as it changes. */
 export const useAnswerOnItsWay = (): boolean => useConversations(answerOnItsWay);
+
+/** Whether the open conversation has a Question or an Answer, one still on its way included. */
+export const useHasMessage = (): boolean =>
+  useConversations((state) => state.messages.length > 0 || state.asking !== null);
 
 /**
  * What the composer waits on before it asks again: the open conversation's
@@ -320,11 +361,12 @@ export function stopWriting(): void {
 export async function clearConversation(): Promise<void> {
   const { openId } = useConversations.getState();
   if (!openId) return;
-  const name = conversationLabel(conversationById(openId));
+  const conversation = conversationById(openId);
+  const name = (conversation && conversationName(conversation)) || "";
   await core.deleteConversation(openId);
   startNewChat();
   useUndo.getState().push({
-    message: translateNow("assistant.cleared", { title: name }),
+    said: (t) => t("assistant.cleared", { title: name || t("conversation.untitled") }),
     undo: async () => {
       await core.restore([{ kind: "conversation", id: openId }]);
       await openConversation(openId);

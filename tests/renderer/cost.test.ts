@@ -48,10 +48,10 @@ describe("Cost in words", () => {
     expect(translate("zh-CN", "cost.provider.thisMonth", { spent: "$0.01" })).toBe(
       "本月已花 $0.01",
     );
-    expect(translate("en", "cost.setAside.hint")).toBe(
-      "Kept aside so running work can't go over your monthly limit",
+    expect(translate("en", "cost.setAside.tip")).toBe(
+      "Kept aside so running work can’t go over your monthly limit",
     );
-    expect(translate("zh-CN", "cost.setAside.hint")).toBe(
+    expect(translate("zh-CN", "cost.setAside.tip")).toBe(
       "预留出来，避免进行中的任务超出你的月度上限",
     );
   });

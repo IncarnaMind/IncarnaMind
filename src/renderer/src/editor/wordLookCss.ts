@@ -1,4 +1,5 @@
 import type { WordLook, WordParagraphLook, WordRunLook } from "../../../core/api";
+import { lineHeightCss } from "../../../shared/paragraphFormat";
 import { attribute, border, pt, rule } from "./wordCss";
 import { DEFAULT_BODY, pageWidth, wordLookZoomCss } from "./wordLookZoom";
 import { WORD_LOOK_DOM_ATTRIBUTE, WORD_RUN_DOM_ATTRIBUTE } from "./wordSchema";
@@ -15,8 +16,6 @@ const LEADERS = [
 ] as const;
 const LEADER_LENGTH = 400;
 
-/** Word's single line spacing for common fonts. */
-const SINGLE_LINE = 1.15;
 /** Word draws super- and subscript at about two thirds of the size. */
 const RAISED_SIZE = 0.66;
 
@@ -91,13 +90,6 @@ function inlineDeclarations(look: WordRunLook): string[] {
   ].filter(Boolean);
 }
 
-function lineHeight(line: WordParagraphLook["line"]): string {
-  if (!line) return String(SINGLE_LINE);
-  if (line.rule === "auto") return String(Math.round(SINGLE_LINE * line.value * 1000) / 1000);
-  if (line.rule === "exact") return pt(line.value);
-  return `max(${SINGLE_LINE}em, ${pt(line.value)})`;
-}
-
 function paragraphDeclarations(look: WordParagraphLook): string[] {
   return [
     `text-align: ${look.align === "distribute" ? "justify" : (look.align ?? "left")}`,
@@ -107,7 +99,8 @@ function paragraphDeclarations(look: WordParagraphLook): string[] {
     `text-indent: ${look.firstLine ? pt(look.firstLine) : "0"}`,
     `margin-top: ${look.before ? pt(look.before) : "0"}`,
     `margin-bottom: ${look.after ? pt(look.after) : "0"}`,
-    `line-height: ${lineHeight(look.line)}`,
+    `line-height: ${lineHeightCss(look.line, pt)}`,
+    look.characterSize ? `--word-char: ${pt(look.characterSize)}` : "",
     // A heading's bold is the app's; the text's own marks carry the file's.
     "font-weight: 400",
     "font-style: normal",
@@ -132,8 +125,10 @@ export function wordLookCss(mindId: string, look: WordLook): string {
     look.width && pageWidth(look) > look.width
       ? `${scope} .mind-editor > :not(.tableWrapper) { max-width: ${pt(look.width)}; }`
       : "",
-    // A list draws its own indents.
-    `${scope} li > [${WORD_LOOK_DOM_ATTRIBUTE}] { margin-left: 0; margin-right: 0; text-indent: 0; }`,
+    // A list draws its own indents, over a paragraph's own format too.
+    `${scope} li > [${WORD_LOOK_DOM_ATTRIBUTE}] { margin-left: 0 !important; margin-right: 0 !important; text-indent: 0 !important; }`,
+    // The look's space before is all the space a paragraph takes, as in Word.
+    `${scope} [${WORD_LOOK_DOM_ATTRIBUTE}] { --block-gap: 0px; }`,
     // Until measured, a tab takes one default stop. overflow: clip, unlike hidden, leaves the baseline where it is.
     `${scope} [${WORD_TAB_DOM_ATTRIBUTE}] { display: inline-block; position: relative; width: ${tab}; tab-size: ${tab}; white-space: pre; text-indent: 0; text-align: left; overflow: clip; }`,
     // Out of the flow, so the tab character still starts the box.

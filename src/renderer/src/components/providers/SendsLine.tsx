@@ -19,11 +19,14 @@ export function SendsLine({
       testId={testId}
       className="text-[12px] leading-5 text-ink-meta"
       details={
-        <ul className="list-disc pl-4">
-          {chosenFlowLines().map((item) => (
-            <li key={item}>{t(item)}</li>
-          ))}
-        </ul>
+        <div className="flex flex-col gap-1.5">
+          <ul className="list-disc pl-4">
+            {chosenFlowLines().map((item) => (
+              <li key={item}>{t(item)}</li>
+            ))}
+          </ul>
+          <p>{t("providers.sends.onRequest")}</p>
+        </div>
       }
     >
       {t("providers.sendsLine", { provider })}

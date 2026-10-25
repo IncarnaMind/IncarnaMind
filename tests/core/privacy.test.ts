@@ -147,7 +147,7 @@ describe("Privacy settings", () => {
 });
 
 describe("Network traffic without User content", () => {
-  test("lists the search model download and Ollama's model downloads", async () => {
+  test("lists the search model download, the other sources it may come from, and Ollama's model downloads", async () => {
     const core = startCore(await createTempDataFolder(), {
       embeddingModelSource: HUGGING_FACE_SOURCE,
     });
@@ -156,6 +156,16 @@ describe("Network traffic without User content", () => {
       {
         id: "embedding-model",
         service: { id: "https://huggingface.co", name: "Hugging Face" },
+        enabled: true,
+      },
+      {
+        id: "model-source-modelscope",
+        service: { id: "https://www.modelscope.cn", name: "ModelScope" },
+        enabled: true,
+      },
+      {
+        id: "model-source-hf-mirror",
+        service: { id: "https://hf-mirror.com", name: "hf-mirror.com" },
         enabled: true,
       },
       {

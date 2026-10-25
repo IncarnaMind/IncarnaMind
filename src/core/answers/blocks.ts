@@ -18,6 +18,7 @@ import { createHash, randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../shared/blockJson";
 import { BLOCK_ID_ATTRIBUTE, NOTE_BLOCK_TYPES } from "../api";
+import { isRecord } from "../errors";
 import { contentMarkdownOf, elementMarkdown } from "./contextText";
 
 export type { MarkJSON, NodeJSON };
@@ -133,6 +134,28 @@ export function createElement(node: NodeJSON): Y.XmlElement {
   }
   element.insert(0, childrenOf(node.content ?? []).map(createChild));
   return element;
+}
+
+/** A Yjs element as ProseMirror writes its node in JSON: what `createElement` makes it from. */
+export function nodeOf(element: Y.XmlElement): NodeJSON {
+  const attrs = element.getAttributes();
+  const content = element.toArray().flatMap((child): NodeJSON[] => {
+    if (child instanceof Y.XmlElement) return [nodeOf(child)];
+    if (!(child instanceof Y.XmlText)) return [];
+    return (child.toDelta() as Run[]).flatMap((run) => {
+      if (typeof run.insert !== "string") return [];
+      const marks = Object.entries(run.attributes ?? {}).map(([type, value]) => ({
+        type,
+        ...(isRecord(value) && { attrs: value }),
+      }));
+      return [{ type: "text", text: run.insert, ...(marks.length > 0 && { marks }) }];
+    });
+  });
+  return {
+    type: element.nodeName,
+    ...(Object.keys(attrs).length > 0 && { attrs }),
+    ...(content.length > 0 && { content }),
+  };
 }
 
 function createChild(child: Child): Y.XmlElement | Y.XmlText {

@@ -32,7 +32,7 @@ test("switching the interface to Chinese and back swaps the untouched example, i
   const title = window.getByTestId("mind-editor").locator("h1");
   await expect(title).toHaveText("Draft: credit committee paper");
   const pane = window.getByTestId("mind-pane");
-  const checks = pane.getByTestId("margin-check");
+  const checks = pane.getByTestId("mind-editor").getByTestId("citation-chip");
   const mark = pane.getByTestId("claim-mark");
   await expect(checks.nth(1)).toHaveAttribute("data-check", "found", { timeout: 30_000 });
   await expect(mark).toHaveAttribute("data-check", "contradicted");

@@ -58,7 +58,9 @@ test("a Contradicted result keeps its mark and card after a change of language a
   await slideSelect(first.window, line, "Harbours", { line, words: "months." });
   await pointAndClick(
     first.window,
-    first.window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    first.window
+      .getByTestId("selection-menu")
+      .getByTestId("selection-action-check-against-documents"),
   );
   const mark = first.window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "contradicted");
@@ -112,7 +114,7 @@ test("an example's Documents a check relies on stay when the language changes, a
   await slideSelect(window, line, "Net debt", { line, words: "year." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   const mark = window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "supported");
@@ -147,7 +149,7 @@ test("with the examples kept and All Documents searched, a Contradicted result o
   await slideSelect(window, line, "Harbours", { line, words: "months." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   const mark = window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "contradicted");

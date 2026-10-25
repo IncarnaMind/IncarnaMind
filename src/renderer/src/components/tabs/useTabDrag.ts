@@ -1,11 +1,12 @@
-import {
-  type PointerEvent as ReactPointerEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type PointerEvent, useRef } from "react";
 import { MAX_TAB_GROUPS } from "../../../../core/api";
+import {
+  type Dragged,
+  type Dropped,
+  useDragSource,
+  useDragState,
+  useDropTarget,
+} from "../../dragDrop";
 import { groupOfTab } from "../../layoutSlice";
 import { useAppStore } from "../../store";
 
@@ -15,12 +16,10 @@ import { useAppStore } from "../../store";
  * onto a group's body: its outer 30% splits off a new group on that side (the
  * half it will take lights up), its middle moves it into that group. The
  * tab's menu has the same moves (Move to the left or right group, Open to the
- * side), and ⌥⌘\ splits from the keyboard. Pointer events, so it works the
- * same with a mouse, a pen or a test's sliding mouse.
+ * side), and ⌥⌘\ splits from the keyboard. It goes through the drag layer,
+ * the tab travelling as an object of its own that only the groups take.
  */
 
-/** How far the pointer moves, held down, before a press is a drag. */
-const DRAG_AFTER_PX = 5;
 /** The share of a group's width, from each side, that splits rather than moves. */
 const EDGE = 0.3;
 
@@ -34,12 +33,6 @@ export type DropTarget =
       /** An edge, with three groups already: it moves rather than splits. */
       full: boolean;
     };
-
-export interface DraggedTab {
-  tabId: string;
-  x: number;
-  y: number;
-}
 
 /** Where a tab dragged to (x, y) would go, or null where it can't be dropped. */
 function dropTargetAt(x: number, y: number, tabId: string, merged: boolean): DropTarget | null {
@@ -110,87 +103,45 @@ function drop(tabId: string, target: DropTarget): void {
   }
 }
 
+const tabIn = (dragged: Dragged | Dropped): string | null => {
+  if (dragged.kind !== "objects" || dragged.refs.length !== 1) return null;
+  const [ref] = dragged.refs;
+  return ref?.kind === "tab" ? ref.id : null;
+};
+
 export function useTabDrag(merged: boolean) {
-  const [dragged, setDragged] = useState<DraggedTab | null>(null);
-  const [target, setTarget] = useState<DropTarget | null>(null);
-  const pressed = useRef<{ tabId: string; x: number; y: number } | null>(null);
-  const live = useRef<{ started: boolean; target: DropTarget | null }>({
-    started: false,
-    target: null,
+  const draggedTabId = useDragState((state) => {
+    const [ref] = state.source?.refs ?? [];
+    return ref?.kind === "tab" ? ref.id : null;
   });
-  /** Set as a drag ends, so the click it makes doesn't show the tab under the pointer. */
-  const ended = useRef(false);
-  const mergedNow = useRef(merged);
-  useEffect(() => {
-    mergedNow.current = merged;
-  }, [merged]);
-
-  useEffect(() => {
-    const stop = () => {
-      pressed.current = null;
-      live.current = { started: false, target: null };
-      document.body.classList.remove("tab-dragging");
-      setDragged(null);
-      setTarget(null);
-    };
-    const onMove = (event: PointerEvent) => {
-      const press = pressed.current;
-      if (!press) return;
-      if (!live.current.started) {
-        if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < DRAG_AFTER_PX) return;
-        live.current.started = true;
-        document.body.classList.add("tab-dragging");
-      }
-      event.preventDefault();
-      const next = dropTargetAt(event.clientX, event.clientY, press.tabId, mergedNow.current);
-      live.current.target = next;
-      setDragged({ tabId: press.tabId, x: event.clientX, y: event.clientY });
-      setTarget(next);
-    };
-    const onUp = () => {
-      const press = pressed.current;
-      const { started, target: at } = live.current;
-      stop();
-      if (!press || !started) return;
-      ended.current = true;
-      setTimeout(() => {
-        ended.current = false;
-      });
-      if (at) drop(press.tabId, at);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !live.current.started) return;
-      event.preventDefault();
-      stop();
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", stop);
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("blur", stop);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", stop);
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("blur", stop);
-    };
-  }, []);
-
-  const onTabPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>, tabId: string) => {
-    if (event.button !== 0) return;
-    // Its buttons and its name being typed aren't handles.
-    if ((event.target as Element).closest("button, input")) return;
-    pressed.current = { tabId, x: event.clientX, y: event.clientY };
-  }, []);
-
-  return {
-    dragged,
-    target,
-    onTabPointerDown,
-    /** Whether a drag has just ended: the click it makes is not a click on a tab. */
-    justDragged: () => ended.current,
-  };
+  const target = useDropTarget<DropTarget>("tab-groups", {
+    accepts(dragged, at) {
+      const tabId = tabIn(dragged);
+      const place = tabId ? dropTargetAt(at.x, at.y, tabId, merged) : null;
+      return place ? { kind: "move", place } : null;
+    },
+    drop(dropped, effect) {
+      const tabId = tabIn(dropped);
+      if (tabId && effect.place) drop(tabId, effect.place);
+    },
+  });
+  return { draggedTabId, target: target.over?.place ?? null, dropProps: target.props };
 }
 
 export type TabDrag = ReturnType<typeof useTabDrag>;
+
+/** A tab as the source of its drag; its buttons and its name being typed aren't handles. */
+export function useTabSource(tabId: string, title: string) {
+  const pressedOn = useRef<Element | null>(null);
+  const source = useDragSource(() =>
+    pressedOn.current?.closest('button, input, [role="menu"]')
+      ? null
+      : { refs: [{ kind: "tab", id: tabId }], name: title },
+  );
+  return {
+    ...source,
+    onPointerDown(event: PointerEvent<HTMLElement>) {
+      pressedOn.current = event.target as Element;
+    },
+  };
+}

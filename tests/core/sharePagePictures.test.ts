@@ -173,7 +173,7 @@ describe("a web page to share: page pictures", { timeout: 60_000 }, () => {
     expect(slide && webpSize(slide.bytes)).toEqual({ width: 800, height: 600 });
     expect(document.getElementById("card-2")?.textContent).toContain("A picture of this slide.");
     expect(document.getElementById("card-1")?.textContent).toContain(
-      "A picture of this part of the page. The whole Document isn't in this file.",
+      "A picture of this part of the page. The whole Document isn’t in this file.",
     );
     expect(document.getElementById("card-3")?.textContent).toContain("Text read from a scan");
     const report = await new HtmlValidate({

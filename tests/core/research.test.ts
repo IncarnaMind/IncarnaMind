@@ -31,7 +31,12 @@ import {
 } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 import { startWeb, webSearchingModel } from "../helpers/web";
 
 const fixture = (name: string) =>
@@ -124,6 +129,7 @@ function researcher(
             text: "TITLE: How tea came to Europe\n1. Find the first traders\n2. **Check the dates**",
           };
         }
+        if (call.prompt.includes("Topic: Thinks too long")) return { text: "", cutOff: true };
         if (call.prompt.includes("Topic:") && !call.prompt.includes("Plain words")) {
           return {
             text: "TITLE: How did tea reach Europe?\n1. Find who first brought tea\n2) Compare the sources\n\nThat's the plan.",
@@ -276,6 +282,37 @@ describe("Research", { timeout: 30_000 }, () => {
     });
   });
 
+  test("the plan asks the model not to think where it can: Kimi K2.6's thinking took its whole reply (#1369)", async () => {
+    // As Kimi K2.6 does, the model thinks through its whole reply unless thinking is off.
+    let thinkingOff = false;
+    const thinker = scriptedModel(() => ({ text: "" }), {
+      generate: () =>
+        thinkingOff
+          ? { text: "TITLE: How did tea reach Europe?\n1. Find who first brought tea" }
+          : { text: "", cutOff: true },
+    });
+    const { createChatModel: inner, specs } = scriptedModels(thinker);
+    const createChatModel: typeof inner = (spec) => {
+      thinkingOff = spec.thinking === "off";
+      return inner(spec);
+    };
+    const core = startCore(await createTempDataFolder(), { createChatModel });
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (provider.service) await core.allowDataFlow("chat", provider.service.id);
+    const mind = await core.createMind({ title: "Tea" });
+    const planned = await core.planResearch({
+      mindId: mind.id,
+      topic: "Thinks too long",
+      sources: { web: false, library: true },
+    });
+    expect(planned).toMatchObject({ planned: true });
+    expect(specs.at(-1)?.thinking).toBe("off");
+  });
+
   test("a reply with no steps is a plan that failed, and with no model nothing is sent", async () => {
     const answering = researcher([]);
     const { core, mind } = await setUp(answering);
@@ -284,7 +321,21 @@ describe("Research", { timeout: 30_000 }, () => {
       topic: "Plain words",
       sources: { web: false, library: true },
     });
-    expect(failed).toMatchObject({ planned: false, reason: "failed" });
+    expect(failed).toMatchObject({
+      planned: false,
+      reason: "failed",
+      error: { kind: "no-answer", wording: { key: "error.research.plan.noSteps" } },
+    });
+    const thought = await core.planResearch({
+      mindId: mind.id,
+      topic: "Thinks too long",
+      sources: { web: false, library: true },
+    });
+    expect(thought).toMatchObject({
+      planned: false,
+      reason: "failed",
+      error: { kind: "no-answer", wording: { key: "error.research.plan.thoughtOnly" } },
+    });
 
     const bare = startCore(await createTempDataFolder());
     const own = await bare.createMind({ title: "Empty" });
@@ -614,7 +665,7 @@ describe("Research", { timeout: 30_000 }, () => {
     expect(
       (await core.listTaskSteps(task.id)).some((step) => step.text.includes("discounters")),
     ).toBe(false);
-    await expect(core.tellTask(task.id, "Too late")).rejects.toThrow("can't be told");
+    await expect(core.tellTask(task.id, "Too late")).rejects.toThrow("can’t be told");
   });
 
   test("at the monthly cap it pauses and lists the steps it has still to do", async () => {

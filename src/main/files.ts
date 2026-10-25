@@ -14,7 +14,6 @@ import { basename } from "node:path";
 import {
   app,
   BrowserWindow,
-  dialog,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
   ipcMain,
@@ -24,6 +23,7 @@ import {
 import type { Core } from "../core";
 import { FILES_CHANNELS } from "../shared/bridge";
 import { type MessageKey, translate } from "../shared/i18n";
+import { sandboxOff } from "./analysisPaths";
 import { handle } from "./ipc";
 import { type FileLogger, logsFolder, logWindowError } from "./log";
 import {
@@ -34,6 +34,8 @@ import {
   setMenuSidebarHidden,
 } from "./menu";
 import { rememberPick, startFolder, startNear } from "./pickerFolders";
+import { showOpenDialog } from "./systemDialogs";
+import { saveMindCopy } from "./unsavedChanges";
 
 /** What "Add Documents" offers; the core decides what it takes (and says what it skipped). */
 const DOCUMENT_EXTENSIONS = ["pdf", "docx", "pptx", "xlsx", "csv", "txt", "md", "markdown"];
@@ -87,11 +89,17 @@ export function serveFileActions(
       properties: ["openDirectory", "createDirectory", "promptToCreate"],
       defaultPath: location ?? startFolder(dataDir, "folders", app.getPath("home")),
     };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     return canceled ? null : (filePaths[0] ?? null);
+  });
+
+  handle(FILES_CHANNELS.saveMindCopy, async (event, mindId: unknown): Promise<boolean> => {
+    refuseUnknown(event);
+    if (typeof mindId !== "string") throw new Error("A Mind id must be a string.");
+    return saveMindCopy(core, BrowserWindow.fromWebContents(event.sender), mindId);
   });
 
   handle(FILES_CHANNELS.openDataFolder, async (event) => {
@@ -119,10 +127,10 @@ export function serveFileActions(
             ],
           }
         : { title: translate(language, "skills.import.pickFolder"), properties: ["openDirectory"] };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     return canceled ? null : (filePaths[0] ?? null);
   });
 
@@ -163,10 +171,10 @@ export function serveFileActions(
             properties: ["openDirectory"],
             defaultPath: start,
           };
-      const window = BrowserWindow.fromWebContents(event.sender);
-      const { canceled, filePaths } = window
-        ? await dialog.showOpenDialog(window, openOptions)
-        : await dialog.showOpenDialog(openOptions);
+      const { canceled, filePaths } = await showOpenDialog(
+        BrowserWindow.fromWebContents(event.sender),
+        openOptions,
+      );
       const picked = canceled ? null : (filePaths[0] ?? null);
       if (picked) rememberPick(dataDir, "folders", picked);
       return picked;
@@ -186,10 +194,10 @@ export function serveFileActions(
       ],
       defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
     };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     if (canceled) return [];
     if (filePaths[0]) rememberPick(dataDir, "documents", filePaths[0]);
     return filePaths;
@@ -211,10 +219,10 @@ export function serveFileActions(
       ],
       defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
     };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     const picked = canceled ? null : (filePaths[0] ?? null);
     if (picked) rememberPick(dataDir, "documents", picked);
     return picked;
@@ -235,10 +243,10 @@ export function serveFileActions(
       filters: [{ name: translate(language, filter), extensions: [extension] }],
       defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
     };
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const { canceled, filePaths } = window
-      ? await dialog.showOpenDialog(window, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
     const picked = canceled ? null : (filePaths[0] ?? null);
     if (picked) rememberPick(dataDir, "documents", picked);
     return picked;
@@ -264,12 +272,25 @@ export function serveFileActions(
     shell.showItemInFolder(linked.path);
   });
 
+  handle(FILES_CHANNELS.runsWithoutSandbox, (event) => {
+    refuseUnknown(event);
+    // Playwright starts a test build on Linux with --no-sandbox: only a test that is about the line asks for it.
+    if (import.meta.env.MODE === "test" && process.env.INCARNAMIND_TEST_SANDBOX_NOTICE !== "1") {
+      return false;
+    }
+    return sandboxOff((name) => app.commandLine.hasSwitch(name), process.env);
+  });
+
   ipcMain.on(FILES_CHANNELS.sidebarHidden, (event, hidden: unknown) => {
     if (trusted(event) && typeof hidden === "boolean") setMenuSidebarHidden(hidden);
   });
 
   ipcMain.on(FILES_CHANNELS.editMenu, (event, state: unknown) => {
     if (trusted(event) && isEditMenuState(state)) setEditMenu(state);
+  });
+
+  ipcMain.on(FILES_CHANNELS.paste, (event) => {
+    if (trusted(event)) event.sender.paste();
   });
 
   ipcMain.on(FILES_CHANNELS.examplesRemoved, (event, removed: unknown) => {

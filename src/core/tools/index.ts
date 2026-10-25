@@ -21,8 +21,16 @@
  */
 import type { Effect, ReadThirdPartySource } from "../api";
 
-/** v1's providers, Find sources, web search and the Minds; later ones add their kind here. */
-export type ToolProviderKind = "documents" | "skills" | "connector" | "sources" | "web" | "minds";
+/** v1's providers, Find sources, web search, the Minds, the commands and the assistant's questions; later ones add their kind here. */
+export type ToolProviderKind =
+  | "documents"
+  | "skills"
+  | "connector"
+  | "sources"
+  | "web"
+  | "minds"
+  | "commands"
+  | "asks";
 
 /** Which provider a Tool comes from: for its Tool-call card, its approvals and the log. */
 export interface ToolProviderInfo {
@@ -47,6 +55,8 @@ export interface ToolCallContext {
    * write or a send a Tool-level "always" would let through (#78, ../approvals).
    */
   readThirdParty?(source: ReadThirdPartySource): void;
+  /** Whether the model gets a step after this call's that can call Tools again: a call refused with none left can't be tried again. */
+  canCallAgain?(): boolean;
 }
 
 /** A Tool (CONTEXT.md) as a Run offers it to the model. */
@@ -127,6 +137,12 @@ export const MIND_TOOLS = {
   create: "create_mind",
 } as const;
 
+/** The names of the commands' Tools, offered to an Answer in the assistant (#1110). */
+export const COMMAND_TOOLS = { list: "list_commands", run: "run_command" } as const;
+
+/** The name of the Tool that asks the User a question with options, in the assistant (#1374). */
+export const ASK_TOOLS = { ask: "ask_user" } as const;
+
 /**
  * IncarnaMind's own Tools' names. They are reserved: a Tool from outside
  * IncarnaMind (a Connector's) never takes one (see `offeredTools`).
@@ -137,6 +153,8 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   ...Object.values(SOURCE_TOOLS),
   ...Object.values(WEB_TOOLS),
   ...Object.values(MIND_TOOLS),
+  ...Object.values(COMMAND_TOOLS),
+  ...Object.values(ASK_TOOLS),
 ]);
 
 /** A Tool from outside IncarnaMind: a Connector's. Every other provider is IncarnaMind's own. */

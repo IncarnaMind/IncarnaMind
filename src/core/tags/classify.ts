@@ -204,7 +204,8 @@ async function chooseTags(input: {
       name: "document_tags",
       description: "The Tags that apply to the Document.",
     }),
-    maxRetries: 1,
+    // A rate limit pauses all Tagging (see ./rateLimit); a retry here would only meet it again.
+    maxRetries: 0,
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(CLASSIFY_TIMEOUT_MS)]),
   });
   const chosen: unknown = result.output?.tags;

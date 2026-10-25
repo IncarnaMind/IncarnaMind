@@ -21,6 +21,12 @@
  * Where this copy can transcribe, the audio also goes to the Meeting's
  * Transcript as it comes (./transcript, #136). What goes wrong with the
  * capture is kept in its health record (./health, #161).
+ *
+ * The User can pause their microphone while the Meeting records, for when they
+ * mute themselves in the call to talk to someone in the room: it is stopped at
+ * its source, and nothing from it is kept, sent or transcribed until it is
+ * resumed, while the computer's sound goes on. That is the Meeting's, not the
+ * device's: every Meeting starts with its microphone on.
  */
 import { randomUUID } from "node:crypto";
 import { formatDay } from "../../shared/dates";
@@ -37,6 +43,7 @@ import {
   type AudioSource,
   MEETING_AUDIO_KEPT_MS,
   type Meeting,
+  type MeetingFill,
   type MeetingGap,
   type MeetingHelp,
   type MeetingHelpTemplate,
@@ -46,6 +53,7 @@ import {
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { Language } from "../language";
+import { parseFolderChoice } from "../minds";
 import type { Database } from "../storage";
 import {
   listParts,
@@ -99,12 +107,27 @@ interface MeetingRow {
   stopped_at: string | null;
   audio_expires_at: string | null;
   audio_deleted_at: string | null;
+  fill: string | null;
   created_at: string;
   updated_at: string;
 }
 
 const COLUMNS =
-  "id, mind_id, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_deleted_at, created_at, updated_at";
+  "id, mind_id, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_deleted_at, fill, created_at, updated_at";
+
+/** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
+export interface StoredFill extends MeetingFill {
+  blocks: string[];
+}
+
+function storedFillOf(row: Pick<MeetingRow, "fill">): StoredFill | null {
+  if (row.fill === null) return null;
+  try {
+    return JSON.parse(row.fill) as StoredFill;
+  } catch {
+    return null;
+  }
+}
 
 /** One source's samples since its run began: what is saved, and what waits to fill a part. */
 interface Run {
@@ -142,12 +165,11 @@ export interface MeetingsOptions {
   dataDir: string;
   now: () => string;
   capture: AudioCapture | undefined;
-  enabled(): boolean;
   noticeAccepted(): boolean;
   /** The "What is recorded" choice in Settings. */
   systemAudioByDefault(): boolean;
   language(): Language;
-  createMind(title: string): Mind;
+  createMind(title: string, folderId: string | null): Mind;
   mindExists(mindId: string): boolean;
   changed(meetings: Meeting[]): void;
   /** Whether audio is being captured, each time that changes. */
@@ -179,6 +201,8 @@ export function createMeetings(options: MeetingsOptions) {
   /** For the call's help, kept in memory: it matters only while the Meeting is live. */
   const help = new Map<string, MeetingHelp>();
   const templates = new Map<string, MeetingHelpTemplate>();
+  const microphonePausedAt = new Map<string, number>();
+  const microphoneResumedAt = new Map<string, number>();
 
   const rowOf = (meetingId: unknown): MeetingRow => {
     if (typeof meetingId !== "string" || meetingId === "") {
@@ -207,6 +231,13 @@ export function createMeetings(options: MeetingsOptions) {
 
   /** Where the stretch ends in wall-clock time, in ms. */
   const endOf = (period: Period) => Date.parse(period.start) + (period.durationMs ?? 0);
+
+  function fillOf(row: MeetingRow): MeetingFill | null {
+    const stored = storedFillOf(row);
+    if (!stored) return null;
+    const { blocks: _blocks, ...fill } = stored;
+    return fill;
+  }
 
   function toMeeting(row: MeetingRow): Meeting {
     const periods = periodsOf(row);
@@ -242,10 +273,13 @@ export function createMeetings(options: MeetingsOptions) {
         deletedAt: row.audio_deleted_at,
       },
       saveError: current?.saveError ?? null,
-      transcript: transcripts && row.status !== "ready" ? transcripts.of(row.id) : null,
+      transcript:
+        transcripts && row.status !== "ready" ? transcripts.of(row.id, hasAudio(row.id)) : null,
       health: health.of(row.id),
+      microphonePausedAtMs: microphonePausedAt.get(row.id) ?? null,
       help: help.get(row.id) ?? null,
       helpTemplate: templates.get(row.id) ?? null,
+      fill: fillOf(row),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -272,9 +306,9 @@ export function createMeetings(options: MeetingsOptions) {
     );
   }
 
-  /** How far into the Meeting's time it is now, while audio is being captured. */
-  const meetingTime = (current: Live) =>
-    current.period.offsetMs + (clock() - Date.parse(current.period.start));
+  const timeOf = (current: Live, wallMs: number) =>
+    current.period.offsetMs + (wallMs - Date.parse(current.period.start));
+  const meetingTime = (current: Live) => timeOf(current, clock());
 
   // ---- Audio to disk ----
 
@@ -338,9 +372,28 @@ export function createMeetings(options: MeetingsOptions) {
     if (run.waitingSamples > 0) savePart(current, source, run, take(run, run.waitingSamples));
   }
 
-  function hear(current: Live, source: AudioSource, samples: Int16Array): void {
-    if (live !== current || samples.length === 0) return;
+  function hear(
+    current: Live,
+    source: AudioSource,
+    heard: Int16Array,
+    capturedAt: number | undefined,
+  ): void {
+    if (live !== current || heard.length === 0) return;
+    // Frames already on their way when the microphone was paused are dropped here.
+    if (source === "microphone" && microphonePausedAt.has(current.meetingId)) return;
     const at = meetingTime(current);
+    // What the capture held at a pause can arrive after the resume (it flushes as it closes the
+    // microphone): only what was captured since the last resume counts, whenever it arrives. A
+    // stamp later than the arrival is a clock that is off, so the arrival counts instead.
+    const samples =
+      source === "microphone"
+        ? capturedSinceResumed(
+            current,
+            heard,
+            capturedAt === undefined ? at : Math.min(at, timeOf(current, capturedAt)),
+          )
+        : heard;
+    if (samples.length === 0) return;
     let run = current.runs.get(source);
     let stalledFrom: number | null = null;
     // Samples that come much later than the run could have produced them (a device changed,
@@ -388,6 +441,13 @@ export function createMeetings(options: MeetingsOptions) {
       source,
       source === "system" && current.silent >= SILENT_SAMPLES ? "silent" : "recording",
     );
+  }
+
+  function capturedSinceResumed(current: Live, samples: Int16Array, endMs: number): Int16Array {
+    const from = microphoneResumedAt.get(current.meetingId);
+    if (from === undefined) return samples;
+    const before = Math.ceil(((from - endMs) * MEETING_SAMPLE_RATE) / 1000) + samples.length;
+    return before <= 0 ? samples : samples.subarray(Math.min(before, samples.length));
   }
 
   function tellLevel(current: Live, source: AudioSource, samples: Int16Array): void {
@@ -444,13 +504,16 @@ export function createMeetings(options: MeetingsOptions) {
     live = current;
     options.onCapturingChange(true);
     transcripts?.begin(row.id, period.offsetMs, () => current.systemSignal);
+    const silenced = microphonePausedAt.has(row.id);
+    if (silenced) transcripts?.microphonePaused(row.id, period.offsetMs);
     current.session = capture.start(
       { systemAudio: systemAudio && capture.systemAudio },
       {
-        audio: (source, samples) => hear(current, source, samples),
+        audio: (source, samples, capturedAt) => hear(current, source, samples, capturedAt),
         state: (source, state) => heardState(current, source, state),
       },
     );
+    if (silenced) current.session.setMicrophone(false);
   }
 
   /**
@@ -501,6 +564,13 @@ export function createMeetings(options: MeetingsOptions) {
     const last = periods.at(-1);
     return last ? last.offsetMs + (last.durationMs ?? 0) : 0;
   };
+
+  function endMicrophonePause(meetingId: string, atMs: number): void {
+    const from = microphonePausedAt.get(meetingId);
+    if (from === undefined) return;
+    microphonePausedAt.delete(meetingId);
+    transcripts?.markMicrophonePause(meetingId, from, atMs);
+  }
 
   function assertNoneCapturing(meetingId: string): void {
     if (live && live.meetingId !== meetingId) {
@@ -630,9 +700,8 @@ export function createMeetings(options: MeetingsOptions) {
     list,
 
     create(input: unknown): Meeting {
-      if (!options.enabled()) throw new InvalidInputError({ key: "error.meeting.off" });
       if (!capture) throw new InvalidInputError("This copy of IncarnaMind can't record audio.");
-      const { mindId } = parseInput(input);
+      const { mindId, folderId } = parseInput(input);
       if (mindId !== undefined && (typeof mindId !== "string" || !options.mindExists(mindId))) {
         throw new NotFoundError({ key: "error.mind.notFound" });
       }
@@ -645,7 +714,10 @@ export function createMeetings(options: MeetingsOptions) {
       const id = randomUUID();
       const at = now();
       db.transaction(() => {
-        const mind = typeof mindId === "string" ? mindId : options.createMind(meetingTitle()).id;
+        const mind =
+          typeof mindId === "string"
+            ? mindId
+            : options.createMind(meetingTitle(), parseFolderChoice(folderId)).id;
         db.run(
           `INSERT INTO meetings (id, mind_id, status, system_audio, created_at, updated_at)
            VALUES (?, ?, 'ready', ?, ?, ?)`,
@@ -674,7 +746,6 @@ export function createMeetings(options: MeetingsOptions) {
       if (systemAudio !== undefined && typeof systemAudio !== "boolean") {
         throw new InvalidInputError("systemAudio must be true or false.");
       }
-      if (!options.enabled()) throw new InvalidInputError({ key: "error.meeting.off" });
       if (!capture) throw new InvalidInputError("This copy of IncarnaMind can't record audio.");
       if (!options.noticeAccepted()) {
         throw new InvalidInputError({ key: "error.meeting.noticeUnread" });
@@ -740,6 +811,7 @@ export function createMeetings(options: MeetingsOptions) {
         throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
       }
       const periods = closePeriod(row, "stop");
+      endMicrophonePause(row.id, recordedOf(periods));
       save(row.id, {
         status: "stopped",
         paused_by: null,
@@ -753,6 +825,32 @@ export function createMeetings(options: MeetingsOptions) {
       log.info("meeting.stopped", { meetingId: row.id });
       changed();
       return toMeeting(rowOf(row.id));
+    },
+
+    /** The Meeting's fill as stored (#142), with the Blocks it added. */
+    storedFill(meetingId: string): StoredFill | null {
+      return storedFillOf(rowOf(meetingId));
+    },
+
+    /** Records the Meeting's fill (#142) and reports the change. */
+    setFill(meetingId: string, fill: StoredFill): Meeting {
+      save(meetingId, { fill: JSON.stringify(fill) });
+      changed();
+      return toMeeting(rowOf(meetingId));
+    },
+
+    /** The stopped Meetings whose fill was under way or waiting (#142): what a quit left. */
+    unfinishedFills(): { meetingId: string; mindId: string; fill: StoredFill }[] {
+      return db
+        .all<MeetingRow>(
+          `SELECT ${COLUMNS} FROM meetings
+           WHERE deleted_at IS NULL AND status = 'stopped'
+             AND json_extract(fill, '$.state') IN ('waiting', 'filling')`,
+        )
+        .flatMap((row) => {
+          const fill = storedFillOf(row);
+          return fill ? [{ meetingId: row.id, mindId: row.mind_id, fill }] : [];
+        });
     },
 
     retryTranscript(meetingId: unknown): Meeting {
@@ -788,6 +886,8 @@ export function createMeetings(options: MeetingsOptions) {
       const at = now();
       for (const row of rows) {
         if (live?.meetingId === row.id) end(live);
+        microphonePausedAt.delete(row.id);
+        microphoneResumedAt.delete(row.id);
         transcripts?.forget(row.id);
         health.forget(row.id);
         deleteAudio(row.id, "discarded");
@@ -831,6 +931,36 @@ export function createMeetings(options: MeetingsOptions) {
       changed();
     },
 
+    setMicrophonePaused(input: unknown): Meeting {
+      const { meetingId, paused } = parseInput(input);
+      const row = rowOf(meetingId);
+      if (!isLiveRow(row)) throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
+      if (typeof paused !== "boolean")
+        throw new InvalidInputError({ key: "error.meeting.microphone" });
+      if (paused === microphonePausedAt.has(row.id)) return toMeeting(row);
+      const capturing = live?.meetingId === row.id ? live : null;
+      const atMs = capturing ? meetingTime(capturing) : recordedOf(periodsOf(row));
+      if (paused) {
+        microphonePausedAt.set(row.id, atMs);
+        if (capturing) {
+          endRun(capturing, "microphone");
+          capturing.session?.setMicrophone(false);
+          transcripts?.microphonePaused(row.id, atMs);
+        }
+        log.info("meeting.microphonePaused", { meetingId: row.id });
+      } else {
+        microphoneResumedAt.set(row.id, atMs);
+        endMicrophonePause(row.id, atMs);
+        if (capturing) {
+          transcripts?.microphoneResumed(row.id, atMs);
+          capturing.session?.setMicrophone(true);
+        }
+        log.info("meeting.microphoneResumed", { meetingId: row.id });
+      }
+      changed();
+      return toMeeting(row);
+    },
+
     setTemplate(meetingId: unknown, template: MeetingHelpTemplate | null): Meeting {
       const row = rowOf(meetingId);
       if (!isLiveRow(row)) throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
@@ -858,7 +988,14 @@ export function createMeetings(options: MeetingsOptions) {
      */
     close(): void {
       clearInterval(sweeping);
-      if (live) end(live);
+      if (live) {
+        endMicrophonePause(live.meetingId, meetingTime(live));
+        end(live);
+      }
+      // A call paused with its microphone is cut off as it is: the stretch is marked up to there.
+      for (const meetingId of [...microphonePausedAt.keys()]) {
+        endMicrophonePause(meetingId, recordedOf(periodsOf(rowOf(meetingId))));
+      }
     },
   };
 }

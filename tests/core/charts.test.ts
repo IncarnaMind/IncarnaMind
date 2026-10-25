@@ -174,11 +174,11 @@ describe("a chart from a cited table", { timeout: 30_000 }, () => {
         "",
         "| Quarter | 2024 | 2025 |",
         "| --- | --- | --- |",
-        "| Q1 | 289.4 [Acme, p. 1] | 341.5 [Acme, p. 2] |",
+        "| Q1 | 289.4 [Acme, p. 1 · C1] | 341.5 [Acme, p. 2 · C2] |",
       ].join("\n"),
     );
     // The value with no Citation reads as written, with no source.
-    expect(context).toContain("| Q4 | 330.6 [Acme, p. 1] | 401.2 |");
+    expect(context).toContain("| Q4 | 330.6 [Acme, p. 1 · C1] | 401.2 |");
   });
 
   test("Question context names its values' Document as it is named now", async () => {
@@ -194,7 +194,7 @@ describe("a chart from a cited table", { timeout: 30_000 }, () => {
     const context = await contextOfNextQuestion(core, client, mind.id, model);
 
     expect(context).toContain(
-      "| Q1 | 289.4 [Acme annual report, p. 1] | 341.5 [Acme annual report, p. 2] |",
+      "| Q1 | 289.4 [Acme annual report, p. 1 · C1] | 341.5 [Acme annual report, p. 2 · C2] |",
     );
     expect(context).not.toContain("[Acme, p.");
   });
@@ -346,7 +346,7 @@ describe("a chart from a cited table", { timeout: 30_000 }, () => {
     expect(body).toContain(
       '<p class="caption keep-next">Chart: Revenue by quarter</p>' +
         '<p class="caption chart-sources">Source: <sup class="note-ref" data-note="1">1</sup>' +
-        '<sup class="note-ref" data-note="2">2</sup> 1 value has no Citation.</p>',
+        '<sup class="note-ref" data-note="2">,2</sup> 1 value has no Citation.</p>',
     );
     expect(printed[0]?.notes).toEqual(["Acme, p. 1", "Acme, p. 2"]);
 

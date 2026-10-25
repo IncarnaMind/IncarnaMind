@@ -17,7 +17,7 @@ function changes(before: string, after: string, join = 0): string[] {
 }
 
 describe("Comparing a text with its new version", () => {
-  test("cuts words, spaces and signs apart, and Chinese and Japanese into characters", () => {
+  test("cuts words, spaces and signs apart, Chinese and Japanese into their words, and keeps a number, date or range whole", () => {
     expect(splitWords("Spring tides, don’t wait.")).toEqual([
       "Spring",
       " ",
@@ -29,7 +29,54 @@ describe("Comparing a text with its new version", () => {
       "wait",
       ".",
     ]);
-    expect(splitWords("潮水涨落 twice")).toEqual(["潮", "水", "涨", "落", " ", "twice"]);
+    expect(splitWords("潮水涨落 twice")).toEqual(["潮水", "涨", "落", " ", "twice"]);
+    expect(splitWords("张瑜的主要优势是数据分析经验")).toEqual([
+      "张",
+      "瑜",
+      "的",
+      "主要",
+      "优势",
+      "是",
+      "数据",
+      "分析",
+      "经验",
+    ]);
+    expect(splitWords("2017.05—2018.09 硕士")).toEqual(["2017.05—2018.09", " ", "硕士"]);
+    expect(splitWords("Profit £1.2m, margin 41.8%, up 3.1× by 12:04")).toEqual([
+      "Profit",
+      " ",
+      "£1.2m",
+      ",",
+      " ",
+      "margin",
+      " ",
+      "41.8%",
+      ",",
+      " ",
+      "up",
+      " ",
+      "3.1×",
+      " ",
+      "by",
+      " ",
+      "12:04",
+    ]);
+    // Not inside a word, and not a dash with nothing after it.
+    expect(splitWords("Q3 3rd 2017.04-至今")).toEqual([
+      "Q3",
+      " ",
+      "3rd",
+      " ",
+      "2017.04",
+      "-",
+      "至今",
+    ]);
+  });
+
+  test("a date range changed is one change, never cut inside", () => {
+    expect(changes("2017.05—2017.04 某大学", "2017.05—2018.09 某大学")).toEqual([
+      "2017.05—2017.04 → 2017.05—2018.09",
+    ]);
   });
 
   test("finds the shortest change, a removed word taking the space after it", () => {

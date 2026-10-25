@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { EditMenuState } from "../../../shared/bridge";
 import {
   type CommandId,
   type Keys,
@@ -12,7 +13,15 @@ import { useUndo } from "../undo";
 import { checkKeys } from "./keys";
 
 /** Where the User is acting, as `data-surface` marks it on the page. */
-export const SURFACES = ["sidebar", "library", "deleted", "mind", "viewer", "palette"] as const;
+export const SURFACES = [
+  "sidebar",
+  "library",
+  "deleted",
+  "home",
+  "mind",
+  "viewer",
+  "palette",
+] as const;
 export type Surface = (typeof SURFACES)[number];
 
 /** The menus' order of commands (docs/agents/interaction.md, rule 5). */
@@ -22,8 +31,8 @@ export type CommandGroup = (typeof COMMAND_GROUPS)[number];
 export interface Shortcut {
   keys: ShortcutKeys;
   /**
-   * A list's own keys (⌘A, ⌘⌫, Enter, F2, Space): they act only while the
-   * focus is in a list, and never while the User types. Other shortcuts act
+   * A list's own keys (⌘⌫, Enter, F2, Space): they act only while the focus
+   * is in a list, and never while the User types. Other shortcuts act
    * anywhere in the window.
    */
   list?: true;
@@ -39,8 +48,16 @@ export interface Shortcut {
    * focus isn't in text: there they keep their meaning, the text's own undo.
    */
   outsideText?: true;
+  /**
+   * Keys that do nothing while the focus is in text, so a picker never opens over what the User
+   * is typing; the key is still taken, so the menu doesn't run it on macOS. Unlike `outsideText`,
+   * the menu item and ⌘K run the command from anywhere.
+   */
+  notInText?: true;
   /** The same command's second keys on Windows and Linux: Ctrl+Y redoes there, as Ctrl+Shift+Z does. */
   alsoOther?: Keys;
+  /** More keys that run it too but that nothing shows: ⌘N still makes a Mind, though ⌘T is the one shown. */
+  also?: Keys;
   /** Keys only macOS has (Finder's ⌃⌘N): elsewhere the command has none, and stays in menus and ⌘K. */
   macOnly?: true;
 }
@@ -49,6 +66,12 @@ export interface CommandContext {
   selection: readonly ObjectRef[];
   focus: ObjectRef | null;
   surface: Surface;
+  /**
+   * Where ⌘Z would act when ⌘K opened: the note's own history, a field's, or
+   * the app's changes (null). ⌘K holds the focus in its field, so Undo reads
+   * where the User was rather than where the palette is.
+   */
+  place?: EditMenuState["text"];
   /**
    * What only the place that shows the object can do, by command: renaming
    * in the row's own field, or opening a Citation's card. A command that needs
@@ -63,6 +86,8 @@ export interface Command {
   /** Shorter than `label`, in the menu of the object it acts on, which says what it acts on. */
   menuLabel?: Command["label"];
   keywords?: readonly MessageKey[];
+  /** One line under its name in ⌘K, for a command whose name alone doesn't say what it is for. */
+  purpose?: MessageKey;
   /** What the menu says of it in a tooltip, where its label alone doesn't. */
   hint?: MessageKey;
   icon?: ComponentType<{ className?: string }>;
@@ -76,6 +101,8 @@ export interface Command {
   globalKeys?(): string | null;
   /** False keeps it out of ⌘K; it then needs a shortcut. */
   palette?: false;
+  /** Listed in ⌘K before anything is typed, where it applies, the lowest first and six at most. */
+  top?: number;
   group: CommandGroup;
   /** The kinds it acts on, as the selection or the focus. Without them, it acts on the window. */
   appliesTo?: readonly ObjectKind[];
@@ -136,6 +163,7 @@ export const commands = {
     if (registered.has(command.id)) throw new Error(`Two commands are called ${command.id}.`);
     if (command.shortcut) checkKeys(command.shortcut.keys);
     if (command.shortcut?.alsoOther) checkKeys(command.shortcut.alsoOther);
+    if (command.shortcut?.also) checkKeys(command.shortcut.also);
     registered.set(command.id, command);
     return () => {
       if (registered.get(command.id) === command) registered.delete(command.id);

@@ -62,6 +62,9 @@ describe("What a reply claims it changed", () => {
     ["我把总结加长了。", ["changed"]],
     ["我把四份文档的摘要都写长了一些", ["changed"]],
     ["我完善了“周报”的结论。", ["changed"]],
+    // Kimi K2.6's, in the 2026-10-21 runs.
+    ["已经把教程的主要观点整理后加进了你的笔记。", ["added"]],
+    ["我已经把风险部分放进了“周报”。", ["added"]],
     ["总结现在更长了。", ["changed"]],
   ])("%s", (reply, expected) => {
     expect(kinds(reply)).toEqual(expected);
@@ -162,6 +165,16 @@ describe("Claims against what the calls did", () => {
     expect(unbackedClaims("I added a risks section to “Tide notes”.", elsewhere, MINDS)).toEqual(
       [],
     );
+  });
+
+  // protects=a claim about the User's own notes, named by no name ("your notes", "这篇笔记"), holds only by a change in the Mind they are in, as after a piece was sent to a new Mind (#1109); fails_when=a new Mind's text backs "added it to your notes"; no_claim=none beyond protects.
+  test("a claim about the User's notes needs a change in the Mind they are in", () => {
+    const madeElsewhere = [mindCall("create_mind", { mindId: "tides", created: true })];
+    const inTheirs = [mindCall("add_to_mind", { mindId: "q3" })];
+    for (const reply of ["I added it to your notes.", "我已把摘要写进你的笔记里。"]) {
+      expect(unbackedClaims(reply, madeElsewhere, MINDS, "q3"), reply).not.toEqual([]);
+      expect(unbackedClaims(reply, inTheirs, MINDS, "q3"), reply).toEqual([]);
+    }
   });
 
   // protects=a made Mind needs a call that made one; "replaced" needs text changed, not only added; a claim about an earlier Answer gets no pass; fails_when=any of these passes; no_claim=none beyond protects.

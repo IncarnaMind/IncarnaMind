@@ -4,7 +4,7 @@
  * words to add, the Passage they rest on and a quote from it.
  */
 import { jsonSchema } from "ai";
-import { englishLocation } from "../../shared/locations";
+import { englishPlace } from "../../shared/locations";
 import { normaliseText } from "../../shared/text";
 import type { FoundPassage } from "../answers/citing";
 
@@ -90,9 +90,8 @@ const passageHandle = (index: number) => `P${index + 1}`;
 /** The request: the paragraph, then each Passage with its id, Document and Location. */
 export function suggestionPrompt(paragraph: string, passages: readonly FoundPassage[]): string {
   const shown = passages.map((passage, index) => {
-    const where = passage.location
-      ? ` location="${attribute(englishLocation(passage.location))}"`
-      : "";
+    const place = englishPlace(passage.location);
+    const where = place ? ` location="${attribute(place)}"` : "";
     return `<passage id="${passageHandle(index)}" document="${attribute(passage.documentName)}"${where}>\n${passage.text}\n</passage>`;
   });
   // Named on its own, small models finish the sentence rather than start another.

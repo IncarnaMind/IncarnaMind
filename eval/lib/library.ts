@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type AnswerSearchTuning,
+  type ChatModelFactory,
   type Core,
   type CoreAdapters,
   type CrossEncoder,
@@ -22,6 +23,7 @@ import {
   type OllamaModels,
   type RerankSettings,
   type SaveEmbeddingProviderInput,
+  type TextRecognizer,
 } from "../../src/core";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
 import { openDatabase } from "../../src/core/storage";
@@ -58,9 +60,13 @@ export interface LibraryOptions {
    * checks that never search through the search Tool.
    */
   reranker?: CrossEncoder;
+  /** Reads scanned pages and pictures on this computer, as the app does; none without it. */
+  textRecognizer?: TextRecognizer;
   documents: readonly EvalDocument[];
   /** The folder of the example Documents the app ships, for a run that makes the example Mind. */
   examples?: string;
+  /** The folder of the built-in Skills the app ships, installed as the app installs them. */
+  builtInSkills?: string;
   /** Web pages saved by their address from the HTML given, as `saveWebPage` saves a page open in the app: nothing is fetched. */
   webPages?: readonly EvalWebPage[];
   /** Looks up models in Ollama instead of the app's own lookup (see `evalOllamaModels`). */
@@ -87,6 +93,10 @@ export interface LibraryOptions {
   answerSearch?: Pick<AnswerSearchTuning, "rerankDepth" | "maxPassages">;
   /** Time each step of the Answers asked (see ./timing); nothing sent to the model changes. */
   recordTimings?: boolean;
+  /** How outside agents reach this core (#351): where its socket is and the shim they start. */
+  agents?: CoreAdapters["agents"];
+  /** Wraps the chat model factory the core asks with, for a run that watches or stands in for its requests. */
+  chatModels?: (inner: ChatModelFactory) => ChatModelFactory;
 }
 
 export interface EvalWebPage {
@@ -196,6 +206,7 @@ function rerankingModelReady(core: Core, modelCache: string | undefined, log: Lo
 
 /** Resolves with the Documents once each has finished processing, logging progress. */
 function processed(core: Core, ids: readonly string[], log: Log): Promise<Document[]> {
+  if (ids.length === 0) return Promise.resolve([]);
   return new Promise<Document[]>((resolve, reject) => {
     const latest = new Map<string, Document>();
     const finish = () => {
@@ -243,6 +254,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
       home: join(dataDir, "home"),
       documents: join(dataDir, "Documents"),
       ...(options.examples && { examples: options.examples }),
+      ...(options.builtInSkills && { builtInSkills: options.builtInSkills }),
     },
     systemLanguages: () => ["en-US"],
     keychain: memoryKeychain(),
@@ -257,7 +269,9 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
       },
     },
     embedder: options.embedder,
+    ...(options.textRecognizer && { textRecognizer: options.textRecognizer }),
     ...(options.ollamaModels && { ollamaModels: options.ollamaModels }),
+    ...(options.agents && { agents: options.agents }),
     // The core reranks by default: with the real built-in model when asked for, as in the app
     // (Answers' searches); otherwise a fake, with nothing to download.
     ...(options.reranker
@@ -269,13 +283,13 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
   };
   const timings = options.recordTimings ? createTimingRecorder() : null;
   const answerSearch = answerSearchOf(options.answerSearch ?? {}, timings);
+  const timed = timings ? timings.chatModels(createAiSdkChatModel) : createAiSdkChatModel;
+  const chatModels = options.chatModels?.(timed) ?? (timings ? timed : null);
   const core = createCore({
     ...adapters,
     ...(answerSearch && { answerSearch }),
-    ...(timings && {
-      createChatModel: timings.chatModels(createAiSdkChatModel),
-      answerEngine: timings.engine,
-    }),
+    ...(chatModels && { createChatModel: chatModels }),
+    ...(timings && { answerEngine: timings.engine }),
   });
   const close = async () => {
     core.close();

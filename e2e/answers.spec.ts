@@ -44,12 +44,12 @@ test("a Question asked in the assistant gets an Answer that streams in there, an
   // The Answer streams in below the Question: part of it shows while the rest is still coming.
   const answer = assistantAnswers(window).first();
   await expect(answer).toHaveAttribute("data-status", "streaming");
-  await expect(answer.getByTestId("answer-stop")).toBeVisible();
+  await expect(window.getByTestId("composer-stop")).toBeVisible();
   await expect(answer).toContainText("scripted");
   expect(await answer.textContent()).not.toContain("That is all.");
 
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-  await expect(answer.getByTestId("answer-stop")).toHaveCount(0);
+  await expect(window.getByTestId("composer-stop")).toHaveCount(0);
   await expect(answer).toContainText("That is all.");
   await expect(answer).toContainText("What is IncarnaMind?");
   // Its steps name the model that wrote it.

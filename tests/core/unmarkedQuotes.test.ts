@@ -307,6 +307,15 @@ describe("Matching sentences to Passages", () => {
     ).toBe("A one [^1]. B two [^4]. C three .");
   });
 
+  // protects=a footnote definition ("[^1]: Source, p. 1") keeps its marker when a sentence takes that number, so the line is dropped whole afterwards and no ": Source, p. 1" stays in the Answer; fails_when=the definition loses its marker and the rest of the line shows; no_claim=none beyond protects.
+  test("a footnote definition keeps its marker", () => {
+    const answer = "A one [^1]. B two [^1].\n\n[^1]: Tea history, p. 1";
+    const start = answer.indexOf("A one");
+    expect(
+      settleOrphans(answer, [{ marker: 1, took: true, start, end: start + "A one [^1].".length }]),
+    ).toBe("A one [^1]. B two .\n\n[^1]: Tea history, p. 1");
+  });
+
   // protects=the reply to the one request is read leniently and only well-formed items are kept; fails_when=a malformed item throws or is kept; no_claim=none beyond protects.
   test("the one request's reply: only whole items", () => {
     expect(

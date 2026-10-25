@@ -24,7 +24,7 @@ export async function openOrigin(origin: BlockOrigin): Promise<void> {
     const restore: NoticeAction | undefined =
       target.status === "deleted"
         ? {
-            label: t("deleted.restore"),
+            label: (t) => t("deleted.restore"),
             run: async () => {
               await useDeleted.getState().refresh();
               await restoreItems(

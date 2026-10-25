@@ -140,7 +140,7 @@ test("a quote that isn't on its page says so, and the page can still be opened, 
   await citation.getByTestId("citation-chip").click();
   const card = window.getByTestId("citation-card");
   await expect(card.getByTestId("citation-badge")).toHaveText("Quote not found on p. 2");
-  await expect(card.getByTestId("citation-reason")).toContainText("isn't in the text");
+  await expect(card.getByTestId("citation-reason")).toContainText("isn’t in the text");
   // Not found: the viewer doesn't open by itself.
   await expect(window.getByTestId("viewer")).toHaveCount(0);
 

@@ -13,8 +13,9 @@ import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { CheckLineIcon, ChevronLeftLineIcon, PencilLineIcon, TrashLineIcon } from "../lineIcons";
+import { CheckLineIcon, PencilLineIcon, TrashLineIcon } from "../lineIcons";
 import { ProblemMark } from "../ProblemLine";
+import { SettingsBackLink } from "../SettingsBackLink";
 import { buttonStyle, errorTextClass, iconButtonClass, primaryButtonClass } from "../ui";
 import { ConnectorForm } from "./ConnectorForm";
 import { ConnectorTile } from "./ConnectorTile";
@@ -47,20 +48,12 @@ const locationOf = (connector: Connector) =>
 /** A page's way back to the list. */
 export function BackToConnectors({ onBack }: { onBack(): void }) {
   const t = useT();
-  const button = useRef<HTMLButtonElement>(null);
-  // The page opened from a card or a row: the keyboard's place starts at its top.
-  useEffect(() => button.current?.focus(), []);
   return (
-    <button
-      ref={button}
-      type="button"
-      data-testid="connectors-back"
-      onClick={onBack}
-      className="inline-flex items-center gap-1 self-start rounded-sm text-[12px] leading-[18px] text-ink-meta hover:text-ink"
-    >
-      <ChevronLeftLineIcon className="size-3" />
-      {t("connectors.directory.back")}
-    </button>
+    <SettingsBackLink
+      label={t("connectors.directory.back")}
+      testId="connectors-back"
+      onBack={onBack}
+    />
   );
 }
 
@@ -282,7 +275,8 @@ export function ConnectorDetail({
 function ConnectorControls({ connector }: { connector: Connector }) {
   const t = useT();
   const { id, name } = connector;
-  const dot = stateDot[connector.state];
+  const heldBack = connector.transport === "http" && connector.signIn.heldBack;
+  const dot = heldBack ? null : stateDot[connector.state];
   const [editing, setEditing] = useState(false);
   return (
     <div
@@ -294,7 +288,9 @@ function ConnectorControls({ connector }: { connector: Connector }) {
       <div className="flex items-center gap-3">
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] leading-5 text-ink-meta">
           {dot && <span aria-hidden="true" className={`size-1.5 rounded-full ${dot}`} />}
-          <span data-testid="connector-state">{t(stateKey(connector.state))}</span>
+          <span data-testid="connector-state">
+            {t(heldBack ? "connectors.state.paused" : stateKey(connector.state))}
+          </span>
         </span>
         <input
           type="checkbox"

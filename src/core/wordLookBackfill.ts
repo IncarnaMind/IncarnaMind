@@ -4,6 +4,7 @@
  */
 import * as Y from "yjs";
 import type { NodeJSON } from "../shared/blockJson";
+import { readParagraphFormat } from "../shared/paragraphFormat";
 import {
   setWordSource,
   wordFingerprint,
@@ -13,6 +14,10 @@ import {
 import {
   BLOCK_ID_ATTRIBUTE,
   MIND_WORD_LOOK_FIELD,
+  PARAGRAPH_FORMAT_ATTRIBUTE,
+  SUBSCRIPT_MARK,
+  SUPERSCRIPT_MARK,
+  TEXT_COLOR_MARK,
   WORD_LOOK_ATTRIBUTE,
   WORD_RUN_MARK,
   WORD_TAB_MARK,
@@ -22,6 +27,10 @@ import {
 import { nodesByPlace, type WordStructure } from "./documents/formats/docxImport";
 import { CONDITIONAL_FORMATTING_VERSION } from "./documents/formats/docxLook";
 import { isRecord } from "./errors";
+import { diffSteps, splitWords } from "./proposals/diff";
+
+/** The direct formatting the look leaves to marks (`splitDirect`). */
+const DIRECT_MARKS: readonly string[] = [TEXT_COLOR_MARK, SUPERSCRIPT_MARK, SUBSCRIPT_MARK];
 
 /** The look's marks, and formatting the import reads with styles resolved. */
 const GIVEN_MARKS: ReadonlySet<string> = new Set([
@@ -31,10 +40,24 @@ const GIVEN_MARKS: ReadonlySet<string> = new Set([
   "italic",
   "underline",
   "strike",
+  ...DIRECT_MARKS,
 ]);
 
+/** The attributes the look gives a node: its key, and the direct formatting it leaves out. */
+const GIVEN_ATTRIBUTES = [WORD_LOOK_ATTRIBUTE, PARAGRAPH_FORMAT_ATTRIBUTE] as const;
+
+function givenValue(node: NodeJSON, name: string): string | object | null {
+  const value = node.attrs?.[name];
+  return typeof value === "string" || isRecord(value) ? value : null;
+}
+
 type LookChange =
-  | { kind: "attribute"; element: Y.XmlElement; value: string }
+  | {
+      kind: "attribute";
+      element: Y.XmlElement<Record<string, string | object>>;
+      name: string;
+      value: string | object;
+    }
   | {
       kind: "marks";
       text: Y.XmlText;
@@ -74,8 +97,10 @@ const plainText = (text: Y.XmlText): string =>
 function changesFor(element: Y.XmlElement, node: NodeJSON): LookChange[] | null {
   if (element.nodeName !== node.type) return null;
   const changes: LookChange[] = [];
-  const key = node.attrs?.[WORD_LOOK_ATTRIBUTE];
-  if (typeof key === "string") changes.push({ kind: "attribute", element, value: key });
+  for (const name of GIVEN_ATTRIBUTES) {
+    const value = givenValue(node, name);
+    if (value !== null) changes.push({ kind: "attribute", element, name, value });
+  }
   const children = element.toArray();
   const groups = grouped(node.content ?? []);
   if (children.length !== groups.length) return null;
@@ -117,7 +142,9 @@ function looksByPosition(table: Y.XmlElement, node: NodeJSON): LookChange[] {
   const changes: LookChange[] = [];
   const give = (element: Y.XmlElement, from: NodeJSON) => {
     const key = from.attrs?.[WORD_LOOK_ATTRIBUTE];
-    if (typeof key === "string") changes.push({ kind: "attribute", element, value: key });
+    if (typeof key === "string") {
+      changes.push({ kind: "attribute", element, name: WORD_LOOK_ATTRIBUTE, value: key });
+    }
   };
   give(table, node);
   for (const [index, row] of rows.entries()) {
@@ -211,6 +238,89 @@ function tabMarks(element: Y.XmlElement): LookChange[] {
   return changes;
 }
 
+const TEXTBLOCKS = new Set(["paragraph", "heading"]);
+
+/**
+ * A paragraph the User edited keeps their text and formatting. It is given the file's direct
+ * formatting it has none of: its format, and the marks of its words still as the file has them,
+ * which export compares with the file's, so they aren't taken for the User's change. With
+ * `restyle`, the Mind had the look before and the paragraph its look back where the look read
+ * again took it away; without, it stays plain, as a Block edited before any look.
+ */
+function editedParagraph(element: Y.XmlElement, node: NodeJSON, restyle: boolean): LookChange[] {
+  if (!TEXTBLOCKS.has(element.nodeName) || element.nodeName !== node.type) return [];
+  const changes: LookChange[] = [];
+  const key = givenValue(node, WORD_LOOK_ATTRIBUTE);
+  if (restyle && key !== null && element.getAttribute(WORD_LOOK_ATTRIBUTE) === undefined) {
+    changes.push({ kind: "attribute", element, name: WORD_LOOK_ATTRIBUTE, value: key });
+  }
+  const own = readParagraphFormat(element.getAttribute(PARAGRAPH_FORMAT_ATTRIBUTE));
+  const format = { ...readParagraphFormat(node.attrs?.[PARAGRAPH_FORMAT_ATTRIBUTE]), ...own };
+  if (JSON.stringify(format) !== JSON.stringify(own)) {
+    changes.push({ kind: "attribute", element, name: PARAGRAPH_FORMAT_ATTRIBUTE, value: format });
+  }
+  const kept = restyle ? [...DIRECT_MARKS, WORD_RUN_MARK] : DIRECT_MARKS;
+  const imported = (node.content ?? []).flatMap((each) =>
+    each.type === "text" && each.text
+      ? Array.from(each.text, (char) => ({
+          char,
+          marks: (each.marks ?? []).filter((mark) => kept.includes(mark.type)),
+        }))
+      : [],
+  );
+  if (!imported.some((each) => each.marks.length > 0)) return changes;
+  const chars: { text: Y.XmlText; index: number; char: string; has: Set<string> }[] = [];
+  for (const child of element.toArray()) {
+    if (!(child instanceof Y.XmlText)) continue;
+    let at = 0;
+    const delta: unknown = child.toDelta();
+    for (const run of Array.isArray(delta) ? delta : []) {
+      if (!isRecord(run) || typeof run.insert !== "string") {
+        at += 1;
+        continue;
+      }
+      const has = new Set(isRecord(run.attributes) ? Object.keys(run.attributes) : []);
+      for (const char of run.insert) chars.push({ text: child, index: at++, char, has });
+    }
+  }
+  const before = splitWords(imported.map((each) => each.char).join(""));
+  const after = splitWords(chars.map((each) => each.char).join(""));
+  let x = 0;
+  let y = 0;
+  let wordX = 0;
+  let wordY = 0;
+  for (const step of diffSteps(before, after)) {
+    if (step !== "insert") {
+      const length = before[wordX++]?.length ?? 0;
+      for (let at = 0; step === "equal" && at < length; at++) {
+        const from = imported[x + at];
+        const to = chars[y + at];
+        if (!from || !to) continue;
+        const direct = DIRECT_MARKS.some((mark) => to.has.has(mark));
+        const marks = from.marks.filter((mark) =>
+          mark.type === WORD_RUN_MARK ? !to.has.has(WORD_RUN_MARK) : !direct,
+        );
+        if (marks.length === 0) continue;
+        const given = Object.fromEntries(marks.map((mark) => [mark.type, mark.attrs ?? {}]));
+        const last = changes.at(-1);
+        if (
+          last?.kind === "marks" &&
+          last.text === to.text &&
+          last.index + last.length === to.index &&
+          JSON.stringify(last.marks) === JSON.stringify(given)
+        ) {
+          last.length++;
+        } else {
+          changes.push({ kind: "marks", text: to.text, index: to.index, length: 1, marks: given });
+        }
+      }
+      x += length;
+    }
+    if (step !== "delete") y += after[wordY++]?.length ?? 0;
+  }
+  return changes;
+}
+
 const asImported = (element: Y.XmlElement, source: WordSource) =>
   wordFingerprint(element) === source.f || wordFingerprintBeforeLook(element) === source.f;
 
@@ -242,6 +352,7 @@ export function planLook(
         return;
       }
       plan.editedSinceImport++;
+      if (node) plan.changes.push(...editedParagraph(element, node, previous !== null));
       if (node?.type === "table") plan.changes.push(...looksByPosition(element, node));
       if (node && (previous ?? 0) < CONDITIONAL_FORMATTING_VERSION) {
         plan.changes.push(...conditionalToggles(element, node));
@@ -324,7 +435,7 @@ function fingerprintAgain(doc: Y.Doc, element: Y.XmlElement): void {
 export function applyLook(doc: Y.Doc, plan: LookPlan): void {
   for (const change of plan.changes) {
     if (change.kind === "attribute") {
-      change.element.setAttribute(WORD_LOOK_ATTRIBUTE, change.value);
+      change.element.setAttribute(change.name, change.value);
     } else if (change.kind === "marks") {
       change.text.format(change.index, change.length, change.marks);
     } else if (change.kind === "source") {

@@ -91,7 +91,7 @@ test("asked to search the web, an Answer saves the page it reads as a Document a
   await expect(section.getByTestId("web-search-status")).toHaveText(
     `${MODEL_NAME} searches the web through Anthropic.`,
   );
-  await expect(section.getByTestId("web-search-route")).toHaveText("The model's own search");
+  await expect(section.getByTestId("web-search-route")).toHaveText("The model’s own search");
   await section.scrollIntoViewIfNeeded();
   await screenshot(window, "web-search-settings");
   await closeSettings(window);
@@ -125,7 +125,7 @@ test("asked to search the web, an Answer saves the page it reads as a Document a
   );
   await expect(calls.nth(1)).toContainText(`Saved “${TITLE}”`);
   await expect(calls.nth(2)).toHaveText(
-    "Couldn't save http://news.test/members: the page needs a sign-in",
+    "Couldn’t save http://news.test/members: the page needs a sign-in",
   );
   await screenshot(window, "web-search-answer");
 

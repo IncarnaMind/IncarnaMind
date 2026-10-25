@@ -12,8 +12,8 @@ import {
   showSettingsPage,
 } from "./app";
 
-// ADR-0019: Settings → Models lists the first-class providers first and the rest under "More
-// providers"; a provider the User already set up stays among theirs, whatever its tier.
+// ADR-0019: Add a provider in Settings → Models lists every provider, the language's popular ones
+// first; a provider the User already set up is among theirs, whatever its tier.
 
 let dataDir: string;
 test.beforeEach(async () => {
@@ -26,21 +26,13 @@ test.afterEach(async () => {
 const LANGUAGES = [
   {
     language: "en",
-    more: "More…",
-    first: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Qwen"],
-    folded: ["OpenRouter", "SiliconFlow"],
-    setUp: "Mistral",
-    rest: ["xAI", "Kimi", "GLM", "OpenAI-compatible server"],
-    link: "Where do I find it?",
+    popular: ["Anthropic", "OpenAI", "Google", "Ollama", "OpenRouter"],
+    added: "Added",
   },
   {
     language: "zh-CN",
-    more: "更多…",
-    first: ["Anthropic", "OpenAI", "Google", "DeepSeek", "通义千问"],
-    folded: ["OpenRouter", "硅基流动"],
-    setUp: "Mistral",
-    rest: ["xAI", "Kimi", "智谱 GLM", "OpenAI 兼容服务器"],
-    link: "在哪里找到密钥？",
+    popular: ["DeepSeek 深度求索", "通义千问", "Kimi", "智谱 GLM", "硅基流动", "Ollama"],
+    added: "已添加",
   },
 ] as const;
 
@@ -60,8 +52,8 @@ async function setUpMistral(window: Page): Promise<void> {
   });
 }
 
-for (const { language, more, first, folded, setUp, rest, link } of LANGUAGES) {
-  test(`Models lists first-class providers first, the rest under "${more}", and keeps a set-up one (${language})`, async () => {
+for (const { language, popular, added } of LANGUAGES) {
+  test(`Add a provider lists the popular providers first, and Mistral, set up, is a row with its own page (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await setUpMistral(window);
@@ -77,33 +69,27 @@ for (const { language, more, first, folded, setUp, rest, link } of LANGUAGES) {
       await setWindowSize(app, window, width, height);
       await window.getByRole("button", { name: /^(Settings|设置)$/ }).click();
       const settings = await showSettingsPage(window, "models");
-      // The provider set up before still shows as the one in use.
-      await expect(settings.getByTestId("chat-provider-current")).toHaveText("Mistral");
-      await settings.getByTestId("chat-model-settings").getByRole("button").first().click();
-      await settings.getByTestId("chat-choice-api-key").check();
-
-      const form = settings.getByTestId("provider-form");
-      // One row of the likeliest providers, one chosen; the rest are behind More…
-      const radios = form.getByRole("radio");
-      await expect(radios).toHaveCount(first.length);
-      const labels = await radios.evaluateAll((all) =>
-        all.map((each) => each.closest("label")?.textContent?.trim()),
+      // The provider set up before is a row, and its model answers.
+      await expect(settings.getByTestId("provider-row")).toHaveText([/^Mistral/]);
+      await expect(settings.getByTestId("model-default-chatModel")).toHaveValue(
+        /\nmistral-small-latest$/,
       );
-      expect(labels).toEqual(first.map((each) => expect.stringContaining(each)));
-      await expect(form.getByRole("radio", { checked: true })).toHaveCount(1);
 
-      const toggle = form.getByTestId("provider-more-toggle");
-      await expect(toggle).toHaveText(more);
-      await toggle.click();
-      // The folded ones, the one already set up and the rest, join the row.
-      for (const name of [...folded, setUp, ...rest]) {
-        await expect(form.getByText(name, { exact: false }).first()).toBeVisible();
-      }
+      await settings.getByTestId("models-add-provider").click();
+      const directory = settings.getByTestId("provider-directory");
+      await expect(
+        directory.locator('[data-group="popular"] [data-testid="provider-directory-entry"]'),
+      ).toHaveText(popular.map((name) => new RegExp(`^${name}`)));
+      const mistral = directory.locator('[data-catalog-id="mistral"]');
+      await expect(mistral).toContainText(added);
+      await mistral.click();
+      const page = settings.getByTestId("provider-page");
+      await expect(page.getByTestId("provider-page-title")).toHaveText("Mistral");
+      await expect(page.getByTestId("provider-page-get-key")).toHaveAttribute(
+        "href",
+        /^https:\/\//,
+      );
 
-      // Every provider has its way to a key.
-      await expect(form.getByTestId("provider-key-help-toggle")).toContainText(link);
-
-      await settings.getByRole("button", { name: /^(Cancel|取消)$/ }).click();
       await settings.getByRole("button", { name: /^(Close Settings|关闭设置)$/ }).click();
       await expect(settings).toBeHidden();
     }

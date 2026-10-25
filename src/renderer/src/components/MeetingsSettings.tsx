@@ -1,29 +1,27 @@
 import { useId } from "react";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
+import { useAudioKeptKey } from "../transcriptionServices";
 import { HelpSettings } from "./meetings/HelpSettings";
+import { TranscriptionRouteSelect } from "./meetings/TranscriptionRouteSelect";
+import { TranscriptionKeyRows, TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
 import {
   hintClass,
   rowTextClass,
   rowTitleClass,
   ruledListClass,
   ruledRow,
-  ruledRowClass,
   sectionTitleClass,
 } from "./ui";
 
-/**
- * Settings → Meetings → Recording: the switch that turns recording on (it is
- * new, and off until transcripts and speakers come), and what is recorded;
- * then help during the call.
- */
 export function MeetingsSettings() {
   const t = useT();
   const device = useAppStore((state) => state.settings?.device);
   const canRecord = useAppStore((state) => state.settings?.meetingAudio);
   const updateSettings = useAppStore((state) => state.updateSettings);
-  const enabledId = useId();
   const whatId = useId();
+  const routeId = useId();
+  const keptKey = useAudioKeptKey();
   if (!device || !canRecord) return null;
   const microphoneOnly = canRecord !== "both";
   const both = device.meetingSystemAudio && !microphoneOnly;
@@ -33,34 +31,6 @@ export function MeetingsSettings() {
       <section data-testid="meetings-settings" className="flex flex-col">
         <h4 className={`mb-2 ${sectionTitleClass}`}>{t("meetings.settings.title")}</h4>
         <div className={ruledListClass}>
-          <div className={ruledRowClass}>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <label htmlFor={enabledId} className={rowTitleClass}>
-                {t("meetings.settings.enabled")}
-              </label>
-              <p id={`${enabledId}-description`} className={rowTextClass}>
-                {t(
-                  canRecord === "none"
-                    ? "meetings.settings.cantRecord"
-                    : "meetings.settings.enabledBody",
-                )}
-              </p>
-            </div>
-            <input
-              id={enabledId}
-              type="checkbox"
-              role="switch"
-              aria-checked={device.meetingsEnabled}
-              aria-describedby={`${enabledId}-description`}
-              data-testid="meetings-enabled"
-              checked={device.meetingsEnabled}
-              disabled={canRecord === "none"}
-              onChange={(event) =>
-                void updateSettings({ device: { meetingsEnabled: event.target.checked } })
-              }
-              className="switch"
-            />
-          </div>
           <div className={ruledRow("center")}>
             <div className="flex min-w-0 flex-col gap-0.5">
               <label htmlFor={whatId} className={rowTitleClass}>
@@ -68,11 +38,13 @@ export function MeetingsSettings() {
               </label>
               <p className={rowTextClass}>
                 {t(
-                  microphoneOnly
-                    ? "meetings.line.systemUnavailable"
-                    : both
-                      ? "meetings.settings.whatBoth"
-                      : "meetings.settings.whatMe",
+                  canRecord === "none"
+                    ? "meetings.settings.cantRecord"
+                    : microphoneOnly
+                      ? "meetings.line.systemUnavailable"
+                      : both
+                        ? "meetings.settings.whatBoth"
+                        : "meetings.settings.whatMe",
                 )}
               </p>
             </div>
@@ -92,8 +64,28 @@ export function MeetingsSettings() {
               <option value="me">{t("meetings.audio.me")}</option>
             </select>
           </div>
+          <div className={ruledRow("center")}>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <label
+                htmlFor={routeId}
+                title={t("models.defaults.meetings.tip")}
+                className={rowTitleClass}
+              >
+                {t("meetings.settings.route")}
+              </label>
+              <TranscriptionRouteLine />
+            </div>
+            <span id={`${routeId}-tip`} className="sr-only">
+              {t("models.defaults.meetings.tip")}
+            </span>
+            <TranscriptionRouteSelect
+              id={routeId}
+              className="h-8 rounded-sm border border-rule-strong bg-sheet px-2 text-[13px] leading-5 text-ink focus:border-accent"
+            />
+          </div>
+          <TranscriptionKeyRows />
         </div>
-        <p className={hintClass}>{t("meetings.audio.kept")}</p>
+        <p className={hintClass}>{t(keptKey)}</p>
       </section>
       <HelpSettings />
     </>

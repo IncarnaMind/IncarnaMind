@@ -1,0 +1,25 @@
+/*
+ * The guide beside System Settings (the canvas board Meet-Permission-Guide): 300px wide, its window
+ * sized to what it holds. The window has no frame: the header moves it.
+ */
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-sheet);
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  user-select: none;
+}
+
+.guide-root {
+  width: max-content;
+}
+
+.guide-drag {
+  -webkit-app-region: drag;
+
+  & button {
+    -webkit-app-region: no-drag;
+  }
+}

@@ -1,30 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { formatDate, formatShortDate } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
-import { savedPageSource, shortenMiddle } from "../../src/shared/webSource";
+import { shortenMiddle } from "../../src/shared/naming";
+import { savedPageSource } from "../../src/shared/webSource";
 
 const ADDRESS =
   "https://www.txcourts.example/opinions/2017/supreme-court/hallmark-builders-v-rio-grande-supply-512-sw3d-101.html";
 const THIS_YEAR = new Date().toISOString();
 const IN_2017 = "2017-06-02T10:00:00Z";
-
-describe("Shortening in the middle", () => {
-  test("keeps a text that fits whole", () => {
-    expect(shortenMiddle("https://example.com/a", 40)).toBe("https://example.com/a");
-  });
-
-  test("keeps the start and the end of a long address, to the length asked", () => {
-    const shortened = shortenMiddle(ADDRESS, 40);
-    expect(Array.from(shortened)).toHaveLength(40);
-    expect(shortened.startsWith("https://www.txcourts")).toBe(true);
-    expect(shortened.endsWith("sw3d-101.html")).toBe(true);
-    expect(shortened.match(/…/g)).toHaveLength(1);
-  });
-
-  test("counts characters, not code units", () => {
-    expect(shortenMiddle("🙂".repeat(30), 11)).toBe(`${"🙂".repeat(5)}…${"🙂".repeat(5)}`);
-  });
-});
 
 describe.each(["en", "zh-CN"] as const)("A saved web page's source line, %s", (language) => {
   const t = (

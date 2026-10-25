@@ -12,8 +12,9 @@ import { core, files } from "../core";
 import { errorMessage } from "../errors";
 import { showFileLabelKey } from "../fileInfo";
 import { useT } from "../i18n";
-import { formatSize, pickSkill, skillDescription } from "../skills";
+import { formatSize, pickSkill, skillDescription, skillShortLine, skillTitle } from "../skills";
 import { useAppStore } from "../store";
+import { DetailsLine } from "./DetailsLine";
 import { ExportLineIcon, MoreLineIcon, PlusLineIcon } from "./lineIcons";
 import { MetaLine } from "./MetaLine";
 import { ProblemLine, ProblemMark } from "./ProblemLine";
@@ -157,7 +158,7 @@ export function SkillsSettings() {
         <SkillEditor
           testId="skill-editor"
           initial={editing.draft}
-          title={t("skills.edit.edit", { name: skill.name })}
+          title={t("skills.edit.edit", { name: skillTitle(skill.name, t) })}
           save={(draft) => core.updateSkill(skill.id, draft)}
           onSaved={() => setEditing(null)}
           onCancel={() => setEditing(null)}
@@ -279,7 +280,7 @@ export function SkillsSettings() {
               type="button"
               data-testid="skill-restore-built-ins"
               title={t("skills.settings.restoreBuiltIns.hint", {
-                names: removedBuiltIns.join(", "),
+                names: removedBuiltIns.map((name) => skillTitle(name, t)).join(", "),
               })}
               disabled={busy !== null}
               onClick={() => void restoreBuiltInSkills()}
@@ -380,14 +381,23 @@ export function SkillScriptsSettings() {
             <label htmlFor={enabledId} className={rowTitleClass}>
               {t("scripts.settings.enabled")}
             </label>
-            <p
+            <div
               id={`${enabledId}-description`}
               data-testid="skill-scripts-sandbox"
               data-sandbox={sandboxed ? "os" : "none"}
               className={rowTextClass}
             >
-              {t(sandboxed ? "scripts.settings.bodySandboxed" : "scripts.settings.body")}
-            </p>
+              {sandboxed ? (
+                <DetailsLine
+                  testId="skill-scripts-reach"
+                  details={t("scripts.settings.bodySandboxed.details")}
+                >
+                  {t("scripts.settings.bodySandboxed")}
+                </DetailsLine>
+              ) : (
+                <p>{t("scripts.settings.body")}</p>
+              )}
+            </div>
           </div>
           <input
             id={enabledId}
@@ -489,7 +499,8 @@ function SkillRow({
         ? t("skills.settings.scripts", { count: scripts })
         : null,
   ].filter(Boolean);
-  const label = t("skills.settings.actions", { name: skill.name });
+  const short = skillShortLine(skill, t);
+  const label = t("skills.settings.actions", { name: skillTitle(skill.name, t) });
   const choose = (action: () => void) => () => {
     menu.close();
     action();
@@ -515,10 +526,20 @@ function SkillRow({
       className={ruledRowClass}
     >
       <div className={`flex min-w-0 flex-col gap-0.5 ${skill.enabled ? "" : "opacity-60"}`}>
-        <p className={`truncate ${rowTitleClass}`}>{skill.name}</p>
-        <p className={`line-clamp-2 ${rowTextClass}`} title={skillDescription(skill, t)}>
-          {skillDescription(skill, t)}
-        </p>
+        <p className={`truncate ${rowTitleClass}`}>{skillTitle(skill.name, t)}</p>
+        {short ? (
+          <DetailsLine
+            testId={`skill-description-${skill.name}`}
+            className={rowTextClass}
+            details={<p>{skillDescription(skill, t)}</p>}
+          >
+            {short}
+          </DetailsLine>
+        ) : (
+          <p className={`line-clamp-1 ${rowTextClass}`} title={skillDescription(skill, t)}>
+            {skillDescription(skill, t)}
+          </p>
+        )}
         {details.length > 0 && (
           <MetaLine parts={details} className="text-[12px] leading-[18px] text-ink-meta" />
         )}
@@ -562,7 +583,7 @@ function SkillRow({
           role="switch"
           aria-checked={skill.enabled}
           data-testid="skill-enabled"
-          aria-label={t("skills.settings.enabled", { name: skill.name })}
+          aria-label={t("skills.settings.enabled", { name: skillTitle(skill.name, t) })}
           checked={skill.enabled}
           onChange={(event) => void setSkillEnabled(skill.id, event.target.checked)}
           className="switch ml-2"
@@ -594,7 +615,7 @@ function SkillPreview({
       <p className="text-label font-semibold text-ink-meta">{t("skills.preview.title")}</p>
       <div className="flex flex-col gap-0.5">
         <p data-testid="skill-preview-name" className={rowTitleClass}>
-          {preview.name}
+          {skillTitle(preview.name, t)}
         </p>
         <p data-testid="skill-preview-description" className={rowTextClass}>
           {preview.description}
@@ -612,7 +633,7 @@ function SkillPreview({
       </div>
       {preview.replaces && (
         <p data-testid="skill-preview-replaces" className={noticeClass}>
-          {t("skills.preview.replaces", { name: preview.replaces.name })}
+          {t("skills.preview.replaces", { name: skillTitle(preview.replaces.name, t) })}
         </p>
       )}
       <details>

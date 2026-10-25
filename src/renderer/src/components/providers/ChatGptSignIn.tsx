@@ -42,11 +42,13 @@ export function ContinueWithChatGptButton({
   onClick,
   disabled = false,
   size = "md",
+  variant = "primary",
   testId = "chatgpt-continue",
 }: {
   onClick(): void;
   disabled?: boolean;
-  size?: "md" | "lg";
+  size?: "sm" | "md" | "lg";
+  variant?: "primary" | "secondary";
   testId?: string;
 }) {
   const t = useT();
@@ -56,7 +58,7 @@ export function ContinueWithChatGptButton({
       data-testid={testId}
       disabled={disabled}
       onClick={onClick}
-      className={buttonStyle("primary", size)}
+      className={buttonStyle(variant, size)}
     >
       <ChatGptMark className="size-4" />
       {t("chatgpt.continue")}

@@ -144,7 +144,7 @@ test("Export options › Source pack writes a cover list and a page for each cit
   const sheet = window.getByTestId("export-dialog");
   await sheet.getByTestId("export-format").selectOption("source-pack");
   await expect(sheet.getByTestId("export-format-note")).toHaveText(
-    "A cover list, then each cited page as it was saved, its quotes highlighted and numbered like the Mind's Citations.",
+    "Each cited page, its quotes highlighted and numbered.",
   );
   await expect(sheet.getByTestId("export-pack-empty")).toHaveCount(0);
   // A pack has no Questions to include.
@@ -219,18 +219,14 @@ test("a Mind with no Citations says so in the sheet and on Export, and in Chines
   const sheet = window.getByTestId("export-dialog");
   await sheet.getByTestId("export-format").selectOption("source-pack");
   const empty = sheet.getByTestId("export-pack-empty");
-  await expect(empty).toHaveText(
-    "This Mind has no Citations yet, so there are no cited pages to put in a pack.",
-  );
+  await expect(empty).toHaveText("No Citations yet, so no cited pages to export.");
   await sheet.getByTestId("export-save").click();
   await expect(sheet).toBeHidden();
 
   // Export says it on the Mind, with no file made and no fix offered for a place that is fine.
   await exportFromMenu(window);
   const problem = window.getByTestId("export-result").getByTestId("export-problem");
-  await expect(problem).toHaveText(
-    "This Mind has no Citations yet, so there are no cited pages to put in a pack.",
-  );
+  await expect(problem).toHaveText("No Citations yet, so no cited pages to export.");
   await expect(window.getByTestId("export-change-location")).toHaveCount(0);
   expect(await readdir(out)).toEqual([]);
 
@@ -242,10 +238,10 @@ test("a Mind with no Citations says so in the sheet and on Export, and in Chines
     "PDF 引用页面合集",
   );
   await expect(sheet.getByTestId("export-format-note")).toHaveText(
-    "先列出清单，再逐页附上保存的引用页面，引文高亮，编号与 Mind 中的引用一致。",
+    "每个引用页面，引文高亮并编号。",
   );
   await expect(sheet.getByTestId("export-pack-empty")).toHaveText(
-    "此 Mind 还没有引用，没有可收入合集的引用页面。",
+    "还没有引用，没有可导出的引用页面。",
   );
   await expectToFit(window, sheet);
   await screenshot(window, "source-pack-options-zh-empty-narrow");

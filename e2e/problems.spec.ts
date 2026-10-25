@@ -159,7 +159,7 @@ test("a failed Answer says so under itself with one action: the key's page in Se
     await expect(error).toContainText("Ollama 没有在这台电脑上运行");
     await expect(error.getByTestId("answer-error-action")).toHaveText("下载 Ollama ↗");
     await bridge(window).settings("en");
-    await expect(error).toContainText("Ollama isn't running on this computer");
+    await expect(error).toContainText("Ollama isn’t running on this computer");
     await expect(error.getByTestId("answer-error-action")).toHaveText("Get Ollama ↗");
     await app.close();
   } finally {
@@ -245,7 +245,7 @@ test("a Document whose file moved says so in the viewer with Locate file…, whi
   await gone.getByTestId("viewer-locate-file").focus();
   await window.keyboard.press("Enter");
   const result = gone.getByTestId("viewer-locate-result");
-  await expect(result).toContainText("That isn't the file for Amendment No. 2");
+  await expect(result).toContainText("Not the file for “Amendment No. 2”");
   await expect(item).toHaveCount(2);
   await expect(gone.getByTestId("viewer-locate-file")).toBeVisible();
   await screenshot(window, "viewer-file-not-this-en");
@@ -318,7 +318,7 @@ test("an export that can't be saved says why in the Mind, and Change output loca
   // The folder is read-only: the line says so, in the Mind, with its one action, and nothing pops up.
   const problem = result.getByTestId("export-problem");
   await expect(problem).toHaveText(
-    "Couldn't save: the folder is read-only · Change output location…",
+    "Couldn’t save: the folder is read-only · Change output location…",
   );
   await expect(problem).toHaveAttribute("role", "alert");
   await expect(problem.getByRole("button")).toHaveCount(1);

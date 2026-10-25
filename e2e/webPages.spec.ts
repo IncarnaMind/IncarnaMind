@@ -13,6 +13,7 @@ import {
   newMind,
   openDocumentMenu,
   removeDataFolder,
+  setLanguage,
   sidebarFolder,
   urlsOpened,
   useLocalChatModel,
@@ -35,10 +36,14 @@ let server: Server;
 let site: string;
 /** The server's port: it stands in for the web too, so a page's pictures are asked of it (#756). */
 let port: number;
+/** What the server was asked for. */
+let hits: string[];
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
   home = await createDataFolder();
+  hits = [];
   server = createServer((request, response) => {
+    hits.push(decodeURIComponent(request.url ?? ""));
     if (request.url?.startsWith("/tea")) {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       response.end(ARTICLE);
@@ -66,6 +71,7 @@ async function screenshot(target: Page | Locator, name: string): Promise<void> {
 /** "Add a web page…" from the sidebar's "+", with these addresses, one per line. Returns the dialog. */
 async function addWebPages(window: Page, addresses: string[]): Promise<Locator> {
   await window.getByTestId("plus-menu").click();
+  await window.getByTestId("plus-more").click();
   await window.getByTestId("plus-add-web-page").click();
   const dialog = window.getByTestId("add-web-page-dialog");
   await dialog.getByTestId("add-web-page-addresses").fill(addresses.join("\n"));
@@ -114,7 +120,7 @@ test("a web page added from the + menu is a Document named by its title, opened 
   const results = dialog.getByTestId("add-web-page-result");
   await expect(results.filter({ hasText: `${site}/tea` })).toContainText("Added");
   await expect(dialog.getByTestId("add-web-page-problem")).toHaveText(
-    "Couldn't fetch: the page doesn't exist · Try again",
+    "Couldn’t fetch: the page doesn’t exist · Try again",
   );
   await screenshot(window, "add-web-page-results");
   await dialog.getByTestId("add-web-page-done").click();
@@ -171,19 +177,49 @@ test("a link pasted or dropped on a Folder in the sidebar is saved there; one th
   await expect(folder.getByTestId("document-list-item")).toContainText(TITLE);
 
   // Dragged over the window, the Folders stay in sight; dropped on one, it is saved there.
-  await dragLink(folder, `${site}/tea-dropped`, false);
+  await dragLink(row, `${site}/tea-dropped`, false);
   await expect(window.getByTestId("drop-overlay")).toContainText("drop it on a Folder");
   await expect(folder).toHaveAttribute("data-drop-target", "true");
   await screenshot(window, "web-page-drag");
-  await dragLink(folder, `${site}/tea-dropped`);
+  await dragLink(row, `${site}/tea-dropped`);
   await expect(window.getByTestId("drop-overlay")).toBeHidden();
   await expect(folder).toHaveAttribute("data-count", "2");
 
   await paste(window, `${site}/gone`);
   const problem = window.locator('[data-testid^="web-page-problem"]');
-  await expect(problem).toContainText("Couldn't fetch: the page doesn't exist");
+  await expect(problem).toContainText("Couldn’t fetch: the page doesn’t exist");
   await expect(problem.getByTestId("web-page-try-again")).toBeVisible();
   await screenshot(window, "web-page-pasted");
+  await app.close();
+});
+
+test("with “Keep everything on this computer” on, a link pasted in the sidebar isn't fetched either: the status says so, in both languages, and Fetch this page once adds it", async () => {
+  const { app, window } = await launchApp(dataDir, { home, web: port });
+  await dismissChatSetup(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.setLocalOnly(true);
+    await bridge.createLibraryGroup({ name: "Reading", description: "" });
+  });
+  const folder = sidebarFolder(window, "Reading");
+  await folder.getByTestId("folder-row").click();
+  await folder.getByTestId("folder-row").focus();
+
+  await paste(window, `${site}/tea-pasted`);
+  const problem = window.locator('[data-testid^="web-page-problem"]');
+  await expect(problem).toContainText(
+    "Not fetched: “Keep everything on this computer” is on. It would contact",
+  );
+  expect(hits).toEqual([]);
+  await expect(problem.getByRole("button", { name: "Don’t fetch" })).toBeVisible();
+  await setLanguage(window, "zh-CN");
+  await expect(problem).toContainText("未抓取：已开启“所有内容都留在这台电脑上”。抓取会连接");
+  await expect(problem.getByTestId("web-page-fetch-once")).toHaveText("只抓取这一次");
+  await setLanguage(window, "en");
+
+  await problem.getByTestId("web-page-fetch-once").click();
+  await expect(folder).toHaveAttribute("data-count", "1");
+  await expect(problem).toHaveCount(0);
   await app.close();
 });
 
@@ -223,5 +259,47 @@ test("an Answer cites a web page by section and paragraph; its card says the sit
 
   await card.getByTestId("citation-open-live").click();
   await expect.poll(() => urlsOpened(app)).toEqual([`${site}/tea`]);
+  await app.close();
+});
+
+test("with “Keep everything on this computer” on, a web page by address isn't fetched: one line says it would contact the site, and Fetch this page once adds it with the setting still on", async () => {
+  const { app, window } = await launchApp(dataDir, { home, web: port });
+  await dismissChatSetup(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.setLocalOnly(true);
+  });
+
+  const address = `${site}/tea/茶`;
+  const dialog = await addWebPages(window, [address]);
+  const problem = dialog.getByTestId("add-web-page-problem");
+  await expect(problem).toContainText(
+    `Not fetched: “Keep everything on this computer” is on. It would contact 127.0.0.1:${port}.`,
+  );
+  await expect(problem.getByTestId("add-web-page-fetch-once")).toHaveText("Fetch this page once");
+  await expect(problem.getByTestId("add-web-page-keep-local")).toHaveText("Don’t fetch");
+  await screenshot(window, "web-page-local-mode");
+  expect(hits).toEqual([]);
+  await window.evaluate(() => document.documentElement.setAttribute("lang", "zh-CN"));
+
+  await problem.getByTestId("add-web-page-fetch-once").click();
+  await expect(dialog).toBeHidden();
+  await expect(window.getByTestId("document-list-item").filter({ hasText: TITLE })).toHaveAttribute(
+    "data-status",
+    "ready",
+  );
+  expect(hits.filter((url) => url === "/tea/茶")).toHaveLength(1);
+  expect(
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return (await bridge.getEmbeddingSettings()).localOnly;
+    }),
+  ).toBe(true);
+
+  // Not fetched: the line goes.
+  const second = await addWebPages(window, [`${site}/tea?again`]);
+  await second.getByTestId("add-web-page-keep-local").click();
+  await expect(second.getByTestId("add-web-page-problem")).toHaveCount(0);
+  expect(hits.filter((url) => url.includes("again"))).toEqual([]);
   await app.close();
 });

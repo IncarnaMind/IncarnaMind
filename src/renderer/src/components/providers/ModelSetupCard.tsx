@@ -17,10 +17,10 @@ import {
   useChatGptStorage,
   useContinueWithChatGpt,
 } from "./ChatGptSignIn";
-import { OllamaAction } from "./ChatProviderChoices";
 import { ClaudePlanWay } from "./ClaudePlan";
 import { CopilotSetupWay } from "./CopilotPlan";
 import {
+  OllamaAction,
   OllamaProgress,
   type Ollama as OllamaState,
   ollamaDescription,
@@ -28,6 +28,7 @@ import {
 } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
+import { SetupReady } from "./SetupReady";
 
 const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
@@ -41,6 +42,10 @@ type View = "key" | "local" | null;
  * dialog is added here.
  */
 export function ModelSetupCard() {
+  return useModelSetup((state) => state.ready) ? <SetupReady /> : <ChooseAnAi />;
+}
+
+function ChooseAnAi() {
   const t = useT();
   const chinese = useLanguage() === "zh-CN";
   const [view, setView] = useState<View>(null);
@@ -74,10 +79,11 @@ export function ModelSetupCard() {
       ref={card}
       data-testid="model-setup"
       aria-labelledby="model-setup-title"
-      className="flex min-h-0 max-h-[85vh] flex-col gap-2.5 overflow-y-auto px-4 py-2.5"
+      className="setup-card flex min-h-0 max-h-[85vh] flex-col gap-2.5 overflow-y-auto px-4"
     >
       <h2
         id="model-setup-title"
+        data-setup-title={view === null ? true : undefined}
         className={view === null ? "text-[15px] leading-6 font-semibold text-ink" : "sr-only"}
       >
         {t("setup.title")}
@@ -208,7 +214,7 @@ function LeadingWays({
         <KeyLineIcon className="size-4" />
         {t("setup.key.use")}
       </button>
-      <p data-testid="setup-key-for" className={lineClass}>
+      <p data-testid="setup-key-for" className={`${lineClass} text-balance`}>
         {t("setup.key.for")}
       </p>
     </div>
@@ -287,7 +293,6 @@ function LocalWay({ ollama }: { ollama: OllamaState }) {
   );
 }
 
-/** "Already pay for Claude?": Anthropic doesn't let other apps use the plan, so the Claude app connects instead. */
 function ClaudeWay() {
   const t = useT();
   const reportError = useAppStore((state) => state.reportError);

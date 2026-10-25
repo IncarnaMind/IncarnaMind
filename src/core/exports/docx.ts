@@ -16,7 +16,7 @@
 
 import { deflateRawSync } from "node:zlib";
 import type { TableAlign } from "../../shared/markdownTables";
-import type { StyledRun } from "../api";
+import type { ParagraphFormat, StyledRun } from "../api";
 import { writeZip } from "../documents/formats/zip";
 import {
   type Block,
@@ -29,10 +29,13 @@ import {
   type TableCell,
   tableLayout,
 } from "../mindText";
+import { HEADER_AND_FOOTER_DISTANCE, MARGIN, PAPER } from "../pageDefaults";
 import { changeKey } from "./citations";
 import type { ExportLabels } from "./labels";
 import { latexToOmml, MATH_NAMESPACE } from "./math";
+import { changedElement, formatChanges } from "./paragraphFormat";
 import {
+  bookmarked,
   COMMENTS_CONTENT_TYPE,
   COMMENTS_RELATIONSHIP,
   type CommentStyles,
@@ -42,6 +45,8 @@ import {
   footnote,
   footnoteReference,
   footnotesPart,
+  noteBookmark,
+  noteNumber,
   R_NAMESPACE,
   type RunFormat,
   run,
@@ -64,6 +69,8 @@ export interface DocxOptions {
   review?: ReviewChoices;
   /** The Mind's font by name, which the body is written in; null: Word's own body font. */
   font: string | null;
+  /** The Mind's line spacing, a multiple of a single line; null: the export's own. */
+  lineSpacing: number | null;
 }
 
 /** The prefixes the writer writes, and their namespaces. */
@@ -101,17 +108,27 @@ const RELATIONSHIP = {
 
 const MAIN_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml";
 
-/** Page sizes and margins, in twentieths of a point ("twips"): 1 inch margins. */
-const PAPER = {
-  letter: { width: 12240, height: 15840 },
-  a4: { width: 11906, height: 16838 },
-} as const;
-const MARGIN = 1440;
+/**
+ * Stand in for a cross-reference's number until `DocxWriter.finish` knows it. XML can't hold
+ * these two characters, so `escapeXml` takes them out of the User's text: nothing they wrote can
+ * look like a mark, and `finish` replaces nothing but its own.
+ */
+const NUMBER_OPEN = "\u0001";
+const NUMBER_CLOSE = "\u0002";
+const NUMBER_MARK = new RegExp(`${NUMBER_OPEN}(\\d+)${NUMBER_CLOSE}`, "g");
+/** A note's mark in the text, as `footnoteReference` writes it. */
+const NOTE_MARK =
+  /<w:r><w:rPr><w:rStyle w:val="[^"]*"\/><\/w:rPr><w:footnoteReference w:id="(\d+)"\/><\/w:r>/g;
 
 /** One level of a list, or of a quote, indents this much (half an inch). */
 const INDENT = 720;
 /** A list item's number or bullet hangs this far left of its text. */
 const HANGING = 360;
+/** A to-do's box is at the text edge, its text 28px in; a nested to-do steps in 24px, as in the editor. */
+const TODO_TEXT = 420;
+const TODO_STEP = 360;
+/** Word has no to-do: one is a paragraph that starts with this box and a tab. */
+const BOX = { open: "\u2610", done: "\u2612" } as const;
 /** EMUs (DrawingML's unit) per twip, and per CSS pixel at 96 dpi. */
 const EMU_PER_TWIP = 635;
 const EMU_PER_PIXEL = 9525;
@@ -129,11 +146,12 @@ export function renderDocx(
   const writer = new DocxWriter(options.labels, paper.width - 2 * MARGIN, target, review);
   const body = writer.body(blocks);
 
-  const document =
+  const document = writer.finish(
     `${XML_DECLARATION}<w:document xmlns:w="${NS.w}" xmlns:r="${NS.r}" xmlns:wp="${NS.wp}" xmlns:a="${NS.a}" xmlns:pic="${NS.pic}" xmlns:m="${NS.m}"><w:body>` +
-    body +
-    `<w:sectPr><w:pgSz w:w="${paper.width}" w:h="${paper.height}"/><w:pgMar w:top="${MARGIN}" w:right="${MARGIN}" w:bottom="${MARGIN}" w:left="${MARGIN}" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>` +
-    "</w:body></w:document>";
+      body +
+      `<w:sectPr><w:pgSz w:w="${paper.width}" w:h="${paper.height}"/><w:pgMar w:top="${MARGIN}" w:right="${MARGIN}" w:bottom="${MARGIN}" w:left="${MARGIN}" w:header="${HEADER_AND_FOOTER_DISTANCE}" w:footer="${HEADER_AND_FOOTER_DISTANCE}" w:gutter="0"/></w:sectPr>` +
+      "</w:body></w:document>",
+  );
 
   const comments = review?.comments ?? [];
   const relationships = [
@@ -162,7 +180,7 @@ export function renderDocx(
       { name: "word/_rels/document.xml.rels", data: relationshipsXml(relationships) },
       {
         name: "word/styles.xml",
-        data: styles(options.language, comments.length > 0, options.font),
+        data: styles(options.language, comments.length > 0, options.font, options.lineSpacing),
       },
       { name: "word/settings.xml", data: SETTINGS },
       { name: "word/numbering.xml", data: numbering(target.lists) },
@@ -246,6 +264,8 @@ export interface DocxTarget {
   picture(picture: NewPicture): { id: string; name: string };
   /** A numbering instance for a list at `level` that starts at `start`: its numId. */
   list(ordered: boolean, level: number, start: number): number;
+  /** The bookmark around a note's mark that later Citations refer to: a name the file doesn't have. */
+  noteBookmark(note: number): string;
 }
 
 /** A new document: links, pictures and lists numbered from 1, in the order they are written. */
@@ -291,6 +311,10 @@ class NewDocxTarget implements DocxTarget {
     this.lists.push({ ordered, level, start });
     return this.lists.length;
   }
+
+  noteBookmark(note: number): string {
+    return noteBookmark(note);
+  }
 }
 
 /** Where Blocks are being written. */
@@ -307,14 +331,26 @@ interface Context {
   width: number;
   /** How their paragraphs are aligned, e.g. in a table's cell; null: as the text flows. */
   align: TableAlign;
+  /**
+   * How far in to-dos they are, from 0: a nested to-do steps in 24px, where a list's levels step
+   * in 48px, so the two are counted apart.
+   */
+  todo?: number;
   /** In a footnote's text, whose links are the footnotes part's. */
   note?: boolean;
+  /** In a Block a change still waiting gives or takes away, whose Citations share no note. */
+  pending?: boolean;
 }
 
 export interface List {
   ordered: boolean;
   level: number;
   start: number;
+}
+
+/** The context of a Block a change still waiting gives or takes away: its Citations share no note. */
+function pendingContext(block: Block, context: Context): Context {
+  return block.inserted || block.deleted ? { ...context, pending: true } : context;
 }
 
 /**
@@ -325,6 +361,7 @@ export interface List {
 export class DocxWriter {
   readonly footnotes: string[] = [];
   private readonly styles: DocxStyles;
+  private readonly notes = new Map<string, { id: number; text: string; reused: boolean }>();
 
   constructor(
     private readonly labels: ExportLabels,
@@ -381,7 +418,7 @@ export class DocxWriter {
   private blocks(blocks: readonly Block[], context: Context): string {
     let xml = "";
     for (const block of blocks) {
-      const next = this.tracked(this.block(block, context), block, true);
+      const next = this.tracked(this.block(block, pendingContext(block, context)), block, true);
       // Two tables in a row would merge into one.
       if (xml.endsWith("</w:tbl>") && next.startsWith("<w:tbl>")) xml += "<w:p/>";
       xml += next;
@@ -394,12 +431,17 @@ export class DocxWriter {
     switch (block.kind) {
       case "paragraph":
         return paragraph(
-          { style: context.style, indent, align: context.align },
+          { style: context.style, indent, align: context.align, format: block.format },
           this.inline(block.content, context),
         );
       case "heading":
         return paragraph(
-          { style: this.styles.heading(block.level), indent, align: context.align },
+          {
+            style: this.styles.heading(block.level),
+            indent,
+            align: context.align,
+            format: block.format,
+          },
           this.inline(block.content, context),
         );
       case "question":
@@ -530,15 +572,26 @@ export class DocxWriter {
   private cite(item: Extract<Inline, { kind: "cite" }>, context: Context): string {
     const marker = item.unverified ? run(` ${this.labels.unverified}`, { bold: true }) : "";
     if (!item.note || context.note) return this.styled(item.runs, context.note) + marker;
+    const shared = item.of !== undefined && !item.inserted && !item.deleted && !context.pending;
+    const key = shared ? `style\n${item.of}` : null;
+    const text = item.runs.map((each) => each.text).join("") + marker;
+    const first = key === null ? undefined : this.notes.get(key);
+    // A style's own form for a repeat ("Id.", a short note) differs from the first note's: it wins.
+    if (first?.text === text) {
+      first.reused = true;
+      return this.noteNumber(first.id);
+    }
     const id = this.target.ids.take("footnote");
     this.footnotes.push(
       footnote(id, run(" ") + this.styled(item.runs, true) + marker, this.styles.footnote),
     );
+    if (key !== null && !first) this.notes.set(key, { id, text, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
 
   /** A Word list: the first paragraph of each item carries its number or bullet. */
   private list(block: Extract<Block, { kind: "list" }>, context: Context): string {
+    if (block.checked) return this.todos(block, block.checked, context);
     const level = Math.min(context.listDepth, 8);
     const numbering = { id: this.target.list(block.ordered, level, block.start), level };
     const textIndent = context.indent + INDENT * (level + 1);
@@ -552,22 +605,95 @@ export class DocxWriter {
     for (const item of block.items) {
       const [first, ...rest] = item;
       if (first?.kind === "paragraph")
-        xml += this.tracked(numbered(this.inline(first.content, context)), first, true);
+        xml += this.tracked(
+          numbered(this.inline(first.content, pendingContext(first, context))),
+          first,
+          true,
+        );
       else xml += numbered("");
       for (const child of first?.kind === "paragraph" ? rest : item) {
         xml += this.tracked(
           child.kind === "list"
-            ? this.list(child, { ...context, listDepth: context.listDepth + 1 })
-            : this.block(child, {
-                ...context,
-                indent: textIndent,
-                style: this.styles.listParagraph,
-              }),
+            ? this.list(
+                child,
+                pendingContext(child, {
+                  ...context,
+                  listDepth: context.listDepth + 1,
+                  // A checklist starts at the text of the bullet or number it hangs under.
+                  ...(child.checked && { indent: textIndent }),
+                }),
+              )
+            : this.block(
+                child,
+                pendingContext(child, {
+                  ...context,
+                  indent: textIndent,
+                  style: this.styles.listParagraph,
+                }),
+              ),
           child,
           true,
         );
       }
     }
+    return xml;
+  }
+
+  private todos(
+    block: Extract<Block, { kind: "list" }>,
+    checked: readonly boolean[],
+    context: Context,
+  ): string {
+    const depth = context.todo ?? 0;
+    const textAt = context.indent + TODO_STEP * depth + TODO_TEXT;
+    const written = (content: string, at: number) =>
+      paragraph(
+        { style: this.styles.listParagraph, indent: textAt, hanging: TODO_TEXT },
+        // A tab is a run of its own: the schema has no bare <w:tab/> under <w:p>.
+        run(checked[at] ? BOX.done : BOX.open) + "<w:r><w:tab/></w:r>" + content,
+      );
+
+    let xml = "";
+    block.items.forEach((item, at) => {
+      const [first, ...rest] = item;
+      if (first?.kind === "paragraph")
+        xml += this.tracked(
+          written(this.inline(first.content, pendingContext(first, context)), at),
+          first,
+          true,
+        );
+      else xml += written("", at);
+      for (const child of first?.kind === "paragraph" ? rest : item) {
+        xml += this.tracked(
+          child.kind === "list" && child.checked
+            ? this.todos(
+                child,
+                child.checked,
+                pendingContext(child, { ...context, todo: depth + 1 }),
+              )
+            : child.kind === "list"
+              ? this.list(
+                  child,
+                  pendingContext(child, {
+                    ...context,
+                    indent: textAt,
+                    listDepth: 0,
+                    todo: undefined,
+                  }),
+                )
+              : this.block(
+                  child,
+                  pendingContext(child, {
+                    ...context,
+                    indent: textAt,
+                    style: this.styles.listParagraph,
+                  }),
+                ),
+          child,
+          true,
+        );
+      }
+    });
     return xml;
   }
 
@@ -607,6 +733,7 @@ export class DocxWriter {
               bold: each.header,
               width: column * each.colspan,
               align: each.align,
+              pending: context.pending,
             });
         // A cell ends with a paragraph.
         xml += cell(
@@ -695,7 +822,12 @@ export class DocxWriter {
             const apart = before?.kind === "text" && /\S$/.test(before.text);
             xml += this.source(item.footnote, apart ? " " : "");
           } else {
-            const reference = this.footnote(item.footnote);
+            const reference = this.footnote(
+              item.footnote,
+              !item.inserted && !item.deleted && !context.pending,
+              item.work.documentId,
+              item.work.contentHash ?? null,
+            );
             xml += this.review ? this.review.failed(reference, [item.footnote]) : reference;
           }
           break;
@@ -717,11 +849,62 @@ export class DocxWriter {
     return xml;
   }
 
-  /** A Citation's footnote, and the reference to it in the text. */
-  private footnote(citation: Footnote): string {
+  private footnote(
+    citation: Footnote,
+    shared: boolean,
+    documentId: string | null,
+    version: string | null,
+  ): string {
+    const key = shared
+      ? `numbered\n${documentId ?? ""}\n${version ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}`
+      : null;
+    const first = key === null ? undefined : this.notes.get(key);
+    if (first) {
+      first.reused = true;
+      return this.noteNumber(first.id);
+    }
     const id = this.target.ids.take("footnote");
     this.footnotes.push(footnote(id, this.source(citation, " "), this.styles.footnote));
+    if (key !== null) this.notes.set(key, { id, text: "", reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
+  }
+
+  private noteNumber(id: number): string {
+    return noteNumber(
+      this.target.noteBookmark(id),
+      `${NUMBER_OPEN}${id}${NUMBER_CLOSE}`,
+      this.styles.footnote.reference,
+    );
+  }
+
+  /**
+   * The document part once everything is written: the notes that later Citations refer to get
+   * their bookmark, and each cross-reference shows its note's number in the text as Word will
+   * count it. A note whose mark isn't in the document is an error: a reference to it would
+   * show Word's "Error! Reference source not found."
+   */
+  finish(document: string): string {
+    const reused = new Set<number>();
+    for (const note of this.notes.values()) if (note.reused) reused.add(note.id);
+    if (reused.size === 0) return document;
+    const bookmarkedNotes = new Set<number>();
+    const out = document.replace(NOTE_MARK, (found, id: string) => {
+      const note = Number(id);
+      if (!reused.has(note) || bookmarkedNotes.has(note)) return found;
+      bookmarkedNotes.add(note);
+      return bookmarked(this.target.ids.take("annotation"), this.target.noteBookmark(note), found);
+    });
+    for (const id of reused) {
+      if (!bookmarkedNotes.has(id)) {
+        throw new Error(`The footnote ${id} isn't in the document it is cited from.`);
+      }
+    }
+    const numbers = new Map<number, number>();
+    for (const found of out.matchAll(/<w:footnoteReference\b[^>]*\bw:id="(\d+)"/g)) {
+      const id = Number(found[1]);
+      if (!numbers.has(id)) numbers.set(id, numbers.size + 1);
+    }
+    return out.replaceAll(NUMBER_MARK, (_, id: string) => String(numbers.get(Number(id)) ?? id));
   }
 
   /** A Citation's source, after `before`, e.g. "Tides, p. 2", and "[unverified]" in bold. */
@@ -824,11 +1007,29 @@ interface ParagraphProperties {
   /** How far the first line hangs left of `indent`, in twips. */
   hanging?: number;
   align?: TableAlign;
+  /** The User's, over the rest; its left indent is from `indent`. */
+  format?: ParagraphFormat;
 }
 
 function paragraph(properties: ParagraphProperties, content: string): string {
   const { style, keepNext, numbering, bottomBorder, spacingAfter, indent, hanging, align } =
     properties;
+  const format = properties.format ?? {};
+  const changes = formatChanges(
+    { ...format, ...(format.left !== undefined && { left: format.left + (indent ?? 0) / 20 }) },
+    {},
+  );
+  const spacing = changedElement(
+    "w:spacing",
+    spacingAfter !== undefined ? `<w:spacing w:after="${spacingAfter}"/>` : null,
+    changes.spacing,
+  );
+  const ind = changedElement(
+    "w:ind",
+    indent ? `<w:ind w:left="${indent}"${hanging ? ` w:hanging="${hanging}"` : ""}/>` : null,
+    changes.ind,
+  );
+  const jc = changes.jc ?? align;
   // In the order the schema requires.
   const pPr = [
     style ? `<w:pStyle w:val="${escapeXml(style)}"/>` : "",
@@ -839,9 +1040,9 @@ function paragraph(properties: ParagraphProperties, content: string): string {
     bottomBorder
       ? '<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr>'
       : "",
-    spacingAfter !== undefined ? `<w:spacing w:after="${spacingAfter}"/>` : "",
-    indent ? `<w:ind w:left="${indent}"${hanging ? ` w:hanging="${hanging}"` : ""}/>` : "",
-    align ? `<w:jc w:val="${align}"/>` : "",
+    spacing ?? "",
+    ind ?? "",
+    jc ? `<w:jc w:val="${jc}"/>` : "",
   ].join("");
   return `<w:p>${pPr ? `<w:pPr>${pPr}</w:pPr>` : ""}${content}</w:p>`;
 }
@@ -855,6 +1056,10 @@ function formatOf(marks: Marks, context: Context, styles: DocxStyles, style?: st
     highlight: marks.highlight,
     underline: marks.underline,
     monospace: marks.code && style !== undefined,
+    font: marks.font,
+    size: marks.size,
+    color: marks.color,
+    script: marks.vertical,
   };
 }
 
@@ -1151,7 +1356,12 @@ const COMMENT_ROLES: ReadonlySet<StyleRole> = new Set(["commentText", "commentRe
 
 const DEFAULT_BODY_FONT = "Calibri";
 
-function styles(language: string, comments: boolean, font: string | null): string {
+function styles(
+  language: string,
+  comments: boolean,
+  font: string | null,
+  lineSpacing: number | null,
+): string {
   const family = escapeXml(font ?? DEFAULT_BODY_FONT);
   const bases: StyleBases = {
     paragraph: "Normal",
@@ -1165,7 +1375,7 @@ function styles(language: string, comments: boolean, font: string | null): strin
   return (
     `${XML_DECLARATION}<w:styles xmlns:w="${NS.w}">` +
     `<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="${family}" w:hAnsi="${family}" w:cs="${family}"/><w:sz w:val="22"/><w:szCs w:val="22"/><w:lang w:val="${language}"/></w:rPr></w:rPrDefault>` +
-    '<w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>' +
+    `<w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="${lineSpacing === null ? 259 : Math.round(lineSpacing * 240)}" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>` +
     '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>' +
     '<w:style w:type="character" w:default="1" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style>' +
     '<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>' +

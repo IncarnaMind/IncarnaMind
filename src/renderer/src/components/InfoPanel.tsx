@@ -1,16 +1,16 @@
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import type { Document, LinkedFolder } from "../../../core/api";
+import { type ReactNode, type Ref, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import type { Document, LibraryGroup, LinkedFolder } from "../../../core/api";
 import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
 import { copyText } from "../copied";
-import { files } from "../core";
+import { core, files } from "../core";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
 import { documentStatusText } from "../documentStatus";
 import { providerErrorText } from "../errors";
 import { addedDate, documentSummary, fileDate, showFileLabelKey } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
 import { useInfo } from "../info";
-import { organizeModel, organizeState } from "../libraryPage";
+import { folderCounts, organizeModel, organizeState } from "../libraryPage";
 import {
   fileStatusLabel,
   folderName,
@@ -27,6 +27,7 @@ import { chipsOf } from "../tagEditing";
 import { DocumentLineIcon, FolderLineIcon } from "./lineIcons";
 import { TagDot } from "./TagColour";
 import { buttonClass } from "./ui";
+import { useTaggingService } from "./useTaggingService";
 
 const WIDTH_PX = 340;
 const EDGE_PX = 8;
@@ -86,6 +87,11 @@ function Panel() {
       ? state.linkedFolders.find((each) => each.id === target.id)
       : undefined,
   );
+  const group = useAppStore((state) =>
+    target?.kind === "folder"
+      ? state.library?.groups.find((each) => each.id === target.id)
+      : undefined,
+  );
   const panel = useRef<HTMLDivElement>(null);
   const row = rowOf(from);
   useExitToward(panel, () => row ?? from);
@@ -100,12 +106,12 @@ function Panel() {
   }, []);
 
   // What it was about is gone (deleted, unlinked): nothing left to show.
-  const gone = !item && !linked;
+  const gone = !item && !linked && !group;
   useEffect(() => {
     if (gone) useInfo.getState().close();
   }, [gone]);
 
-  const name = item ? displayName(item) : linked ? folderName(linked.path) : "";
+  const name = item ? displayName(item) : linked ? folderName(linked.path) : (group?.name ?? "");
   return (
     <div
       ref={panel}
@@ -130,7 +136,13 @@ function Panel() {
       style={{ width: WIDTH_PX }}
       className={panelClass}
     >
-      {item ? <DocumentInfo document={item} /> : linked && <LinkedFolderInfo linked={linked} />}
+      {item ? (
+        <DocumentInfo document={item} />
+      ) : linked ? (
+        <LinkedFolderInfo linked={linked} />
+      ) : (
+        group && <FolderInfo group={group} />
+      )}
     </div>
   );
 }
@@ -140,7 +152,11 @@ function Header({ icon, name, line }: { icon: ReactNode; name: string; line: str
     <div className="flex items-center gap-2.5 border-b border-rule px-4 pt-3.5 pb-2.5">
       <span className="flex size-7 shrink-0 items-center justify-center text-ink-meta">{icon}</span>
       <div className="min-w-0 flex-1">
-        <p data-testid="info-name" className="truncate text-ui leading-5 font-semibold text-ink">
+        <p
+          data-testid="info-name"
+          title={name}
+          className="truncate text-ui leading-5 font-semibold text-ink"
+        >
           {name}
         </p>
         <p data-testid="info-summary" className="truncate text-[12px] leading-4 text-ink-meta">
@@ -159,11 +175,26 @@ function Rows({ children }: { children: ReactNode }) {
   );
 }
 
-function Row({ label, testId, children }: { label: string; testId: string; children: ReactNode }) {
+function Row({
+  label,
+  testId,
+  focusRef,
+  children,
+}: {
+  label: string;
+  testId: string;
+  focusRef?: Ref<HTMLElement>;
+  children: ReactNode;
+}) {
   return (
     <>
       <dt className="text-ink-meta">{label}</dt>
-      <dd data-testid={testId} className="min-w-0 break-words text-ink [overflow-wrap:anywhere]">
+      <dd
+        ref={focusRef}
+        tabIndex={focusRef ? -1 : undefined}
+        data-testid={testId}
+        className="min-w-0 break-words text-ink [overflow-wrap:anywhere]"
+      >
         {children}
       </dd>
     </>
@@ -214,6 +245,11 @@ function DocumentInfo({ document }: { document: Document }) {
   const assignment = useAppStore((state) =>
     state.library?.assignments.find((each) => each.documentId === document.id),
   );
+  const scanImages = useTaggingService(
+    "scan-images",
+    assignment?.error?.wording?.key === "error.library.scanImagesOff",
+  );
+  const organizeRow = useRef<HTMLElement>(null);
   const folder = useDocumentFolder(document.id);
   const linkedName = useAppStore((state) => {
     const linked = state.linkedFolders.find((each) => each.id === document.linkedFolderId);
@@ -300,13 +336,28 @@ function DocumentInfo({ document }: { document: Document }) {
             <span className="block text-ink-meta">{document.failure.message}</span>
           )}
         </Row>
-        <Row label={t("info.organize")} testId="info-organize">
+        <Row label={t("info.organize")} testId="info-organize" focusRef={organizeRow}>
           {t(organizeState(assignment))}
           {assignment?.model && (
             <span className="block text-ink-meta">{organizeModel(assignment.model, t)}</span>
           )}
           {assignment?.error && (
             <span className="block text-ink-meta">{providerErrorText(assignment.error, t)}</span>
+          )}
+          {scanImages && !scanImages.allowed && (
+            <button
+              type="button"
+              data-testid="info-allow-page-images"
+              onClick={() =>
+                void core
+                  .allowDataFlow("scan-images", scanImages.service.id)
+                  .then(() => organizeRow.current?.focus())
+                  .catch((error: unknown) => useAppStore.getState().reportError(error))
+              }
+              className={`${buttonClass} mt-1.5`}
+            >
+              {t("scan.images.allow")}
+            </button>
           )}
         </Row>
       </Rows>
@@ -374,6 +425,35 @@ function LinkedFolderInfo({ linked }: { linked: LinkedFolder }) {
         showLabel={t(showFileLabelKey(navigator.platform))}
         onShow={() => void useAppStore.getState().showLinkedFolder(linked.id)}
       />
+    </>
+  );
+}
+
+function FolderInfo({ group }: { group: LibraryGroup }) {
+  const t = useT();
+  const language = useLanguage();
+  const count = useAppStore(
+    (state) =>
+      folderCounts(
+        state.library?.groups ?? [],
+        state.documents,
+        state.library?.assignments ?? [],
+      ).get(group.id) ?? 0,
+  );
+  const documents = t(count === 1 ? "library.count.one" : "library.count", {
+    count: formatCount(count, language),
+  });
+  return (
+    <>
+      <Header icon={<FolderLineIcon className="size-7" />} name={group.name} line={documents} />
+      <Rows>
+        <Row label={t("info.description")} testId="info-description">
+          {group.description || <span className="text-ink-meta">{t("info.description.none")}</span>}
+        </Row>
+        <Row label={t("info.added")} testId="info-added">
+          {addedDate(group.createdAt, language)}
+        </Row>
+      </Rows>
     </>
   );
 }

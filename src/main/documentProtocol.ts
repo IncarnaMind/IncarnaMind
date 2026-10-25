@@ -7,7 +7,7 @@
  * A Markdown Document's pictures beside it are served under its URL
  * (`documentImageUrl`), only from its own folder, and only images.
  */
-import { protocol } from "electron";
+import { type CustomScheme, protocol } from "electron";
 import { type Core, type DocumentKind, ExtractionError, NotFoundError } from "../core";
 import { DOCUMENT_SCHEME, documentIdFromUrl, documentImageFromUrl } from "../shared/documentViewer";
 
@@ -26,18 +26,14 @@ const CONTENT_TYPES: Readonly<Record<DocumentKind, string>> = {
   transcript: "text/vtt",
 };
 
-/** Must run before the app is ready. */
-export function registerDocumentScheme(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: DOCUMENT_SCHEME,
-      // The least the viewer needs: pdf.js (and the text view) load files with
-      // XMLHttpRequest, which only works for a CORS-enabled scheme. Nothing else:
-      // not standard, not secure, no fetch, no CSP bypass, no service workers, no storage.
-      privileges: { corsEnabled: true },
-    },
-  ]);
-}
+/** Registered with the app's other privileged schemes, before it is ready (index.ts). */
+export const DOCUMENT_SCHEME_PRIVILEGES: CustomScheme = {
+  scheme: DOCUMENT_SCHEME,
+  // The least the viewer needs: pdf.js (and the text view) load files with
+  // XMLHttpRequest, which only works for a CORS-enabled scheme. Nothing else:
+  // not standard, not secure, no fetch, no CSP bypass, no service workers, no storage.
+  privileges: { corsEnabled: true },
+};
 
 /**
  * Answers requests for Document files. Only live Documents are served; anything

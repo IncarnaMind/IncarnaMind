@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { ConversationAnswer, ConversationQuestion } from "../../../../core/api";
+import { answerBlocks, hasText } from "../../../../shared/answerBlocks";
 import type { NodeJSON } from "../../../../shared/blockJson";
-import { answerBlocks, hasText } from "../../answerBlocks";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
@@ -17,6 +17,7 @@ import { AskProblem } from "../../editor/AskProblem";
 import { PlanLimitLine } from "../../editor/PlanLimitLine";
 import { useT } from "../../i18n";
 import { useStoppedByPlanLimit } from "../../planLimits";
+import { useQuestions } from "../../questions";
 import { useScopeEmpty } from "../../scopeDocuments";
 import { useAppStore } from "../../store";
 import { useUnreadFiles } from "../../unreadFiles";
@@ -25,16 +26,23 @@ import { UnreadFilesLine } from "../UnreadFilesLine";
 import { AnswerActions } from "./AnswerActions";
 import { AnswerSteps, useStepsScopeOf } from "./AnswerSteps";
 import { AnswerText } from "./AnswerText";
-import { NoMindToolsLine, UnbackedClaimLine, WaitingChangesLine } from "./ChangeProblemLines";
-import { CoverageLine } from "./CoverageLines";
+import { AskedLines } from "./AskCall";
+import { UnbackedClaimLine, WaitingChangesLine } from "./ChangeProblemLines";
+import { CommandsCard } from "./CommandsCard";
+import { CoverageLine, WrittenFromLine } from "./CoverageLines";
 import { MindChangesCard, NoMindLine, wantedAMind } from "./MindChangesCard";
+import { SelfCheckLines } from "./SelfCheckLines";
+import { StillReadingLine } from "./StillReadingLine";
 
 /** What adding an Answer needs from the thread around it. */
 export interface AnswerKeeping {
   /** The name of the Mind Add to note adds to; null with no Mind in focus (the ▾ opens). */
   focusedMindName: string | null;
+  /** The Mind in focus has nothing written in it. */
+  mindEmpty: boolean;
   add(answer: ConversationAnswer): void;
   pick(answer: ConversationAnswer, anchor: HTMLElement): void;
+  newMind(answer: ConversationAnswer): void;
   openTable(answer: ConversationAnswer, table: NodeJSON): void;
 }
 
@@ -73,7 +81,14 @@ export function AssistantAnswer({
   const waiting = useApprovals((state) => state.waiting);
   const approvals = useMemo(() => waitingFor(waiting, answer.id), [waiting, answer.id]);
   const consenting = useAnswers((state) => state.phases[answer.id] === "waiting-for-consent");
-  const { silent, usual } = useAnswerWait(answer, streaming, approvals.length > 0 || consenting);
+  const asking = useQuestions((state) =>
+    Object.values(state.waiting).some((each) => each.answerId === answer.id),
+  );
+  const { silent, usual } = useAnswerWait(
+    answer,
+    streaming,
+    approvals.length > 0 || consenting || asking,
+  );
   const openSettings = useAppStore((state) => state.openSettings);
   const regenerate = () => void regenerateAnswer(answer.id);
   const written = hasText(blocks);
@@ -97,6 +112,7 @@ export function AssistantAnswer({
       aria-label={t("answer.label")}
       className="assistant-answer"
     >
+      {!streaming && <WrittenFromLine answer={answer} />}
       <AnswerSteps
         answer={answer}
         question={question}
@@ -106,6 +122,7 @@ export function AssistantAnswer({
         wait={silent ? { usual } : null}
         onRegenerate={regenerate}
       />
+      <AskedLines answer={answer} />
       {answer.citationSupport === "none" && (
         <NoCitationsLine
           modelId={answer.model?.modelId ?? null}
@@ -124,19 +141,13 @@ export function AssistantAnswer({
         />
       )}
       <MindChangesCard answer={answer} streaming={streaming} />
+      <CommandsCard answer={answer} streaming={streaming} />
+      {!streaming && <SelfCheckLines answer={answer} />}
       {!streaming && question && !question.askedFrom && wantedAMind(answer) && (
         <NoMindLine question={question} />
       )}
       {!streaming && <WaitingChangesLine answer={answer} />}
-      {!streaming && <UnbackedClaimLine answer={answer} onRegenerate={regenerate} />}
-      {!streaming && written && status !== "failed" && answer.steps?.withoutMindTools && (
-        <NoMindToolsLine
-          answerId={answer.id}
-          onAdd={(button) =>
-            keeping.focusedMindName ? keeping.add(answer) : keeping.pick(answer, button)
-          }
-        />
-      )}
+      {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
       {!streaming && scopeEmpty && (
         <ProblemLine
           role="status"
@@ -151,6 +162,7 @@ export function AssistantAnswer({
         </ProblemLine>
       )}
       {!streaming && uncalculated > 0 && <UncalculatedLine count={uncalculated} />}
+      {!streaming && status !== "failed" && <StillReadingLine answer={answer} />}
       {!streaming && status !== "failed" && <UnreadFilesLine files={unread} />}
       {!streaming && status === "failed" && !planModel && (
         <AnswerError
@@ -194,11 +206,12 @@ export function AssistantAnswer({
       <AnswerActions
         answer={answer}
         streaming={streaming}
-        stopAbove={silent}
         canKeep={written}
         focusedMindName={keeping.focusedMindName}
+        mindEmpty={keeping.mindEmpty}
         onAdd={() => keeping.add(answer)}
         onPick={(anchor) => keeping.pick(answer, anchor)}
+        onNewMind={() => keeping.newMind(answer)}
       />
     </article>
   );

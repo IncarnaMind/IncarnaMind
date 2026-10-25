@@ -54,6 +54,77 @@ export function linkSources(
   return { text: linked, unlinked };
 }
 
+// The write path's brackets: "[Deck, slide 3]", "【执行概要，第 3 页】", several sources in one.
+const SOURCE_BRACKET = /([ \t]*)(?:\[([^[\]\n]+)\](?!\()|【([^【】\n]+)】)/gu;
+// Code, maths and quoted words are the text's own: a bracket in them is never a source. Maths and
+// straight quotes open and close as pandoc reads them, so dollar amounts or inch marks on either
+// side of a source don't hide it.
+const KEPT_AS_WRITTEN =
+  /```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$(?=\S)[^$\n]*?(?<=\S)\$(?!\d)|“[^”\n]*”|(?<![\p{L}\p{N}_])"[^"\n]*"(?![\p{L}\p{N}_])|「[^」\n]*」|『[^』\n]*』/gu;
+
+interface Recognised {
+  start: number;
+  end: number;
+  space: string;
+  written: string;
+  sources: NamedSource[];
+}
+
+function recognised(text: string, known: (source: NamedSource) => boolean): Recognised[] {
+  const kept = [...text.matchAll(KEPT_AS_WRITTEN)].map(
+    (match) => [match.index, match.index + match[0].length] as const,
+  );
+  return [...text.matchAll(SOURCE_BRACKET)].flatMap((match) => {
+    const space = match[1] ?? "";
+    const at = match.index + space.length;
+    if (text[at - 1] === "!" || kept.some(([from, to]) => at >= from && at < to)) return [];
+    const parts = (match[2] ?? match[3] ?? "").split(/[;；]/).map(sourceOf);
+    const sources = parts.filter((part): part is NamedSource => part !== null);
+    if (sources.length === 0 || sources.length < parts.length || !sources.every(known)) return [];
+    return [
+      {
+        start: match.index,
+        end: match.index + match[0].length,
+        space,
+        written: match[0].slice(space.length),
+        sources,
+      },
+    ];
+  });
+}
+
+/**
+ * The brackets in `text` whose every source `known` knows, as written, but
+ * none in code, maths or quoted words: "[Deck, slide 3]", "[Deck]". A
+ * checkbox, "[1]" or "[Section 4]" names no Document, so is none.
+ */
+export function sourcesAsText(text: string, known: (source: NamedSource) => boolean): string[] {
+  return recognised(text, known).map((each) => each.written);
+}
+
+/**
+ * `text` with each bracket `sourcesAsText` finds in place of what `link`
+ * gives for its sources (Citations' markers); a source it gives null for is
+ * left out, and a bracket with none left goes with the space before it.
+ * Everything else stays as written. `dropped`: the sources left out.
+ */
+export function linkKnownSources(
+  text: string,
+  known: (source: NamedSource) => boolean,
+  link: (source: NamedSource) => string | null,
+): { text: string; dropped: number } {
+  let dropped = 0;
+  let out = "";
+  let at = 0;
+  for (const each of recognised(text, known)) {
+    const markers = each.sources.flatMap((source) => link(source) ?? []);
+    dropped += each.sources.length - markers.length;
+    out += text.slice(at, each.start) + (markers.length > 0 ? each.space + markers.join("") : "");
+    at = each.end;
+  }
+  return { text: out + text.slice(at), dropped };
+}
+
 const simplified = (text: string) =>
   text.toLowerCase().replace(/[§›>]/g, " ").replace(/\s+/g, " ").trim();
 
@@ -94,6 +165,10 @@ const nameKey = (name: string) =>
     .replace(/\s+/g, " ")
     .trim()
     .toLocaleLowerCase();
+
+/** Whether `name` is one of `names`, as a source written in brackets names a Document: its extension may be left out. */
+export const namesOneOf = (name: string, names: readonly string[]): boolean =>
+  names.some((each) => nameKey(each) === nameKey(name));
 
 /** Whether a Citation is of the source a bracketed name gives: its Document, and where in it, if given. */
 export function citesSource(

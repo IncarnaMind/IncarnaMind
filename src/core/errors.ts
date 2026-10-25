@@ -87,6 +87,25 @@ export class ConsentDeclinedError extends TranslatableError {
   }
 }
 
+/**
+ * Thrown as a request would leave on a flow the User has turned off for its
+ * service since the work began: nothing was sent.
+ */
+export class ConsentRevokedError extends TranslatableError {
+  override name = "ConsentRevokedError";
+  constructor(readonly flow: DataFlow) {
+    super({ key: "error.consent.revoked", values: { service: flow.service.name } });
+  }
+}
+
+/** Thrown as a request would leave this computer while Local mode is on: nothing was sent. */
+export class LocalModeError extends TranslatableError {
+  override name = "LocalModeError";
+  constructor() {
+    super({ key: "error.localMode.stopped" });
+  }
+}
+
 /** Thrown when the User didn't choose where new files go: nothing was saved. */
 export class FileWriteCancelledError extends TranslatableError {
   override name = "FileWriteCancelledError";

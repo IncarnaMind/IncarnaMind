@@ -28,3 +28,9 @@ interface ImportMetaEnv {
    */
   readonly MAIN_VITE_TESTER_BUILD?: string;
 }
+
+// A file's text, as Vite imports it with "?raw": the analysis helper, hashed into each run's record.
+declare module "*?raw" {
+  const text: string;
+  export default text;
+}

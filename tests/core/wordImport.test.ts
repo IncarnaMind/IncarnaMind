@@ -25,7 +25,7 @@ import {
   wordReportOf,
   wordSourceOf,
 } from "../../src/shared/wordFiles";
-import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { createTempDataFolder, nextTurn, queryDatabase, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, shownWithChanges } from "../helpers/minds";
 import { encryptedOfficeFile, legacyOfficeFile } from "../helpers/office";
@@ -795,6 +795,92 @@ describe("a long document", () => {
     // Every Block is someone else's, the ones written after the restart too.
     const origins = client.doc.getMap(MIND_TEXT_ORIGINS_FIELD);
     expect(origins.size).toBe(blocks.length);
+  });
+});
+
+describe("an import whose Mind is deleted halfway", () => {
+  const PARAGRAPHS = 3500;
+
+  function chineseDocument(): Buffer {
+    const lines = Array.from({ length: PARAGRAPHS }, (_, index) =>
+      paragraph(`第${index + 1}条：承租人可在第五个周年日终止租约。`),
+    );
+    return wordFile({ body: lines.join("") });
+  }
+
+  async function startImport(core: Core, dataDir: string): Promise<string> {
+    const path = await saveFile(dataDir, "租约.docx", chineseDocument());
+    const result = await core.importWordFile({ path, origin: "own" });
+    if (!result.ok) throw new Error(result.refusal);
+    return result.mind.id;
+  }
+
+  const completed = (dataDir: string) =>
+    queryDatabase<{ completed_at: string | null }>(
+      dataDir,
+      "SELECT completed_at FROM word_packages",
+    )[0]?.completed_at ?? null;
+
+  /** Waits for the import to end, then for any second writer to have done what it would. */
+  async function finished(client: MindClient): Promise<void> {
+    await importDone(client);
+    for (let turn = 0; turn < 10; turn++) await nextTurn();
+  }
+
+  function expectEveryParagraphOnce(client: MindClient): void {
+    const blocks = blocksOf(client);
+    expect(blocks).toHaveLength(PARAGRAPHS);
+    expect(new Set(blocks.map((block) => JSON.stringify(block))).size).toBe(PARAGRAPHS);
+  }
+
+  test("restoring the Mind goes on with the import, with no restart", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const mindId = await startImport(core, dataDir);
+
+    await core.deleteMind(mindId);
+    await nextTurn();
+    expect(completed(dataDir)).toBeNull();
+
+    await core.restore([{ kind: "mind", id: mindId }]);
+    const client = await connectToMind(core, mindId);
+    await finished(client);
+
+    expectEveryParagraphOnce(client);
+    expect(wordImportProgressOf(client.doc)).toBeNull();
+    expect(completed(dataDir)).not.toBeNull();
+  });
+
+  test("restoring it while the import still runs starts no second writer", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const mindId = await startImport(core, dataDir);
+
+    await core.deleteMind(mindId);
+    await core.restore([{ kind: "mind", id: mindId }]);
+    const client = await connectToMind(core, mindId);
+    await finished(client);
+
+    expectEveryParagraphOnce(client);
+  });
+
+  test("deleting and restoring it again before the import has resumed starts it once", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const mindId = await startImport(core, dataDir);
+    const ref = { kind: "mind", id: mindId } as const;
+
+    await core.deleteMind(mindId);
+    await nextTurn();
+    await core.restore([ref]);
+    await core.deleteMind(mindId);
+    await core.restore([ref]);
+    await core.restore([ref]);
+    const client = await connectToMind(core, mindId);
+    await finished(client);
+
+    expectEveryParagraphOnce(client);
+    expect(wordImportProgressOf(client.doc)).toBeNull();
   });
 });
 

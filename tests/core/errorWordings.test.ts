@@ -35,7 +35,7 @@ const SENTENCES_LEFT: Record<string, number> = {
   "comparisons/index.ts": 6,
   "connectors/config.ts": 12,
   "connectors/index.ts": 4,
-  "consent.ts": 7,
+  "consent.ts": 6,
   "conversations/index.ts": 11,
   "core.ts": 17,
   "documents/evidence.ts": 2,
@@ -56,10 +56,11 @@ const SENTENCES_LEFT: Record<string, number> = {
   "noteAdding.ts": 5,
   "outputFiles.ts": 6,
   "privacy.ts": 5,
-  "providers/chat.ts": 13,
-  "providers/embeddings.ts": 8,
+  "providers/apiKey.ts": 1,
+  "providers/chat.ts": 12,
+  "providers/embeddings.ts": 7,
   "providers/kinds.ts": 2,
-  "providers/rerank.ts": 7,
+  "providers/rerank.ts": 6,
   "recentlyDeleted.ts": 3,
   "referenceRecords/import/index.ts": 2,
   "referenceRecords/index.ts": 6,
@@ -72,7 +73,7 @@ const SENTENCES_LEFT: Record<string, number> = {
   "sources/tool.ts": 2,
   "suggestions/index.ts": 6,
   "tags/index.ts": 11,
-  "tags/jev.ts": 6,
+  "tags/jev.ts": 5,
   "tags/tagger.ts": 1,
   "tools/web/tools.ts": 1,
   "usageData.ts": 3,
@@ -98,7 +99,7 @@ describe("an error the window shows", () => {
       key: "error.document.nameTooLong",
       values: { max: 500 },
     });
-    expect(error.message).toBe("A Document's name can't be longer than 500 characters.");
+    expect(error.message).toBe("A Document’s name can’t be longer than 500 characters.");
     expect(error.wording).toEqual({ key: "error.document.nameTooLong", values: { max: 500 } });
     expect(new NotFoundError("It was deleted.").wording).toBeNull();
   });
@@ -162,7 +163,7 @@ describe("the errors a User meets in each area", () => {
       wording: { key: "error.agent.nameEmpty" },
     });
     await expect(core.connectAgent({ name: "x".repeat(81) })).rejects.toMatchObject({
-      message: "An agent's name can be at most 80 characters.",
+      message: "An agent’s name can be at most 80 characters.",
       wording: { key: "error.agent.nameTooLong", values: { max: 80 } },
     });
     await expect(core.connectAgent({ name: "codex" })).rejects.toMatchObject({
@@ -201,12 +202,8 @@ describe("the errors a User meets in each area", () => {
     });
   });
 
-  test("Meetings say they are off, and a Meeting that isn't there", async () => {
+  test("A Meeting that isn't there", async () => {
     const core = startCore(await createTempDataFolder());
-    await expect(core.createMeeting()).rejects.toMatchObject({
-      message: "Meetings are turned off in Settings.",
-      wording: { key: "error.meeting.off" },
-    });
     await expect(core.startMeeting({ meetingId: "no-such-meeting" })).rejects.toMatchObject({
       wording: { key: "error.meeting.notFound" },
     });

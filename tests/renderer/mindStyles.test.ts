@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { DEFAULT_MIND_STYLE, type MindStyle } from "../../src/shared/mindStyle";
+import { undoLines } from "../helpers/undoLines";
 
 /*
  * A Mind's font and text size as the window handles them: a choice shows at once and is
@@ -11,6 +12,7 @@ type Styles = typeof import("../../src/renderer/src/mindStyles");
 let styles: Styles;
 let undo: typeof import("../../src/renderer/src/undo");
 let app: typeof import("../../src/renderer/src/store");
+let said: ReturnType<typeof undoLines>["said"];
 
 const written: [string, MindStyle][] = [];
 /** What the core holds for each Mind: the page's `core.getMindStyle` and `setMindStyle`. */
@@ -46,6 +48,7 @@ beforeAll(async () => {
   styles = await import("../../src/renderer/src/mindStyles");
   undo = await import("../../src/renderer/src/undo");
   app = await import("../../src/renderer/src/store");
+  ({ said } = undoLines((await import("../../src/renderer/src/i18n")).translateNow));
   app.useAppStore.setState({ reportError: (error) => void reported.push(error) });
 });
 
@@ -63,11 +66,11 @@ describe("choosing a font and a text size", () => {
   test("is written through the core and offers Undo, which puts the Mind back", async () => {
     await styles.chooseFont("a", "serif");
     expect(written).toEqual([["a", { font: "serif", size: "default" }]]);
-    expect(undo.useUndo.getState().line?.change?.message).toBe("Font changed to Serif");
+    expect(said(undo.useUndo.getState().line?.change)).toBe("Font changed to Serif");
 
     await styles.chooseSize("a", "large");
     expect(written.at(-1)).toEqual(["a", { font: "serif", size: "large" }]);
-    expect(undo.useUndo.getState().line?.change?.message).toBe("Text size changed to Large");
+    expect(said(undo.useUndo.getState().line?.change)).toBe("Text size changed to Large");
 
     await undo.useUndo.getState().undo();
     expect(held.get("a")).toEqual({ font: "serif", size: "default" });
@@ -80,7 +83,7 @@ describe("choosing a font and a text size", () => {
   test("an installed font is chosen by its family, and named in the Undo line as it is", async () => {
     await styles.chooseFont("songti", { family: "Songti SC" });
     expect(held.get("songti")?.font).toEqual({ family: "Songti SC" });
-    expect(undo.useUndo.getState().line?.change?.message).toBe("Font changed to Songti SC");
+    expect(said(undo.useUndo.getState().line?.change)).toBe("Font changed to Songti SC");
   });
 
   test("choosing what the Mind has already changes nothing and offers no Undo", async () => {
@@ -120,9 +123,7 @@ describe("making a style the default for new Minds", () => {
     const style: MindStyle = { font: "serif", size: "large" };
     await styles.makeDefaultForNewMinds(style);
     expect(updates).toEqual([style]);
-    expect(undo.useUndo.getState().line?.change?.message).toBe(
-      "New Minds will start in this style",
-    );
+    expect(said(undo.useUndo.getState().line?.change)).toBe("New Minds will start in this style");
     await undo.useUndo.getState().undo();
     expect(updates.at(-1)).toEqual(DEFAULT_MIND_STYLE);
     app.useAppStore.setState({ settings: null });

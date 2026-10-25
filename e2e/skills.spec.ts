@@ -63,7 +63,7 @@ test("a Skill imported from a folder in Settings is forced from the slash menu i
   const preview = section.getByTestId("skill-preview");
   await expect(preview.getByTestId("skill-preview-name")).toHaveText("tide-tables");
   await expect(preview.getByTestId("skill-preview-description")).toHaveText(DESCRIPTION);
-  await expect(preview).toContainText("Licence: MIT");
+  await expect(preview).toContainText("License: MIT");
   await preview.getByText(/^3 files/).click();
   const files = preview.getByTestId("skill-preview-file");
   await expect(files).toHaveCount(3);
@@ -78,7 +78,7 @@ test("a Skill imported from a folder in Settings is forced from the slash menu i
   await expect(section.getByTestId("skills-yours").getByTestId("skill-item")).toHaveCount(1);
   await expect(item.getByTestId("skill-enabled")).toBeChecked();
   await expect(item).toContainText(DESCRIPTION);
-  await expect(item).toContainText("Licence: MIT · 1 script");
+  await expect(item).toContainText("License: MIT · 1 script");
   await expect(section.getByTestId("skill-preview")).toHaveCount(0);
   await closeSettings(window);
 
@@ -113,7 +113,7 @@ test("a Skill imported from a folder in Settings is forced from the slash menu i
   const card = (await openSteps(window, answer)).getByTestId("answer-skill");
   await expect(card).toHaveAttribute("data-skill-name", "tide-tables");
   await expect(card).toHaveAttribute("data-forced", "true");
-  await expect(card).toContainText("Used the Skill tide-tables · chosen for this Question");
+  await expect(card).toContainText("Used the Skill “tide-tables” · chosen for this Question");
   await expect(answer).toContainText("Following the Skill tide-tables.");
 
   // A Skill chosen in the composer for the next Question, before it was turned off.

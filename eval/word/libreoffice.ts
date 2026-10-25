@@ -7,7 +7,6 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,38 +42,58 @@ export interface Conversion {
  * temporary folder so the User's LibreOffice settings and documents are never touched. With
  * `keep`, the PDF is also copied there, as `keep`'s path says, for a person to look at.
  */
-export function convertToPdf(soffice: string, file: string, keep?: string): Promise<Conversion> {
+export async function convertToPdf(
+  soffice: string,
+  file: string,
+  keep?: string,
+): Promise<Conversion> {
+  const converted = await convertFile(soffice, file, "pdf", ".pdf", keep);
+  return {
+    opened: converted.opened,
+    pdfBytes: converted.data?.length ?? 0,
+    ...(converted.problem !== undefined && { problem: converted.problem }),
+  };
+}
+
+/**
+ * Converts a file with LibreOffice headless to `target` (a format, or a filter with its options,
+ * as `--convert-to` takes it), in a profile of its own, and gives back what it wrote, whose name
+ * ends with `extension`. With `keep`, that file is also copied there.
+ */
+export function convertFile(
+  soffice: string,
+  file: string,
+  target: string,
+  extension: string,
+  keep?: string,
+): Promise<{ opened: boolean; data?: Buffer; problem?: string }> {
   const work = mkdtempSync(join(tmpdir(), "incarnamind-word-"));
   const args = [
     `-env:UserInstallation=file://${join(work, "profile")}`,
     "--headless",
     "--norestore",
     "--convert-to",
-    "pdf",
+    target,
     "--outdir",
     join(work, "out"),
     file,
   ];
   return new Promise((resolve) => {
     execFile(soffice, args, { timeout: TIMEOUT_MS }, (error, _stdout, stderr) => {
-      let result: Conversion;
+      let result: { opened: boolean; data?: Buffer; problem?: string };
       try {
-        const pdf = readdirSync(join(work, "out")).find((name) => name.endsWith(".pdf"));
-        const pdfBytes = pdf ? statSync(join(work, "out", pdf)).size : 0;
-        if (pdf && pdfBytes > 0 && keep) {
+        const written = readdirSync(join(work, "out")).find((name) => name.endsWith(extension));
+        const data = written ? readFileSync(join(work, "out", written)) : undefined;
+        if (written && data && data.length > 0 && keep) {
           mkdirSync(dirname(keep), { recursive: true });
-          copyFileSync(join(work, "out", pdf), keep);
+          copyFileSync(join(work, "out", written), keep);
         }
         result =
-          pdfBytes > 0
-            ? { opened: true, pdfBytes }
-            : {
-                opened: false,
-                pdfBytes,
-                problem: error?.message ?? (stderr.trim() || "no PDF written"),
-              };
+          data && data.length > 0
+            ? { opened: true, data }
+            : { opened: false, problem: error?.message ?? (stderr.trim() || "nothing written") };
       } catch {
-        result = { opened: false, pdfBytes: 0, problem: error?.message ?? "no PDF written" };
+        result = { opened: false, problem: error?.message ?? "nothing written" };
       }
       rmSync(work, { recursive: true, force: true });
       resolve(result);

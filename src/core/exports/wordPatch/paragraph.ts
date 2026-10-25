@@ -36,8 +36,16 @@ import {
 import { diffSteps, splitWords } from "../../proposals/diff";
 import { dateAttribute, escapeXml, type WordIds } from "../wordml";
 import { changeClose, changeTag, type Review, type Tracking, trackInline } from "../wordReview";
-import { marksOf, NO_MARKS, nodePendings, sameMarks, type TextMarks, textPendings } from "./mind";
-import { Properties, runPropertiesFor, withoutFormatChange } from "./properties";
+import {
+  marksOf,
+  NO_MARKS,
+  nodePendings,
+  sameMarks,
+  type TextMarks,
+  textPendings,
+  withFileFormat,
+} from "./mind";
+import { marksOfRun, Properties, runPropertiesFor, withoutFormatChange } from "./properties";
 import {
   closeTag,
   endOf,
@@ -447,6 +455,8 @@ export interface ParagraphContext {
   review: Review;
   /** Whether an atom the User removed from its paragraph is written there, as removed: it isn't written elsewhere. */
   removedHere(source: string): boolean;
+  /** As `DocumentPatchInput.lookCurrent`: if not, text keeps the file's colour, font, size and raise where the Mind has none. */
+  lookCurrent: boolean;
 }
 
 export interface ParagraphInput {
@@ -487,6 +497,8 @@ export function writeParagraph(
 ): { xml: string; lost: number } {
   const { base, current } = input;
   const { text, parents, places, review } = context;
+  const sameAsFile = (was: TextMarks, now: TextMarks) =>
+    sameMarks(was, context.lookCurrent ? now : withFileFormat(now, was));
   const element = base?.element ?? null;
   const children = element ? elements(element).filter((each) => each.name !== "w:pPr") : [];
   const childIndex = new Map(children.map((each, index) => [each, index]));
@@ -585,7 +597,7 @@ export function writeParagraph(
       if (
         piece &&
         (!samePendings(was.pending, now.pending) ||
-          (isText(was) && !sameMarks(was.marks, now.marks)) ||
+          (isText(was) && !sameAsFile(was.marks, now.marks)) ||
           (now.sentence !== undefined && review.choices.commentFailedChecks))
       )
         piece.dirty = true;
@@ -698,14 +710,14 @@ export function writeParagraph(
         passiveBefore(piece.from);
         verbatim(piece);
       }
-      if (from < 0 || !sameMarks((baseList[from] as Token).marks, token.marks)) lost++;
+      if (from < 0 || !sameAsFile((baseList[from] as Token).marks, token.marks)) lost++;
       continue;
     }
     if (piece) passiveBefore(piece.from);
     lastVerbatim = -1;
     if (each.step === "equal") {
       const was = baseList[from] as Token;
-      const reformatted = isText(was) && !sameMarks(was.marks, token.marks);
+      const reformatted = isText(was) && !sameAsFile(was.marks, token.marks);
       const kept = wordChangesOf(was.pending) === wordChangesOf(token.pending);
       writer.add(
         token,
@@ -991,8 +1003,9 @@ class RunWriter {
     const baseRPr = use === "borrowed" ? withoutFormatChange(ownRPr) : ownRPr;
     const linkChanged = token.marks.link !== inheritedLink;
     const style = !linkChanged ? null : token.marks.link ? addLinkStyle() : linkStyle;
-    const imported = formatRun ? this.importedMarks.get(formatRun) : undefined;
-    const rPr = runPropertiesFor(baseRPr, token.marks, style, imported);
+    const from = (formatRun ? this.importedMarks.get(formatRun) : undefined) ?? marksOfRun(baseRPr);
+    const marks = this.context.lookCurrent ? token.marks : withFileFormat(token.marks, from);
+    const rPr = runPropertiesFor(baseRPr, marks, style, from);
     const startTag = formatRun ? openTag(text, formatRun) : "<w:r>";
     const deleted =
       changes.some((each) => each.kind === "delete") ||

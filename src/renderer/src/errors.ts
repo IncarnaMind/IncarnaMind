@@ -2,6 +2,7 @@ import type { ProviderError } from "../../core/api";
 import type { ErrorWording } from "../../core/errors";
 import { takeWording } from "../../shared/errorWording";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { systemReason } from "../../shared/systemReasons";
 
 /**
  * What a failure says, split four ways: the core's own sentence, its wording for the interface
@@ -31,15 +32,6 @@ const CLASS_NAME = /^(\w*Error): ([\s\S]*)$/;
 /** A line of a stack, which a message may carry when someone wrote the stack into it. */
 const STACK_FROM = /\r?\n\s+at\s[\s\S]*$/;
 
-/** The failures of the system a User can read plain words for, by their code. */
-const SYSTEM_REASONS: readonly (readonly [RegExp, MessageKey])[] = [
-  [/\b(EACCES|EPERM|EROFS)\b/, "error.system.notAllowed"],
-  [/\b(ENOSPC|EDQUOT)\b/, "error.system.full"],
-  [/\b(ENOENT|ENOTDIR)\b/, "error.system.gone"],
-  [/\bENAMETOOLONG\b/, "error.system.nameTooLong"],
-  [/\bEEXIST\b/, "error.system.exists"],
-];
-
 /**
  * Takes a failure apart. This is the one place the wrapping Electron puts around an error from the
  * core is taken off, so no notice or line shows it.
@@ -52,7 +44,7 @@ export function describeError(error: unknown): ErrorDescription {
   const className = named ? named[1] : error instanceof Error ? error.name : null;
   const { sentence, wording } = takeWording(named ? (named[2] ?? "") : inner);
   const message = sentence.replace(STACK_FROM, "").trim();
-  const reason = SYSTEM_REASONS.find(([code]) => code.test(message))?.[1] ?? null;
+  const reason = systemReason(message);
   const said = `${className || "Error"}: ${message}`;
   return { message, wording, reason, detail: wrapped?.[1] ? `${wrapped[1]}\n${said}` : said };
 }

@@ -148,8 +148,10 @@ function formatSection(value: number, section: string): string | null {
   const point = pattern.indexOf(".");
   const integerPart = point < 0 ? pattern : pattern.slice(0, point);
   const decimalPart = point < 0 ? "" : pattern.slice(point + 1).replace(/,/g, "");
-  // Commas right after the digits scale by a thousand each ("#,##0," is in thousands).
-  const scale = /,+$/.exec(integerPart)?.[0].length ?? 0;
+  // Commas right after the digits, or after the decimals, scale by a thousand each ("#,##0," is
+  // in thousands, "0.0,," in millions).
+  const trailing = (part: string) => /,+$/.exec(part)?.[0].length ?? 0;
+  const scale = trailing(integerPart) + (point < 0 ? 0 : trailing(pattern.slice(point + 1)));
   const grouped = integerPart.replace(/,+$/, "").includes(",");
   let number = percent ? value * 100 : value;
   number /= 1000 ** scale;

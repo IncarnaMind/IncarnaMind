@@ -1,8 +1,11 @@
-import { createContext, type ReactNode, useContext, useState } from "react";
+import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
+import { changedSourceNote, citationState } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
+import { useCitationRecheck } from "../citationVersion";
 import { CountItLine } from "../components/CountItLine";
 import { InlineName } from "../components/InlineName";
+import { moveDocumentsBeside } from "../components/library/DocumentMoveTo";
 import { DocumentLineIcon, PinLineIcon } from "../components/lineIcons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine } from "../components/ProblemLine";
@@ -10,8 +13,9 @@ import { DocumentTagChips } from "../components/TagChips";
 import { files } from "../core";
 import { errorMessage } from "../errors";
 import { useLeftOutOfEvidence } from "../evidence";
-import { useLanguage, useT } from "../i18n";
-import { useAppStore } from "../store";
+import { useGap, useLanguage, useT } from "../i18n";
+import { type Said, saidInLine } from "../lineNames";
+import { useAppStore, type ViewerTarget } from "../store";
 import { useRename } from "../useRename";
 import { pageDate } from "../webPages";
 import { OpenExternallyIcon } from "./icons";
@@ -23,6 +27,8 @@ export interface ViewerFrame {
   /** The tab is a preview: the toolbar offers to keep it open. */
   preview: boolean;
   keep(): void;
+  /** Where the tab was opened, when a Citation opened it: its version and quote. */
+  target?: ViewerTarget;
 }
 
 export const ViewerFrameContext = createContext<ViewerFrame>({
@@ -48,6 +54,7 @@ export function ViewerHeader({
   leading,
   children,
   openable = true,
+  onRetry,
 }: {
   leading?: ReactNode;
   children?: ReactNode;
@@ -56,15 +63,64 @@ export function ViewerHeader({
    * open. Nor is there while the Document says its file is missing or out of reach.
    */
   openable?: boolean;
+  onRetry?: () => void;
 }) {
   const t = useT();
   const language = useLanguage();
-  const { document, preview, keep } = useContext(ViewerFrameContext);
+  const gap = useGap();
+  const { document, preview, keep, target } = useContext(ViewerFrameContext);
+  const documents = useAppStore((state) =>
+    state.status.kind === "ready" ? state.documents : null,
+  );
+  const cited = target?.citation ?? null;
+  const citedState = useMemo(
+    () =>
+      cited && target
+        ? citationState(
+            {
+              documentId: target.documentId,
+              contentHash: cited.contentHash ?? null,
+              check: cited.check,
+              pageFrom: cited.pageFrom ?? target.pageFrom ?? null,
+              pageTo: cited.pageTo ?? target.pageTo ?? null,
+            },
+            documents,
+          )
+        : null,
+    [cited, target, documents],
+  );
+  const changedState = citedState?.changedAfterCited ?? false;
+  const recheck = useCitationRecheck(
+    cited && target?.quote
+      ? {
+          documentId: target.documentId,
+          contentHash: cited.contentHash ?? null,
+          pageFrom: cited.pageFrom ?? target.pageFrom ?? null,
+          pageTo: cited.pageTo ?? target.pageTo ?? null,
+          quote: target.quote,
+        }
+      : null,
+    changedState,
+    document?.contentHash,
+  );
+  const changed = citedState
+    ? changedSourceNote(
+        changedState,
+        {
+          pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
+          pageTo: cited?.pageTo ?? target?.pageTo ?? null,
+          location: cited?.location ?? null,
+        },
+        recheck,
+        t,
+      )
+    : null;
   /** Why the Document's own app couldn't open it, until it is tried again. */
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<Said | null>(null);
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
+  const header = useRef<HTMLElement>(null);
   const renameDocument = useAppStore((state) => state.renameDocument);
 
   // A copy named after the Document opens, as from the sidebar's file menu.
@@ -73,7 +129,9 @@ export function ViewerHeader({
     setProblem(null);
     files.openDocumentExternally(document.id).catch((failure: unknown) => {
       setProblem(
-        t("viewer.file.openFailed", { name: document.name, reason: errorMessage(failure, t) }),
+        saidInLine(t, (t) =>
+          t("viewer.file.openFailed", { name: document.name, reason: errorMessage(failure, t) }),
+        ),
       );
     });
   };
@@ -83,6 +141,7 @@ export function ViewerHeader({
       <header
         data-testid="viewer-header"
         {...(document ? objectMenu.rowProps : {})}
+        ref={header}
         className="viewer-header"
       >
         {leading}
@@ -156,14 +215,28 @@ ${sourceOf(document)}`
           <ObjectMenu
             target={{ kind: "document", id: document.id }}
             label={t("documents.more", { name: displayName(document) })}
-            here={{ "document.rename": rename.start }}
+            here={{
+              ...(onRetry && { "document.retry": onRetry }),
+              "document.rename": rename.start,
+              "document.moveTo": () => moveDocumentsBeside(header.current, [document.id]),
+            }}
             className="viewer-icon-button"
           />
         )}
       </header>
       {problem && (
-        <ProblemLine testId="viewer-open-problem" className="shrink-0 px-4 py-2">
-          {problem}
+        <ProblemLine
+          testId="viewer-open-problem"
+          title={problem.fullMessage}
+          className="shrink-0 px-4 py-2"
+        >
+          {problem.message}
+        </ProblemLine>
+      )}
+      {changed && (
+        <ProblemLine role="status" testId="viewer-citation-changed" className="shrink-0 px-4 py-2">
+          {changed.notice}
+          {changed.quote && `${gap(changed.notice, changed.quote)}${changed.quote}`}
         </ProblemLine>
       )}
       {document && leftOut && (

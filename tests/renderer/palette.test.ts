@@ -131,6 +131,9 @@ describe("⌘K's names", () => {
       ["recent", ["财务月报：九月", "Contract checklist", "Stand-up, 6 October"]],
     ]);
     expect(palette.recentGroup([], found)).toEqual([]);
+    expect(shown(palette.recentGroup(minds, found, "m-finance"))).toEqual([
+      ["recent", ["Contract checklist", "Stand-up, 6 October"]],
+    ]);
   });
 });
 
@@ -154,6 +157,42 @@ describe("⌘K's actions", () => {
     expect(actions("zzqx")).toEqual([]);
   });
 
+  test("say what a command is for in a line under its name, in the language shown, and most have none", () => {
+    const itemOf = (key: string, language: "en" | "zh-CN") =>
+      palette
+        .actionGroup(
+          palette.readQuery("verify").words,
+          { selection: [], focus: null, surface: "palette" },
+          language,
+          found.names,
+        )[0]
+        ?.items.find((item) => item.key === key);
+
+    expect(itemOf("command:verify.document", "en")).toMatchObject({
+      purpose: "Check the claims in a PDF someone else wrote",
+    });
+    expect(itemOf("command:verify.document", "zh-CN")).toMatchObject({
+      purpose: "核对别人写的 PDF 里的说法",
+    });
+    const [list] = palette.actionGroup(
+      [],
+      { selection: [], focus: null, surface: "palette" },
+      "en",
+      found.names,
+    );
+    expect(list?.items.find((item) => item.key === "command:mind.new")).toMatchObject({
+      purpose: "",
+    });
+  });
+
+  test("a word inside another word, or one typo across two, doesn't find an action (#1372)", () => {
+    expect(actions("ew mind")).toEqual([]);
+    expect(actions("theme")).toEqual([]);
+    expect(actions("new mind")).toEqual([["actions", ["New Mind"]]]);
+    // A typo of a word's start still finds the action.
+    expect(actions("neww mind")).toEqual([["actions", ["New Mind"]]]);
+  });
+
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {
     const [withTwo] = palette.actionGroup(
       ["new", "folder"],
@@ -175,26 +214,120 @@ describe("⌘K's actions", () => {
       { selection: [], focus: one, surface: "palette" },
       "en",
       found.names,
+      true,
     );
     expect(onOne?.items.find((item) => item.key === "command:document.delete")?.meta).toBe(
       "Aldermoor MSA",
     );
   });
 
-  test("with nothing typed, start with what makes something new, and never list ⌘K itself", () => {
-    const [list] = palette.actionGroup(
+  const noop = () => undefined;
+  /** What the place showing the object offers: rename in its row, a picker beside it (see commands/here). */
+  const HERE = {
+    "mind.rename": noop,
+    "mind.moveTo": noop,
+    "document.rename": noop,
+    "document.moveTo": noop,
+    "document.tags": noop,
+    "folder.rename": noop,
+  };
+  const list = (words: string[], focus: ObjectRef | null = null, all = false) =>
+    palette
+      .actionGroup(
+        words,
+        { selection: [], focus, surface: "palette", ...(focus && { here: HERE }) },
+        "en",
+        found.names,
+        all,
+      )
+      .flatMap((group) => group.items.map((item) => item.key));
+
+  test("with nothing typed, are the few that are on top, in their own order, and never ⌘K itself", () => {
+    expect(list([])).toEqual(["command:mind.new", "command:library.open"]);
+    expect(list([])).not.toContain("command:palette.open");
+  });
+
+  test("with something in focus, the top ones for it come with the ones for the window, six at most", () => {
+    const names = (focus: ObjectRef) => list([], focus);
+    const mind = names({ kind: "mind", id: "m-contract" });
+    const document = names({ kind: "document", id: "d-msa" });
+    const folder = names({ kind: "folder", id: "f-finance" });
+    for (const keys of [mind, document, folder]) {
+      expect(keys.length).toBeLessThanOrEqual(6);
+      expect(keys).toContain("command:library.open");
+      // New Mind first, Open the Library last.
+      expect(keys.indexOf("command:mind.new")).toBeLessThan(keys.indexOf("command:library.open"));
+      expect(keys.at(-1)).toBe("command:library.open");
+    }
+    expect(mind).toEqual(expect.arrayContaining(["command:mind.rename"]));
+    expect(document).toEqual(
+      expect.arrayContaining([
+        "command:document.moveTo",
+        "command:document.tags",
+        "command:document.rename",
+      ]),
+    );
+    expect(folder).toEqual(expect.arrayContaining(["command:folder.rename"]));
+    // Move to…, Tags…, then Rename.
+    expect(document.indexOf("command:document.moveTo")).toBeLessThan(
+      document.indexOf("command:document.tags"),
+    );
+    expect(document.indexOf("command:document.tags")).toBeLessThan(
+      document.indexOf("command:document.rename"),
+    );
+  });
+
+  test("a Mind in front lists Export… after Check and before New Mind, as the prototype does", () => {
+    const mind = list([], { kind: "mind", id: "m-contract" });
+    expect(mind.indexOf("command:mind.exportMenu")).toBeGreaterThanOrEqual(0);
+    expect(mind.indexOf("command:mind.exportMenu")).toBeLessThan(mind.indexOf("command:mind.new"));
+    expect(mind.indexOf("command:mind.check")).toBeLessThan(
+      mind.indexOf("command:mind.exportMenu"),
+    );
+  });
+
+  test("Rename is found by its pinyin as it is read in 重命名, and the Library by 资料库's", () => {
+    const rename = { kind: "mind", id: "m-contract" } as const;
+    expect(list(["chongmingming"], rename)).toContain("command:mind.rename");
+    expect(list(["cmm"], rename)).toContain("command:mind.rename");
+    expect(list(["ziliaoku"])).toContain("command:library.open");
+    expect(list(["zlk"])).toContain("command:library.open");
+  });
+
+  test("a row shows the keys of what it does, F2 for Rename and ⇧⌘M for Move to…", () => {
+    const [group] = palette.actionGroup(
       [],
-      { selection: [], focus: null, surface: "palette" },
+      { selection: [], focus: { kind: "document", id: "d-msa" }, surface: "palette", here: HERE },
       "en",
       found.names,
     );
-    const keys = list?.items.map((item) => item.key) ?? [];
-    expect(keys[0]).toBe("command:mind.new");
-    expect(keys.indexOf("command:settings.open")).toBeGreaterThan(
-      keys.indexOf("command:webPage.add"),
-    );
-    expect(keys.at(-1)).toBe("command:deleted.empty");
-    expect(keys).not.toContain("command:palette.open");
+    const keys = (id: string) => {
+      const item = group?.items.find((each) => each.key === `command:${id}`);
+      return item?.kind === "command" ? item.shortcut : undefined;
+    };
+    expect(keys("document.rename")).toBe("F2");
+    expect(keys("document.moveTo")).toMatch(/M$/);
+  });
+
+  test("the interface language is named for the other one, in either language, and found by its words", () => {
+    expect(actions("interface language")).toEqual([["actions", ["Interface language: 中文"]]]);
+    expect(actions("界面语言", "zh-CN")).toEqual([["actions", ["界面语言：English"]]]);
+    expect(actions("yuyan", "zh-CN")).toEqual([["actions", ["界面语言：English"]]]);
+    expect(actions("language")).toEqual([["actions", ["Interface language: 中文"]]]);
+  });
+
+  test("Add Documents… and Link a folder… are found by name", () => {
+    expect(actions("add documents")).toEqual([["actions", ["Add Documents…"]]]);
+    expect(actions("link a folder")).toEqual([["actions", ["Link a folder…"]]]);
+    expect(actions("添加文档", "zh-CN")[0]?.[1]).toContain("添加文档…");
+  });
+
+  test('">" lists every action that applies, and typing finds any of them', () => {
+    const everything = list([], null, true);
+    expect(everything.length).toBeGreaterThan(15);
+    expect(everything).toContain("command:deleted.empty");
+    expect(list(["recently", "deleted"])).toContain("command:deleted.show");
+    expect(list(["open", "the", "library"])[0]).toBe("command:library.open");
   });
 });
 
@@ -209,6 +342,28 @@ describe("what is typed", () => {
     expect(palette.searchesWords("c")).toBe(false);
     expect(palette.searchesWords("co")).toBe(true);
     expect(palette.searchesWords("财")).toBe(true);
+  });
+
+  test("Enter's row: the one chosen, else the first found; the Ask row only once the search for words inside is over", () => {
+    const name = (key: string): Palette.PaletteItem => ({
+      kind: "command",
+      id: "library.open",
+      key,
+      name: key,
+      meta: "",
+      purpose: "",
+      shortcut: null,
+      ranges: [],
+    });
+    const [ask] = palette.askGroup("Rotterdam", "New chat", en).flatMap((group) => group.items);
+    if (!ask) throw new Error("no Ask row");
+    const found = [name("a"), name("b")];
+
+    expect(palette.activeOf([ask], null, true)).toBeUndefined();
+    expect(palette.activeOf([ask], null, false)).toBe(ask);
+    expect(palette.activeOf([...found, ask], null, true)).toBe(found[0]);
+    expect(palette.activeOf([...found, ask], "b", true)).toBe(found[1]);
+    expect(palette.activeOf([ask], "ask", true)).toBe(ask);
   });
 
   test("words in conversations show the first message that holds them, and asking names the conversation", () => {
@@ -243,9 +398,9 @@ describe("what is typed", () => {
       }),
     ]);
     expect(shown(palette.askGroup("how long is the warranty", "New chat", en))).toEqual([
-      ["ask", ["Ask about “how long is the warranty”"]],
+      ["ask", ["Ask “how long is the warranty”"]],
     ]);
     const [ask] = palette.askGroup("保修期多长", "供应商审查", zh);
-    expect(ask?.items[0]).toMatchObject({ name: "就“保修期多长”提问", meta: "在“供应商审查”里" });
+    expect(ask?.items[0]).toMatchObject({ name: "提问“保修期多长”", meta: "在“供应商审查”里" });
   });
 });

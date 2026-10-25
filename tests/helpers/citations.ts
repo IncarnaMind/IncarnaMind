@@ -14,6 +14,7 @@ import { turnOnEmbeddings } from "./embedding";
 import { connectToMind, type MindClient } from "./mindClient";
 import { answerIn, editMind, question, writeMind } from "./minds";
 import {
+  lastAnswerCall,
   type ModelCall,
   promptOf,
   type ScriptedReply,
@@ -25,7 +26,7 @@ import {
 export interface ShownPassage {
   id: string;
   document: string;
-  /** Its Document's date, when known: "2025-05-14", "2024-03" or "2019". */
+  /** Its date as the model reads it, when known: `date="2025-05-14"`, `file-created="2026-10-18"`. */
   date: string | null;
   /** A PDF's: "3" or "3-4". Null for other kinds, which have a `location`. */
   pages: string | null;
@@ -48,7 +49,7 @@ export function recordSearches() {
 export function shownPassages(result: string): ShownPassage[] {
   const passages: ShownPassage[] = [];
   const pattern =
-    /<passage id="([^"]+)" document="([^"]*)"(?: date="([^"]+)")?(?: pages="([^"]+)")?(?: location="([^"]+)")?(?: cite="never")?>\n([\s\S]*?)\n<\/passage>/g;
+    /<passage id="([^"]+)" document="([^"]*)"(?: ((?:date|file-created|file-modified)="[^"]+"))?(?: pages="([^"]+)")?(?: location="([^"]+)")?(?: cite="never")?>\n([\s\S]*?)\n<\/passage>/g;
   for (const match of result.matchAll(pattern)) {
     passages.push({
       id: match[1] as string,
@@ -101,7 +102,7 @@ export const unaskedModel = () => scriptedModel(() => ({ text: "No Answer was as
 
 /** What the model was told about its records: the result of its last `cite` call. */
 export function citeFeedback(model: MockLanguageModelV4): string {
-  const last = model.doStreamCalls.at(-1);
+  const last = model.doStreamCalls[lastAnswerCall(model)];
   if (!last) throw new Error("The model wasn't asked anything.");
   const texts: string[] = [];
   for (const message of last.prompt) {

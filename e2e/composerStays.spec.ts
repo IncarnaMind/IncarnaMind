@@ -18,6 +18,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  tabMenu,
 } from "./app";
 
 /**
@@ -175,7 +176,7 @@ test("with the Library in front and no Mind open, a Question is answered from Al
   const picker = window.getByTestId("add-to-picker");
   await expect(picker).toBeVisible();
   await pointAndClick(window, picker.getByTestId("add-to-option").last());
-  await expect(answer.getByTestId("answer-added")).toContainText("Made the Mind");
+  await expect(answer.getByTestId("answer-added")).toHaveCount(0);
 
   // A Mind holding the Answer opened beside the Library, which is still there.
   await expect(window.getByTestId("library-tab")).toHaveCount(1);
@@ -184,7 +185,7 @@ test("with the Library in front and no Mind open, a Question is answered from Al
   await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect(window.getByTestId("mind-editor")).toContainText("Your Documents answer this");
 
-  await pointAndClick(window, answer.getByTestId("answer-added-undo"));
+  await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.delete"));
   await expect(tab).toHaveCount(0);
   await expect(window.getByTestId("library-tab")).toHaveCount(1);
   await app.close();

@@ -11,6 +11,7 @@ import {
   setLanguage,
   setWindowSize,
   sidebarFolder,
+  tagDocument,
 } from "./app";
 
 /*
@@ -57,7 +58,7 @@ async function renameTooLong(window: Page, row: Locator, length = 501): Promise<
 }
 
 /** The words the core gives for it. */
-const TOO_LONG = "A Document's name can't be longer than 500 characters.";
+const TOO_LONG = "A Document’s name can’t be longer than 500 characters.";
 
 /** Stands in for the clipboard, so Copy path works in a window nobody is looking at. */
 async function stubClipboard(window: Page): Promise<void> {
@@ -84,7 +85,7 @@ test("an error from the core says it in plain words, with the technical text und
     const notice = window.getByTestId("error-notice");
     await expect(notice).toHaveCount(1);
     await expect(notice.getByTestId("error-notice-message")).toHaveText(
-      `That didn't work: ${TOO_LONG}`,
+      `That didn’t work: ${TOO_LONG}`,
     );
     await expect(notice).toHaveAttribute("role", "alert");
 
@@ -211,7 +212,7 @@ for (const { width, label } of [
         await core.createTag({ name });
         await core.createTag({ name: "Moons" });
       }, long);
-      await window.getByTestId("browse-views").getByRole("button", { name: "标签" }).click();
+      await tagDocument(window, "Tides", "Moons");
       const moons = window.getByTestId("sidebar-tag").filter({ hasText: "Moons" });
       await moons.getByRole("treeitem").first().focus();
       await window.keyboard.press("F2");

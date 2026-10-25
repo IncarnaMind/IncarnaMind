@@ -42,6 +42,11 @@ export interface UnitLabel {
   path?: string[];
   /** section: which part of a long section this is, from 2 (the first part has none). */
   part?: number;
+  /**
+   * section: comes before the first heading of a Document that has headings; `path` is empty.
+   * Without it, an empty `path` is a Document with no headings (or one read before this was said).
+   */
+  beforeHeading?: boolean;
   /** section: the Word file's footnotes and endnotes, gathered at the end. */
   notes?: boolean;
   /**

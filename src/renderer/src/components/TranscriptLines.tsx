@@ -5,6 +5,7 @@ import { formatBytes } from "../linkedFolders";
 import { useMeetings } from "../meetings";
 import { defaultFolderLabel, showOutputLocationSetting } from "../outputFiles";
 import { showTranscript } from "../transcripts";
+import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
 
@@ -16,13 +17,21 @@ import { useTabPlace } from "./tabs/tabItems";
 export function TranscriptLines({
   meeting,
   className = "meeting-line",
+  over = false,
 }: {
   meeting: Meeting;
   className?: string;
+  /** In the meeting bar, a status line that comes and goes with the engine hangs below the bar, so the page never moves. A problem never hangs: it has the bar's own row, whole. */
+  over?: boolean;
 }) {
   const t = useT();
   const place = useTabPlace();
   const transcript = meeting.transcript;
+  const sources = useDownloadSources(
+    transcript?.problem?.kind === "download" ? transcript.model?.error : null,
+    () => void useMeetings.getState().retryTranscript(meeting.id),
+    "meeting-transcript",
+  );
   if (!transcript) return null;
   const { problem, model, state } = transcript;
   const retry = (key: MessageKey): ProblemAction => ({
@@ -38,6 +47,15 @@ export function TranscriptLines({
         }
       : null;
 
+  const documentId = transcript.documentId;
+  const open: ProblemAction | undefined = documentId
+    ? {
+        label: t("meetings.transcript.open"),
+        testId: "meeting-transcript-open",
+        onClick: () => showTranscript(documentId, place?.groupId),
+      }
+    : undefined;
+
   let line: {
     text: string;
     action?: ProblemAction;
@@ -46,17 +64,24 @@ export function TranscriptLines({
   } | null = null;
   if (problem) {
     const message = problem.message;
-    if (problem.kind === "download") {
+    if (problem.kind === "speakers") {
       line = {
-        text: t("meetings.transcript.downloadFailed", { message }),
+        text: t("meetings.transcript.speakersFailed"),
+        action: retry("meetings.transcript.retry"),
+        ...(open && { also: open }),
+        role: "alert",
+      };
+    } else if (problem.kind === "download") {
+      line = {
+        text: failedEverySource(model?.error)
+          ? t("meetings.transcript.downloadFailed.everySource")
+          : t("meetings.transcript.downloadFailed", { message }),
         action: retry("meetings.transcript.retry"),
         role: "alert",
       };
     } else if (problem.kind === "engine") {
       line = {
-        text: message
-          ? t("meetings.transcript.engineFailed", { message })
-          : t("meetings.transcript.engineStopped"),
+        text: t("meetings.transcript.engineStopped"),
         action: retry("meetings.transcript.retry"),
         role: "alert",
       };
@@ -92,18 +117,13 @@ export function TranscriptLines({
         : t("meetings.transcript.finishing"),
       role: "status",
     };
-  } else if (state === "saved" && transcript.documentId) {
-    const documentId = transcript.documentId;
+  } else if (state === "saved" && open) {
     line = {
       // The first save says where it went (D209).
       text: transcript.savedDefaulted
         ? t("meetings.transcript.savedIn", { folder: defaultFolderLabel(t) })
         : t("meetings.transcript.saved"),
-      action: {
-        label: t("meetings.transcript.open"),
-        testId: "meeting-transcript-open",
-        onClick: () => showTranscript(documentId, place?.groupId),
-      },
+      action: open,
       ...(transcript.savedDefaulted && {
         also: {
           label: t("export.changeFolder"),
@@ -117,13 +137,16 @@ export function TranscriptLines({
     line = { text: t("meetings.transcript.empty"), role: "status" };
   }
   if (!line) return null;
+  const hangs =
+    over && !problem && (state === "preparing" || state === "behind" || state === "finishing");
   return (
     <ProblemLine
       testId="meeting-transcript-line"
       role={line.role}
-      className={className}
+      className={hangs ? `${className} meeting-line-over` : className}
       action={line.action}
       also={line.also}
+      disclosure={sources.toggle ? sources : undefined}
     >
       {line.text}
     </ProblemLine>

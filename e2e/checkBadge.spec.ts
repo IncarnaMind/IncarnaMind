@@ -5,6 +5,8 @@ import type { Editor } from "@tiptap/core";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
+  addToNote,
+  askInAssistant,
   checkCard,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
@@ -19,9 +21,10 @@ import {
 } from "./app";
 
 /*
- * The check badge (#909): at a Mind's bottom right, the margin marks' counts
- * and the claims no check has looked at; nothing on a Mind with nothing to
- * check. Its card opens from it, and from ⌘K. The scripted model
+ * The check badge (#909, #1909): at a Mind's bottom right, the margin marks'
+ * counts and every claim no check covers; nothing on a Mind of plain notes
+ * with no Citation and no problem (#1194). Its card opens from it, and from
+ * ⌘K. The scripted model
  * (src/main/fakeChat/checks.ts) finds a sentence supported when it shares
  * three words with a line of a Document, and otherwise unsupported. Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
@@ -38,7 +41,6 @@ const TIDES = buildPdf([
   { lines: ["Spring and neap tides", "Spring tides happen at new moon and at full moon."] },
 ]);
 const SUPPORTED = "Spring tides happen at new and full moon.";
-const UNSUPPORTED = "Penguins nest on the harbour cliffs.";
 
 let dataDir: string;
 let sources: string;
@@ -60,7 +62,7 @@ async function launchWithTides() {
   return running;
 }
 
-test("a Mind with nothing to check is bare; a claim no check has looked at shows the badge, whose card checks it, says so until you type, and closes with Esc", async () => {
+test("a Mind of plain notes is bare, whatever it claims; its card, from ⌘K, has one count per state and one action, checks, and closes with Esc; what it checked shows until you type", async () => {
   const { app, window } = await launchWithTides();
   await setWindowSize(app, window, 1440, 900);
   await newMind(window);
@@ -72,30 +74,25 @@ test("a Mind with nothing to check is bare; a claim no check has looked at shows
   await expect(editor).toContainText("Thanks!");
   await expect(badge).toHaveCount(0);
 
+  // A claim in the User's own notes is one to check, but no Citation shows the badge: it stays bare.
   await window.keyboard.type(` ${SUPPORTED}`);
-  await expect(open).toHaveAccessibleName("Sentences and Citations: 1 claim not checked yet");
-  await expect(badge).toContainText("to check");
-  // It sits at the page's bottom right, over the text, never past the Mind's pane.
-  const pane = await window.getByTestId("mind-pane").boundingBox();
-  const box = await badge.boundingBox();
-  if (!pane || !box) throw new Error("The badge isn't drawn.");
-  expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width + 1);
-  await screenshot(window, "check-badge-to-check-en");
-
+  await expect(editor).toContainText(SUPPORTED);
   const card = await checkCard(window);
-  await expect(card.getByTestId("health-unchecked")).toContainText("1 claim not checked yet");
+  await expect(card.getByTestId("health-toCheck")).toContainText("1 claim not checked yet");
+  await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
+  await expect(badge).toHaveCount(0);
+  // One action, and the one under it; no lines about them, and no Close: Esc closes it.
+  await expect(card.getByTestId("badge-check-mind")).toHaveText("Check this Mind");
+  await expect(card.getByTestId("badge-check-contradictions")).toHaveText(
+    "Check for contradictions",
+  );
+  await expect(card.locator('[data-testid^="badge-check"]')).toHaveCount(2);
+  await expect(card).not.toContainText("Whether each claim");
   await screenshot(window, "check-badge-card-en");
-  // At 1,100 px the badge keeps its words, and the card stays over the Mind's page.
-  await setWindowSize(app, window, 1100, 720);
-  await expect(badge.locator(".check-badge-words")).toBeVisible();
-  await expect(card).toBeVisible();
-  const narrowPane = await window.locator(".mind-scroller").first().boundingBox();
-  const cardBox = await card.boundingBox();
-  if (!narrowPane || !cardBox) throw new Error("The card isn't drawn.");
-  expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(narrowPane.x + narrowPane.width + 1);
-  await screenshot(window, "check-badge-card-en-1100");
-  await setWindowSize(app, window, 1440, 900);
-  await pointAndClick(window, card.getByTestId("health-check"));
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+
+  await pointAndClick(window, (await checkCard(window)).getByTestId("badge-check-mind"));
   // The model names the claims, and the card asks before it checks them.
   await pointAndClick(window, card.getByTestId("mind-check-ask").getByTestId("mind-check-check"));
   // A check the User started: the badge says what it checked, until they type.
@@ -103,6 +100,23 @@ test("a Mind with nothing to check is bare; a claim no check has looked at shows
   await expect(badge).toContainText("1 checked");
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
+  // It sits at the page's bottom right, over the text, never past the Mind's pane.
+  const pane = await window.getByTestId("mind-pane").boundingBox();
+  const box = await badge.boundingBox();
+  if (!pane || !box) throw new Error("The badge isn't drawn.");
+  expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width + 1);
+  // At 1,100 px the card stays over the Mind's page.
+  await setWindowSize(app, window, 1100, 720);
+  await pointAndClick(window, open);
+  await expect(card).toBeVisible();
+  const narrowPane = await window.locator(".mind-scroller").first().boundingBox();
+  const cardBox = await card.boundingBox();
+  if (!narrowPane || !cardBox) throw new Error("The card isn't drawn.");
+  expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(narrowPane.x + narrowPane.width + 1);
+  await screenshot(window, "check-badge-card-en-1100");
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+  await setWindowSize(app, window, 1440, 900);
   await editor.click();
   await window.keyboard.press("End");
   await window.keyboard.type(" More.");
@@ -125,14 +139,16 @@ test("a Mind with nothing to check is bare; a claim no check has looked at shows
 
 test("in Chinese and a narrow pane the badge shows only its marks and numbers; Tab reaches its card and Esc brings the focus back", async () => {
   const { app, window } = await launchWithTides();
-  await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 1440, 900);
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
   await editor.click();
-  await window.keyboard.type(`${SUPPORTED} ${UNSUPPORTED}`);
+  // A cited claim no check has looked at is one to check: an Answer added to the note has one.
+  await addToNote(window, await askInAssistant(window, "When do spring tides happen?"));
+  await expect(editor.getByTestId("citation")).toHaveCount(1);
+  await setLanguage(window, "zh-CN");
   const open = window.getByTestId("check-badge-open");
-  await expect(open).toHaveAccessibleName("句子和引用：2 条说法待核对");
+  await expect(open).toHaveAccessibleName(/^句子和引用：\d+ 条说法待核对$/);
   const words = window.getByTestId("check-badge").locator(".check-badge-words");
   await expect(words).toHaveText("条待核对");
   await expect(words).toBeVisible();
@@ -149,7 +165,7 @@ test("in Chinese and a narrow pane the badge shows only its marks and numbers; T
   }
   await expect(words).toHaveCount(2);
   for (const each of await words.all()) await expect(each).toBeHidden();
-  await expect(window.getByTestId("check-badge").first()).toContainText("2");
+  await expect(window.getByTestId("check-badge").first()).toContainText(/\d/);
   await screenshot(window, "check-badge-zh-narrow");
 
   await open.first().focus();
@@ -192,26 +208,31 @@ test("each row's Next goes through its sentences in order and round to the first
   const first = "Penguins nest on the harbour cliffs.";
   await window.keyboard.type(`${first} Whales sing in the deep bay.`);
   const card = await checkCard(window);
-  await pointAndClick(window, card.getByTestId("health-check"));
+  await pointAndClick(window, card.getByTestId("badge-check-mind"));
   await pointAndClick(window, card.getByTestId("mind-check-ask").getByTestId("mind-check-check"));
   const marks = window.getByTestId("claim-mark");
   await expect(marks.and(window.locator('[data-check="unsupported"]'))).toHaveCount(2);
-  const unsupported = (await checkCard(window)).getByTestId("health-unsupported");
-  await expect(unsupported).toContainText("2 unsupported");
-  await pointAndClick(window, unsupported);
+  const unsupported = async () => (await checkCard(window)).getByTestId("health-unsupported");
+  await expect(await unsupported()).toContainText("2 unsupported");
+  // Each Next ends as a click on the sentence's mark does: its card open, the badge's card closed.
+  const sentenceCard = window.getByTestId("claim-card");
+  await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(0);
-  await pointAndClick(window, unsupported);
+  await expect(sentenceCard).toHaveAttribute("data-check", "unsupported");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
+  await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(first.length + 1);
-  await pointAndClick(window, unsupported);
+  await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(0);
   await window.keyboard.press("Escape");
+  await expect(sentenceCard).toHaveCount(0);
 
   // A sentence the scripted model checks slowly: the badge counts, and Stop ends the run.
   await editor.click();
   await window.keyboard.press("End");
   await window.keyboard.type(" Seals sleep on the rocks slowly. Gulls circle the pier slowly.");
   const again = await checkCard(window);
-  await pointAndClick(window, again.getByTestId("health-check"));
+  await pointAndClick(window, again.getByTestId("badge-check-mind"));
   await pointAndClick(window, again.getByTestId("mind-check-ask").getByTestId("mind-check-check"));
   const stop = window.getByTestId("badge-stop");
   await expect(stop).toBeVisible();

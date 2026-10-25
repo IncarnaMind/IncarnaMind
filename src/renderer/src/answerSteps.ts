@@ -1,4 +1,3 @@
-import { markdownToBlocks } from "../../core/answers/markdown";
 import type {
   AnswerPhase,
   AnswerToolCall,
@@ -7,7 +6,7 @@ import type {
   MarkedCitation,
   MindRead,
 } from "../../core/api";
-import { withCitations } from "../../shared/blockJson";
+import { markersIn } from "../../shared/answerBlocks";
 
 /**
  * An Answer's steps in the assistant (#391), from what its row keeps: its
@@ -24,7 +23,11 @@ export const CALCULATE = "calculate";
 
 /** What the steps are read from. */
 export interface StepsInput {
-  answer: Pick<ConversationAnswer, "text" | "citations" | "toolCalls" | "model" | "steps" | "read">;
+  answer: Pick<
+    ConversationAnswer,
+    "text" | "citations" | "toolCalls" | "model" | "steps" | "read"
+  > &
+    Partial<Pick<ConversationAnswer, "status">>;
   /**
    * The Mind in focus when the Question was asked; null when none was. Its
    * Answer read it (`answer.read`), unless it couldn't: say, an Answer written
@@ -40,9 +43,25 @@ export interface StepsInput {
 /** A source a search led to: the first of its Citations at one place in one Document. */
 export type StepSource = MarkedCitation;
 
+/** A Document the request held whole, by id, with the name a Citation of it carries when one does. */
+export interface ReadDocument {
+  documentId: string;
+  name: string | null;
+}
+
+export interface MindReadLine {
+  kind: "read";
+  mind: MindRead;
+  share: number | null;
+  selection?: true;
+}
+
 export type StepRow =
-  /** The model's reasoning summary, and how long it thought. */
-  | { kind: "reasoning"; model: string; summary: string; seconds: number }
+  /**
+   * The model's reasoning summary, and how long it thought. `thinking`: it is still
+   * working, so far with this summary (see `LiveRows`).
+   */
+  | { kind: "reasoning"; model: string; summary: string; seconds: number; thinking?: true }
   /** A model that gave no reasoning summary, and how long the Answer took when that is known. */
   | { kind: "answered"; model: string; seconds: number | null }
   /** The Mind the Answer read, all of it or part of it: `share` of it (#564), when part and known. */
@@ -56,17 +75,23 @@ export type StepRow =
       found: number;
       used: number;
       sources: StepSource[];
+      /** One of its searches is still running. */
+      running?: true;
     }
+  /** The Documents whose whole text went with the Question, and where its Citations point into them. */
+  | { kind: "read-documents"; documents: ReadDocument[]; sources: StepSource[] }
   /** A search that failed, where it happened. */
   | { kind: "failed-search"; call: AnswerToolCall }
+  /** A search the User stopped the Answer in: it didn't fail. */
+  | { kind: "stopped-search"; call: AnswerToolCall }
   /** A Connector's Tool, Find sources or a Skill script. */
   | { kind: "call"; call: AnswerToolCall }
   /** A Skill, loaded by the model or chosen for the Question, with the files it read. */
   | { kind: "skill"; name: string; use: AnswerToolCall | null; reads: AnswerToolCall[] }
   /** The figures the Answer shows, each calculated from its cited inputs. */
   | { kind: "calculated"; count: number }
-  /** The Citations checked against their sources, and how many weren't found. */
-  | { kind: "check"; count: number; notFound: number };
+  /** The Citations checked against their sources, and how many weren't found; `running`: being checked now. */
+  | { kind: "check"; count: number; notFound: number; running?: true };
 
 export type FoldedLine =
   | { kind: "searched"; sources: number; extraScopes: number }
@@ -77,8 +102,10 @@ export type FoldedLine =
    */
   | { kind: "read-passages"; passages: number; citedAfterChecking: number }
   | { kind: "searched-web"; sources: number }
+  /** The Documents whose whole text went with the Question, and the Mind it read beside them. */
+  | { kind: "read-documents"; documents: ReadDocument[]; read: MindReadLine | null }
   | { kind: "listened"; sources: number }
-  | { kind: "read"; mind: MindRead; share: number | null; selection?: true }
+  | MindReadLine
   | { kind: "asked"; mind: AskedFrom }
   | { kind: "answered"; model: string };
 
@@ -89,7 +116,7 @@ export type LiveStep =
   | { kind: "reading"; mind: AskedFrom }
   | { kind: "searching" }
   | { kind: "call"; call: AnswerToolCall }
-  | { kind: "thinking" }
+  | { kind: "thinking"; summary: string }
   | { kind: "writing" }
   | { kind: "checking"; count: number }
   | { kind: "checking-figures" };
@@ -107,14 +134,27 @@ const field = (call: AnswerToolCall, name: string): string => {
   return typeof value === "string" ? value : "";
 };
 
-/** The Citation markers an Answer's text shows, in order, one for each place: a marker used twice is two. */
-export function markersIn(text: string): number[] {
-  const markers: number[] = [];
-  withCitations(markdownToBlocks(text), (marker) => {
-    markers.push(marker);
-    return null;
-  });
-  return markers;
+/** A summary's Markdown emphasis left out: providers set its headings in bold. */
+export const plainSummary = (summary: string) =>
+  summary.replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*\*/g, "");
+
+/**
+ * The latest of a reasoning summary, for the one live line: the last of its
+ * headings (a provider titles each part in bold), else its last sentence,
+ * which is the one still being written.
+ */
+export function latestReasoning(summary: string | null | undefined): string {
+  const paragraphs = (summary ?? "")
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const heading = paragraphs.findLast((paragraph) => /^\*\*[^*]+\*\*$/.test(paragraph));
+  if (heading) return plainSummary(heading);
+  const sentences = plainSummary(paragraphs.at(-1) ?? "")
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?。！？][”"’')）」]*)(?![”"’')）」])\s*/)
+    .filter((sentence) => /[\p{L}\p{N}]/u.test(sentence));
+  return sentences.at(-1)?.trim() ?? "";
 }
 
 /** The Citations an Answer shows, one for each marker in its text that has one. */
@@ -124,10 +164,19 @@ function shownCitations({ text, citations }: Pick<StepsInput["answer"], "text" |
 }
 
 /** The first row: the model's reasoning, or the model that answered and how long it took. */
-function modelRow(answer: StepsInput["answer"]): StepRow | null {
+function modelRow(answer: StepsInput["answer"], live: LiveStep | undefined): StepRow | null {
   const model = answer.model?.modelId;
   if (!model) return null;
   const reasoning = answer.steps?.reasoning;
+  if (live) {
+    return {
+      kind: "reasoning",
+      model,
+      summary: reasoning?.summary ?? "",
+      seconds: seconds(reasoning?.ms ?? 0),
+      ...(live.kind === "thinking" && { thinking: true as const }),
+    };
+  }
   if (reasoning) {
     return { kind: "reasoning", model, summary: reasoning.summary, seconds: seconds(reasoning.ms) };
   }
@@ -140,6 +189,69 @@ function modelRow(answer: StepsInput["answer"]): StepRow | null {
 /** Where a Citation points, to tell two sources apart. */
 const placeOf = (citation: MarkedCitation) =>
   `${citation.documentId}\n${citation.pageFrom}-${citation.pageTo}\n${JSON.stringify(citation.location)}`;
+
+// An Answer written before searches kept their Passages can't tell its searches' Citations apart.
+const forgetful = (call: AnswerToolCall) =>
+  call.status === "done" && (call.resultCount ?? 0) > 0 && !call.passages;
+
+function searchBehind(
+  calls: readonly AnswerToolCall[],
+  citation: MarkedCitation,
+): AnswerToolCall | undefined {
+  const searches = calls.filter((call) => isSearch(call) && call.status !== "failed");
+  return searches.some(forgetful)
+    ? searches.at(-1)
+    : searches.find((call) => call.passages?.includes(citation.passageId));
+}
+
+// A web page the Answer read is named by its own call.
+function citedWithoutSearch({
+  toolCalls,
+  citations,
+}: Pick<StepsInput["answer"], "toolCalls" | "citations">): MarkedCitation[] {
+  const pages = new Set(
+    toolCalls.flatMap((call) =>
+      call.webPage && "documentId" in call.webPage ? [call.webPage.documentId] : [],
+    ),
+  );
+  return citations.filter(
+    (citation) => !pages.has(citation.documentId) && !searchBehind(toolCalls, citation),
+  );
+}
+
+// An Answer written before its request was recorded can only say what its Citations prove: the
+// Documents it cites that no search found.
+function readDocuments(answer: StepsInput["answer"]): ReadDocument[] {
+  const sent = answer.steps?.sent;
+  const named = (documentId: string) =>
+    answer.citations.find((citation) => citation.documentId === documentId)?.documentName ?? null;
+  return sent
+    ? sent.documents.map((documentId) => ({ documentId, name: named(documentId) }))
+    : documentsOf(citedWithoutSearch(answer)).map((citation) => ({
+        documentId: citation.documentId,
+        name: citation.documentName,
+      }));
+}
+
+/** The Citations into the Documents read with the Question that no search found. */
+function citedFromRead(answer: StepsInput["answer"]): MarkedCitation[] {
+  const sent = answer.steps?.sent;
+  if (!sent) return citedWithoutSearch(answer);
+  const read = new Set(sent.documents);
+  return answer.citations.filter(
+    (citation) => read.has(citation.documentId) && !searchBehind(answer.toolCalls, citation),
+  );
+}
+
+const documentsOf = (citations: readonly MarkedCitation[]) =>
+  citations.filter(
+    (citation, at) => citations.findIndex((each) => each.documentId === citation.documentId) === at,
+  );
+
+const placesOf = (citations: readonly MarkedCitation[]) =>
+  citations.filter(
+    (citation, at) => citations.findIndex((each) => placeOf(each) === placeOf(citation)) === at,
+  );
 
 /** The Mind the Answer read, or the one it was asked from and didn't read. */
 const mindRow = ({ answer, askedFrom, selection }: StepsInput) =>
@@ -154,37 +266,65 @@ const mindRow = ({ answer, askedFrom, selection }: StepsInput) =>
       ? ({ kind: "asked", mind: askedFrom } as const)
       : null;
 
+// A question the Tool refused, or one left open when its Answer stopped, waits for nothing now.
+const unansweredQuestion = (call: AnswerToolCall) =>
+  call.source === "asks" && call.status !== "running" && !call.asked?.answer;
+
 /**
  * The rows of the unfolded timeline, in order: the model's reasoning (or
  * who answered), the Mind read, unless the folded line already says so and
- * there is no share of it to say (#564), the
+ * there is no share of it to say (#564), the Documents whose whole text went
+ * with the Question, the
  * searches and other calls in the order they started (searches in a row as
  * one, a failed one where it happened), the figures calculated, and the check
  * of the Citations last. A call still waiting for the User has no row: its
  * approval card shows instead.
+ *
+ * While the Answer is written (`live`: its step now), the rows are the same in
+ * the same order, so each is added where it will stay: the model's from the
+ * start, with the summary so far; every call as it starts; the Citations'
+ * check once it begins, and from then on until the Answer is written, even
+ * while a model that streams word by word has more text than Citations
+ * (`checking`: how many it counted when it last began). The Mind read is there
+ * from the start too, even where the folded line will say so once the Answer
+ * is written.
  */
-export function stepRows(input: StepsInput): StepRow[] {
+export function stepRows(
+  input: StepsInput,
+  live?: LiveStep,
+  checking: number | null = null,
+): StepRow[] {
   const { answer } = input;
   const rows: StepRow[] = [];
-  const first = modelRow(answer);
+  const first = modelRow(answer, live);
   if (first) rows.push(first);
   const mind = mindRow(input);
   const shared = mind?.kind === "read" && mind.share !== null;
-  if (mind && (shared || foldedLine(input)?.kind !== mind.kind)) rows.push(mind);
+  if (mind && (live || shared || foldedLine(input)?.kind !== mind.kind)) rows.push(mind);
+  const read = input.meeting && !answer.steps?.sent ? [] : readDocuments(answer);
+  if (read.length > 0) {
+    rows.push({
+      kind: "read-documents",
+      documents: read,
+      sources: placesOf(citedFromRead(answer)),
+    });
+  }
 
   const searches: Extract<StepRow, { kind: "search" }>[] = [];
   const skills = new Map<string, Extract<StepRow, { kind: "skill" }>>();
   let joining: Extract<StepRow, { kind: "search" }> | null = null;
   let calculated = 0;
   for (const call of answer.toolCalls) {
-    if (call.approval === "waiting") continue;
+    if (call.approval === "waiting" || unansweredQuestion(call)) continue;
     if (isCalculated(call)) {
       calculated = call.resultCount ?? 0;
       continue;
     }
     if (isSearch(call)) {
       if (call.status === "failed") {
-        rows.push({ kind: "failed-search", call });
+        // Stopping an Answer ends a search that was running; only a search that gave an error failed.
+        const stopped = answer.status === "stopped" && call.error === undefined;
+        rows.push({ kind: stopped ? "stopped-search" : "failed-search", call });
         joining = null;
         continue;
       }
@@ -195,6 +335,7 @@ export function stepRows(input: StepsInput): StepRow[] {
       }
       joining.calls.push(call);
       joining.found += call.resultCount ?? 0;
+      if (call.status === "running") joining.running = true;
       continue;
     }
     joining = null;
@@ -213,16 +354,11 @@ export function stepRows(input: StepsInput): StepRow[] {
     rows.push({ kind: "call", call });
   }
 
-  // Each Citation goes under the first search that found its Passage. Searches made before
-  // they kept what they found give theirs to the last search.
-  const kept = searches.some((search) => search.calls.some((call) => call.passages));
+  // Each Citation goes under the first search that found its Passage.
   const used = new Map<Extract<StepRow, { kind: "search" }>, Set<string>>();
   for (const citation of answer.citations) {
-    const search = kept
-      ? searches.find((each) =>
-          each.calls.some((call) => call.passages?.includes(citation.passageId)),
-        )
-      : searches.at(-1);
+    const call = searchBehind(answer.toolCalls, citation);
+    const search = call && searches.find((each) => each.calls.includes(call));
     if (!search) continue;
     const passages = used.get(search) ?? new Set<string>();
     passages.add(citation.passageId);
@@ -235,7 +371,10 @@ export function stepRows(input: StepsInput): StepRow[] {
 
   if (calculated > 0) rows.push({ kind: "calculated", count: calculated });
   const shown = shownCitations(answer);
-  if (shown.length > 0) {
+  if (live) {
+    const count = live.kind === "checking" ? live.count : checking;
+    if (count !== null) rows.push({ kind: "check", count, notFound: 0, running: true });
+  } else if (shown.length > 0) {
     rows.push({
       kind: "check",
       count: shown.length,
@@ -276,9 +415,10 @@ function extraScopes(calls: readonly AnswerToolCall[]): number {
 
 /**
  * The folded line: what was searched (the Documents, or else the web) and
- * how many Documents the Answer cites; with no search, the Mind it read (or
- * was asked from), or the model that answered. Null for an Answer no model
- * wrote, asked from no Mind.
+ * how many Documents the Answer cites; with no search, the Documents whose
+ * whole text went with the Question, with the Mind it read beside them; else
+ * the Mind it read (or was asked from), or the model that answered. Null for
+ * an Answer no model wrote, asked from no Mind.
  */
 export function foldedLine(input: StepsInput): FoldedLine | null {
   const { answer, meeting } = input;
@@ -296,6 +436,11 @@ export function foldedLine(input: StepsInput): FoldedLine | null {
   }
   if (answer.toolCalls.some((call) => call.source === "web" && call.status === "done")) {
     return { kind: "searched-web", sources };
+  }
+  const read = readDocuments(answer);
+  if (read.length > 0) {
+    const mind = mindRow(input);
+    return { kind: "read-documents", documents: read, read: mind?.kind === "read" ? mind : null };
   }
   return (
     mindRow(input) ?? (answer.model ? { kind: "answered", model: answer.model.modelId } : null)
@@ -338,7 +483,9 @@ export function liveStep({
       ? { kind: "checking", count: markers.length }
       : { kind: "writing" };
   }
-  if (phase === "writing") return { kind: "thinking" };
+  if (phase === "writing") {
+    return { kind: "thinking", summary: latestReasoning(answer.steps?.reasoning?.summary) };
+  }
   if (answer.read && !answer.toolCalls.some(isSearch))
     return { kind: "reading", mind: answer.read };
   return { kind: "searching" };

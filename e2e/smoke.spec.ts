@@ -6,12 +6,14 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
   addDocuments,
+  addProviderForm,
   createDataFolder,
   dismissChatSetup,
   enterContent,
   frontMindName,
   interceptOpenExternal,
   launchApp,
+  linkedFolderRow,
   linkFolderFromSidebar,
   nameMind,
   newMind,
@@ -165,7 +167,7 @@ test("Continue with ChatGPT opens OpenAI's sign-in for IncarnaMind's own registr
   // Settings → Models has it too. Nothing is signed in here: the browser is stood in for.
   await openSettings(window, "models");
   const section = window.getByTestId("chatgpt-settings");
-  await expect(section.getByTestId("chatgpt-account")).toHaveText("Not signed in.");
+  await expect(section.getByTestId("chatgpt-continue")).toBeVisible();
   // Where the sign-in couldn't be kept safely (Linux without a keyring), that's said up front and
   // Continue waits, so OpenAI's page never opens for a sign-in that would have nowhere to go.
   const storage = await window.evaluate(() =>
@@ -258,13 +260,10 @@ test("first run asks for no model; the first own Question waits while the setup 
   await first.app.close();
 });
 
-test("Settings → Models lists the key providers, and “Already pay for a plan?” with the ChatGPT plan", async () => {
+test("Settings → Models offers Add a provider, and “Already pay for a plan?” with the ChatGPT plan", async () => {
   const { app, window } = await launchApp(dataDir);
   const settings = await openSettings(window, "models");
-  await expect(settings.getByTestId("chat-choice-api-key")).toBeVisible();
-  await expect(
-    settings.locator("label").filter({ has: window.getByTestId("chat-choice-api-key") }),
-  ).toContainText("OpenAI, Anthropic, Google, DeepSeek and more");
+  await expect(settings.getByTestId("models-add-provider")).toHaveText("Add a provider…");
   const plans = settings.getByTestId("plans-settings");
   await expect(plans).toContainText("Already pay for a plan?");
   await expect(plans).toContainText("ChatGPT Plus or Pro");
@@ -328,42 +327,33 @@ test("the window opens at the size and place it was left at", async () => {
 test("an API key typed for one chat provider is cleared when another is chosen, or when the server changes", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  // A server the User gives is among the "More providers" in Settings.
   const settings = await openSettings(window, "models");
-  const form = settings.getByTestId("provider-form");
-  await settings.getByTestId("chat-choice-api-key").check();
-  const key = form.getByLabel(/^API key/);
-  const useKey = form.getByTestId("provider-use-key");
 
   // Typed for OpenAI, the key isn't kept for Anthropic: there is nothing to test or use with it.
-  await form
-    .locator("label")
-    .filter({ hasText: /^OpenAI$/ })
-    .click();
-  await key.fill("sk-typed-for-openai");
-  await form
-    .locator("label")
-    .filter({ hasText: /^Anthropic$/ })
-    .click();
-  await expect(key).toHaveValue("");
-  await expect(useKey).toBeDisabled();
+  let form = await addProviderForm(settings, "openai");
+  await form.getByLabel(/^API key/).fill("sk-typed-for-openai");
+  await settings.getByTestId("models-back").click();
+  form = await addProviderForm(settings, "anthropic");
+  const key = () => form.getByLabel(/^API key/);
+  await expect(key()).toHaveValue("");
+  await expect(form.getByTestId("provider-use-key")).toBeDisabled();
+  await settings.getByTestId("models-back").click();
 
   // For a server, the key stays while the address is fixed, and goes once it names another host.
-  await form.getByTestId("provider-more-toggle").click();
-  await form.locator("label").filter({ hasText: "OpenAI-compatible server" }).click();
+  form = await addProviderForm(settings, "openai-compatible");
   const server = form.getByLabel("Server URL");
   await server.fill("https://api.example.com/v1");
-  await key.fill("sk-typed-for-example");
+  await key().fill("sk-typed-for-example");
   await server.fill("https://api.example.com/v2");
   await server.blur();
-  await expect(key).toHaveValue("sk-typed-for-example");
+  await expect(key()).toHaveValue("sk-typed-for-example");
   await server.fill("https://other.example.net/v1");
   await server.blur();
-  await expect(key).toHaveValue("");
+  await expect(key()).toHaveValue("");
   await app.close();
 });
 
-test("a Linked folder shows its Folders as on disk, and files added on their own are Other Documents", async () => {
+test("a Linked folder is one row in its section, which doesn't unfold: its files sit in Not in a Folder with those added on their own, and the row opens the Library", async () => {
   const sources = await createDataFolder();
   try {
     const library = join(await realpath(sources), "Library");
@@ -375,60 +365,34 @@ test("a Linked folder shows its Folders as on disk, and files added on their own
 
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
-    const documents = window.getByTestId("document-list-item");
-    const folders = window.getByTestId("folder-item");
-    const others = window.getByTestId("other-documents");
+    const section = window.getByTestId("linked-folders-section");
+    const notInAFolder = window.getByTestId("not-in-a-folder").getByTestId("document-list-item");
 
-    // A file added on its own, with no Linked folder yet: just its row, at the top level.
+    // A file added on its own, with no Linked folder yet: its row in Not in a Folder, and no
+    // Linked folders section.
     await addDocuments(window, [loose]);
-    const looseItem = documents.filter({ hasText: "Loose notes" });
+    const looseItem = notInAFolder.filter({ hasText: "Loose notes" });
     await expect(looseItem).toHaveAttribute("data-depth", "0");
-    // As they are on disk: Folders on disk.
-    await showSourceLocations(window);
-    await expect(looseItem).toHaveAttribute("data-depth", "0");
-    await expect(others).toHaveCount(0);
+    await expect(section).toHaveCount(0);
 
-    // "Add folder…" links a folder, picked with the system's picker (answered by the test),
-    // once the User confirms in the link dialog.
+    // "Link a folder…" links a folder once the User confirms in the link dialog. Its one row comes,
+    // with nothing to unfold and none of its files under it.
     await linkFolderFromSidebar(app, window, library);
-    const root = folders.filter({ hasText: "Library" });
-    await expect(root).toHaveAttribute("data-depth", "0");
-    await expect(root.getByTestId("folder-toggle")).toHaveAttribute("aria-expanded", "true");
-    const paperItem = documents.filter({ hasText: "Paper" });
-    await expect(paperItem).toHaveAttribute("data-depth", "1");
-    // Its folders, nested as on disk, each level one step deeper.
-    const projects = folders.filter({ hasText: "Projects" });
-    await expect(projects).toHaveAttribute("data-depth", "1");
-    const year = folders.filter({ hasText: "2026" });
-    await expect(year).toHaveAttribute("data-depth", "2");
-    const planItem = documents.filter({ hasText: "Plan" });
-    await expect(planItem).toHaveAttribute("data-depth", "3");
-    await expect(planItem).toHaveAttribute(
-      "data-folder-id",
-      `${await year.getAttribute("data-folder-id")}`,
-    );
-    // Folding a folder hides what's inside it, its sub-Folder's too; unfolding shows it again.
-    const toggle = projects.getByTestId("folder-toggle");
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(year).toHaveCount(0);
-    await expect(planItem).toHaveCount(0);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(planItem).toBeVisible();
-
-    // The file added on its own is now in "Other Documents", below the Linked folder.
-    await expect(others).toHaveAttribute("data-depth", "0");
-    await expect(looseItem).toHaveAttribute("data-depth", "1");
-    const planBox = await planItem.boundingBox();
-    const othersBox = await others.boundingBox();
-    expect(othersBox?.y).toBeGreaterThan(planBox?.y ?? Number.POSITIVE_INFINITY);
-
-    // Folding the Linked folder hides everything in it; the Other Documents stay.
-    await root.getByTestId("folder-toggle").click();
-    await expect(documents).toHaveCount(1);
-    await expect(folders).toHaveCount(1);
+    await showSourceLocations(window);
+    const root = linkedFolderRow(window, "Library");
+    await expect(section.getByTestId("folder-item")).toHaveCount(1);
+    await expect(root.getByTestId("linked-folder-open")).not.toHaveAttribute("aria-expanded");
+    await expect(section.getByTestId("document-list-item")).toHaveCount(0);
+    // Its files, from its top and from its folders, sit in Not in a Folder beside the loose one.
+    await expect(notInAFolder.filter({ hasText: "Paper" })).toHaveAttribute("data-depth", "0");
+    await expect(notInAFolder.filter({ hasText: "Plan" })).toHaveAttribute("data-depth", "0");
     await expect(looseItem).toBeVisible();
+
+    // The row opens the Library, and stays as it was.
+    await root.getByTestId("linked-folder-open").click();
+    await expect(window.getByTestId("library")).toBeVisible();
+    await expect(section.getByTestId("folder-item")).toHaveCount(1);
+    await expect(section.getByTestId("document-list-item")).toHaveCount(0);
     await app.close();
   } finally {
     await removeDataFolder(sources);

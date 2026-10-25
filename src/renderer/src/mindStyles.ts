@@ -11,6 +11,7 @@ import {
   DEFAULT_MIND_STYLE,
   familyOf,
   isFontFamily,
+  type LineSpacing,
   type MindFont,
   type MindStyle,
   mindStyleOf,
@@ -22,6 +23,8 @@ import {
 import { core } from "./core";
 import { logCaught } from "./errorLog";
 import { translateNow } from "./i18n";
+import type { Words } from "./lineNames";
+import type { Translate } from "./objects";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -86,8 +89,8 @@ export const SIZE_LABELS = {
   large: "mindStyle.size.large",
 } as const satisfies Record<TextSize, string>;
 
-const fontLabel = (font: MindFont): string =>
-  typeof font === "string" ? translateNow(FONT_LABELS[font]) : font.family;
+const fontLabel = (font: MindFont, t: Translate): string =>
+  typeof font === "string" ? t(FONT_LABELS[font]) : font.family;
 
 async function currentStyle(mindId: string): Promise<MindStyle> {
   return useMindStyles.getState().byMind[mindId] ?? (await core.getMindStyle(mindId));
@@ -97,14 +100,10 @@ async function apply(mindId: string, style: MindStyle): Promise<void> {
   useMindStyles.getState().know(mindId, await core.setMindStyle(mindId, style));
 }
 
-/**
- * Changes a Mind's style, showing the change at once and putting it back if the core refuses,
- * and offers Undo.
- */
 async function change(
   mindId: string,
   update: (style: MindStyle) => MindStyle,
-  message: (style: MindStyle) => string,
+  said: Words,
 ): Promise<void> {
   const before = await currentStyle(mindId);
   const next = update(before);
@@ -119,7 +118,7 @@ async function change(
     return;
   }
   useUndo.getState().push({
-    message: message(next),
+    said,
     undo: () => apply(mindId, before),
     redo: () => apply(mindId, next),
   });
@@ -129,14 +128,29 @@ export const chooseFont = (mindId: string, font: MindFont) =>
   change(
     mindId,
     (style) => ({ ...style, font }),
-    () => translateNow("mindStyle.fontChanged", { font: fontLabel(font) }),
+    (t) => t("mindStyle.fontChanged", { font: fontLabel(font, t) }),
   );
 
 export const chooseSize = (mindId: string, size: TextSize) =>
   change(
     mindId,
     (style) => ({ ...style, size }),
-    () => translateNow("mindStyle.sizeChanged", { size: translateNow(SIZE_LABELS[size]) }),
+    (t) => t("mindStyle.sizeChanged", { size: t(SIZE_LABELS[size]) }),
+  );
+
+/** A line spacing as menus say it: Default, Single, 1.15, 1.5, Double, or the multiple typed. */
+export function lineSpacingLabel(lineSpacing: LineSpacing): string {
+  if (lineSpacing === "default") return translateNow("format.lineSpacing.default");
+  if (lineSpacing === 1) return translateNow("format.lineSpacing.single");
+  if (lineSpacing === 2) return translateNow("format.lineSpacing.double");
+  return String(lineSpacing);
+}
+
+export const chooseLineSpacing = (mindId: string, lineSpacing: LineSpacing) =>
+  change(
+    mindId,
+    (style) => ({ ...style, lineSpacing }),
+    (t) => t("mindStyle.lineSpacingChanged", { spacing: lineSpacingLabel(lineSpacing) }),
   );
 
 /** Makes `style` the one new Minds start in; Undo puts the one before back. */
@@ -151,7 +165,7 @@ export async function makeDefaultForNewMinds(style: MindStyle): Promise<void> {
     return;
   }
   useUndo.getState().push({
-    message: translateNow("mindStyle.defaultSet"),
+    said: (t) => t("mindStyle.defaultSet"),
     undo: () => updateSettings({ user: { newMindStyle: before } }),
     redo: () => updateSettings({ user: { newMindStyle: style } }),
   });

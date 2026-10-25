@@ -16,7 +16,7 @@ import type { Document } from "../../../core/api";
 import { findQuoteInPages, lostLigatures, type TextPiece } from "../../../shared/quoteMatch";
 import { core } from "../core";
 import { useT } from "../i18n";
-import type { ViewerTarget } from "../store";
+import { useAppStore, type ViewerTarget } from "../store";
 import {
   ExpandIcon,
   FitWidthIcon,
@@ -32,6 +32,7 @@ import { isMissingDocumentError, isPasswordError, loadPdfJs, openPdf, type PdfJs
 import { PlaceMemoryContext } from "./place";
 import { CitationMark, type QuoteMark, quoteMarkOf, quoteTone } from "./quoteMark";
 import { type ScannedPage, scannedTextLayer, useScannedPages } from "./scannedText";
+import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
 import { HeaderDivider, ViewerHeader } from "./ViewerHeader";
 import { FileGone, ViewerMessage } from "./ViewerMessage";
@@ -121,10 +122,19 @@ export function PdfView({
 }) {
   const t = useT();
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
-  /** Counts the times it was unlocked, to open it again. */
-  const [unlocked, setUnlocked] = useState(0);
+  const [attempt, setAttempt] = useState(0);
+  const reopen = () => {
+    setLoaded({ kind: "loading" });
+    setAttempt((count) => count + 1);
+  };
+  const retry = () => {
+    reopen();
+    if (document.status === "failed" || document.status === "no-text") {
+      void useAppStore.getState().retryDocument(document.id);
+    }
+  };
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `unlocked` opens it again once its password is kept.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` opens it again after Retry or unlocking.
   useEffect(() => {
     let cancelled = false;
     let task: PDFDocumentLoadingTask | undefined;
@@ -171,7 +181,7 @@ export function PdfView({
       cancelled = true;
       void task?.destroy();
     };
-  }, [document.id, source, unlocked]);
+  }, [document.id, source, attempt]);
 
   switch (loaded.kind) {
     case "loading":
@@ -194,22 +204,19 @@ export function PdfView({
       return (
         <>
           <ViewerHeader />
-          <LockedPdf
-            documentId={document.id}
-            onUnlocked={() => {
-              setLoaded({ kind: "loading" });
-              setUnlocked((count) => count + 1);
-            }}
-          />
+          <LockedPdf documentId={document.id} onUnlocked={reopen} />
         </>
       );
     case "failed":
       return (
         <>
-          <ViewerHeader />
+          <ViewerHeader onRetry={retry} />
           {banner}
-          <ViewerMessage tone="error">
-            {t("viewer.failed", { message: loaded.message })}
+          <ViewerMessage
+            tone="error"
+            action={{ label: t("documents.retryAction"), testId: "viewer-retry", onClick: retry }}
+          >
+            <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
           </ViewerMessage>
         </>
       );
@@ -280,6 +287,12 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
   const [outlineOpen, setOutlineOpen] = useState(false);
 
   const scroller = useRef<HTMLDivElement>(null);
+  useSelectionReader(
+    useCallback(
+      (range) => (scroller.current ? pdfSelection(range, scroller.current) : { parts: [] }),
+      [],
+    ),
+  );
   const pageElements = useRef<(HTMLElement | null)[]>([]);
   /** The page at the top edge of the view, and how far into it: kept through zooms and resizes. */
   const anchor = useRef({ page: 1, fraction: 0 });

@@ -103,11 +103,11 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await expect(options).toHaveCount(3);
     await window.keyboard.press("Escape");
 
-    // Settings → Models: the default model by name, its id under it, Other models by name.
+    // Settings → Models: the Answers default by name, its id in its tooltip; on OpenAI's page its
+    // models and Other models by name.
     const settings = await openSettings(window, "models");
-    const chatModel = settings.getByTestId("chat-model-settings");
-    const model = chatModel.getByRole("combobox", { name: "Default model" });
-    await expect(model).toHaveValue("gpt-6-luna");
+    const model = settings.getByRole("combobox", { name: "Answers" });
+    await expect(model).toHaveValue(/\ngpt-6-luna$/);
     await expect
       .poll(() =>
         model
@@ -115,8 +115,11 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
           .allInnerTexts()
           .then((all) => all.sort()),
       )
-      .toEqual(["GPT-6 Astra", "GPT-6 Luna", "GPT-6.1 Sol"]);
-    await expect(chatModel.getByTestId("chat-model-id")).toHaveText("gpt-6-luna");
+      .toEqual(["GPT-6 Astra · OpenAI", "GPT-6 Luna · OpenAI", "GPT-6.1 Sol · OpenAI"]);
+    await expect(model).toHaveAttribute("title", "gpt-6-luna");
+    await settings.getByTestId("provider-row").first().click();
+    const sol = settings.getByTestId("provider-model-row").filter({ hasText: "GPT-6.1 Sol" });
+    await expect(sol.locator("label")).toHaveAttribute("title", "gpt-6.1-sol");
     const other = settings.getByTestId("other-models-settings");
     await other.getByTestId("other-models-toggle").click();
     const older = other.getByTestId("other-model").filter({ hasText: "GPT-4 Turbo" });
@@ -165,10 +168,9 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await expect(answer.getByTestId("answer-timeline")).toContainText("GPT-6 Luna");
     await window.getByRole("button", { name: "设置" }).click();
     const settingsZh = await showSettingsPage(window, "models");
-    await expect(
-      settingsZh.getByTestId("chat-model-settings").getByRole("combobox", { name: "默认模型" }),
-    ).toHaveValue("gpt-6-luna");
-    await expect(settingsZh.getByTestId("chat-model-id")).toHaveText("gpt-6-luna");
+    const modelZh = settingsZh.getByRole("combobox", { name: "回答" });
+    await expect(modelZh).toHaveValue(/\ngpt-6-luna$/);
+    await expect(modelZh.locator("option:checked")).toHaveText("GPT-6 Luna · OpenAI");
     await screenshot(window, "model-names-settings-zh");
   } finally {
     await app.close();

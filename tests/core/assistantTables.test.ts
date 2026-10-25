@@ -6,6 +6,7 @@ import type { Document } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
+import { checkReply, isCheckRun } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { part, unzip } from "../helpers/docx";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
@@ -177,7 +178,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
     expect(changesIn(answer)).toEqual([
       { mindId: mind.id, created: false, request: expect.any(String), proposals: 1, tables: 1 },
     ]);
-    expect(lastResult(model)).toContain("Proposed 1 change in “Tides”");
+    expect(lastResult(model)).toContain("Changed 1 place in “Tides”");
     expect(lastResult(model)).toContain("One of them adds a table.");
     await resolveChanges(client, "accept");
     expect(tablesIn(readMind(client))).toEqual([EXPECTED_ROWS]);
@@ -187,18 +188,20 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
   test("an added table's cells hold checked Citations, and Word writes a table with footnotes", async () => {
     const model = scriptedModel(
       (call): ScriptedReply =>
-        citingFirst(call, () =>
-          called(call, "add_to_mind")
-            ? { text: "Done." }
-            : {
-                calls: [
-                  {
-                    tool: "add_to_mind",
-                    input: { after: "Summary", content: `## Key terms\n\n${TABLE}` },
+        isCheckRun(call)
+          ? checkReply(call, {})
+          : citingFirst(call, () =>
+              called(call, "add_to_mind")
+                ? { text: "Done." }
+                : {
+                    calls: [
+                      {
+                        tool: "add_to_mind",
+                        input: { after: "Summary", content: `## Key terms\n\n${TABLE}` },
+                      },
+                    ],
                   },
-                ],
-              },
-        ),
+            ),
     );
     const { core, mind, client } = await setUp(model);
 
@@ -214,6 +217,16 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         proposals: 2,
         tables: 1,
         cited: 1,
+        // The one cited claim was checked before it landed; the two with none are left to Check the rest (#1111, #1909).
+        selfCheck: {
+          request: expect.any(String),
+          blocks: expect.any(Array),
+          checkable: 3,
+          cited: 1,
+          sent: 1,
+          checked: 1,
+          failed: 0,
+        },
       },
     ]);
     expect(lastResult(model)).toContain("One of them adds a table.");
@@ -334,14 +347,14 @@ describe("A table's cells keep their sources", { timeout: 30_000 }, () => {
     expect(told).toContain("1 marker matched none of the text's Citations and was left out");
   });
 
-  // protects=in added text, a table cell's source written as a name in brackets becomes the Citation recorded for that Document with cite (#961); fails_when=it stays as text though a Citation of it was recorded; no_claim=none beyond protects.
+  // protects=in added text, a table cell's source written as a name in brackets is refused once (#1075), and written so again becomes the Citation recorded for that Document with cite (#961); fails_when=it stays as text though a Citation of it was recorded; no_claim=none beyond protects.
   test("an added table's bracketed name links to the Citation recorded for it", async () => {
     const content =
       "| Term | What it means |\n|---|---|\n| Spring tide | The biggest tide [Tides, p. 1] |";
     const model = scriptedModel(
       (call): ScriptedReply =>
         citingFirst(call, () =>
-          called(call, "add_to_mind")
+          call.results.filter((each) => each.tool === "add_to_mind").length > 1
             ? { text: "Done." }
             : { calls: [{ tool: "add_to_mind", input: { content } }] },
         ),
@@ -357,7 +370,8 @@ describe("A table's cells keep their sources", { timeout: 30_000 }, () => {
         ["Spring tide", "The biggest tide ⟨found⟩"],
       ],
     ]);
-    expect(changesIn(answer)).toEqual([expect.not.objectContaining({ unlinkedSources: 1 })]);
+    expect(mindCalls(answer)[0]?.mindProblem).toEqual({ kind: "uncited", mindId: mind.id });
+    expect(changesIn(answer)).toEqual([expect.not.objectContaining({ droppedSources: 1 })]);
   });
 });
 
@@ -387,7 +401,7 @@ describe("A table that can't be made goes in nowhere", { timeout: 30_000 }, () =
     });
     expect(call?.mindChange).toBeUndefined();
     expect(changesIn(answer)).toEqual([]);
-    expect(answer.text).toBe("这些内容没法做成表格，所以写在下面，没有添加到“Tides”。");
+    expect(answer.text).toBe("没能做成表格：内容在下方，未添加到“Tides”。");
   });
 
   // protects=added pipe lines with no row of ---, or an HTML table, add nothing, and the model is told the User's words for it, in English only for an English Question; fails_when=either lands in the page, or the model gets both languages' words; no_claim=none beyond protects.
@@ -419,9 +433,9 @@ describe("A table that can't be made goes in nowhere", { timeout: 30_000 }, () =
       expect(mindCalls(answer)[0]).toMatchObject({ mindProblem: { kind: "no-table" } });
       const told = lastResult(model);
       expect(told).toContain(
-        "in these words: “I couldn't make this into a table, so it's below as text. Nothing was added to “Tides”.”",
+        "in these words: “No table made: it’s below as text, not in “Tides”.”",
       );
-      expect(told).not.toContain("没法做成表格");
+      expect(told).not.toContain("没能做成表格");
       expect(told).toContain("so the User still has it");
     }
   });

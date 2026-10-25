@@ -9,10 +9,19 @@
  * Pure, with no Node or DOM imports: the editor, the core's one reader
  * (exports, Question context) and the tests share it.
  */
-import type { CitationAttributes, CitationCheck } from "../core/api";
+import {
+  CITATION_NODE,
+  type CitationAttributes,
+  type CitationCheck,
+  FOOTNOTE_NODE,
+  PROPOSAL_ATTRIBUTE,
+  PROPOSAL_INSERT_MARK,
+} from "../core/api";
+import type { NodeJSON } from "./blockJson";
 import { type Figure, type FigureUnit, figureContextOf, readFigures } from "./figures";
 import type { MessageKey, MessageParams } from "./i18n";
-import { holdsPeriods } from "./periods";
+import { holdsPeriods, isPeriod } from "./periods";
+import { readProposalAttribute } from "./proposals";
 
 export const CHART_KINDS = ["bar", "line", "pie", "scatter"] as const;
 export type ChartKind = (typeof CHART_KINDS)[number];
@@ -456,6 +465,27 @@ interface TableReading {
   columns: number;
   /** Each text is read once: `numericSeries` and the chart read the table twice. */
   figuresOf(text: string): readonly Figure[];
+  /** A cell of a body column: `figuresOf`, but a bare year-like number in a quantity column is one. */
+  figuresIn(text: string, column: number): readonly Figure[];
+}
+
+/** A whole number from 1900 to 2099 and nothing else: `readFigures` leaves it out, as a year. */
+const BARE_YEAR = /^(?:19|20)\d{2}$/;
+
+const QUANTITY_HEADER =
+  /\b(?:units?|sold|sales|revenues?|income|profit|cost|price|amount|quantity|qty|count|total|orders?|users?|customers?|visitors?|volume|headcount|employees)\b|销量|销售|收入|营收|数量|金额|价格|成本|利润|总计|人数|订单|用户|客户|员工/iu;
+
+const YEAR_HEADER =
+  /\b(?:years?|dates?|periods?|fy|founded|established|since|born|launched|released|published|opened)\b|年份|年度|日期|成立|创立|创办|始于|出生|发布|上市|^年$/iu;
+
+/**
+ * Whether a body column is a year or date axis, whose bare years are labels, not values: its
+ * header names none of a quantity or a period, and says "year" or holds nothing but years. Any
+ * other column holds quantities, so 2000 under "Units sold" is a value (#1131).
+ */
+function yearAxis(header: string, cells: readonly string[]): boolean {
+  if (QUANTITY_HEADER.test(header) || isPeriod(header)) return false;
+  return YEAR_HEADER.test(header) || (cells.length > 0 && cells.every((c) => BARE_YEAR.test(c)));
 }
 
 function readTable(grid: SourceGrid, language: string): TableReading {
@@ -478,13 +508,40 @@ function readTable(grid: SourceGrid, language: string): TableReading {
     first.length > 0 &&
     (first.every((cell) => cell === null || cell.header) ||
       first.slice(1).every((cell) => !cell || figureIn(figuresOf(cell.text)) === null));
+  const dataRows = headingRow ? grid.slice(1) : grid;
+  const axes = new Map<number, boolean>();
+  const isYearAxis = (column: number) => {
+    let axis = axes.get(column);
+    if (axis === undefined) {
+      const cells = dataRows.flatMap((row) => {
+        const cell = row[column];
+        const text = cell?.text.trim() ?? "";
+        return !cell || cell.continued || text === "" || BLANK_MARK.test(text) ? [] : [text];
+      });
+      axis = yearAxis(headingRow ? (first[column]?.text.trim() ?? "") : "", cells);
+      axes.set(column, axis);
+    }
+    return axis;
+  };
+  const asQuantities = new Map<string, readonly Figure[]>();
+  const figuresIn = (text: string, column: number) => {
+    const trimmed = text.trim();
+    if (!BARE_YEAR.test(trimmed) || isYearAxis(column)) return figuresOf(trimmed);
+    let figures = asQuantities.get(trimmed);
+    if (!figures) {
+      figures = readFigures(trimmed, { ...context, dates: true });
+      asQuantities.set(trimmed, figures);
+    }
+    return figures;
+  };
   return {
     first,
     headingRow,
     firstDataRow: headingRow ? 1 : 0,
-    dataRows: headingRow ? grid.slice(1) : grid,
+    dataRows,
     columns: Math.max(0, ...grid.map((row) => row.length)),
     figuresOf,
+    figuresIn,
   };
 }
 
@@ -517,7 +574,7 @@ function readCell(
 export const isNumericSeries = (grid: SourceGrid, language: string): boolean =>
   numericSeries(readTable(grid, language));
 
-function numericSeries({ dataRows, columns, figuresOf }: TableReading): boolean {
+function numericSeries({ dataRows, columns, figuresIn }: TableReading): boolean {
   const counts: Record<CellKind, number> = { number: 0, calculation: 0, words: 0 };
   const down: Figure[][] = Array.from({ length: columns }, () => []);
   const across: Figure[][] = [];
@@ -527,7 +584,7 @@ function numericSeries({ dataRows, columns, figuresOf }: TableReading): boolean 
       const cell = row[column];
       const text = cell?.text.trim() ?? "";
       if (!cell || cell.continued || text === "" || BLANK_MARK.test(text)) continue;
-      const { kind, figure } = readCell(text, figuresOf(text));
+      const { kind, figure } = readCell(text, figuresIn(text, column));
       counts[kind]++;
       if (figure) {
         line.push(figure);
@@ -626,12 +683,12 @@ export function chartFromTable(
   options: FromTableOptions,
 ): ChartAttributes | null {
   const table = readTable(grid, options.language);
-  const { first, headingRow, firstDataRow, dataRows, columns, figuresOf } = table;
+  const { first, headingRow, firstDataRow, dataRows, columns, figuresIn } = table;
   if (!numericSeries(table)) return null;
 
   const valueAt = (cell: SourceCell | null, row: number, column: number): ChartValue | null => {
     if (!cell || cell.continued || cell.text.trim() === "") return null;
-    const read = figureIn(figuresOf(cell.text));
+    const read = figureIn(figuresIn(cell.text, column));
     return {
       shown: cell.text.trim(),
       value: read?.value ?? null,
@@ -688,6 +745,105 @@ export interface SourceLine {
   citation: CitationAttributes | null;
 }
 
+const CITATION_KEYS: readonly (keyof CitationAttributes)[] = [
+  "passageId",
+  "documentId",
+  "documentName",
+  "contentHash",
+  "pageFrom",
+  "pageTo",
+  "location",
+  "quote",
+  "check",
+  "checkReason",
+  "verdict",
+  "quotedWords",
+];
+
+const BLOCK_TYPES = new Set([
+  "paragraph",
+  "heading",
+  "blockquote",
+  "bulletList",
+  "orderedList",
+  "listItem",
+  "taskList",
+  "taskItem",
+  "codeBlock",
+]);
+
+// Text still waiting to be accepted isn't the User's yet.
+const proposed = (node: NodeJSON) =>
+  readProposalAttribute(node.attrs?.[PROPOSAL_ATTRIBUTE])?.kind === "insert" ||
+  (node.marks ?? []).some((mark) => mark.type === PROPOSAL_INSERT_MARK);
+
+/**
+ * A line of text as a chart reads it, from a node as ProseMirror writes it in JSON (`toJSON()`,
+ * or the core's Blocks): its words, without Citations, footnotes or text still waiting, and its
+ * first Citation.
+ */
+export function sourceLineOf(node: NodeJSON): SourceLine {
+  let text = "";
+  let citation: CitationAttributes | null = null;
+  const visit = (child: NodeJSON) => {
+    if (proposed(child)) return;
+    if (child.type === CITATION_NODE) {
+      if (!citation) {
+        const copy: Record<string, unknown> = {};
+        for (const key of CITATION_KEYS) {
+          const value = child.attrs?.[key];
+          if (value !== undefined) copy[key] = value;
+        }
+        citation = copy as unknown as CitationAttributes;
+      }
+      return;
+    }
+    if (child.type === FOOTNOTE_NODE) return;
+    if (child.type === "text") text += child.text ?? "";
+    else if (child.type === "hardBreak" || (BLOCK_TYPES.has(child.type) && text !== "")) {
+      text += " ";
+    }
+    for (const each of child.content ?? []) visit(each);
+  };
+  for (const child of node.content ?? []) visit(child);
+  return { text: text.replace(/\s+/g, " ").trim(), citation };
+}
+
+const span = (value: unknown) =>
+  typeof value === "number" && Number.isInteger(value) && value > 1 ? value : 1;
+
+/** A table in JSON on its grid, a cell that spans in each slot it covers (`SourceGrid`). */
+export function gridOfTable(table: NodeJSON): SourceGrid {
+  const grid: (SourceCell | null)[][] = [];
+  const rowAt = (at: number) => {
+    const slots = grid[at] ?? [];
+    grid[at] = slots;
+    return slots;
+  };
+  (table.content ?? []).forEach((row, at) => {
+    const slots = rowAt(at);
+    let column = 0;
+    for (const cell of row.content ?? []) {
+      while (slots[column] !== undefined) column++;
+      const read: SourceCell = {
+        ...sourceLineOf(cell),
+        header: cell.type === "tableHeader",
+        continued: false,
+      };
+      const across = span(cell.attrs?.colspan);
+      for (let down = 0; down < span(cell.attrs?.rowspan); down++) {
+        const spanned = rowAt(at + down);
+        for (let step = 0; step < across; step++) {
+          spanned[column + step] = down === 0 && step === 0 ? read : { ...read, continued: true };
+        }
+      }
+      column += across;
+    }
+  });
+  const width = Math.max(0, ...grid.map((row) => row.length));
+  return grid.map((row) => Array.from({ length: width }, (_, column) => row[column] ?? null));
+}
+
 /** What separates a label from the figure after it: "Q1: 289.4", "Revenue – $1.2bn". */
 const LABEL_END = /[\s:：,，;；=\-–—]+$/u;
 const LABEL_START = /^[\s:：,，;；=\-–—•·*]+/u;
@@ -742,5 +898,11 @@ export function chartFromFigures(
 
 /** Compares what is drawn and where it came from, not how it was stored. */
 export function sameChartData(a: ChartData, b: ChartData): boolean {
-  return JSON.stringify(readChartData(a)) === JSON.stringify(readChartData(b));
+  // The core writes a Citation without the attributes left null, the editor with them: a chart
+  // the assistant drew from a table reads the same as one the User draws from it.
+  const asCompared = (data: ChartData) =>
+    JSON.stringify(readChartData(data), (_, value: unknown) =>
+      value === null ? undefined : value,
+    );
+  return asCompared(a) === asCompared(b);
 }

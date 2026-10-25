@@ -2,6 +2,7 @@ import { type ElectronApplication, expect, type Locator, test } from "@playwrigh
 import { createFakeOpenAI, type FakeOpenAIServer } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
+  continueSetup,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
@@ -69,7 +70,7 @@ test("Settings: a pasted address that isn't the sign-in's is said under the fiel
     await plan.getByTestId("chatgpt-continue").click();
     const address = await addressAfterApproving(app);
 
-    await expect(plan).toContainText("Didn't come back? Paste the address the browser shows");
+    await expect(plan).toContainText("Didn’t come back? Paste the address the browser shows");
     const open = plan.getByTestId("chatgpt-paste-open");
     await open.click();
     const field = plan.getByTestId("chatgpt-paste-address");
@@ -87,7 +88,7 @@ test("Settings: a pasted address that isn't the sign-in's is said under the fiel
     await field.fill(elsewhere.href);
     await field.press("Enter");
     const problem = plan.getByTestId("chatgpt-paste-problem");
-    await expect(problem).toHaveText("That isn't the sign-in address.");
+    await expect(problem).toHaveText("That isn’t the sign-in address.");
     await expect(field).toHaveAttribute("aria-invalid", "true");
     await expectFieldRow(field, plan.getByTestId("chatgpt-paste-continue"), problem);
     await expect(plan.getByTestId("chatgpt-cancel")).toBeVisible();
@@ -152,7 +153,7 @@ test("first run, in Chinese: an earlier sign-in's address is refused, and the ad
     await button.click();
     await expect(window.getByTestId("chatgpt-welcome")).toContainText("你正在使用 ChatGPT 订阅");
     await window.getByTestId("chatgpt-welcome-ok").click();
-    await expect(setup).toBeHidden();
+    await continueSetup(window);
     expect(exchanges()).toHaveLength(1);
   } finally {
     await app.close();

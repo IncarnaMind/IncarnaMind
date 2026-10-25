@@ -133,7 +133,7 @@ describe("automatic local classification", () => {
     const server = modelServer({ models: ["tev1:0.8b"] });
     await server.text();
     expect(server.classifier.model).toMatchObject({ id: "tev1:0.8b", reason: "unavailable" });
-    await expect(server.visual()).rejects.toThrow(/needs page images.*Install clef-flash/);
+    await expect(server.visual()).rejects.toThrow(/needs Clef-Flash.*Install it in Ollama/);
     expect(server.requests).toHaveLength(1);
   });
 
@@ -215,7 +215,7 @@ describe("automatic local classification", () => {
           status: "waiting",
           groupId: null,
           error: {
-            message: expect.stringContaining("Install clef-flash"),
+            message: expect.stringContaining("Install it in Ollama"),
             wording: { key: "error.tagging.needsPageImages" },
           },
         }),

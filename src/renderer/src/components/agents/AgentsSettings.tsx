@@ -36,7 +36,7 @@ import { ConnectAgentDialog } from "./ConnectAgentDialog";
 export function AgentsSettings() {
   const t = useT();
   const reportError = useAppStore((state) => state.reportError);
-  const showPage = useAppStore((state) => state.showSettingsPage);
+  const openSettings = useAppStore((state) => state.openSettings);
   const folders = useAppStore((state) => state.library?.groups ?? []);
   const [settings, setSettings] = useState<AgentSettings | null>(null);
   const [clients, setClients] = useState<AgentClient[] | null>(null);
@@ -144,7 +144,7 @@ export function AgentsSettings() {
           <span aria-hidden="true"> · </span>
           <button
             type="button"
-            onClick={() => showPage("search")}
+            onClick={() => openSettings("privacy", "local-mode")}
             className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
           >
             {t("agents.settings.paused.open")}

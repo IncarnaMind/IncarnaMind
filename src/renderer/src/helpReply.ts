@@ -73,24 +73,44 @@ const plain = (line: string) => line.replace(/\*\*|__/g, "").trim();
 
 /**
  * What the panel shows of a reply in its button's shape: at most two options or readings, after
- * the one line "Am I leading them?" puts first (`leadIn`), the one still being written included
- * while it `streaming`; or at most three short lines. What a model adds anyway around them (a
- * lead-in, a remark, a third option) is left out.
+ * the one line "Am I leading them?" or "the live text is behind" puts first (`leadIn`), the one
+ * still being written included while it `streaming`; or at most three short lines. What a model
+ * adds anyway around them (a lead-in, a remark, a third option) is left out.
  */
 export function shownItems(
   items: readonly ReplyItem[],
   { shape, leadIn, streaming }: { shape: HelpShape; leadIn: boolean; streaming: boolean },
 ): ReplyItem[] {
+  const [first] = items;
   if (shape === "lines") {
     const bullets = items.filter((item) => item.bullet);
-    return (bullets.length > 0 ? bullets : items).slice(0, 3);
+    const lead = leadIn && first && !first.bullet ? [first] : [];
+    return [...lead, ...(bullets.length > 0 ? bullets : items.slice(lead.length))].slice(0, 3);
   }
-  const [first] = items;
   const lead = leadIn && first && first.effect === null ? [first] : [];
   const last = items.at(-1);
   const writing = streaming && last && last.effect === null && !lead.includes(last) ? [last] : [];
   const options = [...items.filter((item) => item.effect !== null), ...writing].slice(0, 2);
   return [...lead, ...options];
+}
+
+/**
+ * The number each Citation shows with, from 1 in the order the shown items cite them, as the
+ * assistant numbers an Answer's: a marker is the core's ("[^9001]" for a figure's input), never
+ * the User's. A marker `cited` doesn't know isn't shown, so it takes no number.
+ */
+export function citationNumbers(
+  items: readonly ReplyItem[],
+  cited: (marker: number) => boolean,
+): Map<number, number> {
+  const numbers = new Map<number, number>();
+  for (const item of items) {
+    for (const piece of [item.lead, ...item.notes, item.effect ?? []].flat()) {
+      if (piece.kind === "citation" && !numbers.has(piece.marker) && cited(piece.marker))
+        numbers.set(piece.marker, numbers.size + 1);
+    }
+  }
+  return numbers;
 }
 
 export function readHelpReply(markdown: string): ReplyItem[] {

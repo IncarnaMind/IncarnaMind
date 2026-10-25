@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useId, useState } from "react";
 import {
   type ConnectionTestResult,
   JEV_DEFAULT_MODEL,
@@ -10,6 +10,7 @@ import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
+import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
 import {
   buttonClass,
@@ -28,6 +29,7 @@ import {
   sectionTitleClass,
 } from "../ui";
 import { SecretStorageNotice, TestResult } from "./ProviderForm";
+import { useProviderKey } from "./shared";
 import { useJevSettings } from "./useJevSettings";
 
 /** TypeSafe's hosted API, shown as the server's placeholder. */
@@ -36,7 +38,7 @@ const HOSTED_URL = "https://api.typesafe.ai";
 const toPercent = (probability: number) => Math.round(probability * 100);
 
 /**
- * Settings → Models → Tagging, at its foot: TypeSafe Jev with a key (and, for
+ * Settings → Models → Advanced → Tagging, at its foot: TypeSafe Jev with a key (and, for
  * Jev-compatible models, another server), plus the band of probabilities
  * whose Tags are marked for review. Once set up, Automatic tags with it.
  */
@@ -130,7 +132,8 @@ function JevForm({
   onCancel(): void;
 }) {
   const t = useT();
-  const [apiKey, setApiKey] = useState("");
+  const id = useId();
+  const key = useProviderKey();
   const [endpoint, setEndpoint] = useState(current.endpoint ?? "");
   const [model, setModel] = useState(current.model === JEV_DEFAULT_MODEL ? "" : current.model);
   const [low, setLow] = useState(toPercent(current.reviewBand.low));
@@ -144,12 +147,12 @@ function JevForm({
     core.getSecretStorage().then(setSecretStorage, () => undefined);
   }, []);
 
-  const hasKey = apiKey.trim() !== "" || current.hasApiKey;
-  const keyBlocked = apiKey.trim() !== "" && secretStorage !== null && !secretStorage.canSave;
+  const hasKey = key.text !== "" || current.hasApiKey;
+  const keyBlocked = key.text !== "" && secretStorage !== null && !secretStorage.canSave;
   const bandValid = low > 0 && low <= high && high <= 100;
 
   const input = (): SaveJevSettingsInput => ({
-    ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+    ...(key.text ? { apiKey: key.text } : {}),
     endpoint: endpoint.trim() || null,
     model: model.trim() || null,
   });
@@ -166,7 +169,7 @@ function JevForm({
           ...input(),
           reviewBand: { low: low / 100, high: high / 100 },
         });
-        setApiKey("");
+        key.clear();
         onSaved(saved);
       }
     } catch (failure) {
@@ -211,12 +214,15 @@ function JevForm({
         {t("jev.form.apiKey")}
         <input
           type="password"
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
+          value={key.apiKey}
+          onChange={(event) => key.type(event.target.value)}
           autoComplete="off"
           spellCheck={false}
+          aria-invalid={key.stray ? true : undefined}
+          aria-describedby={key.stray ? `${id}-stray` : undefined}
           className={inputClass}
         />
+        {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
         {current.hasApiKey && <span className={hintClass}>{t("providers.form.apiKeySaved")}</span>}
       </label>
 
@@ -267,14 +273,14 @@ function JevForm({
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="submit"
-          disabled={!hasKey || !bandValid || keyBlocked || busy !== null}
+          disabled={!hasKey || !bandValid || keyBlocked || key.stray !== null || busy !== null}
           className={primaryButtonClass}
         >
           {busy === "saving" ? t("providers.form.saving") : t("jev.form.save")}
         </button>
         <button
           type="button"
-          disabled={!hasKey || busy !== null}
+          disabled={!hasKey || key.stray !== null || busy !== null}
           onClick={() => void run("testing")}
           className={buttonClass}
         >

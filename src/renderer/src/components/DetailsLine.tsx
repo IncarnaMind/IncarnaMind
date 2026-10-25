@@ -5,18 +5,20 @@ export function DetailsLine({
   children,
   details,
   testId,
+  id,
   className = "",
 }: {
   children: string;
   details: ReactNode;
   testId: string;
+  id?: string;
   className?: string;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const panel = useId();
   return (
-    <div data-testid={testId} className={className}>
+    <div id={id} data-testid={testId} className={className}>
       <p>
         {children}{" "}
         <span className="whitespace-nowrap">

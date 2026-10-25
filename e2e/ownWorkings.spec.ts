@@ -85,10 +85,10 @@ test("Don't cite this Document in the sidebar: the label shows beside its name, 
 
   await openDocumentMenu(workings);
   const item = workings.getByTestId("document.dontCite");
-  await expect(item).toHaveText("Don't cite this Document");
+  await expect(item).toHaveText("Don’t cite this Document");
   await expect(item).toHaveAttribute(
     "title",
-    "IncarnaMind can still read it to understand your question, but won't cite it or use it to support a check.",
+    "Read for context only: never cited or used as evidence.",
   );
   await expect(workings.getByTestId("document.citeAgain")).toHaveCount(0);
   await pointAndClick(window, item);
@@ -96,7 +96,7 @@ test("Don't cite this Document in the sidebar: the label shows beside its name, 
   await expect(label).toHaveText("Not cited");
   await expect(report.getByTestId("document-not-cited")).toHaveCount(0);
   const undo = window.getByTestId("undo-line");
-  await expect(undo.getByTestId("undo-message")).toHaveText("“Workings” won't be cited");
+  await expect(undo.getByTestId("undo-message")).toHaveText("“Workings” won’t be cited");
   const [name, labelBox, row] = await Promise.all([
     workings.getByTestId("row-text").boundingBox(),
     label.boundingBox(),
@@ -137,10 +137,7 @@ test("In the Library and in Chinese: the same menu item and label, one Undo for 
   await openLibraryMenu(workings);
   const item = workings.getByTestId("document.dontCite");
   await expect(item).toHaveText("不作为引用来源");
-  await expect(item).toHaveAttribute(
-    "title",
-    "IncarnaMind 仍会读它来理解你的问题，但不会引用它，也不会用它来支持核对。",
-  );
+  await expect(item).toHaveAttribute("title", "只用来理解问题，不会被引用，也不作为核对依据。");
   await pointAndClick(window, item);
   const label = workings.getByTestId("document-not-cited");
   await expect(label).toHaveText("不引用");
@@ -278,7 +275,7 @@ test("A sentence only the marked file states is Unsupported, and its card says s
   await expect(line).toHaveText(FIGURE);
   await slideSelect(window, line, "Penguins", { line, words: "cliffs." });
   const menu = window.getByTestId("selection-menu");
-  await pointAndClick(window, menu.getByTestId("selection-action-find-support"));
+  await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
 
   const mark = window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "unsupported");

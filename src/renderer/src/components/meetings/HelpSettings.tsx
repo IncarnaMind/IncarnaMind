@@ -64,6 +64,7 @@ function KeysField({ kind, device }: { kind: HelpShortcut; device: Settings["dev
   const [problem, setProblem] = useState<KeysProblem | null>(null);
   const id = useId();
   const keys = helpKeysOf(kind, device.meetingHelpKeys, isMac);
+  const standard = defaultHelpKeys(kind, isMac);
   const name = t(helpShortcutLabel(kind));
 
   const save = (chosen: string) =>
@@ -109,17 +110,17 @@ function KeysField({ kind, device }: { kind: HelpShortcut; device: Settings["dev
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-2">
-        {keys !== defaultHelpKeys(kind, isMac) && (
+        {keys !== standard && (
           <button
             type="button"
-            data-testid="help-keys-default"
+            data-testid={standard ? "help-keys-default" : "help-keys-remove"}
             onClick={() => {
               setProblem(null);
-              void save(defaultHelpKeys(kind, isMac));
+              void save(standard ?? "");
             }}
             className="text-[13px] leading-5 text-accent hover:underline"
           >
-            {t("meetings.settings.keysDefault")}
+            {t(standard ? "meetings.settings.keysDefault" : "meetings.settings.keysRemove")}
           </button>
         )}
         <button
@@ -247,7 +248,9 @@ export function HelpSettings() {
         )}
       </div>
       <h5 className={`mt-4 mb-1 ${rowTitleClass}`}>{t("meetings.settings.keys")}</h5>
-      <p className={`mb-2 ${hintClass}`}>{t("meetings.settings.keysBody")}</p>
+      <p className={`mb-2 ${hintClass}`}>
+        {t(isMac ? "meetings.settings.keysBody.mac" : "meetings.settings.keysBody.other")}
+      </p>
       <div className={ruledListClass}>
         {HELP_SHORTCUTS.map((kind) => (
           <div key={kind} data-testid="help-keys-row" className={ruledRow("center")}>

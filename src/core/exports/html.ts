@@ -6,6 +6,7 @@
  */
 
 import { cssString } from "../../shared/mindStyle";
+import { lineHeightCss } from "../../shared/paragraphFormat";
 import type { Language } from "../language";
 import type { Block } from "../mindText";
 import type { ExportLabels } from "./labels";
@@ -28,7 +29,6 @@ p{margin:0 0 .9rem}
 .question-label{font-weight:600}
 sup.note-ref{margin-left:.05rem;font-family:var(--sans);font-size:.7em;line-height:0}
 sup.note-ref a{text-decoration:none;color:#2457a7}
-sup.note-ref + sup.note-ref::before{content:","}
 .unverified{color:var(--warning)}
 ins.change{text-decoration:underline;text-underline-offset:.15em}
 del.change{color:var(--ink-meta);text-decoration:line-through}
@@ -70,19 +70,34 @@ export const bodyFamily = (family: string) => `${cssString(family)},var(--serif)
 export const bodyFontStyle = (family: string | null) =>
   family === null ? "" : `body{font-family:${bodyFamily(family)}}`;
 
+/** The Mind's line spacing, a multiple of a single line, over the export's. */
+export const bodyLineStyle = (multiple: number | null) =>
+  multiple === null
+    ? ""
+    : `body{line-height:${lineHeightCss({ rule: "auto", value: multiple }, String)}}`;
+
 /** The print page lays tables out itself; a browser's tables, and the validator, want a body. */
 export const withTableBodies = (body: string) =>
   body.replaceAll("<table>", "<table><tbody>").replaceAll("</table>", "</tbody></table>");
 
-export function notesSection(notes: readonly string[], labels: ExportLabels): string {
+/**
+ * A Mind's notes after its text. `compact` is the shared web page's list (#1022): each line
+ * numbered as its Citation is, in the page's small sans, under a small label.
+ */
+export function notesSection(
+  notes: readonly string[],
+  labels: ExportLabels,
+  { compact = false, title = labels.notes }: { compact?: boolean; title?: string } = {},
+): string {
   if (notes.length === 0) return "";
   const list = notes
-    .map(
-      (note, index) =>
-        `<li id="note-${index + 1}">${note}<a class="backref" href="#ref-${index + 1}" aria-label="${escapeText(labels.backToText)}" title="${escapeText(labels.backToText)}">↩\ufe0e</a></li>`,
-    )
+    .map((note, index) => {
+      const number = index + 1;
+      const shown = compact ? `<span class="note-number">${number}</span> · ` : "";
+      return `<li id="note-${number}">${shown}${note}<a class="backref" href="#ref-${number}" aria-label="${escapeText(labels.backToText)}" title="${escapeText(labels.backToText)}">↩\ufe0e</a></li>`;
+    })
     .join("");
-  return `<section class="notes" aria-labelledby="notes-title"><h2 id="notes-title">${escapeText(labels.notes)}</h2><ol>${list}</ol></section>`;
+  return `<section class="notes${compact ? " notes-compact" : ""}" aria-labelledby="notes-title"><h2 id="notes-title">${escapeText(title)}</h2><ol>${list}</ol></section>`;
 }
 
 export function htmlFile({
@@ -120,14 +135,19 @@ export function htmlFile({
 export function renderHtml(
   blocks: readonly Block[],
   labels: ExportLabels,
-  { language, name, font }: { language: Language; name: string; font: string | null },
+  {
+    language,
+    name,
+    font,
+    lineSpacing,
+  }: { language: Language; name: string; font: string | null; lineSpacing: number | null },
 ): string {
   const printed = renderPrintHtml(blocks, labels, { linkNotes: true });
   return htmlFile({
     language,
     name,
     policy: "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
-    styles: HTML_STYLES + bodyFontStyle(font),
+    styles: HTML_STYLES + bodyFontStyle(font) + bodyLineStyle(lineSpacing),
     body: `<main>${withTableBodies(printed.body)}</main>\n${notesSection(printed.notes, labels)}`,
   });
 }

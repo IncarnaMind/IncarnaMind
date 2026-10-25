@@ -8,6 +8,7 @@
  */
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
+import { readTextColor, readTextFont, readTextSize } from "../../../shared/paragraphFormat";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { readWordAtom } from "../../../shared/wordFiles";
 import {
@@ -15,6 +16,11 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
+  SUBSCRIPT_MARK,
+  SUPERSCRIPT_MARK,
+  TEXT_COLOR_MARK,
+  TEXT_FONT_MARK,
+  TEXT_SIZE_MARK,
   WORD_BLOCK_NODE,
 } from "../../api";
 import { type Pendings, pendingOf, type ReviewReading } from "../../mindText";
@@ -28,6 +34,10 @@ export interface TextMarks {
   highlight: boolean;
   code: boolean;
   link: string | null;
+  color: string | null;
+  font: string | null;
+  size: number | null;
+  vertical: "superscript" | "subscript" | null;
 }
 
 export const NO_MARKS: TextMarks = {
@@ -38,11 +48,17 @@ export const NO_MARKS: TextMarks = {
   highlight: false,
   code: false,
   link: null,
+  color: null,
+  font: null,
+  size: null,
+  vertical: null,
 };
 
 export function marksOf(marks: readonly MarkJSON[] | undefined): TextMarks {
   const has = (type: string) => marks?.some((mark) => mark.type === type) ?? false;
-  const link = marks?.find((mark) => mark.type === "link")?.attrs?.href;
+  const attribute = (type: string, name: string) =>
+    marks?.find((mark) => mark.type === type)?.attrs?.[name];
+  const link = attribute("link", "href");
   return {
     bold: has("bold"),
     italic: has("italic"),
@@ -51,6 +67,10 @@ export function marksOf(marks: readonly MarkJSON[] | undefined): TextMarks {
     highlight: has("highlight"),
     code: has("code"),
     link: typeof link === "string" && link !== "" ? link : null,
+    color: readTextColor(attribute(TEXT_COLOR_MARK, "color")),
+    font: readTextFont(attribute(TEXT_FONT_MARK, "family")),
+    size: readTextSize(attribute(TEXT_SIZE_MARK, "size")),
+    vertical: has(SUPERSCRIPT_MARK) ? "superscript" : has(SUBSCRIPT_MARK) ? "subscript" : null,
   };
 }
 
@@ -61,7 +81,20 @@ export const sameMarks = (a: TextMarks, b: TextMarks): boolean =>
   a.strike === b.strike &&
   a.highlight === b.highlight &&
   a.code === b.code &&
-  a.link === b.link;
+  a.link === b.link &&
+  a.color === b.color &&
+  a.font === b.font &&
+  a.size === b.size &&
+  a.vertical === b.vertical;
+
+/** Text's marks with the file's colour, font, size and raise where they have none. */
+export const withFileFormat = (marks: TextMarks, file: TextMarks): TextMarks => ({
+  ...marks,
+  color: marks.color ?? file.color,
+  font: marks.font ?? file.font,
+  size: marks.size ?? file.size,
+  vertical: marks.vertical ?? file.vertical,
+});
 
 /** What changes still waiting do to a node as a whole: its `proposal` attribute. */
 export function nodePendings(node: NodeJSON, review: ReviewReading | undefined): Pendings {

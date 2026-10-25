@@ -12,7 +12,7 @@ import { describe, expect, onTestFinished, test } from "vitest";
 import { type ChatProviderKind, CITATION_NODE, type Core } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
-import { answerBlocks } from "../../src/renderer/src/answerBlocks";
+import { answerBlocks } from "../../src/shared/answerBlocks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 

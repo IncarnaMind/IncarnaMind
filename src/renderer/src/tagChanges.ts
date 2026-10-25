@@ -6,7 +6,6 @@
 import type { UpdateTagInput } from "../../core/api";
 import { deleted } from "./changes";
 import { core } from "./core";
-import { translateNow as t } from "./i18n";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -23,8 +22,8 @@ export async function editTag(tagId: string, patch: UpdateTagInput): Promise<voi
   if (JSON.stringify(before) === JSON.stringify(after)) return;
   const rename = before.name !== after.name;
   push({
-    message: t(rename ? "object.renamed" : "undo.tagEdited", { name: after.name }),
-    name: t(rename ? "undo.name.rename" : "undo.name.editTag"),
+    said: (t) => t(rename ? "object.renamed" : "undo.tagEdited", { name: after.name }),
+    name: (t) => t(rename ? "undo.name.rename" : "undo.name.editTag"),
     undo: async () => {
       await core.updateTag(tagId, before);
     },
@@ -39,7 +38,7 @@ export async function deleteTag(tagId: string): Promise<void> {
   const name = tagOf(tagId)?.name ?? "";
   const remove = () => core.deleteTag(tagId);
   await remove();
-  push(deleted(t, name, [{ kind: "tag", id: tagId }], remove));
+  push(deleted(name, [{ kind: "tag", id: tagId }], remove));
 }
 
 /** Merges a Tag into another; undone by bringing it back, both Tags' links as they were. */
@@ -48,8 +47,8 @@ export async function mergeTags(tagId: string, intoTagId: string): Promise<void>
   const into = tagOf(intoTagId)?.name ?? "";
   let merge = await core.mergeTags(tagId, intoTagId);
   push({
-    message: t("undo.tagsMerged", { name, into }),
-    name: t("undo.name.mergeTags"),
+    said: (t) => t("undo.tagsMerged", { name, into }),
+    name: (t) => t("undo.name.mergeTags"),
     undo: () => core.restore([merge.merged]),
     redo: async () => {
       merge = await core.mergeTags(tagId, intoTagId);

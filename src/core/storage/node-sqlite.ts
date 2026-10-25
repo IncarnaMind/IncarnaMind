@@ -13,12 +13,17 @@ export function openNodeSqlite(file: string): Database {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
 
-  const statements = new Map<string, StatementSync>();
-  const prepare = (sql: string): StatementSync => {
-    let statement = statements.get(sql);
+  const reads = new Map<string, StatementSync>();
+  const writes = new Map<string, StatementSync>();
+  const prepare = (sql: string, cache: Map<string, StatementSync>): StatementSync => {
+    let statement = cache.get(sql);
     if (!statement) {
       statement = db.prepare(sql);
-      statements.set(sql, statement);
+      // run() reports the connection's last row id, which a contentless FTS5 delete can leave at
+      // its tombstone page's, past 2^53. Node 26 throws reading that as a number, after the write
+      // is done (#1289).
+      if (cache === writes) statement.setReadBigInts(true);
+      cache.set(sql, statement);
     }
     return statement;
   };
@@ -29,13 +34,13 @@ export function openNodeSqlite(file: string): Database {
       db.exec(sql);
     },
     run(sql, params: readonly SqlValue[] = []) {
-      prepare(sql).run(...params);
+      prepare(sql, writes).run(...params);
     },
     get<Row>(sql: string, params: readonly SqlValue[] = []) {
-      return prepare(sql).get(...params) as Row | undefined;
+      return prepare(sql, reads).get(...params) as Row | undefined;
     },
     all<Row>(sql: string, params: readonly SqlValue[] = []) {
-      return prepare(sql).all(...params) as Row[];
+      return prepare(sql, reads).all(...params) as Row[];
     },
     transaction(fn) {
       if (transactionDepth > 0) return fn();
@@ -54,7 +59,8 @@ export function openNodeSqlite(file: string): Database {
     },
     close() {
       if (!db.isOpen) return;
-      statements.clear();
+      reads.clear();
+      writes.clear();
       db.close();
     },
   };

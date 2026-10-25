@@ -6,7 +6,8 @@
  * and a reply that claims a change no call made is asked again with it
  * (./claimedChanges). In English, as the rest of the instructions are.
  */
-import type { AnswerToolCall, MindChange, MindProblem } from "../api";
+import type { AnswerToolCall, CommandDone, MindChange, MindProblem } from "../api";
+import { COMMAND_TOOLS } from "../tools";
 
 /** A Mind's name now, by its id; null for one deleted or unknown. */
 export type MindNames = (mindId: string) => string | null;
@@ -20,6 +21,8 @@ export interface ChangeState {
   accepted: number;
   rejected: number;
   gone?: boolean;
+  /** Read in its own turn: it applies in the Mind at once, as the window takes it in (#1559). */
+  applied?: boolean;
 }
 
 /** What became of a call's change, if known: read from its Mind as it is now. */
@@ -35,6 +38,14 @@ const quoted = (text: string) => `“${text.replace(/\s+/g, " ").slice(0, 120)}�
 const counted = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
 
+const NO_CHART = {
+  several: "it has more than one table, and the User's cursor was in none",
+  noTable: "it has no table",
+  noNumbers: "its table has no column of numbers",
+  needsTwo: "a scatter chart needs two columns of numbers",
+  uncited: "some of its table's figures have no Citation",
+} as const satisfies Record<Extract<MindProblem, { kind: "no-chart" }>["problem"], string>;
+
 function whyNot(problem: MindProblem | undefined): string {
   switch (problem?.kind) {
     case "waiting":
@@ -47,6 +58,8 @@ function whyNot(problem: MindProblem | undefined): string {
       return `no Mind is called ${quoted(problem.name)}`;
     case "several":
       return `several Minds are called ${quoted(problem.name)}`;
+    case "not-picked":
+      return `other Minds have titles close to ${quoted(problem.name)}, and the User didn't pick which one was meant`;
     case "no-heading":
       return `it has no heading ${quoted(problem.heading)}`;
     case "no-place":
@@ -69,12 +82,18 @@ function whyNot(problem: MindProblem | undefined): string {
       return "it was stopped";
     case "no-table":
       return "its table couldn't be made";
+    case "new-mind":
+      return "the User asked for a new Mind: make it with create_mind";
+    case "uncited":
+      return "its sources were written as text, or as markers with no Citation recorded";
     case "local-mode":
       return "“Keep everything on this computer” is on";
     case "not-ready":
       return "the model couldn't be used";
     case "model":
       return `the model failed: ${problem.message}`;
+    case "no-chart":
+      return NO_CHART[problem.problem];
     case undefined:
       return "it failed";
   }
@@ -118,6 +137,7 @@ function decisions(total: number, accepted: number, rejected: number): string {
 function fateOf(proposals: number, state: ChangeState | null): string {
   if (!state) return "waiting for the User";
   if (state.gone) return GONE;
+  if (state.applied) return "applied in the Mind at once, with Undo";
   const { waiting, accepted, rejected } = state;
   if (waiting >= proposals) return "waiting for the User";
   const did =
@@ -195,6 +215,68 @@ function lineOf(call: AnswerToolCall, names: MindNames, states?: ChangeStates): 
             ? "the User denied it, so it wasn't made"
             : "failed"
       }`;
+    case "commands":
+      return commandLine(call);
+    case "asks":
+      return askLine(call);
+  }
+}
+
+function askLine(call: AnswerToolCall): string {
+  const asked = call.asked;
+  const question = quoted(asked?.question ?? field(call, "question"));
+  const answer = asked?.answer;
+  if (!answer) return `ask_user ${question}: not answered`;
+  if (answer.skipped) return `ask_user ${question}: the User skipped it`;
+  const chose = [
+    ...answer.chosen.map(quoted),
+    ...(answer.wrote === null ? [] : [`in their own words ${quoted(answer.wrote)}`]),
+  ];
+  return `ask_user ${question}: the User answered ${chose.join(" and ")}`;
+}
+
+function commandLine(call: AnswerToolCall): string {
+  if (call.tool === COMMAND_TOOLS.list) {
+    if (!call.found) return "list_commands: failed";
+    const { kind, count, by } = call.found;
+    const words = Object.entries(by).map(([what, value]) => `${what} ${quoted(value)}`);
+    return `list_commands ${kind}s${words.length > 0 ? ` by ${words.join(", ")}` : ""}: found ${count}`;
+  }
+  const done = call.command;
+  if (!done) {
+    return `run_command ${field(call, "command")}: ${call.approval === "denied" ? "the User didn't allow it, so nothing changed" : "failed, so nothing changed"}`;
+  }
+  const items = done.items
+    .map((item) =>
+      item.renamed ? `${quoted(item.name)} to ${quoted(item.renamed)}` : quoted(item.name),
+    )
+    .join(", ");
+  const into = done.into ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
+  const where = done.inOutputLocation === false ? "" : "the Output location, ";
+  const file = done.file
+    ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(call, done)}`
+    : "";
+  return `run_command ${done.command}: ${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}`;
+}
+
+/** What a Word export did about marking the text IncarnaMind wrote, and why, as its result said. */
+function markingOf(call: AnswerToolCall, done: CommandDone): string {
+  const { marking } = done;
+  if (!marking) return "";
+  const leaves =
+    marking.choice === "mark"
+      ? "the text IncarnaMind wrote is marked with comments"
+      : "the text IncarnaMind wrote is left unmarked";
+  const chose = call.asked?.answer?.skipped === false ? call.asked.answer.chosen.map(quoted) : [];
+  switch (marking.how) {
+    case "kept":
+      return chose.length > 0
+        ? `; ${leaves}: the User was asked in the tray and answered ${chose.join(" and ")}, a choice now saved for every Word export`
+        : `; ${leaves}: the User's request named it, a choice now saved for every Word export`;
+    case "this-file":
+      return `; ${leaves}, as the User's request named it for this file, their saved choice unchanged`;
+    case "earlier":
+      return `; ${leaves}, following the choice the User saved earlier for Word exports`;
   }
 }
 

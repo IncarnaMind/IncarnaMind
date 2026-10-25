@@ -37,10 +37,10 @@ const usd = (input: number, cacheRead: number | undefined, output: number): Pric
   ...(cacheRead !== undefined && { cacheRead }),
 });
 
-/**
- * Ollama's cloud models, per million tokens, from https://ollama.com/pricing,
- * checked on 2026-10-11. Keys are the model's name without its cloud suffix.
- */
+/** When Ollama's cloud prices below were checked against https://ollama.com/pricing. */
+export const OLLAMA_CLOUD_PRICES_CHECKED = "2026-10-11";
+
+/** Ollama's cloud models, per million tokens. Keys are the model's name without its cloud suffix. */
 const OLLAMA_CLOUD_PRICES: Readonly<Record<string, Price>> = {
   "deepseek-v4.1-flash": { ...usd(0.3, 0.006, 1.2), offPeak: OLLAMA_PEAK },
   "deepseek-v4-pro": { ...usd(1.32, 0.044, 3.96), offPeak: OLLAMA_PEAK },

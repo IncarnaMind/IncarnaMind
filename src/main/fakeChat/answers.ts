@@ -5,7 +5,9 @@
  * of the first Passage that shares a word with the Question (on the page, or
  * at the Location, that line is on), then answers with a marker. A Question
  * with "misquote" in it gets a quote that isn't on the page; one with "no page"
- * names no page, as a small model often doesn't; one with "each"
+ * names no page, as a small model often doesn't; one with "without citing" (不引用)
+ * writes a marker and never calls cite, as a model sometimes does; one with "citing as text" (文字引用)
+ * writes its records as text in a <cite> block instead of calling cite; one with "each"
  * cites the first Passage of each Document found, with a marker for each; one
  * with "rows" quotes two lines, so a sheet's Citation covers a range of rows; one with
  * "quotation marks" (引号) quotes the clause after a line's colon or comma, and writes
@@ -16,13 +18,26 @@
  * "in millions" each figure as "$289.4 million"; one that asks for "four columns" gets a
  * table of four, wider than the assistant (#612); one that asks for "two tables" (两个表) gets
  * two small ones; one that asks for "nine rows" (九行) gets
- * three peers' figures in nine rows, with the first column's labels; one that asks for "forty
+ * three peers' figures in nine rows, with the first column's labels; one that asks to "compare the
+ * two contracts" (比较两份合同) gets a table of three columns, its cells short if the instructions
+ * ask for that and the quotes if not (#1382); one that asks for "narrow then wide" (先窄后宽) gets a
+ * line, then a table whose first rows fit the assistant and whose last is wider than it; one that asks for
+ * "long headings" (长标题) gets a table of four long headings and long rows, as a real model writes one;
+ * one that asks for "forty
  * citations" (四十条引用) gets forty sentences, each with a marker, and one that asks for "twelve in a
  * row" (连续十二条) gets one sentence with twelve markers side by side; one with "cited below" (or 引用在下) gets a
  * table whose one Citation stands in a paragraph under it, and one with "framed" (or 带说明)
- * gets a lead-in before its content and a closing note after it (#702).
- * One that asks how much something grew (增长) has the growth from the first
+ * gets a lead-in before its content and a closing note after it (#702); one that says "without
+ * searching" (不用搜索) cites the Passages given with it, as a model does that is given a short
+ * Document's whole text, and calls no search. One that turns the Mind "into a report" (整理成报告)
+ * keeps each Citation it reads there by its id, with no search, as #1800 asks of a model.
+ * One that says "边想边写" writes pages of working notes after its search, with no
+ * marker (#1344). One that asks how much something grew (增长) has the growth from the first
  * two numbers of its quote calculated, and writes it with its marker.
+ * As models did (#1172), one for a "short summary" (简短的摘要) ends with a
+ * paragraph pointing to an earlier Answer, and one about "home working"
+ * (居家办公) asked beside a Mind ends by setting the Documents apart from it,
+ * unless the instructions say that Mind is an example.
  * Before its search it reasons, a line that quotes the Question, as a model
  * that thinks does. A Question asked "slowly" waits a moment before each step
  * and writes its Answer word by word, so a test sees each step of the Answer.
@@ -36,12 +51,14 @@ import { cellReply, isCell } from "./cells";
 import { FORTY_CITATIONS, passagesIn, recordFor, recordsFor, TWELVE_IN_A_ROW } from "./passages";
 import {
   lastQuestion,
+  lastUserText,
   type Prompt,
   type Reply,
   type StreamPart,
   systemOf,
   toolResults,
   USAGE,
+  userText,
 } from "./prompt";
 
 /** What the scripted model reasons before it searches: a line that quotes the Question. */
@@ -75,6 +92,54 @@ const FOUND_PAGES = [
 
 /** The scripted Answer when it cited something: one sentence with a marker. */
 export const CITED_ANSWER = "Your Documents answer this [^1].\n\nThat is all.";
+
+/**
+ * A Question whose model, after its search, runs on for pages of working notes instead of an
+ * Answer (#1344): more than the backstop lets stand. The notes are Chinese, which has no spaces to
+ * stream a word at a time at: they arrive in one piece.
+ */
+const THINKING_ALOUD = /边想边写/;
+
+const WORKING_NOTES = "等一下，可能还有一份相同的文件。再搜一次确认一下。".repeat(600);
+
+const WITHOUT_SEARCHING = /\bwithout searching\b|不用搜索/i;
+
+const INTO_A_REPORT = /\binto a report\b|整理成报告/i;
+
+/** A report of the Mind: each Citation it reads there recorded by its id, then a marker for each. */
+function reportReply(prompt: Prompt, question: string): Reply {
+  const read = prompt
+    .filter((message) => message.role === "user")
+    .map(userText)
+    .join("\n");
+  const ids = [...new Set([...read.matchAll(/· (C\d+)\]/g)].map((match) => match[1]))];
+  if (toolResults(prompt, "cite").length === 0 && ids.length > 0) {
+    const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
+    return { tool: "cite", input: { citations } };
+  }
+  const markers = ids.map((_, index) => `[^${index + 1}]`).join("");
+  return {
+    text: /\p{Script=Han}/u.test(question)
+      ? `# 报告\n\nMind 里的发现，来源都在${markers}。`
+      : `# Report\n\nWhat the Mind found, with its sources ${markers}.`,
+  };
+}
+
+/** A Question the model answers with a marker and no `cite` call. */
+const WITHOUT_CITING = /\bwithout citing\b|不引用/i;
+
+/** A Question the model answers with its records written as text, not a `cite` call. */
+const CITING_AS_TEXT = /\bciting as text\b|文字引用/i;
+
+/** The scripted Answer to such a Question: a sentence with a marker, then the records in a `<cite>` block. */
+const citedAsText = (question: string, records: readonly unknown[]) =>
+  `${uncitedAnswer(question)}\n\n<cite>\n${JSON.stringify(records)}\n</cite>`;
+
+/** The scripted Answer to such a Question: a sentence with a marker no record backs. */
+const uncitedAnswer = (question: string) =>
+  /\p{Script=Han}/u.test(question)
+    ? "文档回答了这个问题[^1]。\n\n以上。"
+    : "Your Documents answer this [^1].\n\nThat is all.";
 
 /** The scripted Answer, as a table, to a Question that asks for one: the markers in a cell. */
 const tableAnswer = (markers: string) =>
@@ -181,6 +246,131 @@ function nineRowsAnswer(question: string, marker: string): string {
   ].join("\n");
 }
 
+const CONTRACT_COMPARISON = /\bcompare the two contracts\b|比较两份合同/i;
+
+const SHORT_CELLS = "about eight words";
+
+const CONTRACT_CELLS = {
+  en: {
+    head: ["Term", "Alder", "Birch"],
+    short: [
+      ["Notice", "30 days", "60 days"],
+      ["Law", "England", "New York"],
+      ["Cap", "12 months' fees", "None"],
+    ],
+    long: [
+      [
+        "Notice",
+        "Either party may end the agreement by giving thirty days' written notice to the other party",
+        "Either party may end the agreement by giving sixty days' written notice to the other party",
+      ],
+      [
+        "Law",
+        "This agreement is governed by the laws of England and Wales and the courts of England",
+        "This agreement is governed by the laws of the State of New York and the courts of that State",
+      ],
+      [
+        "Cap",
+        "Liability under this agreement is limited to the fees paid in the twelve months before the claim",
+        "Liability under this agreement is not limited to any amount, whatever the cause of the claim",
+      ],
+    ],
+  },
+  zh: {
+    head: ["条款", "阿尔德", "伯奇"],
+    short: [
+      ["通知期", "30 天", "60 天"],
+      ["法律", "英国法", "纽约州法"],
+      ["上限", "12 个月费用", "无上限"],
+    ],
+    long: [
+      [
+        "通知期",
+        "任何一方均可提前三十日书面通知对方终止本协议，无需说明任何理由",
+        "任何一方均可提前六十日书面通知对方终止本协议，无需说明任何理由",
+      ],
+      [
+        "法律",
+        "本协议受英格兰和威尔士法律管辖，并由英格兰的法院专属管辖",
+        "本协议受纽约州法律管辖，并由纽约州的法院专属管辖",
+      ],
+      [
+        "上限",
+        "本协议项下的责任以索赔前十二个月内已支付的费用为限",
+        "本协议项下的责任不设金额上限，无论索赔因何而起",
+      ],
+    ],
+  },
+} as const;
+
+function contractComparisonAnswer(prompt: Prompt, question: string, marker: string): string {
+  const { head, short, long } = CONTRACT_CELLS[/\p{Script=Han}/u.test(question) ? "zh" : "en"];
+  // Short only if the instructions ask for it, so a test that passes proves they reach the model.
+  const rows = systemOf(prompt).includes(SHORT_CELLS) ? short : long;
+  return [
+    `| ${head.join(" | ")} |`,
+    "|:--|:--|:--|",
+    ...rows.map(([term, alder, birch], index) => {
+      const cited = index === 0 ? `${alder} ${marker}` : alder;
+      return `| ${term} | ${cited} | ${birch} |`;
+    }),
+  ].join("\n");
+}
+
+const NARROW_THEN_WIDE = /\bnarrow then wide\b|先窄后宽/i;
+
+function narrowThenWideAnswer(question: string, marker: string): string {
+  if (/\p{Script=Han}/u.test(question)) {
+    return [
+      "对比如下。",
+      "",
+      "| 条款 | 阿尔德公司 | 伯奇公司 |",
+      "|:--|:--|:--|",
+      "| 法律 | 英国普通法 | 纽约州法律 |",
+      "| 上限 | 十二个月费用 | 无上限责任 |",
+      `| 通知期 | 三十日 | 提前三十日书面通知 ${marker} |`,
+      "| 费用 | 按月 | 按季 |",
+      "| 期限 | 三年 | 两年 |",
+      "| 续约 | 自动 | 手动 |",
+      "| 数据 | 欧盟 | 美国 |",
+    ].join("\n");
+  }
+  return [
+    "Here is the comparison.",
+    "",
+    "| Term | Alder Ltd | Birch Inc |",
+    "|:--|:--|:--|",
+    "| Law | England | New York |",
+    "| Cap | 12 months | Unlimited |",
+    `| Notice | 30 days | Thirty days' written notice ${marker} |`,
+    "| Fees | Monthly | Quarterly |",
+    "| Years | 3 years | 2 years |",
+    "| Renewal | Auto | Manual |",
+    "| Data | EU | US |",
+  ].join("\n");
+}
+
+const LONG_HEADINGS = /\blong headings\b|长标题/i;
+
+function longHeadingsAnswer(question: string, marker: string): string {
+  if (/\p{Script=Han}/u.test(question)) {
+    return [
+      "| 条款 | 阿尔德供货协议 | 伯奇供货协议 | 港湾包装补充说明 |",
+      "|:--|:--|:--|:--|",
+      `| 期限 | 自 2026 年 3 月 1 日起三年，之后每年续期 ${marker} | 自 2026 年 6 月 1 日起两年，期满终止，除非书面延长 | 两份协议均在港湾框架内履行 |`,
+      "| 通知 | 任何一方须提前 30 天书面通知对方 | 任何一方须提前 60 天书面通知对方 | 通知送交港湾包装的联系人 |",
+      "| 付款 | 收到发票后 30 天内付款，逾期按基准利率加 4% 计息 | 收到发票后 45 天内付款，逾期按每月 1.5% 计息 | 逾期费用按各自协议执行 |",
+    ].join("\n");
+  }
+  return [
+    "| Term | Alder Supply Agreement | Birch Supply Agreement | Harbour Packaging notes |",
+    "|:--|:--|:--|:--|",
+    `| Duration | Three years from 1 March 2026, then renews yearly ${marker} | Two years from 1 June 2026, then ends unless extended in writing | Both run beside the Harbour framework |`,
+    "| Notice | Either party gives 30 days' written notice to the other | Either party gives 60 days' written notice to the other | Notice goes to the Harbour Packaging contact |",
+    "| Payment | Invoices paid within 30 days, late payments at 4% above base rate | Invoices paid within 45 days, late payments at 1.5% a month | Late fees follow each agreement |",
+  ].join("\n");
+}
+
 function fortyCitationsAnswer(question: string): string {
   const chinese = /\p{Script=Han}/u.test(question);
   const sentences = Array.from({ length: 40 }, (_, index) =>
@@ -255,6 +445,22 @@ const BY_QUARTER = /\bby quarter\b|按季度/i;
 const BY_QUARTER_CHINESE = /分季度/;
 const IN_MILLIONS = /\bin millions\b/i;
 
+const SHORT_SUMMARY = /\bshort summary\b|简短的摘要/i;
+const HOME_WORKING = /\bhome working\b|居家办公/i;
+
+function withAsides(prompt: Prompt, question: string, answer: string): string {
+  const chinese = /\p{Script=Han}/u.test(question);
+  if (SHORT_SUMMARY.test(question)) {
+    return `${answer}\n\n${chinese ? "居家办公的规定见上一条回答。" : "Notice, holiday and home working are covered in my earlier answer."}`;
+  }
+  const beside = /<mind name="([^"]*)">/.exec(
+    userText(prompt.find((message) => message.role === "user")),
+  )?.[1];
+  if (!HOME_WORKING.test(question) || !beside) return answer;
+  if (systemOf(prompt).includes("is an example IncarnaMind made")) return answer;
+  return `${answer}\n\n${chinese ? `这与“${beside}”无关。` : `This has nothing to do with “${beside}”.`}`;
+}
+
 /** The Skill the Answer follows: the one the Question forces, or one loaded with use_skill. */
 function skillFollowed(prompt: Prompt): string | null {
   const forced = /the User chose the Skill "([^"]+)"/.exec(systemOf(prompt))?.[1];
@@ -302,20 +508,27 @@ export function searchParts(tool: string, query: string): StreamPart[] {
 /** What the model does next, apart from Connector Tools: call a Tool, or stream its Answer. */
 export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const question = lastQuestion(prompt);
-  if (tools.includes("search_documents") && isCell(prompt)) return cellReply(prompt, question);
+  if (tools.includes("search_documents") && isCell(prompt)) return cellReply(prompt);
   if (tools.includes("use_skill") && toolResults(prompt, "use_skill").length === 0) {
     const named = skillNamed(prompt, question);
     if (named) return { tool: "use_skill", input: { name: named } };
   }
   const skill = skillFollowed(prompt);
   if (!tools.includes("search_documents")) return { text: fakeAnswer(question, skill) };
-  const searches = toolResults(prompt, "search_documents");
+  if (INTO_A_REPORT.test(question)) return reportReply(prompt, question);
+  const given = passagesIn(lastUserText(prompt)).length > 0 && WITHOUT_SEARCHING.test(question);
+  const searches = given ? [lastUserText(prompt)] : toolResults(prompt, "search_documents");
   if (searches.length === 0) {
     return {
       tool: "search_documents",
       input: { query: question },
       reasoning: reasoningFor(question),
     };
+  }
+  if (THINKING_ALOUD.test(question)) return { text: WORKING_NOTES };
+  if (WITHOUT_CITING.test(question)) return { text: uncitedAnswer(question) };
+  if (CITING_AS_TEXT.test(question)) {
+    return { text: citedAsText(question, recordsFor(searches.at(-1) ?? "", question)) };
   }
   const cites = toolResults(prompt, "cite");
   if (cites.length === 0) {
@@ -378,8 +591,15 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
                   ? citedBelowAnswer(question, recorded[0] ?? "")
                   : AS_A_TABLE.test(question)
                     ? tableAnswer(recorded.join(" "))
-                    : recorded.length > 1
-                      ? `Your Documents answer this ${recorded.join(" ")}.\n\nThat is all.`
-                      : CITED_ANSWER;
-  return { text: skill ? `Following the Skill ${skill}.\n\n${answer}` : answer };
+                    : CONTRACT_COMPARISON.test(question)
+                      ? contractComparisonAnswer(prompt, question, recorded[0] ?? "")
+                      : NARROW_THEN_WIDE.test(question)
+                        ? narrowThenWideAnswer(question, recorded[0] ?? "")
+                        : LONG_HEADINGS.test(question)
+                          ? longHeadingsAnswer(question, recorded[0] ?? "")
+                          : recorded.length > 1
+                            ? `Your Documents answer this ${recorded.join(" ")}.\n\nThat is all.`
+                            : CITED_ANSWER;
+  const said = withAsides(prompt, question, answer);
+  return { text: skill ? `Following the Skill ${skill}.\n\n${said}` : said };
 }

@@ -11,6 +11,7 @@
 import * as Y from "yjs";
 import type { EditCause, MindAccess } from "../../core/api";
 import { core } from "./core";
+import { describeError } from "./errors";
 
 /** Marks changes that came from the core, so they aren't sent back to it. */
 const FROM_CORE = Symbol("from the core");
@@ -58,10 +59,16 @@ export function openMindCopy(
     if (cause && taker?.doc === local) taker.take(update, cause);
     else Y.applyUpdate(local, update, FROM_CORE);
   });
+  // A change that built on one the core never got goes again inside the whole copy (#1119).
+  const store = (update: Uint8Array, again: boolean) => {
+    core.applyMindUpdate(mindId, update).catch((error: unknown) => {
+      const missed = describeError(error).wording?.key === "error.mind.missedChange";
+      if (missed && again && active) store(Y.encodeStateAsUpdate(local), false);
+      else failed(error);
+    });
+  };
   const send = (update: Uint8Array, origin: unknown) => {
-    if (origin !== FROM_CORE && origin !== EDIT_FROM_CORE && editable) {
-      core.applyMindUpdate(mindId, update).catch(failed);
-    }
+    if (origin !== FROM_CORE && origin !== EDIT_FROM_CORE && editable) store(update, true);
   };
   local.on("update", send);
   core.openMind(mindId).then(

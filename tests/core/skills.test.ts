@@ -622,6 +622,81 @@ describe("Answers use Skills", () => {
     expect(started.map((event) => event.call.tool)).toEqual(["use_skill"]);
   });
 
+  // protects=an Answer that follows a Skill naming no language is told the Question's language after the search's Passages, whether use_skill loaded the Skill or the User forced it, and one that follows a Skill naming a language, or has no Skill, is not (#1273); fails_when=the Passages' or the Skill's language wins, the note is far above the Passages, or it overrides a language the Skill sets; no_claim=what a real model does, which the everyday eval's summary cases check.
+  describe("the Question's language after the Passages", { timeout: 30_000 }, () => {
+    const note =
+      "The Skill's instructions don't change the language of your Answer. The Question is written in English, so answer in English.";
+    const FILES = [{ name: "Harbour.txt", contents: "Harbour tides rise twice a day.\n" }];
+
+    /** Asks about the Harbour with the Skill `body` is the instructions of; the search result the model was given, and the first request's instructions. */
+    async function searchedWith(body: string | null, how: "loaded" | "forced") {
+      const calls: ModelCall[] = [];
+      const model = scriptedModel((call): ScriptedReply => {
+        calls.push(call);
+        const used = call.results.some((result) => result.tool === "use_skill");
+        const searched = call.results.some((result) => result.tool === "search_documents");
+        if (how === "loaded" && body !== null && !used) {
+          return { calls: [{ tool: "use_skill", input: { name: "tide-tables" } }] };
+        }
+        if (!searched) return { calls: [{ tool: "search_documents", input: { query: "tides" } }] };
+        return { text: "Answered." };
+      });
+      const { core, client, mind } = await setUpWithDocuments(model, FILES);
+      if (body !== null) {
+        await importSkill(
+          core,
+          await writeFolder(await createTempDataFolder(), "tides", {
+            "SKILL.md": simpleSkillMd("tide-tables", "Explains tides.", body),
+          }),
+        );
+      }
+      await askAndWait(
+        core,
+        client,
+        mind.id,
+        "When is high water in Brest?",
+        how === "forced" && body !== null ? "tide-tables" : undefined,
+      );
+      const results = calls.flatMap((call) => call.results);
+      return {
+        search: results.find((result) => result.tool === "search_documents")?.text ?? "",
+        skill: results.find((result) => result.tool === "use_skill")?.text ?? "",
+        system: calls[0]?.system ?? "",
+      };
+    }
+
+    test.each(["loaded", "forced"] as const)(
+      "a Skill that names none, %s: the search says it after the Passages, and nothing else repeats it",
+      async (how) => {
+        const run = await searchedWith("Summarize the tides in three bullet points.", how);
+        expect(run.search).toContain("Harbour tides rise twice a day");
+        expect(run.search.endsWith(note)).toBe(true);
+        expect(run.search.indexOf(note)).toBeGreaterThan(run.search.indexOf("Harbour tides"));
+        expect(run.skill).not.toContain(note);
+        expect(run.system).not.toContain(note);
+        // The line for the Question itself still ends the instructions.
+        expect(run.system.split("\n").at(-1)).toBe(
+          "- The Question is written in English, so answer in English.",
+        );
+      },
+    );
+
+    test.each(["loaded", "forced"] as const)(
+      "a Skill that names a language keeps it, %s",
+      async (how) => {
+        const run = await searchedWith("Write the summary in French, in three bullets.", how);
+        expect(run.search).toContain("Harbour tides rise twice a day");
+        expect(run.search).not.toContain(note);
+      },
+    );
+
+    test("an Answer with no Skill hears nothing extra", async () => {
+      const run = await searchedWith(null, "loaded");
+      expect(run.search).toContain("Harbour tides rise twice a day");
+      expect(run.search).not.toContain("Skill");
+    });
+  });
+
   test("use_skill can't load a Skill that's turned off or doesn't exist", async () => {
     const model = scriptedModel((call): ScriptedReply => {
       if (call.index === 0) {

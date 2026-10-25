@@ -4,7 +4,7 @@ import type * as Y from "yjs";
 import type { ChatGptPlanStatus, ChatModelChoice, ChatProvider } from "../../../core/api";
 import { isCloudModelName } from "../../../core/providers/ollamaCloud";
 import type { MessageKey } from "../../../shared/i18n";
-import { mindModelOf, observeMindModel, setMindModel } from "../../../shared/mindModel";
+import { sameModel, setMindModel } from "../../../shared/mindModel";
 import { useAnswers } from "../answers";
 import { CheckLineIcon } from "../components/lineIcons";
 import { OnThisComputer } from "../components/OnThisComputer";
@@ -15,9 +15,10 @@ import {
   useContinueWithChatGpt,
 } from "../components/providers/ChatGptSignIn";
 import { usePopoverMenu } from "../components/usePopoverMenu";
-import { useComposer } from "../composer";
 import { core } from "../core";
 import { useT } from "../i18n";
+import { turnOffLocalMode } from "../localMode";
+import { useModelInUse } from "../modelInUse";
 import { useModelMenuRequests } from "../modelMenu";
 import { useModelNames } from "../modelNames";
 import { usePlanStandIn } from "../planLimits";
@@ -51,14 +52,6 @@ const GROUP_NAMES: Record<ModelGroup, MessageKey> = {
   cloud: "composer.model.group.cloud",
 };
 
-/** What each group's models are like, on their second line. */
-const HINTS: Record<ModelGroup, MessageKey> = {
-  keys: "composer.model.hint.keys",
-  plan: "composer.model.hint.plan",
-  local: isMacOS() ? "composer.model.hint.localMac" : "composer.model.hint.local",
-  cloud: "composer.model.hint.cloud",
-};
-
 /** How a model is reached, after its name in the chip's tooltip. */
 const VIA: Record<ModelGroup, MessageKey> = {
   keys: "composer.model.via.keys",
@@ -67,50 +60,33 @@ const VIA: Record<ModelGroup, MessageKey> = {
   cloud: "composer.model.via.cloud",
 };
 
-const same = (a: ChatModelChoice | null, b: ChatModelChoice | null) =>
-  a !== null && b !== null && a.providerId === b.providerId && a.modelId === b.modelId;
-
-/**
- * The model chosen for the Mind, kept up to date as it changes here or elsewhere;
- * with no Mind (`doc` null), the one chosen for the composer until the app quits.
- */
-export function useMindModel(doc: Y.Doc | null): ChatModelChoice | null {
-  const [choice, setChoice] = useState(() => (doc ? mindModelOf(doc) : null));
-  const withoutMind = useComposer((state) => state.modelWithoutMind);
-  useEffect(() => {
-    if (!doc) return;
-    setChoice(mindModelOf(doc));
-    return observeMindModel(doc, () => setChoice(mindModelOf(doc)));
-  }, [doc]);
-  return doc ? choice : withoutMind;
-}
-
-/** The model a run in the Mind uses: the Mind's own, else the default the composer shows. */
+/** The model a run in the Mind uses: the one in use, else the default the composer shows. */
 export function useRunModel(doc: Y.Doc | null): {
   providerId: string | null;
   modelId: string | null;
 } {
-  const own = useMindModel(doc);
+  const inUse = useModelInUse(doc);
   const providerId = useAppStore((state) =>
     state.chatReadiness?.ready ? state.chatReadiness.provider.id : null,
   );
   const modelId = useAppStore((state) =>
     state.chatReadiness?.ready ? state.chatReadiness.modelId : null,
   );
-  return own ?? { providerId, modelId };
+  return inUse ?? { providerId, modelId };
 }
 
 function chooseModel(doc: Y.Doc | null, choice: ChatModelChoice): void {
   if (doc) setMindModel(doc, choice);
-  else useComposer.setState({ modelWithoutMind: choice });
+  void useAppStore.getState().updateSettings({ device: { lastChatModel: choice } });
 }
 
 /**
  * The composer's quiet model chip, before the Search scope: the model the
  * Mind's next Questions are asked with, and a menu to choose another, grouped
- * by where it runs (your keys, the ChatGPT plan, this computer), each with a
- * one-line hint. A choice is remembered for the Mind (`setMindModel`); a Mind
- * with none uses the default for new Minds, which the menu names at its foot.
+ * by where it runs (your keys, the ChatGPT plan, this computer), with a hint
+ * only on a model that needs one. A choice is remembered for the Mind (`setMindModel`) and as the
+ * last pick (`DeviceSettings.lastChatModel`); a Mind with none of its own follows the last pick,
+ * else the Answers default (`modelInUse`). The menu names at its foot the model a new Mind starts on.
  * Until the User is signed in with ChatGPT, the plan's group offers "Continue
  * with ChatGPT"; while its model is chosen, it says the plan is in use, with
  * "Manage usage". Not shown before any chat model is set up.
@@ -126,8 +102,8 @@ export function ModelChip({
   opensOnRequest?: boolean;
 }) {
   const t = useT();
-  const chosen = useMindModel(doc);
-  const defaultModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
+  const current = useModelInUse(doc);
+  const newMindModel = useModelInUse(null);
   const readiness = useAppStore((state) => state.chatReadiness);
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   const openSettings = useAppStore((state) => state.openSettings);
@@ -170,7 +146,6 @@ export function ModelChip({
     if (opensOnRequest && chip && !menu.open) chip.click();
   }, [requests, opensOnRequest, menu.buttonProps.ref, menu.open]);
 
-  const current = chosen ?? defaultModel;
   if (!current) return null;
   const providerOf = (providerId: string): ChatProvider | null =>
     groups?.find((group) => group.provider.id === providerId)?.provider ??
@@ -281,7 +256,6 @@ export function ModelChip({
                 }
               }}
             >
-              <p className="model-menu-intro">{t("composer.model.intro")}</p>
               <input
                 ref={search}
                 type="search"
@@ -320,8 +294,7 @@ export function ModelChip({
                             key={`${each.id}\n${modelId}`}
                             provider={each}
                             modelId={modelId}
-                            hint={t(HINTS[group])}
-                            checked={same({ providerId: each.id, modelId }, current)}
+                            checked={sameModel({ providerId: each.id, modelId }, current)}
                             unavailable={localMode}
                             onChoose={choose}
                           />
@@ -335,17 +308,25 @@ export function ModelChip({
                   // biome-ignore lint/a11y/useSemanticElements: a group of a menu's items, which a fieldset can't hold.
                   <div key={group} role="group" aria-label={t(GROUP_NAMES[group])}>
                     <p aria-hidden="true" className="model-menu-heading">
-                      {t(GROUP_NAMES[group])}
+                      {group === "local" ? (
+                        <OnThisComputer>{t(GROUP_NAMES[group])}</OnThisComputer>
+                      ) : (
+                        t(GROUP_NAMES[group])
+                      )}
                     </p>
+                    {group === "cloud" && (
+                      <p className="model-menu-hint model-menu-group-hint">
+                        {t("composer.model.hint.cloud")}
+                      </p>
+                    )}
                     {inGroup.flatMap(({ provider: each, models }) =>
                       models.map((modelId) => (
                         <ModelItem
                           key={`${each.id}\n${modelId}`}
                           provider={each}
                           modelId={modelId}
-                          hint={t(untestedHintKey(each) ?? HINTS[group])}
-                          onThisComputer={group === "local"}
-                          checked={same({ providerId: each.id, modelId }, current)}
+                          hint={untestedHintKey(each) ? t("providers.untested") : null}
+                          checked={sameModel({ providerId: each.id, modelId }, current)}
                           // Local mode: only a model on this computer can be asked.
                           unavailable={localMode && group !== "local"}
                           onChoose={choose}
@@ -355,6 +336,30 @@ export function ModelChip({
                   </div>
                 );
               })}
+              {localMode &&
+                offered.some((each) =>
+                  each.models.some(
+                    (id) => groupOf(each.provider, each.cloud.includes(id)) !== "local",
+                  ),
+                ) && (
+                  <p data-testid="composer-model-local-mode" className="model-menu-intro">
+                    {t("composer.model.localModeOff")}
+                    <span aria-hidden="true"> · </span>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="composer-model-local-off"
+                      onClick={() =>
+                        turnOffLocalMode().catch((error: unknown) =>
+                          useAppStore.getState().reportError(error),
+                        )
+                      }
+                      className="model-menu-link"
+                    >
+                      {t("localMode.turnOff")}
+                    </button>
+                  </p>
+                )}
               {groups === null || groups.length === 0 ? (
                 <p className="model-menu-intro">{t("composer.model.loading")}</p>
               ) : wanted !== "" &&
@@ -366,9 +371,9 @@ export function ModelChip({
             </div>
             <div className="model-menu-foot">
               <span>
-                {defaultModel
+                {newMindModel
                   ? t("composer.model.default", {
-                      model: nameOf(defaultModel.modelId, defaultModel.providerId).name,
+                      model: nameOf(newMindModel.modelId, newMindModel.providerId).name,
                     })
                   : t("composer.model.defaultUnset")}
               </span>
@@ -394,23 +399,21 @@ export function ModelChip({
 }
 
 /**
- * One model in the menu: its name (its id on hover), a hint, and who runs it. `unavailable`: listed
- * but not chosen, with the reason as its hint (a cloud model in local mode).
+ * One model in the menu: its name (its id on hover), who runs it, and, only when it needs one, a
+ * hint (not yet tested for Citations). Where models run is said once, by their group's heading.
+ * `unavailable`: listed but not chosen, with the reason as its hint (a cloud model in local mode).
  */
 function ModelItem({
   provider,
   modelId,
-  hint,
-  onThisComputer = false,
+  hint = null,
   checked,
   unavailable,
   onChoose,
 }: {
   provider: ChatProvider;
   modelId: string;
-  hint: string;
-  /** The hint says it stays on this computer: it takes that mark. */
-  onThisComputer?: boolean;
+  hint?: string | null;
   checked: boolean;
   unavailable: boolean;
   onChoose(choice: ChatModelChoice): void;
@@ -439,15 +442,11 @@ function ModelItem({
       />
       <span className="model-menu-name">
         <span className="truncate">{shown.name}</span>
-        <span className="model-menu-hint">
-          {unavailable ? (
-            t("composer.model.localModeOff")
-          ) : onThisComputer ? (
-            <OnThisComputer>{hint}</OnThisComputer>
-          ) : (
-            hint
-          )}
-        </span>
+        {(unavailable || hint) && (
+          <span className="model-menu-hint">
+            {unavailable ? t("composer.model.localModeOff") : hint}
+          </span>
+        )}
       </span>
       <span className="model-menu-provider">{providerName(provider, t)}</span>
     </button>

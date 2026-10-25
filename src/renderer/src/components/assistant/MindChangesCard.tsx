@@ -3,7 +3,7 @@ import type { ConversationAnswer, ConversationQuestion } from "../../../../core/
 import { mindName } from "../../../../shared/naming";
 import { useAskedChanges } from "../../askedChanges";
 import { type ChangedMind, changedMinds } from "../../changedMinds";
-import { changeFact, leftText } from "../../changeFacts";
+import { changeFact, keptText, leftText } from "../../changeFacts";
 import { askInAssistant } from "../../conversations";
 import { useT } from "../../i18n";
 import { resolveAllChanges, showChanges, useWaitingChanges, type Waiting } from "../../mindChanges";
@@ -19,23 +19,6 @@ const seenNames = new Map<string, string>();
 function factText(t: Translate, row: ChangedMind, name: string, waiting: Waiting) {
   if (waiting === "gone") return t("mindChanges.one.removed", { mind: name });
   return changeFact(t, row, name);
-}
-
-/** What of its tables was kept as text, after its count; null when nothing was. */
-function keptText(t: Translate, row: ChangedMind): string | null {
-  const notes = [
-    ...(row.unlinkedSources === 1
-      ? [t("mindChanges.unlinked.one")]
-      : row.unlinkedSources > 1
-        ? [t("mindChanges.unlinked", { count: row.unlinkedSources })]
-        : []),
-    ...(row.extraCells === 1
-      ? [t("mindChanges.extraCells.one")]
-      : row.extraCells > 1
-        ? [t("mindChanges.extraCells", { count: row.extraCells })]
-        : []),
-  ];
-  return notes.length > 0 ? notes.join(" ") : null;
 }
 
 /**
@@ -109,7 +92,10 @@ export function MindChangesCard({
           {headLeft && (
             <>
               {" "}
-              <span data-testid="mind-changes-left" className="mind-changes-count">
+              <span
+                data-testid="mind-changes-left"
+                className="mind-changes-count whitespace-nowrap"
+              >
                 {headLeft}
               </span>
             </>
@@ -165,7 +151,10 @@ export function MindChangesCard({
                 {label}
               </span>
               {left && (
-                <span data-testid="mind-changes-left" className="mind-changes-count">
+                <span
+                  data-testid="mind-changes-left"
+                  className="mind-changes-count whitespace-nowrap"
+                >
                   {left}
                 </span>
               )}

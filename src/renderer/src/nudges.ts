@@ -6,7 +6,14 @@ export const stepsShownOf = (progress: GettingStarted | undefined): boolean =>
 
 export const firstOpenOf = (progress: GettingStarted | undefined): boolean =>
   stepsShownOf(progress) &&
-  !(progress?.citationChecked && progress.indexed && (progress.askedOwn || progress.askedReady));
+  !(progress?.indexed && (progress?.askedOwn || progress?.askedReady) && progress?.citationChecked);
+
+/** The first open's steps are shown and step 3 is in hand: a Citation is the next thing to check. */
+export const citationStepOpen = (progress: GettingStarted | undefined): boolean =>
+  stepsShownOf(progress) &&
+  progress?.indexed === true &&
+  (progress.askedOwn || progress.askedReady) &&
+  !progress.citationChecked;
 
 export type NudgeId = "usage-data";
 

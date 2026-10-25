@@ -78,6 +78,7 @@ test.afterEach(async () => {
 
 async function addPage(window: Page): Promise<void> {
   await window.getByTestId("plus-menu").click();
+  await window.getByTestId("plus-more").click();
   await window.getByTestId("plus-add-web-page").click();
   const dialog = window.getByTestId("add-web-page-dialog");
   await dialog.getByTestId("add-web-page-addresses").fill(`http://127.0.0.1:${port}/report`);

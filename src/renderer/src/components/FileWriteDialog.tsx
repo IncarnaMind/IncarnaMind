@@ -141,6 +141,7 @@ export function FileWriteDialog() {
               name: request.fileName,
             })}
           </p>
+          <p className={dialogTextClass}>{t("fileWrite.linked.safe")}</p>
           <FolderPath path={request.linkedFolderPath} testId="file-write-linked-folder" />
           <p className={hintClass}>{t("fileWrite.linked.note")}</p>
           <div className={dialogActionsClass}>

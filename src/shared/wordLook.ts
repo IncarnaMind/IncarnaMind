@@ -156,6 +156,7 @@ function paragraphLook(value: Record<string, unknown>): WordParagraphLook {
   return defined({
     run: key(value.run),
     next: key(value.next),
+    characterSize: size(value.characterSize),
     align: oneOf(value.align, ["left", "center", "right", "justify", "distribute"] as const),
     left: num(value.left),
     right: num(value.right),

@@ -8,7 +8,6 @@
 import type { Task, TaskMessage } from "../../core/api";
 import { cutTitle } from "../../shared/naming";
 import { useComposer } from "./composer";
-import { translateNow as t } from "./i18n";
 import { tellTask, untellTask, useTasks } from "./tasks";
 import { useUndo } from "./undo";
 
@@ -34,8 +33,8 @@ export async function takeBack(task: Task, message: TaskMessage): Promise<void> 
   await untellTask(task.id, message.id);
   const text = cutTitle(message.text);
   useUndo.getState().push({
-    message: t("task.queued.tookBack", { text }),
-    name: t("task.queued.undoName"),
+    said: (t) => t("task.queued.tookBack", { text }),
+    name: (t) => t("task.queued.undoName"),
     undo: () => tellTask(task.id, message.text),
   });
 }

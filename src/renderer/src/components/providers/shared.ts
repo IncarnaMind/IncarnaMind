@@ -1,18 +1,24 @@
 import { useRef, useState } from "react";
 import type { ChatProvider, ChatReadiness, ProviderErrorKind } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
+import type { Endpoint } from "../../../../core/providers/catalog";
 import {
   catalogProvider,
   catalogProviderOf,
+  endpointOf,
   fieldValueOf,
   isPreset,
   kindOfCatalogId,
 } from "../../../../core/providers/catalog/providers";
 import { OLLAMA_CLOUD } from "../../../../core/providers/ollamaCloud";
 import { isSignInRoute, SIGN_IN_ROUTES } from "../../../../core/providers/signInRoutes";
+import { checkApiKey } from "../../../../shared/apiKey";
 import type { MessageKey, MessageParams } from "../../../../shared/i18n";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
+
+/** Where an undo line of a change made in Settings › Models shows: the sidebar's is behind it. */
+export const MODELS_UNDO_PLACE = "settings:models";
 
 /** What a failed connection test means, in words. The ChatGPT plan's own kinds live under `chatgpt.`. */
 export function testErrorKey(kind: ProviderErrorKind): MessageKey {
@@ -33,6 +39,38 @@ export function readinessKey(readiness: Extract<ChatReadiness, { ready: false }>
   return isSignInRoute(kind)
     ? SIGN_IN_ROUTES[kind].problems["signed-out"].line
     : "chatgpt.readiness.sign-in-required";
+}
+
+export const catalogIdOf = (provider: ChatProvider) => provider.catalogId ?? provider.kind;
+
+/** The region a click on a catalog entry means: the one asked for, else the interface language's own, else its first. */
+export function regionFor(
+  catalogId: string,
+  endpoint: string | null,
+  language: Language,
+): string | null {
+  const catalog = catalogProvider(catalogId);
+  return catalog
+    ? (endpointOf(catalog, endpoint ?? defaultRegion(catalogId, language))?.id ?? null)
+    : null;
+}
+
+/**
+ * The provider a click on a catalog entry opens, if one is saved: for a hosted provider the one
+ * on the region it means, so a Kimi saved on China is not one on International. A server the User
+ * gives can be added again at another address, so it is never "saved".
+ */
+export function savedProviderFor(
+  providers: readonly ChatProvider[],
+  catalogId: string,
+  endpoint: string | null,
+  language: Language,
+): ChatProvider | undefined {
+  if (catalogId === "openai-compatible") return undefined;
+  const region = regionFor(catalogId, endpoint, language);
+  return providers.find(
+    (each) => catalogIdOf(each) === catalogId && (region === null || each.endpoint === region),
+  );
 }
 
 export function keyProviderName(id: string, t: Translate, language: Language): string {
@@ -56,9 +94,8 @@ export function providerLabel(provider: ChatProvider, t: Translate, language: La
     const value = first && fieldValueOf(first, provider.baseUrl);
     if (value) return `${kind} · ${value}`;
     if (catalog.endpoints.length === 1) return kind;
-    return provider.endpoint === "cn" || provider.endpoint === "intl"
-      ? `${kind} · ${t(`providers.region.${provider.endpoint}`)}`
-      : kind;
+    const region = catalog.endpoints.find((each) => each.id === provider.endpoint);
+    return region ? `${kind} · ${regionName(region, t, language)}` : kind;
   }
   // Ollama's default model can be a cloud model, which runs on ollama.com, not here.
   if (provider.kind === "ollama" && provider.service?.id === OLLAMA_CLOUD.id) {
@@ -70,6 +107,23 @@ export function providerLabel(provider: ChatProvider, t: Translate, language: La
 /** Who receives the data, for messages like "Questions are off: you chose not to send to {service}". */
 export const serviceName = (provider: ChatProvider, t: Translate, language: Language) =>
   provider.service?.name ?? providerLabel(provider, t, language);
+
+/** The region a provider with both China and International opens on: the interface language's. */
+export function defaultRegion(catalogId: string, language: Language): string {
+  const ids = catalogProvider(catalogId)?.endpoints.map((each) => each.id) ?? [];
+  const own = language === "zh-CN" ? "cn" : "intl";
+  return ids.includes("cn") && ids.includes("intl") ? own : "";
+}
+
+/** The regions as the form lists them, "International / China", whatever order the catalog keeps them in. */
+export const regionsListed = (endpoints: readonly Endpoint[]): Endpoint[] =>
+  endpoints.toSorted((a, b) => Number(b.id === "intl") - Number(a.id === "intl"));
+
+/** A region as the form says it: "China" or "International"; any other by its own label. */
+export const regionName = (endpoint: Endpoint, t: Translate, language: Language): string =>
+  endpoint.id === "cn" || endpoint.id === "intl"
+    ? t(`providers.region.${endpoint.id}`)
+    : endpoint.label[language === "zh-CN" ? "zh" : "en"];
 
 /** The host of a server address, or null while it isn't one yet. */
 function hostOf(baseUrl: string): string | null {
@@ -83,14 +137,18 @@ function hostOf(baseUrl: string): string | null {
 /**
  * An API key field that keeps a key only for the provider and server it was
  * typed for, so it is never sent to another: choosing another provider clears
- * it, and so does leaving the address field pointing at another host.
+ * it, and so does leaving the address field pointing at another host. `text`
+ * is the key as it is sent, and `stray` the character in it that keys don't use.
  */
 export function useProviderKey() {
   const [apiKey, setApiKey] = useState("");
   /** The host the address field held when the key was typed, if it held one. */
   const typedFor = useRef<string | null>(null);
+  const { key: text, stray } = checkApiKey(apiKey);
   return {
     apiKey,
+    text,
+    stray,
     /** The key as typed, with the server address the form holds now. */
     type(value: string, baseUrl = "") {
       setApiKey(value);

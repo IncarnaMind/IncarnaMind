@@ -51,6 +51,7 @@ const CHAT = {
   apiKey: null,
   baseUrl: null,
   numCtx: null,
+  endpoint: null,
   citing: null,
 } as const;
 const CONFIG = { minCitations: 1, maxRounds: 1, answerTimeoutMs: 30_000 };

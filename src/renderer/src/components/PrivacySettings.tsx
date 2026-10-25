@@ -1,27 +1,29 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import type {
-  DataFlowStatus,
   NetworkTraffic,
   PrivacySettings as PrivacyChoices,
   PrivacySettingsPatch,
   RegisteredDataFlow,
 } from "../../../core/api";
-import { formatDate } from "../../../shared/dates";
 import { core } from "../core";
-import { useLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
+import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
 import { useAppStore } from "../store";
 import { AiUseSettings } from "./AiUseSettings";
 import { ApprovalsSettings } from "./ApprovalsSettings";
-import { OnThisComputer } from "./OnThisComputer";
+import { DetailsLine } from "./DetailsLine";
+import { InfoTip } from "./InfoTip";
+import { PrivacyServices, SERVICES_UNDO_PLACE } from "./PrivacyServices";
+import { ProblemLine } from "./ProblemLine";
+import { LocalOnlySetting } from "./providers/LocalOnlySetting";
+import { UndoLineAt } from "./UndoLine";
 import { USAGE_DATA_DETAILS_URL } from "./UsageDataCard";
 import {
   buttonStyle,
-  pageIntroClass,
   rowStatusClass,
   rowTextClass,
   rowTitleClass,
   ruledListClass,
-  ruledRow,
   ruledRowClass,
   sectionNoteClass,
   sectionTitleClass,
@@ -29,16 +31,9 @@ import {
 
 const reportError = (failure: unknown) => useAppStore.getState().reportError(failure);
 
-/**
- * Settings → Privacy: everything IncarnaMind sends from this computer, in one
- * place, as rows split by rules with each status on the right. Every
- * registered data flow with its consent (revoke, allow), network traffic that
- * carries nothing of the User's (with the switches for update checks and,
- * when this copy can send it, usage data), what Skill scripts can do, and
- * crash reports when this copy can send them.
- */
 export function PrivacySettings() {
   const t = useT();
+  const sandboxOff = useRunsWithoutSandbox();
   const [flows, setFlows] = useState<RegisteredDataFlow[] | null>(null);
   const [traffic, setTraffic] = useState<NetworkTraffic[] | null>(null);
   // As loaded with the app, until the core's answer below.
@@ -112,21 +107,36 @@ export function PrivacySettings() {
     refreshTraffic();
   };
 
+  const inUse = flows?.filter((flow) => flow.services.length > 0) ?? [];
+
   return (
     <div data-testid="privacy-settings" className="flex flex-col gap-7">
-      <p className={pageIntroClass}>
-        {t(choices?.usageData.available ? "privacy.intro.usageData" : "privacy.intro")}
-      </p>
-
       <section data-testid="consent-settings" className="flex flex-col">
         <h4 className={sectionTitleClass}>{t("consent.settings.title")}</h4>
-        <p className={sectionNoteClass}>{t("privacy.flows.intro")}</p>
-        <ul className={ruledListClass}>
-          {flows?.map((flow) => (
-            <DataFlowItem key={flow.id} flow={flow} />
-          ))}
-        </ul>
+        <DetailsLine
+          testId="privacy-flows-intro"
+          className={sectionNoteClass}
+          details={t("privacy.flows.intro.details")}
+        >
+          {t("privacy.flows.intro")}
+        </DetailsLine>
+        {inUse.length > 0 ? (
+          <PrivacyServices flows={inUse} />
+        ) : (
+          flows && (
+            <p
+              data-testid="data-flows-none"
+              className={`${rowStatusClass} border-y border-rule py-3.5`}
+            >
+              {t("privacy.flows.none")}
+            </p>
+          )
+        )}
+        {/* Here, not in the list: stopping the last service empties the list, and its Undo stays. */}
+        <UndoLineAt place={SERVICES_UNDO_PLACE} />
       </section>
+
+      <LocalOnlySetting />
 
       <section data-testid="network-traffic" className="flex flex-col">
         <h4 className={sectionTitleClass}>{t("privacy.traffic.title")}</h4>
@@ -150,12 +160,29 @@ export function PrivacySettings() {
             ),
           )}
         </ul>
+        <p className={`mt-2 ${rowStatusClass}`}>
+          {t(choices?.usageData.available ? "privacy.intro.usageData" : "privacy.intro")}
+        </p>
       </section>
 
       <section data-testid="approvals" className="flex flex-col">
         <h4 className={`mb-2 ${sectionTitleClass}`}>{t("approvals.settings.title")}</h4>
         <ApprovalsSettings />
       </section>
+
+      {sandboxOff && (
+        <ProblemLine
+          testId="privacy-no-sandbox"
+          role="status"
+          action={{
+            label: t("sandbox.off.fix"),
+            testId: "privacy-no-sandbox-fix",
+            onClick: openSandboxHelp,
+          }}
+        >
+          {t("sandbox.off")}
+        </ProblemLine>
+      )}
 
       <section data-testid="skill-scripts-note" role="note" className="flex flex-col">
         <h4 className={sectionTitleClass}>{t("privacy.skills.title")}</h4>
@@ -171,157 +198,6 @@ export function PrivacySettings() {
           onChange={(enabled) => void update({ crashReports: enabled })}
         />
       )}
-    </div>
-  );
-}
-
-/**
- * A data flow: a row for each service it goes to (what it sends, and the
- * User's decision on the right), or one row saying it stays on this computer.
- */
-function DataFlowItem({ flow }: { flow: RegisteredDataFlow }) {
-  const t = useT();
-  const name = t(`consent.flow.${flow.id}`);
-  return (
-    <li
-      data-testid="data-flow"
-      data-flow-id={flow.id}
-      className="flex flex-col [&>*+*]:border-t [&>*+*]:border-rule"
-    >
-      {flow.services.length === 0 ? (
-        <div className={ruledRow("center", true)}>
-          <span className="text-ui text-ink">{name}</span>
-          <span
-            data-testid="data-flow-not-in-use"
-            title={t("privacy.flows.notInUse")}
-            className={rowStatusClass}
-          >
-            <OnThisComputer>{t("privacy.flows.local")}</OnThisComputer>
-          </span>
-        </div>
-      ) : (
-        flow.services.map((status) => (
-          <ServiceDecision
-            key={status.flow.service.id}
-            name={name}
-            sends={flow.sends}
-            status={status}
-          />
-        ))
-      )}
-    </li>
-  );
-}
-
-/** One service of a flow: what it sends, the decision and when it was made, with revoke and allow. */
-function ServiceDecision({
-  name,
-  sends,
-  status,
-}: {
-  name: string;
-  sends: RegisteredDataFlow["sends"];
-  status: DataFlowStatus;
-}) {
-  const t = useT();
-  const language = useLanguage();
-  const [busy, setBusy] = useState(false);
-  const { flow, consent, decidedAt, chosen } = status;
-
-  const run = async (action: () => Promise<void>) => {
-    setBusy(true);
-    try {
-      await action();
-    } catch (failure) {
-      reportError(failure);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const revoke = () => run(() => core.revokeConsent(flow.id, flow.service.id));
-  const allow = () => run(() => core.allowDataFlow(flow.id, flow.service.id));
-
-  // Allowed once, then the flow started sending more: it asks again, it wasn't never asked.
-  const sendsMore = consent === "not-asked" && decidedAt !== null;
-  const label = sendsMore
-    ? t("consent.settings.status.sendsMore")
-    : t(`consent.settings.status.${consent}`);
-  const date = decidedAt && formatDate(decidedAt, language);
-  const decision =
-    date && !sendsMore
-      ? consent === "accepted" && chosen
-        ? t("privacy.flows.chosen", { service: flow.service.name, date })
-        : t("privacy.flows.decided", { status: label, date })
-      : label;
-
-  return (
-    <div
-      data-testid="data-flow-service"
-      data-service-id={flow.service.id}
-      data-consent={consent}
-      className={ruledRowClass}
-    >
-      <div className="flex min-w-0 flex-col gap-1">
-        <p className="text-ui break-words text-ink">
-          <span className="font-semibold">{name}</span>
-          <span className="text-ink-meta">
-            {" · "}
-            {t("privacy.flows.service", { service: flow.service.name })}
-          </span>
-        </p>
-        <ul
-          aria-label={t("privacy.flows.sends")}
-          className="list-disc pl-4 text-[13px] leading-5 text-ink-secondary"
-        >
-          {sends.map((kind) => (
-            <li key={kind}>{t(`consent.data.${kind}`)}</li>
-          ))}
-        </ul>
-      </div>
-      <div className="flex flex-col items-end gap-2">
-        <span
-          data-testid="data-flow-decision"
-          className={`text-[13px] leading-5 ${
-            consent === "accepted" ? "font-semibold text-ink" : "text-ink-meta"
-          }`}
-        >
-          {decision}
-        </span>
-        <div className="flex flex-wrap justify-end gap-2">
-          {consent === "accepted" ? (
-            <button
-              type="button"
-              data-testid="data-flow-revoke"
-              disabled={busy}
-              onClick={() => void revoke()}
-              className={buttonStyle("secondary", "sm")}
-            >
-              {t("consent.settings.revoke")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-testid="data-flow-allow"
-              disabled={busy}
-              onClick={() => void allow()}
-              className={buttonStyle("primary", "sm")}
-            >
-              {t("privacy.flows.allow")}
-            </button>
-          )}
-          {consent === "declined" && (
-            <button
-              type="button"
-              data-testid="data-flow-ask-again"
-              disabled={busy}
-              onClick={() => void revoke()}
-              className={buttonStyle("secondary", "sm")}
-            >
-              {t("consent.settings.askAgain")}
-            </button>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -364,11 +240,9 @@ function UsageDataItem({
             {t("privacy.traffic.usage-data")}
           </label>
           <span className="text-ink-meta"> · {traffic.service.name}</span>
+          <InfoTip text={t("privacy.traffic.usage-data.tip")} />
         </p>
-        <p id={`${id}-description`} className={rowTextClass}>
-          {t("privacy.traffic.usage-data.description")}
-          {usageData.testerBuild && ` ${t("privacy.usageData.tester")}`}
-        </p>
+        {usageData.testerBuild && <p className={rowTextClass}>{t("privacy.usageData.tester")}</p>}
         {usageData.localMode && (
           <p data-testid="usage-data-local-mode" className={rowTextClass}>
             {t("privacy.usageData.localMode")}
@@ -403,7 +277,6 @@ function UsageDataItem({
         type="checkbox"
         role="switch"
         data-testid="usage-data-switch"
-        aria-describedby={`${id}-description`}
         disabled={usageData.localMode}
         checked={usageData.enabled}
         aria-checked={usageData.enabled}
@@ -440,9 +313,7 @@ function TrafficItem({
             {t(`privacy.traffic.${traffic.id}`)}
           </span>
           <span className="text-ink-meta"> · {traffic.service.name}</span>
-        </p>
-        <p id={`${id}-description`} className={rowTextClass}>
-          {t(`privacy.traffic.${traffic.id}.description`)}
+          <InfoTip text={t(`privacy.traffic.${traffic.id}.tip`)} />
         </p>
       </div>
       {switchable ? (
@@ -451,7 +322,6 @@ function TrafficItem({
           role="switch"
           data-testid="automatic-update-checks"
           aria-label={t("privacy.traffic.update-check.toggle")}
-          aria-describedby={`${id}-description`}
           checked={choices.automaticUpdateChecks}
           aria-checked={choices.automaticUpdateChecks}
           onChange={(event) => onChange({ automaticUpdateChecks: event.target.checked })}
@@ -484,9 +354,14 @@ function CrashReports({
             <label htmlFor={id} className={rowTitleClass}>
               {t("privacy.crashReports.toggle")}
             </label>
-            <p id={`${id}-description`} className={rowTextClass}>
+            <DetailsLine
+              id={`${id}-description`}
+              testId="crash-reports-description"
+              className={rowTextClass}
+              details={t("privacy.crashReports.body.details")}
+            >
               {t("privacy.crashReports.body")}
-            </p>
+            </DetailsLine>
           </div>
           <input
             id={id}

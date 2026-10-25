@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import type {
   ChatProvider,
   LibraryClassifier,
@@ -16,6 +16,7 @@ import { supportsLibraryImages } from "../../../shared/libraryModels";
 import { core } from "../core";
 import { errorMessage } from "../errors";
 import { translateNow, useLanguage, useT } from "../i18n";
+import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
 import { placesText, stoppedPlaces, tagWithAi } from "../taggingStop";
 import { useUndo } from "../undo";
@@ -38,6 +39,8 @@ import {
 
 /** The groups of models, as the composer's model chip groups them. */
 const GROUPS: readonly TaggingModelGroup[] = ["keys", "plan", "local"];
+
+const TARGET = ["tagging"] as const;
 
 const GROUP_NAMES: Record<TaggingModelGroup, MessageKey> = {
   keys: "composer.model.group.keys",
@@ -90,7 +93,7 @@ export const providerOf = (option: TaggingModelOption, language: Language) =>
   option.provider ? (language === "zh-CN" ? option.provider.zh : option.provider.en) : null;
 
 /**
- * Settings → Models → Tagging: the one model choice for automatic
+ * Settings → Models → Advanced → Tagging: the one model choice for automatic
  * tagging and Organize, Automatic by default, which says what it uses now and
  * why; the models to choose instead, grouped as the model chip groups them,
  * each with what 100 Documents cost; "Other model…" for one the list doesn't
@@ -98,6 +101,7 @@ export const providerOf = (option: TaggingModelOption, language: Language) =>
  * is saved as it is made.
  */
 export function TaggingSettings() {
+  const switchId = useId();
   const t = useT();
   const language = useLanguage();
   const library = useAppStore((state) => state.library);
@@ -123,6 +127,11 @@ export function TaggingSettings() {
       for (const stop of stops) stop();
     };
   }, [reload]);
+  const section = useSettingsTarget<HTMLElement>(TARGET, !!settings && !!models, () =>
+    section.current
+      ?.querySelector<HTMLInputElement>("input[name='tagging-model']:checked")
+      ?.focus({ preventScroll: true }),
+  );
 
   const save = async (next: Partial<LibrarySettings>) => {
     if (!settings) return;
@@ -164,11 +173,26 @@ export function TaggingSettings() {
                 ?.name ?? customName(organizeWith, t),
           })
         : t("tagging.organize.ask");
+  const organizer =
+    current.kind !== "automatic"
+      ? inUse
+      : organizeWith &&
+        models.options.find((option) => sameClassifier(option.classifier, organizeWith));
+  const clouds = [inUse, organizer].filter((each) => !!each && each.group !== "local");
+  const sendsLine = !inUse
+    ? null
+    : clouds.length === 0
+      ? t("tagging.automatic.local")
+      : t("tagging.automatic.sends", {
+          service: [
+            ...new Set(clouds.map((each) => (each && providerOf(each, language)) || "")),
+          ].join(", "),
+        });
   const localDecision = models.options.find((option) => option.decisionModel);
   const stopped = stoppedPlaces(library);
 
   return (
-    <section data-testid="tagging-settings" className="flex flex-col">
+    <section ref={section} data-testid="tagging-settings" className="flex scroll-mt-8 flex-col">
       <h4 className={sectionTitleClass}>{t("tagging.title")}</h4>
       <p className={sectionNoteClass}>{t("tagging.intro")}</p>
       <div role="radiogroup" aria-label={t("tagging.model")} className="flex flex-col gap-3">
@@ -278,16 +302,29 @@ export function TaggingSettings() {
           </p>
         )}
       </div>
-      <label className="mt-3 flex items-start gap-2 text-[13px] leading-5 text-ink-secondary">
+      <div className="mt-3 flex items-start gap-2 text-[13px] leading-5 text-ink-secondary">
         <input
+          id={`${switchId}-switch`}
           type="checkbox"
           data-testid="tagging-automatic-organize"
           checked={settings.automatic}
+          aria-describedby={sendsLine ? `${switchId}-sends` : undefined}
           onChange={(event) => void save({ automatic: event.target.checked })}
           className="mt-0.5 size-4 accent-ink"
         />
-        {t("library.automatic")}
-      </label>
+        <span className="flex min-w-0 flex-col">
+          <label htmlFor={`${switchId}-switch`}>{t("tagging.automatic.switch")}</label>
+          {sendsLine && (
+            <span
+              id={`${switchId}-sends`}
+              data-testid="tagging-automatic-sends"
+              className="text-ink-meta"
+            >
+              {sendsLine}
+            </span>
+          )}
+        </span>
+      </div>
       {error && (
         <p role="alert" className={`mt-2 ${errorTextClass}`}>
           <ProblemMark />

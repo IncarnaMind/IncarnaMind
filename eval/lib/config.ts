@@ -10,7 +10,10 @@ import {
   type CitationSupport,
   chatProviderKinds,
   type RerankingModelDefinition,
+  type SaveChatProviderInput,
 } from "../../src/core";
+import { endpointUrl } from "../../src/core/providers/kinds";
+import type { ChatModelSpec } from "../../src/core/providers/models";
 import { evalCache } from "./cache";
 import { RERANKING_MODEL_CANDIDATES } from "./rerankingModels";
 
@@ -20,6 +23,11 @@ export interface ChatSettings {
   modelId: string;
   apiKey: string | null;
   baseUrl: string | null;
+  /**
+   * A hosted provider's endpoint, by its id in the app's catalog, e.g. "intl"
+   * for Kimi International (INCARNAMIND_EVAL_CHAT_ENDPOINT). Null: its first.
+   */
+  endpoint: string | null;
   /**
    * "ollama" only: the context window, `num_ctx`, every request carries
    * instead of the one chosen from this computer's memory, so local runs are
@@ -123,13 +131,17 @@ function positiveInteger(env: Env, name: string, fallback: number): number {
   return parsed;
 }
 
-function chatSettings(env: Env, role: "CHAT" | "JUDGE" = "CHAT"): ChatSettings | null {
+export function chatSettings(
+  env: Env,
+  role: "CHAT" | "JUDGE" | "HARNESS_CHECK" = "CHAT",
+): ChatSettings | null {
   const kind = value(env, `${role}_KIND`);
   const modelId = value(env, `${role}_MODEL`);
   const apiKey = value(env, `${role}_KEY`);
   const baseUrl = value(env, `${role}_BASE_URL`);
+  const endpoint = value(env, `${role}_ENDPOINT`);
   if (kind === null) {
-    if (modelId || apiKey || baseUrl) {
+    if (modelId || apiKey || baseUrl || endpoint) {
       throw new Error(
         `Set ${PREFIX}${role}_KIND too, or none of the ${PREFIX}${role}_* variables.`,
       );
@@ -161,8 +173,26 @@ function chatSettings(env: Env, role: "CHAT" | "JUDGE" = "CHAT"): ChatSettings |
   if ((numCtx !== null || citing !== null) && found !== "ollama") {
     throw new Error(`${PREFIX}${role}_NUM_CTX and ${PREFIX}${role}_CITING only apply to "ollama".`);
   }
-  return { kind: found, modelId, apiKey, baseUrl, numCtx, citing };
+  return { kind: found, modelId, apiKey, baseUrl, endpoint, numCtx, citing };
 }
+
+/** The chat provider the app is given for `chat`, as the User adds one in Settings. */
+export const chatProviderOf = (chat: ChatSettings): SaveChatProviderInput => ({
+  kind: chat.kind,
+  modelId: chat.modelId,
+  ...(chat.apiKey !== null && { apiKey: chat.apiKey }),
+  ...(chat.baseUrl !== null && { baseUrl: chat.baseUrl }),
+  ...(chat.endpoint !== null && { endpoint: chat.endpoint }),
+});
+
+/** A model for `chat` made outside the app's settings (the judge's), at its endpoint. */
+export const chatModelSpecOf = (chat: ChatSettings): ChatModelSpec => ({
+  kind: chat.kind,
+  modelId: chat.modelId,
+  apiKey: chat.apiKey,
+  baseUrl: chat.baseUrl ?? (chat.endpoint === null ? null : endpointUrl(chat.kind, chat.endpoint)),
+  endpoint: chat.endpoint,
+});
 
 function cloudEmbeddingSettings(env: Env): CloudEmbeddingSettings | null {
   const kind = value(env, "EMBED_KIND");

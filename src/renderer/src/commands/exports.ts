@@ -1,13 +1,8 @@
-import { CHECK_RECORD_FORMATS, EXPORT_FORMATS } from "../../../core/api";
+import { EXPORT_FORMATS } from "../../../core/api";
 import { exportAiUseStatement } from "../aiUseStatement";
 import { useExportDialog } from "../exportDialog";
-import {
-  exportCheckRecord,
-  exportMind,
-  exportPreferences,
-  FORMAT_LABELS,
-  RECORD_FORMAT_LABELS,
-} from "../exports";
+import { requestExportMenu } from "../exportMenuRequest";
+import { exportCheckRecord, exportMind, exportPreferences, FORMAT_LABELS } from "../exports";
 import { currentTabOf } from "../layoutSlice";
 import { useAppStore } from "../store";
 import { findTab } from "../tabs";
@@ -39,6 +34,24 @@ function mindOf(ctx: CommandContext): string | null {
  * In ⌘K, and in the Mind's and its tab's menus (./objectMenus).
  */
 export const exportCommands: readonly Command[] = [
+  {
+    // The Mind's menus have this one item for exporting: it shows the Mind and opens the
+    // Export button's menu, whose list is the short one.
+    id: "mind.exportMenu",
+    label: "export.menu",
+    keywords: ["export.keywords"],
+    group: "main",
+    top: 14,
+    // Only opens a menu; nothing is saved until a format is chosen.
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && mindOf(ctx) !== null,
+    run: (ctx) => {
+      const mindId = mindOf(ctx);
+      if (!mindId) return;
+      useAppStore.getState().openMind(mindId);
+      requestExportMenu(mindId);
+    },
+  },
   {
     id: "mind.export",
     label: (_ctx, t) => t("export.as", { format: t(FORMAT_LABELS[exportPreferences().format]) }),
@@ -95,19 +108,17 @@ export const exportCommands: readonly Command[] = [
       if (mindId) return exportAiUseStatement(mindId);
     },
   },
-  ...CHECK_RECORD_FORMATS.map(
-    (format): Command => ({
-      id: `mind.checkRecord.${format}`,
-      label: (_ctx, t) => t("checkRecord.as", { format: t(RECORD_FORMAT_LABELS[format]) }),
-      keywords: ["checkRecord.keywords"],
-      group: "main",
-      // A new file under a free name: nothing is replaced, and the file stays the User's to delete.
-      reversible: true,
-      when: (ctx) => onlyOne(ctx) && mindOf(ctx) !== null,
-      run: (ctx) => {
-        const mindId = mindOf(ctx);
-        if (mindId) return exportCheckRecord(mindId, format);
-      },
-    }),
-  ),
+  {
+    id: "mind.checkRecord",
+    label: "checkRecord.command",
+    keywords: ["checkRecord.keywords"],
+    group: "main",
+    // Two new files under free names: nothing is replaced, and the files stay the User's to delete.
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && mindOf(ctx) !== null,
+    run: (ctx) => {
+      const mindId = mindOf(ctx);
+      if (mindId) return exportCheckRecord(mindId);
+    },
+  },
 ];

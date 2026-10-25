@@ -39,8 +39,8 @@ interface WebPagesState {
   submitDialog(addresses: readonly string[], keepLook: boolean): Promise<void>;
   closeDialog(): void;
   add(addresses: readonly string[], folderId?: string | null, keepLook?: boolean): Promise<void>;
-  fetchAgain(document: Pick<Document, "id" | "name">): Promise<void>;
-  tryAgain(problem: WebPageProblem): Promise<void>;
+  fetchAgain(document: Pick<Document, "id" | "name">, once?: boolean): Promise<void>;
+  tryAgain(problem: WebPageProblem, once?: boolean): Promise<void>;
   dismiss(problem: WebPageProblem): void;
 }
 
@@ -61,11 +61,12 @@ const REFUSED: ReadonlySet<WebPageFailureReason> = new Set([
 export const canTryAgain = (problem: Pick<WebPageProblem, "reason">) =>
   !REFUSED.has(problem.reason);
 
-export const reasonKey = (reason: WebPageFailureReason): MessageKey => `webPages.reason.${reason}`;
+export const heldInLocalMode = (problem: Pick<WebPageProblem, "reason">) =>
+  problem.reason === "local-mode";
 
-/** A drag of links from a browser, not of files. */
-export const carriesLinks = (event: { dataTransfer: DataTransfer }) =>
-  event.dataTransfer.types.includes("text/uri-list") && !event.dataTransfer.types.includes("Files");
+export const siteOf = (address: string): string => URL.parse(address)?.host ?? address;
+
+export const reasonKey = (reason: WebPageFailureReason): MessageKey => `webPages.reason.${reason}`;
 
 /** Only when the paste or drop is nothing but addresses (see `pastedAddresses`). */
 export function linksIn(data: DataTransfer): string[] {
@@ -115,7 +116,12 @@ export const useWebPages = create<WebPagesState>()((set, get) => {
   });
   const failedAction = (error: unknown) => useAppStore.getState().reportError(error);
 
-  const save = async (address: string, folderId: string | null, keepLook?: boolean) => {
+  const save = async (
+    address: string,
+    folderId: string | null,
+    keepLook?: boolean,
+    once?: boolean,
+  ) => {
     if (get().fetching.includes(address)) return;
     start(address);
     try {
@@ -123,6 +129,7 @@ export const useWebPages = create<WebPagesState>()((set, get) => {
         address,
         folderId,
         ...(keepLook === undefined ? {} : { keepLook }),
+        ...(once && { localModeOnce: true }),
       });
       if (result.outcome === "failed") {
         finish(address, problemOf(address, result, folderId, null, keepLook));
@@ -172,12 +179,15 @@ export const useWebPages = create<WebPagesState>()((set, get) => {
       await Promise.all(Array.from({ length: Math.min(AT_ONCE, queue.length) }, worker));
     },
 
-    async fetchAgain(document) {
+    async fetchAgain(document, once) {
       const key = `document:${document.id}`;
       if (get().fetching.includes(key)) return;
       start(key);
       try {
-        const result = await core.fetchWebPageAgain(document.id);
+        const result = await core.fetchWebPageAgain(
+          document.id,
+          once ? { localModeOnce: true } : undefined,
+        );
         finish(
           key,
           result.outcome === "failed"
@@ -190,9 +200,9 @@ export const useWebPages = create<WebPagesState>()((set, get) => {
       }
     },
 
-    async tryAgain(problem) {
-      if (problem.document) return get().fetchAgain(problem.document);
-      await save(problem.address, problem.folderId, problem.keepLook);
+    async tryAgain(problem, once) {
+      if (problem.document) return get().fetchAgain(problem.document, once);
+      await save(problem.address, problem.folderId, problem.keepLook, once);
     },
 
     dismiss(problem) {

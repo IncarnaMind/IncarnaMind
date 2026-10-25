@@ -225,6 +225,7 @@ export function decisionGroupClassifier(connection: {
   local: boolean;
   usePageImages?: boolean;
   reviewBand?: { low: number; high: number };
+  beforeSend?: () => void;
 }): GroupClassifier {
   const pageImages =
     connection.local &&

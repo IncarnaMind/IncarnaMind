@@ -1,18 +1,20 @@
 import { Fragment, useEffect, useLayoutEffect, useState } from "react";
-import type { LayoutGroup, TabItem } from "../../../../core/api";
+import type { LayoutGroup } from "../../../../core/api";
 import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
 import { activeTabOf, focusedGroupOf } from "../../layoutSlice";
 import { useAppStore } from "../../store";
+import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { ExportDialog } from "../ExportDialog";
+import { HomePane } from "../home/HomePane";
 import { LibraryPane } from "../LibraryPane";
 import { ResizeRod } from "../ResizeRod";
 import { DocumentTab } from "./DocumentTab";
 import { MindTab, NoTabOpen } from "./MindTab";
 import { TabStrip } from "./TabStrip";
-import { TabIcon, TabPlaceContext, useTabTitle } from "./tabItems";
-import { type DraggedTab, type DropTarget, type TabDrag, useTabDrag } from "./useTabDrag";
+import { TabPlaceContext } from "./tabItems";
+import { type DropTarget, type TabDrag, useTabDrag } from "./useTabDrag";
 
 /** A group is never dragged narrower than this. */
 const GROUP_MIN_PX = 220;
@@ -60,6 +62,7 @@ export function TabGroups() {
         data-testid="tab-groups"
         data-merged={merged || undefined}
         className="tab-groups"
+        {...drag.dropProps}
       >
         {groups.map((group, index) => (
           <Fragment key={group.id}>
@@ -87,7 +90,7 @@ export function TabGroups() {
           </Fragment>
         ))}
       </div>
-      <DragFeedback dragged={drag.dragged} target={drag.target} />
+      <DragFeedback dragged={drag.draggedTabId !== null} target={drag.target} />
       <ExportDialog mind={exportMind ?? null} onClose={() => useExportDialog.getState().close()} />
     </>
   );
@@ -164,6 +167,10 @@ function TabGroup({
   const t = useT();
   const focused = useAppStore((state) => merged || state.layout?.focusedGroupId === group.id);
   const tab = activeTabOf(group);
+  useEffect(() => {
+    resumeTabCloseFocus();
+    return () => forgetTabCloseFocus(group.id, group.activeTabId);
+  }, [group.id, group.activeTabId]);
   return (
     <section
       data-testid="tab-group"
@@ -196,6 +203,8 @@ function TabGroup({
               <MindTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
             ) : tab.item.kind === "library" ? (
               <LibraryPane />
+            ) : tab.item.kind === "home" ? (
+              <HomePane />
             ) : (
               <DocumentTab key={tab.id} tab={tab} />
             )}
@@ -206,77 +215,41 @@ function TabGroup({
   );
 }
 
-/** While a tab is dragged: it follows the pointer, and where it would land lights up. */
-function DragFeedback({
-  dragged,
-  target,
-}: {
-  dragged: DraggedTab | null;
-  target: DropTarget | null;
-}) {
+function DragFeedback({ dragged, target }: { dragged: boolean; target: DropTarget | null }) {
   const t = useT();
-  const tab = useAppStore((state) =>
-    dragged
-      ? state.layout?.groups
-          .flatMap((group) => group.tabs)
-          .find((each) => each.id === dragged.tabId)
-      : undefined,
-  );
-  if (!dragged || !tab) return null;
-  return (
-    <>
-      {target?.type === "strip" && (
-        <div
-          data-testid="tab-drop-line"
-          className="tab-drop-line"
-          style={{ left: target.x - 1, top: target.top }}
-        />
-      )}
-      {target?.type === "zone" && (
-        <div
-          data-testid="tab-drop-zone"
-          data-zone={target.zone}
-          className="tab-drop-zone"
-          style={{
-            left: target.rect.left + (target.zone === "right" ? target.rect.width / 2 : 0) + 6,
-            top: target.rect.top + 6,
-            width: (target.zone === "center" ? target.rect.width : target.rect.width / 2) - 12,
-            height: target.rect.height - 12,
-          }}
-        >
-          <span>
-            {t(
-              target.full
-                ? "tabs.drop.max"
-                : target.zone === "left"
-                  ? "tabs.drop.left"
-                  : target.zone === "right"
-                    ? "tabs.drop.right"
-                    : "tabs.drop.move",
-            )}
-          </span>
-        </div>
-      )}
-      <DragGhost x={dragged.x} y={dragged.y} item={tab.item} />
-    </>
-  );
-}
-
-function DragGhost({ x, y, item }: { x: number; y: number; item: TabItem }) {
-  const title = useTabTitle(item);
+  if (!dragged || !target) return null;
+  if (target.type === "strip") {
+    return (
+      <div
+        data-testid="tab-drop-line"
+        className="tab-drop-line"
+        style={{ left: target.x - 1, top: target.top }}
+      />
+    );
+  }
   return (
     <div
-      aria-hidden="true"
-      className="tab-drag-ghost"
-      // Beside the pointer; left of it near the window's right edge, so it stays in sight.
+      data-testid="tab-drop-zone"
+      data-zone={target.zone}
+      className="tab-drop-zone"
       style={{
-        transform: `translate(${x + 272 > window.innerWidth - 8 ? x - 272 : x + 12}px, ${y + 14}px)`,
+        left: target.rect.left + (target.zone === "right" ? target.rect.width / 2 : 0) + 6,
+        top: target.rect.top + 6,
+        width: (target.zone === "center" ? target.rect.width : target.rect.width / 2) - 12,
+        height: target.rect.height - 12,
       }}
     >
-      <span className="tab-icon">
-        <TabIcon item={item} />
+      <span>
+        {t(
+          target.full
+            ? "tabs.drop.max"
+            : target.zone === "left"
+              ? "tabs.drop.left"
+              : target.zone === "right"
+                ? "tabs.drop.right"
+                : "tabs.drop.move",
+        )}
       </span>
-      <span className="truncate">{title}</span>
     </div>
   );
 }

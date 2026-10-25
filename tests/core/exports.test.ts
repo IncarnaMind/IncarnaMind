@@ -19,10 +19,13 @@ import { heading, note, question, writeMind } from "../helpers/minds";
 import { zipFingerprint } from "../helpers/zip";
 
 /** A core with one Document ("Tides") and a Mind titled "Tides", with a client. */
-async function setUp(title = "Tides") {
+async function setUp(title = "Tides", region?: string) {
   const dataDir = await createTempDataFolder();
   const sources = await createTempDataFolder();
-  const core = startCore(dataDir, { now: manualClock().now });
+  const core = startCore(dataDir, {
+    now: manualClock().now,
+    ...(region !== undefined && { systemRegion: () => region }),
+  });
   const path = await writeSourceFile(sources, "Tides.txt", "Spring tides happen at new moon.");
   const [tides] = await addAndProcess(core, [path]);
   const mind = await core.createMind({ title });
@@ -196,6 +199,73 @@ function docxParts(exported: MindExport) {
 }
 
 describe("exporting a Mind", () => {
+  test("Markdown preserves checked, unchecked and empty checklist items, nested beside ordinary lists", async () => {
+    const { core, mind, client } = await setUp();
+    const task = (checked: boolean, ...content: JSONContent[]): JSONContent => ({
+      type: "taskItem",
+      attrs: { checked },
+      content,
+    });
+    const checklist = (checked: boolean): JSONContent => ({
+      type: "taskList",
+      content: [
+        task(
+          checked,
+          paragraph(text("核查清单项")),
+          {
+            type: "taskList",
+            content: [
+              task(false, paragraph(text("Check sources"))),
+              task(true, paragraph(text("已核对"))),
+            ],
+          },
+          {
+            type: "bulletList",
+            content: [item(paragraph(text("Supporting note")))],
+          },
+        ),
+        task(false, paragraph(text("交付报告"))),
+        task(true, paragraph()),
+        task(true, paragraph(), {
+          type: "taskList",
+          content: [task(false, paragraph(text("Empty parent")))],
+        }),
+        task(false, paragraph()),
+      ],
+    });
+    const ordinary: JSONContent = {
+      type: "orderedList",
+      attrs: { start: 3 },
+      content: [
+        item(paragraph(text("Ordinary item")), {
+          type: "bulletList",
+          content: [item(paragraph(text("A bullet")))],
+        }),
+      ],
+    };
+    for (const checked of [true, false]) {
+      writeMind(client, [checklist(checked), ordinary]);
+      await client.settled();
+      const exported = await core.exportMind(mind.id, { format: "markdown" });
+      expect(new TextDecoder().decode(exported.data).trim()).toBe(
+        [
+          `- [${checked ? "x" : " "}] 核查清单项`,
+          "  - [ ] Check sources",
+          "  - [x] 已核对",
+          "  - Supporting note",
+          "- [ ] 交付报告",
+          "- [x] ",
+          "- [x] ",
+          "  - [ ] Empty parent",
+          "- [ ] ",
+          "",
+          "3. Ordinary item",
+          "   - A bullet",
+        ].join("\n"),
+      );
+    }
+  });
+
   test("the bytes of an export don't change: a fingerprint of the sample's Markdown and .docx", async () => {
     const { core, mind, client, tides } = await setUp();
     writeSample(client, tides);
@@ -224,9 +294,9 @@ describe("exporting a Mind", () => {
       "3753007f9f9eabf272117b41067bdd6708cfb17a2bae63e7d07b3ba17ba529b0",
     ],
     [
-      "the sample, in Chinese, on A4",
+      "the sample, in Chinese, on a computer in China (A4)",
       "sample",
-      { language: "zh-CN" },
+      { language: "zh-CN", region: "CN" },
       "d89a258688b8dbbb130669a52526768680538aa43c6b8e61390055f299a9bac2",
     ],
     [
@@ -238,7 +308,10 @@ describe("exporting a Mind", () => {
   ] as const)(
     "the bytes of a .docx export don't change either: %s",
     async (_, content, options, expected) => {
-      const { core, mind, client, tides } = await setUp();
+      const { core, mind, client, tides } = await setUp(
+        "Tides",
+        "region" in options ? options.region : undefined,
+      );
       if (content === "sample") writeSample(client, tides);
       else writeEverythingElse(client, tides);
       await client.settled();
@@ -312,11 +385,86 @@ describe("exporting a Mind", () => {
     expect(await core.previewMindExport(mind.id, { format: "docx" })).toEqual({
       fileName: "Tides spring neap.docx",
       citations: 3,
+      citedDocuments: 1,
+      numbered: true,
       unverifiedCitations: 2,
       questions: 1,
       fromWord: false,
       theirChanges: 0,
     });
+  });
+
+  test("to .docx: to-dos start with ☐ or ☒ at the text edge, a nested one 24px in, and bullets and numbers keep Word's indents", async () => {
+    const { core, mind, client } = await setUp();
+    const task = (checked: boolean, ...content: JSONContent[]): JSONContent => ({
+      type: "taskItem",
+      attrs: { checked },
+      content,
+    });
+    writeMind(client, [
+      paragraph(text("Before.")),
+      {
+        type: "taskList",
+        content: [
+          task(
+            false,
+            paragraph(text("核查清单项")),
+            {
+              type: "taskList",
+              content: [
+                task(true, paragraph(text("已核对")), {
+                  type: "taskList",
+                  content: [task(false, paragraph(text("Deeper")))],
+                }),
+              ],
+            },
+            { type: "bulletList", content: [item(paragraph(text("Supporting note")))] },
+          ),
+          task(true, paragraph()),
+        ],
+      },
+      { type: "bulletList", content: [item(paragraph(text("Ordinary bullet")))] },
+      {
+        type: "bulletList",
+        content: [
+          item(paragraph(text("Parent bullet")), {
+            type: "taskList",
+            content: [task(false, paragraph(text("Under bullet")))],
+          }),
+        ],
+      },
+    ]);
+    await client.settled();
+    const { document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+    const written = [...document.matchAll(/<w:p>(.*?)<\/w:p>/g)].map((found) => ({
+      text: textOf(found[0]),
+      indent: /<w:ind w:left="(\d+)"(?: w:hanging="(\d+)")?\/>/.exec(found[0])?.slice(1, 3),
+      listed: found[0].includes("<w:numPr>"),
+    }));
+    expect(written).toEqual([
+      { text: "Before.", indent: undefined, listed: false },
+      { text: "☐\t核查清单项", indent: ["420", "420"], listed: false },
+      { text: "☒\t已核对", indent: ["780", "420"], listed: false },
+      { text: "☐\tDeeper", indent: ["1140", "420"], listed: false },
+      { text: "Supporting note", indent: ["1140", "360"], listed: true },
+      { text: "☒\t", indent: ["420", "420"], listed: false },
+      { text: "Ordinary bullet", indent: ["720", "360"], listed: true },
+      { text: "Parent bullet", indent: ["720", "360"], listed: true },
+      { text: "☐\tUnder bullet", indent: ["1140", "420"], listed: false },
+    ]);
+    const todos = [...document.matchAll(/<w:p>.*?<\/w:p>/g)]
+      .map((found) => found[0])
+      .filter((each) => /<w:t xml:space="preserve">[☐☒]<\/w:t>/.test(each));
+    expect(todos).toHaveLength(5);
+    for (const xml of todos) {
+      expect(xml).toContain("<w:r><w:tab/></w:r>");
+      // Word's schema has no bare <w:tab/> under <w:p>: every tab sits in a run.
+      const children = xml
+        .replace(/^<w:p>/, "")
+        .replace(/<\/w:p>$/, "")
+        .replace(/^<w:pPr>.*?<\/w:pPr>/, "");
+      expect(children.replace(/<w:r>.*?<\/w:r>/g, "")).toBe("");
+    }
   });
 
   test("to .docx: headings, lists, code and math, the Question left out, and each Citation a Word footnote", async () => {
@@ -410,6 +558,64 @@ describe("exporting a Mind", () => {
     expect(part(files, "word/styles.xml")).toContain(
       '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/>',
     );
+  });
+
+  // protects=a list in a Word export is indented as the Mind draws it (DESIGN.md, #1341): each level's text half an inch further in, its bullet or number a quarter inch before it; fails_when=the export's indents drift from the screen's 48px a level and 24px hang; no_claim=how Word draws them.
+  test("to .docx: a list's levels are indented 720 twips each, with a 360 hang, as the Mind draws them", async () => {
+    const { core, mind, client } = await setUp();
+    writeMind(client, [
+      {
+        type: "bulletList",
+        content: [
+          item(paragraph(text("One")), {
+            type: "bulletList",
+            content: [
+              item(paragraph(text("Two")), {
+                type: "bulletList",
+                content: [item(paragraph(text("Three")))],
+              }),
+            ],
+          }),
+        ],
+      },
+    ]);
+    await client.settled();
+
+    const { document, numbering } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+
+    // A level's text is 48px per level in, in twips: 720 each; its bullet 24px (360) before it.
+    expect(
+      [...document.matchAll(/<w:ind w:left="(\d+)" w:hanging="(\d+)"\/>/g)].map((m) => m.slice(1)),
+    ).toEqual([
+      ["720", "360"],
+      ["1440", "360"],
+      ["2160", "360"],
+    ]);
+    // The list's own definition says the same for each of its levels.
+    const levels = [
+      ...numbering.matchAll(/<w:lvl w:ilvl="(\d)">.*?<w:ind w:left="(\d+)" w:hanging="(\d+)"\/>/g),
+    ];
+    expect(levels.slice(0, 3).map((m) => m.slice(1))).toEqual([
+      ["0", "720", "360"],
+      ["1", "1440", "360"],
+      ["2", "2160", "360"],
+    ]);
+  });
+
+  test("a new Mind's title line left empty isn't exported: no empty heading at the top of the file", async () => {
+    const { core, mind, client } = await setUp();
+    writeMind(client, [
+      { type: "heading", attrs: { level: 1 } },
+      note("Spring tides come at new moon."),
+    ]);
+    await client.settled();
+
+    const markdown = decode(await core.exportMind(mind.id, { format: "markdown" }));
+    expect(markdown).toBe("Spring tides come at new moon.\n");
+    const html = decode(await core.exportMind(mind.id, { format: "html" }));
+    expect(html).not.toMatch(/<h[1-6][^>]*>\s*<\/h[1-6]>/);
+    const { document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+    expect(paragraphsOf(document)).toEqual([{ text: "Spring tides come at new moon." }]);
   });
 
   test("highlighted text is ==marked== in Markdown and highlighted in Word", async () => {
@@ -548,31 +754,23 @@ describe("exporting a Mind", () => {
       expect(name.length).toBeLessThanOrEqual(123);
     });
 
-    test("a Mind of Notes added from an Answer is named by the Question, not the Answer's first line (#769)", async () => {
+    test("a Mind of Notes added from an Answer is named by their first line, never by the instruction that gave them (#1174)", async () => {
       const { core, mind } = await setUp("");
       await core.addToNote({
         mindId: mind.id,
         blocks: [
-          {
-            type: "paragraph",
-            content: [
-              {
-                type: "text",
-                text: "The employee gets 27 days of paid holiday per year, plus bank holidays.",
-              },
-            ],
-          },
+          { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Summary" }] },
+          { type: "paragraph", content: [{ type: "text", text: "The parties agree to terms." }] },
         ],
         origin: {
           from: messageReference("conversation-1", "answer-1"),
-          question:
-            "How many days of holiday does the employee get, and how much notice after probation?",
+          question: "Make the summary longer.",
         },
         model: null,
       });
 
       expect((await core.previewMindExport(mind.id, { format: "docx" })).fileName).toBe(
-        "How many days of holiday does the employee get.docx",
+        "Summary.docx",
       );
     });
   });

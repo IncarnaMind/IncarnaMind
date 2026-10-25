@@ -1,14 +1,16 @@
 import { writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
   createDataFolder,
+  decisionServer,
   dismissChatSetup,
   launchApp,
+  openManageTags,
   removeDataFolder,
   setWindowSize,
   tabTo,
@@ -96,13 +98,6 @@ async function addTextDocuments(window: Page, files: Record<string, string>): Pr
   await expect(
     window.locator('[data-testid="document-list-item"][data-status="ready"]'),
   ).toHaveCount(paths.length, { timeout: 20_000 });
-}
-
-/** Manage Tags, from the sidebar's Tags menu. */
-async function openManageTags(window: Page): Promise<void> {
-  await slideAndClick(window, window.getByTestId("tag-filter-menu"));
-  await slideAndClick(window, window.getByTestId("manage-tags"));
-  await expect(window.getByTestId("tags-dialog")).toBeVisible();
 }
 
 /** The Library's row of the Document with this name. */
@@ -246,62 +241,6 @@ test("Tags are added, created and removed with the keyboard, on one Document and
   }
 });
 
-/**
- * A local decision server like Ollama's `/v1/systemone`: Finance for an
- * invoice, Reports otherwise; Invoice in the review band for an invoice,
- * Report likely for a report.
- */
-async function decisionServer(): Promise<{ server: Server; readonly requests: number }> {
-  let requests = 0;
-  const server = createServer(async (request, response) => {
-    let raw = "";
-    for await (const chunk of request) raw += chunk;
-    const body = raw ? JSON.parse(raw) : {};
-    response.setHeader("content-type", "application/json");
-    if (request.url !== "/v1/systemone") {
-      response.end(JSON.stringify({ models: [] }));
-      return;
-    }
-    requests++;
-    const text = JSON.stringify(body.state).toLowerCase();
-    const answers = Object.fromEntries(
-      Object.entries(
-        body.questions as Record<
-          string,
-          { type: string; instructions: string; criteria?: Record<string, string> }
-        >,
-      ).map(([id, question]) => {
-        if (question.type === "choice") {
-          const wanted = text.includes("invoice") ? "Finance" : "Reports";
-          const choice =
-            Object.entries(question.criteria ?? {}).find(([, value]) =>
-              value.startsWith(wanted),
-            )?.[0] ?? "__unsorted__";
-          return [id, { type: "choice", choice }];
-        }
-        const noul = question.instructions.includes("“Invoice”")
-          ? text.includes("invoice")
-            ? 0.65
-            : 0.01
-          : question.instructions.includes("“Report”")
-            ? text.includes("report")
-              ? 0.95
-              : 0.01
-            : 0.01;
-        return [id, { type: "noul", noul }];
-      }),
-    );
-    response.end(JSON.stringify({ answers }));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return {
-    server,
-    get requests() {
-      return requests;
-    },
-  };
-}
-
 test("a Tag automatic tagging wasn't sure of is confirmed or removed in one click, and + Filter's Tags narrow the Library", async () => {
   const decisions = await decisionServer();
   const { server } = decisions;
@@ -337,6 +276,9 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
       "data-source",
       "automatic",
     );
+    // Automatic tagging may tag them before Organize files them: wait for that, so the rows stay put.
+    await expect(library.getByTestId("library-suggested")).toHaveCount(4);
+    await expect(library.getByTestId("library-organizing")).toHaveCount(0);
     await screenshot(window, "library-review");
 
     // The viewer's header shows the open Document's Tags too, in a viewer wide enough for chips.
@@ -425,7 +367,6 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
     ).toHaveAttribute("data-colour", "blue");
     await screenshot(window, "filter-colours");
     await window.keyboard.press("Escape");
-    await expect(window.getByTestId("tag-filter-active")).toContainText("Report");
     // With a Tag filter, ⌘A takes exactly these Documents, to ask about.
     await rows.first().locator("[data-row-main]").focus();
     await window.keyboard.press("ControlOrMeta+a");
@@ -450,7 +391,6 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
     const remove = library.getByTestId("library-filter-remove");
     while ((await remove.count()) > 0) await slideAndClick(window, remove.first());
     await expect(rows).toHaveCount(4);
-    await expect(window.getByTestId("tag-filter-active")).toHaveCount(0);
 
     // In Chinese, the chips, picker and filter speak Chinese; Tag names are the User's.
     await (await bridge(window)).evaluate((core) =>
@@ -507,13 +447,12 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
     await expect(row("Notes").getByTestId("tag-count")).toHaveText("2 Documents");
     await expect(row("Report").getByTestId("tag-count")).toHaveText("1 Document");
 
-    // The explanation says where the model is chosen: the one Tagging setting.
-    await expect(dialog).toContainText("from the model chosen in Settings → Models → Tagging");
+    await expect(dialog).toContainText("Tagging goes by these names and descriptions.");
     // Each Tag has its colour; editing says the description guides automatic tagging, and
     // offers the palette.
     await expect(row("Report").getByTestId("tag-row-name")).toHaveAttribute("data-colour", "blue");
     await slideAndClick(window, row("Report").getByTestId("edit-tag"));
-    await expect(dialog).toContainText("Automatic tagging goes by the name and description");
+    await expect(dialog).toContainText("Clear descriptions make tagging more accurate");
     const swatches = row("Report").getByTestId("tag-colour");
     await expect(swatches).toHaveCount(8);
     await slideAndClick(window, row("Report").locator('label:has([data-colour="teal"])'));
@@ -534,7 +473,7 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
     // Merging Report into Notes: its Document keeps one Tag, Notes.
     await slideAndClick(window, row("Report").getByTestId("merge-tag"));
     await row("Report").getByTestId("merge-target").selectOption({ label: "Notes" });
-    await expect(row("Report")).toContainText("Its Documents get “Notes” instead");
+    await expect(row("Report")).toContainText("Its Documents get “Notes”");
     await slideAndClick(window, row("Report").getByTestId("confirm-merge-tag"));
     await expect(row("Report")).toHaveCount(0);
     await expect(row("Notes").getByTestId("tag-count")).toHaveText("2 Documents");
@@ -559,11 +498,67 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
     await (await bridge(window)).evaluate((core) =>
       core.updateSettings({ user: { language: "zh-CN" } }),
     );
-    await openManageTags(window);
+    await openManageTags(window, "zh-CN");
     await expect(dialog.getByTestId("tag-row").first().getByTestId("tag-count")).toHaveText(
       "0 个文档",
     );
     await screenshot(window, "manage-tags-zh");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Chinese Tag is found by its pinyin and initials in the picker and in Find a Tag, in English and Chinese (#1363)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await addTextDocuments(window, {
+      "March invoice.txt": "Invoice 2026-03 for consulting. Total due: 1,200.",
+    });
+    await (await bridge(window)).evaluate(async (core) => {
+      await core.createTag({ name: "财务", description: "预算与账单" });
+    });
+    await slideAndClick(window, window.getByTestId("open-library"));
+    const library = window.getByTestId("library");
+    const invoice = rowOf(library, "March invoice");
+    await slideTo(window, invoice);
+    await slideAndClick(window, invoice.getByTestId("document-tags-menu"));
+    const picker = invoice.getByTestId("document-tags-popover");
+    const field = picker.getByTestId("tag-picker-input");
+    await expect(field).toBeFocused();
+    // The pinyin and the initials find it, chosen first, as ⌘K finds a name.
+    for (const typed of ["caiwu", "cw"]) {
+      await field.fill(typed);
+      await expect(picker.getByTestId("tag-option")).toHaveCount(1);
+      await expect(picker.getByTestId("tag-option")).toContainText("财务");
+      await expect(picker.getByTestId("tag-option")).toHaveAttribute("data-active", "true");
+    }
+    await window.keyboard.press("Enter");
+    await expect(tokens(picker)).toHaveText(["财务"]);
+    await window.keyboard.press("Escape");
+    await expect(picker).toBeHidden();
+
+    // "Find a Tag": the same words match, in the interface's own language.
+    for (const language of ["en", "zh-CN"] as const) {
+      await (await bridge(window)).evaluate(
+        (core, language) => core.updateSettings({ user: { language } }),
+        language,
+      );
+      await openManageTags(window, language);
+      const dialog = window.getByTestId("tags-dialog");
+      const search = dialog.getByTestId("tag-search");
+      await expect(search).toBeVisible();
+      for (const typed of ["caiwu", "cw"]) {
+        await search.fill(typed);
+        await expect(dialog.getByTestId("tag-row")).toHaveCount(1);
+        await expect(dialog.getByTestId("tag-row")).toContainText("财务");
+      }
+      await slideAndClick(
+        window,
+        dialog.getByRole("button", { name: translate(language, "tags.dialog.done") }),
+      );
+      await expect(dialog).toBeHidden();
+    }
   } finally {
     await app.close();
   }

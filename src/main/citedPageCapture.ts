@@ -192,6 +192,9 @@ export function createCitedPageCapture({
           // after they are drawn, so one taken at once can be from before the area was drawn.
           let tries = 0;
           const take = () => {
+            // Stopped while a picture was being taken: its window is gone, and touching it
+            // throws in the main process, whose error box stops the app.
+            if (settled) return;
             const wait = QUIET_MS - (Date.now() - painted);
             if (wait > 0) {
               settling = setTimeout(take, wait);

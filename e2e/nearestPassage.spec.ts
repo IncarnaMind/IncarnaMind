@@ -7,6 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  motionSettled,
   newMind,
   pointAndClick,
   removeDataFolder,
@@ -20,7 +21,7 @@ import {
  * An unsupported sentence whose Document says something different (#770): its
  * card quotes the nearest line with its page, names it as different, and
  * offers Open the page and Fix the sentence; an unrelated sentence keeps the
- * plain "Nothing in your Documents says this". The scripted model finds the
+ * plain "I didn’t find this in “All Documents”". The scripted model finds the
  * sentence unsupported (two shared words), then judges the nearest line: it
  * says something different when it has another number.
  */
@@ -44,13 +45,13 @@ const UNRELATED = "Penguins nest on the harbour cliffs.";
 const WORDS = {
   en: {
     differs: "Your Documents say something different:",
-    nothing: "Nothing in your Documents says this.",
+    nothing: "I didn’t find this in “All Documents”.",
     open: "Open the page",
     fix: "Fix the sentence",
   },
   "zh-CN": {
     differs: "你的文档里是另一种说法：",
-    nothing: "你的文档中没有内容提到这一点。",
+    nothing: "未在“全部文档”中找到。",
     open: "打开该页",
     fix: "修改这句话",
   },
@@ -75,10 +76,13 @@ for (const language of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "Harbours publish", { line, words: "cliffs." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     const marks = window.getByTestId("claim-mark");
     await expect(marks).toHaveCount(2);
+    await expect(marks.first()).toHaveAttribute("data-check", "unsupported");
+    await expect(marks.nth(1)).toHaveAttribute("data-check", "unsupported");
+    await motionSettled(window);
     const card = window.getByTestId("claim-card");
 
     await pointAndClick(window, marks.first());
@@ -94,6 +98,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
     await expect(card.getByTestId("claim-search-web")).toHaveCount(0);
     await expect(card.getByTestId("claim-remove")).toBeVisible();
+    // With no Citation it can still be cut or kept.
+    await expect(card.getByTestId("claim-cut-sentence")).toBeVisible();
+    await expect(card.getByTestId("claim-keep")).toBeVisible();
     // Open the page opens the Document beside the Mind, as a Citation does.
     await pointAndClick(window, card.getByTestId("claim-open"));
     await expect(window.getByTestId("viewer")).toBeVisible();

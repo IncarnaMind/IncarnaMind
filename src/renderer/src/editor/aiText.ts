@@ -139,16 +139,13 @@ export function holdsAiText(state: EditorState): boolean {
 }
 
 /**
- * "Mark as mine": the AI text selected becomes the User's. An older Answer
- * it touches has its words marked first, so only what is selected changes
- * hands and the rest stays AI text.
+ * Makes the AI text in `from`..`to` the User's, in `tr`. An older Answer it
+ * touches has its words marked first, so only that stretch changes hands and
+ * the rest stays AI text.
  */
-export const markAsMine: Command = (state, dispatch) => {
+export function makeMine(state: EditorState, tr: Transaction, from: number, to: number): void {
   const type = state.schema.marks[GENERATED_MARK];
-  if (!type || !holdsAiText(state)) return false;
-  if (!dispatch) return true;
-  const { from, to } = state.selection;
-  const tr = state.tr;
+  if (!type) return;
   // Answers are top-level Blocks only.
   state.doc.nodesBetween(from, to, (node, pos) => {
     if (node.type.name === ANSWER_BLOCK && isOlderAnswer(node.attrs)) {
@@ -160,6 +157,16 @@ export const markAsMine: Command = (state, dispatch) => {
     }
     return false;
   });
-  dispatch(tr.removeMark(from, to, type));
+  tr.removeMark(from, to, type);
+}
+
+/** "Mark as mine": the AI text selected becomes the User's (`makeMine`). */
+export const markAsMine: Command = (state, dispatch) => {
+  if (!holdsAiText(state)) return false;
+  if (!dispatch) return true;
+  const { from, to } = state.selection;
+  const tr = state.tr;
+  makeMine(state, tr, from, to);
+  dispatch(tr);
   return true;
 };

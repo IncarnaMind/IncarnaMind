@@ -11,6 +11,7 @@ import {
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
   MIND_WORD_LOOK_FIELD,
+  PARAGRAPH_FORMAT_ATTRIBUTE,
   WORD_LOOK_ATTRIBUTE,
   WORD_RUN_MARK,
   WORD_TAB_MARK,
@@ -36,11 +37,13 @@ import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, resolveChanges } from "../helpers/minds";
 import { paragraph, run, wordFile } from "../helpers/word";
 import { contractFile, RESUME_TEXT_WIDTH_TWIPS, resumeFile } from "../helpers/wordLookFiles";
+import { withFormat, withMarks } from "../helpers/wordLookResolved";
 import { importWordBytes } from "../helpers/wordMinds";
 
-/** A text with no run mark has its paragraph's `run` look. */
+/** Each Block's look as drawn, its format over it; a text with no run mark has its paragraph's `run` look. */
 function styled(client: MindClient, look: WordLook) {
-  const found: { type: string; text: string; look: unknown; runs: unknown[] }[] = [];
+  const found: { type: string; text: string; look: unknown; runs: unknown[]; format: unknown }[] =
+    [];
   readMind(client).descendants((node) => {
     if (!WORD_LOOK_TYPES.includes(node.type.name)) {
       return true;
@@ -55,19 +58,27 @@ function styled(client: MindClient, look: WordLook) {
     const {
       run: paragraphRun,
       next: _next,
+      characterSize,
       ...own
     } = (key ? styles[key] : {}) as WordParagraphLook;
+    const format = node.attrs[PARAGRAPH_FORMAT_ATTRIBUTE] ?? null;
     const runs: unknown[] = [];
     node.forEach((child) => {
       const run =
         child.marks.find((mark) => mark.type.name === WORD_RUN_MARK)?.attrs.k ?? paragraphRun;
-      runs.push(typeof run === "string" ? look.runs[run] : null);
+      runs.push(
+        withMarks(
+          typeof run === "string" ? (look.runs[run] ?? null) : null,
+          child.marks.map((mark) => mark.toJSON()),
+        ),
+      );
     });
     found.push({
       type: node.type.name,
       text: node.textContent,
-      look: key ? own : null,
+      look: key || format ? withFormat(own, characterSize, format) : null,
       runs,
+      format,
     });
     return true;
   });
@@ -92,6 +103,8 @@ describe("a Mind imported from Word keeps its look", () => {
     const nodes = styled(client, look);
     const name = nodes.find((node) => node.text === "林　晓");
     expect(name?.look).toMatchObject({ align: "center" });
+    // Its direct formatting is its own format and marks, over what its style gives.
+    expect(name?.format).toEqual({ align: "center" });
     expect(name?.runs[0]).toEqual({
       font: "Times New Roman",
       eastAsia: "华文中宋",
@@ -644,7 +657,7 @@ describe("a Mind imported before gets its look once", () => {
     expect(Buffer.from(Y.encodeStateVector(third.doc))).toEqual(Buffer.from(state));
   });
 
-  test("a look an earlier version read is cleared and read again; keys it named are gone", async () => {
+  test("a look an earlier version read is cleared and read again; keys it named are gone, and a paragraph edited since has the look again", async () => {
     const { dataDir, core, mindId, client } = await imported(contractFile());
     const clause = client.blocks
       .toArray()
@@ -671,7 +684,9 @@ describe("a Mind imported before gets its look once", () => {
     const look = wordLookOf(after.doc) as WordLook;
     expect(look.version).toBe(WORD_LOOK_VERSION);
     const nodes = styled(after, look);
-    expect(nodes.find((node) => node.text.startsWith("Edited."))?.look).toBeNull();
+    expect(nodes.find((node) => node.text.startsWith("Edited."))?.look).toMatchObject({
+      align: "justify",
+    });
     expect(nodes.find((node) => node.text.startsWith("3.1"))?.look).toMatchObject({
       align: "justify",
     });

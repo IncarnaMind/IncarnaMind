@@ -61,7 +61,7 @@ describe("A Question to a model in Ollama while Ollama isn't running", () => {
       answerId,
       error: {
         kind: "ollama-not-running",
-        message: "Ollama isn't running on this computer.",
+        message: "Ollama isn’t running on this computer.",
         wording: { key: "error.provider.ollamaNotRunning" },
       },
     });
@@ -97,7 +97,7 @@ describe("A Question to a model in Ollama while Ollama isn't running", () => {
 
     expect(classifyProviderError(error)).toEqual({
       kind: "ollama-not-running",
-      message: "Ollama isn't running on this computer.",
+      message: "Ollama isn’t running on this computer.",
       wording: { key: "error.provider.ollamaNotRunning" },
     });
     expect(translate("zh-CN", "error.provider.ollamaNotRunning")).toBe(
@@ -211,7 +211,7 @@ describe("Open Ollama", () => {
     const core = startCore(await createTempDataFolder());
 
     await expect(core.openOllama({ baseUrl: await unusedLocalUrl() })).rejects.toThrow(
-      /can't open Ollama/,
+      /can’t open Ollama/,
     );
   });
 });

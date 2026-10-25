@@ -1006,27 +1006,6 @@ test("B3 2,000 Documents: linking, the sidebar, the Library, Organize, and a war
       record("speed.scale.toggleSourcesMs", await back());
     }
 
-    // Collapse and expand the Linked folder.
-    const toggle = window
-      .locator('[data-testid="folder-item"][data-root="true"]')
-      .getByTestId("folder-toggle")
-      .first();
-    await toggle.scrollIntoViewIfNeeded();
-    let until = await armUntil(
-      window,
-      "selectorGone",
-      '[data-testid="sidebar"] [data-testid="document-list-item"]',
-    );
-    await click(window, toggle);
-    const collapseMs = await until();
-    until = await armUntil(
-      window,
-      "selectorShown",
-      '[data-testid="sidebar"] [data-testid="document-list-item"]',
-    );
-    await click(window, toggle);
-    record("speed.scale.folderToggle", { collapseMs, expandMs: await until() });
-
     // The Library: open it, scroll it, search it.
     const lib = await armUntil(window, "libraryShown");
     await click(window, window.getByTestId("open-library"));

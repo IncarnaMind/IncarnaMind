@@ -11,17 +11,20 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { INLINE_CODE_MARK } from "../../shared/aiText";
 import { askedFor } from "../../shared/askedChanges";
+import { originOf } from "../../shared/blockOrigins";
+import { readChart } from "../../shared/charts";
 import {
   keepRevised,
-  pendingProposals,
   proposalRequestOf,
   readProposalAttribute,
   readProposalRef,
   resolveProposals,
+  waitingChanges,
 } from "../../shared/proposals";
-import { type NodeJSON, topLevelBlocks } from "../answers/blocks";
+import { createElement, type NodeJSON, topLevelBlocks } from "../answers/blocks";
 import {
   BLOCK_ID_ATTRIBUTE,
+  CHART_NODE,
   CITATION_NODE,
   GENERATED_MARK,
   PROPOSAL_ATTRIBUTE,
@@ -29,7 +32,7 @@ import {
   PROPOSAL_INSERT_MARK,
   type TextPlace,
 } from "../api";
-import { citationsIn, setProposal, textBlocks } from "./write";
+import { citationsIn, proposeOver, setProposal, textBlocks } from "./write";
 
 /** The assistant's own waiting Blocks a stretch is in, from the first's top-level Block to the last's. */
 export interface OwnWaiting {
@@ -172,7 +175,7 @@ const fingerprintOf = (elements: readonly Y.XmlElement[]) =>
 export function waitingIn(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): WaitingIn {
   const range = rangeOf(blocks, from, to);
   if (!holdsProposal(range)) return { kind: "none" };
-  const count = pendingProposals(blocks).length;
+  const count = waitingChanges(blocks);
   const own = range.filter(isOwn);
   if (own.length === range.length) {
     return { kind: "own", blockIds: range.map(idOf), fingerprint: fingerprintOf(range) };
@@ -265,25 +268,65 @@ export function ownAppliedIn(
 }
 
 /**
- * Proposes `revised` in place of `applied`'s Blocks: each old one to remove and each new one to
- * add after them, as Proposals of `request`, so rejecting them leaves the text as it was.
- * Returns the new Blocks' ids; null, changing nothing, when the old ones changed since they
- * were read. Call it in a Yjs transaction.
+ * The top-level Blocks the Answer `answerId` wrote into a Mind, by their origin, to write again
+ * whole (#1149), and, `heading`, the untitled heading above them; null for none. `edited`: the
+ * User has typed in them since.
+ */
+export function writtenByAnswer(
+  blocks: Y.XmlFragment,
+  answerId: string,
+  { heading = false }: { heading?: boolean } = {},
+): { applied: OwnApplied; edited: boolean } | null {
+  const doc = blocks.doc;
+  if (!doc) return null;
+  const top = topLevelBlocks(blocks);
+  const fromAnswer = (element: Y.XmlElement) => {
+    const from = originOf(doc, idOf(element))?.from;
+    return from?.anchor.kind === "message" && from.anchor.messageId === answerId;
+  };
+  const range = top.filter(fromAnswer);
+  const [first] = top;
+  if (range.length === 0) return null;
+  if (heading && first && first.nodeName === "heading" && !fromAnswer(first)) range.unshift(first);
+  const ids = new Set(range.map(idOf));
+  // A chart carries no mark, but one drawn from the Answer's own table there is the Answer's:
+  // written again, it is drawn again from the new table (#1091).
+  const drawnHere = (element: Y.XmlElement) => {
+    if (element.nodeName !== CHART_NODE) return false;
+    const { source } = readChart(element.getAttributes());
+    return source.kind === "table" && source.blockId !== null && ids.has(source.blockId);
+  };
+  return {
+    applied: { kind: "applied", blockIds: [...ids], fingerprint: fingerprintOf(range) },
+    edited: !range.every(
+      (element) => !fromAnswer(element) || drawnHere(element) || allAiText(element, writtenAtom),
+    ),
+  };
+}
+
+/**
+ * Proposes `revised` in place of `applied`'s Blocks, as Proposals of `request`, so rejecting
+ * them leaves the text as it was: only the paragraphs that differ change (`proposeOver`), or
+ * with `whole`, each old Block is removed and each new one added after them. Returns the ids of
+ * the Blocks `revised` is written as; null, changing nothing, when the old ones changed since
+ * they were read. Call it in a Yjs transaction.
  */
 export function replaceApplied(
   blocks: Y.XmlFragment,
   applied: OwnApplied,
-  revised: readonly Y.XmlElement[],
+  revised: readonly NodeJSON[],
   request: string,
+  { whole }: { whole: boolean },
 ): string[] | null {
   const old = blocksOf(blocks, applied);
   const last = old?.at(-1);
   if (!old || !last) return null;
+  if (!whole) return proposeOver(blocks, old, revised, request, randomUUID);
+  const added = revised.map(createElement);
   for (const element of old) setProposal(element, { id: randomUUID(), request, kind: "delete" });
-  blocks.insert(blocks.toArray().indexOf(last) + 1, [...revised]);
-  for (const element of revised)
-    setProposal(element, { id: randomUUID(), request, kind: "insert" });
-  return revised.map(idOf);
+  blocks.insert(blocks.toArray().indexOf(last) + 1, added);
+  for (const element of added) setProposal(element, { id: randomUUID(), request, kind: "insert" });
+  return added.map(idOf);
 }
 
 /** How many of the Citations in `over`'s Blocks `revised` leaves out; 0 once they have changed. */

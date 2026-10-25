@@ -1,6 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
-
-const AFTER_STOP = /[。！？]$/;
+import { dotAfter } from "./metaDot";
 
 /** What a selection across the parts of `line` copies as, on one line: "A · B · C"; null where the browser's copy is right. */
 function selectedAsOneLine(line: HTMLElement): string | null {
@@ -16,7 +15,7 @@ function selectedAsOneLine(line: HTMLElement): string | null {
       return part.textContent?.trim() ?? "";
     })
     .filter(Boolean)
-    .reduce((text, part) => `${text}${AFTER_STOP.test(text) ? "· " : " · "}${part}`);
+    .reduce((text, part) => `${text}${dotAfter(text)}${part}`);
 }
 
 /**
@@ -25,7 +24,7 @@ function selectedAsOneLine(line: HTMLElement): string | null {
  * a dot: each dot is drawn in the gap before its part and clipped where that
  * part starts a line (`.meta-line` in styles.css). Use it, or `.meta-line`
  * and `.meta-part` on a flex row, wherever parts are joined by dots.
- * After a full-width stop the text reads "。· 重试", as Chinese sets it.
+ * After a full-width stop or closing bracket the text reads "。· 重试", as Chinese sets it.
  * `children` follow the parts as flex items of the row, for a part that
  * draws its own dot because a list opens under it (`.mind-unread`).
  */
@@ -57,7 +56,7 @@ export function MetaLine({
           <span key={index} className="meta-part">
             {index > 0 && (
               <span className="meta-dot" aria-hidden="true">
-                {typeof before === "string" && AFTER_STOP.test(before) ? "· " : " · "}
+                {typeof before === "string" ? dotAfter(before) : " · "}
               </span>
             )}
             {part}

@@ -8,6 +8,7 @@ import {
   stopSkillDraft,
   useMakeSkill,
 } from "../makeSkill";
+import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { ProblemLine } from "./ProblemLine";
 import { ReadinessLine } from "./providers/ChatReadinessNotice";
@@ -114,7 +115,7 @@ export function MakeSkillCard({ mindId }: { mindId: string }) {
           }}
           also={{ label: t("skills.edit.close"), testId: "make-skill-close", onClick: close }}
         >
-          {t("skills.edit.saved", { name: state.name })}
+          {t("skills.edit.saved", { name: skillTitle(state.name, t) })}
         </ProblemLine>
       )}
     </section>

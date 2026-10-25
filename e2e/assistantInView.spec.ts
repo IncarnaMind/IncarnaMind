@@ -8,6 +8,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  moveAssistant,
   nameMind,
   newMind,
   removeDataFolder,
@@ -43,8 +44,7 @@ test.afterEach(async () => {
 type Place = "bottom" | "float" | "right";
 
 async function placeAs(window: Page, place: Place) {
-  await window.getByTestId("assistant-more").click();
-  await window.getByTestId(`assistant-menu-${place}`).click();
+  await moveAssistant(window, place);
   await expect(window.getByTestId("assistant")).toHaveAttribute("data-dock", place);
 }
 
@@ -144,6 +144,39 @@ test("scrolled up to an older turn, the same turn stays in view after the same c
   await setWindowSize(app, window, 900, 700);
   await expect.poll(() => inThread(window, first), { message: "at 900px" }).toBe(true);
   expect(Math.abs((await offsetIn(first)) - before), "at 900px").toBeLessThanOrEqual(2);
+  await app.close();
+});
+
+test("whichever of the scroll and the resize arrives first, a thread at its end stays at its end as the room under it changes", async () => {
+  test.setTimeout(150_000);
+  const { app, window } = await start({ task: false });
+  const thread = window.getByTestId("assistant-thread");
+  const actions = assistantAnswers(window).last().getByTestId("answer-copy");
+  await expect.poll(() => inThread(window, actions)).toBe(true);
+
+  // A busy frame delivers the scroll event of the thread's last move after the room under the
+  // thread changed (the Task tray) and before the resize observer reports it.
+  const giveRoom = (px: number, scrollFirst: boolean) =>
+    thread.evaluate(
+      (el, [room, first]) => {
+        const slot = document.querySelector('[data-testid="assistant-composer"]') as HTMLElement;
+        if (first) el.dispatchEvent(new Event("scroll"));
+        slot.style.paddingTop = `${room}px`;
+        if (!first) el.dispatchEvent(new Event("scroll"));
+      },
+      [px, scrollFirst] as const,
+    );
+  for (const scrollFirst of [false, true]) {
+    const order = scrollFirst ? "scroll, then resize" : "resize, then scroll";
+    await giveRoom(160, scrollFirst);
+    await expect
+      .poll(() => inThread(window, actions), { message: `a tray taking room: ${order}` })
+      .toBe(true);
+    await giveRoom(0, scrollFirst);
+    await expect
+      .poll(() => inThread(window, actions), { message: `a tray giving it back: ${order}` })
+      .toBe(true);
+  }
   await app.close();
 });
 

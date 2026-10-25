@@ -17,7 +17,7 @@ import {
 } from "@playwright/test";
 // Vite's own source-map reader (the audit adds no dependency of its own).
 import { SourceMapConsumer } from "source-map-js";
-import { homeEnv } from "../../tests/helpers/home";
+import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../../tests/helpers/home";
 
 const appDir = resolve(__dirname, "..", "..");
 
@@ -104,7 +104,10 @@ export async function launch(
   Object.assign(env, extraEnv);
 
   const launchMs = Date.now();
-  const app = await electron.launch({ args: [...extraArgs, appPath], env });
+  const app = await electron.launch({
+    args: [...KEYCHAIN_ARGS, ...extraArgs, appPath, ...APP_ARGS],
+    env,
+  });
   const window = await app.firstWindow();
   let interactiveMs = Date.now();
   if (readyTestId) {

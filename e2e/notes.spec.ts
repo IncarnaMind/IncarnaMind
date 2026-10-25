@@ -193,8 +193,10 @@ test("a Mind is written in the system's font, and in the bundled Source Serif 4 
   const sansChinese = await fontsDrawing(window, `${paragraph}:nth-child(2)`);
   expect(sansChinese).not.toEqual([]);
   expect(sansChinese.filter((font) => font.bundled)).toEqual([]);
+  // By its PostScript name: the system's font has no Chinese, and the face macOS falls back to
+  // comes with its family named in one of the system's languages ("蘋方-簡" on CI's Mac).
   if (process.platform === "darwin") {
-    expect(sansChinese.map((font) => font.family)).toEqual(["PingFang SC"]);
+    expect(sansChinese.map((font) => font.name)).toEqual([expect.stringMatching(/^PingFangSC-/)]);
   }
 
   const [mind] = await (await coreOf(window)).evaluate((core) => core.listMinds());

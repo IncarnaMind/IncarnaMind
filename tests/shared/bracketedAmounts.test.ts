@@ -3,9 +3,11 @@
  * a figure in a statement or a table's cell is minus; the same brackets in
  * running text are an aside, and a year, a note, a page or a list's "(a)" in
  * brackets is no amount at all. What the text can't settle (a lone "(250)", a
- * percent in brackets, a debit) is a question, never a guess. Wrongly making a
- * figure negative is the worse mistake, so each case names every figure the
- * text holds, as the reader gives it.
+ * percent in brackets, a debit) is a question, never a guess. A count of
+ * people in brackets is never a minus (#1023), and a currency sign inside the
+ * brackets of a statement line is. Wrongly making a figure negative is the
+ * worse mistake, so each case names every figure the text holds, as the
+ * reader gives it.
  */
 import { describe, expect, test } from "vitest";
 import {
@@ -72,6 +74,72 @@ const NEGATIVE_EN: Case[] = [
   ],
   ["a whole number in a cell of accounts", "Rent\t(250)", [["(250)", -250]], EN_ACCOUNTS],
   ["a whole number under a unit header", "£'000\nRent\t(250)", [["(250)", -250, ["scale"]]]],
+  [
+    "a scale on a statement line of accounts",
+    "Impairment (£1.2m)",
+    [["(£1.2m)", -1200000]],
+    EN_ACCOUNTS,
+  ],
+  [
+    "a scale on a statement line, spelled out",
+    "Impairment ($1.2 million)",
+    [["($1.2 million)", -1200000]],
+    EN_ACCOUNTS,
+  ],
+  [
+    "a currency code with a scale",
+    "Impairment (USD 1.2bn)",
+    [["(USD 1.2bn)", -1200000000]],
+    EN_ACCOUNTS,
+  ],
+  [
+    "the currency outside, the scale inside",
+    "Impairment £(1.2m)",
+    [["£(1.2m)", -1200000]],
+    EN_ACCOUNTS,
+  ],
+  [
+    "a scale on a statement line under a unit header",
+    "£'000\nImpairment (£1.2m)",
+    [["(£1.2m)", -1200000]],
+  ],
+  ["a scale in a statement table's row", "Impairment\t(£1.2m)", [["(£1.2m)", -1200000]]],
+  [
+    "a figure of a statement line that isn't a count of people",
+    "Staff costs (1,250)",
+    [["(1,250)", -1250]],
+  ],
+  ["a count label with an amount's currency", "Staff (£1,250)", [["(£1,250)", -1250]]],
+  ["a count label with the currency outside", "Staff £(1,250)", [["£(1,250)", -1250]]],
+  ["employees with a dollar outside", "Employees $(1,250)", [["$(1,250)", -1250]]],
+  ["a headcount's size with the currency outside", "Headcount £(250)", [["£(250)", -250]]],
+  ["cash paid to people", "Cash paid to suppliers and employees (12,500)", [["(12,500)", -12500]]],
+  ["payments to people", "Payments to employees (12,500)", [["(12,500)", -12500]]],
+  ["amounts owed to people", "Amounts owed to staff (12,500)", [["(12,500)", -12500]]],
+  ["loans from people", "Loans from employees (1,250)", [["(1,250)", -1250]]],
+  ["the cost of people", "Cost of staff (1,250)", [["(1,250)", -1250]]],
+  ["money per person", "Revenue per employee (125)", [["(125)", -125]], EN_ACCOUNTS],
+  [
+    "money per person under a unit header",
+    "£'000\nRevenue per employee (125)",
+    [["(125)", -125, ["scale"]]],
+  ],
+  [
+    "money paid to people, in a table's cell",
+    "Payments to staff\t(250)",
+    [["(250)", -250]],
+    EN_ACCOUNTS,
+  ],
+  [
+    "a cost of staff under a unit header",
+    "£'000\nStaff costs (1,250)",
+    [["(1,250)", -1250, ["scale"]]],
+  ],
+  [
+    "a count label that doesn't end the line's words",
+    "Employees' benefits\t(1,250)",
+    [["(1,250)", -1250]],
+  ],
 ];
 
 const NEGATIVE_ZH: Case[] = [
@@ -99,6 +167,28 @@ const NEGATIVE_ZH: Case[] = [
       ["（300）", -300, ["scale"]],
     ],
   ],
+  [
+    "a yuan sign and a scale on a statement line of accounts",
+    "减值损失（¥1.2亿）",
+    [["（¥1.2亿）", -120000000]],
+    ZH_ACCOUNTS,
+  ],
+  [
+    "a currency word before the scale",
+    "减值损失（人民币1.2亿元）",
+    [["（人民币1.2亿元）", -120000000]],
+    ZH_ACCOUNTS,
+  ],
+  [
+    "a yuan sign and a scale on a statement line under a unit header",
+    "单位：万元\n减值损失（¥1.2亿）",
+    [["（¥1.2亿）", -120000000]],
+  ],
+  ["a count label with the yuan sign outside", "员工 ¥（1,250）", [["¥（1,250）", -1250]]],
+  ["cash paid to people", "支付给员工（12,500）", [["（12,500）", -12500]]],
+  ["money per person", "每名员工（125）", [["（125）", -125]], ZH_ACCOUNTS],
+  ["amounts owed to people", "应付员工（1,250）", [["（1,250）", -1250]]],
+  ["a cost of staff, not a count", "员工成本（1,250）", [["（1,250）", -1250]]],
 ];
 
 const POSITIVE_EN: Case[] = [
@@ -164,6 +254,93 @@ const POSITIVE_EN: Case[] = [
     "Less: legal fees (250)",
     [["(250)", 250, ["sign"]]],
   ],
+  [
+    "a scale in a statement's sentence",
+    "Impairment (£1.2m) was charged in June.",
+    [["£1.2m", 1200000]],
+  ],
+  [
+    "a scale in running text of accounts",
+    "the impairment (£1.2m) charged",
+    [["£1.2m", 1200000]],
+    EN_ACCOUNTS,
+  ],
+  [
+    "an amount restated on a statement line",
+    "Revenue of RMB 1.2 billion (US$170 million)",
+    [
+      ["RMB 1.2 billion", 1200000000],
+      ["US$170 million", 170000000],
+    ],
+  ],
+  [
+    "a scale with no currency sign on a statement line",
+    "Impairment (1.2m)",
+    [["1.2m", 1200000]],
+    EN_ACCOUNTS,
+  ],
+  ["a fund's size on a label line", "Fund (£2.1bn)", [["£2.1bn", 2100000000]]],
+  ["assets under management", "AUM (US$2.1bn)", [["US$2.1bn", 2100000000]]],
+  ["a company's size", "Acme Ltd (US$1.2bn)", [["US$1.2bn", 1200000000]]],
+  ["a scale on a label line outside accounts", "Impairment (£1.2m)", [["£1.2m", 1200000]]],
+  [
+    "a label line of a deck",
+    "Total assets (£4.5m)\nNet loss (£1.2m)",
+    [
+      ["£4.5m", 4500000],
+      ["£1.2m", 1200000],
+    ],
+  ],
+];
+
+const COUNTS_EN: Case[] = [
+  ["headcount", "Headcount (250)", [["(250)", 250]], EN_ACCOUNTS],
+  ["headcount, outside accounts", "Headcount (250)", [["(250)", 250]]],
+  ["employees", "Employees (1,250)", [["(1,250)", 1250]]],
+  ["staff", "Staff (1,250)", [["(1,250)", 1250]]],
+  ["FTEs", "FTE (12.5)", [["(12.5)", 12.5]]],
+  ["people", "People (1,250)", [["(1,250)", 1250]], EN_ACCOUNTS],
+  ["a label in capitals", "HEADCOUNT (250)", [["(250)", 250]], EN_ACCOUNTS],
+  ["a label of several words", "Average number of employees (1,250)", [["(1,250)", 1250]]],
+  ["a total", "Total number of staff (250)", [["(250)", 250]], EN_ACCOUNTS],
+  [
+    "a number of full-time staff",
+    "Number of full-time employees (250)",
+    [["(250)", 250]],
+    EN_ACCOUNTS,
+  ],
+  ["an average headcount", "Average headcount (1,250)", [["(1,250)", 1250]]],
+  ["a count after a year", "In 2025 headcount (250) rose.", [["(250)", 250]], EN_ACCOUNTS],
+  ["a count with its unit", "Employees (1,250 staff)", [["1,250 staff", 1250]]],
+  ["a count under a unit header", "£'000\nHeadcount (250)", [["(250)", 250]]],
+  ["a count under a scale header", "(in millions)\nEmployees (1,250)", [["(1,250)", 1250]]],
+  [
+    "a count in the cells of a table's row",
+    "Headcount\t(250)\t(240)",
+    [
+      ["(250)", 250],
+      ["(240)", 240],
+    ],
+    EN_ACCOUNTS,
+  ],
+  [
+    "a count between bars",
+    "| Employees | (1,250) | (1,100) |",
+    [
+      ["(1,250)", 1250],
+      ["(1,100)", 1100],
+    ],
+  ],
+  ["a count with a scale in a table's cell", "Staff\t(1.2m)", [["(1.2m)", 1200000]]],
+  ["a count in running text", "Our headcount (250) grew.", [["(250)", 250]], EN_ACCOUNTS],
+  [
+    "a count after another count",
+    "We had 250 staff (1,250).",
+    [
+      ["250 staff", 250],
+      ["(1,250)", 1250],
+    ],
+  ],
 ];
 
 const POSITIVE_ZH: Case[] = [
@@ -191,6 +368,30 @@ const POSITIVE_ZH: Case[] = [
     [["（250）", 250, ["sign"]]],
     ZH_ACCOUNTS,
   ],
+  ["a yuan sign in a statement's sentence", "减值损失（¥1.2亿）已确认。", [["¥1.2亿", 120000000]]],
+  ["a fund's size on a label line", "基金规模（¥2.1亿）", [["¥2.1亿", 210000000]]],
+  ["a yuan sign on a label line outside accounts", "减值损失（¥1.2亿）", [["¥1.2亿", 120000000]]],
+  ["a currency word on a label line", "减值损失（人民币1.2亿元）", [["人民币1.2亿元", 120000000]]],
+];
+
+const COUNTS_ZH: Case[] = [
+  ["人数", "Staff 人数（250）", [["（250）", 250]], ZH_ACCOUNTS],
+  ["人数, outside accounts", "员工人数（250）", [["（250）", 250]]],
+  ["员工", "员工（1,250）", [["（1,250）", 1250]]],
+  ["人员", "技术人员（1,250）", [["（1,250）", 1250]], ZH_ACCOUNTS],
+  ["职工", "职工（1,250）", [["（1,250）", 1250]]],
+  ["a count with its unit", "员工（1,250人）", [["1,250人", 1250]]],
+  ["a count at the end of the year", "期末员工人数（250）", [["（250）", 250]], ZH_ACCOUNTS],
+  ["a count under a unit header", "单位：万元\n员工人数（250）", [["（250）", 250]]],
+  [
+    "a count in the cells of a row",
+    "员工人数\t（250）\t（240）",
+    [
+      ["（250）", 250],
+      ["（240）", 240],
+    ],
+    ZH_ACCOUNTS,
+  ],
 ];
 
 const PERCENTS: Case[] = [
@@ -199,6 +400,8 @@ const PERCENTS: Case[] = [
   ["a margin in a statement", "Gross margin (3.2%)", [["(3.2%)", 0.032, ["sign"]]], EN_ACCOUNTS],
   ["a margin in a table's cell", "Margin\t(3.2%)", [["(3.2%)", 0.032, ["sign"]]], EN_ACCOUNTS],
   ["a share in Chinese", "增长率（12.5%）", [["（12.5%）", 0.125, ["sign"]]], ZH_ACCOUNTS],
+  ["a staff share", "Staff (12.5%)", [["(12.5%)", 0.125, ["sign"]]], EN_ACCOUNTS],
+  ["a staff share in Chinese", "员工（12.5%）", [["（12.5%）", 0.125, ["sign"]]], ZH_ACCOUNTS],
 ];
 
 const NOT_AMOUNTS: Case[] = [
@@ -234,6 +437,8 @@ const GROUPS: { name: string; context: FigureContext; cases: Case[] }[] = [
   { name: "Chinese: negative", context: ZH, cases: NEGATIVE_ZH },
   { name: "English: prose and asides stay positive", context: EN, cases: POSITIVE_EN },
   { name: "Chinese: prose and asides stay positive", context: ZH, cases: POSITIVE_ZH },
+  { name: "English: a count of people is never a minus", context: EN, cases: COUNTS_EN },
+  { name: "Chinese: a count of people is never a minus", context: ZH, cases: COUNTS_ZH },
   { name: "a percent in brackets is never decided negative", context: EN, cases: PERCENTS },
   { name: "references and list markers are no amounts", context: EN, cases: NOT_AMOUNTS },
   { name: "a debit or credit is a question", context: EN, cases: DEBITS },
@@ -279,5 +484,18 @@ describe("a Document that is accounts", () => {
       readFigures("The legal fees (250) were paid.", document).map((each) => each.value),
     ).toEqual([250]);
     expect(readFigures("Less: legal fees (250)", EN).map((each) => each.value)).toEqual([250]);
+  });
+
+  test("its counts of people are counts, and its impairment is a minus", () => {
+    const document = [
+      "£'000",
+      "Administrative expenses (12,500)",
+      "Headcount (250)",
+      "Employees (1,250)",
+      "Staff 人数（250）",
+      "Impairment (£1.2m)",
+    ].join("\n");
+    const read = readFigures(document, figureContextOf(document, "en"));
+    expect(read.map((each) => each.value)).toEqual([-12500, 250, 1250, 250, -1200000]);
   });
 });

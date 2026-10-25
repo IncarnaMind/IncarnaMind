@@ -3,6 +3,7 @@ import type { ReferenceImportEntry, ReferenceRecord } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { formatNames } from "../../../shared/references";
 import { useLanguage, useT } from "../i18n";
+import { saidInLine } from "../lineNames";
 import { type ImportFailure, useReferenceImport } from "../referenceImport";
 import { CloseLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
@@ -109,19 +110,22 @@ export function ReferenceImportPanel() {
   }
 
   if (phase === "failed" && state.failure) {
+    const key = FAILURES[state.failure];
+    const failed = saidInLine(t, (t) => t(key, { name }));
     return (
       <div data-testid="reference-import" className="mb-5 border-y border-rule py-3 text-[13px]">
         <div className="flex items-start gap-2">
           <ProblemLine
             testId="import-failed"
             className="min-w-0 flex-1"
+            title={failed.fullMessage}
             action={{
               label: t("references.import.another"),
               onClick: () => void state.start(),
               testId: "import-another",
             }}
           >
-            {t(FAILURES[state.failure], { name })}
+            {failed.message}
           </ProblemLine>
           {dismiss}
         </div>
@@ -138,6 +142,9 @@ export function ReferenceImportPanel() {
     ) : null;
   }
 
+  const summary = saidInLine(t, (t) =>
+    t(result.changed === 0 ? "references.import.nothingNew" : "references.import.done", { name }),
+  );
   const open = new Set(state.unmatched.map((record) => record.id));
   const records = new Map(state.unmatched.map((record) => [record.id, record]));
   const matched = result.entries.filter((entry) => entry.documentId !== null);
@@ -148,10 +155,13 @@ export function ReferenceImportPanel() {
   return (
     <div data-testid="reference-import" className="mb-5 border-y border-rule py-3 text-[13px]">
       <div className="flex items-start gap-2">
-        <p role="status" data-testid="import-summary" className="min-w-0 flex-1 text-ink">
-          {result.changed === 0
-            ? t("references.import.nothingNew", { name })
-            : t("references.import.done", { name })}
+        <p
+          role="status"
+          data-testid="import-summary"
+          title={summary.fullMessage}
+          className="min-w-0 flex-1 text-ink"
+        >
+          {summary.message}
         </p>
         {dismiss}
       </div>

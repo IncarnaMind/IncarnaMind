@@ -56,6 +56,8 @@ export function MindOutline({ editor, onClose }: { editor: Editor; onClose(): vo
   const t = useT();
   const first = useRef<HTMLButtonElement>(null);
   const entries = useMemo(() => outlineOf(editor), [editor]);
+  // A new anchor each render would run the popover's opening again: the focus back on the first item.
+  const anchor = useMemo(() => cornerOf(editor), [editor]);
   const lowest = Math.min(...entries.map((entry) => entry.level), 6);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -76,7 +78,7 @@ export function MindOutline({ editor, onClose }: { editor: Editor; onClose(): vo
 
   return (
     <Popover
-      anchor={cornerOf(editor)}
+      anchor={anchor}
       placement="bottom-end"
       role="menu"
       aria-label={t("editor.outline.title")}

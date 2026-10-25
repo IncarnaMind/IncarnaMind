@@ -10,10 +10,10 @@ const actionClass =
 
 /**
  * The offer to suggest as the User writes, where they write, the once it
- * helps: "IncarnaMind can suggest the next sentence from your Documents, with
- * a Citation. Turn on · Not now". Turn on asks for consent first (the core
- * does, naming the provider), then says how suggestions work; Not now never
- * offers again in this Mind. Either way the cursor goes back to the note.
+ * helps: a question with Turn on · Not now. Turn on asks for consent first
+ * (the core does, naming the provider), then says how suggestions work; Not
+ * now never offers again in this Mind. Either way the cursor goes back to the
+ * note.
  */
 export function SuggestionOffer({
   mindId,

@@ -36,6 +36,7 @@ import type {
   ApprovalRequest,
   ApprovalSubject,
   ApprovalSubjectKind,
+  CommandApprovalRequest,
   SkillScriptApprovalRequest,
   ToolApprovalRequest,
 } from "./api";
@@ -58,10 +59,11 @@ export interface ApprovalsOptions {
   owners: ApprovalOwners;
 }
 
-/** A call that asks, as an Answer hands it over: a Connector's Tool, or a Skill script. */
+/** A call that asks, as an Answer hands it over: a Connector's Tool, a Skill script or a command. */
 export type ToolCallToApprove =
   | Omit<ToolApprovalRequest, "requestId">
-  | Omit<SkillScriptApprovalRequest, "requestId">;
+  | Omit<SkillScriptApprovalRequest, "requestId">
+  | Omit<CommandApprovalRequest, "requestId">;
 
 /**
  * What decides whether a call asks: what it is (for the User's policy), what
@@ -97,9 +99,14 @@ const COLUMNS = "id, subject_kind, subject_id, policy, created_at, updated_at";
 
 /** How a subject is stored: its kind, and one text id. */
 function keyOf(subject: ApprovalSubject): { kind: ApprovalSubjectKind; id: string } {
-  return subject.kind === "tool"
-    ? { kind: "tool", id: `${subject.connectorId}:${subject.tool}` }
-    : { kind: "skill-script", id: subject.skillId };
+  switch (subject.kind) {
+    case "tool":
+      return { kind: "tool", id: `${subject.connectorId}:${subject.tool}` };
+    case "skill-script":
+      return { kind: "skill-script", id: subject.skillId };
+    case "command":
+      return { kind: "command", id: subject.command };
+  }
 }
 
 /** A stored subject, or null for one this version doesn't know (e.g. synced from a newer one). */
@@ -177,7 +184,7 @@ export function createApprovals(options: ApprovalsOptions) {
       `SELECT ${COLUMNS} FROM approval_policies WHERE deleted_at IS NULL ORDER BY created_at, rowid`,
     )) {
       const subject = subjectOf(row);
-      if (!subject || !isPolicy(row.policy)) continue;
+      if (!subject || subject.kind === "command" || !isPolicy(row.policy)) continue;
       const ownerName =
         subject.kind === "tool" ? connectors.get(subject.connectorId) : skills.get(subject.skillId);
       if (ownerName === undefined) continue;
@@ -221,6 +228,8 @@ export function createApprovals(options: ApprovalsOptions) {
    * "always" at all: they ask unless a scope grant covers the call.
    */
   const decide = (call: CallToDecide): "run" | "ask" => {
+    // A command's call is decided by its own rules (../tools/commands/policy), never a stored policy.
+    if (call.subject.kind === "command") return "ask";
     const policy = policyOf(call.subject);
     // A Tool turned off isn't offered; one called all the same, e.g. as it was turned off, asks.
     if (policy === "ask" || policy === "off") return "ask";
@@ -348,6 +357,10 @@ export function createApprovals(options: ApprovalsOptions) {
         return;
       }
       const { subject } = entry.request;
+      // A command reaches outside IncarnaMind only once per approval (ADR-0013, #1110).
+      if (subject.kind === "command") {
+        throw new InvalidInputError({ key: "error.approval.commandOnce" });
+      }
       // "Always run" a Skill's scripts only once the User has confirmed the warning; it keeps waiting.
       if (subject.kind === "skill-script" && !riskAccepted(options)) {
         throw new InvalidInputError({ key: "error.approval.riskNotAccepted" });

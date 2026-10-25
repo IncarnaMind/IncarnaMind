@@ -20,6 +20,7 @@ import type { ResolvedCitationStyle } from "../../../shared/citationStyles";
 import { proposalRequestOf } from "../../../shared/proposals";
 import type { SourceContext } from "../../../shared/sources";
 import { wordFileOf, wordFingerprint, wordSourceOf } from "../../../shared/wordFiles";
+import { wordLookOf } from "../../../shared/wordLook";
 import {
   CITATION_NODE,
   type CitationFormatRequest,
@@ -30,6 +31,7 @@ import {
   type WordExportReport,
 } from "../../api";
 import { nodesByPlace, readWordDocument } from "../../documents/formats/docxImport";
+import { WORD_LOOK_VERSION } from "../../documents/formats/docxLook";
 import { openWordPackage, relationshipsOf, reviewOf } from "../../documents/formats/docxPackage";
 import { child, elements, type XmlElement } from "../../documents/formats/xml";
 import {
@@ -76,6 +78,8 @@ export interface WordPatchInput {
   style: ResolvedCitationStyle;
   /** Whether a Numbered Mind shows its Bibliography. */
   bibliography: boolean;
+  /** Citations as `[1]` and a list at the end, instead of footnotes (#1600). */
+  listed: boolean;
   bibliographyHeading: string;
   sources: SourceContext;
   formatCitations(request: CitationFormatRequest): Promise<FormattedCitations>;
@@ -191,7 +195,9 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     numbering,
   );
   footnotes.reserveIds(target.ids);
-  await reserveIds(writer, target.ids);
+  const bookmarks = new Set<string>();
+  await reserveIds(writer, target.ids, bookmarks);
+  target.reserveBookmarks(bookmarks);
   const review = new Review(input.review, target.ids, input.labels, () => target.styles.comment);
   const docxWriter = new DocxWriter(input.labels, textWidthOf(base.root), target, review);
 
@@ -248,10 +254,11 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   const bibliography = await styleWritten(order, {
     style: input.style,
     bibliography: input.bibliography,
+    listed: input.listed,
     heading: input.bibliographyHeading,
     sources: input.sources,
     format: input.formatCitations,
-    needsDetails: input.labels.needsDetails,
+    unverified: input.labels.unverified,
   });
   for (const each of order) if (each.blocks) each.blocks = await input.withPictures(each.blocks);
 
@@ -289,10 +296,11 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     reading,
     review,
     ids: target.ids,
+    lookCurrent: (wordLookOf(doc)?.version ?? 0) >= WORD_LOOK_VERSION,
   });
   let text: string;
   try {
-    text = patch.write();
+    text = docxWriter.finish(patch.write());
   } catch (error) {
     throw new WordPartError(
       pkg.part,

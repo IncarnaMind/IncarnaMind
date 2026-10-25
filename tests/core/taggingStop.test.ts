@@ -8,7 +8,7 @@ import { writeFile } from "node:fs/promises";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, Document } from "../../src/core";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, startCore, turnOnAutomaticTagging } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { scriptedModels } from "../helpers/models";
 import { waitForTagging } from "../helpers/tags";
@@ -121,6 +121,7 @@ describe("Stop", () => {
     const board = await core.createLibraryGroup({ name: "Board", description: "Board papers" });
     recorder.hold();
     await core.saveChatProvider(ANTHROPIC);
+    await turnOnAutomaticTagging(core);
     const first = await add(
       core,
       "Supply.md",
@@ -157,6 +158,7 @@ describe("Stop", () => {
     const { core, recorder } = await start(dataDir);
     recorder.hold();
     await core.saveChatProvider(ANTHROPIC);
+    await turnOnAutomaticTagging(core);
     await add(core, "Notes.md", "Notes from the first meeting.");
     await vi.waitFor(() => expect(recorder.calls.length).toBe(1));
     expect(await core.stopTagging()).toEqual([null]);
@@ -179,6 +181,7 @@ describe("Stop", () => {
     });
     await core.setTaggingWithAi(contracts.id, false);
     await core.saveChatProvider(ANTHROPIC);
+    await turnOnAutomaticTagging(core);
     const lease = await add(core, "Lease.md", "The lease for the Austin warehouse.", contracts.id);
     await stopped(core, lease.id);
 
@@ -192,6 +195,7 @@ describe("Stop", () => {
     const { core, recorder } = await start();
     await core.setTaggingWithAi(null, false);
     await core.saveChatProvider(ANTHROPIC);
+    await turnOnAutomaticTagging(core);
     const notes = await add(core, "Notes.md", "Notes from the first meeting.");
     await stopped(core, notes.id);
 
@@ -203,6 +207,7 @@ describe("Stop", () => {
   test("once Organize tags, it doesn't organize a stopped Folder's new Documents on its own, only when asked", async () => {
     const { core, recorder } = await start();
     const provider = await core.saveChatProvider(ANTHROPIC);
+    await turnOnAutomaticTagging(core);
     const contracts = await core.createLibraryGroup({
       name: "Contracts",
       description: "Signed contracts",
@@ -226,6 +231,7 @@ describe("Stop while Organize tags", () => {
   async function organizing(automatic: boolean) {
     const started = await start();
     const provider = await started.core.saveChatProvider(ANTHROPIC);
+    await turnOnAutomaticTagging(started.core);
     const contracts = await started.core.createLibraryGroup({
       name: "Contracts",
       description: "Signed contracts",
@@ -272,20 +278,10 @@ describe("Stop while Organize tags", () => {
     await stopped(core, lease.id);
     expect(recorder.sent("renewed to 2031")).toBe(false);
   });
-
-  test("with automatic Organize off, Tag with AI organizes what was stopped", async () => {
-    const { core, recorder, contracts } = await organizing(false);
-    await core.setTaggingWithAi(contracts.id, false);
-    const lease = await add(core, "Lease.md", "The lease for the Austin warehouse.", contracts.id);
-    await stopped(core, lease.id);
-    await core.setTaggingWithAi(contracts.id, true);
-    await vi.waitFor(() => expect(recorder.sent("Austin warehouse")).toBe(true));
-    await waitForTagging(core, [lease.id], (each) => each.tagging === "tagged");
-  });
 });
 
 describe("Tagging's state says what is happening", () => {
-  test("once a key is saved, the Documents waiting for a model are about to be tagged, not waiting", async () => {
+  test("once a model on this computer is set up, the Documents waiting for one are about to be tagged, not waiting", async () => {
     const { core, recorder } = await start();
     const added = [
       await add(core, "One.md", "The first note."),
@@ -294,7 +290,8 @@ describe("Tagging's state says what is happening", () => {
     ];
     for (const each of added) expect(each.tagging).toBe("waiting-for-provider");
     recorder.hold();
-    await core.saveChatProvider(ANTHROPIC);
+    // A model on this computer: tagging by itself starts on.
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
     await vi.waitFor(() => expect(recorder.calls.length).toBe(1));
     const states = (await core.listDocuments()).map((each) => each.tagging);
     expect(states).not.toContain("waiting-for-provider");

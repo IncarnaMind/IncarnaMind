@@ -1,4 +1,5 @@
 import { expect, type Locator, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   createDataFolder,
@@ -56,26 +57,34 @@ async function expectOnThisComputer(marks: Locator): Promise<void> {
   expect(await mark.evaluate((element) => element.firstElementChild?.tagName)).toBe("svg");
 }
 
-test("“Stays on this computer” is ink-secondary with a computer icon in Settings and Privacy, and no text in Settings is the check green, in English and Chinese", async () => {
+test("“Stays on this computer” is ink-secondary with a computer icon in Settings, and no text in Settings is the check green, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  // A server on this computer, which nothing answers: its page says where its data stays.
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveChatProvider({
+      kind: "openai-compatible",
+      baseUrl: "http://127.0.0.1:9/v1",
+      modelId: "local-model",
+    });
+  });
 
   // Settings stays open as the language changes under it.
   const settings = await openSettings(window, "models");
+  await settings.getByTestId("provider-row").first().click();
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
 
-    // Settings › Models, with no provider yet: the choices, the local one marked.
+    // Settings › Models: a provider on this computer, marked.
     await showSettingsPage(window, "models");
     await expectOnThisComputer(
-      settings.getByTestId("chat-provider-choices").getByTestId("on-this-computer"),
+      settings.getByTestId("provider-page").getByTestId("on-this-computer"),
     );
 
-    // Privacy: a data flow that goes nowhere.
+    // Privacy: no data flow goes anywhere, so the page says so once.
     await showSettingsPage(window, "privacy");
-    await expectOnThisComputer(
-      window.getByTestId("data-flow-not-in-use").getByTestId("on-this-computer"),
-    );
+    await expect(window.getByTestId("data-flows-none")).toBeVisible();
 
     // Nothing on any page of Settings is green: it has no Citation checks.
     for (const page of PAGES) {

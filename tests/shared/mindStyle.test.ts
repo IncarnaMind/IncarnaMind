@@ -138,6 +138,17 @@ describe("the type a Mind is written in", () => {
     expect(small.body.leading / small.body.size).toBeCloseTo(26 / 16, 1);
   });
 
+  test("a line spacing is that many single lines of the text, which the title and headings don't take", () => {
+    const spaced = writingType({ font: "default", size: "default", lineSpacing: 2 }, true);
+    expect(spaced.body).toEqual({ size: 16, leading: 37 });
+    expect(spaced.heading).toEqual(writingType(DEFAULT_MIND_STYLE, true).heading);
+    expect(spaced.note).toEqual(writingType(DEFAULT_MIND_STYLE, true).note);
+    expect(writingType({ ...DEFAULT_MIND_STYLE, lineSpacing: "default" }, true).body).toEqual({
+      size: 16,
+      leading: 26,
+    });
+  });
+
   test("footnotes, References and tables stay one pixel and two of leading below the writing at every font and size", () => {
     for (const font of ["default", "serif", "mono", { family: "Georgia" }] as const) {
       for (const size of TEXT_SIZES) {

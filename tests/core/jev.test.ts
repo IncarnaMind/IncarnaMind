@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   type Core,
   type CoreAdapters,
@@ -11,8 +11,16 @@ import {
   type SaveChatProviderInput,
 } from "../../src/core";
 import { decisionsFromProbabilities } from "../../src/core/tags/jev";
-import { createMemoryKeychain, createTempDataFolder, nextEvent, startCore } from "../helpers/core";
+import { RATE_LIMIT_PAUSE } from "../../src/core/tags/rateLimit";
+import {
+  createMemoryKeychain,
+  createTempDataFolder,
+  nextEvent,
+  startCore,
+  turnOnAutomaticTagging,
+} from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { heldClock } from "../helpers/heldClock";
 import { type FakeJev, JEV_KEY, startFakeJev } from "../helpers/jev";
 import { scriptedModels } from "../helpers/models";
 import { taggingModel, tagNamed, tagNamesOf, waitForTagging } from "../helpers/tags";
@@ -336,14 +344,14 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
   test("a Jev failure marks tagging failed with its kind, after retrying; a re-tag tries again", async () => {
     const { core, jev } = await startWithJev();
     jev.answer({ Paper: 0.9 });
-    jev.fail({ status: 429, message: "Rate limit exceeded.", headers: { "retry-after": "0" } });
+    jev.fail({ status: 500, message: "Internal error.", headers: { "retry-after": "0" } });
     await useLocalJev(core, jev);
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
 
     const [failed] = await waitForTagging(core, [document.id], (each) => each.tagging === "failed");
     expect(failed).toMatchObject({
       status: "ready",
-      taggingError: { kind: "rate-limit", message: "Rate limit exceeded." },
+      taggingError: { kind: "provider", message: "Internal error." },
     });
     // Asked again twice after the first refusal.
     expect(jev.requests).toHaveLength(3);
@@ -351,6 +359,28 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
     jev.fail(null);
     await retag(core, [document.id]);
     expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+  });
+
+  test("a Jev rate limit is handed to Tagging's pause after one request, not retried", async () => {
+    const clock = heldClock();
+    const { core, jev } = await startWithJev({ paceTimers: clock.timers });
+    jev.answer({ Paper: 0.9 });
+    jev.fail({ status: 429, message: "Rate limit exceeded.", headers: { "retry-after": "0" } });
+    await useLocalJev(core, jev);
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+
+    const [paused] = await waitForTagging(
+      core,
+      [document.id],
+      (each) => each.tagging === "waiting-for-provider",
+    );
+    expect(paused?.taggingError).toMatchObject({ kind: "rate-limit" });
+    expect(jev.requests).toHaveLength(1);
+
+    jev.fail(null);
+    clock.advance(RATE_LIMIT_PAUSE.shortestWaitMs);
+    await waitForTagging(core, [document.id]);
+    expect(jev.requests).toHaveLength(2);
   });
 
   test("Jev set up without a readable key: Documents wait rather than go to the chat model", async () => {
@@ -374,13 +404,17 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
 });
 
 describe("Consent for Jev (ADR-0022)", { timeout: 30_000 }, () => {
-  test("choosing Jev, where its form says what goes, allows tagging to TypeSafe: nothing asks", async () => {
+  test("turning tagging on with Jev, where its line says what goes, allows it to TypeSafe: nothing asks", async () => {
     const { core, jev, tagging } = await startWithJev();
     jev.answer({ Paper: 0.9 });
     const requests: string[] = [];
     core.on("consent.requested", (request) => requests.push(request.flow.id));
 
     expect(await core.saveJevSettings({ apiKey: JEV_KEY })).toMatchObject({ service: TYPESAFE });
+    // A cloud tagger starts off: nothing is sent until the User turns tagging on.
+    expect((await addDocument(core, "Notes.md", "Notes.")).tagging).toBe("off");
+    expect(jev.requests).toEqual([]);
+    await turnOnAutomaticTagging(core);
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
 
@@ -399,6 +433,7 @@ describe("Consent for Jev (ADR-0022)", { timeout: 30_000 }, () => {
   test("not allowed, tagging never asks and sends nothing, to Jev or the chat model: Documents wait", async () => {
     const { core, jev, tagging } = await startWithJev();
     await core.saveJevSettings({ apiKey: JEV_KEY });
+    await turnOnAutomaticTagging(core);
     await core.revokeConsent("tagging", TYPESAFE.id);
     const requests: string[] = [];
     core.on("consent.requested", (request) => requests.push(request.flow.id));
@@ -419,6 +454,29 @@ describe("Consent for Jev (ADR-0022)", { timeout: 30_000 }, () => {
     await core.allowDataFlow("tagging", TYPESAFE.id);
     await waitForTagging(core, [first.id, second.id]);
     expect(jev.requests).toHaveLength(2);
+  });
+});
+
+describe("Jev and Local mode", { timeout: 30_000 }, () => {
+  test("turned on while Jev's request waits to be tried again, nothing more is sent, and the Document waits", async () => {
+    const { core, jev } = await startWithJev();
+    jev.fail({ status: 503, message: "Overloaded.", headers: { "retry-after": "1" } });
+    await core.saveJevSettings({ apiKey: JEV_KEY });
+    await turnOnAutomaticTagging(core);
+    const sources = await createTempDataFolder();
+    await core.addDocuments([await writeSourceFile(sources, "Attention.md", PAPER_TEXT)]);
+    await vi.waitFor(() => expect(jev.requests).toHaveLength(1), { timeout: 10_000 });
+
+    await core.setLocalOnly(true);
+
+    const [document] = await core.listDocuments();
+    const [waiting] = await waitForTagging(
+      core,
+      [document?.id ?? ""],
+      (each) => each.tagging === "waiting-for-provider",
+    );
+    expect(waiting?.tagging).toBe("waiting-for-provider");
+    expect(jev.requests).toHaveLength(1);
   });
 });
 
@@ -445,13 +503,13 @@ describe("Testing the Jev connection", { timeout: 30_000 }, () => {
 
     expect(await core.testJevConnection({ ...local, apiKey: "wrong-key" })).toEqual({
       ok: false,
-      error: { kind: "auth", message: "Invalid API key." },
+      error: { kind: "auth", message: "Invalid API key.", status: 401 },
     });
 
     jev.fail({ status: 429, message: "Rate limit exceeded.", headers: { "retry-after": "0" } });
     expect(await core.testJevConnection({ ...local, apiKey: JEV_KEY })).toEqual({
       ok: false,
-      error: { kind: "rate-limit", message: "Rate limit exceeded." },
+      error: { kind: "rate-limit", message: "Rate limit exceeded.", status: 429 },
     });
     jev.fail({ status: 529, message: "Overloaded." });
     expect(await core.testJevConnection({ ...local, apiKey: JEV_KEY })).toMatchObject({

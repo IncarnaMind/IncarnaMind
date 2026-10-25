@@ -8,9 +8,11 @@ import type {
 import { citedLocation } from "../../../../shared/citations";
 import { isTranscriptLocation } from "../../../../shared/locations";
 import { HELP_SHAPE, helpLabel } from "../../../../shared/meetingHelp";
-import { SPEAKER_ME, SPEAKER_THEM } from "../../../../shared/speakers";
+import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
+import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import {
+  citationNumbers,
   quoted,
   type ReplyItem,
   type ReplyPiece,
@@ -18,6 +20,8 @@ import {
   shownItems,
 } from "../../helpReply";
 import { useT } from "../../i18n";
+import { useModelNames, useServiceName } from "../../modelNames";
+import { answerProblem } from "../../problems";
 import { CheckLineIcon, DocumentLineIcon } from "../lineIcons";
 
 /** A help Answer, as the core writes it: loaded once, then each write as it streams. */
@@ -50,7 +54,7 @@ export function useHelpAnswer(
   return answer;
 }
 
-function CitationChip({ citation, marker }: { citation?: MarkedCitation; marker: number }) {
+function CitationChip({ citation, number }: { citation?: MarkedCitation; number: number }) {
   const t = useT();
   const where = citation ? citedLocation(citation, t) : null;
   const found = citation?.check === "found";
@@ -61,13 +65,21 @@ function CitationChip({ citation, marker }: { citation?: MarkedCitation; marker:
       title={citation ? [citation.documentName, where].filter(Boolean).join(", ") : undefined}
       className="help-citation"
     >
-      {marker}
+      {number}
       {found && <CheckLineIcon aria-hidden="true" className="help-citation-found" />}
     </span>
   );
 }
 
-function Pieces({ pieces, answer }: { pieces: readonly ReplyPiece[]; answer: ConversationAnswer }) {
+function Pieces({
+  pieces,
+  answer,
+  numbers,
+}: {
+  pieces: readonly ReplyPiece[];
+  answer: ConversationAnswer;
+  numbers: ReadonlyMap<number, number>;
+}) {
   return (
     <>
       {pieces.map((piece, index) => {
@@ -78,9 +90,10 @@ function Pieces({ pieces, answer }: { pieces: readonly ReplyPiece[]; answer: Con
           return <span key={key}>{figure?.shown ?? ""}</span>;
         }
         const citation = answer.citations.find((each) => each.marker === piece.marker);
+        const number = numbers.get(piece.marker);
         // A marker with no Citation is left out, as the assistant shows an Answer.
-        if (!citation && answer.status !== "streaming") return null;
-        return <CitationChip key={key} citation={citation} marker={piece.marker} />;
+        if (number === undefined) return null;
+        return <CitationChip key={key} citation={citation} number={number} />;
       })}
     </>
   );
@@ -89,10 +102,12 @@ function Pieces({ pieces, answer }: { pieces: readonly ReplyPiece[]; answer: Con
 function Item({
   item,
   answer,
+  numbers,
   said,
 }: {
   item: ReplyItem;
   answer: ConversationAnswer;
+  numbers: ReadonlyMap<number, number>;
   /** It is an option to say: its sentence shows in quotation marks. */
   said: boolean;
 }) {
@@ -111,17 +126,17 @@ function Item({
         )}
       </span>
       <span data-testid="help-option-say" className="help-option-say">
-        <Pieces pieces={said ? quoted(item.lead) : item.lead} answer={answer} />
+        <Pieces pieces={said ? quoted(item.lead) : item.lead} answer={answer} numbers={numbers} />
       </span>
       {item.notes.map((note, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: a reading's notes are in the order written.
         <span key={index} data-testid="help-option-note" className="help-option-note">
-          <Pieces pieces={note} answer={answer} />
+          <Pieces pieces={note} answer={answer} numbers={numbers} />
         </span>
       ))}
       {item.effect && (
         <span data-testid="help-option-effect" className="help-option-effect">
-          → <Pieces pieces={item.effect} answer={answer} />
+          → <Pieces pieces={item.effect} answer={answer} numbers={numbers} />
         </span>
       )}
     </div>
@@ -160,7 +175,7 @@ export function HelpHeading({
   const t = useT();
   const said = heard
     ? t(
-        heard.speaker === SPEAKER_THEM
+        isTheirs(heard.speaker)
           ? "meetings.help.theySaid"
           : heard.speaker === SPEAKER_ME
             ? "meetings.help.youSaid"
@@ -182,16 +197,22 @@ export function HelpHeading({
   );
 }
 
-function Sources({ answer, markers }: { answer: ConversationAnswer; markers: readonly number[] }) {
+function Sources({
+  answer,
+  numbers,
+}: {
+  answer: ConversationAnswer;
+  numbers: ReadonlyMap<number, number>;
+}) {
   const t = useT();
-  const cited = markers.flatMap((marker) => {
+  const cited = [...numbers].flatMap(([marker, number]) => {
     const citation = answer.citations.find((each) => each.marker === marker);
-    return citation ? [citation] : [];
+    return citation ? [{ citation, number }] : [];
   });
   if (cited.length === 0) return null;
   return (
     <ul data-testid="help-sources" className="help-sources">
-      {cited.map((citation) => {
+      {cited.map(({ citation, number }) => {
         const where = citedLocation(citation, t);
         return (
           <li key={citation.marker} data-testid="help-source" className="help-source">
@@ -200,7 +221,7 @@ function Sources({ answer, markers }: { answer: ConversationAnswer; markers: rea
               className="size-[13px] shrink-0"
             />
             <span className="truncate">
-              {[String(citation.marker), citation.documentName, where].filter(Boolean).join(" · ")}
+              {[String(number), citation.documentName, where].filter(Boolean).join(" · ")}
             </span>
           </li>
         );
@@ -224,21 +245,38 @@ export function HelpSuggestion({
   onRetry(): void;
 }) {
   const t = useT();
+  const providerId = answer.model?.providerId ?? null;
+  const service = useServiceName(providerId);
+  const shownModel = useModelNames()(answer.model?.modelId ?? "", providerId);
+  const provider = useAnswers(
+    (state) => state.models?.find((group) => group.provider.id === providerId)?.provider,
+  );
+  const failed = answer.status === "failed";
+  // The panel is its own window: nothing else has loaded the providers that name the service.
+  useEffect(() => {
+    if (failed) useAnswers.getState().loadModels();
+  }, [failed]);
+  const why = answer.errorKind
+    ? t(
+        answerProblem(answer.errorKind, provider?.kind, undefined, {
+          ...(provider && { local: provider.service === null }),
+        }).line,
+        {
+          service,
+          model: answer.model ? shownModel.name : t("answer.error.thisModel"),
+        },
+      )
+    : (answer.errorMessage ?? "");
   const streaming = answer.status === "streaming";
   const items = shownItems(readHelpReply(answer.text), {
     shape: HELP_SHAPE[help.kind],
-    leadIn: help.kind === "leading",
+    leadIn: help.kind === "leading" || answer.steps?.textBehind === true,
     streaming,
   });
-  const markers = [
-    ...new Set(
-      items.flatMap((item) =>
-        [item.lead, ...item.notes, item.effect ?? []].flatMap((pieces) =>
-          pieces.flatMap((piece) => (piece.kind === "citation" ? [piece.marker] : [])),
-        ),
-      ),
-    ),
-  ];
+  const numbers = citationNumbers(
+    items,
+    (marker) => streaming || answer.citations.some((each) => each.marker === marker),
+  );
   return (
     <div
       data-testid="help-suggestion"
@@ -253,20 +291,21 @@ export function HelpSuggestion({
           key={index}
           item={item}
           answer={answer}
+          numbers={numbers}
           said={HELP_SHAPE[help.kind] === "options" && item.effect !== null}
         />
       ))}
       {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}
       {answer.status === "failed" && (
         <p role="alert" data-testid="help-failed" className="help-failed">
-          {t("meetings.help.failed", { message: answer.errorMessage ?? "" })}
+          {t("meetings.help.failed", { message: why })}
           <span aria-hidden="true"> · </span>
           <button type="button" onClick={onRetry} className="panel-link">
             {t("meetings.help.retry")}
           </button>
         </p>
       )}
-      <Sources answer={answer} markers={markers} />
+      <Sources answer={answer} numbers={numbers} />
     </div>
   );
 }

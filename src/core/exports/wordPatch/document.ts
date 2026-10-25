@@ -16,8 +16,14 @@
  * (#108); one the User accepted or rejected leaves no trace.
  */
 import type { NodeJSON } from "../../../shared/blockJson";
+import { readParagraphFormat } from "../../../shared/paragraphFormat";
 import { readWordAtom, wordAtomText } from "../../../shared/wordFiles";
-import type { WordAtomKind, WordExportLoss } from "../../api";
+import {
+  PARAGRAPH_FORMAT_ATTRIBUTE,
+  type ParagraphFormat,
+  type WordAtomKind,
+  type WordExportLoss,
+} from "../../api";
 import type { WordDocument } from "../../documents/formats/docxImport";
 import type { Relationship } from "../../documents/formats/docxPackage";
 import { child, elements, walk, type XmlElement } from "../../documents/formats/xml";
@@ -26,12 +32,14 @@ import {
   isWordChange,
   madeBy,
   type Pendings,
+  NO_MARKS as PLAIN,
   type ReviewReading,
   samePendings,
   type TableCell,
   tableLayout,
 } from "../../mindText";
 import { type DocxWriter, piecesOf, WRITER_NAMESPACES } from "../docx";
+import { changedElement, formatChanges } from "../paragraphFormat";
 import { dateAttribute, escapeXml, type WordIds } from "../wordml";
 import {
   type Authorship,
@@ -94,6 +102,11 @@ export interface DocumentPatchInput {
   /** IncarnaMind's tracked changes and comments, and the User's tracked edits. */
   review: Review;
   ids: WordIds;
+  /**
+   * Whether this version read the Mind's Word look. Until it reads it again, the Mind lacks
+   * the file's direct formatting, which is then kept as the file has it rather than removed.
+   */
+  lookCurrent: boolean;
 }
 
 /** A counterpart as imported, and the element its XML is. */
@@ -106,6 +119,25 @@ interface Based {
 interface Reference {
   pPr: string;
   rPr: string;
+  format: ParagraphFormat;
+}
+
+const formatOf = (node: NodeJSON): ParagraphFormat =>
+  readParagraphFormat(node.attrs?.[PARAGRAPH_FORMAT_ATTRIBUTE]);
+
+function writeFormat(properties: Properties, now: ParagraphFormat, before: ParagraphFormat): void {
+  const changes = formatChanges(now, before);
+  for (const [name, attributes] of [
+    ["w:spacing", changes.spacing],
+    ["w:ind", changes.ind],
+  ] as const) {
+    if (Object.keys(attributes).length === 0) continue;
+    const element = changedElement(name, properties.get(name), attributes);
+    if (element) properties.set(name, element);
+    else properties.remove(name);
+  }
+  if (changes.jc === null) properties.remove("w:jc");
+  else if (changes.jc) properties.set("w:jc", `<w:jc w:val="${changes.jc}"/>`);
 }
 
 /** CT_TcPr's children, in order. */
@@ -216,6 +248,7 @@ export class DocumentPatch {
       ids: input.ids,
       review: input.review,
       removedHere: (source) => !input.plan.writtenElsewhere(source),
+      lookCurrent: input.lookCurrent,
     };
   }
 
@@ -801,8 +834,10 @@ export class DocumentPatch {
         : null;
     let properties: Properties;
     let rPr = "";
+    let formatBefore: ParagraphFormat = {};
     if (based) {
       properties = Properties.paragraph(basePPr);
+      formatBefore = formatOf(based.counterpart.node);
       rPr = runOfMark(properties.get("w:rPr"));
       const baseLevel =
         based.counterpart.node.type === "heading"
@@ -834,6 +869,7 @@ export class DocumentPatch {
     } else if (counterpart.list) {
       const sibling = this.siblingOf(counterpart);
       properties = Properties.paragraph(sibling ? cleaned(this.pPrOf(sibling.element)) : "");
+      if (sibling) formatBefore = formatOf(sibling.counterpart.node);
       rPr = sibling ? this.lastRunOf(sibling) : "";
       if (!sibling) {
         properties.set("w:pStyle", `<w:pStyle w:val="${escapeXml(styles.id("listParagraph"))}"/>`);
@@ -842,8 +878,15 @@ export class DocumentPatch {
     } else {
       const reference = references()[0];
       properties = Properties.paragraph(reference ? reference.pPr : "");
+      formatBefore = reference?.format ?? {};
       rPr = reference?.rPr ?? "";
     }
+    const format = formatOf(counterpart.node);
+    writeFormat(
+      properties,
+      this.input.lookCurrent ? format : { ...formatBefore, ...format },
+      formatBefore,
+    );
 
     // A section break goes with the paragraph that holds it now.
     const sections = this.sectionSources(counterpart);
@@ -949,7 +992,15 @@ export class DocumentPatch {
     for (const order of [counterparts.slice(0, index).reverse(), counterparts.slice(index + 1)]) {
       for (const counterpart of order) {
         const based = plain(counterpart);
-        if (based) return [{ pPr: cleaned(this.pPrOf(based.element)), rPr: this.lastRunOf(based) }];
+        if (based) {
+          return [
+            {
+              pPr: cleaned(this.pPrOf(based.element)),
+              rPr: this.lastRunOf(based),
+              format: formatOf(based.counterpart.node),
+            },
+          ];
+        }
       }
     }
     return [];
@@ -1426,7 +1477,7 @@ function textBlocks(node: NodeJSON): Block[] {
     .filter((line) => line.trim() !== "")
     .map((line) => ({
       kind: "paragraph",
-      content: [{ kind: "text", text: line, marks: { ...NO_MARKS } }],
+      content: [{ kind: "text", text: line, marks: { ...PLAIN } }],
     }));
 }
 

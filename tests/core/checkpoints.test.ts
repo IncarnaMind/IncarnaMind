@@ -382,7 +382,7 @@ describe("Comparing and restoring", () => {
       ["New moon", "New moon", false],
       ["Full moon", "Full moon", false],
       ["Spring tides come then.[- -][-⟨c⟩-]", "Spring tides come then.", true],
-      ["High water · 06:[-12-]", "High water · 06:{+40+}", true],
+      ["High water · [-06:12-]", "High water · {+06:40+}", true],
     ]);
     expect(rows.map((row) => [row.left?.marker ?? null, row.right?.marker ?? null])).toEqual([
       [null, "1."],

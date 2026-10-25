@@ -52,7 +52,7 @@ test("Settings has no Agents page, Privacy no agents row and ⌘K no agent comma
   try {
     await dismissChatSetup(window);
     const settings = await openSettings(window, "privacy");
-    await expect(settings.getByTestId("data-flow").first()).toBeVisible();
+    await expect(settings.getByTestId("consent-settings")).toBeVisible();
     await expect(settings.locator('[data-flow-id="agents"]')).toHaveCount(0);
     const nav = settings.getByTestId("settings-nav");
     for (const language of ["en", "zh-CN"] as const) {
@@ -145,7 +145,7 @@ test("neither the setup card nor Settings › Models offers the Claude app, Anti
     const plans = settings.getByTestId("plans-settings");
     for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
-      await expect(plans.getByTestId("plans-chatgpt")).toHaveText(
+      await expect(plans.getByTestId("chatgpt-continue")).toHaveText(
         language === "en" ? "Continue with ChatGPT" : "使用 ChatGPT 继续",
       );
       await expect(plans.getByTestId("plans-claude")).toHaveCount(0);

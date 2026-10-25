@@ -20,8 +20,19 @@ const PADDING_PX = 8;
  * the row's tooltip and description, and under the row while the keyboard is
  * on it (`TagNamesTip`). While the row shows its actions they step aside.
  */
-export function TagMarks({ chips }: { chips: readonly { tag: Tag; link: DocumentTag }[] }) {
-  if (chips.length === 0) return null;
+export function TagMarks({
+  chips,
+  reserved = false,
+}: {
+  chips: readonly { tag: Tag; link: DocumentTag }[];
+  /** Tags are still to come: the first dot's place is kept, so the name doesn't move when it arrives. */
+  reserved?: boolean;
+}) {
+  if (chips.length === 0) {
+    return reserved ? (
+      <span data-testid="tag-marks-slot" aria-hidden="true" className="size-2.5 shrink-0" />
+    ) : null;
+  }
   const more = chips.length - VISIBLE_MARKS;
   return (
     <span

@@ -9,9 +9,14 @@ import {
   dialogTitleClass,
 } from "../ui";
 import { useModal } from "../useModal";
-import { OllamaAction } from "./ChatProviderChoices";
 import { GetOllamaButton } from "./GetOllama";
-import { type Ollama, OllamaProgress, ollamaDescription, useOllama } from "./OllamaCard";
+import {
+  type Ollama,
+  OllamaAction,
+  OllamaProgress,
+  ollamaDescription,
+  useOllama,
+} from "./OllamaCard";
 
 export function LocalModelDialog({ open, onClose }: { open: boolean; onClose(): void }) {
   const dialog = useModal(open);

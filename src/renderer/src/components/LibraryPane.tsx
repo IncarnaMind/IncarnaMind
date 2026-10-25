@@ -28,6 +28,7 @@ import {
   searchMatches,
   sectionShows,
   sectionsOf,
+  sourceFacet,
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
@@ -37,28 +38,39 @@ import { DEFAULT_SORT, sorted } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
 import { documentFields, folderFields } from "../sortFields";
 import { useAppStore } from "../store";
+import { waitingIds } from "../suggestionReview";
+import { reviewIds, toReviewOf } from "../toReview";
 import { moveThroughRows } from "../treeKeys";
 import { useUnreadFiles } from "../unreadFiles";
 import { FindSourcesPanel } from "./FindSourcesPanel";
 import { LibrarySelectionBar } from "./LibrarySelection";
+import { AutomaticOffNotice } from "./library/AutomaticOffNotice";
 import { DeletedSection } from "./library/DeletedSection";
-import { DocumentMoveTo } from "./library/DocumentMoveTo";
 import { StarterFolders } from "./library/FolderForm";
 import { LibraryBar } from "./library/LibraryBar";
 import { LibraryEmpty } from "./library/LibraryEmpty";
 import { LibraryHeader } from "./library/LibraryHeader";
 import { LibrarySection } from "./library/LibrarySection";
+import { ToReview } from "./library/ToReview";
+import { useFittingColumns } from "./library/useFittingColumns";
+import { useReviewFocus } from "./library/useReviewFocus";
 import { ProblemLine } from "./ProblemLine";
 import { ReferenceImportPanel } from "./ReferenceImportPanel";
 import { UnreadFilesLine } from "./UnreadFilesLine";
 
 const NO_GROUPS: readonly LibraryGroup[] = [];
 
+const inReviewList = (target: EventTarget) =>
+  target instanceof Element && target.closest("[data-review]") !== null;
+
 /** The Library's one order for every section, remembered on this computer. */
 const SORT_SCOPE = "library:all" as const;
 
 /** What `openLibrary` asked for that is not a section to show. */
 const FORMS = ["all", "starters"];
+
+/** What a Linked folder's row asks for: its Documents, by Source location (#1507). */
+const SOURCE_REQUEST = /^source:(.+)$/;
 
 /**
  * The Library tab (#240): one page of every Document, grouped by Folder, as a
@@ -75,6 +87,7 @@ export function LibraryPane() {
   const documents = useAppStore((state) => state.documents);
   const snapshot = useAppStore((state) => state.library);
   const tags = useAppStore((state) => state.tags);
+  const linkedFolders = useAppStore((state) => state.linkedFolders);
   const tagFilter = useAppStore(useShallow((state) => state.tagFilter));
   const request = useAppStore((state) => state.libraryFilter);
   const findingSources = useFindSources((state) => state.open);
@@ -83,6 +96,8 @@ export function LibraryPane() {
   const [facetFilter, setFacetFilter] = useState<FilterSelection>({});
   const field = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
+  const page = useRef<HTMLDivElement>(null);
+  useFittingColumns(page);
 
   const groups = snapshot?.groups ?? NO_GROUPS;
   const assignments = useMemo(
@@ -99,8 +114,15 @@ export function LibraryPane() {
     [groups, sidebarSort, language],
   );
   const facets = useMemo<LibraryFacet<Document>[]>(
-    () => [tagFacet(tags), formatFacet, yearFacet, statusFacet, folderFacet(folders, folderOf)],
-    [tags, folders, folderOf],
+    () => [
+      tagFacet(tags),
+      formatFacet,
+      yearFacet,
+      statusFacet,
+      folderFacet(folders, folderOf),
+      sourceFacet(linkedFolders),
+    ],
+    [tags, folders, folderOf, linkedFolders],
   );
   const selection = useMemo<FilterSelection>(
     () => (tagFilter.length ? { ...facetFilter, tag: tagFilter } : facetFilter),
@@ -137,6 +159,20 @@ export function LibraryPane() {
     [folders, ordered, folderOf, narrowing],
   );
   const folded = useLibraryFolds((state) => state.folded);
+  const reviewOpen = useLibraryFolds((state) => state.reviewOpen);
+  const review = useMemo(
+    () => toReviewOf(ordered, folders, snapshot?.assignments ?? []),
+    [ordered, folders, snapshot?.assignments],
+  );
+  const reviewing = !narrowing && review.count > 0;
+  useEffect(() => {
+    useLibraryFolds.getState().setReviewShown(reviewing);
+    return () => useLibraryFolds.getState().setReviewShown(false);
+  }, [reviewing]);
+  const reviewList = useMemo(
+    () => (reviewing && reviewOpen ? reviewIds(review) : []),
+    [review, reviewing, reviewOpen],
+  );
   const shownIds = useMemo(
     () =>
       sections.flatMap((section) =>
@@ -144,15 +180,22 @@ export function LibraryPane() {
       ),
     [sections, folded],
   );
-  // ⌘A and Shift-click reach every row in an open section, drawn or not.
-  useSelectionOrder("library", () => shownIds.map((id) => ({ kind: "document", id })));
+  // ⌘A and Shift-click reach every row in an open section, drawn or not; in To review, its own.
+  const inReview = useRef(false);
+  useSelectionOrder("library", () =>
+    (inReview.current && reviewList.length > 0 ? reviewList : shownIds).map((id) => ({
+      kind: "document",
+      id,
+    })),
+  );
   // What is selected stays in view: a search, a filter or a fold that hides it, or a deletion, drops it.
   useEffect(() => {
     const held = useSelection.getState();
     if (held.surface !== "library") return;
-    const visible = new Set(shownIds);
+    const visible = new Set([...shownIds, ...reviewList]);
     held.keepOnly((ref) => visible.has(ref.id));
-  }, [shownIds]);
+  }, [shownIds, reviewList]);
+  useReviewFocus(grid, reviewList.join());
   const selectingMany = useSelection(
     (state) => state.surface === "library" && state.items.length > 1,
   );
@@ -179,7 +222,23 @@ export function LibraryPane() {
 
   // A Folder, Not in a Folder or Recently deleted asked for (from the sidebar, a menu or ⌘K): its section opens and comes into view.
   useEffect(() => {
+    if (request === "review") {
+      setSearch("");
+      setFacetFilter({});
+      useAppStore.getState().setTagFilter([]);
+      if (waitingIds().length > 0) useLibraryFolds.getState().showReview();
+      useAppStore.setState({ libraryFilter: "all" });
+      return;
+    }
     if (FORMS.includes(request)) return;
+    const linkedFolderId = SOURCE_REQUEST.exec(request)?.[1];
+    if (linkedFolderId) {
+      setSearch("");
+      setFacetFilter({ source: [linkedFolderId] });
+      useAppStore.getState().setTagFilter([]);
+      useAppStore.setState({ libraryFilter: "all" });
+      return;
+    }
     const key =
       request === LIBRARY_DELETED
         ? RECENTLY_DELETED
@@ -235,7 +294,7 @@ export function LibraryPane() {
       aria-labelledby="library-tab"
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet text-ui text-ink"
     >
-      <div className="@container/page min-h-0 flex-1 overflow-y-auto">
+      <div ref={page} className="group/page @container/page min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1084px] pt-5 pr-8 pb-24 pl-11 @max-[680px]/page:pr-4 @max-[680px]/page:pl-9">
           <LibraryHeader
             count={documents.length}
@@ -283,6 +342,7 @@ export function LibraryPane() {
                   onFoldAll={() => useLibraryFolds.getState().setAll(sectionKeys, allFolded)}
                 />
               )}
+              <AutomaticOffNotice />
               {problem && (
                 <ProblemLine
                   role="status"
@@ -309,6 +369,13 @@ export function LibraryPane() {
                 role="grid"
                 aria-multiselectable="true"
                 aria-label={t("library.sections")}
+                // Where the pointer or the focus went last says which list a Shift-click ranges over.
+                onPointerDownCapture={(event) => {
+                  inReview.current = inReviewList(event.target);
+                }}
+                onFocusCapture={(event) => {
+                  inReview.current = inReviewList(event.target);
+                }}
                 onKeyDown={(event) => {
                   if (moveThroughRows(event) || extendThroughRows(event, "library")) return;
                   // ↑ on the first row goes back to the search, as ↓ came from it.
@@ -324,6 +391,7 @@ export function LibraryPane() {
                   }
                 }}
               >
+                {reviewing && <ToReview review={review} suggestedIn={suggestedOf} />}
                 {sections.map((section) => (
                   <LibrarySection
                     key={section.key}
@@ -373,7 +441,6 @@ export function LibraryPane() {
           {!narrowing && <DeletedSection />}
         </div>
       </div>
-      <DocumentMoveTo />
     </section>
   );
 }

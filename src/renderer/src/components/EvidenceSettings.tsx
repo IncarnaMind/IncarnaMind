@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
+import { DetailsLine } from "./DetailsLine";
 import {
   rowTextClass,
   rowTitleClass,
@@ -29,9 +30,14 @@ export function EvidenceSettings() {
             <label htmlFor={id} className={rowTitleClass}>
               {t("evidence.settings.switch")}
             </label>
-            <p id={`${id}-description`} className={rowTextClass}>
+            <DetailsLine
+              id={`${id}-description`}
+              testId="evidence-description"
+              className={rowTextClass}
+              details={t("evidence.settings.body.details")}
+            >
               {t("evidence.settings.body")}
-            </p>
+            </DetailsLine>
           </div>
           <input
             id={id}

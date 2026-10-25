@@ -9,6 +9,7 @@ import type { Embedder, EmbeddingModelSource } from "../adapters";
 import type { EmbeddingModelStatus } from "../api";
 import { createDownloadableModel } from "./downloadable";
 import type { EmbeddingModelDefinition } from "./model";
+import type { ModelSources } from "./modelSources";
 
 export { BUILT_IN_EMBEDDING_MODEL } from "./model";
 
@@ -49,6 +50,8 @@ export interface EmbeddingModelOptions {
   definition: EmbeddingModelDefinition;
   /** Overrides the definition's source (tests). */
   source?: EmbeddingModelSource;
+  /** Where else its files may come from (#1578). */
+  sources?: ModelSources;
   dataDir: string;
   embedder: Embedder;
   emitStatus(status: EmbeddingModelStatus): void;
@@ -76,6 +79,7 @@ export function createEmbeddingModel(options: EmbeddingModelOptions): EmbeddingM
       maxTokens: definition.maxTokens,
     }),
     source: options.source ?? definition.source,
+    ...(options.sources && { sources: options.sources }),
     dataDir: options.dataDir,
     loadRunner: (paths) => embedder.load(paths),
     emitStatus: options.emitStatus,

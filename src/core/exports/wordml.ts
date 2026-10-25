@@ -47,7 +47,24 @@ export interface RunFormat {
   smallCaps?: boolean;
   /** Raised or lowered, as a citation style may write a number or a formula. */
   script?: "superscript" | "subscript";
+  /** A font by name, for every script. */
+  font?: string;
+  /** In points. */
+  size?: number;
+  /** Hex "RRGGBB". */
+  color?: string;
 }
+
+export const fontsXml = (font: string) => {
+  const name = escapeXml(font);
+  return `<w:rFonts w:ascii="${name}" w:hAnsi="${name}" w:eastAsia="${name}" w:cs="${name}"/>`;
+};
+
+/** Word keeps sizes in half points. */
+export const halfPoints = (points: number) => Math.round(points * 2);
+
+const sizeXml = (points: number) =>
+  `<w:sz w:val="${halfPoints(points)}"/><w:szCs w:val="${halfPoints(points)}"/>`;
 
 /**
  * A run of text in a format: tabs and line breaks become Word's. Empty text
@@ -67,11 +84,17 @@ function runOf(text: string, format: RunFormat, textElement: "w:t" | "w:delText"
   // In the order the schema requires.
   const rPr = [
     format.style ? `<w:rStyle w:val="${escapeXml(format.style)}"/>` : "",
-    format.monospace ? '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/>' : "",
+    format.monospace
+      ? '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/>'
+      : format.font
+        ? fontsXml(format.font)
+        : "",
     format.bold ? "<w:b/>" : "",
     format.italic ? "<w:i/>" : "",
     format.smallCaps ? "<w:smallCaps/>" : "",
     format.strike ? "<w:strike/>" : "",
+    format.color ? `<w:color w:val="${escapeXml(format.color)}"/>` : "",
+    format.size ? sizeXml(format.size) : "",
     format.highlight ? '<w:highlight w:val="yellow"/>' : "",
     format.underline ? '<w:u w:val="single"/>' : "",
     format.script ? `<w:vertAlign w:val="${format.script}"/>` : "",
@@ -112,6 +135,33 @@ export function footnoteReference(id: number, style = FOOTNOTE_STYLES.reference)
  */
 export function footnote(id: number, runs: string, styles = FOOTNOTE_STYLES): string {
   return `<w:footnote w:id="${id}"><w:p><w:pPr><w:pStyle w:val="${escapeXml(styles.text)}"/></w:pPr><w:r><w:rPr><w:rStyle w:val="${escapeXml(styles.reference)}"/></w:rPr><w:footnoteRef/></w:r>${runs}</w:p></w:footnote>`;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-references
+
+/** Named as Word names its own hidden bookmarks: "_Ref" and nine digits. */
+export const noteBookmark = (id: number): string => `_Ref${900_000_000 + id}`;
+
+export function bookmarked(id: number, name: string, xml: string): string {
+  return `<w:bookmarkStart w:id="${id}" w:name="${escapeXml(name)}"/>${xml}<w:bookmarkEnd w:id="${id}"/>`;
+}
+
+/**
+ * Word's own cross-reference to a footnote (Insert › Cross-reference › Footnote number, formatted):
+ * the number of the footnote that the bookmark `name` encloses the mark of, in the footnote
+ * reference style, which Word keeps up to date. `shown` is the number until it is updated, as
+ * XML text already: digits, or the writer's own mark for them.
+ */
+export function noteNumber(name: string, shown: string, style = FOOTNOTE_STYLES.reference): string {
+  const mark = (type: string) => `<w:r><w:fldChar w:fldCharType="${type}"/></w:r>`;
+  return (
+    mark("begin") +
+    `<w:r><w:instrText xml:space="preserve"> NOTEREF ${escapeXml(name)} \\f \\h </w:instrText></w:r>` +
+    mark("separate") +
+    `<w:r><w:rPr><w:rStyle w:val="${escapeXml(style)}"/></w:rPr><w:t>${shown}</w:t></w:r>` +
+    mark("end")
+  );
 }
 
 /**

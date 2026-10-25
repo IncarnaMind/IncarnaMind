@@ -1,5 +1,5 @@
-import { autoUpdate, computePosition, flip, offset, shift } from "@floating-ui/dom";
-import { type Editor, isMacOS, posToDOMRect } from "@tiptap/core";
+import { autoUpdate } from "@floating-ui/dom";
+import { type Editor, isMacOS } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
 import {
   type MouseEvent as ReactMouseEvent,
@@ -8,18 +8,24 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
-import { formatDate } from "../../../shared/dates";
-import { actOnAppliedEdit } from "../appliedEdits";
+import { actOnAppliedEdit, restoreChange } from "../appliedEdits";
 import { PencilLineIcon, SparkLineIcon } from "../components/lineIcons";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
+import { useReviewPanes } from "../reviewPane";
 import { useAppStore } from "../store";
-import { appliedLineIn, isAppliedAction, redrawAppliedLine } from "./appliedEditLine";
-import { type BarRoom, roomForBar } from "./barRoom";
+import {
+  appliedLineIn,
+  isAppliedAction,
+  redrawAppliedLine,
+  toggleAppliedOriginal,
+} from "./appliedEditLine";
+import { type ChangeBarBox, changeBarPlace, GAP_PX } from "./changeBarPlace";
 import {
   changeReason,
   clearHovered,
   editorDoc,
+  keepShownChange,
   type PendingProposal,
   pendingAtSelection,
   pendingIn,
@@ -27,6 +33,8 @@ import {
   sourcesRemoved,
   theirChange,
 } from "./proposalReview";
+import { redrawProposalRewrites, toggleProposalOriginal } from "./proposalRewrites";
+import { madeByLine, namesList } from "./theirChanges";
 
 /** How long the bar stays once the pointer leaves its change, so it can reach the bar. */
 const LEAVE_MS = 300;
@@ -43,11 +51,13 @@ const spokenText = (text: string) => {
  * Proposals waiting in the Mind (#93), reviewed in place:
  *
  * - at the top of the Mind, while any wait: "3 changes from the assistant ·
- *   Accept all · Reject all", which stays in view as the Mind scrolls, and a
- *   line of its own for each person's changes from a Word file (#108): "4
- *   changes from Dana Kim · Accept all · Reject all";
- * - over the change the pointer or the cursor is on, its own bar: "Change 1
- *   of 3 · Accept · Reject" (⌘↵, ⌘⌫), with who made someone's change and
+ *   Accept all · Reject all", which stays in view as the Mind scrolls, and,
+ *   for other people's changes from a Word file (#108), "4 changes from Dana
+ *   Kim and Luis Ortega · Review", which opens the reviewing pane (#697) and
+ *   goes while it is open;
+ * - beside the change the pointer or the cursor is on, in the page's right
+ *   margin, or, when there is no room, docked at the page's foot, its own bar:
+ *   "Change 1 of 3 · Accept · Reject" (⌘↵, ⌘⌫), with who made someone's change and
  *   when, and when it would remove a Citation, that it does, or when a
  *   Document it cites has been deleted, "Source removed" (#94); why the
  *   assistant made it, as a tooltip, and as a line under the bar when the
@@ -70,7 +80,7 @@ export function ProposalBars({ editor, mindId }: { editor: Editor; mindId: strin
     const buttonOf = (event: Event) =>
       event.target instanceof Element
         ? event.target.closest<HTMLElement>(
-            "[data-proposal-regenerate], [data-proposal-reject], [data-applied-action]",
+            "[data-proposal-regenerate], [data-proposal-reject], [data-applied-action], [data-applied-restore], [data-change-original]",
           )
         : null;
     // The text keeps the focus and its selection.
@@ -81,9 +91,21 @@ export function ProposalBars({ editor, mindId }: { editor: Editor; mindId: strin
       const button = buttonOf(event);
       if (!button || repeated(event)) return;
       event.preventDefault();
+      const original = button.dataset.changeOriginal;
+      if (original) {
+        if (original.startsWith("applied:")) toggleAppliedOriginal(editor, original);
+        else toggleProposalOriginal(editor, original);
+        return;
+      }
       const applied = button.dataset.appliedAction;
       if (applied && isAppliedAction(applied)) {
         actOnAppliedEdit(editor, applied);
+        if (!editor.isDestroyed) editor.commands.focus();
+        return;
+      }
+      const restored = button.dataset.appliedRestore;
+      if (restored !== undefined) {
+        restoreChange(editor, Number(restored));
         if (!editor.isDestroyed) editor.commands.focus();
         return;
       }
@@ -106,9 +128,12 @@ export function ProposalBars({ editor, mindId }: { editor: Editor; mindId: strin
       dom.removeEventListener("click", click);
     };
   }, [editor, mindId]);
-  // The applied edit's lines are drawn outside React: again once the language changes.
+  // The applied edit's lines and the "Was: …" lines are drawn outside React: again once the language changes.
   const language = useLanguage();
-  useEffect(() => redrawAppliedLine(editor, language), [editor, language]);
+  useEffect(() => {
+    redrawAppliedLine(editor, language);
+    redrawProposalRewrites(editor);
+  }, [editor, language]);
   return (
     <>
       <ProposalsBar editor={editor} mindId={mindId} />
@@ -118,77 +143,101 @@ export function ProposalBars({ editor, mindId }: { editor: Editor; mindId: strin
   );
 }
 
-function barRoom(editor: Editor): BarRoom {
-  const card = editor.view.dom.closest(".app-card")?.getBoundingClientRect() ?? null;
-  const dock = document.querySelector<HTMLElement>("[data-assistant]")?.dataset.dock;
-  return roomForBar(card, dock, { width: window.innerWidth, height: window.innerHeight });
-}
-
 /** The second click of a double click: it does nothing more. */
 const repeated = (event: MouseEvent) => event.detail > 1;
 
-/** Changes waiting at the top of the Mind, in a line each: each person's from the file, and the assistant's. */
 interface Group {
-  /** Who made them, for someone's changes from a Word file (null when the file names no one); the assistant's: undefined. */
-  author?: string | null;
   ids: string[];
   stale: boolean;
 }
 
+interface Theirs {
+  count: number;
+  authors: (string | null)[];
+}
+
 function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
   const t = useT();
-  const groups = useEditorState({
+  const reviewing = useReviewPanes((state) => state.panes[mindId] !== undefined);
+  const { theirs, assistant } = useEditorState({
     editor,
-    selector: ({ editor: current }): Group[] => {
-      const theirs = new Map<string | null, Group>();
+    selector: ({ editor: current }): { theirs: Theirs; assistant: Group } => {
+      const theirs: Theirs = { count: 0, authors: [] };
       const assistant: Group = { ids: [], stale: false };
       const line = appliedLineIn(current.state);
       // An edit held back has its own line.
       const ownLine = line?.kind === "held" ? line.request : null;
       for (const each of pendingIn(current.state)) {
         if (each.request === ownLine) continue;
-        let group = assistant;
         if (each.theirs) {
           const author = theirChange(current, each)?.author ?? null;
-          group = theirs.get(author) ?? { author, ids: [], stale: false };
-          theirs.set(author, group);
+          theirs.count++;
+          if (!theirs.authors.includes(author)) theirs.authors.push(author);
+          continue;
         }
-        group.ids.push(each.id);
-        group.stale ||= each.outOfDate;
+        assistant.ids.push(each.id);
+        assistant.stale ||= each.outOfDate;
       }
-      return [...theirs.values(), ...(assistant.ids.length > 0 ? [assistant] : [])];
+      return { theirs, assistant };
     },
   });
-  if (groups.length === 0) return null;
+  const theirLine = theirs.count > 0 && !reviewing;
+  if (!theirLine && assistant.ids.length === 0) return null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a region of the Mind, not a page landmark.
     <div
       role="region"
-      aria-label={t(
-        groups.some((group) => group.author !== undefined)
-          ? "proposal.region.review"
-          : "proposal.region",
-      )}
+      aria-label={t(theirs.count > 0 ? "proposal.region.review" : "proposal.region")}
       data-testid="proposals-bar"
       className="proposals-bar"
     >
-      {groups.map((group) => (
-        <GroupLine
-          key={group.author === undefined ? "\u0000assistant" : (group.author ?? "\u0000unknown")}
-          group={group}
-          every={groups.length === 1}
-          editor={editor}
-          mindId={mindId}
-        />
-      ))}
+      {theirLine && <TheirChangesLine theirs={theirs} mindId={mindId} />}
+      {assistant.ids.length > 0 && (
+        <GroupLine group={assistant} every={theirs.count === 0} editor={editor} mindId={mindId} />
+      )}
+    </div>
+  );
+}
+
+function TheirChangesLine({ theirs, mindId }: { theirs: Theirs; mindId: string }) {
+  const t = useT();
+  const language = useLanguage();
+  const names = namesList(
+    theirs.authors.map((author) => author ?? t("proposal.unknownAuthor")),
+    language,
+  );
+  const said =
+    theirs.count === 1
+      ? t("review.line.one", { names })
+      : t("review.line", { count: theirs.count, names });
+  return (
+    <div className="proposals-bar-line" data-testid="their-changes-line">
+      <PencilLineIcon className="proposals-bar-icon" />
+      <span data-testid="their-changes-count" title={said} className="min-w-0 truncate">
+        {said}
+      </span>
+      <span aria-hidden="true" className="proposal-dot">
+        ·
+      </span>
+      <button
+        type="button"
+        data-testid="their-changes-review"
+        aria-label={t("review.title")}
+        onClick={(event) => {
+          if (!repeated(event.nativeEvent)) useReviewPanes.getState().open(mindId);
+        }}
+        className="proposal-action"
+      >
+        {t("review.open")}
+      </button>
     </div>
   );
 }
 
 /**
- * One line of the bar: how many changes, whose, and Accept all · Reject all
- * for them; for every change the Mind holds as it acts, when the line has
- * them all (`every`), those an Undo has just brought back too.
+ * The assistant's line: how many changes, and Accept all · Reject all for
+ * them; for every change the Mind holds as it acts, when no one else's wait
+ * (`every`), those an Undo has just brought back too.
  */
 function GroupLine({
   group,
@@ -202,37 +251,23 @@ function GroupLine({
   mindId: string;
 }) {
   const t = useT();
-  const theirs = group.author !== undefined;
-  const name = group.author ?? t("proposal.unknownAuthor");
-  const prefix = theirs ? "their-changes" : "proposals";
   const count = group.ids.length;
   const resolveAll = (outcome: "accept" | "reject") => {
     resolveProposalsIn(editor, mindId, every ? "all" : group.ids, outcome);
   };
   return (
-    <div className="proposals-bar-line" data-testid={`${prefix}-line`}>
-      {theirs ? (
-        <PencilLineIcon className="proposals-bar-icon" />
-      ) : (
-        <SparkLineIcon className="proposals-bar-icon" />
-      )}
-      <span data-testid={`${prefix}-count`} className="min-w-0 truncate">
-        {theirs
-          ? count === 1
-            ? t("proposal.theirs.count.one", { name })
-            : t("proposal.theirs.count", { count, name })
-          : count === 1
-            ? t("proposal.count.one")
-            : t("proposal.count", { count })}
+    <div className="proposals-bar-line" data-testid="proposals-line">
+      <SparkLineIcon className="proposals-bar-icon" />
+      <span data-testid="proposals-count" className="min-w-0 truncate">
+        {count === 1 ? t("proposal.count.one") : t("proposal.count", { count })}
       </span>
       <span aria-hidden="true" className="proposal-dot">
         ·
       </span>
       <button
         type="button"
-        data-testid={`${prefix}-accept-all`}
+        data-testid="proposals-accept-all"
         title={group.stale ? t("proposal.acceptAll.outOfDate") : undefined}
-        aria-label={theirs ? t("proposal.theirs.acceptAll", { name }) : undefined}
         onClick={(event) => {
           if (!repeated(event.nativeEvent)) resolveAll("accept");
         }}
@@ -245,8 +280,7 @@ function GroupLine({
       </span>
       <button
         type="button"
-        data-testid={`${prefix}-reject-all`}
-        aria-label={theirs ? t("proposal.theirs.rejectAll", { name }) : undefined}
+        data-testid="proposals-reject-all"
         onClick={(event) => {
           if (!repeated(event.nativeEvent)) resolveAll("reject");
         }}
@@ -262,15 +296,7 @@ function GroupLine({
 function useMadeBy(made: { author: string | null; date: string | null } | null): string | null {
   const t = useT();
   const language = useLanguage();
-  if (!made) return null;
-  const author = made.author ?? t("proposal.unknownAuthor");
-  const date = made.date ? new Date(made.date) : null;
-  if (!date || Number.isNaN(date.getTime())) return author;
-  // The day the file names, not the day it falls on here: Word writes its own clock's time.
-  return t("proposal.madeBy", {
-    author,
-    date: formatDate(date, language, { timeZone: "UTC" }),
-  });
+  return made ? madeByLine(made, t, language) : null;
 }
 
 interface Shown {
@@ -279,6 +305,7 @@ interface Shown {
   count: number;
   from: number;
   to: number;
+  end: number;
   dropped: number;
   citations: PendingProposal["citations"];
   /** Who made someone's change, and when; null for the assistant's. */
@@ -289,45 +316,149 @@ interface Shown {
   focused: boolean;
 }
 
-/** A change's bar sits over the first line of its change, following it as the Mind scrolls. */
-export function useBarOver(
+/** Every line the words of a change show, as one box; null when none of it shows. */
+function changeBox(editor: Editor, from: number, to: number): ChangeBarBox | null {
+  const start = editor.view.domAtPos(from);
+  const end = editor.view.domAtPos(to);
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  let box: ChangeBarBox | null = null;
+  for (const rect of range.getClientRects()) {
+    if (rect.width < 1 || rect.height < 1) continue;
+    box = box
+      ? {
+          left: Math.min(box.left, rect.left),
+          top: Math.min(box.top, rect.top),
+          right: Math.max(box.right, rect.right),
+          bottom: Math.max(box.bottom, rect.bottom),
+        }
+      : { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+  }
+  return box;
+}
+
+const TEXT_BLOCK = "p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, figcaption, td, th";
+
+/** The text Block at a position, from either side of a Block boundary. */
+function blockAt(editor: Editor, pos: number): Element | null {
+  for (const at of [pos, pos + 1, pos - 1]) {
+    if (at < 0 || at > editor.state.doc.content.size) continue;
+    const found = editor.view.domAtPos(at);
+    const node = found.node instanceof Element ? found.node : found.node.parentElement;
+    const block = node?.closest(TEXT_BLOCK);
+    if (block) return block;
+  }
+  return null;
+}
+
+/** The line box of the text at `pos`: how far down a card placed beside it may reach. */
+function lineHeightAt(editor: Editor, pos: number): number {
+  const block = blockAt(editor, pos) ?? editor.view.dom;
+  const line = Number.parseFloat(getComputedStyle(block).lineHeight);
+  return Number.isFinite(line) && line > 0 ? line : 26;
+}
+
+/**
+ * Where the text on a change's lines ends, across the Blocks it spans: the
+ * card goes past it, so it never covers words the change doesn't.
+ */
+function textRightOn(editor: Editor, from: number, to: number, band: ChangeBarBox): number {
+  const first = blockAt(editor, from);
+  if (!first) return band.right;
+  const all = [...editor.view.dom.querySelectorAll(TEXT_BLOCK)];
+  const start = all.indexOf(first);
+  const found = blockAt(editor, to);
+  const end = found ? all.indexOf(found) : start;
+  let right = band.right;
+  for (const block of all.slice(start, Math.max(start, end) + 1)) {
+    const range = document.createRange();
+    range.selectNodeContents(block);
+    for (const rect of range.getClientRects()) {
+      if (rect.width < 1 || rect.height < 1) continue;
+      if (rect.top >= band.bottom || rect.bottom <= band.top) continue;
+      right = Math.max(right, rect.right);
+    }
+  }
+  return right;
+}
+
+/**
+ * Scrolls the Mind so a docked card's change, and the line after it, stay
+ * above the card, and the change's first line stays in view.
+ */
+function scrollAboveCard(
+  editor: Editor,
+  change: ChangeBarBox,
+  lineHeight: number,
+  cardTop: number,
+): void {
+  const scroller = editor.view.dom.closest<HTMLElement>(".mind-scroller");
+  if (!scroller) return;
+  const view = scroller.getBoundingClientRect();
+  let down = change.bottom + lineHeight + GAP_PX - cardTop;
+  if (down <= 0) return;
+  down = Math.min(down, Math.max(0, change.top - view.top - GAP_PX));
+  const most = scroller.scrollHeight - scroller.clientHeight;
+  const next = Math.min(most, scroller.scrollTop + down);
+  if (next > scroller.scrollTop) scroller.scrollTop = next;
+}
+
+/**
+ * A change's bar goes beside the change in the page view's right margin when
+ * about 300px are free there, and at the page view's foot otherwise, never at
+ * the window's corner (#1358, #1826); it follows the change as the Mind scrolls.
+ * Docked, it scrolls the change above it only while the cursor is in the
+ * change: scrolling under a still pointer would move the text out from under it.
+ */
+function useBarPlace(
   editor: Editor,
   bar: RefObject<HTMLDivElement | null>,
-  change: { from: number; to: number } | null,
+  change: { from: number; to: number; end: number; focused: boolean } | null,
 ): void {
   useLayoutEffect(() => {
     const element = bar.current;
     if (!change || !element || editor.isDestroyed) return;
-    const reference = {
-      getBoundingClientRect: () => posToDOMRect(editor.view, change.from, change.to),
-      contextElement: editor.view.dom,
-    };
     const place = () => {
       if (editor.isDestroyed) return;
-      // Never over the Mind's bar of changes, which stays at the top as the Mind scrolls, nor an
-      // applied edit's line above the change: under the change's line then.
-      const covered = editor.view.dom
+      const box = changeBox(editor, change.from, change.end);
+      const pageOf = editor.view.dom.closest(".mind-tab-page");
+      const page = pageOf?.getBoundingClientRect();
+      if (!box || !page) return;
+      const barOfChanges = editor.view.dom
         .closest(".mind-editor-frame")
         ?.querySelector(".proposals-bar")
-        ?.getBoundingClientRect().bottom;
-      const changeTop = reference.getBoundingClientRect().top;
-      const lines = [...editor.view.dom.querySelectorAll(".applied-line")]
-        .map((line) => line.getBoundingClientRect().bottom)
-        .filter((bottom) => bottom <= changeTop + 1);
-      const top = Math.max(8, covered ?? 0, ...lines);
-      void computePosition(reference, element, {
-        placement: "top-start",
-        strategy: "fixed",
-        middleware: [
-          offset(6),
-          flip({ padding: { top } }),
-          shift({ padding: 8, rootBoundary: barRoom(editor) }),
-        ],
-      }).then(({ x, y }) => {
-        Object.assign(element.style, { left: `${x}px`, top: `${y}px`, visibility: "visible" });
-      });
+        ?.getBoundingClientRect();
+      const pill = editor.view.dom
+        .closest(".workbench")
+        ?.querySelector('[data-testid="ask-pill"]')
+        ?.getBoundingClientRect();
+      const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
+      // Its natural width, before this placement's cap.
+      element.style.maxWidth = "";
+      const size = { width: element.offsetWidth, height: element.offsetHeight };
+      const line = lineHeightAt(editor, change.from);
+      const at = changeBarPlace(
+        box,
+        textRightOn(editor, change.from, change.end, box),
+        {
+          left: page.left,
+          top: Math.max(page.top, barOfChanges?.bottom ?? page.top),
+          right: page.right,
+          bottom: page.bottom,
+        },
+        size,
+        line,
+        {
+          right: Math.min(page.right, badge ? badge.left - GAP_PX : page.right),
+          bottom: Math.min(page.bottom, pill ? pill.top : page.bottom),
+        },
+      );
+      element.style.maxWidth = `${at.maxWidth}px`;
+      Object.assign(element.style, { left: `${at.x}px`, top: `${at.y}px`, visibility: "visible" });
+      if (at.kind === "dock" && change.focused) scrollAboveCard(editor, box, line, at.y);
     };
-    return autoUpdate(reference, element, place);
+    return autoUpdate(editor.view.dom, element, place);
   }, [editor, bar, change]);
 }
 
@@ -343,12 +474,14 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       if (!proposal || proposal.outOfDate) return null;
       const all = pendingIn(current.state);
       const first = proposal.ranges[0] ?? proposal;
+      const last = proposal.ranges.at(-1) ?? proposal;
       return {
         id: proposal.id,
         index: all.findIndex((each) => each.id === proposal.id) + 1,
         count: all.length,
         from: first.from,
         to: first.to,
+        end: last.to,
         dropped: proposal.droppedCitations,
         citations: proposal.citations,
         made: proposal.theirs ? theirChange(current, proposal) : null,
@@ -387,7 +520,7 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
     };
   }, [editor]);
 
-  useBarOver(editor, bar, shown);
+  useBarPlace(editor, bar, shown);
 
   if (!shown) return null;
   const removedSources = sourcesRemoved(shown, documents, kept);
@@ -411,6 +544,7 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       data-proposal-id={shown.id}
       onMouseEnter={() => {
         over.current = true;
+        keepShownChange(editor.view);
       }}
       onMouseLeave={() => {
         over.current = false;
@@ -522,11 +656,13 @@ function Spoken({ editor, mindId }: { editor: Editor; mindId: string }) {
     speak(
       mindId,
       describe(proposal, t, made ? (made.author ?? t("proposal.unknownAuthor")) : null),
+      proposal.id,
     );
   }, [focused, editor, mindId, t]);
+  const current = spoken?.about === undefined || spoken.about === focused;
   return (
     <div role="status" aria-live="polite" data-testid="proposal-spoken" className="sr-only">
-      {spoken?.text}
+      {current && spoken?.text}
     </div>
   );
 }

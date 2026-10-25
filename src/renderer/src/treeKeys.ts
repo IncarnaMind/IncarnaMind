@@ -37,6 +37,9 @@ export const isTreeDeleteKey = (event: KeyboardEvent) =>
 /** Marks a row's main button as a stop for the arrow keys (`moveThroughRows`). */
 export const TREE_ROW = { "data-tree-row": "" } as const;
 
+/** Sent from a row's main button: it is what the User is looking at, so Tab and the arrows start there. */
+export const SHOWN_ROW_EVENT = "incarnamind-shown-row";
+
 /**
  * ↑ and ↓ (and Home, End) on a row move to the row above or below, through
  * Folders, Minds and Documents alike. True if the key was used.

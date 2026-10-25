@@ -29,6 +29,7 @@ export function CaptureDetailsToggle({ meeting }: { meeting: Meeting }) {
     <button
       type="button"
       data-testid="meeting-details-toggle"
+      data-fold="details"
       aria-expanded={shown}
       aria-controls={detailsId(meeting)}
       aria-label={label}

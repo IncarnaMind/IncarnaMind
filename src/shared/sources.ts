@@ -111,11 +111,22 @@ export function sourceText(
   return { text: parts.join(t("citedSource.separator")), link: web.address };
 }
 
+/** What a Citation's Document is listed under: the live Document's id, else its name. */
+export function sourceKeyOf(attributes: Cited, context: SourceContext): string {
+  const live = context.documents ? liveIdOf(attributes, context.documents) : null;
+  return live ?? `name:${nameOf(attributes, context, translator(context.language))}`;
+}
+
 /**
- * The Documents the Citations cite, each once, by name (numbers in names sort as numbers), with
- * the Locations cited. A Citation of a deleted Document is listed by the name it was cited with.
+ * The Documents the Citations cite, each once, with the Locations cited: by name (numbers in
+ * names sort as numbers), or `order: "cited"`, in the order they are first cited. A Citation of
+ * a deleted Document is listed by the name it was cited with.
  */
-export function sourcesOf(citations: readonly Cited[], context: SourceContext): Source[] {
+export function sourcesOf(
+  citations: readonly Cited[],
+  context: SourceContext,
+  order: "name" | "cited" = "name",
+): Source[] {
   const t = translator(context.language);
   const found = new Map<string, Source & { fetched: Set<string> }>();
   for (const attributes of citations) {
@@ -141,14 +152,13 @@ export function sourcesOf(citations: readonly Cited[], context: SourceContext): 
     if (fetchedAt) source.fetched.add(fetchedAt);
   }
   const collator = new Intl.Collator(["en", "zh-CN"], { sensitivity: "base", numeric: true });
-  return [...found.values()]
-    .map(({ fetched, ...source }) => {
-      if (source.web) {
-        source.web.accessed = [...fetched].sort().map((at) => dayOf(at, context.language));
-      }
-      return source;
-    })
-    .sort((a, b) => collator.compare(a.name, b.name));
+  const sources = [...found.values()].map(({ fetched, ...source }) => {
+    if (source.web) {
+      source.web.accessed = [...fetched].sort().map((at) => dayOf(at, context.language));
+    }
+    return source;
+  });
+  return order === "cited" ? sources : sources.sort((a, b) => collator.compare(a.name, b.name));
 }
 
 /**

@@ -38,8 +38,8 @@ export const EXPLAIN_INSTRUCTIONS = [
   "Reply with the explanation and nothing else: two to four plain sentences for someone reading the passage for the first time, in the passage's language. No preamble, no markers, no Markdown formatting.",
 ].join("\n");
 
-/** What each action asks for; `instruction` is the language or the User's words. */
-function taskFor(action: EditAction, instruction: string): string {
+/** What each action asks for; `instruction` is the language, the User's words or the unsupported part; `cited`, what the passage's markers quote. */
+function taskFor(action: EditAction, instruction: string, cited: string): string {
   switch (action) {
     case "improve":
       return "Improve the writing: make it clearer, smoother and correct, with the same meaning and tone. Leave what is fine as it is.";
@@ -51,6 +51,11 @@ function taskFor(action: EditAction, instruction: string): string {
       return "Explain what the passage says.";
     case "instruction":
       return `Do what the User asks: ${instruction}`;
+    case "cut-unsupported":
+      return [
+        ...(cited ? [`Its markers' sources say only this: ${cited}.`] : []),
+        `They don't support this part of it: ${instruction}. Every word left must be backed by them: take out each claim, topic or framing they don't state, or rewrite its words so they no longer claim it. Keep what they do state in the passage's own words, each marker right after the words it backs.`,
+      ].join(" ");
   }
 }
 
@@ -65,9 +70,16 @@ export function editPrompt(input: {
   context: string;
   before?: string;
   after?: string;
+  /** What each Citation marker quotes: marker n is `quotes[n - 1]`. */
+  quotes?: readonly string[];
 }): string {
   const near = (tag: "before" | "after", words: string | undefined) =>
     words ? [`<${tag}>`, words, `</${tag}>`, ""] : [];
+  const cited = (input.quotes ?? [])
+    .flatMap((quote, index) =>
+      quote && input.passage.includes(`[${index + 1}]`) ? [`[${index + 1}] “${quote}”`] : [],
+    )
+    .join("; ");
   return [
     "<context>",
     input.context,
@@ -79,7 +91,7 @@ export function editPrompt(input: {
     "</passage>",
     "",
     ...near("after", input.after),
-    `<task action="${input.action}">${taskFor(input.action, input.instruction)}</task>`,
+    `<task action="${input.action}">${taskFor(input.action, input.instruction, cited)}</task>`,
   ].join("\n");
 }
 

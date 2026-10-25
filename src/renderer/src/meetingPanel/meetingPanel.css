@@ -122,6 +122,11 @@ body {
     background: var(--color-hover);
     color: var(--color-ink);
   }
+
+  &[aria-pressed="true"] {
+    background: var(--color-chip);
+    color: var(--color-ink);
+  }
 }
 
 .panel-hidden {
@@ -133,6 +138,22 @@ body {
   font-size: 11.5px;
   line-height: 16px;
   color: var(--color-ink-meta);
+}
+
+.panel-subline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0 14px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--color-ink-meta);
+
+  & b {
+    font-weight: 600;
+    color: var(--color-ink);
+  }
 }
 
 .panel-suggestion {

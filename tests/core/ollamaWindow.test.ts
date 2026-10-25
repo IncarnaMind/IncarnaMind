@@ -97,10 +97,8 @@ describe("Fitting an Answer into a local model's window", () => {
     expect(ended.event).toBe("failed");
     expect(ended.payload).toMatchObject({ error: { kind: "too-long" } });
     expect(ollama.chats).toHaveLength(0);
-    expect(translate("en", "answer.error.too-long")).toMatch(
-      /too long for the model’s context window/,
-    );
-    expect(translate("zh-CN", "answer.error.too-long")).toMatch(/上下文窗口/);
+    expect(translate("en", "answer.error.too-long")).toMatch(/too long for the model/);
+    expect(translate("zh-CN", "answer.error.too-long")).toMatch(/超出了模型的上限/);
   });
 
   test("a cloud model gets its own window whatever the memory, and a long conversation fits it", async () => {

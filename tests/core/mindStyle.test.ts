@@ -255,3 +255,51 @@ describe("what exports keep of a Mind's font", () => {
     expect(file).toContain('body{font-family:"Songti SC",var(--serif)}');
   });
 });
+
+describe("a Mind's line spacing", () => {
+  test("is the text size's own until chosen, kept, made the default for new Minds, and refused out of range", async () => {
+    const { core, dataDir } = await setUp();
+    const mind = await core.createMind({ title: "Tides" });
+    const airy: MindStyle = { font: "default", size: "default", lineSpacing: 1.5 };
+    expect(await core.setMindStyle(mind.id, airy)).toEqual(airy);
+    core.close();
+    const after = startCore(dataDir, { now: manualClock().now });
+    expect(await after.getMindStyle(mind.id)).toEqual(airy);
+    // Back to the default, it is forgotten, so the Mind follows the default again.
+    expect(await after.setMindStyle(mind.id, { ...airy, lineSpacing: "default" })).toEqual(
+      DEFAULT_MIND_STYLE,
+    );
+
+    await after.updateSettings({ user: { newMindStyle: airy } });
+    const made = await after.createMind({ title: "After" });
+    expect(await after.getMindStyle(made.id)).toEqual(airy);
+
+    for (const lineSpacing of [0, 0.4, 5.5, "double", Number.NaN]) {
+      await expect(
+        after.setMindStyle(mind.id, { ...airy, lineSpacing } as never),
+      ).rejects.toBeInstanceOf(InvalidInputError);
+    }
+  });
+
+  test("Word writes it as the document's own line spacing, and HTML as the page's", async () => {
+    const { core } = await setUp();
+    const plain = await writtenMind(core);
+    const double = await writtenMind(core, { font: "default", size: "default", lineSpacing: 2 });
+    const spacing = async (mindId: string) => {
+      const exported = await core.exportMind(mindId, { format: "docx" });
+      return /<w:pPrDefault><w:pPr>(<w:spacing [^>]*\/>)/.exec(
+        part(unzip(exported.data), "word/styles.xml"),
+      )?.[1];
+    };
+    expect(await spacing(plain.id)).toBe(
+      '<w:spacing w:after="160" w:line="259" w:lineRule="auto"/>',
+    );
+    expect(await spacing(double.id)).toBe(
+      '<w:spacing w:after="160" w:line="480" w:lineRule="auto"/>',
+    );
+    const html = async (mindId: string) =>
+      decode((await core.exportMind(mindId, { format: "html" })).data);
+    expect(await html(plain.id)).not.toContain("body{line-height:");
+    expect(await html(double.id)).toContain("body{line-height:2.3}");
+  });
+});

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- The hidden window that runs Analyses (ADR-0023). The main process serves it, and every
+         file it loads, with the Content-Security-Policy that keeps it off the network. -->
+    <title>IncarnaMind analysis</title>
+  </head>
+  <body>
+    <script type="module" src="./analysis/page.ts"></script>
+  </body>
+</html>
