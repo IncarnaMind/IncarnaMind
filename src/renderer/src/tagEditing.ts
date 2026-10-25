@@ -3,6 +3,7 @@
  * and the Documents' links. Pure: no store, no bridge, so the tests import it.
  */
 import type { Document, DocumentTag, Tag } from "../../core/api";
+import { matchName, queryWords } from "./matcher";
 
 /** How a Tag stands on the Documents being edited. */
 export interface TagOnDocuments {
@@ -58,25 +59,24 @@ export function actionFor(state: TagOnDocuments): TagAction {
 const fold = (text: string) => text.trim().toLocaleLowerCase();
 
 /**
- * The Tags whose names contain what was typed, ignoring case: an exact name
- * first, then names that start with it, then the rest, each in name order.
- * And the name to create, if nothing is named exactly that.
+ * The Tags `query` finds by name, the closest first, a Chinese name by its
+ * pinyin too (the matcher ⌘K uses); and the name to create, if nothing is
+ * named exactly that.
  */
 export function pickerOptions(
   states: readonly TagOnDocuments[],
   query: string,
 ): { matches: TagOnDocuments[]; create: string | null } {
-  const wanted = fold(query);
-  if (!wanted) return { matches: [...states], create: null };
-  const rank = (name: string) => {
-    const folded = fold(name);
-    return folded === wanted ? 0 : folded.startsWith(wanted) ? 1 : 2;
-  };
+  const words = queryWords(query);
+  if (words.length === 0) return { matches: [...states], create: null };
   const matches = states
-    .filter((state) => fold(state.tag.name).includes(wanted))
-    .map((state, index) => ({ state, index, rank: rank(state.tag.name) }))
-    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .flatMap((state, index) => {
+      const match = matchName(words, state.tag.name);
+      return match ? [{ state, index, match }] : [];
+    })
+    .sort((a, b) => b.match.score - a.match.score || a.index - b.index)
     .map(({ state }) => state);
+  const wanted = fold(query);
   const exists = states.some((state) => fold(state.tag.name) === wanted);
   return { matches, create: exists ? null : query.trim() };
 }

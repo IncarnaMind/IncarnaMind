@@ -85,6 +85,18 @@ describe("typing in the picker", () => {
     expect(pickerOptions(states, "Receipt").create).toBe("Receipt");
     expect(names("Receipt")).toEqual([]);
   });
+
+  test("finds a Chinese Tag by its pinyin, its initials and another of a character's readings", () => {
+    const chinese = tagsOnDocuments([tag("财务"), tag("重命名"), tag("Invoice")], [{ tags: [] }]);
+    const found = (query: string) =>
+      pickerOptions(chinese, query).matches.map((state) => state.tag.name);
+    expect(found("caiwu")).toEqual(["财务"]);
+    expect(found("cw")).toEqual(["财务"]);
+    expect(found("chongming")).toEqual(["重命名"]);
+    expect(found("cmm")).toEqual(["重命名"]);
+    expect(found("zhongming")).toEqual(["重命名"]);
+    expect(found("zmm")).toEqual(["重命名"]);
+  });
 });
 
 describe("a Document's chips", () => {

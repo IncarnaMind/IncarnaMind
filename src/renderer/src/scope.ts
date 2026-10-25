@@ -10,6 +10,7 @@ import type {
 import type { MessageKey } from "../../shared/i18n";
 import { holdsText, SCOPE_KINDS, type ScopeKind, scopeIds } from "../../shared/searchScope";
 import { buildFolderTree, flattenFolderTree } from "./folders";
+import { matchName, queryWords } from "./matcher";
 
 /** What a scope item gone without its name is called: "Deleted Folder". */
 export const DELETED_NAMES: Record<ScopeKind, MessageKey> = {
@@ -170,30 +171,35 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
 
 /**
  * What the picker offers for `query` (typed after the "@"): the Folders, Tags
- * and Documents whose names contain it, ignoring case, those starting with it
- * first, grouped in that order. Those already in the scope aren't offered again.
+ * and Documents whose names match it, a Chinese name by its pinyin too (the
+ * matcher ⌘K uses), those starting a word first, grouped in that order. Those
+ * already in the scope aren't offered again.
  */
 export function scopeChoices(
   library: ScopeLibrary,
   scope: SearchScope,
   query: string,
 ): ScopeChoice[] {
-  const wanted = query.trim().toLocaleLowerCase();
+  const words = queryWords(query);
   const chosen = new Set(
     SCOPE_KINDS.flatMap((kind) => scopeIds(scope, kind).map((id) => `${kind}:${id}`)),
   );
   const all = everything(library).filter((choice) => !chosen.has(`${choice.kind}:${choice.id}`));
   return SCOPE_KINDS.flatMap((kind) => {
     const ofKind = all.filter((choice) => choice.kind === kind);
-    const named = (choice: ScopeChoice) => choice.name.toLocaleLowerCase();
-    const matching = wanted
-      ? [
-          ...ofKind.filter((choice) => named(choice).startsWith(wanted)),
-          ...ofKind.filter(
-            (choice) => !named(choice).startsWith(wanted) && named(choice).includes(wanted),
-          ),
-        ]
-      : ofKind;
+    const matching =
+      words.length === 0
+        ? ofKind
+        : ofKind
+            .flatMap((choice, index) => {
+              const match = matchName(words, choice.name);
+              return match ? [{ choice, index, match }] : [];
+            })
+            .sort(
+              (a, b) =>
+                Number(b.match.atWordStart) - Number(a.match.atWordStart) || a.index - b.index,
+            )
+            .map(({ choice }) => choice);
     return matching.slice(0, MAX_CHOICES_PER_KIND);
   });
 }
