@@ -1,5 +1,13 @@
 import type { Editor } from "@tiptap/core";
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import type { ClaimCalculation } from "../../../core/api";
@@ -17,6 +25,7 @@ import {
   closeOpenClaim,
   removeClaimMark,
   replaceCitation,
+  setClaimFocus,
   setOpenClaim,
   useChecks,
   widenCitation,
@@ -33,6 +42,7 @@ import { openCited } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
+  applyFigure,
   checkStateKey,
   cutSentence,
   cutUnsupported,
@@ -40,11 +50,13 @@ import {
   offersFixes,
   offersKeepAsView,
   offersNotFound,
+  offersUseFigure,
   searchedLess,
   uncoveredOf,
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
 import { ClaimOutline } from "./ClaimOutline";
+import { focusFirstAction, keepFocusInside } from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
@@ -92,8 +104,9 @@ function searchTheWeb(mindId: string, sentence: string): void {
  * Citation (a plain tick when the card changes the sentence's own Citation
  * instead), an amber "!", an outlined red "≠", a grey ring when it wasn't
  * checked, ↻ when it needs a re-check. Hovering or focusing it shows its card,
- * and clicking keeps the card until it is dismissed; Esc closes it. While the
- * card is open, its sentence is outlined.
+ * and clicking keeps the card until it is dismissed; Esc closes it and puts
+ * the caret back in the sentence. While the card is open, its sentence is
+ * outlined.
  */
 export function ClaimMark({
   claim,
@@ -120,9 +133,13 @@ export function ClaimMark({
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const pinned = useChecks((store) => store.openClaim[place] === id);
+  const requestedFocus = useChecks((store) => store.focusClaim[place] === id);
   const [peeking, setPeeking] = useState(false);
   const askers = useRef(new Set<string>());
   const timer = useRef<number | undefined>(undefined);
+  const card = useRef<HTMLDivElement>(null);
+  /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
+  const openedByKeyboard = useRef(false);
   const open = pinned || peeking;
   const decision = state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
   const plus = decision.kind === "add";
@@ -139,10 +156,45 @@ export function ClaimMark({
   const dismiss = useCallback(() => {
     askers.current.clear();
     window.clearTimeout(timer.current);
+    openedByKeyboard.current = false;
     closeOpenClaim(place, id);
+    setClaimFocus(place, null);
     setPeeking(false);
   }, [place, id]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const takeFirstAction = useCallback(() => {
+    focusFirstAction(card.current, button);
+    setClaimFocus(place, null);
+  }, [place, button]);
+  useEffect(() => {
+    if (requestedFocus) openedByKeyboard.current = true;
+  }, [requestedFocus]);
+  // Another card can take this one's place without dismissing it: a later mouse opening must not steal the focus.
+  useEffect(() => {
+    if (!open) openedByKeyboard.current = false;
+  }, [open]);
+  // A new verdict can take the focused action away: the focus would fall to the page, not the Mind.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the verdict is when the action can go.
+  useEffect(() => {
+    if (!open || !openedByKeyboard.current || document.activeElement !== document.body) return;
+    focusFirstAction(card.current, button);
+  }, [open, state, button]);
+  // A card already open under the mouse: the popover only takes the focus as it first shows.
+  useEffect(() => {
+    if (!requestedFocus || !open) return;
+    if (!card.current?.checkVisibility({ checkVisibilityCSS: true })) return;
+    takeFirstAction();
+  }, [requestedFocus, open, takeFirstAction]);
+  const initialFocus = useMemo(
+    () => ({ current: requestedFocus ? { focus: takeFirstAction } : null }),
+    [requestedFocus, takeFirstAction],
+  );
+
+  const returnToNote = () => {
+    if (editor.isDestroyed || !editor.view.dom.checkVisibility()) return;
+    editor.view.focus();
+  };
 
   const guided = useAppStore((app) => {
     const progress = app.settings?.device.gettingStarted;
@@ -189,6 +241,9 @@ export function ClaimMark({
           if (!isQuietFocus(event.currentTarget)) hold("focus", true);
         }}
         onBlur={() => hold("focus", false)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") setClaimFocus(place, id);
+        }}
         onClick={() => {
           setOpenClaim(place, id);
           // Step 1 of the first open's steps, "See a mistake it caught".
@@ -213,7 +268,11 @@ export function ClaimMark({
             anchor={button}
             placement="bottom-end"
             middleware={() => claimCardPlace(button)}
-            onDismiss={dismiss}
+            onDismiss={(how) => {
+              if (how === "escape" && openedByKeyboard.current) returnToNote();
+              dismiss();
+            }}
+            initialFocus={initialFocus}
             aria-label={t("claim.card.label", {
               state: heading,
               sentence: comparableSentence(claim.sentence.text),
@@ -224,8 +283,10 @@ export function ClaimMark({
             onPointerLeave={() => hold("card", false)}
             onFocus={() => hold("card-focus", true)}
             onBlur={() => hold("card-focus", false)}
+            onKeyDown={(event) => keepFocusInside(event, event.currentTarget)}
           >
             <ClaimCard
+              rootRef={card}
               claim={claim}
               heading={heading}
               verified={verificationOf(doc)?.documentId ?? null}
@@ -287,6 +348,11 @@ export function ClaimMark({
               onKeep={() => {
                 keepAsView(editor, claim);
                 done();
+              }}
+              use={offersUseFigure(editor, claim)}
+              onUse={() => {
+                applyFigure(editor, mindId, doc, claim);
+                done(true);
               }}
             />
           </Popover>,
@@ -366,19 +432,21 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
  * those words, or Widen the Citation when the whole clause says more of the
  * sentence than the Citation quotes, or Replace the Citation when the one the
  * sentence has doesn't hold (#1620); for a contradiction, what the Document
- * says and Keep as my view; for a figure worked out, its working and inputs;
- * for nothing found, where it looked, with
- * Search all Documents, Cut it (the whole sentence, never in a Verify Mind) and
- * Keep as my view, or, for a court decision no Document holds, that it
- * can't be checked here, with Remove the mark only; for a sentence with a
- * Citation, the part the Citation doesn't cover, with its quote, and Cut the
- * unsupported part, Search all Documents and Keep as my view (#1111); for one
- * without, the Passage the check quoted for part of it, with what that part is
- * and what it doesn't cover; otherwise why, with Check again. A Passage from a
- * saved web page names the page. Every verdict says where the check looked (#1623).
- * Documents IncarnaMind wrote that matched are named, with Count it.
+ * says and Keep as my view; for a figure worked out, its working and inputs,
+ * and Use {figure} when they disagree (#1247); for nothing found, where it
+ * looked, with Search all Documents, Cut it (the whole sentence, never in a
+ * Verify Mind) and Keep as my view, or, for a court decision no Document
+ * holds, that it can't be checked here, with Remove the mark only; for a
+ * sentence with a Citation, the part the Citation doesn't cover, with its
+ * quote, and Cut the unsupported part, Search all Documents and Keep as my
+ * view (#1111); for one without, the Passage the check quoted for part of it,
+ * with what that part is and what it doesn't cover; otherwise why, with Check
+ * again. A Passage from a saved web page names the page. Every verdict says
+ * where the check looked (#1623). Documents IncarnaMind wrote that matched are
+ * named, with Count it.
  */
 function ClaimCard({
+  rootRef,
   claim,
   heading,
   verified,
@@ -401,7 +469,10 @@ function ClaimCard({
   onCut,
   onCutSentence,
   onKeep,
+  use,
+  onUse,
 }: {
+  rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
   heading: string;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
@@ -425,6 +496,8 @@ function ClaimCard({
   onCut(): void;
   onCutSentence(): void;
   onKeep(): void;
+  use: boolean;
+  onUse(): void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -487,7 +560,11 @@ function ClaimCard({
         : null;
 
   return (
-    <div className={`citation-card citation-card--${TONE[state]}`} contentEditable={false}>
+    <div
+      ref={rootRef}
+      className={`citation-card citation-card--${TONE[state]}`}
+      contentEditable={false}
+    >
       <div className="citation-card-head">
         <p data-testid="claim-badge" data-check={state} className="citation-badge">
           <ClaimMarkIcon state={state} className="citation-badge-icon" />
@@ -733,12 +810,22 @@ function ClaimCard({
             {t("claim.replaceCitation")}
           </button>
         )}
+        {use && calculation && (
+          <button
+            type="button"
+            data-testid="claim-use-figure"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onUse}
+          >
+            {t("claim.useFigure", { figure: calculation.figure.shown })}
+          </button>
+        )}
         {evidence?.documentId && (
           <button
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              decision.kind === "none" || decision.kind === "already"
+              !use && (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}

@@ -2,7 +2,7 @@ import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
-import { setOpenClaim } from "../checks";
+import { setClaimFocus, setOpenClaim } from "../checks";
 import { useT } from "../i18n";
 import { motionMode, subscribeMotion } from "../motion";
 import { checkStateKey } from "../unsupportedFixes";
@@ -201,7 +201,13 @@ export function MarginChecks({
     };
   }, [editor]);
 
-  useEffect(() => () => setOpenClaim(place, null), [place]);
+  useEffect(
+    () => () => {
+      setOpenClaim(place, null);
+      setClaimFocus(place, null);
+    },
+    [place],
+  );
 
   // Motion turned to Reduced or Off stops the cascade (styles.css), so it never ends on its own:
   // its marks are simply there, and can't play it later if motion comes back on.
@@ -223,8 +229,7 @@ export function MarginChecks({
     <div ref={layer} className="margin-checks" data-testid="margin-checks">
       {marks.map((mark) => (
         <ClaimMark
-          // Keyed by the state too, so a mark whose check just came in is new, and enters.
-          key={`${mark.key}:${mark.state}`}
+          key={mark.key}
           claim={mark.claim}
           editor={editor}
           mindId={mind.id}

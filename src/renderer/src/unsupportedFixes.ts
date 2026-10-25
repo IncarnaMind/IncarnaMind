@@ -6,19 +6,28 @@
  * Document, while it searched less than all; and Keep as my view, which makes
  * the sentence the User's own, as Mark as mine does, and keeps its check from
  * showing or counting. A contradicted sentence can be kept as the User's view
- * too (#1768). Each is one step of Undo.
+ * too (#1768). A figure worked out that disagrees with the sentence's number can
+ * be used instead (#1247). Each is one step of Undo.
  */
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
-import { CLAIM_CHECK_MARK } from "../../core/api";
+import { CLAIM_CHECK_MARK, type ClaimCalculation, type ClaimCheckAttributes } from "../../core/api";
+import { detectLanguage } from "../../core/documents/textLanguage";
 import { checkedScope, coveredPart } from "../../shared/claimChecks";
+import {
+  type FigureContext,
+  figureContextOf,
+  figureLanguageTag,
+  readFigures,
+} from "../../shared/figures";
+import { figureNumber } from "../../shared/formula";
 import type { MessageKey } from "../../shared/i18n";
 import { INLINE_NODE } from "../../shared/sentences";
 import { checkAgain, useChecks } from "./checks";
 import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
-import { type ShownClaim, shownClaims } from "./editor/claimChecks";
+import { paragraphPlaces, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { requestEdit, useEdits } from "./editWithAi";
 import { translateNow } from "./i18n";
@@ -83,6 +92,53 @@ export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
   return editor.isEditable && claim.shown.state === "contradicted";
 }
 
+/** A number a check's calculated figure disagrees with, and the figure to write in its place. */
+export interface FigureFix {
+  /** Its characters in the sentence's text, as the check read them. */
+  from: number;
+  to: number;
+  /** The figure as the check worked it out. */
+  shown: string;
+}
+
+/** How a sentence writes its numbers, as the check read it (the core's `documentFigureContext`). */
+const contextOf = (sentence: string): FigureContext =>
+  figureContextOf(sentence, figureLanguageTag(detectLanguage(sentence.slice(0, 20_000))));
+
+/**
+ * The one number of a sentence that a check's calculated figure disagrees
+ * with (#1247). Null when they agree, when the sentence no longer writes it,
+ * or when more than one of its numbers is written as it, so the card can't
+ * tell which number the check means.
+ */
+export function figureFix(
+  calculation: ClaimCalculation | null,
+  sentence: string,
+): FigureFix | null {
+  if (!calculation || calculation.agrees) return null;
+  const written = readFigures(sentence, contextOf(sentence)).filter(
+    (figure) => figure.chars === calculation.stated,
+  );
+  const [only] = written;
+  return only && written.length === 1
+    ? {
+        from: only.start,
+        to: only.end,
+        shown: figureNumber(calculation.figure.shown, calculation.figure.show.language),
+      }
+    : null;
+}
+
+/** Whether the card offers Use {figure}: a figure worked out that disagrees with the sentence (#1247). */
+export function offersUseFigure(editor: Editor, claim: ShownClaim): boolean {
+  const { shown } = claim;
+  return (
+    editor.isEditable &&
+    (shown.state === "supported" || shown.state === "contradicted") &&
+    figureFix(claim.check.calculation, claim.sentence.text) !== null
+  );
+}
+
 const claimAt = (editor: Editor, offered: (editor: Editor, claim: ShownClaim) => boolean) => {
   const { from, to } = editor.state.selection;
   return (
@@ -101,6 +157,9 @@ export const notFoundAt = (editor: Editor): ShownClaim | null => claimAt(editor,
 /** The contradicted sentence the selection is in, for ⌘K; null for none. */
 export const contradictedAt = (editor: Editor): ShownClaim | null =>
   claimAt(editor, offersKeepAsView);
+
+/** The sentence whose check worked out a figure it disagrees with, for ⌘K; null for none. */
+export const figureAt = (editor: Editor): ShownClaim | null => claimAt(editor, offersUseFigure);
 
 export const fixesFree = (mindId: string): boolean =>
   !useEdits.getState().pending[mindId] && !useChecks.getState().running[mindId];
@@ -185,4 +244,75 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
   makeMine(state, tr, claim.sentence.from, claim.sentence.to);
   asOneStep(editor, () => editor.view.dispatch(tr));
   offerEditorUndo(editor, (t) => t("claim.keptAsView"));
+}
+
+/** Where the characters a figure fix changes are in the document; null when the sentence has moved. */
+function placeInSentence(
+  editor: Editor,
+  claim: ShownClaim,
+  fix: Pick<FigureFix, "from" | "to">,
+): { from: number; to: number } | null {
+  const $start = editor.state.doc.resolve(claim.sentence.from);
+  if (!$start.parent.isTextblock) return null;
+  const places = paragraphPlaces($start.parent, $start.start() - 1);
+  const at = places.starts.indexOf(claim.sentence.from);
+  if (at < 0 || places.text.slice(at, at + claim.sentence.text.length) !== claim.sentence.text)
+    return null;
+  const from = places.starts[at + fix.from];
+  const to = places.ends[at + fix.to - 1];
+  return from === undefined || to === undefined ? null : { from, to };
+}
+
+/**
+ * Puts back the check a Use took the sentence's mark from, once Undo has
+ * brought its number back: every check over the sentence goes, as the
+ * re-check's may run past where the earlier one ended.
+ */
+function restoreCheck(editor: Editor, claim: ShownClaim, earlier: ClaimCheckAttributes): void {
+  if (editor.isDestroyed) return;
+  const type = editor.state.schema.marks[CLAIM_CHECK_MARK];
+  if (!type) return;
+  const from = Math.max(0, Math.min(claim.from, claim.sentence.from));
+  const to = Math.min(editor.state.doc.content.size, Math.max(claim.to, claim.sentence.to));
+  if (from >= to) return;
+  const tr = editor.state.tr;
+  editor.state.doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isText) return true;
+    if (node.marks.some((mark) => mark.type === type))
+      tr.removeMark(Math.max(from, pos), Math.min(to, pos + node.nodeSize), type);
+    return true;
+  });
+  tr.addMark(from, to, type.create({ ...earlier })).setMeta("addToHistory", false);
+  editor.view.dispatch(tr);
+}
+
+/**
+ * Changes the one number of a sentence that a check's calculated figure
+ * disagrees with to the figure, keeping the sentence's Citations, and checks
+ * the sentence again (#1247). One step of the note's Undo, which brings the
+ * number back with the check it had.
+ */
+export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: ShownClaim): void {
+  if (claim.shown.state !== "supported" && claim.shown.state !== "contradicted") return;
+  const calculation = claim.check.calculation;
+  const fix = figureFix(calculation, claim.sentence.text);
+  if (!fix || !calculation) return;
+  const place = placeInSentence(editor, claim, fix);
+  const words = place === null ? null : editor.state.doc.textBetween(place.from, place.to);
+  if (place === null || words !== calculation.stated) {
+    useNotices.getState().showError(new Error(translateNow("claim.useFigure.moved")));
+    return;
+  }
+  const earlier = claim.check;
+  asOneStep(editor, () => {
+    editor.view.dispatch(editor.state.tr.insertText(fix.shown, place.from, place.to));
+  });
+  offerEditorUndo(
+    editor,
+    (t) => t("claim.useFigure.done", { figure: fix.shown }),
+    undefined,
+    () => restoreCheck(editor, claim, earlier),
+  );
+  const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
+  if (again) void checkAgain(editor, mindId, doc, again);
 }
