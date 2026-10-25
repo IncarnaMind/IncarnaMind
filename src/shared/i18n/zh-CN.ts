@@ -903,7 +903,7 @@ export const zhCN = {
   "references.localMode": "无法查询参考文献：已开启“所有内容都留在这台电脑上”。",
   "references.localMode.turnOff": "关闭",
   "references.problem": "无法核对参考文献：{message}",
-  "consent.flow.checks": "核对文档",
+  "consent.flow.checks": "核对",
   "consent.flow.checks.purpose": "对照你的文档核对句子、Mind 和文档",
   "aiText.markedAsMine": "已标为你写的",
   "edit.pending.improve": "正在润色…",
