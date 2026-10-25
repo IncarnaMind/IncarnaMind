@@ -281,7 +281,7 @@ test("when the Mind's own scope holds nothing, the check says so and offers all 
   await slideSelect(window, line, "Harbours publish", { line, words: "spring." });
   await expect(
     window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
-  ).toContainText("添加文档后才能查找支持");
+  ).toContainText("添加文档后才能核对");
   await window.keyboard.press("Escape");
   const card = await checkCard(window);
   await pointAndClick(window, card.getByTestId("badge-check-mind"));
