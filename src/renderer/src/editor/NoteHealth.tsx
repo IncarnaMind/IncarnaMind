@@ -5,7 +5,14 @@ import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import type { CitationAttributes } from "../../../core/api";
 import { citationState } from "../../../shared/citations";
-import { acceptAndCheck, checkSentences, dismissCheckProblem, useChecks } from "../checks";
+import {
+  acceptAndCheck,
+  checkSentences,
+  dismissCheckProblem,
+  setCheckCardOpen,
+  setOpenClaim,
+  useChecks,
+} from "../checks";
 import { ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
@@ -13,15 +20,18 @@ import {
   readinessAlso,
 } from "../components/providers/ChatReadinessNotice";
 import { UnreadFilesLine } from "../components/UnreadFilesLine";
+import { useComposer } from "../composer";
 import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
+import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
 import { originOf } from "./blockOrigins";
+import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSentences, sameCoverage, shownClaims } from "./claimChecks";
 import { type NoteHealth as Health, type HealthPart, noteHealth } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
@@ -138,6 +148,7 @@ export function HealthCard({
 }) {
   const t = useT();
   const language = useLanguage();
+  const place = useCardPlace(mindId);
   const checkedAll = useMindCheckRun(doc);
   const unread = useCheckUnread(editor, doc);
   const asking = useMindCheck((state) => state.asking[mindId] !== undefined);
@@ -158,6 +169,9 @@ export function HealthCard({
     if (folderId === null) return null;
     return state.library?.groups.find((group) => group.id === folderId)?.name ?? null;
   });
+  const emptyScope = useEmptyScopeLine(
+    problem?.kind === "no-documents" ? (problem.chosen ?? null) : null,
+  );
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
 
   const label = (part: HealthPart, count: number) => {
@@ -176,7 +190,9 @@ export function HealthCard({
 
   /**
    * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just
-   * after its marker, where its state shows, so a key can't take the Citation away.
+   * after its marker, where its state shows, so a key can't take the Citation away. It is
+   * centred by its own position, not its paragraph's, which can be taller than the page, and clear
+   * of the fade and the badge at the page's foot.
    */
   const goToNext = (part: HealthPart) => {
     if (editor.isDestroyed) return;
@@ -187,10 +203,20 @@ export function HealthCard({
     if (next === undefined) return;
     const { doc } = editor.state;
     const at = Math.min(next, doc.content.size);
-    editor.view.dispatch(
-      editor.state.tr.setSelection(TextSelection.near(doc.resolve(at))).scrollIntoView(),
-    );
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(doc.resolve(at))));
     editor.view.focus();
+    const scroller = editor.view.dom.closest(".mind-scroller");
+    if (scroller) {
+      const caret = editor.view.coordsAtPos(cited ? at - 1 : at);
+      const area = scroller.getBoundingClientRect();
+      scroller.scrollTop += (caret.top + caret.bottom) / 2 - (area.top + area.bottom) / 2;
+    }
+    const claim = cited
+      ? undefined
+      : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
+    if (!claim) return;
+    setCheckCardOpen(place, false);
+    setOpenClaim(place, claim.check.id);
   };
 
   const rows = ROWS.filter((part) => health[part].length > 0);
@@ -305,7 +331,33 @@ export function HealthCard({
           }
         />
       )}
-      {!running && problem?.kind === "no-documents" && (
+      {!running && problem?.kind === "no-documents" && emptyScope !== null && (
+        <ProblemLine
+          testId="checks-problem"
+          className="mind-health-line"
+          action={
+            problem.checkAll && {
+              label: t("checks.checkAll"),
+              testId: "checks-check-all",
+              onClick: () => {
+                dismissCheckProblem(mindId);
+                problem.checkAll?.();
+              },
+            }
+          }
+          also={{
+            label: t("checks.changeScope"),
+            testId: "checks-change-scope",
+            onClick: () => {
+              dismissCheckProblem(mindId);
+              useComposer.getState().requestScope();
+            },
+          }}
+        >
+          {emptyScope}
+        </ProblemLine>
+      )}
+      {!running && problem?.kind === "no-documents" && emptyScope === null && (
         <ProblemLine
           testId="checks-problem"
           className="mind-health-line"

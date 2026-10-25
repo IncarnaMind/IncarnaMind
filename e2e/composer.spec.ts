@@ -261,7 +261,7 @@ test("typing in the composer and pressing Enter shows the Question in the assist
   await window.mouse.move(10, 10);
   const actions = answer.getByTestId("answer-actions");
   await expect.poll(() => opacityOf(actions)).toBe(1);
-  await expect(actions).toHaveText("CopyAdd to note");
+  await expect(actions).toHaveText("CopyAdd to noteNew Mind");
   await expect(answer.getByTestId("answer-steps")).toHaveText("Searched All Documents · 1 source");
   await expect(answer.getByTestId("answer-regenerate")).toHaveCount(0);
   await screenshot(window, "composer-answered-en");
@@ -549,7 +549,7 @@ test("⌘J focuses the composer from the note; Shift+Enter breaks the Question's
   await app.close();
 });
 
-test("the model chip chooses the model for one Mind, which remembers it after a restart, while new Minds take the default", async () => {
+test("the model chip chooses the model for one Mind, which remembers it after a restart, and a new Mind starts on the last one chosen", async () => {
   // Listed a second late, so the menu opens before its models are there, as on a slow machine
   // or with a provider far away: the current one still takes the focus once it is listed.
   const ollama = await ollamaListing(["fake-model", "other-model"], { delayMs: 1000 });
@@ -600,20 +600,26 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
     await expect(await openSteps(window, answer)).toContainText("Answered by other-model");
 
-    // A new Mind takes the default; by keyboard, the menu opens and closes again.
     await pointAndClick(window, window.getByTestId("plus-menu"));
     await pointAndClick(window, window.getByTestId("plus-new-mind"));
     await nameMind(window, "Default model");
-    await expect(chip).toHaveText("fake-model");
+    await expect(chip).toHaveText("other-model");
+    await expect(menu).toBeHidden();
     await chip.focus();
     await window.keyboard.press("Enter");
     await expect(menu).toBeVisible();
-    await expect(options.first()).toBeFocused();
-    await window.keyboard.press("ArrowDown");
     await expect(options.nth(1)).toBeFocused();
+    await window.keyboard.press("ArrowUp");
+    await expect(options.first()).toBeFocused();
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     await expect(chip).toBeFocused();
+    await expect(chip).toHaveText("other-model");
+    await window.keyboard.press("Enter");
+    await expect(options.nth(1)).toBeFocused();
+    await window.keyboard.press("ArrowUp");
+    await window.keyboard.press("Enter");
+    await expect(menu).toBeHidden();
     await expect(chip).toHaveText("fake-model");
     await first.app.close();
 
@@ -634,10 +640,7 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
 
     // In Chinese.
     await bridge(window).language("zh-CN");
-    await expect(window.getByTestId("composer-input")).toHaveAttribute(
-      "placeholder",
-      "提问，或说明要修改的内容…",
-    );
+    await expect(window.getByTestId("composer-input")).toHaveAttribute("placeholder", "追问…");
     await pointAndClick(window, window.getByTestId("composer-model"));
     const menuZh = window.getByTestId("composer-model-menu");
     await expect(menuZh.getByRole("group", { name: "在本机运行" })).toBeVisible();

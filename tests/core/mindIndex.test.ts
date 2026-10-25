@@ -2,14 +2,20 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, onTestFinished, test, vi } from "vitest";
+import * as Y from "yjs";
 import {
+  BLOCK_ID_ATTRIBUTE,
   type Core,
   DATABASE_FILE,
   type DocumentTextMatch,
+  MIND_CONTENT_FIELD,
   type MindTextMatch,
 } from "../../src/core";
-import { openDatabase } from "../../src/core/storage";
+import { createMindContent } from "../../src/core/mindContent";
+import { createMindIndex } from "../../src/core/mindIndex";
+import { createMinds } from "../../src/core/minds";
+import { type Database, migrate, openDatabase, type SqlValue } from "../../src/core/storage";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
@@ -287,3 +293,200 @@ describe("searching the words in Documents", () => {
     expect(await found()).toEqual([logDoc?.id, rotaDoc?.id].sort());
   });
 });
+
+describe("each Mind's line under its name, for Home's Recent", () => {
+  test("is the first line that isn't its name, as typed a moment ago; a Mind with none is left out", async () => {
+    const core = startCore(await createTempDataFolder());
+    const [titled] = await mindWith(core, [
+      heading(1, "Supplier review"),
+      note("Aldermoor Freight runs the cold chain."),
+      note("Termination needs ninety days' notice."),
+    ]);
+    const [untitled, client] = await mindWith(core, [
+      note("Notes from the stand-up about the Leeds account."),
+      note("Hiring plan next week."),
+    ]);
+    const [empty] = await mindWith(core, []);
+
+    const snippets = await core.listMindSnippets();
+    expect(snippets).toEqual(
+      expect.arrayContaining([
+        { mindId: titled, text: "Aldermoor Freight runs the cold chain." },
+        { mindId: untitled, text: "Hiring plan next week." },
+      ]),
+    );
+    expect(snippets.map((each) => each.mindId)).not.toContain(empty);
+
+    writeMind(client, [
+      note("Notes from the stand-up about the Leeds account."),
+      note("下周讨论招聘计划。"),
+    ]);
+    await client.settled();
+    expect(await core.listMindSnippets()).toEqual(
+      expect.arrayContaining([{ mindId: untitled, text: "下周讨论招聘计划。" }]),
+    );
+  });
+
+  test("keeps a line that starts with the Mind's name, and skips only the title heading or the line the name comes from", async () => {
+    const core = startCore(await createTempDataFolder());
+    const short = await core.createMind({ title: "Q3" });
+    const shortClient = await connectToMind(core, short.id);
+    writeMind(shortClient, [note("Q3 revenue grew 4%."), note("Margins held.")]);
+    await shortClient.settled();
+    const [headed] = await mindWith(core, [heading(1, "Q3"), note("Q3 revenue grew 4%.")]);
+    const long =
+      "The harbour board met on Tuesday to agree the berth fees for next year and the dredging plan";
+    const [cut] = await mindWith(core, [note(long), note("Fees rise by 3%.")]);
+
+    const snippets = await core.listMindSnippets();
+    expect(snippets).toEqual(
+      expect.arrayContaining([
+        { mindId: short.id, text: "Q3 revenue grew 4%." },
+        { mindId: headed, text: "Q3 revenue grew 4%." },
+        { mindId: cut, text: "Fees rise by 3%." },
+      ]),
+    );
+  });
+
+  test("follows a rename: the old title heading isn't shown as the line", async () => {
+    const core = startCore(await createTempDataFolder());
+    const [moorings] = await mindWith(core, [
+      heading(1, "Moorings"),
+      note("Berths are let by the year."),
+    ]);
+    await core.renameMind(moorings, "Mooring fees");
+
+    expect(await core.listMindSnippets()).toEqual(
+      expect.arrayContaining([{ mindId: moorings, text: "Berths are let by the year." }]),
+    );
+  });
+
+  test("a Mind restored from Recently deleted has its line again, in the same session and after a restart", async () => {
+    const dataDir = await createTempDataFolder();
+    const first = startCore(dataDir);
+    const [same] = await mindWith(first, [
+      heading(1, "Tides"),
+      note("Spring tides come twice a month."),
+    ]);
+    const [later] = await mindWith(first, [
+      heading(1, "Ferries"),
+      note("The last ferry leaves at ten."),
+    ]);
+    expect(await first.listMindSnippets()).toHaveLength(2);
+    await first.deleteMind(same);
+    await first.deleteMind(later);
+    await first.restore([{ kind: "mind", id: same }]);
+    expect(await first.listMindSnippets()).toEqual([
+      { mindId: same, text: "Spring tides come twice a month." },
+    ]);
+    first.close();
+
+    const core = startCore(dataDir);
+    expect(await core.listMindSnippets()).toHaveLength(1);
+    await core.restore([{ kind: "mind", id: later }]);
+    expect(await core.listMindSnippets()).toEqual(
+      expect.arrayContaining([{ mindId: later, text: "The last ferry leaves at ten." }]),
+    );
+  });
+
+  test("a long line is kept only to its start", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sentence = "The harbour master publishes the tide tables every Monday morning. ";
+    const [log] = await mindWith(core, [heading(1, "Log"), note(sentence.repeat(30))]);
+
+    const [snippet] = await core.listMindSnippets();
+    expect(snippet?.mindId).toBe(log);
+    expect(snippet?.text.startsWith(sentence.trim())).toBe(true);
+    expect(Array.from(snippet?.text ?? "").length).toBeLessThanOrEqual(300);
+  });
+
+  test("saving one Mind reads only that Mind again: the same work for a Library of 3 Minds or of 30", async () => {
+    const small = await workOfOneSave(3);
+    const large = await workOfOneSave(30);
+    expect(small.unchanged).toEqual({ minds: 0, blockRows: 0 });
+    expect(large.unchanged).toEqual({ minds: 0, blockRows: 0 });
+    expect(small.saved.minds).toBe(1);
+    expect(large.saved).toEqual(small.saved);
+  });
+});
+
+/**
+ * Asks a Library of `size` Minds for their lines, then again with nothing changed, then once more
+ * after one Mind was saved, counting the Minds read and the index rows read each time.
+ */
+async function workOfOneSave(size: number) {
+  const dataDir = await createTempDataFolder();
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  onTestFinished(() => db.close());
+  migrate(db);
+  let tick = 0;
+  const now = () => new Date(Date.UTC(2026, 9, 19) + tick++).toISOString();
+  const work = { minds: 0, blockRows: 0 };
+  const counted = (sql: string, rows: number) => {
+    if (sql.includes("mind_blocks")) work.blockRows += rows;
+  };
+  const watched: Database = {
+    exec: (sql) => db.exec(sql),
+    run: (sql, params) => db.run(sql, params),
+    get<Row>(sql: string, params?: readonly SqlValue[]) {
+      const row = db.get<Row>(sql, params);
+      counted(sql, row === undefined ? 0 : 1);
+      return row;
+    },
+    all<Row>(sql: string, params?: readonly SqlValue[]) {
+      const rows = db.all<Row>(sql, params);
+      counted(sql, rows.length);
+      return rows;
+    },
+    transaction: (fn) => db.transaction(fn),
+    close: () => db.close(),
+  };
+  const content = createMindContent(db, now, (mindId) => index.contentStored(mindId));
+  const index = createMindIndex({
+    db: watched,
+    now,
+    content: {
+      peek(mindId, look) {
+        work.minds += 1;
+        return content.peek(mindId, look);
+      },
+    },
+    reportError: (error) => {
+      throw error;
+    },
+  });
+  onTestFinished(() => index.close());
+  const minds = createMinds(db, now);
+  const docs = new Map<string, Y.Doc>();
+  const write = (mindId: string, text: string) => {
+    const doc = docs.get(mindId) ?? new Y.Doc();
+    docs.set(mindId, doc);
+    const before = Y.encodeStateVector(doc);
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.setAttribute(BLOCK_ID_ATTRIBUTE, randomUUID());
+    paragraph.insert(0, [new Y.XmlText(text)]);
+    doc.getXmlFragment(MIND_CONTENT_FIELD).insert(0, [paragraph]);
+    content.apply(mindId, Y.encodeStateAsUpdate(doc, before));
+  };
+  const ids = Array.from({ length: size }, (_, at) => {
+    const { id } = minds.create({ title: "", kind: "mind", folderId: null });
+    write(id, `Notes ${at + 1}.`);
+    return id;
+  });
+
+  index.leadingLines();
+  const taken = () => {
+    const done = { ...work };
+    work.minds = 0;
+    work.blockRows = 0;
+    return done;
+  };
+  taken();
+  index.leadingLines();
+  const unchanged = taken();
+  const [first] = ids;
+  if (!first) throw new Error("No Mind was made.");
+  write(first, "Moorings are let by the year.");
+  expect(index.leadingLines().get(first)?.[0]?.text).toBe("Moorings are let by the year.");
+  return { unchanged, saved: taken() };
+}

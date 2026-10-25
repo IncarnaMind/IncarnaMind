@@ -4,6 +4,7 @@ import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
+import { DetailsLine } from "../DetailsLine";
 import { ProblemMark } from "../ProblemLine";
 import { buttonStyle, fieldLabelClass, hintClass, inputClass, noticeClass } from "../ui";
 
@@ -46,6 +47,18 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
       </button>
     </p>
   );
+
+  if (state === "needs-sign-in" && signIn.heldBack) {
+    return (
+      <DetailsLine
+        testId="connector-sign-in-held-back"
+        className={`mt-1 ${noticeClass}`}
+        details={<p>{t("remoteConnectors.signIn.heldBack.details")}</p>}
+      >
+        {t("remoteConnectors.signIn.heldBack")}
+      </DetailsLine>
+    );
+  }
 
   if (state === "needs-sign-in") {
     return (

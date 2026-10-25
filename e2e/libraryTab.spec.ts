@@ -99,11 +99,12 @@ test("the Library is a tab beside the Mind, which stays in its own tab, and it c
     await window.getByTestId("library-tab").click();
     await expect(library).toBeVisible();
 
-    // It comes back after a restart, in front.
     await session.app.close();
     session = await launchApp(dataDir);
     window = session.window;
-    await expect(window.getByTestId("library-tab")).toHaveAttribute("aria-selected", "true");
+    await expect(window.getByTestId("home-tab")).toHaveAttribute("aria-selected", "true");
+    await window.keyboard.press("ControlOrMeta+w");
+    await expect(window.getByTestId("home-tab")).toHaveCount(0);
     await expect(window.getByTestId("library")).toBeVisible();
 
     // It closes like a Mind's tab; the Mind is shown again.

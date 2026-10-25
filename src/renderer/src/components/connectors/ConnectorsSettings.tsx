@@ -328,16 +328,21 @@ function ConnectedRow({
   const expired =
     connector.transport === "http" &&
     connector.state === "needs-sign-in" &&
-    connector.signIn.expired;
+    connector.signIn.expired &&
+    !connector.signIn.heldBack;
+  const heldBack = connector.transport === "http" && connector.signIn.heldBack;
   const tools = connector.tools ?? [];
-  const status = expired
-    ? t("connectors.directory.status.expired")
-    : connector.state === "ready"
-      ? tools.length > 0 && tools.every((tool) => tool.readOnly)
-        ? t("connectors.directory.status.readsOnly")
-        : t("connectors.directory.status.ready")
-      : t(stateKey(connector.state));
-  const warning = expired || connector.state === "error" || connector.state === "needs-sign-in";
+  const status = heldBack
+    ? t("connectors.state.paused")
+    : expired
+      ? t("connectors.directory.status.expired")
+      : connector.state === "ready"
+        ? tools.length > 0 && tools.every((tool) => tool.readOnly)
+          ? t("connectors.directory.status.readsOnly")
+          : t("connectors.directory.status.ready")
+        : t(stateKey(connector.state));
+  const warning =
+    !heldBack && (expired || connector.state === "error" || connector.state === "needs-sign-in");
   return (
     <li
       data-testid="connected-connector"

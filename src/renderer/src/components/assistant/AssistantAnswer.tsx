@@ -27,18 +27,22 @@ import { AnswerActions } from "./AnswerActions";
 import { AnswerSteps, useStepsScopeOf } from "./AnswerSteps";
 import { AnswerText } from "./AnswerText";
 import { AskedLines } from "./AskCall";
-import { NoMindToolsLine, UnbackedClaimLine, WaitingChangesLine } from "./ChangeProblemLines";
+import { UnbackedClaimLine, WaitingChangesLine } from "./ChangeProblemLines";
 import { CommandsCard } from "./CommandsCard";
 import { CoverageLine, WrittenFromLine } from "./CoverageLines";
 import { MindChangesCard, NoMindLine, wantedAMind } from "./MindChangesCard";
 import { SelfCheckLines } from "./SelfCheckLines";
+import { StillReadingLine } from "./StillReadingLine";
 
 /** What adding an Answer needs from the thread around it. */
 export interface AnswerKeeping {
   /** The name of the Mind Add to note adds to; null with no Mind in focus (the ▾ opens). */
   focusedMindName: string | null;
+  /** The Mind in focus has nothing written in it. */
+  mindEmpty: boolean;
   add(answer: ConversationAnswer): void;
   pick(answer: ConversationAnswer, anchor: HTMLElement): void;
+  newMind(answer: ConversationAnswer): void;
   openTable(answer: ConversationAnswer, table: NodeJSON): void;
 }
 
@@ -143,15 +147,7 @@ export function AssistantAnswer({
         <NoMindLine question={question} />
       )}
       {!streaming && <WaitingChangesLine answer={answer} />}
-      {!streaming && <UnbackedClaimLine answer={answer} onRegenerate={regenerate} />}
-      {!streaming && written && status !== "failed" && answer.steps?.withoutMindTools && (
-        <NoMindToolsLine
-          answerId={answer.id}
-          onAdd={(button) =>
-            keeping.focusedMindName ? keeping.add(answer) : keeping.pick(answer, button)
-          }
-        />
-      )}
+      {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
       {!streaming && scopeEmpty && (
         <ProblemLine
           role="status"
@@ -166,6 +162,7 @@ export function AssistantAnswer({
         </ProblemLine>
       )}
       {!streaming && uncalculated > 0 && <UncalculatedLine count={uncalculated} />}
+      {!streaming && status !== "failed" && <StillReadingLine answer={answer} />}
       {!streaming && status !== "failed" && <UnreadFilesLine files={unread} />}
       {!streaming && status === "failed" && !planModel && (
         <AnswerError
@@ -211,8 +208,10 @@ export function AssistantAnswer({
         streaming={streaming}
         canKeep={written}
         focusedMindName={keeping.focusedMindName}
+        mindEmpty={keeping.mindEmpty}
         onAdd={() => keeping.add(answer)}
         onPick={(anchor) => keeping.pick(answer, anchor)}
+        onNewMind={() => keeping.newMind(answer)}
       />
     </article>
   );

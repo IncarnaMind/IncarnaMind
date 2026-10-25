@@ -8,7 +8,8 @@
  * and the oldest beyond `maxFiles` (3 in all) is removed.
  *
  * What is written is kept from the User's content twice over: the core logs
- * only ids, statuses and kinds (src/core/activityLog.ts), and everything here
+ * only ids, statuses and kinds, and a failed Answer's message redacted
+ * (src/core/activityLog.ts); everything here
  * goes through the crash-report scrubber (./crashScrubber) on its way in.
  * Errors keep their type, the first line of their message with anything
  * quoted and anything like a key or hash removed, and their stack's frames;
@@ -21,6 +22,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { LogFields, Logger } from "../core";
 import type { RendererErrorReport } from "../shared/bridge";
+import { isPanelName } from "../shared/panels";
 import type { Scrubber } from "./crashScrubber";
 
 /** The log's folder, in the data folder. */
@@ -133,8 +135,17 @@ export interface FileLoggerOptions {
 
 /** The core's `Logger`, plus what the main process logs itself. */
 export interface FileLogger extends Logger {
-  /** An error: its type, scrubbed message and code, and its stack's frames. */
-  exception(event: string, error: unknown, fields?: LogFields, level?: Level): void;
+  /**
+   * An error: its type, scrubbed message and code, and its stack's frames, then `componentStack`,
+   * the components a panel was drawing when it failed.
+   */
+  exception(
+    event: string,
+    error: unknown,
+    fields?: LogFields,
+    level?: Level,
+    componentStack?: string,
+  ): void;
   /** What was written to the console with `console.error` or `console.warn`. */
   console(level: "warn" | "error", args: readonly unknown[]): void;
 }
@@ -194,10 +205,23 @@ export function createFileLogger(options: FileLoggerOptions): FileLogger {
     file.write(entry);
   };
 
-  const exception: FileLogger["exception"] = (event, error, fields, level = "error") => {
+  const exception: FileLogger["exception"] = (
+    event,
+    error,
+    fields,
+    level = "error",
+    componentStack,
+  ) => {
     const { summary, frames } = describe(error);
     const stack = frames.map((frame) => `\n    ${frame}`).join("");
-    write(level, event, fields, ` error=${JSON.stringify(summary)}${stack}`);
+    const components = (componentStack ?? "")
+      .split("\n")
+      .filter((line) => /^\s+at /.test(line))
+      .slice(0, MAX_FRAMES)
+      .map((line) => `\n    ${scrubber.text(appRelative(line.trim()))}`)
+      .join("");
+    const inComponents = components ? `\n    component stack:${components}` : "";
+    write(level, event, fields, ` error=${JSON.stringify(summary)}${stack}${inComponents}`);
   };
 
   return {
@@ -242,11 +266,23 @@ const MAX_WINDOW_STACK_LENGTH = 8 * 1024;
  * it (a `RendererErrorReport`, unchecked: it comes from another process).
  */
 export function logWindowError(logger: Pick<FileLogger, "exception">, report: unknown): void {
-  const { kind, name, message, stack } = (report ?? {}) as Partial<RendererErrorReport>;
+  const { kind, name, message, stack, panel, componentStack } = (report ??
+    {}) as Partial<RendererErrorReport>;
   const error = new Error(typeof message === "string" ? message : "");
   error.name = typeof name === "string" && name ? name : "Error";
   // Only its frames are kept: the stack's first line repeats the message.
   error.stack = typeof stack === "string" ? stack.slice(0, MAX_WINDOW_STACK_LENGTH) : "";
+  if (isPanelName(panel)) {
+    // Caught by the boundary of a panel: named, and with the components it was drawing.
+    logger.exception(
+      "window.panel-failed",
+      error,
+      { panel, caught: "boundary" },
+      "error",
+      typeof componentStack === "string" ? componentStack.slice(0, MAX_WINDOW_STACK_LENGTH) : "",
+    );
+    return;
+  }
   logger.exception("window.uncaught", error, {
     kind: kind === "rejection" ? "rejection" : "error",
   });

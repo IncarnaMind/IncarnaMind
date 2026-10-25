@@ -103,6 +103,7 @@ import type {
   RunWindow,
   TokenUsage,
 } from "../runs/engine";
+import { inStep } from "../timing/flows";
 import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { asksForFixes } from "./citations";
@@ -220,6 +221,8 @@ export interface AnswerTools {
   readonly documentLanguages?: readonly DocumentLanguage[];
   /** The Documents in the Search scope whose text couldn't be read: the search Tool says so. Absent: none are known. */
   unreadDocuments?(): readonly UnreadFile[];
+  /** The Documents in the Search scope still being read: the search Tool says so, so a Document isn't taken for missing (#1503). */
+  readingDocuments?(): readonly { name: string }[];
   /** The document-search Tool. */
   searchDocuments(
     query: string,
@@ -347,10 +350,11 @@ export interface AnswerRequest {
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
   /**
-   * The quick-tasks model, for the calls that don't write the Answer:
-   * rewriting a follow-up Question into a search query, and translating the
-   * query. Asked for only when one is made; without it, or when it can't be
-   * had (e.g. its flow was declined), the Answer's model makes them.
+   * The model for the calls that don't write the Answer: rewriting a
+   * follow-up Question into a search query, and translating the query. Asked
+   * for only when one is made, and already asked to skip thinking, which
+   * would fill their few tokens. Without it, or when it can't be had (e.g. its
+   * flow was declined), the Answer's model makes them.
    */
   quickModel?(): Promise<ChatLanguageModel>;
   /** Searching and citing the Documents: the Documents' Tools, and the search of a model without Tools. */
@@ -395,6 +399,10 @@ export interface AnswerRequest {
    * known: requests are sent as they are.
    */
   window?: ContextWindow;
+  /** The most the model writes in one reply, in tokens, when the catalog says. */
+  maxOutput?: number;
+  /** The model needs the Tools in every request, the last step's too (`ModelFacts.toolsEveryRequest`). */
+  toolsEveryRequest?: boolean;
   /**
    * In structured output, ask the model once more for the quotes the check
    * doesn't find (see ./quoteRetry): a local model, never a cloud one.
@@ -426,8 +434,6 @@ export interface AnswerRequest {
 export type AnswerEngineEvent =
   /** How the model gives Citations, once its provider has accepted the request. */
   | { type: "support"; support: CitationSupport }
-  /** The Answer is written without Tools: its model can't call them, so it can't change a Mind. */
-  | { type: "without-tools" }
   /**
    * What the Answer is doing now: searching the Documents, the model's turn,
    * or asking the model once more for exact quotes (see ./quoteRetry).
@@ -582,6 +588,14 @@ export function searchToolDescription(languages: readonly DocumentLanguage[]): s
 }
 /** A Citation marker ("[^1]") or a figure marker ("[=1]"): the Answer is being written. */
 const MARKER = /\[[\^=]\d{1,4}\]/;
+
+/**
+ * A backstop: a step before the last that has read the Documents and has written this much with no
+ * Citation marker in it is a model running on, not an Answer (#1344). The last step may write an
+ * Answer with no marker, as it is told no Citation can be recorded then; it is capped instead
+ * (src/core/runs/aiSdkEngine.ts).
+ */
+const RUNAWAY_CHARS = 12_000;
 
 /**
  * What a one-pass attempt yields when its provider refused the request before
@@ -824,7 +838,7 @@ interface SmallCallResult<T> {
 }
 
 /**
- * The quick-tasks model, else the Answer's (see `AnswerRequest.quickModel`).
+ * The model for the small calls, else the Answer's (see `AnswerRequest.quickModel`).
  * Another model than the Answer's runs at its provider's own temperature.
  */
 async function smallCallModel(
@@ -834,7 +848,9 @@ async function smallCallModel(
   if (request.quickModel) {
     try {
       const quick = await request.quickModel();
-      if (quick !== request.model) return { model: quick, temperature: undefined };
+      const sameModel =
+        quick.provider === request.model.provider && quick.modelId === request.model.modelId;
+      return { model: quick, temperature: sameModel ? temperature : undefined };
     } catch (error) {
       if (!request.signal.aborted) {
         console.error(`The quick-tasks model couldn't be used: ${messageOf(error)}`);
@@ -842,6 +858,17 @@ async function smallCallModel(
     }
   }
   return { model: request.model, temperature };
+}
+
+function logEmptySmallCall(
+  call: string,
+  model: ChatLanguageModel,
+  finishReason: string,
+  instead: string,
+) {
+  console.error(
+    `The ${call} came back empty from ${model.provider} ${model.modelId} (finish reason: ${finishReason}); ${instead}.`,
+  );
 }
 
 /**
@@ -861,7 +888,7 @@ async function searchQuery(
   if (!earlier) return { value: question, usage: null };
   try {
     const { model, temperature } = await small();
-    const { text, usage } = await generateText({
+    const { text, usage, finishReason } = await generateText({
       model,
       instructions: SEARCH_QUERY_INSTRUCTIONS,
       prompt: searchQueryPrompt(earlier, question),
@@ -872,7 +899,16 @@ async function searchQuery(
       maxRetries: 0,
       abortSignal: signal,
     });
-    return { value: queryIn(text) || question, usage: tokenUsageOf(usage) };
+    const query = queryIn(text);
+    if (!query) {
+      logEmptySmallCall(
+        "search rewrite",
+        model,
+        finishReason,
+        "searching for the Question as it was asked",
+      );
+    }
+    return { value: query || question, usage: tokenUsageOf(usage) };
   } catch (error) {
     if (!signal.aborted) {
       console.error(`The Question couldn't be rewritten for search: ${messageOf(error)}`);
@@ -946,7 +982,7 @@ async function translatedQuery(
 ): Promise<SmallCallResult<string | null>> {
   try {
     const { model, temperature } = await small();
-    const { text, usage } = await generateText({
+    const { text, usage, finishReason } = await generateText({
       model,
       instructions: TRANSLATE_QUERY_INSTRUCTIONS,
       prompt: translateQueryPrompt(query, language),
@@ -957,6 +993,14 @@ async function translatedQuery(
       abortSignal: request.signal,
     });
     const translated = queryIn(text);
+    if (!translated) {
+      logEmptySmallCall(
+        "search query's translation",
+        model,
+        finishReason,
+        "searching in the Question's language only",
+      );
+    }
     return {
       value: translated && translated !== query ? translated : null,
       usage: tokenUsageOf(usage),
@@ -1123,7 +1167,6 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           }
           if (!unsupported || signal.aborted) return;
         }
-        yield { type: "without-tools" };
         for await (const event of onePass("no-documents")) {
           if (event.type === "unsupported") return;
           yield event;
@@ -1143,7 +1186,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           small ??= smallCallModel(request, temperature());
           return small;
         };
-        const rewrite = await searchQuery(request, smallModel);
+        const rewrite = await inStep("search-rewrite", () => searchQuery(request, smallModel));
         if (rewrite.usage) yield { type: "usage", usage: rewrite.usage };
         const query = rewrite.value;
         signal.throwIfAborted();
@@ -1152,7 +1195,9 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           request.documents.documentLanguages ?? [],
         );
         const translation = language
-          ? await translatedQuery(request, query, language, smallModel)
+          ? await inStep("search-translation", () =>
+              translatedQuery(request, query, language, smallModel),
+            )
           : null;
         if (translation?.usage) yield { type: "usage", usage: translation.usage };
         const translated = translation?.value ?? null;
@@ -1246,7 +1291,6 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           if (!announced && event.type !== "failed") {
             announced = true;
             yield { type: "support", support };
-            if (support !== "tools") yield { type: "without-tools" };
           }
           yield event;
         }
@@ -1359,7 +1403,11 @@ export function documentTools(
         const result = hooks.fit(found);
         hooks.searched(toolCallId, result.passageCount, found.passageIds);
         // The dates are named from the Passages that fit, so never a Document the model wasn't handed.
-        const passages = withPassageNotes(result.text, documents.unreadDocuments?.() ?? []);
+        const passages = withPassageNotes(
+          result.text,
+          documents.unreadDocuments?.() ?? [],
+          documents.readingDocuments?.() ?? [],
+        );
         const note = hooks.languageNote?.();
         return note ? `${passages}\n\n${note}` : passages;
       },
@@ -1603,6 +1651,8 @@ async function* toolLoop(
   const calls = new Map<string, Tool>();
   /** Searches running now: the Answer is "searching" while there are any. */
   let searching = 0;
+  let searched = false;
+  const rambling = new AbortController();
   /** The reply that stands if the model, asked once more, fails: as it was before the last ask. */
   let standing: string | null = null;
   let again: readonly RunMessage[] | null = null;
@@ -1659,6 +1709,10 @@ async function* toolLoop(
     tools: runTools,
     maxSteps: stepsLeft,
     cacheKey: request.cacheKey,
+    lastStep: {
+      ...(request.maxOutput !== undefined && { tokens: request.maxOutput }),
+      ...(request.toolsEveryRequest && { keepTools: true }),
+    },
     gate: async (call) => {
       const tool = offered.get(call.tool);
       return tool && request.gate
@@ -1680,10 +1734,11 @@ async function* toolLoop(
         (call) => recording(offered.get(call.tool)) && askedForFixes.get(call.id) === false,
       ),
     temperature,
-    signal,
+    signal: AbortSignal.any([signal, rambling.signal]),
   });
   for await (const event of runs()) {
     if (signal.aborted) return;
+    if (rambling.signal.aborted) continue;
     switch (event.type) {
       case "reasoning":
         yield event;
@@ -1693,6 +1748,15 @@ async function* toolLoop(
         // A new step's text goes on from the last kept text in a new paragraph.
         if (stepText === "" && keptText !== "" && !/\s$/.test(keptText)) text = `\n\n${text}`;
         stepText += text;
+        if (
+          searched &&
+          steps < maxSteps - 1 &&
+          stepText.length > RUNAWAY_CHARS &&
+          !MARKER.test(stepText)
+        ) {
+          rambling.abort();
+          break;
+        }
         yield* release(releasable(keptText + stepText));
         break;
       }
@@ -1714,6 +1778,7 @@ async function* toolLoop(
         if (!called) break;
         calls.set(event.id, called);
         stepTools.push(called);
+        if (called === search) searched = true;
         if (called === search && searching++ === 0) {
           yield { type: "phase", phase: "searching" };
         }
@@ -1844,6 +1909,13 @@ async function* toolLoop(
         return;
       }
     }
+  }
+  if (rambling.signal.aborted && !signal.aborted) {
+    if (released > 0) yield { type: "text-retracted", length: released };
+    yield {
+      type: "failed",
+      error: { kind: "no-answer", message: "The model ran on without an Answer." },
+    };
   }
 }
 

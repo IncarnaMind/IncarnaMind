@@ -2,7 +2,10 @@
  * The guards every everyday request in the assistant is held to, read from
  * what the core stored, as a User would see it:
  *
- * - **Asked to write, the Mind changed.**
+ * - **Asked to write, the Mind changed**, the empty one it was asked from or
+ *   a new one when the request says which (#1559).
+ * - **Asked a Question, no Mind changed** (#1559), unless the request names
+ *   nothing to produce and may go either way ("Summarise these papers").
  * - **Every claimed change is real**, as a model judges the reply against the
  *   record of what the calls did (./judge), never the app's own net.
  * - **Citations are there**: in the reply, or, for text written into a Mind,
@@ -32,12 +35,25 @@
  *   reply that was not asked again may speak of a message the User did read.
  * - **Only the text's dates**: every date the reply gives is one the
  *   Documents' text writes, or is named as a file's (./dates).
+ * - **A figure the numbers give is calculated**: asked for a difference of
+ *   figures it cites, the Answer has a Calculated figure with the result, and
+ *   never says it couldn't calculate it (#1444).
+ * - **"This" is the one Document meant** (#1334): only the Documents a request
+ *   points at are cited or named, a short piece is short, and with two on
+ *   screen and nothing to tell which, it asks.
+ * - **"Add this to my notes" adds the last Answer** (#1734), as it is, while a
+ *   request for notes on the Documents writes new ones.
  */
 import { changeLogOf } from "../../src/core/answers/claimedChanges";
 import { forPage, withoutPointersBack } from "../../src/core/answers/pointersBack";
 import { withoutSearchTalk } from "../../src/core/answers/searchTalk";
 import { toolTextIn } from "../../src/core/answers/toolText";
-import type { ConversationAnswer, MarkedCitation } from "../../src/core/api";
+import type {
+  AskedQuote,
+  ConversationAnswer,
+  MarkedCitation,
+  MarkedFigure,
+} from "../../src/core/api";
 import { markersWithoutCitation } from "../../src/shared/answerBlocks";
 import { datesNotInText } from "./dates";
 import type { ClaimVerdict } from "./judge";
@@ -46,6 +62,17 @@ import type { ClaimVerdict } from "./judge";
 export interface Expected {
   /** It asks for text in a Mind: writing, adding, changing, making one. */
   write: boolean;
+  /**
+   * Where a piece asked for lands (#1559): in the Mind it was asked from, or in a new Mind.
+   * Absent: either.
+   */
+  into?: "asked-from" | "new";
+  /**
+   * It names nothing to produce ("Summarise these papers", "总结一下这两篇论文"): answered in the
+   * panel or written into a Mind, either passes. Without it, a request that doesn't ask to write
+   * changes no Mind.
+   */
+  either?: true;
   /** Its Answer must cite the Documents in scope. */
   cite: boolean;
   /** It asks about every Document in scope ("summarise these papers"). */
@@ -64,14 +91,36 @@ export interface Expected {
   textDates?: boolean;
   /** Its reply is in the Question's language, whatever language the Documents are in (#892, #1273); quoted words don't count. */
   language?: "en" | "zh-CN";
+  /** It asks for a figure the Documents' numbers give: a Calculated figure shows a result matching this, and the reply never says it couldn't calculate (#1444). */
+  figure?: RegExp;
+  /**
+   * The words what it writes into a Mind must use for a thing, and must not: a translation's own
+   * term ("spring tides" is 大潮, never 春潮), which Kimi K2.6 lost with thinking off (#1635).
+   */
+  terms?: readonly { want: string; not: readonly string[] }[];
+  /** The only Documents, by name, it may cite, or name in what it writes; empty: none (#1334). */
+  documents?: readonly string[];
+  /** What it writes into a Mind, else its reply, holds at most this many lines (`linesOf`, #1334). */
+  atMostLines?: number;
+  /** It must ask the User which (ask_user) before changing anything, or it may; absent: asking fails. */
+  asks?: "must" | "may";
+  /**
+   * True: it puts the last Answer into a Mind as it is (`answer: true`) and writes nothing new;
+   * false: it writes new text, not only a copy of the last Answer (#1734).
+   */
+  addsAnswer?: boolean;
 }
 
 export interface RequestOutcome {
   expected: Expected;
   answer: Pick<ConversationAnswer, "text" | "toolCalls" | "steps"> & {
-    citations: readonly Pick<MarkedCitation, "documentId" | "marker">[];
+    citations: readonly (Pick<MarkedCitation, "documentId" | "marker"> &
+      Partial<Pick<MarkedCitation, "documentName" | "pageFrom" | "pageTo" | "check">>)[];
+    figures?: readonly Pick<MarkedFigure, "shown">[];
   };
   verdict: ClaimVerdict;
+  /** The Mind it was asked from, by id; null or absent: none was in focus. */
+  askedFrom?: string | null;
   /** The Documents the Citations it wrote into Minds quote, by id. */
   citedInMinds: readonly string[];
   /** The top-level Blocks of the Mind it was asked from (from 0) that read otherwise once its changes are accepted. */
@@ -91,10 +140,18 @@ export interface RequestOutcome {
   scoped: readonly { id: string; name: string }[];
   /** The text of the Documents in scope, for `textDates`. */
   texts?: readonly string[];
+  /** It asked the User which (ask_user), and the Answer stopped there, waiting for them. */
+  stoppedAtAsk?: boolean;
+  /** The words it was asked about (#101): its first Citation must be them, found where they were selected. */
+  quoted?: AskedQuote;
 }
 
 export type RequestFailure =
   | { kind: "no-change" }
+  /** Asked a Question, it changed a Mind. */
+  | { kind: "changed-unasked" }
+  /** The piece went elsewhere than `Expected.into`. */
+  | { kind: "wrong-place"; wanted: "asked-from" | "new" }
   /** `flagged`: the app's own net said so under the reply. */
   | { kind: "unbacked"; sentences: string[]; flagged: boolean }
   | { kind: "no-citations" }
@@ -110,7 +167,18 @@ export type RequestFailure =
   | { kind: "content-lost"; sentences: string[] }
   | { kind: "unseen-attempt"; said: string }
   | { kind: "date-not-in-text"; dates: string[] }
-  | { kind: "wrong-language"; wanted: "en" | "zh-CN"; share: number };
+  | { kind: "wrong-language"; wanted: "en" | "zh-CN"; share: number }
+  | { kind: "no-figure"; wanted: string; shown: string[] }
+  | { kind: "gave-up"; said: string }
+  | { kind: "term"; want: string; found: string[] }
+  | { kind: "other-documents"; documents: string[] }
+  | { kind: "too-long"; lines: number; most: number }
+  | { kind: "no-ask" }
+  | { kind: "asked" }
+  | { kind: "not-the-answer" }
+  | { kind: "only-a-copy" }
+  /** Its first Citation, as "document, pages, check", or null for none. */
+  | { kind: "not-quoted"; first: string | null };
 
 const QUOTED = /“[^”]*”|"[^"]*"|「[^」]*」|『[^』]*』/g;
 const CITATION_MARKER = /\[\^\d+\]/g;
@@ -290,6 +358,18 @@ export function aboutAnUnseenAttempt(reply: string): string | null {
   );
 }
 
+const COULDNT_CALCULATE =
+  /\b(?:couldn't|could not|can't|cannot|unable to|wasn't able to) (?:calculate|compute|work out)\b|没能算出|没有算出|无法计算|未能计算|不能计算|没法计算/i;
+
+export function givesUpOnCalculating(reply: string): string | null {
+  return (
+    reply
+      .split(/(?<=[.!?])\s+|(?<=[。！？])|\n+/)
+      .map((sentence) => sentence.trim())
+      .find((sentence) => COULDNT_CALCULATE.test(sentence)) ?? null
+  );
+}
+
 const NOT_COVERED =
   /\b(?:couldn't|could not|can't|cannot|didn't|did not|wasn't|weren't|isn't|aren't|not|no|unable|left out|missing|skipped)\b|没有|未能|未|无法|不能|缺少|略去/i;
 
@@ -381,8 +461,24 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   const { expected, answer } = outcome;
   const failures: RequestFailure[] = [];
   const log = changeLogOf(answer.toolCalls);
-  if (expected.write && log.changed.size === 0 && log.made.size === 0) {
-    failures.push({ kind: "no-change" });
+  const changedAny = log.changed.size > 0 || log.made.size > 0;
+  // An Answer waiting on its question has nothing else to hold to yet, but must not have written first.
+  if (outcome.stoppedAtAsk) {
+    return [
+      ...(expected.asks === undefined ? [{ kind: "asked" } as const] : []),
+      ...(changedAny ? [{ kind: "changed-unasked" } as const] : []),
+    ];
+  }
+  if (expected.write && !changedAny) failures.push({ kind: "no-change" });
+  if (!expected.write && !expected.either && changedAny) {
+    failures.push({ kind: "changed-unasked" });
+  }
+  if (expected.into && changedAny) {
+    const landed =
+      expected.into === "new"
+        ? log.made.size > 0
+        : outcome.askedFrom != null && log.changed.has(outcome.askedFrom) && log.made.size === 0;
+    if (!landed) failures.push({ kind: "wrong-place", wanted: expected.into });
   }
   if (outcome.verdict.unbacked.length > 0) {
     failures.push({
@@ -391,7 +487,6 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
       flagged: (answer.steps?.unbackedClaims ?? []).length > 0,
     });
   }
-  // Asked a Question, it may still write its cited answer into a Mind, as a change to accept.
   const citedHere = expected.write
     ? outcome.citedInMinds.length
     : answer.citations.length + outcome.citedInMinds.length;
@@ -452,6 +547,88 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
       share: chineseShare(answer.text),
     });
   }
+  if (expected.figure) {
+    const shown = (answer.figures ?? []).map((figure) => figure.shown);
+    if (!shown.some((each) => expected.figure?.test(each))) {
+      failures.push({ kind: "no-figure", wanted: expected.figure.source, shown });
+    }
+    const gaveUp = givesUpOnCalculating(answer.text);
+    if (gaveUp) failures.push({ kind: "gave-up", said: gaveUp });
+  }
+  for (const term of expected.terms ?? []) {
+    const text = inMinds.join("\n\n");
+    const found = term.not.filter((word) => text.includes(word));
+    if (!text.includes(term.want) || found.length > 0) {
+      failures.push({ kind: "term", want: term.want, found });
+    }
+  }
+  failures.push(...thisFailures(outcome));
+  return failures;
+}
+
+/** How many lines a reader sees in Markdown: a heading, a paragraph, a list item or a table row each one. */
+export function linesOf(markdown: string): number {
+  return markdown
+    .split("\n")
+    .filter((line) => line.trim() !== "" && !/^\s*\|?\s*:?-{3,}/.test(line)).length;
+}
+
+function otherDocuments(outcome: RequestOutcome, allowed: readonly string[]): string[] {
+  const cited = new Set([
+    ...outcome.answer.citations.map((citation) => citation.documentId),
+    ...outcome.citedInMinds,
+  ]);
+  const written = [outcome.answer.text, ...(outcome.writtenInMinds ?? [])]
+    .join("\n")
+    .toLocaleLowerCase();
+  return outcome.scoped
+    .filter(
+      (document) =>
+        !allowed.includes(document.name) &&
+        (cited.has(document.id) || written.includes(document.name.toLocaleLowerCase())),
+    )
+    .map((document) => document.name);
+}
+
+function thisFailures(outcome: RequestOutcome): RequestFailure[] {
+  const { expected, answer } = outcome;
+  const failures: RequestFailure[] = [];
+  if (expected.documents) {
+    const others = otherDocuments(outcome, expected.documents);
+    if (others.length > 0) failures.push({ kind: "other-documents", documents: others });
+  }
+  const given = (outcome.givenToMinds ?? []).filter((each) => each.landed);
+  if (expected.atMostLines !== undefined) {
+    const written = given.map((each) => each.content).join("\n");
+    const lines = linesOf(written || answer.text);
+    if (lines > expected.atMostLines) {
+      failures.push({ kind: "too-long", lines, most: expected.atMostLines });
+    }
+  }
+  const asked = answer.toolCalls.some((call) => call.tool === "ask_user");
+  if (expected.asks === "must" && !asked) failures.push({ kind: "no-ask" });
+  const copies = given.filter((each) => each.question !== undefined).length;
+  const fresh = given.length - copies;
+  if (expected.addsAnswer === true && (copies === 0 || fresh > 0)) {
+    failures.push({ kind: "not-the-answer" });
+  }
+  if (expected.addsAnswer === false && copies > 0 && fresh === 0) {
+    failures.push({ kind: "only-a-copy" });
+  }
+  const quoted = outcome.quoted;
+  const [first] = answer.citations;
+  if (
+    quoted &&
+    (first?.documentId !== quoted.documentId ||
+      first.pageFrom !== quoted.pageFrom ||
+      first.pageTo !== quoted.pageTo ||
+      first.check !== "found")
+  ) {
+    const said = first
+      ? `${first.documentName}, pp. ${first.pageFrom}–${first.pageTo}, ${first.check}`
+      : null;
+    failures.push({ kind: "not-quoted", first: said });
+  }
   return failures;
 }
 
@@ -460,6 +637,12 @@ export function failureLine(failure: RequestFailure): string {
   switch (failure.kind) {
     case "no-change":
       return "asked to write, it changed no Mind";
+    case "changed-unasked":
+      return "asked a Question, it changed a Mind";
+    case "wrong-place":
+      return failure.wanted === "new"
+        ? "wrote the piece somewhere other than a new Mind"
+        : "wrote the piece somewhere other than the Mind it was asked from";
     case "unbacked":
       return `claims a change no call made${failure.flagged ? " (flagged under the reply)" : ""}: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
     case "no-citations":
@@ -488,7 +671,27 @@ export function failureLine(failure: RequestFailure): string {
       return `says something of an earlier try the User never saw: “${failure.said}”`;
     case "date-not-in-text":
       return `gives a date the Documents' text doesn't: ${failure.dates.join(", ")}`;
+    case "no-figure":
+      return `has no Calculated figure matching /${failure.wanted}/ (figures: ${failure.shown.length > 0 ? failure.shown.join(", ") : "none"})`;
+    case "gave-up":
+      return `says it couldn't calculate what its Citations give: “${failure.said}”`;
+    case "term":
+      return `doesn't write “${failure.want}” for it${failure.found.length > 0 ? `, but ${failure.found.map((word) => `“${word}”`).join(", ")}` : ""}`;
     case "wrong-language":
       return `is not written in ${failure.wanted === "en" ? "English" : "Chinese"}, the Question's language (${Math.round(failure.share * 100)}% of its letters are Chinese characters)`;
+    case "other-documents":
+      return `cites or names Documents it wasn't asked about: ${failure.documents.map((name) => `“${name}”`).join(", ")}`;
+    case "too-long":
+      return `asked for it short, wrote ${failure.lines} lines (at most ${failure.most})`;
+    case "no-ask":
+      return "didn't ask which Document was meant";
+    case "asked":
+      return "asked the User which, unasked";
+    case "not-the-answer":
+      return "didn't add the last Answer as it is, or wrote new text beside it";
+    case "only-a-copy":
+      return "asked for new notes, it only copied the last Answer";
+    case "not-quoted":
+      return `its first Citation isn't the selected words where they were selected (${failure.first ?? "no Citation"})`;
   }
 }

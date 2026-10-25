@@ -1,0 +1,1125 @@
+{
+  "about": "Tables Verify reads from the text layer of PDF fixtures (#1368), and of tables printed from HTML in files/: a two-level heading centred over its columns, as Word, Excel and HTML set merged cells, with the labels' heading in the middle or at the top of its merged cell; headings set left; a centred caption, title or page header just above one row of headings, centred over the whole table or the page, or a caption, table number or page header set at both edges; Chinese statements whose title is centred above them, with their 编制单位 line; and one upper heading over every figure column (\"Year ended 31 December\"): each table's column headings and its rows' cells, as a person reads them off the page, and pages that hold no table though their text sits in columns. tests/eval/tableSet.test.ts scores the reader against them.",
+  "tables": [
+    {
+      "file": "tests/fixtures/organize/files/2025年度财务报表.pdf",
+      "page": 1,
+      "headings": [
+        "项目",
+        "期末余额",
+        "期初余额"
+      ],
+      "rows": [
+        [
+          "货币资金",
+          "3,820",
+          "3,145"
+        ],
+        [
+          "应收账款",
+          "2,610",
+          "2,290"
+        ],
+        [
+          "固定资产",
+          "9,470",
+          "8,860"
+        ],
+        [
+          "资产总计",
+          "17,350",
+          "15,920"
+        ],
+        [
+          "短期借款",
+          "1,500",
+          "2,000"
+        ],
+        [
+          "应付账款",
+          "2,180",
+          "1,960"
+        ],
+        [
+          "负债合计",
+          "6,420",
+          "6,610"
+        ],
+        [
+          "所有者权益合计",
+          "10,930",
+          "9,310"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/2025年度财务报表.pdf",
+      "page": 1,
+      "headings": [
+        "项目",
+        "本年金额",
+        "上年金额"
+      ],
+      "rows": [
+        [
+          "营业收入",
+          "21,640",
+          "19,080"
+        ],
+        [
+          "营业成本",
+          "16,930",
+          "15,140"
+        ],
+        [
+          "销售及管理费用",
+          "2,310",
+          "2,120"
+        ],
+        [
+          "财务费用",
+          "96",
+          "131"
+        ],
+        [
+          "利润总额",
+          "2,160",
+          "1,620"
+        ],
+        [
+          "净利润",
+          "1,620",
+          "1,215"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/2025年度财务报表.pdf",
+      "page": 1,
+      "headings": [
+        "项目",
+        "本年金额"
+      ],
+      "rows": [
+        [
+          "经营活动产生的现金流量净额",
+          "2,940"
+        ],
+        [
+          "投资活动产生的现金流量净额",
+          "-1,765"
+        ],
+        [
+          "筹资活动产生的现金流量净额",
+          "-500"
+        ],
+        [
+          "现金及现金等价物净增加额",
+          "675"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/2604.01873v2.pdf",
+      "page": 2,
+      "headings": [
+        "Cell",
+        "Interlayer thickness (nm)",
+        "Critical current density (mA cm-2)",
+        "Hours to short circuit at 0.5 mA cm-2"
+      ],
+      "rows": [
+        [
+          "Bare electrolyte",
+          "0",
+          "0.6",
+          "46"
+        ],
+        [
+          "Thin coating",
+          "15",
+          "1.3",
+          "310"
+        ],
+        [
+          "Optimised coating",
+          "40",
+          "2.4",
+          "> 1,200"
+        ],
+        [
+          "Thick coating",
+          "120",
+          "1.9",
+          "> 1,200 (high overpotential)"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/EVC-outlook-2026.pdf",
+      "page": 2,
+      "headings": [
+        "Segment",
+        "2025 points",
+        "2030 forecast",
+        "CAGR"
+      ],
+      "rows": [
+        [
+          "Slow and destination (< 22 kW)",
+          "0.96 m",
+          "2.48 m",
+          "21%"
+        ],
+        [
+          "Fast (50–150 kW)",
+          "0.12 m",
+          "0.61 m",
+          "38%"
+        ],
+        [
+          "Ultra-fast (> 150 kW)",
+          "0.04 m",
+          "0.31 m",
+          "51%"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/BrewMaster 300 manual.pdf",
+      "page": 1,
+      "headings": [
+        "No.",
+        "Part",
+        "No.",
+        "Part"
+      ],
+      "rows": [
+        [
+          "1",
+          "Water tank lid",
+          "6",
+          "Glass jug with lid"
+        ],
+        [
+          "2",
+          "Water tank with level gauge",
+          "7",
+          "Hotplate"
+        ],
+        [
+          "3",
+          "Filter holder (swing-out)",
+          "8",
+          "On/off switch with light"
+        ],
+        [
+          "4",
+          "Permanent filter",
+          "9",
+          "Aroma selector"
+        ],
+        [
+          "5",
+          "Drip stop valve",
+          "10",
+          "Cable storage"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/BrewMaster 300 manual.pdf",
+      "page": 2,
+      "headings": [
+        "Problem",
+        "Possible cause",
+        "Solution"
+      ],
+      "rows": [
+        [
+          "Coffee runs over the filter",
+          "Jug not in place, or filter blocked",
+          "Check the jug position; use less finely ground coffee"
+        ],
+        [
+          "Brewing takes much longer",
+          "Scale build-up",
+          "Descale the machine (section 6)"
+        ],
+        [
+          "Coffee is not hot enough",
+          "Jug was cold",
+          "Rinse the jug with hot water before brewing"
+        ],
+        [
+          "Machine does not start",
+          "No power",
+          "Check plug, socket and fuse"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/2026-03 Invoice Kestrel Labs.pdf",
+      "page": 1,
+      "headings": [
+        "Description",
+        "Quantity",
+        "Unit price",
+        "Amount"
+      ],
+      "rows": [
+        [
+          "Brand refresh: logo and typography",
+          "1",
+          "3,200.00",
+          "3,200.00"
+        ],
+        [
+          "Website illustration set (12 images)",
+          "12",
+          "180.00",
+          "2,160.00"
+        ],
+        [
+          "Design system workshop (half day)",
+          "1",
+          "750.00",
+          "750.00"
+        ],
+        [
+          "Subtotal",
+          "",
+          "",
+          "6,110.00"
+        ],
+        [
+          "VAT at 20%",
+          "",
+          "",
+          "1,222.00"
+        ],
+        [
+          "Total due",
+          "",
+          "",
+          "7,332.00"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/2026年第一季度销售报告.pdf",
+      "page": 1,
+      "headings": [
+        "渠道",
+        "2025年一季度（万元）",
+        "2026年一季度（万元）",
+        "同比"
+      ],
+      "rows": [
+        [
+          "自营电商",
+          "3,120",
+          "3,980",
+          "+27.6%"
+        ],
+        [
+          "第三方平台",
+          "2,450",
+          "2,870",
+          "+17.1%"
+        ],
+        [
+          "直营门店",
+          "5,060",
+          "4,890",
+          "-3.4%"
+        ],
+        [
+          "经销商",
+          "1,090",
+          "960",
+          "-11.9%"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/dzfp_044031900111_20260312.pdf",
+      "page": 1,
+      "headings": [
+        "项目名称",
+        "单位",
+        "数量",
+        "单价",
+        "金额",
+        "税率",
+        "税额"
+      ],
+      "rows": [
+        [
+          "*图书*统计学导论（第4版）",
+          "本",
+          "1",
+          "87.61",
+          "87.61",
+          "9%",
+          "7.89"
+        ],
+        [
+          "*图书*城市气候学",
+          "本",
+          "1",
+          "62.39",
+          "62.39",
+          "9%",
+          "5.61"
+        ],
+        [
+          "*文具*笔记本",
+          "本",
+          "3",
+          "11.50",
+          "34.50",
+          "13%",
+          "4.49"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/TR2026-03.pdf",
+      "page": 1,
+      "headings": [
+        "材料",
+        "压缩永久变形/%",
+        "硬度变化/邵氏A",
+        "泄漏率/(Pa·m³/s)"
+      ],
+      "rows": [
+        [
+          "氟橡胶 FKM",
+          "34",
+          "+6",
+          "2.1×10⁻⁷"
+        ],
+        [
+          "硅橡胶 VMQ",
+          "18",
+          "-2",
+          "8.5×10⁻⁸"
+        ],
+        [
+          "硅橡胶（含硫介质）",
+          "27",
+          "-9",
+          "3.4×10⁻⁷"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/说明书.pdf",
+      "page": 1,
+      "headings": [
+        "序号",
+        "部件",
+        "序号",
+        "部件"
+      ],
+      "rows": [
+        [
+          "1",
+          "出风口",
+          "5",
+          "复合滤网"
+        ],
+        [
+          "2",
+          "控制面板",
+          "6",
+          "前盖板"
+        ],
+        [
+          "3",
+          "空气质量指示灯",
+          "7",
+          "进风口"
+        ],
+        [
+          "4",
+          "颗粒物传感器",
+          "8",
+          "电源线"
+        ]
+      ]
+    },
+    {
+      "file": "tests/fixtures/organize/files/说明书.pdf",
+      "page": 1,
+      "headings": [
+        "故障现象",
+        "可能原因",
+        "处理方法"
+      ],
+      "rows": [
+        [
+          "无法开机",
+          "电源未接通",
+          "检查插头与插座"
+        ],
+        [
+          "净化效果变差",
+          "滤网已到寿命",
+          "更换新滤网"
+        ],
+        [
+          "噪音变大",
+          "滤网安装不到位",
+          "重新安装滤网"
+        ],
+        [
+          "指示灯一直显示红色",
+          "传感器积灰",
+          "清洁颗粒物传感器"
+        ]
+      ]
+    },
+    {
+      "file": "eval/retrieval/fixtures/维基百科-环境、社会和公司治理.pdf",
+      "page": 3,
+      "headings": [
+        "區域",
+        "流⼊美元⼗億",
+        "資產美元⼗億",
+        "資產 %",
+        "基⾦ #",
+        "基⾦ %"
+      ],
+      "rows": [
+        [
+          "歐洲",
+          "15.3",
+          "2.293",
+          "84",
+          "5.608",
+          "73"
+        ],
+        [
+          "美國",
+          "-2.7",
+          "299",
+          "11",
+          "661",
+          "9"
+        ],
+        [
+          "亞洲（不含⽇本）",
+          "2.0",
+          "67",
+          "2",
+          "539",
+          "7"
+        ],
+        [
+          "澳⼤利亞/紐西蘭",
+          "0.0",
+          "31",
+          "1",
+          "268",
+          "4"
+        ],
+        [
+          "⽇本",
+          "-0.9",
+          "23",
+          "1",
+          "236",
+          "3"
+        ],
+        [
+          "加拿⼤",
+          "-0.1",
+          "31",
+          "1",
+          "336",
+          "4"
+        ],
+        [
+          "總計",
+          "13.7",
+          "2.744",
+          "",
+          "7.648",
+          ""
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Quarterly sales by channel.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "2025 Q1",
+        "2025 Q2",
+        "2024 Q1",
+        "2024 Q2"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,100",
+          "1,150"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "700",
+          "760"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "480",
+          "470"
+        ],
+        [
+          "Total",
+          "2,490",
+          "2,705",
+          "2,280",
+          "2,380"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Cash position.pdf",
+      "page": 1,
+      "headings": [
+        "Account",
+        "Closing balance",
+        "Opening balance"
+      ],
+      "rows": [
+        [
+          "Cash",
+          "3,820",
+          "3,145"
+        ],
+        [
+          "Deposits",
+          "1,250",
+          "1,400"
+        ],
+        [
+          "Overdraft",
+          "(220)",
+          "(310)"
+        ],
+        [
+          "Net cash",
+          "4,850",
+          "4,235"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Sales by channel, captioned.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Sales by channel, titled.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Sales by channel, page header.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Quarterly sales, channel at the top.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "2025 Q1",
+        "2025 Q2",
+        "2024 Q1",
+        "2024 Q2"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,100",
+          "1,150"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "700",
+          "760"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "480",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/利润表.pdf",
+      "page": 1,
+      "headings": [
+        "项目",
+        "本年金额",
+        "上年金额"
+      ],
+      "rows": [
+        [
+          "营业收入",
+          "25,600",
+          "22,140"
+        ],
+        [
+          "营业成本",
+          "（16,320）",
+          "（14,050）"
+        ],
+        [
+          "销售费用",
+          "（2,410）",
+          "（2,180）"
+        ],
+        [
+          "净利润",
+          "4,180",
+          "3,560"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Sales by channel, caption and units.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Sales by channel, table number and units.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Sales by channel, header at both edges.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/利润表，编制单位.pdf",
+      "page": 1,
+      "headings": [
+        "项目",
+        "本年金额",
+        "上年金额"
+      ],
+      "rows": [
+        [
+          "营业收入",
+          "25,600",
+          "22,140"
+        ],
+        [
+          "营业成本",
+          "（16,320）",
+          "（14,050）"
+        ],
+        [
+          "净利润",
+          "4,180",
+          "3,560"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/资产负债表.pdf",
+      "page": 1,
+      "headings": [
+        "项目",
+        "期末余额",
+        "期初余额"
+      ],
+      "rows": [
+        [
+          "货币资金",
+          "3,820",
+          "3,145"
+        ],
+        [
+          "应收账款",
+          "2,410",
+          "2,080"
+        ],
+        [
+          "存货",
+          "1,960",
+          "1,720"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Income statement, year ended.pdf",
+      "page": 1,
+      "headings": [
+        "Item",
+        "Year ended 31 December 2025",
+        "Year ended 31 December 2024"
+      ],
+      "rows": [
+        [
+          "Revenue",
+          "12,400",
+          "11,100"
+        ],
+        [
+          "Cost of sales",
+          "(7,900)",
+          "(7,200)"
+        ],
+        [
+          "Operating profit",
+          "2,300",
+          "1,950"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Sales by channel and quarter, centred caption.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Sales by channel and quarter, caption 18 pt above.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/Sales by channel, table at 70% under a page-centred caption.pdf",
+      "page": 1,
+      "headings": [
+        "Channel",
+        "Q1",
+        "Q2",
+        "Q3"
+      ],
+      "rows": [
+        [
+          "Retail",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "Online",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "Wholesale",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/各渠道季度销售额，居中表题.pdf",
+      "page": 1,
+      "headings": [
+        "项目",
+        "第一季度",
+        "第二季度",
+        "第三季度"
+      ],
+      "rows": [
+        [
+          "电商",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "零售",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "批发",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    },
+    {
+      "file": "eval/tables/files/华港控股有限公司2025年度销售表.pdf",
+      "page": 1,
+      "headings": [
+        "项目",
+        "第一季度",
+        "第二季度",
+        "第三季度"
+      ],
+      "rows": [
+        [
+          "电商",
+          "1,200",
+          "1,340",
+          "1,280"
+        ],
+        [
+          "零售",
+          "860",
+          "910",
+          "990"
+        ],
+        [
+          "批发",
+          "430",
+          "455",
+          "470"
+        ]
+      ]
+    }
+  ],
+  "none": [
+    {
+      "file": "eval/retrieval/fixtures/维基百科-环境、社会和公司治理.pdf",
+      "pages": [
+        16,
+        20,
+        22
+      ],
+      "why": "references set in two columns"
+    },
+    {
+      "file": "eval/retrieval/formats/files/城市绿地与夏季降温调查.pdf",
+      "pages": [
+        1
+      ],
+      "why": "two columns of prose beside a chart's axis"
+    },
+    {
+      "file": "eval/retrieval/fixtures/维基百科-可持续发展目标.pdf",
+      "pages": [
+        1
+      ],
+      "why": "prose beside an infobox"
+    }
+  ]
+}

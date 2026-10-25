@@ -9,7 +9,7 @@ import { FAKE_CLOUD_LINES } from "../../src/core/transcription/fakeCloud";
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
-import { transcribingCore, transcriptOf, until } from "../helpers/transcription";
+import { fakeSeparator, transcribingCore, transcriptOf, until } from "../helpers/transcription";
 
 const SECOND = 1000;
 const SONIOX_KEY = "soniox-test-key-0123456789";
@@ -45,8 +45,36 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
     const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
     expect(cues.every((cue) => FAKE_CLOUD_LINES.includes(cue.text))).toBe(true);
-    // The microphone in a call is the User's own; the other side's voices are numbered as told apart.
-    expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them 1", "Them 2"]));
+    // The microphone in a call is the User's own; the other side's voices are numbered as told
+    // apart, the first's lines too once the second spoke (DESIGN.md › Speakers).
+    expect(new Set(cues.map((cue) => cue.speaker))).toEqual(
+      new Set(["Me", "Speaker 1", "Speaker 2"]),
+    );
+  });
+
+  // protects=DESIGN.md › Speakers on the cloud path: one voice on the other side stays "Them", and the speaker pass leaves voices the service told apart as they are; fails_when=one voice is numbered, or the pass runs over the cloud's labels; no_claim=the local pass's own labels, which tests/core/speakerPass.test.ts covers.
+  test('with one voice on the other side, its lines say "Them", and the speaker pass leaves the service\'s voices', async () => {
+    const dataDir = await createTempDataFolder();
+    const pass = fakeSeparator();
+    const { core, record } = await transcribingCore(dataDir, {
+      engine: { cloud: { voices: 1 } },
+      speakerSeparator: pass.separator,
+    });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+    record(9 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 4);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "saved" && !transcript.separating,
+    );
+    const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
+    expect(pass.requests).toHaveLength(0);
   });
 
   test("in a room, with no computer sound, the voices it told apart are numbered, never the User, and a Citation names them", async () => {

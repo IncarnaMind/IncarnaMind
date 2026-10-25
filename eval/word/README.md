@@ -68,6 +68,8 @@ For each file it runs these steps, and prints one line per file:
 7. **review export opens in LibreOffice**: step 3 on the review export, its PDF kept as `<file>-review.pdf`.
 8. **resolves someone's changes** (#108, `checkTheirChanges`): of the tracked changes of someone else's that the file has, which import as changes to accept or reject, every third is accepted, the next rejected and the next left, and the file is exported with the User's edits tracked. No change is out of date as imported; the package has none of the problems of step 1 the file didn't have; nothing is reported lost; nothing is tracked as the User's or IncarnaMind's; the changes left import again with their kind, author, date and text; and the text Word shows with every change accepted is the Mind's with every change accepted. `npm test` runs it on the core set.
 9. **that export opens in LibreOffice**: step 3 on it, its PDF kept as `<file>-resolved.pdf`.
+10. **exports with the Citations in a list** (#1600, `checkListExport`): the scripted edit again, with the User's choice of a list at the end: the added Citation is `[1]` in its paragraph, its source is the list's one entry under the Bibliography's heading, no footnote is added, and the package passes step 1's checks.
+11. **list export opens in LibreOffice**: step 3 on it, its PDF kept as `<file>-list.pdf`.
 
 After the files, a fixture made for it (headings, paragraphs and a table) is exported for review and opened in LibreOffice, which accepts every change in it with a Basic macro (in its temporary profile) and saves its text: that text's words, paragraph by paragraph, must be the Mind's with every change accepted.
 

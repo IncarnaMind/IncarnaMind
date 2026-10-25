@@ -19,6 +19,8 @@ export interface PdfPage {
    * STSong-Light when a line has characters beyond Latin-1.
    */
   printed?: readonly { text: string; size?: number }[];
+  /** Text drawn where each says, in Helvetica at 10 points: a table's cells. Latin-1 characters only. */
+  placed?: readonly { text: string; x: number; y: number }[];
   /** Draws a small greyscale image, like a scanned page. */
   image?: boolean;
   /** A valid compressed raster for exercising oversized-image limits. */
@@ -126,6 +128,9 @@ function contentStream(page: PdfPage): string {
     if (/[^\x20-\xff]/.test(line)) throw new Error(`Not Latin-1: ${line}`);
     parts.push(`BT /F1 11 Tf 72 ${y} Td (${escapeLatin(line)}) Tj ET`);
     y -= LINE_HEIGHT;
+  }
+  for (const { text, x, y: at } of page.placed ?? []) {
+    parts.push(`BT /F1 10 Tf ${x} ${at} Td (${escapeLatin(text)}) Tj ET`);
   }
   for (const line of page.chineseLines ?? []) {
     parts.push(`BT /F2 11 Tf 72 ${y} Td <${toUcs2Hex(line)}> Tj ET`);

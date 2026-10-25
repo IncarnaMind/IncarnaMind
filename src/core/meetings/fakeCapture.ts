@@ -24,6 +24,8 @@ export interface FakeCaptureOptions {
   realTime?: number;
   /** The computer's sound plays these samples once, then silence; the microphone is quiet meanwhile. */
   recording?: Int16Array;
+  /** The clock its frames are stamped with, the one the core's `now` reads: `Date.now` by default. */
+  now?: () => number;
 }
 
 /** A WAV file's samples: 16-bit PCM, mono, at `MEETING_SAMPLE_RATE`, as a recording to play. */
@@ -54,6 +56,7 @@ export interface FakeCapture extends AudioCapture {
   /** How many captures have started, and whether one runs now. */
   readonly started: number;
   readonly running: boolean;
+  readonly microphoneOn: boolean;
   /** The sources the System Settings link was opened for. */
   readonly settingsOpened: readonly AudioSource[];
 }
@@ -90,10 +93,11 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
     return samples;
   };
 
+  const now = options.now ?? Date.now;
   const push = (source: AudioSource, ms: number) => {
     if (!sink || !wanted[source]) return;
     if (source === "microphone" && Date.now() < micQuietUntil) return;
-    sink.audio(source, samplesOf(source, ms));
+    sink.audio(source, samplesOf(source, ms), now());
   };
 
   return {
@@ -103,6 +107,9 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
     },
     get running() {
       return sink !== null;
+    },
+    get microphoneOn() {
+      return wanted.microphone;
     },
     settingsOpened,
 
@@ -128,6 +135,11 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
         }, tick);
       }
       return {
+        setMicrophone(on) {
+          if (sink !== given || wanted.microphone === on) return;
+          wanted = { ...wanted, microphone: on };
+          if (on) given.state("microphone", "recording");
+        },
         stop: async () => {
           if (timer) clearInterval(timer);
           timer = null;

@@ -14,6 +14,8 @@ For every Document, the app's own code path, without the app's database or embed
    - `tev-0.8b`, `tev-4b`: the local decision model Tev1 0.8B or 4B, chosen by name.
    - `clef-flash`: Clef-Flash chosen by name, with PDF page images on.
    - `chat`: the connected chat model, from `INCARNAMIND_EVAL_CHAT_*` (as `npm run eval` reads them), with thinking off as the app asks for it on every call that doesn't write an Answer (OpenAI's small models: reasoning effort `none`). A model that reads images (from the catalog, `src/core/providers/capabilities.ts`) also gets the page images of a PDF without text, as in the app.
+   - `jev`: TypeSafe's Jev 1.13 as the app's decision-model classifier: one choice for the Folder and a yes/no question with a probability for each Tag. Text only, so a scan waits.
+   - `decisions`: OpenAI's Decisions API (`gpt-6-luna`), shaped the same way, with a scan's page images. For the evaluation only: the app has no such classifier.
    - `scripted`: the smoke tests' scripted chat model (`src/main/fakeChatModel.ts`) through the chat route: it files a Document in the Folder whose name it contains. No model and no network: it checks that a run goes through.
 
 The Folders and Tags are the app's starter Folders (`library.preset.*` in `src/shared/i18n/`) and preset Tags (`src/core/tags/presets.ts`), read from the source, so a change to their descriptions is measured. A PDF without text is left for a route that can't read pages, as the Library leaves it; it counts as a miss.
@@ -49,11 +51,15 @@ Needs Ollama on `http://127.0.0.1:11434` with `tev1:4b`, `tev1:0.8b` and `clef-f
 | `INCARNAMIND_ORGANIZE_ROUTES` | `auto,tev-0.8b,clef-flash`, plus `chat` when a chat model is set | Comma-separated routes; `scripted` runs with no model. |
 | `INCARNAMIND_ORGANIZE_SPLIT` | `all` | `tune`, `heldout` or `all`. |
 | `INCARNAMIND_ORGANIZE_LANGUAGE` | `en` | The language of the Folder and Tag definitions: `en` or `zh-CN`. |
+| `INCARNAMIND_ORGANIZE_DOCUMENTS` | `all` | Only the English (`en`) or the Chinese (`zh`) Documents. |
+| `INCARNAMIND_ORGANIZE_THINKING` | `off` | The chat route asks the model not to think, as the app does. `default` leaves it as the provider has it, to see what a model that thinks does within the 512-token reply. |
 | `INCARNAMIND_ORGANIZE_OLLAMA` | `http://127.0.0.1:11434` | |
 | `INCARNAMIND_ORGANIZE_PREPARE_ONLY` | off | `1` extracts and writes the excerpts, with no model. |
 | `INCARNAMIND_ORGANIZE_SHOW_HELDOUT` | off | `1` lists the held-out half's mistakes too. |
 | `INCARNAMIND_ORGANIZE_BATCH` | `10` | A local route stops its models after this many Documents, then loads them again. |
-| `INCARNAMIND_EVAL_CHAT_KIND`, `_MODEL`, `_KEY`, `_BASE_URL` | none | The chat route's model, as for `npm run eval`. Setting them is the consent to send the excerpts, Folder and Tag definitions to it, and the scans' page images to a model that reads images. |
+| `INCARNAMIND_EVAL_JEV_KEY`, `_MODEL`, `_URL` | none, `jev-1.13.0`, TypeSafe's | The `jev` route's key (setting it is the consent to send the excerpts), model and server. |
+| `INCARNAMIND_EVAL_DECISIONS_KEY`, `_MODEL` | none, `gpt-6-luna` | The `decisions` route's OpenAI key and model. |
+| `INCARNAMIND_EVAL_CHAT_KIND`, `_MODEL`, `_KEY`, `_BASE_URL`, `_ENDPOINT` | none | The chat route's model, as for `npm run eval`; `_ENDPOINT` picks a hosted provider's region, e.g. `intl` for Kimi. Setting them is the consent to send the excerpts, Folder and Tag definitions to it, and the scans' page images to a model that reads images. |
 
 With no model, to check a run goes through:
 
@@ -71,6 +77,6 @@ INCARNAMIND_EVAL_CHAT_KEY=sk-ant-... \
 npm run eval:organize
 ```
 
-Each run writes `eval/results/organize/<start time>/` (ignored): `report.md`, `results.json` and `prepared.json` (what each classifier was given). Results are cached per route under `eval/results/organize/cache/`, keyed by the code, the set, the definitions and the model's digest, so a run that stopped resumes; change any of them and the route runs again.
+Each run writes `eval/results/organize/<start time>/` (ignored): `report.md`, `results.json` and `prepared.json` (what each classifier was given). Results are cached per route under `eval/results/organize/cache/`, keyed by the code, the set, the definitions and the model's digest, so a run that stopped resumes (a request that failed is asked again); change any of them and the route runs again. A route that gives each Tag a probability (`jev`, `decisions`) also reports the Tags' precision, recall and F1 if they applied from each probability.
 
 Tests of the scoring itself run with `npm test` (`tests/eval/organizeScoring.test.ts`).

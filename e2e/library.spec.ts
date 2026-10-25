@@ -6,8 +6,10 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { AUTO_CLASSIFICATION } from "../src/core/library/automatic";
+import { openDatabase } from "../src/core/storage";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   closeSettings,
   useLocalChatModel as connectLocalChatModel,
@@ -17,12 +19,15 @@ import {
   editFolderInLibrary,
   expectReadyDocuments,
   launchApp,
+  leaveText,
   openFolderInLibrary,
   openSettings,
   placeAssistant,
   pointAndClick,
   pointAt,
   removeDataFolder,
+  setLanguage,
+  setWindowSize,
   sidebarFolder,
   tabTo,
 } from "./app";
@@ -210,7 +215,7 @@ test("Organize suggests a Folder and Tags, keeps corrections and survives reopen
     });
     // On by default; turned off here, so the Document waits for Organize.
     const automatic = settings.getByRole("checkbox", {
-      name: /^Move new Documents into Folders automatically/,
+      name: /^Tag and sort new Documents automatically/,
     });
     await expect(automatic).toBeChecked();
     await automatic.uncheck();
@@ -281,6 +286,93 @@ test("Organize suggests a Folder and Tags, keeps corrections and survives reopen
     );
   } finally {
     await reopened.app.close();
+  }
+});
+
+test("⌘Z takes Organize's suggestions back and ⇧⌘Z brings them back in one step, leaving a Document chosen in between as it was (#1391)", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await connectLocalChatModel(window, "main-chat");
+    await makeFolders(window, [{ name: "Research", description: "Research papers and reports" }]);
+    const settings = await taggingSettings(window);
+    const providerId = await window.evaluate(
+      async () =>
+        (
+          await (
+            globalThis as unknown as { incarnamind: CoreBridge }
+          ).incarnamind.listChatProviders()
+        )[0]?.id,
+    );
+    if (!providerId) throw new Error("No provider");
+    await chooseOtherModel(settings, async (form) => {
+      await form.getByLabel("Connection", { exact: true }).selectOption(providerId);
+      await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
+    });
+    await settings
+      .getByRole("checkbox", { name: /^Tag and sort new Documents automatically/ })
+      .uncheck();
+    await closeSettings(window);
+    const names = ["Research notes A", "Research notes B", "Research notes C"];
+    const paths: string[] = [];
+    for (const name of names) {
+      const path = join(sources, `${name}.txt`);
+      await writeFile(path, `Research report about membrane separation, part ${name.slice(-1)}.`);
+      paths.push(path);
+    }
+    await addDocuments(window, paths);
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    await pointAndClick(window, organize(library));
+
+    const research = section(library, "Research");
+    const suggested = research.getByTestId("library-suggested");
+    await expect(suggested).toHaveCount(3);
+    await expect(window.getByTestId("undo-line")).toContainText(
+      "Organize suggested a Folder for 3 Documents",
+    );
+    const menu = (id: "edit.undo" | "edit.redo") =>
+      app.evaluate(({ Menu }, item) => {
+        const found = Menu.getApplicationMenu()?.getMenuItemById(item);
+        return { label: found?.label ?? "", enabled: found?.enabled ?? false };
+      }, id);
+    await expect.poll(() => menu("edit.undo")).toEqual({ label: "Undo Organize", enabled: true });
+
+    // ⌘Z takes all of it back.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(research.getByTestId("library-document")).toHaveCount(0);
+    await expect(section(library, "Not in a Folder").getByTestId("library-document")).toHaveCount(
+      3,
+    );
+    await expect.poll(() => menu("edit.redo")).toEqual({ label: "Redo Organize", enabled: true });
+
+    // One Document is put in the Folder meanwhile, by a change that leaves no step: Redo leaves it as chosen.
+    await (await coreOf(window)).evaluate(async (core) => {
+      const documents = await core.listDocuments();
+      const folders = (await core.getLibrary()).groups;
+      const chosen = documents.find((each) => each.name === "Research notes B");
+      const research = folders.find((each) => each.name === "Research");
+      if (!chosen || !research) throw new Error("No Document or Folder to choose.");
+      await core.assignDocumentGroup(chosen.id, research.id);
+    });
+    await expect(research.getByTestId("library-document")).toHaveCount(1);
+    await expect(suggested).toHaveCount(0);
+
+    // ⇧⌘Z brings the other two back, in one step with its line, and a second does nothing.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(research.getByTestId("library-document")).toHaveCount(3);
+    await expect(suggested).toHaveCount(2);
+    await expect(window.getByTestId("undo-line")).toContainText(
+      "Organize suggested a Folder for 3 Documents",
+    );
+    await expect.poll(() => menu("edit.redo")).toMatchObject({ enabled: false });
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(research.getByTestId("library-document")).toHaveCount(3);
+    await expect(suggested).toHaveCount(2);
+  } finally {
+    await app.close();
   }
 });
 
@@ -797,5 +889,113 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
     await expect(library.getByTestId("library-filter")).toHaveCount(0);
   } finally {
     await app.close();
+  }
+});
+
+test("a scan with no text waits for its page images to be allowed with a cloud model, and the Info panel's button allows them", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await acceptPlainTextKeys(window);
+    await (await coreOf(window)).evaluate(async (core) => {
+      const provider = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-not-a-real-key",
+        modelId: "claude-sonnet-5-5",
+      });
+      await core.createLibraryGroup({ name: "Receipts", description: "Receipts and invoices" });
+      await core.saveLibrarySettings({
+        classifier: {
+          kind: "chat",
+          choice: { providerId: provider.id, modelId: "claude-sonnet-5-5" },
+        },
+        automatic: true,
+      });
+    });
+    const scan = join(sources, "Scanned receipt.pdf");
+    await writeFile(scan, buildPdf([{ image: true }]));
+    await window.getByTestId("add-documents-input").setInputFiles([scan]);
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    const info = await infoOf(window, rowOf(library, "Scanned receipt"));
+    const organize = info.getByTestId("info-organize");
+    await expect(organize).toContainText("its page images aren’t sent to Anthropic");
+    const allow = info.getByTestId("info-allow-page-images");
+    await expect(allow).toHaveText("Allow page images");
+    await setLanguage(window, "zh-CN");
+    await expect(allow).toHaveText("允许发送页面图片");
+    await setLanguage(window, "en");
+    await allow.click();
+    await expect(allow).toHaveCount(0);
+    await expect(organize).toBeFocused();
+    await expect(organize).not.toContainText("aren’t sent");
+    expect(
+      await (await coreOf(window)).evaluate(async (core) => {
+        return (await core.listDataFlows()).find((each) => each.flow.id === "scan-images")?.consent;
+      }),
+    ).toBe("accepted");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Library whose automatic tagging and sorting went off for a cloud model says so once, with the way back", async () => {
+  const first = await launchApp(dataDir, { fakeChat: true });
+  await acceptPlainTextKeys(first.window);
+  await (await coreOf(first.window)).evaluate(async (core) => {
+    await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-not-a-real-key",
+      modelId: "gpt-6-luna",
+    });
+  });
+  const path = join(sources, "Research notes.txt");
+  await writeFile(path, "Research report about membrane separation and water filtration.");
+  await first.window.getByTestId("add-documents-input").setInputFiles([path]);
+  await expect(first.window.getByTestId("document-list-item")).toHaveCount(1);
+  await first.app.close();
+  // What the migration that turned it off leaves behind.
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    db.run(
+      `INSERT INTO device_settings (id, key, value, created_at, updated_at)
+       VALUES ('notice', 'libraryAutomaticOffNotice', 'true', '2026-10-22T09:00:00.000Z', '2026-10-22T09:00:00.000Z')`,
+    );
+  } finally {
+    db.close();
+  }
+
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await setWindowSize(app, window, 900, 800);
+    await window.getByTestId("open-library").click();
+    const line = window.getByTestId("library-automatic-off");
+    await expect(line).toContainText(
+      "Automatic tagging and sorting is now off for OpenAI, since it sent each Document’s name and an excerpt.",
+    );
+    await setLanguage(window, "zh-CN");
+    await expect(line).toContainText("已为 OpenAI 关闭自动打标签和整理");
+    await setLanguage(window, "en");
+
+    // The way back is one click: Settings opens on the Tagging switch, and the line is gone for good.
+    await line.getByTestId("library-automatic-off-settings").click();
+    const tagging = window.getByTestId("tagging-settings");
+    await expect(tagging).toBeVisible();
+    await expect(
+      tagging.getByRole("checkbox", { name: /^Tag and sort new Documents automatically/ }),
+    ).not.toBeChecked();
+    await closeSettings(window);
+    await expect(window.getByTestId("library-automatic-off")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+
+  const again = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await again.window.getByTestId("open-library").click();
+    await expect(again.window.getByTestId("library")).toBeVisible();
+    await expect(again.window.getByTestId("library-automatic-off")).toHaveCount(0);
+  } finally {
+    await again.app.close();
   }
 });

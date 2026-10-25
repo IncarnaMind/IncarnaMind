@@ -53,11 +53,11 @@ test("in local mode a Question to a cloud model isn't sent: one line says so wit
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
 
-  // At the top of the Mind, before anything is asked.
+  // Nothing sits above the page before anything is asked: the refusal is said once, in the composer.
   const top = window.getByTestId("chat-readiness");
-  await expect(top).toContainText(
-    "Not sent to llm.example.com: “Keep everything on this computer” is on",
-  );
+  await expect(top).toHaveCount(0);
+  const pageTop = async () => (await editor.boundingBox())?.y ?? 0;
+  const before = await pageTop();
 
   // The model menu keeps the cloud model in sight, marked unavailable with the reason.
   await window.getByTestId("composer-model").click();
@@ -78,6 +78,9 @@ test("in local mode a Question to a cloud model isn't sent: one line says so wit
     "Not sent to llm.example.com: “Keep everything on this computer” is on · Use a local model · Allow cloud models",
   );
   await expect(refusal.getByRole("button")).toHaveText(["Use a local model", "Allow cloud models"]);
+  // One line, and the page didn't move when it appeared.
+  await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
+  expect(await pageTop()).toBe(before);
   await expect(window.getByTestId("composer-input")).toHaveValue("What is IncarnaMind?");
   await expect(editor.getByTestId("question")).toHaveCount(0);
   await expect(editor.getByTestId("answer")).toHaveCount(0);
@@ -94,7 +97,6 @@ test("in local mode a Question to a cloud model isn't sent: one line says so wit
   await expect(refusal).toHaveText(
     "未发送给 llm.example.com：已开启“所有内容都留在这台电脑上” · 改用本地模型 · 允许使用云端模型",
   );
-  await expect(top).toContainText("未发送给 llm.example.com");
   await window.getByTestId("composer-model").click();
   await expect(option).toContainText("不可用：已开启“所有内容都留在这台电脑上”");
   await window.keyboard.press("Escape");
@@ -109,7 +111,6 @@ test("in local mode a Question to a cloud model isn't sent: one line says so wit
   // Allow cloud models: the line goes, and Undo turns it on again.
   await refusal.getByTestId("local-mode-turn-off").click();
   await expect(refusal).toBeHidden();
-  await expect(top).toBeHidden();
   expect(await bridge(window).localOnly()).toBe(false);
   const undo = window.getByTestId("undo-line");
   await expect(undo.getByTestId("undo-message")).toHaveText(
@@ -117,6 +118,6 @@ test("in local mode a Question to a cloud model isn't sent: one line says so wit
   );
   await undo.getByTestId("undo-action").click();
   await expect.poll(() => bridge(window).localOnly()).toBe(true);
-  await expect(top).toBeVisible();
+  await expect(top).toHaveCount(0);
   await app.close();
 });

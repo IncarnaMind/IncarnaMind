@@ -18,9 +18,13 @@ import type {
   CoreApi,
   Document,
   Effect,
+  ExportMarking,
   FolderMove,
+  MarkAiTextChoice,
   Mind,
   SavedFile,
+  UserAnswer,
+  UserQuestion,
 } from "../../api";
 import { RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
@@ -56,6 +60,12 @@ export type CommandsCore = Pick<
 export const COMMAND_EXPORT_FORMATS = ["docx", "pdf", "markdown", "html"] as const;
 export type CommandExportFormat = (typeof COMMAND_EXPORT_FORMATS)[number];
 
+/** What a command may ask the User, in the tray, while it runs; null when the Answer has no tray. */
+export type CommandAsking = ((question: UserQuestion) => Promise<UserAnswer>) | null;
+
+/** How a Word file's choice about marking the text IncarnaMind wrote was settled for an export. */
+export type MarkingSettled = ExportMarking;
+
 export interface CommandsHost {
   core: CommandsCore;
   /** The Output location, links followed; null while none is chosen. */
@@ -63,14 +73,17 @@ export interface CommandsHost {
   /**
    * Saves a Mind as a file with the User's export choices for the format: in the Output location
    * (`folder` null), in a folder inside it, or, `approved`, in a folder the User allowed for this
-   * one file. Throws, saying why, when nothing was saved.
+   * one file. A Word file with no answer yet about marking asks in the tray (`asking`), unless the
+   * request named the choice (`named`), and keeps the answer. Throws, saying why, when nothing was
+   * saved, as when the User closed the question.
    */
   exportMind(
     mindId: string,
     format: CommandExportFormat,
     folder: string | null,
     approved: boolean,
-  ): Promise<SavedFile>;
+    marking: { named: MarkAiTextChoice | null; asking: CommandAsking },
+  ): Promise<{ file: SavedFile; marking: MarkingSettled | null }>;
 }
 
 /** A call's arguments, as the model gives them, every one checked. */
@@ -81,6 +94,8 @@ export interface CommandInput {
   folder: string | null;
   tag: string | null;
   format: CommandExportFormat;
+  /** A Word export's choice about marking the text IncarnaMind wrote, when the User's request names it. */
+  marks: MarkAiTextChoice | null;
   kinds: string[];
 }
 
@@ -104,7 +119,7 @@ export interface CheckedCommand {
   /** The Folder or Tag it puts them in, by name. */
   into: string | null;
   outside: CommandAsk | null;
-  run(): Promise<Ran>;
+  run(asking: CommandAsking): Promise<Ran>;
 }
 
 const IN_APP: Effect[] = [{ action: "write", scope: { kind: "library" } }];
@@ -133,6 +148,7 @@ export function parseCommandInput(input: Record<string, unknown>): CommandInput 
     folder: text(input.folder),
     tag: text(input.tag),
     format: COMMAND_EXPORT_FORMATS.find((each) => each === input.format) ?? "docx",
+    marks: input.marks === "mark" || input.marks === "leave" ? input.marks : null,
     kinds: texts(input.kinds).map((kind) => kind.replace(/^\./, "").toLowerCase()),
   };
 }
@@ -158,6 +174,22 @@ export function commandEffects(input: Record<string, unknown>): Effect[] {
 
 const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
+
+const markingSaid = (marking: MarkingSettled | null): string => {
+  if (marking === null) return "";
+  const leaves =
+    marking.choice === "mark"
+      ? "marks the text IncarnaMind wrote with comments"
+      : "leaves the text IncarnaMind wrote unmarked";
+  switch (marking.how) {
+    case "kept":
+      return ` This file ${leaves}, as the User answered when asked; that answer is saved for every Word export.`;
+    case "this-file":
+      return ` This file ${leaves}, as the User asked for it; their saved answer for Word exports is unchanged.`;
+    case "earlier":
+      return ` This file ${leaves}, following the answer the User saved for Word exports.`;
+  }
+};
 
 const same = (a: string, b: string) =>
   a.normalize("NFKC").trim().toLowerCase() === b.normalize("NFKC").trim().toLowerCase();
@@ -520,8 +552,11 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
     // Only the Output location itself: a folder in it may be one a sync service shares.
     const elsewhere = given !== null && given !== output;
     const into = elsewhere ? given : null;
-    const run = async (): Promise<Ran> => {
-      const file = await host.exportMind(mind.id, input.format, into, elsewhere);
+    const run = async (asking: CommandAsking): Promise<Ran> => {
+      const { file, marking } = await host.exportMind(mind.id, input.format, into, elsewhere, {
+        named: input.format === "docx" ? input.marks : null,
+        asking,
+      });
       return {
         done: {
           items: [mindItem(mind)],
@@ -531,9 +566,11 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
             folder: file.folder,
             inDefaultFolder: file.inDefaultFolder,
           },
+          inOutputLocation: !elsewhere,
+          ...(marking && { marking }),
         },
         step: null,
-        said: `Saved “${mindName(mind)}” as “${file.name}” in ${elsewhere ? file.folder : `the Output location, ${file.folder}`}. A file can't be taken back with Undo.`,
+        said: `Saved “${mindName(mind)}” as “${file.name}” in ${elsewhere ? file.folder : `the Output location, ${file.folder}`}. A file can't be taken back with Undo.${markingSaid(marking)}`,
       };
     };
     const items = [mindItem(mind)];

@@ -134,6 +134,28 @@ const nameField = (window: Page) => window.getByTestId("sidebar").locator("input
 const inTree = (window: Page) =>
   window.evaluate(() => document.activeElement?.closest('[role="tree"]') != null);
 
+/**
+ * Notes where the focus is each time rows leave the tree, as soon as the page could take a key
+ * (the app's own watch runs first): `focusAsRowsGo` reads the notes.
+ */
+const watchFocusAsRowsGo = (window: Page) =>
+  window.evaluate(() => {
+    const seen: boolean[] = [];
+    const row = '[role="treeitem"]';
+    new MutationObserver((records) => {
+      const gone = records.some((record) =>
+        Array.from(record.removedNodes).some(
+          (node) => node instanceof Element && (node.matches(row) || node.querySelector(row)),
+        ),
+      );
+      if (gone) seen.push(document.activeElement?.closest('[role="tree"]') != null);
+    }).observe(document.body, { childList: true, subtree: true });
+    (globalThis as unknown as { focusAsRowsGo: boolean[] }).focusAsRowsGo = seen;
+  });
+
+const focusAsRowsGo = (window: Page) =>
+  window.evaluate(() => (globalThis as unknown as { focusAsRowsGo: boolean[] }).focusAsRowsGo);
+
 /** From the Library row above the tree, Tab until the focus is in it, past the Folders heading's +. */
 async function tabIntoTree(window: Page): Promise<void> {
   await window.getByTestId("open-library").focus();
@@ -619,8 +641,7 @@ test("Enter opens a row, Space peeks at a Document, F2 renames in place and Esc 
   }
 });
 
-// Off until #1533: on Linux CI the Delete often leaves the row in place.
-test.fixme("⌘⌫ (Delete on Windows and Linux) moves the row to Recently deleted with the undo line, the focus goes on to the next row, and ⌘Z brings it back, twice and for a selection", async () => {
+test("⌘⌫ (Delete on Windows and Linux) moves the row to Recently deleted with the undo line, the focus goes on to the next row, and ⌘Z brings it back, twice and for a selection", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1400, 800);
@@ -651,21 +672,29 @@ test.fixme("⌘⌫ (Delete on Windows and Linux) moves the row to Recently delet
     await expect(line).toHaveCount(0);
 
     // The platform's own key, twice: each row goes in turn, and each is its own step of Undo.
+    // The focus is on a row the moment each goes, so a key pressed straight after reaches the tree.
     const key = process.platform === "darwin" ? "Meta+Backspace" : "Delete";
+    await watchFocusAsRowsGo(window);
     await window.keyboard.press("End");
     await window.keyboard.press(key);
     await expect(rows).toHaveCount(count - 1);
     await expect.poll(() => inTree(window)).toBe(true);
     await window.keyboard.press(key);
     await expect(rows).toHaveCount(count - 2);
+    const seen = await focusAsRowsGo(window);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen).not.toContain(false);
     await expect(line).toBeVisible();
+    await expect(rows.last()).toBeFocused();
     await window.keyboard.press("ControlOrMeta+z");
     await expect(rows).toHaveCount(count - 1);
     await window.keyboard.press("ControlOrMeta+z");
     await expect(rows).toHaveCount(count);
 
     // A held key deletes one row only: the press does, its repeats don't.
+    await expect(row(window, names.folders[1])).toBeFocused();
     await window.keyboard.press("End");
+    await expect(rows.last()).toBeFocused();
     await window.keyboard.press("ControlOrMeta+Backspace");
     await expect(rows).toHaveCount(count - 1);
     await expect.poll(() => inTree(window)).toBe(true);

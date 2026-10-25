@@ -88,8 +88,18 @@ export interface RunRequest {
   messages: readonly RunMessage[];
   /** Offered by name, in this order; each name once. */
   tools: readonly RunTool[];
-  /** Model calls at most. The last one is offered no Tools: it must write. */
+  /**
+   * Model calls at most. The last one must write: it is told so, capped, and may call no Tool
+   * (`lastStep`). One that calls one anyway has it refused, and gets one more call; a Run whose
+   * model calls a Tool then too ends there, with no text.
+   */
   maxSteps: number;
+  /**
+   * How the last step is made. It writes at most `tokens` (the model's own most, where that is
+   * under the engine's cap). `keepTools`: the provider refuses a changed tool list (Anthropic, with
+   * thinking), so the Tools stay in its request, and the note tells the model to call none.
+   */
+  lastStep?: { tokens?: number; keepTools?: boolean };
   /**
    * Awaited before every Tool call, while the User may be asked: the Run's
    * approvals decide here, from the call's Effects (see ../approvals). Each

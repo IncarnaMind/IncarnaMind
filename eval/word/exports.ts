@@ -74,7 +74,7 @@ export interface ExportCheck {
 }
 
 /** A Mind as the import writes one: the Blocks, where each came from, and the file. */
-async function mindOf(bytes: Uint8Array): Promise<Y.Doc> {
+export async function mindOf(bytes: Uint8Array): Promise<Y.Doc> {
   const pkg = await openWordPackage(bytes);
   const structure = await readWordStructure(pkg, await reviewOf(pkg));
   const doc = new Y.Doc();
@@ -104,7 +104,12 @@ const PLAIN: ReviewChoices = {
   now: "2026-10-13T09:00:00.000Z",
 };
 
-async function exportOf(bytes: Uint8Array, doc: Y.Doc, review: ReviewChoices = PLAIN) {
+async function exportOf(
+  bytes: Uint8Array,
+  doc: Y.Doc,
+  review: ReviewChoices = PLAIN,
+  listed = false,
+) {
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
   return exportWordPatch({
     bytes,
@@ -119,13 +124,14 @@ async function exportOf(bytes: Uint8Array, doc: Y.Doc, review: ReviewChoices = P
               failed: { check: "not-found", quote: NOT_FOUND, verdict: null },
             }
           : { source: SOURCE, unverified: false },
-      trimBeforeCitation: true,
+      trimBeforeCitation: !listed,
       trimBeforeFootnote: true,
       review: reviewReading(blocks),
     },
     labels: exportLabels("en"),
     style: { id: "numbered", ...NUMBERED_STYLE },
     bibliography: false,
+    listed,
     bibliographyHeading: "References",
     sources: { language: "en", documents: [] },
     formatCitations: () => Promise.reject(new Error("Numbered needs no formatting.")),
@@ -448,6 +454,73 @@ export async function checkExport(bytes: Uint8Array): Promise<ExportCheck> {
     return {
       ok: true,
       detail: `${edited ? "a word changed, " : ""}a paragraph and a footnote added; ${touched.length} parts written, ${kept} body elements as they were`,
+      exported: result.data,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: `export failed: ${error instanceof Error ? error.message : error}`,
+    };
+  } finally {
+    doc.destroy();
+  }
+}
+
+/**
+ * The scripted edit exported with the Citations in a list at the end (#1600): the Citation is
+ * "[1]" in the added paragraph, the list holds its source under the Bibliography's heading, no
+ * footnote is added, and the package passes the checks Word's repair prompt is about.
+ */
+export async function checkListExport(bytes: Uint8Array): Promise<ExportCheck> {
+  let doc: Y.Doc;
+  try {
+    doc = await mindOf(bytes);
+  } catch (error) {
+    if (error instanceof WordRefusedError && REFUSED.has(error.reason)) {
+      return { ok: true, detail: `refused, as it should be: ${error.reason}` };
+    }
+    return {
+      ok: false,
+      detail: `didn't import: ${error instanceof Error ? error.message : error}`,
+    };
+  }
+  const pkg = await openWordPackage(bytes);
+  try {
+    edit(doc);
+    const result = await exportOf(bytes, doc, PLAIN, true);
+    const before = new Set((await inspectPackage(bytes)).problems);
+    const problems = (await inspectPackage(result.data)).problems.filter(
+      (each) => !before.has(each),
+    );
+    if (problems.length > 0) {
+      return {
+        ok: false,
+        detail: `the export: ${problems.slice(0, 2).join("; ")}`,
+        exported: result.data,
+      };
+    }
+    const exported = await entriesOf(result.data);
+    const main = new TextDecoder().decode(exported.get(pkg.part));
+    const shown = [...walk(parseXml(main))]
+      .filter((element) => element.name === "w:t")
+      .map((element) => element.children.filter((part) => typeof part === "string").join(""))
+      .join("");
+    if (!shown.includes(`${ADDED} [1]`)) {
+      return { ok: false, detail: "the Citation isn't [1] in the text", exported: result.data };
+    }
+    if (!shown.includes("References") || !shown.endsWith("Round-trip check source")) {
+      return { ok: false, detail: "the list isn't at the end", exported: result.data };
+    }
+    const noted = [...exported].some(
+      ([name, data]) =>
+        /^word\/footnotes\d*\.xml$/.test(name) && new TextDecoder().decode(data).includes(SOURCE),
+    );
+    if (noted) {
+      return { ok: false, detail: "the Citation is also a footnote", exported: result.data };
+    }
+    return {
+      ok: true,
+      detail: "the Citation is [1], and its source is listed at the end",
       exported: result.data,
     };
   } catch (error) {

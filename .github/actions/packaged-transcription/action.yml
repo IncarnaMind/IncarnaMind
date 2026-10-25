@@ -1,0 +1,31 @@
+name: The packaged app transcribes a meeting
+description: >
+  Runs e2e/packaged/transcription.packaged.ts against the macOS app already packaged in dist/
+  (npm run dist:dir, or the release's own build): a recording through Chromium's fake microphone,
+  transcribed by the real speech engine and model (#1239), its speakers then told apart by the real
+  speaker pass (#138). Needs npm ci first.
+
+runs:
+  using: composite
+  steps:
+    # The speech model is 989 MB, the reranker 145 MB, the speaker models 30 MB. Kept between
+    # runs, keyed on the pinned revisions and hashes in their definitions, so a run downloads them
+    # only when they change.
+    - name: Restore the downloaded models
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/incarnamind-packaged-models
+        key: incarnamind-packaged-models-${{ hashFiles('src/core/transcription/model.ts', 'src/core/transcription/speakerModel.ts', 'src/core/reranking/*.ts') }}
+    - name: Transcribe a meeting in the packaged app
+      shell: bash
+      run: |
+        export INCARNAMIND_MODEL_CACHE="$HOME/.cache/incarnamind-packaged-models"
+        mkdir -p "$INCARNAMIND_MODEL_CACHE"
+        npm run test:packaged
+    - name: Upload the Playwright trace
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: packaged-transcription-${{ github.job }}
+        path: test-results/
+        retention-days: 7

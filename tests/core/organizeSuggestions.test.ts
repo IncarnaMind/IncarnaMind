@@ -288,6 +288,52 @@ describe("Organize suggests a Folder and waits for the User", () => {
     });
   });
 
+  test("putting a rejected Suggested Folder back offers that Folder to Organize again, and rejecting it once more turns it down again", async () => {
+    const { core, fake, finance, thesis, sources } = await setUp();
+    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
+    if (!invoice) throw new Error("Not added.");
+    const [rejected] = await core.rejectAssignments([invoice.id]);
+    if (!rejected) throw new Error("Not rejected.");
+
+    const { documentId: _id, ...before } = rejected.before;
+    await core.restoreAssignment(invoice.id, before);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: finance.id,
+      suggested: true,
+    });
+    await core.classifyDocuments([invoice.id]);
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "classified" }),
+    );
+    expect(fake.offered.at(-1)).toContain(finance.id);
+
+    await core.rejectAssignments([invoice.id]);
+    await core.classifyDocuments([invoice.id]);
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({
+        groupId: thesis.id,
+        suggested: true,
+      }),
+    );
+    expect(fake.offered.at(-1)).not.toContain(finance.id);
+  });
+
+  test("accepting or rejecting leaves a Document the User moved meanwhile as they put it", async () => {
+    const { core, finance, thesis, sources } = await setUp();
+    const [invoice, other] = await addAndSort(core, sources, ["Invoice 1", "Invoice 2"]);
+    if (!invoice || !other) throw new Error("Not added.");
+    await core.moveToFolder({ documentIds: [invoice.id], folderId: thesis.id });
+
+    expect(await core.acceptAssignments([invoice.id])).toEqual([]);
+    expect(await core.rejectAssignments([invoice.id])).toEqual([]);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: thesis.id,
+      source: "user",
+    });
+    expect(await core.acceptAssignments([invoice.id, other.id])).toHaveLength(1);
+    expect(await assignmentOf(core, other.id)).toMatchObject({ groupId: finance.id });
+  });
+
   test("moving a Document out of its Suggested Folder makes the new place the User's choice", async () => {
     const { core, thesis, sources } = await setUp();
     const [invoice, other] = await addAndSort(core, sources, ["Invoice 1", "Invoice 2"]);

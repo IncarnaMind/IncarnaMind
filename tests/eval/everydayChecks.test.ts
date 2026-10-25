@@ -20,7 +20,7 @@ import { judgeClaims, verdictIn } from "../../eval/everyday/judge";
 import { languageRates, rowRates } from "../../eval/everyday/rates";
 import { ASKED_AGAIN } from "../../eval/everyday/reasks";
 import type { AnswerToolCall } from "../../src/core";
-import { askAgainNote, askToWriteNote } from "../../src/core/answers/claimedChanges";
+import { askAgainNote } from "../../src/core/answers/claimedChanges";
 import { scriptedModel } from "../helpers/models";
 
 const PAPERS = [
@@ -170,6 +170,27 @@ describe("The everyday request guards", () => {
     expect(failures([3])).toEqual([]);
   });
 
+  // protects=a translation written into a Mind must use the field's term for a thing, here 大潮 for "spring tides", and fails on the near one, 春潮 (#1635); fails_when=either passes unnoticed; no_claim=other terms.
+  test("a translation that doesn't use the term asked for fails, naming the one it used", () => {
+    const failures = (writtenInMinds: string[]) =>
+      requestFailures(
+        outcome({
+          expected: {
+            write: true,
+            cite: false,
+            coverAll: false,
+            terms: [{ want: "大潮", not: ["春潮"] }],
+          },
+          answer: { text: "", citations: [], toolCalls: [created], steps: null },
+          writtenInMinds,
+        }),
+      );
+    expect(failures(["导游说每月有两次大潮。"])).toEqual([]);
+    expect(failures(["导游说每月有两次春潮。"])).toEqual([
+      { kind: "term", want: "大潮", found: ["春潮"] },
+    ]);
+  });
+
   // protects=a Mind written with a source as text fails, naming it, and one with none passes (#1075); fails_when=bracketed sources in a Mind go unnoticed; no_claim=how the sources are found (tests/shared/namedSources.test.ts).
   test("a Mind holding a source written as text fails", () => {
     const kinds = (sourcesAsText: string[]) =>
@@ -199,11 +220,11 @@ describe("The everyday request guards", () => {
     expect(failures).toEqual([{ kind: "no-citations" }]);
   });
 
-  // protects=a Question answered by cited text written into a Mind has its Citations; fails_when=it fails for none in the reply; no_claim=whether it should have written.
-  test("a Question answered in a Mind, cited there, has its Citations", () => {
+  // protects=a request that may go either way, answered by cited text written into a Mind, has its Citations; fails_when=it fails for none in the reply; no_claim=whether it should have written.
+  test("a request either way, answered in a Mind and cited there, has its Citations", () => {
     const failures = requestFailures(
       outcome({
-        expected: { write: false, cite: true, coverAll: false },
+        expected: { write: false, cite: true, coverAll: false, either: true },
         answer: {
           text: "The summaries are ready.",
           citations: [],
@@ -213,6 +234,30 @@ describe("The everyday request guards", () => {
       }),
     );
     expect(failures).toEqual([]);
+  });
+
+  // protects=a Question that changes a Mind fails, and a piece that lands elsewhere than its case says fails (#1559); fails_when=either passes; no_claim=none beyond protects.
+  test("a Question that changes a Mind, and a piece in the wrong place, fail", () => {
+    const answer = { text: "Done.", citations: [], toolCalls: [created], steps: null };
+    expect(
+      requestFailures(
+        outcome({ expected: { write: false, cite: false, coverAll: false }, answer }),
+      ),
+    ).toEqual([{ kind: "changed-unasked" }]);
+    expect(
+      requestFailures(
+        outcome({
+          expected: { write: true, cite: false, coverAll: false, into: "asked-from" },
+          answer,
+          askedFrom: "page",
+        }),
+      ),
+    ).toEqual([{ kind: "wrong-place", wanted: "asked-from" }]);
+    expect(
+      requestFailures(
+        outcome({ expected: { write: true, cite: false, coverAll: false, into: "new" }, answer }),
+      ),
+    ).toEqual([]);
   });
 
   // protects=a Document in scope counts as covered only when cited or named as left out, not merely named; fails_when=a name alone passes; no_claim=none beyond protects.
@@ -501,9 +546,8 @@ describe("An earlier try the User never saw", () => {
     expect(says("我上一条回复说引文已经换了，这是错的。", false)).toEqual([]);
   });
 
-  // protects=the mark the evaluation counts the app's asks by is in both notes the app asks with; fails_when=a note is reworded and the evaluation stops counting its asks; no_claim=none beyond protects.
-  test("both notes the app asks again with carry the mark the evaluation watches for", () => {
-    expect(askToWriteNote([], () => null)).toContain(ASKED_AGAIN);
+  // protects=the mark the evaluation counts the app's asks by is in the note the app asks with; fails_when=the note is reworded and the evaluation stops counting its asks; no_claim=none beyond protects.
+  test("the note the app asks again with carries the mark the evaluation watches for", () => {
     expect(askAgainNote(["added"], [], () => null)).toContain(ASKED_AGAIN);
   });
 });
@@ -532,6 +576,184 @@ describe("The Question's language (#892, #1273)", () => {
       "The contract says “合同期限为三年，自起始日期算起。” which is three years from the start date.";
     expect(chineseShare(quoting)).toBe(0);
     expect(summary(quoting, "en")).toEqual([]);
+  });
+});
+
+describe("A figure the numbers give is calculated (#1444)", () => {
+  const asked = (text: string, shown: string[]) =>
+    requestFailures(
+      outcome({
+        expected: { write: false, cite: true, coverAll: false, figure: /11\.73亿美元/ },
+        answer: {
+          text,
+          citations: [citation("reserves", 1)],
+          toolCalls: [],
+          steps: null,
+          figures: shown.map((each) => ({ shown: each })),
+        },
+        scoped: [{ id: "reserves", name: "官方储备资产（2026年）" }],
+        citedInMinds: [],
+      }),
+    );
+
+  // protects=an Answer that gives both cited figures and says it couldn't work out their difference fails twice, for the missing figure and for giving up; fails_when=it passes; no_claim=the figure's value.
+  test("an Answer with no figure that gives up on the difference fails", () => {
+    const failures = asked(
+      "9月末为34002.51亿美元[^1]。我没能算出两者的差额，所以这里不给具体数字。",
+      [],
+    );
+    expect(failures).toEqual([
+      { kind: "no-figure", wanted: "11\\.73亿美元", shown: [] },
+      { kind: "gave-up", said: "我没能算出两者的差额，所以这里不给具体数字。" },
+    ]);
+  });
+
+  test("an English Answer that says it couldn't calculate it fails; one with the figure passes", () => {
+    expect(
+      asked("I couldn't calculate the change, so I haven't worked out the difference.", [])
+        .map((each) => each.kind)
+        .sort(),
+    ).toEqual(["gave-up", "no-figure"]);
+    expect(asked("增加了11.73亿美元。", ["11.73亿美元"])).toEqual([]);
+  });
+});
+
+describe('What "this" means and adding the last Answer (#1334, #1734)', () => {
+  const DATED = [
+    { id: "contract", name: "Employment contract" },
+    { id: "nda", name: "Mutual NDA" },
+  ];
+  const added = (input: Record<string, unknown>): AnswerToolCall => ({
+    ...created,
+    tool: "add_to_mind",
+    input,
+    mindChange: { mindId: "m0", created: false, request: "r2", proposals: 2 },
+  });
+  const kinds = (fields: Partial<RequestOutcome>, expected: RequestOutcome["expected"]) =>
+    requestFailures(outcome({ scoped: DATED, citedInMinds: [], ...fields, expected })).map(
+      (failure) => failure.kind,
+    );
+  const earlier = { text: "One month's written notice [^1].", question: "How much notice?" };
+
+  // protects=a short piece about the one Document on screen passes, and one that cites or names the other, or runs past five lines, fails; fails_when=either slips through; no_claim=none beyond protects.
+  test("only the Document meant, and short", () => {
+    const call = added({ content: "# NDA\n\nFive years of confidentiality [^1]." });
+    const expected = {
+      write: true,
+      cite: true,
+      coverAll: false,
+      documents: ["Mutual NDA"],
+      atMostLines: 5,
+    };
+    const given = givenToMindsOf([call], null);
+    expect(
+      kinds(
+        {
+          answer: { text: "Done.", citations: [], toolCalls: [call], steps: null },
+          citedInMinds: ["nda"],
+          givenToMinds: given,
+        },
+        expected,
+      ),
+    ).toEqual([]);
+    const long = added({ content: ["# NDA", "a", "b", "c", "d", "e"].join("\n\n") });
+    expect(
+      kinds(
+        {
+          answer: { text: "Done.", citations: [], toolCalls: [long], steps: null },
+          citedInMinds: ["nda", "contract"],
+          writtenInMinds: ["The Employment contract is separate."],
+          givenToMinds: givenToMindsOf([long], null),
+        },
+        expected,
+      ),
+    ).toEqual(["other-documents", "too-long"]);
+  });
+
+  // protects=with two on screen, an Answer that asked which and stopped there passes, one that didn't ask fails, and asking unasked fails; fails_when=any of them is read the other way; no_claim=none beyond protects.
+  test("asks which, or doesn't", () => {
+    const asking: AnswerToolCall = {
+      ...created,
+      tool: "ask_user",
+      input: {},
+      mindChange: undefined,
+    };
+    const must = { write: false, cite: false, coverAll: false, asks: "must" } as const;
+    const answer = (toolCalls: AnswerToolCall[]) => ({
+      text: "",
+      citations: [],
+      toolCalls,
+      steps: null,
+    });
+    expect(kinds({ answer: answer([asking]), stoppedAtAsk: true }, must)).toEqual([]);
+    expect(kinds({ answer: answer([]) }, must)).toEqual(["no-ask"]);
+    expect(
+      kinds(
+        { answer: answer([asking]), stoppedAtAsk: true },
+        { write: true, cite: true, coverAll: false },
+      ),
+    ).toEqual(["asked"]);
+  });
+
+  // protects="add this to my notes" passes only as a copy of the last Answer, and "write notes on these" fails as only a copy; fails_when=new notes pass as the Answer, or a copy as new notes; no_claim=none beyond protects.
+  test("adds the last Answer, or writes new notes", () => {
+    const copy = added({ answer: true });
+    const fresh = added({ content: "## Notes\n\nThe NDA lasts five years [^1]." });
+    const adds = { write: true, cite: false, coverAll: false, addsAnswer: true } as const;
+    const writes = { write: true, cite: false, coverAll: false, addsAnswer: false } as const;
+    const run = (calls: AnswerToolCall[], expected: RequestOutcome["expected"]) =>
+      kinds(
+        {
+          answer: { text: "Added it.", citations: [], toolCalls: calls, steps: null },
+          givenToMinds: givenToMindsOf(calls, earlier),
+        },
+        expected,
+      );
+    expect(run([copy], adds)).toEqual([]);
+    expect(run([fresh], adds)).toEqual(["not-the-answer"]);
+    expect(run([copy], writes)).toEqual(["only-a-copy"]);
+    expect(run([fresh], writes)).toEqual([]);
+  });
+});
+
+describe("Asking about selected words (#101)", () => {
+  const quoted = {
+    documentId: "tutorial",
+    documentName: PAPERS[0]?.name ?? "",
+    quote: "Random neural networks learn in one pass.",
+    pageFrom: 3,
+    pageTo: 3,
+    location: { kind: "page", from: 3, to: 3 } as const,
+  };
+  const cited = (pageFrom: number, check: "found" | "not-found" = "found") => ({
+    documentId: "tutorial",
+    documentName: quoted.documentName,
+    marker: 1,
+    pageFrom,
+    pageTo: pageFrom,
+    check,
+  });
+  const failuresOf = (citations: ReturnType<typeof cited>[]) =>
+    requestFailures(
+      outcome({
+        expected: { write: false, cite: true, coverAll: false },
+        answer: {
+          text: citations.length > 0 ? "It means this.[^1]" : "It means this.",
+          citations,
+          toolCalls: [],
+          steps: null,
+        },
+        citedInMinds: [],
+        quoted,
+      }),
+    ).map((failure) => failure.kind);
+
+  // protects=the first Citation must be the selected words where they were selected, found; fails_when=another page, a Citation not found, or none passes; no_claim=how often a real model cites them, which the run measures.
+  test("its first Citation is the words selected, found where they were selected", () => {
+    expect(failuresOf([cited(3), cited(7)])).toEqual([]);
+    expect(failuresOf([cited(7), cited(3)])).toEqual(["not-quoted"]);
+    expect(failuresOf([cited(3, "not-found")])).toEqual(["not-quoted"]);
+    expect(failuresOf([])).toEqual(["no-citations", "not-quoted"]);
   });
 });
 

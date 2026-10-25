@@ -60,6 +60,25 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  # The packaged app transcribes a meeting with its real speech engine and model (#1239), as
+  # ci.yml runs it for a pull request that changes what it covers.
+  packaged-transcription:
+    name: Packaged app transcribes a meeting (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Package the app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:dir -- -c.mac.identity=- -c.mac.notarize=false
+      - uses: ./.github/actions/packaged-transcription
+
   # The Word corpus (eval/word/README.md): the committed files and the extended set, fetched from
   # their commit-pinned URLs, opened in LibreOffice headless.
   word-corpus:

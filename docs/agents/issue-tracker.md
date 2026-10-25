@@ -33,6 +33,19 @@ Create a GitHub issue.
 
 Run `gh issue view <number> --comments`.
 
+## Work items
+
+A work item is an issue that lists small issues one agent should do together, so the agent reads the context once and opens one pull request.
+
+- **Title and labels:** "Work item: <theme>" with `work-item`, the group's `priority:` label and the highest `complexity:` of its members (`complexity:simple` or `complexity:medium`). Members keep their own labels. All members share one priority tier, and no member is hard.
+- **Body:** a line on the theme and the files or screens it touches, then a checklist with one link per member: `- [ ] #1350 Library: ⌘A also highlights the page's text`. Add "Split if over 600 lines" and name the split when it is known.
+- **Taking it:** claim the work item, read each member once, and build them in one branch and one pull request that closes the work item and every member ("Closes #1350, closes #1354"). Use `Closes`, not `Part of`, for a member that is done.
+- **Dropping a member:** one that turns out hard, blocked or undecided comes off the list with a comment saying why, and stays open on its own.
+- **P0 and P1 never wait for a batch to fill:** a stray P1 starts the day it is ready, with or without a work item.
+- **Members stay separate issues** (people report them and search finds them). An issue belongs to one work item, and work items don't nest. A wayfinding map is for exploring; a work item is for building.
+- **Standing work items** collect the recurring kinds (flaky specs and CI, feel-check findings, wrong names and wording): a finding that isn't P0, P1 or hard adds a line there instead of opening its own issue and pull request.
+- **When a pull request that says "Part of" merges,** close the issue or tick its line within a day, so finished issues don't stay open.
+
 ## Wayfinding operations
 
 Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.

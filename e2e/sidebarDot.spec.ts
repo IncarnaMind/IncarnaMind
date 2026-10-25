@@ -27,6 +27,7 @@ const useKey = (window: Page, apiKey: string) => {
   return window.evaluate(async (provider) => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await core.saveChatProvider(provider);
+    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
   }, input);
 };
 
@@ -63,10 +64,10 @@ test("a hidden sidebar's toggle shows a dot while Tagging needs the User, never 
   await expect.poll(() => taggingOf(window, "Harbour notes"), { timeout: 20_000 }).toBe("tagged");
   await expect(toggle).not.toHaveAttribute("data-needs-you");
 
-  // A key the provider refuses: the Document fails, and the dot says so.
+  // A key the provider refuses: the Document waits for a key that works, and the dot says so.
   await useKey(window, "sk-refused");
   await addNote(window, "Invoice 60", "Invoice 60. Amount due: 120 EUR.");
-  await expect.poll(() => taggingOf(window, "Invoice 60")).toBe("failed");
+  await expect.poll(() => taggingOf(window, "Invoice 60")).toBe("waiting-for-provider");
   await expect(toggle).toHaveAttribute("data-needs-you", "true");
   await expect(window.getByTestId("sidebar-toggle-dot")).toBeVisible();
   await expect(toggle).toHaveAccessibleName("Show sidebar · Tagging needs you");
@@ -96,7 +97,7 @@ test("a hidden sidebar's toggle shows a dot while Tagging needs the User, never 
   await toggle.focus();
   await window.keyboard.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(window.getByTestId("tagging-failed")).toBeVisible();
+  await expect(window.getByTestId("tagging-key-refused")).toBeVisible();
   await expect(window.getByTestId("sidebar-toggle-dot")).toHaveCount(0);
   await window.keyboard.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");

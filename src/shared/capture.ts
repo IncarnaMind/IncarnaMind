@@ -16,7 +16,9 @@ export const CAPTURE_CHANNELS = {
   start: "capture:start",
   /** Main → page: stop, send what is left, then say "stopped". */
   stop: "capture:stop",
-  /** Page → main: (source, Int16Array) of 16 kHz mono samples. */
+  /** Main → page: turn the microphone off or on (boolean) while capturing; the computer's sound goes on. */
+  microphone: "capture:microphone",
+  /** Page → main: (source, Int16Array of 16 kHz mono samples, when the last was captured). */
   audio: "capture:audio",
   /** Page → main: (source, `CaptureState`). */
   state: "capture:state",
@@ -27,8 +29,33 @@ export const CAPTURE_CHANNELS = {
 export interface CaptureStart {
   /** Open the microphone: false when the OS has already refused it. */
   microphone: boolean;
+  /** The User has it on: false when they paused it before the page started. */
+  microphoneOn: boolean;
   /** Record the computer's sound too. */
   systemAudio: boolean;
+}
+
+/**
+ * What the main process says to the capture page about the User's microphone: the first message
+ * (the start) carries whether they have paused it already, and each change after it goes on as
+ * it comes. A pause before the start isn't lost, and a resume after it isn't taken for refused.
+ */
+export function createMicrophoneRelay(page: {
+  start(request: CaptureStart): void;
+  microphone(on: boolean): void;
+}) {
+  let on = true;
+  let started = false;
+  return {
+    set(next: boolean): void {
+      on = next;
+      if (started) page.microphone(next);
+    },
+    start(request: Omit<CaptureStart, "microphoneOn">): void {
+      page.start({ ...request, microphoneOn: on });
+      started = true;
+    },
+  };
 }
 
 /** How a source is doing, as the capture window sees it (`CaptureState` in the core's adapters). */
@@ -37,7 +64,9 @@ export type CaptureWindowState = "recording" | "denied" | "unavailable" | "ended
 export interface CaptureBridge {
   onStart(listener: (request: CaptureStart) => void): void;
   onStop(listener: () => void): void;
-  audio(source: AudioSource, samples: Int16Array): void;
+  onMicrophone(listener: (on: boolean) => void): void;
+  /** `capturedAt`: when the last sample was captured, `Date.now()` on this computer. */
+  audio(source: AudioSource, samples: Int16Array, capturedAt: number): void;
   state(source: AudioSource, state: CaptureWindowState): void;
   stopped(): void;
 }

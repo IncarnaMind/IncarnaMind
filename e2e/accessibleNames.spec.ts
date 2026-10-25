@@ -35,7 +35,7 @@ async function unnamedControls(window: Page): Promise<string[]> {
   );
 }
 
-/** Visible buttons that hold no text, only an icon, and say nothing in a tooltip. */
+/** Visible icon buttons without a native tooltip or a described tooltip. */
 const untitledIcons = (window: Page) =>
   window.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>("button, [role=button]")]
@@ -44,6 +44,12 @@ const untitledIcons = (window: Page) =>
           each.getClientRects().length > 0 &&
           (each.textContent ?? "").trim() === "" &&
           each.getAttribute("title") === null &&
+          !(each.getAttribute("aria-describedby") ?? "").split(/\s+/).some((id) => {
+            const description = document.getElementById(id);
+            return (
+              description?.getAttribute("role") === "tooltip" && description.textContent?.trim()
+            );
+          }) &&
           each.closest("[aria-hidden=true]") === null &&
           each.closest("[popover]:not(:popover-open)") === null,
       )

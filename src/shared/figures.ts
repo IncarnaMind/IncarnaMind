@@ -901,10 +901,52 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
   return kept;
 }
 
-/** Every scale or unit stated apart from the figures in `text`: what a header's "单位：万元" says. */
-export function readStatedUnits(text: string, context: FigureContext = {}): StatedUnit[] {
+const BEFORE_COUNTED_SCALE = /^\s*[(（]?\s*(?:(?:units?|单位)\s*[:：]\s*)?$/i;
+const AFTER_COUNTED_SCALE = /^\s*[)）]?\s*$/;
+
+// "100million USD" states a scale only as the whole header; in a sentence it is a figure.
+function countedScales(text: string, prepared: Prepared, context: FigureContext): Statement[] {
+  return readFigures(text, { ...context, header: null }).flatMap((figure) => {
+    const count = figure.scale === 1 ? 0 : figure.value / figure.scale;
+    const power = Math.round(Math.log10(count));
+    if (power < 1 || 10 ** power !== count || figure.scaleWord === null) return [];
+    const from = prepared.from.indexOf(figure.start);
+    const to = prepared.to.lastIndexOf(figure.end) + 1;
+    if (from < 0 || to <= 0) return [];
+    if (!BEFORE_COUNTED_SCALE.test(prepared.s.slice(0, from))) return [];
+    if (!AFTER_COUNTED_SCALE.test(prepared.s.slice(to))) return [];
+    return [
+      {
+        from,
+        to,
+        exponent: Math.round(Math.log10(figure.scale)) + power,
+        scaleWord: `${count}${figure.scaleWord}`,
+        unit: figure.unit,
+      },
+    ];
+  });
+}
+
+function headerStatements(text: string, context: FigureContext, settled: Settled): Statement[] {
   const prepared = prepare(text);
-  return statementsIn(prepared, text, settle(context)).map((statement) => {
+  return [...statementsIn(prepared, text, settled), ...countedScales(text, prepared, context)];
+}
+
+/**
+ * Every scale or unit stated apart from the figures in `text`: what a header's "单位：万元" says.
+ * With `asHeader`, the line is one the model gave as a header, so "100million USD" counts too.
+ */
+export function readStatedUnits(
+  text: string,
+  context: FigureContext = {},
+  asHeader = false,
+): StatedUnit[] {
+  const prepared = prepare(text);
+  const settled = settle(context);
+  const statements = asHeader
+    ? headerStatements(text, context, settled)
+    : statementsIn(prepared, text, settled);
+  return statements.map((statement) => {
     const start = prepared.from[statement.from] as number;
     const end = prepared.to[statement.to - 1] as number;
     return {
@@ -1914,7 +1956,7 @@ export function readFigures(text: string, context: FigureContext = {}): Figure[]
   const { s } = prepared;
   const plain = settle(context);
   const statements = statementsIn(prepared, text, plain);
-  const header = context.header ? statementsIn(prepare(context.header), context.header, plain) : [];
+  const header = context.header ? headerStatements(context.header, context, plain) : [];
   const settled = {
     ...plain,
     accounts: context.accounts ?? writesAccounts(s, [...statements, ...header]),

@@ -39,19 +39,6 @@ type Known = { flow: string; step: string; issue: number; sometimes?: true } & (
 const TIMES_FAIL = process.env.CI !== undefined;
 
 export const KNOWN: readonly Known[] = [
-  { flow: "assistant-place", step: "dock bottom", kind: "focus", landed: "body", issue: 1316 },
-  { flow: "assistant-place", step: "dock float", kind: "focus", landed: "body", issue: 1316 },
-  { flow: "assistant-place", step: "dock left", kind: "focus", landed: "body", issue: 1316 },
-  { flow: "assistant-place", step: "dock right", kind: "focus", landed: "body", issue: 1316 },
-  { flow: "sidebar", step: "delete", kind: "focus", landed: "body", issue: 1311 },
-  {
-    flow: "first-open",
-    step: "ask a Question",
-    kind: "shift",
-    moved: ["assistant-answer", "assistant-question"],
-    max: 0.0008,
-    issue: 1330,
-  },
   {
     flow: "first-open",
     step: "check the Mind",
@@ -65,12 +52,6 @@ export const KNOWN: readonly Known[] = [
     step: "ask for a section",
     kind: "shift",
     moved: [
-      "mind-editor",
-      "assistant-answer",
-      "assistant-question",
-      "proposals-line",
-      "proposals-accept-all",
-      "proposals-reject-all",
       "mind-changes",
       "mind-changes-left",
       "mind-changes-review",

@@ -281,6 +281,7 @@ const section = (text: string, first: number, part: number): Section => ({
 function unitsOf(blocks: readonly WebBlock[]): WebUnit[] {
   const units: WebUnit[] = [];
   const path: string[] = [];
+  const headed = blocks.some((block) => block.level !== null);
   let current: Section | null = null;
   let paragraph = 0;
 
@@ -293,6 +294,7 @@ function unitsOf(blocks: readonly WebBlock[]): WebUnit[] {
       label: {
         path: sectionPath,
         ...(current.part > 1 ? { part: current.part } : {}),
+        ...(headed && sectionPath.length === 0 ? { beforeHeading: true } : {}),
         paragraphs: true,
         ...(current.figures.length > 0 ? { figures: current.figures } : {}),
       },

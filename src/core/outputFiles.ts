@@ -35,7 +35,7 @@ import {
   NotFoundError,
 } from "./errors";
 import type { createEventHub } from "./events";
-import { safeFileName, writeNewFile } from "./fileNames";
+import { removeStalePartials, safeFileName, writeNewFile } from "./fileNames";
 import type { SettingsStore } from "./settings";
 import type { Database } from "./storage";
 
@@ -151,6 +151,10 @@ export function createOutputFiles(options: OutputFilesOptions) {
     const value = settings.readDeviceValue(OUTPUT_LOCATION);
     return typeof value === "string" ? value : null;
   };
+
+  // What a force-quit left in the Output location goes now, not at its next save.
+  const chosen = location();
+  if (chosen !== null) void removeStalePartials(chosen);
 
   const liveFolder = (linkedFolderId: string) =>
     options.linkedFolders().find((each) => each.id === linkedFolderId);

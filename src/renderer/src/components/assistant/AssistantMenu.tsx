@@ -35,6 +35,8 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
   const chosen = useAppStore((state) => state.layout?.assistant.dock);
   const run = (id: Parameters<typeof commands.run>[0]) => {
     menu.close();
+    // The item that had the focus is gone with the menu, and the page body would get it.
+    menu.buttonProps.ref.current?.focus();
     commands.run(id).catch(useAppStore.getState().reportError);
   };
   const HereIcon = ICONS[chosen ?? "right"];

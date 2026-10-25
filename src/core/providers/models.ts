@@ -40,11 +40,11 @@ export interface ChatModelSpec {
   kind: ChatProviderKind;
   /**
    * The API's base URL: a hosted provider's endpoint from the catalog (null:
-   * its first), the server's for "openai-compatible" and "ollama", the plan's
-   * model endpoint for "chatgpt".
+   * the one `endpoint` names), the server's for "openai-compatible" and
+   * "ollama", the plan's model endpoint for "chatgpt".
    */
   baseUrl: string | null;
-  /** A hosted provider's endpoint id, to tell which region's models it is (its first when left out). */
+  /** A hosted provider's endpoint id: which region's address and models it is (its first when left out). */
   endpoint?: string | null;
   /** A preset's catalog id, whose endpoint and request quirks it takes. */
   catalogId?: string | null;
@@ -94,9 +94,8 @@ function requireBaseUrl(spec: ChatModelSpec): string {
   return spec.baseUrl;
 }
 
-/** A hosted provider's API: the spec's endpoint, else the catalog's first for its kind. */
 const hostedUrl = (spec: ChatModelSpec): string =>
-  spec.baseUrl ?? endpointUrl(spec.kind, null, spec.catalogId) ?? requireBaseUrl(spec);
+  spec.baseUrl ?? endpointUrl(spec.kind, spec.endpoint, spec.catalogId) ?? requireBaseUrl(spec);
 
 /**
  * The AI SDK provider for each kind, with what every request to its provider

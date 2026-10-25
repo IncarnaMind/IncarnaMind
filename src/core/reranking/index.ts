@@ -19,6 +19,7 @@ import type {
 import type { EmbeddingModelStatus } from "../api";
 import { downloadModel, isModelDownloaded } from "../embedding/download";
 import { createDownloadableModel } from "../embedding/downloadable";
+import type { ModelSources } from "../embedding/modelSources";
 import type { RerankingModelDefinition } from "./model";
 
 export { BUILT_IN_RERANKING_MODEL, type RerankingModelDefinition } from "./model";
@@ -59,6 +60,8 @@ export interface RerankingModelOptions {
   definition: RerankingModelDefinition;
   /** Overrides the definition's source (tests). */
   source?: EmbeddingModelSource;
+  /** Where else its files may come from (#1578). */
+  sources?: ModelSources;
   dataDir: string;
   crossEncoder: CrossEncoder;
   emitStatus(status: EmbeddingModelStatus): void;
@@ -80,6 +83,7 @@ function createGpuFile(
   baseUrl: string,
   dataDir: string,
   log: Logger,
+  sources: ModelSources | undefined,
 ) {
   const directory = join(dataDir, "models", gpu.folder);
   const lifetime = new AbortController();
@@ -96,6 +100,7 @@ function createGpuFile(
       downloadModel({
         directory,
         source: { baseUrl, files: [gpu.file] },
+        ...(sources && { sources }),
         signal: lifetime.signal,
         onProgress: () => {},
       })
@@ -124,7 +129,8 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
   const log = options.log ?? silentLogger;
   const source = options.source ?? definition.source;
   const gpuFile =
-    definition.gpu && createGpuFile(definition.gpu, source.baseUrl, options.dataDir, log);
+    definition.gpu &&
+    createGpuFile(definition.gpu, source.baseUrl, options.dataDir, log, options.sources);
   let device: RerankingDevice | undefined;
   /** Why the model failed on the GPU as it reranked: it runs on the CPU until IncarnaMind restarts. */
   let gpuFailed: string | undefined;
@@ -156,6 +162,7 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
       maxTokens: definition.maxTokens,
     }),
     source,
+    ...(options.sources && { sources: options.sources }),
     dataDir: options.dataDir,
     loadRunner: async (paths) =>
       onLoaded(
