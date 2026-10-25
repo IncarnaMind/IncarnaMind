@@ -54,6 +54,7 @@ const WORDS = {
     toCheck: "10 claims not checked yet",
     tableCells: "10 table cells",
     found: "22 Citations found",
+    unsupported: "21 unsupported",
     ask: "Check this Mind’s 10 claims against your Documents?",
     notNow: "Not now",
     allChecked: "Everything checked",
@@ -66,6 +67,7 @@ const WORDS = {
     toCheck: "10 条说法待核对",
     tableCells: "10 个表格单元格",
     found: "22 处引用已找到",
+    unsupported: "21 条无依据",
     ask: "要对照你的文档，核对这个 Mind 中的 10 条说法吗？",
     notNow: "暂不",
     allChecked: "已全部核对",
@@ -155,8 +157,32 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(badge.locator(".check-badge-words")).toHaveCount(0);
     const done = await checkCard(window);
     await expect(done.getByTestId("health-toCheck")).toHaveCount(0);
-    await expect(done.getByTestId("health-all-checked")).toContainText(words.allChecked);
+    // The 21 unsupported cells still show, so the card never says everything is checked (#1909).
+    await expect(done.getByTestId("health-unsupported")).toContainText(words.unsupported);
+    await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
     await screenshot(window, `check-counts-done-${language}`);
+    await window.keyboard.press("Escape");
+    await expect(done).toHaveCount(0);
+
+    // A clean check: one sentence the Documents support, and the card says everything is checked.
+    await newMind(window);
+    const clean = window.getByTestId("mind-editor");
+    await clean.click();
+    await window.keyboard.type("Revenue in Q1 was €1 million.");
+    await expect(clean).toContainText("Revenue in Q1");
+    const cleanCard = await checkCard(window);
+    await pointAndClick(window, cleanCard.getByTestId("badge-check-mind"));
+    await pointAndClick(
+      window,
+      cleanCard.getByTestId("mind-check-ask").getByTestId("mind-check-check"),
+    );
+    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
+    await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
+    const allDone = await checkCard(window);
+    await expect(allDone.getByTestId("health-toCheck")).toHaveCount(0);
+    await expect(allDone.getByTestId("health-unsupported")).toHaveCount(0);
+    await expect(allDone.getByTestId("health-all-checked")).toContainText(words.allChecked);
+    await screenshot(window, `check-counts-all-${language}`);
     await app.close();
   });
 }

@@ -33,7 +33,12 @@ import { AnswerError } from "./AnswerView";
 import { originOf } from "./blockOrigins";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSentences, sameCoverage, shownClaims } from "./claimChecks";
-import { type NoteHealth as Health, type HealthPart, noteHealth } from "./healthCounts";
+import {
+  everythingChecked,
+  type NoteHealth as Health,
+  type HealthPart,
+  noteHealth,
+} from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { CheckedWhen } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
@@ -258,7 +263,10 @@ export function HealthCard({
           {t("health.tableCells", { count: format(health.tableCells.length) })}
         </p>
       )}
-      {health.checkable > 0 && health.toCheck.length === 0 && !running && !problem && (
+      {everythingChecked(health, {
+        running: running !== undefined,
+        problem: problem !== undefined,
+      }) && (
         <p data-testid="health-all-checked" className="mind-health-line mind-health-note">
           {t("health.allChecked")}
         </p>

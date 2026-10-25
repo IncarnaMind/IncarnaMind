@@ -56,6 +56,26 @@ describe("The one count of sentences to check (#1909)", () => {
     expect(state(CLAIM, { state: "checking" })).toEqual({ kind: "checking" });
   });
 
+  test("a shown verdict decides before isClaim and skipped: a figure or a short line is still a verdict (#1909)", () => {
+    expect(state("100", { state: "contradicted" })).toEqual({ kind: "covered" });
+    expect(state("Next steps", { state: "contradicted" })).toEqual({ kind: "covered" });
+    expect(state("38.6%", { state: "unsupported" })).toEqual({ kind: "covered" });
+    expect(state("Next steps", { state: "supported" })).toEqual({ kind: "covered" });
+  });
+
+  test("a check that failed on a sentence the whole-Mind check skipped is still to check (#1909)", () => {
+    expect(state(CLAIM, { state: "not-checked", reason: "failed" }, { skipped: true })).toEqual({
+      kind: "to-check",
+      fresh: false,
+      why: "failed",
+    });
+    expect(state(CLAIM, { state: "needs-recheck", why: "edited" }, { skipped: true })).toEqual({
+      kind: "to-check",
+      fresh: false,
+      why: "recheck",
+    });
+  });
+
   test("a sentence kept as the User's own view counts as nothing, before its mark reads it", () => {
     expect(state(CLAIM, { state: "kept" })).toEqual({ kind: "kept" });
     expect(state(CLAIM, null, { kept: true })).toEqual({ kind: "kept" });

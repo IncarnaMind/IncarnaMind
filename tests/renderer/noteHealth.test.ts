@@ -9,6 +9,7 @@ import {
 } from "../../src/core/api";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import {
+  everythingChecked,
   HEALTH_PARTS,
   type HealthPart,
   type NoteHealth,
@@ -284,6 +285,39 @@ describe("A Mind's health", () => {
     expect(health.toCheck).toHaveLength(2);
     expect(health.noCitation).toHaveLength(1);
     for (const at of health.toCheck) expect(health.noCitation).not.toContain(at);
+  });
+
+  test("a shown verdict counts before isClaim: a contradicted figure in a table cell and a contradicted short line (#1909)", () => {
+    const cell = docOf(table(paragraph(checked("100", "contradicted"))));
+    expect(parts(healthOf(cell))).toEqual({ ...NOTHING, contradicted: 1 });
+    expect(healthOf(cell).checkable).toBe(1);
+    const short = docOf(paragraph(checked("Next steps", "contradicted")));
+    expect(parts(healthOf(short))).toEqual({ ...NOTHING, contradicted: 1 });
+    const figure = docOf(paragraph(checked("38.6%", "unsupported")));
+    expect(parts(healthOf(figure))).toEqual({ ...NOTHING, unsupported: 1 });
+  });
+
+  test("a sentence the last whole-Mind check skipped and a later check marked still counts (#1909)", () => {
+    const sentence = "Spring tides come at full moon.";
+    const doc = docOf(paragraph(checked(sentence, "not-checked", "failed")));
+    const health = healthOf(doc, { skipped: [sentenceKey(sentence)] });
+    expect(parts(health)).toEqual({ ...NOTHING, toCheck: 1 });
+    expect(health.citable).toHaveLength(1);
+  });
+
+  test("the card says everything is checked only with nothing left and no unsupported or contradicted sentence (#1909)", () => {
+    const supported = healthOf(
+      docOf(paragraph(checked("Spring tides come at full moon.", "supported"))),
+    );
+    expect(everythingChecked(supported, { running: false, problem: false })).toBe(true);
+    expect(everythingChecked(supported, { running: true, problem: false })).toBe(false);
+    expect(everythingChecked(supported, { running: false, problem: true })).toBe(false);
+    const contradicted = healthOf(docOf(paragraph(checked("100", "contradicted"))));
+    expect(everythingChecked(contradicted, { running: false, problem: false })).toBe(false);
+    const unsupported = healthOf(docOf(paragraph(checked("38.6%", "unsupported"))));
+    expect(everythingChecked(unsupported, { running: false, problem: false })).toBe(false);
+    const empty = healthOf(docOf(paragraph(text("Thanks!"))));
+    expect(everythingChecked(empty, { running: false, problem: false })).toBe(false);
   });
 
   test("counts a table cell's claim, on its own line (#1909)", () => {

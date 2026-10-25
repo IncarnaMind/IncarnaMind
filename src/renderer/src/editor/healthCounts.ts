@@ -22,7 +22,7 @@ import {
 import { type CheckedSentence, checkedSentence } from "../../../shared/claimChecks";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
-import { sentenceSpans } from "../../../shared/sentences";
+import { isClaim, sentenceSpans } from "../../../shared/sentences";
 import { keptSentences, paragraphPlaces, type ShownClaim, shownClaims } from "./claimChecks";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
@@ -166,7 +166,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     noCitation: [],
     checkable: 0,
   };
-  eachSentence(doc, input, ({ from, claim, citations, answered, inTable: table, state }) => {
+  eachSentence(doc, input, ({ from, text, claim, citations, answered, inTable: table, state }) => {
     for (const citation of citations) {
       const check = input.citationCheck(citation.attributes);
       if (check === "found") health.found.push(citation.pos);
@@ -184,9 +184,24 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     health.checkable++;
     if (claim.shown.state === "unsupported") health.unsupported.push(from);
     else if (claim.shown.state === "contradicted") health.contradicted.push(from);
-    else if (citations.length === 0) health.noCitation.push(from);
+    else if (isClaim(text) && citations.length === 0) health.noCitation.push(from);
   });
   return health;
+}
+
+/** Whether the card can say everything is checked: a sentence was checked, none is left, and no unsupported or contradicted sentence shows (#1909). */
+export function everythingChecked(
+  health: NoteHealth,
+  { running, problem }: { running: boolean; problem: boolean },
+): boolean {
+  return (
+    !running &&
+    !problem &&
+    health.checkable > 0 &&
+    health.toCheck.length === 0 &&
+    health.unsupported.length === 0 &&
+    health.contradicted.length === 0
+  );
 }
 
 /** The whole sentences a check still has to make in this Mind, as ranges to check (#1909). */

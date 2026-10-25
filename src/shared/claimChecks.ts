@@ -291,22 +291,26 @@ export function checkedSentence(input: {
   /** The User keeps it as their own view. */
   kept: boolean;
 }): CheckedSentence {
-  if (input.kept || input.check?.state === "kept") return { kind: "kept" };
-  if (input.skipped || !isClaim(input.text)) return { kind: "not-claim" };
-  switch (input.check?.state) {
-    case undefined:
-      return { kind: "to-check", fresh: true, why: "none" };
-    case "checking":
-      return { kind: "checking" };
-    case "supported":
-    case "unsupported":
-    case "contradicted":
-      return { kind: "covered" };
-    case "not-checked":
-      return { kind: "to-check", fresh: false, why: "failed" };
-    case "needs-recheck":
-      return { kind: "to-check", fresh: false, why: "recheck" };
+  // A check that shows decides first: a verdict on a figure or a short line is still a verdict (#1909).
+  if (input.kept) return { kind: "kept" };
+  if (input.check) {
+    switch (input.check.state) {
+      case "kept":
+        return { kind: "kept" };
+      case "checking":
+        return { kind: "checking" };
+      case "supported":
+      case "unsupported":
+      case "contradicted":
+        return { kind: "covered" };
+      case "not-checked":
+        return { kind: "to-check", fresh: false, why: "failed" };
+      case "needs-recheck":
+        return { kind: "to-check", fresh: false, why: "recheck" };
+    }
   }
+  if (input.kept || input.skipped || !isClaim(input.text)) return { kind: "not-claim" };
+  return { kind: "to-check", fresh: true, why: "none" };
 }
 
 /** How many of these sentences a check still has to make: the one count (#1909). */
