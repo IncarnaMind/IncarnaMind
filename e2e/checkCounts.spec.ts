@@ -131,6 +131,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("health-found")).toContainText(words.found);
     await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
     await screenshot(window, `check-counts-card-${language}`);
+    // The card holds at a narrow window too.
+    await setWindowSize(app, window, 900, 720);
+    await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
+    await screenshot(window, `check-counts-card-${language}-narrow`);
+    await setWindowSize(app, window, 1440, 900);
+    await expect(card).toBeVisible();
 
     // The check prompt asks with the same 10; Not now leaves the work to the Answer's line.
     await pointAndClick(window, card.getByTestId("badge-check-mind"));
