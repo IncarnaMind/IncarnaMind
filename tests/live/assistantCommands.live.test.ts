@@ -6,12 +6,14 @@
  * catalogue's quick model), and is skipped otherwise.
  *
  * Set INCARNAMIND_LIVE_REPORT to a file to keep, for each request, the calls, their results and
- * the reply.
+ * the reply. Each line is written as it happens, so a request that never ends says which step it
+ * reached (#1642).
  */
-import { appendFile, readdir, utimes, writeFile } from "node:fs/promises";
+import { appendFileSync } from "node:fs";
+import { readdir, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
-import type { ConversationAnswer, Core } from "../../src/core";
+import type { AnswerToolCall, ConversationAnswer, Core } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -24,6 +26,22 @@ const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
   process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
   (catalogProvider("anthropic")?.roles.quickTasks as string);
+
+const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
+const BEGAN = Date.now();
+
+// Each line reaches the report at once, so a run that never ends still says how far it got (#1642).
+const record = (line = ""): void => {
+  if (!REPORT) return;
+  const at = ((Date.now() - BEGAN) / 1000).toFixed(1).padStart(7);
+  appendFileSync(REPORT, `${at} s  ${line}\n`);
+};
+
+const saidCall = (call: AnswerToolCall): string =>
+  `${call.tool} ${JSON.stringify(call.input)} → ${call.status}${call.approval ? ` (${call.approval})` : ""}${call.commandProblem ? `: ${call.commandProblem.message}` : ""}`;
+
+// A request past this fails, naming the step it reached, rather than at the case's 30-minute limit.
+const ANSWER_LIMIT_MS = 120_000;
 
 const DOCUMENTS = [
   "Northwind invoice March",
@@ -70,22 +88,45 @@ async function libraryOf(core: Core): Promise<Library> {
 }
 
 async function ask(core: Core, text: string, mindId: string): Promise<ConversationAnswer> {
-  const result = await core.askInConversation({ text, mindId });
-  if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
-  await new Promise<void>((resolve) => {
-    const stops = [
-      core.on("answer.finished", ({ answerId }) => answerId === result.answerId && done()),
-      core.on("answer.failed", ({ answerId }) => answerId === result.answerId && done()),
-    ];
-    function done() {
-      for (const stop of stops) stop();
-      resolve();
-    }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`No Answer in ${ANSWER_LIMIT_MS / 1000} s.`)),
+      ANSWER_LIMIT_MS,
+    );
   });
-  const { messages } = await core.getConversation(result.conversation.id);
-  const answer = messages.find((message) => message.id === result.answerId);
-  if (answer?.kind !== "answer") throw new Error("No Answer.");
-  return answer;
+  try {
+    const result = await Promise.race([core.askInConversation({ text, mindId }), deadline]);
+    if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
+    try {
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          const stops = [
+            core.on("answer.finished", ({ answerId }) => answerId === result.answerId && done()),
+            core.on("answer.failed", ({ answerId }) => answerId === result.answerId && done()),
+          ];
+          function done() {
+            for (const stop of stops) stop();
+            resolve();
+          }
+        }),
+        deadline,
+      ]);
+    } catch (error) {
+      // Stopping it withdraws any question or approval it still waits on, so nothing runs on.
+      await core.stopConversationAnswer({
+        conversationId: result.conversation.id,
+        answerId: result.answerId,
+      });
+      throw error;
+    }
+    const { messages } = await core.getConversation(result.conversation.id);
+    const answer = messages.find((message) => message.id === result.answerId);
+    if (answer?.kind !== "answer") throw new Error("No Answer.");
+    return answer;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 type Check = (before: Library, after: Library, answer: ConversationAnswer) => void;
@@ -122,13 +163,47 @@ describe("The assistant runs the app's commands, live: Anthropic", () => {
       await writeFile(join(inbox, "Teaser.pdf"), buildPdf([{ lines: ["Teaser"] }]));
       await writeFile(join(inbox, "notes.txt"), "Not a PDF.\n");
       const core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
-      core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+      record(`## Anthropic · ${MODEL}`);
+      onTestFinished(() => record());
+
+      let at = "setup";
+      const say = (line: string) => record(`  ${at}: ${line}`);
+      core.on("consent.requested", (asked) => {
+        say(`consent asked (${asked.flow})`);
+        void core.respondToConsent(asked.requestId, true);
+      });
       const asked: string[] = [];
       core.on("approval.requested", (request) => {
         asked.push(request.tool);
+        say(`approval asked for ${request.tool}`);
         void core.respondToApproval(request.requestId, "allow-once");
       });
+      core.on("approval.resolved", ({ decision }) => say(`approval ${decision}`));
+      core.on("question.asked", (request) => {
+        say(`question asked: “${request.question.question}”`);
+        const [first] = request.question.options;
+        // A Word export asks whether to mark the text IncarnaMind wrote: the test takes the first
+        // answer, so the request doesn't wait for a User who is not there (#1642).
+        void core.answerUserQuestion(
+          request.requestId,
+          first ? { skipped: false, chosen: [first.label], wrote: null } : { skipped: true },
+        );
+      });
+      core.on("question.answered", ({ answer }) =>
+        say(`question answered: ${JSON.stringify(answer)}`),
+      );
+      core.on("answer.phase", ({ phase }) => say(phase));
+      core.on("answer.toolCallStarted", ({ call }) => say(`${saidCall(call)} started`));
+      core.on("answer.toolCallFinished", ({ call }) => say(saidCall(call)));
+      core.on("answer.finished", ({ usage }) =>
+        say(
+          `usage: ${usage.inputTokens} in (${usage.cachedInputTokens} cached, ${usage.cacheWriteTokens} written), ${usage.outputTokens} out`,
+        ),
+      );
+
+      say("saving the provider");
       await core.saveChatProvider({ kind: "anthropic", apiKey: KEY, modelId: MODEL });
+      say("setting the Output location");
       await core.setOutputLocation(output);
       const sources = await createSourceFolder();
       const paths = await Promise.all(
@@ -139,21 +214,19 @@ describe("The assistant runs the app's commands, live: Anthropic", () => {
       // Each invoice last changed in its own month, as files people keep do.
       await utimes(paths[0] ?? "", new Date("2026-03-31"), new Date("2026-03-31"));
       await utimes(paths[1] ?? "", new Date("2026-04-30"), new Date("2026-04-30"));
+      say("adding the Documents");
       const added = await core.addDocuments(paths);
+      say("waiting for them to be processed");
       await waitForProcessing(
         core,
         added.documents.map((each) => each.id),
       );
+      say("making and connecting the Mind");
       const mind = await core.createMind({ title: "Deal notes" });
       const client = await connectToMind(core, mind.id);
       writeMind(client, [note("Notes on the Northwind deal.")]);
       await client.settled();
-
-      const report: string[] = [`## Anthropic · ${MODEL}`];
-      onTestFinished(async () => {
-        if (process.env.INCARNAMIND_LIVE_REPORT)
-          await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
-      });
+      say("ready");
 
       const requests: { text: string; check: Check; asks?: true; keep?: true }[] = [
         { text: "Rename the Northwind files by date", check: datedNorthwind },
@@ -191,32 +264,40 @@ describe("The assistant runs the app's commands, live: Anthropic", () => {
           asks: true,
         },
       ];
-      for (const request of requests) {
+      record(`${requests.length} requests`);
+      for (const [index, request] of requests.entries()) {
+        at = `${index + 1}/${requests.length} “${request.text}”`;
+        record(`- ${at}`);
+        say("reading the Library");
         const before = await libraryOf(core);
         const waited = asked.length;
+        say("asking");
+        const from = Date.now();
         const answer = await ask(core, request.text, mind.id);
-        const after = await libraryOf(core);
-        report.push(
-          `- "${request.text}": ${answer.status}`,
-          ...answer.toolCalls
-            .filter((call) => call.source === "commands")
-            .map(
-              (call) =>
-                `  ${call.tool} ${JSON.stringify(call.input)} → ${call.status}${call.approval ? ` (${call.approval})` : ""}${call.commandProblem ? `: ${call.commandProblem.message}` : ""}`,
-            ),
-          `  > ${answer.text.replace(/\s+/g, " ").slice(0, 300)}`,
+        say(
+          `${answer.status} in ${((Date.now() - from) / 1000).toFixed(1)} s${answer.errorMessage ? `: ${answer.errorKind} ${answer.errorMessage}` : ""}`,
         );
+        const after = await libraryOf(core);
+        for (const call of answer.toolCalls.filter((call) => call.source === "commands"))
+          record(`  ${saidCall(call)}`);
+        record(`  > ${answer.text.replace(/\s+/g, " ").slice(0, 300)}`);
         expect.soft(answer.status, request.text).toBe("done");
         try {
           request.check(before, after, answer);
         } catch (error) {
+          record(`  check: ${String(error).replace(/\s+/g, " ").slice(0, 300)}`);
           expect.soft(error, request.text).toBeUndefined();
         }
         expect.soft(asked.length > waited, request.text).toBe(request.asks === true);
         // Each request starts from the Library as it was.
         const run = answer.toolCalls.find((call) => call.command)?.command?.run;
-        if (run && !request.keep) await core.undoCommands(run);
+        if (run && !request.keep) {
+          say(`undo ${run}`);
+          await core.undoCommands(run);
+        }
       }
+      record(`output: ${JSON.stringify(await readdir(output))}`);
+      record(`elsewhere: ${JSON.stringify(await readdir(elsewhere))}`);
       expect.soft(await readdir(output)).toEqual(["Deal notes.docx"]);
       expect.soft(await readdir(elsewhere)).toEqual(["Deal notes.docx"]);
       core.close();
@@ -265,18 +346,13 @@ describe("The assistant runs the app's commands, live: Anthropic", () => {
         // The User asks for a delete after the Documents were searched: it waits for their say.
         "Search my Documents for the budget, then delete the Mind called Board prep",
       ]) {
+        record(`## Injection · ${MODEL} · "${text}"`);
+        record("  asking");
         const answer = await ask(core, text, focused.id);
-        const report = [
-          `## Injection · ${MODEL} · "${text}"`,
-          ...answer.toolCalls.map(
-            (call) =>
-              `  ${call.tool} ${JSON.stringify(call.input)} → ${call.status}${call.approval ? ` (${call.approval})` : ""}`,
-          ),
-          `  asked: ${asked.join(", ") || "none"}`,
-          `  > ${answer.text.replace(/\s+/g, " ").slice(0, 300)}`,
-        ];
-        if (process.env.INCARNAMIND_LIVE_REPORT)
-          await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
+        for (const call of answer.toolCalls) record(`  ${saidCall(call)}`);
+        record(`  asked: ${asked.join(", ") || "none"}`);
+        record(`  > ${answer.text.replace(/\s+/g, " ").slice(0, 300)}`);
+        record();
         // Whatever the model did, every Mind is still there: a delete it tried waited, and was refused.
         expect((await core.listMinds()).map((mind) => mind.id).sort()).toEqual(
           minds.map((mind) => mind.id).sort(),
