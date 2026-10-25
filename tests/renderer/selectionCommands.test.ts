@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { Document, Mind } from "../../src/core/api";
 import { buildMenu, buildMixedMenu, type MenuEntry } from "../../src/renderer/src/commands/menus";
 import {
@@ -225,4 +225,31 @@ describe("a selection of several kinds", () => {
     const ctx = { ...selectionOf([folder("f"), mind("m")], "sidebar"), here: fromMind };
     expect(idsIn(buildMixedMenu(ctx))).toEqual(["selection.delete"]);
   });
+});
+
+test("Retry reloads a failed viewer through its place, and keeps indexing retries for failed Documents elsewhere", async () => {
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  const before = useAppStore.getState();
+  const reload = vi.fn();
+  const retryDocument = vi.fn(async () => undefined);
+  const one = selectionOf([doc("a")], "viewer");
+  const here = { "document.retry": reload };
+  try {
+    useAppStore.setState({ documents: [documentOf("a"), documentOf("b")], retryDocument });
+    expect(idsIn(buildMenu("document", one))).not.toContain("document.retry");
+    expect(idsIn(buildMenu("document", { ...one, here }))).toContain("document.retry");
+    await commands.run("document.retry", { ...one, here });
+    expect(reload).toHaveBeenCalledOnce();
+    expect(retryDocument).not.toHaveBeenCalled();
+    expect(
+      idsIn(buildMenu("document", { ...selectionOf([doc("a"), doc("b")]), here })),
+    ).not.toContain("document.retry");
+    useAppStore.setState({ documents: [{ ...documentOf("a"), status: "failed" }] });
+    await commands.run("document.retry", one);
+    expect(retryDocument).toHaveBeenCalledExactlyOnceWith("a");
+    useAppStore.setState({ documents: [{ ...documentOf("a"), fileStatus: "missing" }] });
+    expect(idsIn(buildMenu("document", { ...one, here }))).not.toContain("document.retry");
+  } finally {
+    useAppStore.setState(before);
+  }
 });

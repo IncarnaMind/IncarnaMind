@@ -127,6 +127,13 @@ function scaleAfter(
   return { skip: space + taken, written: differs ? words.slice(0, taken) : null };
 }
 
+/**
+ * Where a figure's marker, ending at `end` in `text`, ends with the scale or unit written right
+ * after it that its shown text has its own of ("[=1] 亿元"), which the figure takes in.
+ */
+export const figureMarkerEnd = (text: string, end: number, figure: PlacedFigure): number =>
+  end + (scaleAfter(text.slice(end), figure)?.skip ?? 0);
+
 /** Where a figure's marker is: what stays before it, what goes in its place, and what the Answer wrote there. */
 function place(
   figure: PlacedFigure | null,
