@@ -28,7 +28,7 @@ import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
 import { serveFileActions } from "./files";
-import { lockInstance } from "./instanceLock";
+import { heldByAnotherCopy, lockInstance } from "./instanceLock";
 import { handle } from "./ipc";
 import { startLogging } from "./logging";
 import { isCaptureWindow } from "./meetings/capture";
@@ -37,11 +37,12 @@ import { isPanelWindow, serveMeetingPanel } from "./meetings/panel";
 import { installAppMenu } from "./menu";
 import { createSystemNotifications } from "./notifications";
 import { chooseExecutor, createElectronAdapters, homeFolder, systemBrowser } from "./platform";
-import { busyDialog, DOWNLOAD_BUTTON, RELEASES_PAGE, startupDialog } from "./startupError";
+import { reopenAfterQuit, startAgainIfStalled } from "./startDuringQuit";
+import { DOWNLOAD_BUTTON, RELEASES_PAGE, startupDialog, startupProblem } from "./startupError";
 import { realHomeProblem } from "./testHome";
 import { reportFullScreen, titleBarOptions } from "./titleBar";
 import { guardQuit } from "./unsavedChanges";
-import { registerUpdateCheck, startAutoUpdates } from "./updater";
+import { registerUpdateCheck, startAutoUpdates, updateInstallsOnQuit } from "./updater";
 import { keepWindowPlace, windowPlace } from "./windowState";
 
 // A test build refuses the real home folder before anything is written. It says why on stderr and
@@ -62,20 +63,23 @@ if (dataDirOverride) app.setPath("userData", resolve(dataDirOverride));
 // The log in the data folder's `logs/`, from the start, so it has what goes wrong at startup too.
 const logger = startLogging(app.getPath("userData"));
 
+const reportLock = (what: string, error: unknown) => logger.exception(what, error);
+const systemLanguage = () => resolveLanguage("system", app.getPreferredSystemLanguages());
+const folderHeldBefore = heldByAnotherCopy(app.getPath("userData"), reportLock);
+
 // One copy to a data folder: a second would write the same database. Electron's lock is asked
 // first: a copy it refuses never reaches `ready`, so it quits at once, and the running copy's
 // window comes forward. Two copies asking in the same millisecond can both get it, so the data
 // folder's own lock decides which of them runs (#1352).
 const instanceLock = app.requestSingleInstanceLock()
-  ? lockInstance(app.getPath("userData"), (what, error) => logger.exception(what, error))
+  ? lockInstance(app.getPath("userData"), reportLock, { holderMayBeLeaving: folderHeldBefore })
   : null;
 const ownsDataFolder = instanceLock?.held ?? false;
 if (instanceLock?.timedOut) {
   logger.error("app.dataFolderBusy", { folder: app.getPath("userData") });
   // Before `ready`, Linux writes an error box to stderr and shows nothing (#1493).
   app.whenReady().then(() => {
-    const language = resolveLanguage("system", app.getPreferredSystemLanguages());
-    const { title, detail } = busyDialog(language);
+    const { title, detail } = startupProblem(systemLanguage(), "busy");
     // A copy left running would keep Electron's lock, and every later launch would quit unseen.
     try {
       dialog.showErrorBox(title, detail);
@@ -90,6 +94,18 @@ if (instanceLock?.timedOut) {
 }
 const releaseDataFolder = () => instanceLock?.release();
 app.on("quit", releaseDataFolder);
+if (ownsDataFolder && folderHeldBefore) {
+  startAgainIfStalled(
+    app,
+    releaseDataFolder,
+    () => {
+      const { title, detail } = startupProblem(systemLanguage(), "stalled");
+      dialog.showErrorBox(title, detail);
+    },
+    logger,
+  );
+}
+const startWaitsForQuit = reopenAfterQuit(app, () => !updateInstallsOnQuit(), logger);
 
 // Whether Skill scripts run in the OS sandbox, found out while Electron starts.
 const scriptExecutor = ownsDataFolder ? chooseExecutor(logger) : Promise.resolve(undefined);
@@ -164,8 +180,9 @@ function showFront(): void {
 }
 
 app.on("second-instance", () => {
-  logger.info("app.secondLaunch");
-  showFront();
+  const waits = startWaitsForQuit();
+  logger.info("app.secondLaunch", { quitting: waits });
+  if (!waits) showFront();
 });
 
 function isFromOurRenderer(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
@@ -365,7 +382,7 @@ app.whenReady().then(async () => {
   }
 
   app.on("activate", () => {
-    if (appWindows().length === 0) createWindow();
+    if (!startWaitsForQuit() && appWindows().length === 0) createWindow();
   });
 
   // A Meeting saves what it has before the computer sleeps, and records again when it wakes.

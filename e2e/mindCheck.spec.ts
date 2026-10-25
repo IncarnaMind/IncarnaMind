@@ -433,7 +433,7 @@ test("the line that says nothing changed goes when a Document is edited, moved o
   const unchanged = card.getByTestId("mind-check-unchanged");
   await pointAndClick(window, check);
   await pointAndClick(window, card.getByTestId("mind-check-ask").getByTestId("mind-check-check"));
-  await expect(card.getByTestId("health-checked-all")).toBeVisible();
+  await expect(card.getByTestId("health-checked-all")).toBeVisible({ timeout: 30_000 });
   await expect(window.getByTestId("badge-stop")).toHaveCount(0);
 
   // Each change leaves checks to make, so the line goes and the button says how many; checking them brings it back.

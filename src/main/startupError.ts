@@ -42,10 +42,17 @@ export function startupDialog(error: unknown, language: Language): StartupDialog
   };
 }
 
-/** What the User sees when another copy may still be starting on their data folder, so nothing starts (#1352). */
-export function busyDialog(language: Language): { title: string; detail: string } {
+/**
+ * What the User sees when nothing starts: another copy may still be starting on their data folder
+ * (`busy`, #1352), or this copy couldn't open its window, twice, while another was quitting
+ * (`stalled`, #1448).
+ */
+export function startupProblem(
+  language: Language,
+  reason: "busy" | "stalled",
+): { title: string; detail: string } {
   return {
     title: translate(language, "error.startup.title"),
-    detail: translate(language, "error.startup.busy"),
+    detail: translate(language, `error.startup.${reason}`),
   };
 }
