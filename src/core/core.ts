@@ -1542,6 +1542,8 @@ export function createCore(adapters: CoreAdapters): Core {
                 {
                   id: mind.id,
                   name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+                  folderId: mind.folderId,
+                  changedAt: mind.updatedAt,
                 },
               ]
             : [],
