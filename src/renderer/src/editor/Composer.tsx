@@ -120,7 +120,7 @@ const isCommand = (event: { metaKey: boolean; ctrlKey: boolean }) =>
 
 /**
  * The one input, at the foot of the assistant (DESIGN.md, Composer; #253),
- * for the Mind the assistant reads: "Ask, or say what to change…". ⌘J
+ * for the Mind the assistant reads: "Ask, or say ‘write a note on…’". ⌘J
  * focuses it from anywhere in the window, unfolding the assistant; Enter asks
  * (Shift+Enter breaks the line); Esc closes what it has open, and then is the
  * assistant's (it folds). Asking asks in the assistant's conversation (#201):
