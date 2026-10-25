@@ -454,7 +454,7 @@ export const en = {
   "undo.title": "Undo ({shortcut})",
   "line.actionKeys": "{label} ({keys})",
 
-  "assistant.whichMind": "Which Mind: {names} or {last}?",
+  "assistant.whichMind": "Which note: {names} or {last}?",
   "assistant.whichMind.separator": ", ",
   "assistant.whichMind.where": "{folder} · edited {date}",
   "mind.untitled": "Untitled",
@@ -1135,6 +1135,7 @@ export const en = {
   "viewer.label": "Document viewer",
   "viewer.keep": "Keep open",
   "viewer.keepTip": "Keep this tab open (or double-click its tab)",
+  "viewer.pdf.failed": "This PDF couldn’t be opened.",
   "viewer.loading": "Opening the Document…",
   "viewer.failed": "This Document couldn’t be shown: {message}",
   "viewer.locked.title": "This PDF is locked",
@@ -5303,7 +5304,7 @@ export const en = {
   "mindCall.failed.noMind": "Couldn’t change a Mind: none is open, and none was named",
   "mindCall.failed.notFound": "Couldn’t find a Mind called “{name}”",
   "mindCall.failed.several": "Several Minds are called “{name}”",
-  "mindCall.failed.notPicked": "Didn’t change “{name}”: no Mind was picked",
+  "mindCall.failed.notPicked": "Didn’t change “{name}”: no note was picked",
   "mindCall.failed.noHeading": "Couldn’t change “{mind}”: it has no heading “{heading}”",
   "mindCall.failed.noPlace": "Couldn’t add to “{mind}”: it has no heading or paragraph “{place}”",
   "mindCall.failed.severalPlaces":
