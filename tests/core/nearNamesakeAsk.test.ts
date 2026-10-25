@@ -78,7 +78,7 @@ describe("A change to a Mind with a close namesake (#1865)", { timeout: 30_000 }
 
     expect(asked).toHaveLength(1);
     const question = asked[0]?.question;
-    expect(question?.question).toBe("Which Mind: “Q3 plan” or “Q3 plan (draft)”?");
+    expect(question?.question).toBe("Which note: “Q3 plan” or “Q3 plan (draft)”?");
     expect(question?.options.map((option) => option.label)).toEqual(["Q3 plan", "Q3 plan (draft)"]);
     expect(question?.options[0]?.description).toMatch(/^Finance · edited /);
     expect(question?.options[1]?.description).toMatch(/^Not in a Folder · edited /);
