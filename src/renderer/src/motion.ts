@@ -732,10 +732,12 @@ export function useExitToward(
 /**
  * Fades in when the component holding `ref` shows, and out when it goes, in
  * place (DESIGN.md: status lines and the undo line). A new one shown as the old
- * one goes cross-fades with it.
+ * one goes cross-fades with it. `on` off: what it holds fades instead, and it
+ * stays as it is.
  */
-export function useFade(ref: RefObject<HTMLElement | null>): void {
+export function useFade(ref: RefObject<HTMLElement | null>, on = true): void {
   useLayoutEffect(() => {
+    if (!on) return;
     const element = ref.current;
     if (element) enter(element, {});
     return () => {
@@ -744,7 +746,7 @@ export function useFade(ref: RefObject<HTMLElement | null>): void {
       // Only once it's gone: React runs effects twice in development, and the element stays.
       if (play) queueMicrotask(() => element.isConnected || play());
     };
-  }, [ref]);
+  }, [ref, on]);
 }
 
 /**

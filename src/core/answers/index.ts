@@ -119,7 +119,7 @@ import {
   type WebPageCall,
 } from "../api";
 import type { CallToDecide, ToolCallToApprove } from "../approvals";
-import type { AnswerRead, AnswerWrite, QuestionInput, Turn } from "../conversations";
+import type { AddedTurn, AnswerRead, AnswerWrite, QuestionInput, Turn } from "../conversations";
 import type { WindowedPassage } from "../documents/search";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
@@ -354,7 +354,12 @@ export interface AnswerConversations {
     input: Omit<QuestionInput, "onScreen">,
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
-  ): Turn;
+    emit?: boolean,
+  ): AddedTurn;
+  /** Emits a turn added with `emit: false`, once its Question can be asked. */
+  publish(turn: Turn): void;
+  /** Discards a turn added with `emit: false` when its Question can't be asked. */
+  discard(added: AddedTurn): void;
   /** The Question of an Answer, and the Tool calls it made, to write the Answer again; what is on screen now. */
   questionOf(input: unknown): {
     answerId: string;
@@ -369,6 +374,7 @@ export interface AnswerConversations {
     answerId: string,
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
+    emit?: boolean,
   ): Turn;
   /** Writes an Answer as it stands; false when it is gone: its conversation was deleted. */
   writeAnswer(answerId: string, write: AnswerWrite): boolean;
@@ -463,6 +469,8 @@ export interface AnswersOptions {
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
   providerExists(providerId: string): boolean;
+  /** The default model, before its readiness is checked. */
+  defaultModel(): ChatModelChoice | null;
   /** Whether Questions can be asked with this model (the default one when undefined). */
   readiness(choice: ChatModelChoice | undefined): Promise<ChatReadiness>;
   /** The model, once the User has accepted its data flow (see `Core.prepareChatModel`). */
@@ -2953,31 +2961,57 @@ export function createAnswers(options: AnswersOptions) {
     },
 
     /**
-     * Asks a Question in a conversation (see `CoreApi.askInConversation`): nothing is
-     * kept unless it can be asked.
+     * Asks a Question in a conversation (see `CoreApi.askInConversation`). Its turn is
+     * committed before model readiness is awaited, so a quit can't lose it. A turn whose
+     * model or Skill can't be asked is discarded without being published.
      */
     async askInConversation(question: QuestionInput): Promise<ConversationAskResult> {
-      const ready = await readyModel(question.model, question.forcedSkill);
-      if ("asked" in ready) return ready;
-      // From here on nothing awaits, so the conversation and the Mind can't change underneath.
       const scope = options.searchedScope(question.scope, question.mind?.id ?? null);
-      const { documentIds, emptyScope } = scopeNow(scope, question.mind?.id ?? null);
       const mind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
       const quotes = checkQuotes(question.quotes);
-      const turn = options.conversations.add(
+      const answerModel =
+        question.model && options.providerExists(question.model.providerId)
+          ? question.model
+          : options.defaultModel();
+      const added = options.conversations.add(
         { ...question, scope, quotes: quotes.quoted.map((each) => each.quote) },
-        ready.model,
+        answerModel,
         readOf(mind),
+        false,
       );
-      return startInConversation(
-        turn,
-        ready,
-        documentIds,
-        emptyScope,
-        mind,
-        question.onScreen,
-        quotes,
-      );
+      const { turn } = added;
+      let published = false;
+      try {
+        const ready = await readyModel(question.model, question.forcedSkill);
+        if ("asked" in ready) {
+          options.conversations.discard(added);
+          return ready;
+        }
+        const readyMind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
+        // The Documents can change while readiness waits: search and quote them as they are now.
+        const { documentIds, emptyScope } = scopeNow(scope, question.mind?.id ?? null);
+        const checked = checkQuotes(question.quotes);
+        const readyTurn = options.conversations.restartAnswer(
+          turn.answer.id,
+          ready.model,
+          readOf(readyMind),
+          false,
+        );
+        options.conversations.publish(readyTurn);
+        published = true;
+        return startInConversation(
+          readyTurn,
+          ready,
+          documentIds,
+          emptyScope,
+          readyMind,
+          question.onScreen,
+          checked,
+        );
+      } catch (error) {
+        if (!published) options.conversations.discard(added);
+        throw error;
+      }
     },
 
     /** Writes an Answer of a conversation again, in place (see `CoreApi.regenerateConversationAnswer`). */
