@@ -40,6 +40,8 @@ export interface MindsCase {
   open: string | null;
   /** The Library also holds `DOCUMENTS`, so the model can search them too. */
   documents?: true;
+  /** The Minds it names hold only AI text: a Meeting's notes filled after Stop ("ai"), or what an Answer added ("answer"). */
+  sources?: "ai" | "answer";
   expected: Expected;
 }
 
@@ -221,6 +223,12 @@ const WORKSPACE_ZH: readonly SeedMind[] = [
 export const WORKSPACES: Readonly<Record<Language, readonly SeedMind[]>> = {
   en: WORKSPACE_EN,
   "zh-CN": WORKSPACE_ZH,
+};
+
+/** The Minds the requests for a new note from two name. */
+export const SOURCES: Readonly<Record<Language, readonly string[]>> = {
+  en: ["Project plan", "Meeting notes"],
+  "zh-CN": ["项目计划", "会议纪要"],
 };
 
 /** Documents of other matters, for a request asked in a Library that has some: nothing of them belongs in its answer. */
@@ -438,6 +446,40 @@ export const CASES: readonly MindsCase[] = [
     request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
     open: null,
     documents: true,
+    expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "new-from-two-plain-ai-en",
+    language: "en",
+    request:
+      "Make a new note called Launch brief from the Project plan and the Meeting notes: the milestones from the plan and the decisions from the notes.",
+    open: null,
+    sources: "ai",
+    expected: launchBrief("en"),
+  },
+  {
+    id: "new-from-two-plain-ai-zh",
+    language: "zh-CN",
+    request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
+    open: null,
+    sources: "ai",
+    expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "new-from-two-plain-made-en",
+    language: "en",
+    request:
+      "Make a new note called Launch brief from the Project plan and the Meeting notes: the milestones from the plan and the decisions from the notes.",
+    open: null,
+    sources: "answer",
+    expected: launchBrief("en"),
+  },
+  {
+    id: "new-from-two-plain-made-zh",
+    language: "zh-CN",
+    request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
+    open: null,
+    sources: "answer",
     expected: launchBrief("zh-CN"),
   },
   {

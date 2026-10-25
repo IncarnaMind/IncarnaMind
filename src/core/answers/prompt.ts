@@ -134,12 +134,18 @@ const YOUR_MINDS = "The User's Minds:";
 /** The most Mind names `mindsLine` gives: the most recently changed. */
 export const LISTED_MINDS = 30;
 
+// Shorter than a Document name's cap: the line goes with every Question.
+const MIND_NAME_LENGTH = 80;
+
 /**
  * The line just before the Question naming the User's Minds (#1790); "" for none. Given no
  * names, models took "the Project plan" for a Document and wrote nothing.
  */
 export function mindsLine(names: readonly string[]): string {
-  const listed = [...new Set(names.map(listedName))].slice(0, LISTED_MINDS);
+  const listed = [...new Set(names)].slice(0, LISTED_MINDS).map((name) => {
+    const line = name.replace(/\s+/g, " ").trim();
+    return line.length > MIND_NAME_LENGTH ? `${line.slice(0, MIND_NAME_LENGTH - 1)}…` : line;
+  });
   if (listed.length === 0) return "";
   return `${YOUR_MINDS} ${listed.map((name) => `"${name}"`).join(", ")}`;
 }

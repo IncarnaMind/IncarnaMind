@@ -16,7 +16,7 @@ Each run uses its own core, so runs can go in parallel (`INCARNAMIND_EVAL_MINDS_
 
 ## The requests
 
-`cases.ts`: eight, each in English and Chinese.
+`cases.ts`: ten, each in English and Chinese.
 
 | Request | Asked from | What must hold afterwards |
 |---|---|---|
@@ -27,6 +27,8 @@ Each run uses its own core, so runs can go in parallel (`INCARNAMIND_EVAL_MINDS_
 | `new-from-two`: "Make a new Mind called Launch brief from my Project plan Mind and my Meeting notes Mind: the milestones from the plan and the decisions from the notes." | Home | One new Mind, titled Launch brief, holding a milestone of the plan and a decision of the notes; both sources unchanged |
 | `new-from-two-plain`: the same asked as "a new note … from the Project plan and the Meeting notes", never saying Mind | Home | The same |
 | `new-from-two-plain-docs`: the same, in a Library that also has two Documents of other matters (`DOCUMENTS`), so the model can search too (#1790) | Home | The same |
+| `new-from-two-plain-ai`: the same, the Project plan and the Meeting notes holding only AI text, as a Meeting's notes filled after Stop | Home | The same |
+| `new-from-two-plain-made`: the same, the two holding only what an Answer added, which the Minds line leaves out (#1790): it measures what that costs | Home | The same |
 | `missing-mind`: "Shorten the summary in my Budget forecast Mind." | Project plan, which is in front | Nothing changes, and the reply (or its question) names Budget forecast |
 
 ## What a run is held to
@@ -70,7 +72,7 @@ Kimi K2.6 sees only this evaluation's made-up Minds: `INCARNAMIND_EVAL_CHAT_KIND
 
 The report goes into `eval/results/<start time>-minds/`. `report.md` has the pass count of each request and model against the bar of 9 in 10 runs, the median time to the end of the Answer and the tokens in and out of a run (the rewrites `edit_mind` asks for included), why runs failed, every run's result, and the transcript of every failure: what the model said, called and was told, what the app recorded its Tools doing, the card's rows and the reply. `report.json` has the same, with `rows` in the shape of the everyday evaluation's (`scripts/nightlyRealModel.ts` reads it).
 
-**Cost and time:** 160 runs (ten of each request) take about six minutes and $0.22 on Claude Haiku 5.5, and about ten minutes and $1.40 on Kimi K2.6, three at a time. The judge is a part of that.
+**Cost and time:** 200 runs (ten of each request) take about seven minutes and $0.28 on Claude Haiku 5.5, and about twelve minutes and $1.70 on Kimi K2.6, three at a time. The judge is a part of that.
 
 ## The nightly run
 

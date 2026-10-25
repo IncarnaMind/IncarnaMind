@@ -1,6 +1,12 @@
 import * as Y from "yjs";
-import { GENERATED_MARK, PROPOSAL_ATTRIBUTE, PROPOSAL_INSERT_MARK } from "../core/api";
+import {
+  BLOCK_ID_ATTRIBUTE,
+  GENERATED_MARK,
+  PROPOSAL_ATTRIBUTE,
+  PROPOSAL_INSERT_MARK,
+} from "../core/api";
 import { isRecord } from "../core/errors";
+import { originOf } from "./blockOrigins";
 import { proposalRequestOf, readProposalAttribute, readProposalRef } from "./proposals";
 
 const textOfRun = (run: unknown): string =>
@@ -56,30 +62,39 @@ const isAiRun = (run: unknown, doc: Y.Doc | null): boolean =>
   (run.attributes[GENERATED_MARK] != null ||
     byAi(doc, readProposalRef(run.attributes[PROPOSAL_INSERT_MARK])?.request));
 
+/** Whether a Block holds any text the User wrote: a run that is neither AI text nor in an AI's waiting insert. */
+function holdsOwnText(element: Y.XmlElement, doc: Y.Doc | null): boolean {
+  const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+  if (proposal?.kind === "insert" && byAi(doc, proposal.request)) return false;
+  return element.toArray().some((child) => {
+    if (child instanceof Y.XmlText) {
+      return child.toDelta().some((run: unknown) => textOfRun(run) !== "" && !isAiRun(run, doc));
+    }
+    return child instanceof Y.XmlElement && holdsOwnText(child, doc);
+  });
+}
+
 /**
- * Whether a Mind holds text and all of it is AI text, applied or still waiting: one an Answer made
- * or filled that the User hasn't written in since. Named to the model, such a Mind drew a later
- * request for a new piece into it (#1790).
+ * Whether an Answer in the assistant made or filled the Mind and the User hasn't written in it
+ * since: every Block that holds something was added from a conversation's Answer (its origin) and
+ * holds none of the User's text, but a title heading first. A Meeting's notes filled after Stop,
+ * a Research task's report or an imported file aren't added from an Answer, so they never are.
+ * Named to the model, such a Mind drew a later request for a new piece into it (#1790).
  */
-export function holdsOnlyAiText(blocks: Y.XmlFragment): boolean {
-  let ai = false;
-  const holdsOwn = (parent: Y.XmlFragment | Y.XmlElement): boolean =>
-    parent.toArray().some((child) => {
-      if (child instanceof Y.XmlText) {
-        return child.toDelta().some((run: unknown) => {
-          if (textOfRun(run) === "") return false;
-          if (!isAiRun(run, blocks.doc)) return true;
-          ai = true;
-          return false;
-        });
-      }
-      if (!(child instanceof Y.XmlElement)) return false;
-      const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
-      if (proposal?.kind === "insert" && byAi(blocks.doc, proposal.request)) {
-        ai = true;
-        return false;
-      }
-      return holdsOwn(child);
-    });
-  return !holdsOwn(blocks) && ai;
+export function madeByAnswer(blocks: Y.XmlFragment): boolean {
+  const doc = blocks.doc;
+  if (!doc) return false;
+  const filled = blocks
+    .toArray()
+    .filter(
+      (block): block is Y.XmlElement =>
+        block instanceof Y.XmlElement && !(block.nodeName === "paragraph" && block.length === 0),
+    );
+  const fromAnswer = (block: Y.XmlElement) => {
+    const id = block.getAttribute(BLOCK_ID_ATTRIBUTE);
+    return typeof id === "string" && originOf(doc, id)?.from.anchor.kind === "message";
+  };
+  const [first, ...rest] = filled;
+  const body = first && first.nodeName === "heading" && !fromAnswer(first) ? rest : filled;
+  return body.length > 0 && body.every((block) => fromAnswer(block) && !holdsOwnText(block, doc));
 }

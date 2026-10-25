@@ -50,7 +50,7 @@ import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { englishPlace } from "../../shared/locations";
-import { holdsNothing, holdsOnlyAiText } from "../../shared/madeMind";
+import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
 import {
@@ -190,6 +190,7 @@ import {
 } from "./claimedChanges";
 import { unmadeFixesIn } from "./claimedFixes";
 import {
+  askedText,
   conversationContext,
   conversationContextOf,
   estimateTokens,
@@ -251,6 +252,7 @@ import {
   loadedSkillText,
   meetingInstructions,
   mindInstructions,
+  mindsLine,
   selectedTextBlock,
   signInNeededInstructions,
   skillInstructions,
@@ -838,6 +840,8 @@ export function createAnswers(options: AnswersOptions) {
     questionId: string;
     model: ChatModelChoice;
     context: QuestionContext;
+    /** The line naming the User's Minds, for a pass that offers the Minds' Tools (see `AnswerRequest`). */
+    mindsLine?: { line: string; asked: string };
     /** The Documents of the Question's Search scope; null with no Search scope (every Document). */
     documentIds: string[] | null;
     /** The User limited the Question to some Documents. Absent: `documentIds` names some. */
@@ -2227,6 +2231,7 @@ export function createAnswers(options: AnswersOptions) {
           : messages,
         ...(mindRequest && { mind: mindRequest }),
         question: context.question,
+        ...(input.mindsLine && { mindsLine: input.mindsLine }),
         model: prepared.model,
         ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
         documents,
@@ -2630,14 +2635,13 @@ export function createAnswers(options: AnswersOptions) {
       mind && earlier.length > 0 ? mind.reading.section(MIND_TOKEN_LIMIT, asking) : mind?.section;
     const documents = options.documents.names();
     const shown = namesOnScreen(onScreen, documentIds);
-    const minds = help ? [] : namedMinds();
+    const named = help ? [] : namedMinds();
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
       documents,
       mindNames: options.readableMindName,
       changeStates: changeStatesOf,
       onScreen: shown,
-      minds,
     });
     const requestOf = (reading: MindReading, kept: MindCut): RequestMind => ({
       text: kept.text,
@@ -2645,6 +2649,12 @@ export function createAnswers(options: AnswersOptions) {
       cut: (tokens) => reading.section(tokens, asking),
     });
     start({
+      ...(named.length > 0 && {
+        mindsLine: {
+          line: mindsLine(named),
+          asked: askedText(shown, section?.selection ?? "", question.text),
+        },
+      }),
       home: conversationHome(conversation.id, answer.id),
       answerId: answer.id,
       questionId: question.id,
@@ -2671,7 +2681,6 @@ export function createAnswers(options: AnswersOptions) {
                   mindNames: options.readableMindName,
                   changeStates: changeStatesOf,
                   onScreen: shown,
-                  minds,
                 }).context,
                 request: requestOf(mind.reading, smaller),
                 share: smaller.share,
@@ -2755,7 +2764,7 @@ export function createAnswers(options: AnswersOptions) {
     const names: string[] = [];
     for (const mind of options.minds?.list().slice(0, 2 * LISTED_MINDS) ?? []) {
       if (names.length >= LISTED_MINDS) break;
-      if (names.includes(mind.name) || options.content.peek(mind.id, holdsOnlyAiText)) continue;
+      if (names.includes(mind.name) || options.content.peek(mind.id, madeByAnswer)) continue;
       names.push(mind.name);
     }
     return names;

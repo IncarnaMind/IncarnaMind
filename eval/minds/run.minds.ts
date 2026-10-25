@@ -16,7 +16,7 @@ import { commitOf } from "../lib/commit";
 import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
 import { openLibrary } from "../lib/library";
 import { createLog, type Log } from "../lib/log";
-import { CASES, DOCUMENTS, type MindsCase, WORKSPACES } from "./cases";
+import { CASES, DOCUMENTS, type MindsCase, SOURCES, WORKSPACES } from "./cases";
 import { examine } from "./examine";
 import { unbackedIn } from "./judge";
 import { createRecorder, type Tokens } from "./record";
@@ -97,7 +97,11 @@ async function runOne(
       );
     });
     await core.saveChatProvider(chatProviderOf(chat));
-    await seedWorkspace(core, WORKSPACES[each.language]);
+    await seedWorkspace(
+      core,
+      WORKSPACES[each.language],
+      each.sources ? { titles: SOURCES[each.language], by: each.sources } : null,
+    );
     const before = await readWorkspace(core);
     const open = each.open === null ? null : before.find((mind) => mind.title === each.open);
     if (each.open !== null && !open) throw new Error(`No Mind “${each.open}” to open.`);

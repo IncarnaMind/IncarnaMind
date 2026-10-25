@@ -1,7 +1,15 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { GENERATED_MARK, MIND_CONTENT_FIELD, PROPOSAL_INSERT_MARK } from "../../src/core/api";
-import { holdsNothing, holdsOnlyAiText } from "../../src/shared/madeMind";
+import {
+  BLOCK_ID_ATTRIBUTE,
+  GENERATED_MARK,
+  MIND_CONTENT_FIELD,
+  PROPOSAL_INSERT_MARK,
+} from "../../src/core/api";
+import { setProposal } from "../../src/core/proposals/write";
+import { messageReference } from "../../src/core/references";
+import { setOrigins } from "../../src/shared/blockOrigins";
+import { holdsNothing, madeByAnswer } from "../../src/shared/madeMind";
 import { recordProposalRequest } from "../../src/shared/proposals";
 
 type Child = { node: string; text?: string; children?: Child[] };
@@ -51,16 +59,19 @@ describe("A Mind that holds nothing yet (#1559)", () => {
   });
 });
 
-/** A Mind of one line whose runs carry these marks, and the requests its waiting text belongs to. */
-function lineOf(
-  runs: readonly { text: string; generated?: true; waiting?: "answer" | "word" }[],
-): Y.XmlFragment {
+interface Line {
+  runs: readonly { text: string; generated?: true; waiting?: "answer" | "word" }[];
+  /** Added from an Answer in a conversation: its origin is that Answer. */
+  fromAnswer?: true;
+  /** The whole line is an Answer's waiting insert. */
+  inserted?: true;
+  heading?: true;
+}
+
+/** A Mind of these lines, and the requests its waiting text belongs to. */
+function mindOfLines(lines: readonly Line[]): Y.XmlFragment {
   const doc = new Y.Doc();
   const fragment = doc.getXmlFragment(MIND_CONTENT_FIELD);
-  const line = new Y.XmlElement("paragraph");
-  const content = new Y.XmlText();
-  line.insert(0, [content]);
-  fragment.insert(0, [line]);
   recordProposalRequest(doc, "answer", {
     source: "answer-added",
     providerId: "anthropic",
@@ -68,30 +79,72 @@ function lineOf(
     createdAt: "2026-10-24T09:00:00.000Z",
   });
   recordProposalRequest(doc, "word", { source: "word-change", author: "Priya", date: null });
-  for (const run of runs) {
-    content.insert(content.length, run.text, {
-      ...(run.generated && { [GENERATED_MARK]: {} }),
-      ...(run.waiting && { [PROPOSAL_INSERT_MARK]: { id: run.text, request: run.waiting } }),
-    });
-  }
+  lines.forEach((line, index) => {
+    const block = new Y.XmlElement(line.heading ? "heading" : "paragraph");
+    block.setAttribute(BLOCK_ID_ATTRIBUTE, `block-${index}`);
+    if (line.inserted) {
+      setProposal(block, { id: `p-${index}`, request: "answer", kind: "insert" });
+    }
+    const content = new Y.XmlText();
+    block.insert(0, [content]);
+    fragment.insert(fragment.length, [block]);
+    for (const run of line.runs) {
+      content.insert(content.length, run.text, {
+        ...(run.generated && { [GENERATED_MARK]: {} }),
+        ...(run.waiting && { [PROPOSAL_INSERT_MARK]: { id: run.text, request: run.waiting } }),
+      });
+    }
+    if (line.fromAnswer) {
+      setOrigins(doc, [`block-${index}`], {
+        from: messageReference("conversation-1", "answer-1"),
+        question: "Write a launch brief.",
+      });
+    }
+  });
   return fragment;
 }
 
-describe("A Mind only an Answer wrote in (#1790)", () => {
-  // protects=a Mind whose text is all AI text, applied or still waiting, counts as the assistant's, so the Minds line leaves it out; fails_when=it counts as the User's; no_claim=how the window marks text it applies.
-  test.each([
-    ["applied AI text", [{ text: "The beta opens in February.", generated: true as const }]],
-    ["an Answer's waiting text", [{ text: "The beta opens.", waiting: "answer" as const }]],
-  ])("one holding %s is", (_name, runs) => {
-    expect(holdsOnlyAiText(lineOf(runs))).toBe(true);
+const ai = (text: string) => ({ text, generated: true as const });
+
+describe("A Mind an Answer made (#1790)", () => {
+  // protects=a Mind whose every Block came from an Answer and holds no word of the User's counts as the Answer's, so the Minds line leaves it out; fails_when=it counts as the User's; no_claim=how the window marks text it applies.
+  test.each<[string, Line[]]>([
+    ["its applied text", [{ runs: [ai("The beta opens in February.")], fromAnswer: true }]],
+    [
+      "its waiting Blocks",
+      [{ runs: [{ text: "The beta opens." }], fromAnswer: true, inserted: true }],
+    ],
+    [
+      "a title heading first, then its text",
+      [
+        { runs: [{ text: "Launch brief" }], heading: true },
+        { runs: [{ text: "The beta opens.", waiting: "answer" }], fromAnswer: true },
+      ],
+    ],
+  ])("one holding %s is", (_name, lines) => {
+    expect(madeByAnswer(mindOfLines(lines))).toBe(true);
   });
 
-  // protects=a Mind with any word the User or a Word file's author wrote, or with no text at all, counts as the User's, so it stays on the Minds line; fails_when=it is taken for the assistant's and left out; no_claim=none beyond protects.
-  test.each([
-    ["the User's own words", [{ text: "Mine." }, { text: " Added.", generated: true as const }]],
-    ["a Word file's tracked insertion", [{ text: "From Word.", waiting: "word" as const }]],
-    ["no text at all", []],
-  ])("one holding %s isn't", (_name, runs) => {
-    expect(holdsOnlyAiText(lineOf(runs))).toBe(false);
+  // protects=a Mind with a word the User or a Word file's author wrote, AI text from anywhere but an Answer (a Meeting's notes filled after Stop, a Research report), or nothing, counts as the User's, so it stays on the Minds line; fails_when=it is taken for an Answer's and left out; no_claim=none beyond protects.
+  test.each<[string, Line[]]>([
+    [
+      "a word the User typed",
+      [{ runs: [ai("The beta opens."), { text: " Mine." }], fromAnswer: true }],
+    ],
+    [
+      "a Word file's tracked insertion",
+      [{ runs: [{ text: "From Word.", waiting: "word" }], fromAnswer: true }],
+    ],
+    [
+      "AI text not from an Answer, as a Meeting's notes",
+      [{ runs: [ai("Decisions: hire a designer.")] }],
+    ],
+    [
+      "a Block of its own beside an Answer's",
+      [{ runs: [ai("The beta opens.")], fromAnswer: true }, { runs: [ai("Filled after Stop.")] }],
+    ],
+    ["nothing", []],
+  ])("one holding %s isn't", (_name, lines) => {
+    expect(madeByAnswer(mindOfLines(lines))).toBe(false);
   });
 });
