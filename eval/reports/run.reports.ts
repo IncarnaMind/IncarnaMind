@@ -70,7 +70,8 @@ const sameCitation = (a: Partial<Cited> & { check?: string }, b: Partial<Cited>)
   a.quote === b.quote &&
   JSON.stringify(a.location ?? null) === JSON.stringify(b.location ?? null);
 
-const IDS = /·\s*C\d+\]|\[\^?C\d+\]/g;
+/** An id left as text, in any bracket a model may use, square, full-width or round. */
+const IDS = /[·・]\s*C\d+\s*[\]】］〕)）]|[[【［〔(（]\^?C\d+[\]】］〕)）]/g;
 
 /** What the evaluation reads of an Answer's end; `idsAsText` is absent before #1800. */
 type Finished = Pick<

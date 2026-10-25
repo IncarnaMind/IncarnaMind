@@ -1,5 +1,22 @@
 import type { LibrarySettings, TaggingClassifier } from "../core/api";
 
+export const LIBRARY_DEFAULTS = {
+  classifier: { kind: "automatic" },
+  organizeWith: null,
+  taggingStopped: [],
+} satisfies Omit<LibrarySettings, "automatic">;
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+export const changedFromDefaults = (
+  settings: LibrarySettings,
+  automaticDefault: boolean,
+): boolean =>
+  !same(settings.classifier, LIBRARY_DEFAULTS.classifier) ||
+  !same(settings.organizeWith, LIBRARY_DEFAULTS.organizeWith) ||
+  settings.automatic !== automaticDefault ||
+  !same(settings.taggingStopped, LIBRARY_DEFAULTS.taggingStopped);
+
 /** Only this verified local decision-model family receives PDF page images. */
 export const supportsLibraryImages = (model: string) => /^clef-flash(?::|$)/i.test(model.trim());
 

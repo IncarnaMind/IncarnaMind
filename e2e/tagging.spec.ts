@@ -7,13 +7,14 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  openAdvancedModels,
   openSettings,
   removeDataFolder,
   setWindowSize,
 } from "./app";
 
 /*
- * Settings → Models → Tagging: one model choice for automatic tagging
+ * Settings → Models → Advanced → Tagging: one model choice for automatic tagging
  * and Organize. Automatic says which model it uses and why; another model is
  * chosen from a list grouped as the model chip groups them, and saved at once.
  * Ollama is a stand-in at its own address, with a local decision model and a
@@ -54,10 +55,9 @@ async function addOllama(window: Page, baseUrl: string): Promise<void> {
   }, baseUrl);
 }
 
-/** The Tagging section, scrolled into view. */
+/** The Tagging section, under Advanced, opened and scrolled into view. */
 async function tagging(window: Page): Promise<Locator> {
-  const settings = await openSettings(window, "models");
-  const section = settings.getByTestId("tagging-settings");
+  const section = await openAdvancedModels(await openSettings(window, "models"));
   await section.scrollIntoViewIfNeeded();
   return section;
 }
@@ -118,8 +118,10 @@ test("Automatic says which model it uses; another one is chosen from the list an
     await expect(decision.getByRole("radio")).toBeChecked();
     await closeSettings(window);
 
-    // Reopened, the choice is still there; the section fits the window without a scroll bar.
-    const again = await tagging(window);
+    // Reopened, Advanced opens by itself on the choice; the section fits without a scroll bar.
+    const settings = await openSettings(window, "models");
+    await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
+    const again = settings.getByTestId("tagging-settings");
     await expect(option(again, "Tev1 0.8B").getByRole("radio")).toBeChecked();
     await setWindowSize(app, window, 1100, 760);
     await expect
@@ -145,7 +147,7 @@ test("in Chinese: 自动打标签, with the model Automatic uses and the list's 
     await window.getByRole("button", { name: "设置" }).click();
     const settings = window.getByTestId("settings");
     await settings.getByTestId("settings-nav-models").click();
-    const section = settings.getByTestId("tagging-settings");
+    const section = await openAdvancedModels(settings);
     await section.scrollIntoViewIfNeeded();
     await expect(section.getByRole("heading", { name: "自动打标签" })).toBeVisible();
     await expect(section.getByTestId("tagging-automatic-line")).toHaveText(

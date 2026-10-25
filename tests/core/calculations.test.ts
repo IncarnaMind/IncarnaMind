@@ -31,7 +31,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { askAndEnd, isAnswer, QWEN35, setUpLocalModel } from "../helpers/localModels";
 import { answerIn, question, writeMind } from "../helpers/minds";
-import { lastAnswerCall, promptOf, scriptedModel, scriptedModels } from "../helpers/models";
+import { promptOf, scriptedModel, scriptedModels } from "../helpers/models";
 import { xlsxPackage } from "../helpers/office";
 import { type OllamaChatReply, startOllamaServer } from "../helpers/ollama";
 import { buildPdf } from "../helpers/pdf";
@@ -1077,13 +1077,14 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     const { core } = await setUpCalculating(model, [ACME]);
     const { conversationId } = await askAndRead(core, "How did Acme do in 2025?");
 
+    const asked = model.doStreamCalls.length;
     await askAndRead(core, "Why?", conversationId);
 
-    const earlier = promptOf(model, lastAnswerCall(model)).filter(
+    const earlier = promptOf(model, asked).filter(
       (message) => message.role === "assistant" && message.text,
     );
     expect(earlier.map((message) => message.text)).toEqual([
-      "Revenue grew 20.4% in 2025[Acme Annual Report 2025, p. 1]; gross margin rose 2.3 percentage points[Acme Annual Report 2025, p. 2].",
+      "Revenue grew 20.4% in 2025[Acme Annual Report 2025, p. 1 · C1]; gross margin rose 2.3 percentage points[Acme Annual Report 2025, p. 2 · C2].",
     ]);
     const [match] = await core.searchConversations("percentage");
     expect(match?.conversation.id).toBe(conversationId);
