@@ -605,6 +605,13 @@ export const clickEditItem = (
     item.click();
   }, id);
 
+/** The Edit menu's Undo or Redo, as the application menu has it now. */
+export const editItem = (app: ElectronApplication, id: "edit.undo" | "edit.redo") =>
+  app.evaluate(({ Menu }, itemId) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(itemId);
+    return item ? { label: item.label, enabled: item.enabled } : null;
+  }, id);
+
 /**
  * "New Mind" from the sidebar header's "+" menu, the one place to add: a Mind
  * in no Folder. Returns once its first line has the cursor: keys a test
