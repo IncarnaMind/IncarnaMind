@@ -107,7 +107,7 @@ import { inStep } from "../timing/flows";
 import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { asksForFixes } from "./citations";
-import { earlierContext, type RequestMind } from "./context";
+import { earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import { missingMarkerEvents, textEdits } from "./markerPlacement";
 import {
@@ -269,6 +269,11 @@ export interface AnswerTools {
    * one request to fix them asks about (see ./figureRetry).
    */
   figureProblems?(): FigureProblem[];
+  /**
+   * `text` with a Citation marker for each quote a figure gave its inputs directly, where the
+   * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
+   */
+  citeFigures?(text: string): string;
 }
 
 /** A record whose quote the check doesn't find, with the text of the Passage it names (see `AnswerTools.unfoundQuotes`). */
@@ -319,8 +324,8 @@ export interface GatedCall extends RunToolCall {
  * Which Tools a Run is offered (#78):
  * - "answer": an ordinary Answer's: the Documents' search and `cite`, and
  *   every other Tool the request brings (Skills, Connectors, Find sources);
- * - "check": a check Run's (find support, verify, a comparison table's
- *   cells, contradiction watch): the Documents' search and `cite` only,
+ * - "check": a check Run's (check against documents, verify, a comparison
+ *   table's cells, contradiction watch): the Documents' search and `cite` only,
  *   whatever the request brings, so the text it checks can't steer a write or
  *   a send;
  * - "documents": the Documents' Tools as an Answer has them, and nothing the
@@ -347,6 +352,12 @@ export interface AnswerRequest {
    * once it has rewritten it into a query that stands on its own.
    */
   question: string;
+  /**
+   * The line naming the User's Minds (#1790), right before `asked`, the end of the last message:
+   * only in a pass that offers the Minds' Tools. Without them it would reach a model that can't
+   * read the Minds, and the search rewrite's notebook.
+   */
+  mindsLine?: { line: string; asked: string };
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
   /**
@@ -469,6 +480,12 @@ export type AnswerEngineEvent =
    * ("Let me look that up"), or are being replaced: remove them.
    */
   | { type: "text-retracted"; length: number }
+  /**
+   * The texts the model wrote beside `cite` or `calculate` alone, after a search, with no marker
+   * in them, that the Answer doesn't show, in the order written. Once, before "finished", when
+   * there is any.
+   */
+  | { type: "text-set-aside"; texts: string[] }
   /**
    * A Tool call started, for its Tool-call card: any Tool but `cite` and `calculate`, or the
    * search the engine makes for a model without Tools. `tool` is its name at
@@ -737,7 +754,11 @@ const recordsSchema = {
     type: "object",
     properties: {
       marker: { type: "integer", description: "The marker's number: 1 for [^1]." },
-      passage: { type: "string", description: "The Passage's id, e.g. P1." },
+      passage: {
+        type: "string",
+        description:
+          "The Passage's id, e.g. P1; or, to keep a Citation shown in <mind>, read_mind or an earlier Answer, its id, e.g. C2.",
+      },
       location: {
         type: "string",
         description:
@@ -754,10 +775,11 @@ const recordsSchema = {
       },
       quote: {
         type: "string",
-        description: "A short quote, copied word for word from the Passage.",
+        description:
+          "A short quote, copied word for word from the Passage. Leave it out for a Citation's id: it keeps its own.",
       },
     },
-    required: ["marker", "passage", "quote"],
+    required: ["marker", "passage"],
   },
 } as const;
 
@@ -782,9 +804,7 @@ function parseRecords(value: unknown): CitationRecordInput[] {
     const number =
       typeof marker === "string" ? Number(/\d{1,4}/.exec(marker)?.[0] ?? Number.NaN) : marker;
     const named = typeof passage === "number" ? String(passage) : passage;
-    if (typeof number !== "number" || typeof named !== "string" || typeof quote !== "string") {
-      return [];
-    }
+    if (typeof number !== "number" || typeof named !== "string") return [];
     const page = (value: unknown) =>
       typeof value === "number" ? value : typeof value === "string" ? Number(value) : null;
     return [
@@ -794,7 +814,7 @@ function parseRecords(value: unknown): CitationRecordInput[] {
         ...(typeof location === "string" && location.trim() ? { location } : {}),
         pageFrom: page(pageFrom),
         pageTo: page(pageTo),
-        quote,
+        quote: typeof quote === "string" ? quote : "",
       },
     ];
   });
@@ -1415,7 +1435,7 @@ export function documentTools(
     cite: {
       ...own(DOCUMENT_TOOLS.cite),
       description:
-        "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage.",
+        "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead.",
       inputSchema: {
         type: "object",
         properties: { citations: recordsSchema },
@@ -1602,7 +1622,15 @@ async function* toolLoop(
   });
 
   // Within a window: the Question context that fits beside the instructions, the Tools and a search.
-  let messages = request.messages;
+  let messages =
+    request.mindsLine && tools.some((each) => each.provider.kind === "minds")
+      ? withLineBefore(
+          request.messages,
+          request.mindsLine.line,
+          request.mindsLine.asked,
+          request.question,
+        )
+      : request.messages;
   let estimated: number | undefined;
   let window: RunWindow | undefined;
   if (budget) {
@@ -1643,10 +1671,12 @@ async function* toolLoop(
   /** An earlier step wrote the Answer and recorded its Citations: text with markers after that is a second copy. */
   let answered = false;
   /**
-   * The last text written beside `cite` or `calculate` alone, with no marker
-   * in it, and taken back: the Answer, if the model never writes another.
+   * Texts written beside `cite` or `calculate` alone, with no marker in them,
+   * and taken back: the last is the Answer if the model never writes another,
+   * and a check whose reply has no verdict reads it from those written after
+   * a search.
    */
-  let unmarked = "";
+  let setAside: { text: string; searched: boolean }[] = [];
   /** The Tool of each call, by its id. */
   const calls = new Map<string, Tool>();
   /** Searches running now: the Answer is "searching" while there are any. */
@@ -1685,6 +1715,9 @@ async function* toolLoop(
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
     if (!request.documents.wroteIntoMind?.()) {
+      const figured = request.documents.citeFigures?.(keptText) ?? keptText;
+      yield* textEdits(keptText, figured);
+      keptText = figured;
       const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
       yield* citeUnmarked(request, placed, temperature, budget, () =>
         nudges.take("unmarked-quotes"),
@@ -1833,7 +1866,7 @@ async function* toolLoop(
           if (shown > 0) yield { type: "text-retracted", length: shown };
           released = Math.min(released, keptText.length);
           if (recorded && !stepTools.some((each) => !recording(each)) && !again)
-            unmarked = stepText;
+            setAside.push({ text: stepText, searched });
         } else {
           keptText += stepText;
           if (recorded && MARKER.test(stepText)) answered = true;
@@ -1871,7 +1904,8 @@ async function* toolLoop(
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        if (keptText.trim() === "" && unmarked.trim() !== "") keptText = unmarked;
+        if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
+          keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
           const records = parseRecords(taken.records).filter(
@@ -1894,10 +1928,12 @@ async function* toolLoop(
           keptText = "";
           stepText = "";
           answered = false;
-          unmarked = "";
+          setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
           break;
         }
+        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
+        if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
         if (taken.text !== keptText) {
           yield* textEdits(keptText.slice(0, released), taken.text);
           keptText = taken.text;
@@ -1956,7 +1992,11 @@ async function* structured(
             type: "string",
             description: "The Answer, in Markdown, with Citation markers and figure markers.",
           },
-          citations: recordsSchema,
+          // A small local model leaves out what its schema doesn't require: a record needs its quote here.
+          citations: {
+            ...recordsSchema,
+            items: { ...recordsSchema.items, required: [...recordsSchema.items.required, "quote"] },
+          },
           ...(request.documents.calculate && { calculations: calculationsSchema }),
         },
         required: ["answer", "citations"],
@@ -2036,6 +2076,7 @@ async function* structured(
       }
       if (budget) yield* retryFigures(request, placed, temperature, budget);
       if (signal.aborted) return;
+      yield* textEdits(placed, request.documents.citeFigures?.(placed) ?? placed);
     }
   }
   yield* flagClaims(request, emitted);

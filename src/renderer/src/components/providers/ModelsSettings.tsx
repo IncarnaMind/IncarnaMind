@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChatModelGroup, ChatProvider } from "../../../../core/api";
 import { catalogProvider, endpointOf } from "../../../../core/providers/catalog/providers";
+import { changedFromDefaults } from "../../../../shared/libraryModels";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import { joinMeta } from "../../cost";
@@ -29,6 +30,7 @@ import { ProviderDirectory } from "./ProviderDirectory";
 import { logoIdOf, ProviderLogo } from "./ProviderLogo";
 import { ProviderPage, providerName, type RemovedProvider } from "./ProviderPage";
 import { catalogIdOf, MODELS_UNDO_PLACE, regionFor, savedProviderFor } from "./shared";
+import { useJevSettings } from "./useJevSettings";
 
 type View =
   | { page: "list" }
@@ -40,6 +42,7 @@ const ANSWERS_TARGET = ["chat-model"] as const;
 const DIRECTORY_TARGET = ["add-provider"] as const;
 
 export function ModelsSettings() {
+  const t = useT();
   const language = useLanguage();
   const readiness = useAppStore((state) => state.chatReadiness);
   const groups = useAnswers((state) => state.models);
@@ -87,6 +90,19 @@ export function ModelsSettings() {
   useSettingsTarget<HTMLDivElement>(DIRECTORY_TARGET, providers !== null, () =>
     setView({ page: "directory" }),
   );
+  const changed = useAppStore(
+    (state) =>
+      !!state.library &&
+      changedFromDefaults(state.library.settings, state.library.automaticDefault),
+  );
+  const [jev] = useJevSettings();
+  const jevEnabled = jev?.enabled === true;
+  const toTagging = useAppStore((state) => state.settingsAt === "tagging");
+  const [advanced, setAdvanced] = useState(false);
+  // Once open, it never folds under the cursor; the next opening starts folded.
+  useLayoutEffect(() => {
+    if (changed || jevEnabled || toTagging) setAdvanced(true);
+  }, [changed, jevEnabled, toTagging]);
 
   // Each page starts at its top; back on the list, the focus is where it was.
   useLayoutEffect(() => {
@@ -190,7 +206,21 @@ export function ModelsSettings() {
             onAdd={() => open({ page: "directory" }, "add-provider")}
           />
           <PlansSettings />
-          <TaggingSettings />
+          <details
+            data-testid="models-advanced"
+            open={advanced}
+            onToggle={(event) => setAdvanced(event.currentTarget.open)}
+          >
+            <summary
+              data-testid="models-advanced-toggle"
+              className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink"
+            >
+              {t("models.advanced")}
+            </summary>
+            <div className="mt-3">
+              <TaggingSettings />
+            </div>
+          </details>
         </>
       )}
     </div>

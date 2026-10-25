@@ -49,8 +49,9 @@ import { askedFor, waitsForUser as heldForUser } from "../../shared/askedChanges
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
+import { translate } from "../../shared/i18n";
 import { englishPlace } from "../../shared/locations";
-import { holdsNothing } from "../../shared/madeMind";
+import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
 import {
@@ -66,6 +67,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { filingFolder, hasSearchScope, NO_SCOPE, searchScopeOf } from "../../shared/searchScope";
+import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import {
   ANSWER_BLOCK,
@@ -173,12 +175,13 @@ import {
   textAttribute,
   topLevelBlocks,
 } from "./blocks";
-import { answerLanguage, createCalculationSession } from "./calculations";
+import { answerLanguage, createCalculationSession, whole } from "./calculations";
 import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
 import {
   type AnswerDocuments,
   createCitationSession,
+  type QuoteInput,
   withoutDeadMarkers,
   withoutFootnoteDefinitions,
 } from "./citations";
@@ -190,6 +193,7 @@ import {
 } from "./claimedChanges";
 import { unmadeFixesIn } from "./claimedFixes";
 import {
+  askedText,
   conversationContext,
   conversationContextOf,
   estimateTokens,
@@ -203,6 +207,11 @@ import {
   type RequestMind,
   readMind,
 } from "./context";
+import {
+  type ContextCitations,
+  createContextCitations,
+  withoutWrittenIds,
+} from "./contextCitations";
 import { coverageInstructions, coverageOf, documentsAsked, type SizedDocument } from "./coverage";
 import {
   documentSkimBlock,
@@ -220,6 +229,7 @@ import type {
   AnswerEngine,
   AnswerSearchOptions,
   AnswerTools,
+  CitationRecordInput,
   CiteOptions,
   DocumentLanguage,
   GatedCall,
@@ -233,6 +243,7 @@ import {
   withTranscript,
 } from "./liveTranscript";
 import { markdownToBlocks } from "./markdown";
+import { withFigureCitations } from "./markerPlacement";
 import {
   FOUND_TOKEN_LIMIT,
   foundWithin,
@@ -252,11 +263,13 @@ import {
   emptyMindNote,
   exampleNote,
   LISTED_DOCUMENTS,
+  LISTED_MINDS,
   type ListedDocuments,
   languageInstruction,
   loadedSkillText,
   meetingInstructions,
   mindInstructions,
+  mindsLine,
   selectedTextBlock,
   signInNeededInstructions,
   skillInstructions,
@@ -265,6 +278,7 @@ import {
   sourcesInstructions,
   stillReadingNote,
   THIS_DOCUMENT_RULE,
+  unrecordedMarkersNote,
   webInstructions,
   withPassageNotes,
   workingCopyNote,
@@ -332,6 +346,8 @@ interface WrittenAnswer {
 interface MindToRead {
   mindId: string;
   reading: MindReading;
+  /** The ids its Citations read with, which the Answer's `cite` takes (#1800). */
+  ids: ContextCitations;
   /** What of it the Question context holds, before the model is known: at most `MIND_TOKEN_LIMIT` tokens. */
   section: MindSection;
 }
@@ -419,6 +435,8 @@ export interface CellAnswer {
   error: ProviderError | null;
 }
 
+const FIGURE_CITATIONS_FROM = 9000;
+
 // With nothing to search, a model wrote what a Document says, uncited, into the User's Mind and
 // blamed its Tools (#1359).
 const NOTHING_TO_CITE =
@@ -427,11 +445,23 @@ const NOTHING_TO_CITE =
 /** Tells the model its Question's Search scope holds no Documents, so it answers from what it has (#748). */
 const EMPTY_SCOPE_NOTE = `The User limited this Question to a Search scope (Folders, Tags or Documents) that holds no Documents, so there is nothing to search. ${NOTHING_TO_CITE} The line under your Answer offers to search all their Documents instead.`;
 
+// Told only this, models took a Mind the User named for a Document and wrote nothing (#1790).
+const MINDS_ARE_NOT_DOCUMENTS = "Their Minds aren't Documents: read_mind reads one they name.";
+
 const noDocumentsNote = (examples: boolean) =>
   `None of the User's own Documents can be searched yet${examples ? " (the examples IncarnaMind made aren't theirs)" : ""}, so there is nothing to search. ${NOTHING_TO_CITE} They can add Documents to the Library.`;
 
 const changesAMind = (change: MindChange) =>
   change.created || change.revised === true || change.proposals > 0;
+
+const touchedIn = (messages: readonly ConversationMessage[]): string[] =>
+  messages.flatMap((message) =>
+    message.kind === "answer"
+      ? message.toolCalls.flatMap((call) =>
+          call.mindChange && changesAMind(call.mindChange) ? [call.mindChange.mindId] : [],
+        )
+      : [],
+  );
 
 function lastAnswerOf(
   conversationId: string,
@@ -857,6 +887,10 @@ export function createAnswers(options: AnswersOptions) {
     questionId: string;
     model: ChatModelChoice;
     context: QuestionContext;
+    /** The ids the Citations in `context` read with; absent: it shows none. */
+    ids?: ContextCitations;
+    /** The line naming the User's Minds, for a pass that offers the Minds' Tools (see `AnswerRequest`). */
+    mindsLine?: { line: string; asked: string };
     /** The Documents of the Question's Search scope; null with no Search scope (every Document). */
     documentIds: string[] | null;
     /** The User limited the Question to some Documents. Absent: `documentIds` names some. */
@@ -928,7 +962,7 @@ export function createAnswers(options: AnswersOptions) {
      */
     assistant?: Pick<
       MindToolsOptions,
-      "focused" | "folderId" | "origin" | "lastAnswer" | "remake"
+      "focused" | "folderId" | "origin" | "lastAnswer" | "remake" | "touched"
     > & {
       /** What the commands of the Conversation's earlier Answers renamed, oldest first. */
       renames: readonly CommandRename[];
@@ -1111,6 +1145,8 @@ export function createAnswers(options: AnswersOptions) {
       : null;
     const passagesOf = (documentId: string) =>
       options.documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+    const ids = input.ids ?? createContextCitations();
+    const notKept = translate(answerLanguage(context.question), "answer.sourceNotKept");
     const session = createCitationSession(
       searched,
       {
@@ -1124,6 +1160,7 @@ export function createAnswers(options: AnswersOptions) {
             passages: () => openingWithin(passagesOf(original.id), OPENING_TOKEN_LIMIT),
           }
         : undefined,
+      ids,
     );
     /**
      * Whether its model is offered `calculate` and its steer: a fact of the
@@ -1152,6 +1189,80 @@ export function createAnswers(options: AnswersOptions) {
         text,
         [...new Set(markersIn(text))].flatMap((marker) => session.quotes.recorded(marker) ?? []),
         answerLanguage(context.question),
+      );
+    // A figure's Citations are its inputs', which the model may leave out of its sentence or write
+    // only as footnote definitions (#1831). An input quoted directly is recorded when calculate
+    // takes it, numbered far above the model's own, which count from [^1]: a Citation the model
+    // writes later never takes a figure's quote.
+    const quoteKey = (quote: QuoteInput) =>
+      [quote.passage, quote.location, quote.pageFrom, quote.pageTo, quote.quote].join("\n");
+    const recordedQuotes = new Map<string, number>();
+    const quotesRecorded = new Map<number, QuoteInput>();
+    let figureMarker = FIGURE_CITATIONS_FROM;
+    const nextMarker = (): number => {
+      do figureMarker++;
+      while (session.tools.hasRecord?.(figureMarker));
+      return figureMarker;
+    };
+    const recordQuote = (quote: QuoteInput, marker: number) => {
+      session.tools.cite([{ ...quote, marker }], { structured: true });
+      if (!session.tools.hasRecord?.(marker)) return false;
+      recordedQuotes.set(quoteKey(quote), marker);
+      quotesRecorded.set(marker, quote);
+      return true;
+    };
+    const calculateFigures = (given: readonly unknown[], calculateOptions?: CiteOptions) => {
+      const told = figures.calculate(given, calculateOptions);
+      for (const raw of given) {
+        const marker = whole((raw as { marker?: unknown } | null)?.marker);
+        for (const source of marker === null ? [] : figures.inputSources(marker)) {
+          if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
+            recordQuote(source, nextMarker());
+        }
+      }
+      return told;
+    };
+    const citeRecords = (records: readonly CitationRecordInput[], citeOptions?: CiteOptions) => {
+      for (const record of records) {
+        const quote = quotesRecorded.get(record.marker);
+        // The model numbered a Citation of its own with a figure's: the figure's record moves.
+        if (quote && quoteKey(quote) !== quoteKey(record)) {
+          quotesRecorded.delete(record.marker);
+          recordQuote(quote, nextMarker());
+        }
+      }
+      for (const record of records) recordedQuotes.set(quoteKey(record), record.marker);
+      return session.tools.cite(records, citeOptions);
+    };
+    const wordsOf = (marker: number) => {
+      const citation = session.quotes.recorded(marker)?.citation;
+      return citation && { passage: citation.passageId, quote: normaliseText(citation.quote) };
+    };
+    // A Citation that quotes an input's words cites that input; another claim's beside the figure,
+    // though from the same Passage, doesn't (#1831).
+    const covers = (cited: number, marker: number) => {
+      const [shown, input] = [wordsOf(cited), wordsOf(marker)];
+      return (
+        cited === marker ||
+        (!!shown &&
+          !!input &&
+          input.quote !== "" &&
+          shown.passage === input.passage &&
+          shown.quote.includes(input.quote))
+      );
+    };
+    // An id written as text is a Citation (#1800), made one first: a figure beside it isn't cited twice.
+    const citeFigures = (text: string): string =>
+      withFigureCitations(
+        session.citeWrittenIds(text, notKept),
+        (figure, cited) =>
+          figures.inputSources(figure).flatMap((source) => {
+            const marker =
+              typeof source === "number" ? source : recordedQuotes.get(quoteKey(source));
+            if (marker === undefined || !session.tools.hasRecord?.(marker)) return [];
+            return cited.some((each) => covers(each, marker)) ? [] : [marker];
+          }),
+        (figure) => figures.figure(figure),
       );
     /** A Citation marker's node as the text around a figure sees it: none for a marker with no record. */
     const citedNode = (marker: number) =>
@@ -1183,7 +1294,8 @@ export function createAnswers(options: AnswersOptions) {
     /** Writes the Answer as it stands into its home; false if it is gone. */
     const write = (outcome?: Outcome): boolean => {
       const final = outcome !== undefined;
-      const text = withoutFootnoteDefinitions(markdown);
+      // Turned into their Citations when the Answer ends (`finish`): till then none shows.
+      const text = withoutFootnoteDefinitions(final ? markdown : withoutWrittenIds(markdown, ids));
       // Final: a marker with no record is removed, and each is counted for the summary.
       const citationOf = (marker: number) =>
         final ? session.finalCitation(marker) : session.streamingCitation(marker);
@@ -1251,7 +1363,15 @@ export function createAnswers(options: AnswersOptions) {
       for (const call of toolCalls) {
         if (call.status === "running") call.status = "failed";
         if (call.approval === "waiting") call.approval = "denied";
+        // What a call was given is kept with the conversation, where no id may be stored (#1800).
+        call.input = Object.fromEntries(
+          Object.entries(call.input).map(([key, value]) => [
+            key,
+            typeof value === "string" ? withoutWrittenIds(value, ids) : value,
+          ]),
+        );
       }
+      markdown = session.citeWrittenIds(markdown, notKept);
       // The check runs once, now; its results are stored with each Citation, and each figure's input.
       try {
         session.check();
@@ -1927,6 +2047,30 @@ export function createAnswers(options: AnswersOptions) {
               read: (toolCallId, call) => webPages.set(toolCallId, call),
             })
           : [];
+      const questions = outside ? undefined : options.questions;
+      const asksUser =
+        questions && input.assistant
+          ? {
+              ask: (toolCallId: string, question: UserQuestion, signal: AbortSignal) =>
+                questions.ask({ ...place, answerId, toolCallId, question }, signal),
+              recorded: (toolCallId: string, question: UserQuestion) => {
+                userQuestions.set(toolCallId, question);
+                const call = toolCalls.find((each) => each.id === toolCallId);
+                if (finished || !call) return;
+                call.asked = question;
+                writeSoon();
+              },
+            }
+          : null;
+      // The question and the User's answer stay in the thread on the call that asked.
+      const askInTray =
+        asksUser &&
+        (async (toolCallId: string, question: UserQuestion, signal: AbortSignal) => {
+          asksUser.recorded(toolCallId, question);
+          const answer = await asksUser.ask(toolCallId, question, signal);
+          asksUser.recorded(toolCallId, { ...question, answer });
+          return answer;
+        });
       // The Minds' Tools, for an Answer in the assistant (#202).
       const minds = outside ? undefined : options.minds;
       const focusedId = input.assistant?.focused?.mindId ?? null;
@@ -1939,6 +2083,7 @@ export function createAnswers(options: AnswersOptions) {
         minds && input.assistant
           ? mindTools({
               minds,
+              ids,
               prepared,
               rewriting: () => {
                 rewriting ??= options.prepareModel(model, "off").catch((error: unknown) => {
@@ -1952,6 +2097,7 @@ export function createAnswers(options: AnswersOptions) {
               },
               paragraph: paragraphAsked(context.question),
               ...input.assistant,
+              ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
               figure: (marker) => (calculating ? figures.figure(marker) : null),
               blocksOf: (text) => {
@@ -1959,7 +2105,10 @@ export function createAnswers(options: AnswersOptions) {
                 let notFound = 0;
                 let unrecorded = 0;
                 let firstUnrecorded = -1;
-                const written = withoutSearchTalk(withoutFootnoteDefinitions(text));
+                const written = withoutSearchTalk(
+                  session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
+                );
+                const markdown = calculating ? citeFigures(written.markdown) : written.markdown;
                 const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
@@ -1970,8 +2119,8 @@ export function createAnswers(options: AnswersOptions) {
                 const names = documentNames;
                 const known = (source: NamedSource) =>
                   namesOneOf(source.name, names) || link({ ...source, location: null }) !== null;
-                const asText = sourcesAsText(written.markdown, known);
-                const sourced = linkKnownSources(written.markdown, known, link);
+                const asText = sourcesAsText(markdown, known);
+                const sourced = linkKnownSources(markdown, known, link);
                 const tables = linkTableSources(sourced.text, link);
                 const cited = markdownToBlocks(tables.markdown).flatMap((block, index) =>
                   withCitations([block], (marker) => {
@@ -2031,21 +2180,6 @@ export function createAnswers(options: AnswersOptions) {
             })
           : null;
       if (mindsTools) settleMinds = () => mindsTools.settle();
-      const questions = outside ? undefined : options.questions;
-      const asksUser =
-        questions && input.assistant
-          ? {
-              ask: (toolCallId: string, question: UserQuestion, signal: AbortSignal) =>
-                questions.ask({ ...place, answerId, toolCallId, question }, signal),
-              recorded: (toolCallId: string, question: UserQuestion) => {
-                userQuestions.set(toolCallId, question);
-                const call = toolCalls.find((each) => each.id === toolCallId);
-                if (finished || !call) return;
-                call.asked = question;
-                writeSoon();
-              },
-            }
-          : null;
       const commands = outside ? undefined : options.commands;
       commandsOffered =
         commands && input.assistant
@@ -2058,15 +2192,7 @@ export function createAnswers(options: AnswersOptions) {
               renames: input.assistant.renames,
               runId: randomUUID(),
               steps: commands.steps,
-              ...(asksUser && {
-                // The question and the User's answer stay in the thread on the call that asked.
-                ask: async (toolCallId, question, signal) => {
-                  asksUser.recorded(toolCallId, question);
-                  const answer = await asksUser.ask(toolCallId, question, signal);
-                  asksUser.recorded(toolCallId, { ...question, answer });
-                  return answer;
-                },
-              }),
+              ...(askInTray && { ask: askInTray }),
               found: (toolCallId, found) => commandsFound.set(toolCallId, found),
               ran: (toolCallId, done) => commandsDone.set(toolCallId, done),
               failed: (toolCallId, problem) => commandProblems.set(toolCallId, problem),
@@ -2083,7 +2209,10 @@ export function createAnswers(options: AnswersOptions) {
         readingDocuments: () => options.documents.reading(documentIds),
         searchDocuments: (query, signal, searchOptions) =>
           session.tools.searchDocuments(query, signal, searchOptions),
-        cite: (records, citeOptions) => session.tools.cite(records, citeOptions),
+        cite: (records, citeOptions) =>
+          calculating
+            ? citeRecords(records, citeOptions)
+            : session.tools.cite(records, citeOptions),
         hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
         unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
         correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
@@ -2092,9 +2221,9 @@ export function createAnswers(options: AnswersOptions) {
         wroteIntoMind: () =>
           [...mindChanges.values()].some((change) => change.proposals > 0 || change.revised),
         ...(calculating && {
-          calculate: (given: readonly unknown[], calculateOptions?: CiteOptions) =>
-            figures.calculate(given, calculateOptions),
+          calculate: calculateFigures,
           figureProblems: () => figures.problems(),
+          citeFigures,
         }),
       };
       // Scripts can run when a Skill has some, unless the User turned them off.
@@ -2194,6 +2323,18 @@ export function createAnswers(options: AnswersOptions) {
               : null;
           },
         },
+        {
+          name: "unrecorded-markers",
+          check: (text) => {
+            if (ids.size() === 0) return null;
+            const unrecorded = [...new Set(markersIn(text))].filter(
+              (marker) => !session.tools.hasRecord?.(marker),
+            );
+            return unrecorded.length > 0
+              ? { claims: [], note: unrecordedMarkersNote(unrecorded) }
+              : null;
+          },
+        },
       ];
       for await (const event of engine.generate({
         instructions: (
@@ -2211,15 +2352,17 @@ export function createAnswers(options: AnswersOptions) {
           [
             base,
             mode === "no-documents"
-              ? scoped && input.emptyScope
-                ? EMPTY_SCOPE_NOTE
-                : noDocumentsNote(input.emptyScope)
+              ? [
+                  scoped && input.emptyScope ? EMPTY_SCOPE_NOTE : noDocumentsNote(input.emptyScope),
+                  ...(withMindTools ? [MINDS_ARE_NOT_DOCUMENTS] : []),
+                ].join(" ")
               : documentInstructions(
                   mode,
                   options.documents.searchableNames(documentIds, LISTED_DOCUMENTS),
                   passages,
                   scoped,
                   calculating,
+                  withMindTools || ids.size() > 0,
                 ),
             stillReadingNote(options.documents.reading(documentIds)),
             coverageInstructions(
@@ -2263,6 +2406,7 @@ export function createAnswers(options: AnswersOptions) {
           : messages,
         ...(mindRequest && { mind: mindRequest }),
         question: context.question,
+        ...(input.mindsLine && { mindsLine: input.mindsLine }),
         model: prepared.model,
         ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
         documents,
@@ -2618,8 +2762,9 @@ export function createAnswers(options: AnswersOptions) {
     const name = options.readableMindName(mindId);
     if (name === null) return null;
     const documents = options.documents.names();
-    const reading = content.peek(mindId, (blocks) => readMind(blocks, name, focus, documents));
-    return { mindId, reading, section: reading.section(MIND_TOKEN_LIMIT, question) };
+    const ids = createContextCitations();
+    const reading = content.peek(mindId, (blocks) => readMind(blocks, name, focus, documents, ids));
+    return { mindId, reading, ids, section: reading.section(MIND_TOKEN_LIMIT, question) };
   }
 
   /** What an Answer records of the Mind it reads; null when none of it fits. */
@@ -2666,12 +2811,15 @@ export function createAnswers(options: AnswersOptions) {
       mind && earlier.length > 0 ? mind.reading.section(MIND_TOKEN_LIMIT, asking) : mind?.section;
     const documents = options.documents.names();
     const shown = namesOnScreen(onScreen, documentIds);
+    const ids = mind?.ids ?? createContextCitations();
+    const named = help ? [] : namedMinds();
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
       documents,
       mindNames: options.readableMindName,
       changeStates: changeStatesOf,
       onScreen: shown,
+      ids,
     });
     const requestOf = (reading: MindReading, kept: MindCut): RequestMind => ({
       text: kept.text,
@@ -2679,11 +2827,18 @@ export function createAnswers(options: AnswersOptions) {
       cut: (tokens) => reading.section(tokens, asking),
     });
     start({
+      ...(named.length > 0 && {
+        mindsLine: {
+          line: mindsLine(named),
+          asked: askedText(shown, section?.selection ?? "", question.text),
+        },
+      }),
       home: conversationHome(conversation.id, answer.id),
       answerId: answer.id,
       questionId: question.id,
       model: ready.model,
       context,
+      ids,
       contextReasons: [
         ...(section?.origins ?? []).map((source) => ({ via: "mind" as const, source })),
         ...origins.map((source) => ({ via: "context" as const, source })),
@@ -2705,6 +2860,7 @@ export function createAnswers(options: AnswersOptions) {
                   mindNames: options.readableMindName,
                   changeStates: changeStatesOf,
                   onScreen: shown,
+                  ids,
                 }).context,
                 request: requestOf(mind.reading, smaller),
                 share: smaller.share,
@@ -2731,6 +2887,7 @@ export function createAnswers(options: AnswersOptions) {
         lastAnswer: lastAnswerOf(conversation.id, turn.earlier, filedIn),
         remake,
         renames: renamesIn(turn.earlier),
+        touched: touchedIn(turn.earlier),
       },
     });
     return {
@@ -2781,6 +2938,18 @@ export function createAnswers(options: AnswersOptions) {
     }
     return { quoted, leftOut };
   }
+
+  // A Mind only an Answer wrote in stays out: read_mind still finds it when the User names it.
+  // Peeked, so Minds not open aren't loaded; and only so many, so a big Library doesn't slow a Question.
+  const namedMinds = (): string[] => {
+    const names: string[] = [];
+    for (const mind of options.minds?.list().slice(0, 2 * LISTED_MINDS) ?? []) {
+      if (names.length >= LISTED_MINDS) break;
+      if (names.includes(mind.name) || options.content.peek(mind.id, madeByAnswer)) continue;
+      names.push(mind.name);
+    }
+    return names;
+  };
 
   // One outside the Search scope can't be searched: naming it would point the model at nothing.
   const namesOnScreen = (onScreen: readonly string[], documentIds: readonly string[] | null) =>
@@ -2854,6 +3023,7 @@ export function createAnswers(options: AnswersOptions) {
       documentIds: string[] | null;
       emptyScope: boolean;
     };
+    const ids = createContextCitations();
     const written = content.edit(
       mindId,
       (blocks): { answerId: string; edited: boolean } & Asked => {
@@ -2864,6 +3034,7 @@ export function createAnswers(options: AnswersOptions) {
           question.index,
           QUESTION_CONTEXT_TOKEN_BUDGET,
           options.documents.names(),
+          ids,
         );
         const asked = {
           ...askedWith(context, question.element),
@@ -2917,6 +3088,7 @@ export function createAnswers(options: AnswersOptions) {
       questionId,
       model,
       ...written,
+      ids,
       forcedSkill,
       consentNeeded,
     });

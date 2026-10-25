@@ -38,6 +38,14 @@ export interface MindsCase {
   request: string;
   /** The Mind in front when it is asked, by title; none: asked from Home. */
   open: string | null;
+  /** The Library also holds `DOCUMENTS`, or these Documents, so the model can search them too. */
+  documents?: true | readonly LibraryText[];
+  /** The Minds it names hold only AI text: a Meeting's notes filled after Stop ("ai"), or what an Answer added ("answer"). */
+  sources?: "ai" | "answer";
+  /** More Minds beside the workspace's, such as near namesakes of the one it names (#1865). */
+  extra?: readonly SeedMind[];
+  /** What the User picks when the assistant asks which Mind, by its label; none: the Answer stops at the question. */
+  choose?: string;
   expected: Expected;
 }
 
@@ -221,6 +229,111 @@ export const WORKSPACES: Readonly<Record<Language, readonly SeedMind[]>> = {
   "zh-CN": WORKSPACE_ZH,
 };
 
+const PLAN_DRAFT: Readonly<Record<Language, SeedMind>> = {
+  en: {
+    title: "Project plan (draft)",
+    blocks: [
+      "## Goals",
+      "Launch the customer portal in the Nordic region first.",
+      "## Milestones",
+      "Beta opens in February.",
+      "## Risks",
+      "Hiring may be slow.",
+    ],
+  },
+  "zh-CN": {
+    title: "项目计划（草稿）",
+    blocks: [
+      "## 目标",
+      "先在北欧上线客户门户。",
+      "## 里程碑",
+      "内测在 2 月开始。",
+      "## 风险",
+      "招聘可能偏慢。",
+    ],
+  },
+};
+
+const BUDGETS: Readonly<Record<Language, readonly SeedMind[]>> = {
+  en: [2024, 2025].map((year) => ({
+    title: `Budget ${year}`,
+    blocks: [
+      "## Summary",
+      `The ${year} budget is €2.4 million, up 5% on the year before, after a long review of every team's plans with the finance group. Most of the increase goes to the support team, which grows by three people so that customers in the Nordic region get answers on the same day. Travel and office costs stay flat, as they have for three years, and the research budget is held at €300,000. A reserve of €50,000 is kept back for the second half, to be released only if sales reach the target set in March.`,
+      "## Notes",
+      "Approved by the board.",
+    ],
+  })),
+  "zh-CN": [2024, 2025].map((year) => ({
+    title: `${year}年预算`,
+    blocks: [
+      "## 摘要",
+      `${year} 年预算为 240 万欧元，比上一年增长 5%，这是和财务组逐一审核各团队计划之后定下的。增加的部分大多用于客服团队，团队将增加三人，让北欧地区的客户当天就能得到答复。差旅和办公费用与过去三年一样保持不变，研发预算维持在 30 万欧元。另有 5 万欧元的储备留到下半年，只有销售额达到三月定下的目标才会动用。`,
+      "## 备注",
+      "已获董事会批准。",
+    ],
+  })),
+};
+
+/** A Document of the same name as the Mind "Budget 2025", which the request means (#1865). */
+const BUDGET_DOCUMENT: Readonly<Record<Language, LibraryText>> = {
+  en: {
+    file: "Budget 2025.md",
+    text: "# Budget 2025\n\nFinance's draft, sent on 3 October. It asks for €2.6 million, with two more people in sales, and cuts travel by a tenth.\n",
+  },
+  "zh-CN": {
+    file: "2025年预算.md",
+    text: "# 2025年预算\n\n财务部 10 月 3 日发来的草案：申请 260 万欧元，销售增加两人，差旅削减一成。\n",
+  },
+};
+
+const budgetShortened = (language: Language): Expected => ({
+  changed: {
+    [language === "en" ? "Budget 2025" : "2025年预算"]: {
+      kind: "shorten",
+      section: language === "en" ? "Summary" : "摘要",
+      sentences: 2,
+      keeps: language === "en" ? ["2.4 million", "5%", "300,000"] : ["240", "5%", "30"],
+    },
+  },
+});
+
+/** The Minds the requests for a new note from two name. */
+export const SOURCES: Readonly<Record<Language, readonly string[]>> = {
+  en: ["Project plan", "Meeting notes"],
+  "zh-CN": ["项目计划", "会议纪要"],
+};
+
+/** A Document written for the Library, by its file name. */
+export interface LibraryText {
+  file: string;
+  text: string;
+}
+
+/** Documents of other matters, for a request asked in a Library that has some: nothing of them belongs in its answer. */
+export const DOCUMENTS: Readonly<Record<Language, readonly LibraryText[]>> = {
+  en: [
+    {
+      file: "Supplier contract.md",
+      text: "# Supplier contract\n\nThis agreement between Northwind Ltd and Harbour Freight runs for two years from 1 January 2026. Harbour Freight delivers within 5 working days of an order. Either party may end the agreement with three months' notice. A late delivery earns a credit of 2% of the order's value for each day.\n",
+    },
+    {
+      file: "Q3 sales figures.md",
+      text: "# Q3 sales figures\n\nSales in the third quarter were €1.2 million, up 8% on the second quarter. The German market grew fastest, at 15%. The average order was €2,400, and 61 new customers signed.\n",
+    },
+  ],
+  "zh-CN": [
+    {
+      file: "供应商合同.md",
+      text: "# 供应商合同\n\n本合同由北风有限公司与海港货运签订，自 2026 年 1 月 1 日起生效，为期两年。海港货运须在下单后 5 个工作日内交货。任何一方提前三个月书面通知即可终止合同。每延迟交货一天，按订单金额的 2% 抵扣。\n",
+    },
+    {
+      file: "第三季度销售数据.md",
+      text: "# 第三季度销售数据\n\n第三季度销售额为 120 万欧元，比第二季度增长 8%。德国市场增长最快，达 15%。平均订单金额为 2,400 欧元，新签客户 61 家。\n",
+    },
+  ],
+};
+
 const shortenAll = (language: Language): Expected => {
   const keeps =
     language === "en"
@@ -245,36 +358,26 @@ const shortenAll = (language: Language): Expected => {
   };
 };
 
+/** A line holding the decision to open the beta to 50 customers, added to `section`. */
+const fifty = (language: Language, section: string): Rule => ({
+  kind: "add",
+  section,
+  facts: [
+    language === "en"
+      ? ["50 customers", "50 pilot customers", "50"]
+      : ["50 位客户", "50 个客户", "50 家客户", "50"],
+  ],
+});
+
 const decision = (language: Language): Expected =>
   language === "en"
     ? {
         changed: {
-          "Project plan": {
-            kind: "add",
-            section: "Milestones",
-            facts: [["50 customers", "50 pilot customers", "50"]],
-          },
-          "Meeting notes": {
-            kind: "add",
-            section: "Decisions",
-            facts: [["50 customers", "50 pilot customers", "50"]],
-          },
+          "Project plan": fifty("en", "Milestones"),
+          "Meeting notes": fifty("en", "Decisions"),
         },
       }
-    : {
-        changed: {
-          项目计划: {
-            kind: "add",
-            section: "里程碑",
-            facts: [["50 位客户", "50 个客户", "50 家客户", "50"]],
-          },
-          会议纪要: {
-            kind: "add",
-            section: "决定",
-            facts: [["50 位客户", "50 个客户", "50 家客户", "50"]],
-          },
-        },
-      };
+    : { changed: { 项目计划: fifty("zh-CN", "里程碑"), 会议纪要: fifty("zh-CN", "决定") } };
 
 const term = (language: Language): Expected => {
   const rule: Rule =
@@ -396,6 +499,112 @@ export const CASES: readonly MindsCase[] = [
     request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
     open: null,
     expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "new-from-two-plain-docs-en",
+    language: "en",
+    request:
+      "Make a new note called Launch brief from the Project plan and the Meeting notes: the milestones from the plan and the decisions from the notes.",
+    open: null,
+    documents: true,
+    expected: launchBrief("en"),
+  },
+  {
+    id: "new-from-two-plain-docs-zh",
+    language: "zh-CN",
+    request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
+    open: null,
+    documents: true,
+    expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "new-from-two-plain-ai-en",
+    language: "en",
+    request:
+      "Make a new note called Launch brief from the Project plan and the Meeting notes: the milestones from the plan and the decisions from the notes.",
+    open: null,
+    sources: "ai",
+    expected: launchBrief("en"),
+  },
+  {
+    id: "new-from-two-plain-ai-zh",
+    language: "zh-CN",
+    request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
+    open: null,
+    sources: "ai",
+    expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "new-from-two-plain-made-en",
+    language: "en",
+    request:
+      "Make a new note called Launch brief from the Project plan and the Meeting notes: the milestones from the plan and the decisions from the notes.",
+    open: null,
+    sources: "answer",
+    expected: launchBrief("en"),
+  },
+  {
+    id: "new-from-two-plain-made-zh",
+    language: "zh-CN",
+    request: "用项目计划和会议纪要新建一份叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
+    open: null,
+    sources: "answer",
+    expected: launchBrief("zh-CN"),
+  },
+  {
+    id: "namesake-add-en",
+    language: "en",
+    request:
+      "Today we decided to open the beta to 50 customers. Add that to the Milestones in the Project plan.",
+    open: null,
+    extra: [PLAN_DRAFT.en],
+    choose: "Project plan",
+    expected: { changed: { "Project plan": fifty("en", "Milestones") } },
+  },
+  {
+    id: "namesake-add-zh",
+    language: "zh-CN",
+    request: "今天我们决定内测向 50 位客户开放。把这条加到项目计划的里程碑里。",
+    open: null,
+    extra: [PLAN_DRAFT["zh-CN"]],
+    choose: "项目计划",
+    expected: { changed: { 项目计划: fifty("zh-CN", "里程碑") } },
+  },
+  {
+    id: "namesake-year-en",
+    language: "en",
+    request: "Shorten the summary in Budget 2025 to two sentences.",
+    open: null,
+    extra: BUDGETS.en,
+    choose: "Budget 2025",
+    expected: budgetShortened("en"),
+  },
+  {
+    id: "namesake-year-zh",
+    language: "zh-CN",
+    request: "把 2025年预算 里的摘要缩短成两句话。",
+    open: null,
+    extra: BUDGETS["zh-CN"],
+    choose: "2025年预算",
+    expected: budgetShortened("zh-CN"),
+  },
+  {
+    id: "namesake-document-en",
+    language: "en",
+    request: "Shorten the summary in Budget 2025 to two sentences.",
+    open: null,
+    extra: BUDGETS.en.filter((mind) => mind.title === "Budget 2025"),
+    documents: [BUDGET_DOCUMENT.en],
+    expected: budgetShortened("en"),
+  },
+  {
+    id: "namesake-document-zh",
+    language: "zh-CN",
+    request: "把 2025年预算 里的摘要缩短成两句话。",
+    open: null,
+    extra: BUDGETS["zh-CN"].filter((mind) => mind.title === "2025年预算"),
+    documents: [BUDGET_DOCUMENT["zh-CN"]],
+    expected: budgetShortened("zh-CN"),
   },
   {
     id: "missing-mind-en",

@@ -89,6 +89,7 @@ const snapshot = (assignments: DocumentGroupAssignment[]): LibrarySnapshot => ({
     organizeWith: null,
     taggingStopped: [],
   },
+  automaticDefault: false,
 });
 
 let useAppStore: typeof import("../../src/renderer/src/store").useAppStore;
@@ -734,28 +735,12 @@ describe("changing a Linked folder", () => {
     expect(named(change)).toBe("Resume reading");
   });
 
-  test("a layout is undone by the one it had and done again by the new one", async () => {
-    method("setLinkedFolderLayout").mockResolvedValue({ ...linked, layout: "flat" });
-    const change = await useAppStore.getState().setLinkedFolderLayout("l", "flat");
-    expect(said(change)).toBe("Showing “Papers” as a flat list");
-    expect(named(change)).toBe("Show as a flat list");
-    await useUndo.getState().undo();
-    expect(method("setLinkedFolderLayout")).toHaveBeenLastCalledWith("l", "tree");
-    await useUndo.getState().redo();
-    expect(method("setLinkedFolderLayout")).toHaveBeenLastCalledWith("l", "flat");
-    expect(await useAppStore.getState().setLinkedFolderLayout("l", "flat")).toBeUndefined();
-  });
-
   test("the lines in Chinese", async () => {
     useAppStore.setState({ settings: { language: "zh-CN" } as never });
     method("setLinkedFolderPaused").mockResolvedValue({ ...linked, status: "paused" });
     await useAppStore.getState().setLinkedFolderPaused("l", true);
     expect(said(top())).toBe("已暂停读取“Papers”");
     expect(named(top())).toBe("暂停读取");
-    method("setLinkedFolderLayout").mockResolvedValue({ ...linked, layout: "flat" });
-    await useAppStore.getState().setLinkedFolderLayout("l", "flat");
-    expect(said(top())).toBe("已将“Papers”显示为平铺列表");
-    expect(named(top())).toBe("显示为平铺列表");
   });
 });
 
