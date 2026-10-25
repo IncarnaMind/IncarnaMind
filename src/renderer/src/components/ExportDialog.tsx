@@ -380,7 +380,7 @@ export function ExportDialog({ mind, onClose }: { mind: Mind | null; onClose(): 
       data-testid="export-dialog"
       aria-labelledby="export-title"
       // A sheet hanging from the tab strip, as the design has it, rather than a dialog in the middle.
-      className={`${dialogFrameClass} mt-11 mb-auto flex max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] flex-col overflow-hidden rounded-t-none`}
+      className={`${dialogFrameClass} mt-11 mb-auto max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] overflow-hidden rounded-t-none open:flex open:flex-col`}
     >
       {/* Mounted only while open, so each opening starts from the options last saved. */}
       {mind && <ExportOptionsForm mind={mind} onDone={onClose} />}

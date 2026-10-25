@@ -531,6 +531,7 @@ test("export options keeps its title, ×, Cancel and Save options in view at 1,1
       expect(await sheet.locator("#export-title").boundingBox()).toEqual(titleBox);
       await window.keyboard.press("Escape");
       await expect(sheet).toBeHidden();
+      await expect(window.getByRole("dialog")).toHaveCount(0);
     }
   }
 
