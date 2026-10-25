@@ -236,6 +236,20 @@ const appCommands: readonly Command[] = [
     when: (ctx) => ctx.here?.["citation.open"] !== undefined || citationHandle.current !== null,
     run: (ctx) => (ctx.here?.["citation.open"] ?? citationHandle.current?.open)?.(),
   },
+  // A Citation that needs re-check (#99), while its card shows or from its menu: the note's ⌘Z takes each back.
+  ...(["update", "keepOld"] as const).map(
+    (choice): Command => ({
+      id: `citation.${choice}`,
+      label: `citation.${choice}`,
+      group: "main",
+      reversible: true,
+      when: (ctx) =>
+        ctx.here?.[`citation.${choice}`] !== undefined ||
+        (citationHandle.current?.choices()[choice] ?? null) !== null,
+      run: (ctx) =>
+        (ctx.here?.[`citation.${choice}`] ?? citationHandle.current?.choices()[choice])?.(),
+    }),
+  ),
   {
     // The Mind in front's citation style (#289): the same picker as its References' button.
     id: "mind.citationStyle",

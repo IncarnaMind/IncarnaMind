@@ -4,8 +4,9 @@ import { core } from "./core";
 
 /**
  * The Citation's quote looked for in its Document's current version, when the
- * Document changed after it was cited; null until the check returns, "failed"
- * when it couldn't run, and null when there is nothing to check.
+ * Document changed after it was cited, with its words as they changed there;
+ * null until the check returns, "failed" when it couldn't run, and null when
+ * there is nothing to check.
  */
 export function useCitationRecheck(
   citation: Pick<
@@ -26,7 +27,7 @@ export function useCitationRecheck(
     setRecheck(null);
     if (!changed || documentId === null || quote === "") return;
     let current = true;
-    core.recheckCitation({ documentId, quote, pageFrom, pageTo }).then(
+    core.recheckCitation({ documentId, quote, pageFrom, pageTo, contentHash: version }).then(
       (result) => {
         if (current) setRecheck(result);
       },
