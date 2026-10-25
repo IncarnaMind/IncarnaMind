@@ -56,6 +56,7 @@ import {
   anchorsCovered,
   citationLocation,
   englishLocation,
+  joinUnits,
   quoteInUnits,
 } from "../../shared/locations";
 import { anchorsOf, cellNumber } from "../../shared/units";
@@ -101,6 +102,43 @@ export function answerLanguage(question: string): Language {
 export function documentFigureContext(units: readonly { text: string }[]): FigureContext {
   const all = units.map((unit) => unit.text).join("\n");
   return figureContextOf(all, figureLanguageTag(detectLanguage(all.slice(0, 20_000))));
+}
+
+/** What reading a quote's figures needs of it: the quote, and the Units it cites. */
+export type QuotedText = Pick<Quoted, "units"> & { citation: Pick<Quoted["citation"], "quote"> };
+
+/** The whole lines of its cited Units that a quote is on; the quote itself when it isn't found there. */
+export function quotedLines(quoted: QuotedText): string {
+  const { quote } = quoted.citation;
+  const ranges = quoteInUnits(quoted.units, quote);
+  if (!ranges || ranges.length === 0) return quote;
+  const { text } = joinUnits(quoted.units);
+  const from = Math.min(...ranges.map((range) => range.start));
+  const to = Math.max(...ranges.map((range) => range.end));
+  const end = text.indexOf("\n", to);
+  return text.slice(text.lastIndexOf("\n", from - 1) + 1, end < 0 ? text.length : end);
+}
+
+const writtenNumber = (reading: Reading) => reading.value / reading.scale;
+
+/**
+ * A quote's figure as `lines` read it, when they give it a unit or scale of its own: a sheet's
+ * unit cell beside the number ("31000 | 万元"), which a quote of the number alone leaves out
+ * (#1798). Null when they read it as the quote does, or read its digits more than one way.
+ */
+export function readOnItsLine(
+  lines: string,
+  figure: Figure,
+  context: FigureContext,
+): Figure | null {
+  const own = (each: Reading) =>
+    `${each.scale}:${each.unit.kind === "currency" ? each.unit.code : each.unit.kind}`;
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  const found = readFigures(lines, context).filter(
+    (each) => near(writtenNumber(each), writtenNumber(figure)) && own(each) !== own(figure),
+  );
+  const [first] = found;
+  return first && found.every((each) => own(each) === own(first)) ? first : null;
 }
 
 const SHOW_AS: readonly ShowAs[] = ["number", "percent", "points", "currency", "times", "yes-no"];
@@ -480,9 +518,6 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       );
       if ("problem" in line || line.check().check !== "found")
         return `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
-      const statements = readStatedUnits(line.citation.quote, context, true);
-      if (statements.length === 0)
-        return `the unitQuote "${line.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
       const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
       context = { ...context, yen };
       unit = line;
@@ -557,8 +592,15 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     let candidate: Stated | null = null;
     const ownUnit =
       figure.scaleWord !== null || (base.unit.kind !== "plain" && base.unit.kind !== "currency");
+    // A row's unit cell beside the number ("31000 | 万元") states its unit as a heading does.
+    const onLine = (line: string) => (ownUnit ? null : readOnItsLine(line, figure, context));
     if (unit) {
-      const readings = statedReading(quote, figure.start, context, unit.citation.quote);
+      const row = onLine(unit.citation.quote);
+      if (!row && readStatedUnits(unit.citation.quote, context, true).length === 0)
+        return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
+      const readings = row
+        ? [row]
+        : statedReading(quote, figure.start, context, unit.citation.quote);
       const scales = new Set(readings.filter((each) => each.scale !== 1).map((each) => each.scale));
       if (scales.size > 1)
         return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
@@ -570,6 +612,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     } else if (!ownUnit) {
       const page = quoted.units.map((each) => each.text).join("\n");
       const found: Stated[] = [];
+      const lines = quotedLines(quoted);
+      const row = onLine(lines);
+      if (row) found.push({ statement: lines, reading: row });
       for (const statement of readStatedUnits(page, context)) {
         for (const each of statedReading(quote, figure.start, context, statement.chars)) {
           if (each.value === base.value) continue;
