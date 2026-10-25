@@ -15,7 +15,7 @@ import {
  * Lists in a Mind (#1341): Tab and Shift-Tab change an item's level (bullets, numbers and
  * checklists), each one ⌘Z; and a list is indented as Word indents it (DESIGN.md): the text of
  * level 1 starts 48px from the text edge, each further level 48px more, wrapped lines aligned to it.
- * A to-do isn't indented (#1553): its box is on the text edge, its text 28px in, and each further level
+ * A to-do isn't indented: its box is on the text edge, its text 28px in, and each further level
  * 24px more. English at 1,440 px, Chinese at 900 px; to-dos also at 900 and 1,600 px in both.
  */
 const MAC = process.platform === "darwin";

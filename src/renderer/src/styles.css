@@ -2827,7 +2827,7 @@
 
     /*
      * A checklist: the box sits at the text edge and its text starts 28px in; a nested checklist
-     * steps in by 24px (DESIGN.md › Lists). A done item is struck through.
+     * steps in by 24px. A done item is struck through.
      */
     ul:has(> li[data-checked]) {
       padding-left: 0;
@@ -2836,6 +2836,7 @@
     &:not(.assistant-answer-text) ul[data-id]:has(> li[data-checked]) {
       padding-left: 0;
     }
+    /* A nested checklist starts at its parent's text, 28px in, but its box is 24px in. */
     li[data-checked] ul:has(> li[data-checked]) {
       margin-left: -4px;
     }

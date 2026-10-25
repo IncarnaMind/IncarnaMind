@@ -441,6 +441,19 @@ describe("exporting a Mind", () => {
       { text: "☒\t", indent: ["420", "420"], listed: false },
       { text: "Ordinary bullet", indent: ["720", "360"], listed: true },
     ]);
+    const todos = [...document.matchAll(/<w:p>.*?<\/w:p>/g)]
+      .map((found) => found[0])
+      .filter((each) => /<w:t xml:space="preserve">[☐☒]<\/w:t>/.test(each));
+    expect(todos).toHaveLength(4);
+    for (const xml of todos) {
+      expect(xml).toContain("<w:r><w:tab/></w:r>");
+      // Word's schema has no bare <w:tab/> under <w:p>: every tab sits in a run.
+      const children = xml
+        .replace(/^<w:p>/, "")
+        .replace(/<\/w:p>$/, "")
+        .replace(/^<w:pPr>.*?<\/w:pPr>/, "");
+      expect(children.replace(/<w:r>.*?<\/w:r>/g, "")).toBe("");
+    }
   });
 
   test("to .docx: headings, lists, code and math, the Question left out, and each Citation a Word footnote", async () => {

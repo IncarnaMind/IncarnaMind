@@ -109,9 +109,10 @@ const MAIN_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordpro
 const INDENT = 720;
 /** A list item's number or bullet hangs this far left of its text. */
 const HANGING = 360;
-/** A to-do's box is at the text edge, its text 28px in; a nested to-do steps in 24px (DESIGN.md › Lists). */
+/** A to-do's box is at the text edge, its text 28px in; a nested to-do steps in 24px, as in the editor. */
 const TODO_TEXT = 420;
 const TODO_STEP = 360;
+/** Word has no to-do: one is a paragraph that starts with this box and a tab. */
 const BOX = { open: "\u2610", done: "\u2612" } as const;
 /** EMUs (DrawingML's unit) per twip, and per CSS pixel at 96 dpi. */
 const EMU_PER_TWIP = 635;
@@ -308,7 +309,10 @@ interface Context {
   width: number;
   /** How their paragraphs are aligned, e.g. in a table's cell; null: as the text flows. */
   align: TableAlign;
-  /** How deep in to-dos they are, from 0. */
+  /**
+   * How far in to-dos they are, from 0: a nested to-do steps in 24px, where a list's levels step
+   * in 48px, so the two are counted apart.
+   */
   todo?: number;
   /** In a footnote's text, whose links are the footnotes part's. */
   note?: boolean;
@@ -591,7 +595,8 @@ export class DocxWriter {
     const written = (content: string, at: number) =>
       paragraph(
         { style: this.styles.listParagraph, indent: textAt, hanging: TODO_TEXT },
-        run(checked[at] ? BOX.done : BOX.open) + "<w:tab/>" + content,
+        // A tab is a run of its own: the schema has no bare <w:tab/> under <w:p>.
+        run(checked[at] ? BOX.done : BOX.open) + "<w:r><w:tab/></w:r>" + content,
       );
 
     let xml = "";
