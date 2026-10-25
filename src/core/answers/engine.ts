@@ -107,7 +107,7 @@ import { inStep } from "../timing/flows";
 import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { asksForFixes } from "./citations";
-import { earlierContext, type RequestMind } from "./context";
+import { earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import { missingMarkerEvents, textEdits } from "./markerPlacement";
 import {
@@ -352,6 +352,12 @@ export interface AnswerRequest {
    * once it has rewritten it into a query that stands on its own.
    */
   question: string;
+  /**
+   * The line naming the User's Minds (#1790), right before `asked`, the end of the last message:
+   * only in a pass that offers the Minds' Tools. Without them it would reach a model that can't
+   * read the Minds, and the search rewrite's notebook.
+   */
+  mindsLine?: { line: string; asked: string };
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
   /**
@@ -1607,7 +1613,15 @@ async function* toolLoop(
   });
 
   // Within a window: the Question context that fits beside the instructions, the Tools and a search.
-  let messages = request.messages;
+  let messages =
+    request.mindsLine && tools.some((each) => each.provider.kind === "minds")
+      ? withLineBefore(
+          request.messages,
+          request.mindsLine.line,
+          request.mindsLine.asked,
+          request.question,
+        )
+      : request.messages;
   let estimated: number | undefined;
   let window: RunWindow | undefined;
   if (budget) {

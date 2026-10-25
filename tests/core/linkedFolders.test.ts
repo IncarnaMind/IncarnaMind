@@ -8,12 +8,14 @@ import { describe, expect, test } from "vitest";
 import {
   type Core,
   type Document,
+  type Embedder,
   type Folder,
   InvalidInputError,
   NotFoundError,
   type WatchListener,
 } from "../../src/core";
 import { suggestLayout } from "../../src/core/documents/library";
+import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import {
   addAndProcess,
@@ -25,6 +27,7 @@ import {
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { turnOnEmbeddings } from "../helpers/embedding";
 import { buildPdf } from "../helpers/pdf";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -147,7 +150,7 @@ describe("Linking a folder", { timeout: 30_000 }, () => {
     expect(await second.listFolders()).toEqual(before);
   });
 
-  test("a preview counts the files and bytes, and guesses the time and the layout, without indexing anything", async () => {
+  test("a preview counts the files and bytes, and suggests the layout, without indexing anything", async () => {
     const library = await createSourceFolder();
     // Zotero's storage: one folder per item, each with one file (and its hidden cache).
     const pdf = buildPdf([{ lines: ["A paper about tides."] }]);
@@ -165,12 +168,12 @@ describe("Linking a folder", { timeout: 30_000 }, () => {
       files: 20,
       bytes: pdf.byteLength * 20,
       onlineOnly: { files: 0, bytes: 0 },
-      estimatedSeconds: expect.any(Number),
+      // Nothing has been read on this computer yet, so there is no telling how long it takes.
+      estimatedSeconds: null,
       layout: "flat",
       insideLinkedFolderId: null,
       containsLinkedFolderIds: [],
     });
-    expect(preview.estimatedSeconds).toBeGreaterThan(0);
     expect(await core.listDocuments()).toEqual([]);
     expect(await core.listLinkedFolders()).toEqual([]);
 
@@ -184,6 +187,94 @@ describe("Linking a folder", { timeout: 30_000 }, () => {
     );
     await expect(core.previewLinkedFolder(join(library, "nowhere"))).rejects.toThrow(NotFoundError);
     await expect(core.addLinkedFolder("relative/path")).rejects.toThrow(InvalidInputError);
+  });
+
+  test("a preview says how long reading takes once files of its kinds have been read on this computer (#1506)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const notes = join(sources, "Notes");
+    const more = join(sources, "More");
+    for (const [index, line] of [TIDES, NEAP, RIVERS].entries()) {
+      await writeSourceFile(notes, `Note ${index}.md`, `# Note ${index}\n\n${line}`);
+      await writeSourceFile(more, `More ${index}.md`, `# More ${index}\n\n${line}`);
+    }
+    await writeSourceFile(sources, "Papers/tides.pdf", buildPdf([{ lines: ["Spring tides."] }]));
+    const estimate = async (core: Core, folder: string) =>
+      (await core.previewLinkedFolder(folder)).estimatedSeconds;
+    const first = startCore(dataDir);
+    expect(await estimate(first, notes)).toBeNull();
+
+    await linkAndProcess(first, notes);
+
+    expect(await estimate(first, more)).toEqual(expect.any(Number));
+    // No PDF has been read here yet.
+    expect(await estimate(first, sources)).toBeNull();
+    first.close();
+    // It is this computer's, and kept.
+    const core = startCore(dataDir);
+    expect(await estimate(core, more)).toEqual(expect.any(Number));
+
+    // Embedding is part of reading, so it takes another time, measured afresh.
+    await turnOnEmbeddings(core);
+    expect(await estimate(core, more)).toBeNull();
+    await linkAndProcess(core, more);
+    expect(await estimate(core, notes)).toEqual(expect.any(Number));
+  });
+
+  test("a Document whose embedding stopped part way doesn't count: its last turn took only the rest (#1506)", async () => {
+    const fake = createFakeEmbedder();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached = () => {};
+    const atSecond = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let long = 0;
+    // Holds the long note's second Passage, once, so its folder can be paused meanwhile.
+    const embedder: Embedder = {
+      load: (files) => fake.load(files),
+      embed: async (text) => {
+        if (text.includes("Sentence") && ++long === 2) {
+          reached();
+          await gate;
+        }
+        return fake.embed(text);
+      },
+      close: () => fake.close(),
+    };
+    const sources = await createSourceFolder();
+    const notes = join(sources, "Notes");
+    const text = Array.from(
+      { length: 200 },
+      (_, index) => `Sentence ${index} is about tides and the moon.`,
+    ).join(" ");
+    // Read newest first: the short note on a new worker, which doesn't count, then the long one.
+    const longPath = await writeSourceFile(notes, "Long.md", text);
+    const hourAgo = new Date(Date.now() - 3_600_000);
+    await utimes(longPath, hourAgo, hourAgo);
+    await writeSourceFile(notes, "Short.md", `# Short\n\n${TIDES}`);
+    await writeSourceFile(join(sources, "More"), "Copy.md", text);
+    const core = startCore(await createTempDataFolder(), { embedder });
+    await turnOnEmbeddings(core);
+
+    const linked = await core.addLinkedFolder(notes);
+    await atSecond;
+    await core.setLinkedFolderPaused(linked.id, true);
+    release();
+    const longOne = async () =>
+      (await core.listDocuments()).find((document) => document.name === "Long")?.status;
+    await expect.poll(longOne).not.toBe("embedding");
+    await core.setLinkedFolderPaused(linked.id, false);
+    const documents = await core.listDocuments({ linkedFolderId: linked.id });
+    await waitForProcessing(
+      core,
+      documents.map((document) => document.id),
+    );
+
+    expect(await longOne()).toBe("ready");
+    expect((await core.previewLinkedFolder(join(sources, "More"))).estimatedSeconds).toBeNull();
   });
 
   test("only a big library of one-file folders starts flat; a small one keeps its folders", () => {

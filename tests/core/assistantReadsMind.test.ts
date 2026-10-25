@@ -111,6 +111,8 @@ describe("A Question asked beside a Mind reads it", { timeout: 30_000 }, () => {
         "Neap tides come at the quarter moons.",
         "</mind>",
         "",
+        'The User\'s Minds: "Lit review: tides"',
+        "",
         "Summarise my notes",
       ].join("\n"),
     );
@@ -151,7 +153,7 @@ describe("A Question asked beside a Mind reads it", { timeout: 30_000 }, () => {
     expect(sent).not.toContain("would add");
   });
 
-  // protects=with no Mind in focus nothing of any Mind is sent, and the Answer records none; fails_when=a Mind's text or tag is sent, or a read is recorded; no_claim=none beyond protects.
+  // protects=with no Mind in focus nothing of any Mind is sent but the line of their names, and the Answer records none; fails_when=a Mind's text or tag is sent, or a read is recorded; no_claim=none beyond protects.
   test("no Mind in focus means no Mind text", async () => {
     const { core, model, client } = await setUp();
     writeMind(client, [note("Spring tides come at new and full moon.")]);
@@ -159,7 +161,9 @@ describe("A Question asked beside a Mind reads it", { timeout: 30_000 }, () => {
 
     const answer = await ask(core, { text: "What are spring tides?" });
 
-    expect(promptOf(model).slice(1)).toEqual([{ role: "user", text: "What are spring tides?" }]);
+    expect(promptOf(model).slice(1)).toEqual([
+      { role: "user", text: 'The User\'s Minds: "Lit review: tides"\n\nWhat are spring tides?' },
+    ]);
     expect(answer.read).toBeNull();
   });
 
@@ -178,7 +182,9 @@ describe("A Question asked beside a Mind reads it", { timeout: 30_000 }, () => {
     const sent = lastSent(model);
     expect(sent).toContain("Spring tides come at new and full moon.");
     expect(
-      sent.endsWith("</mind>\n\n<selection>\nthe quarter moons\n</selection>\n\nWhy then?"),
+      sent.endsWith(
+        '</mind>\n\nThe User\'s Minds: "Lit review: tides"\n\n<selection>\nthe quarter moons\n</selection>\n\nWhy then?',
+      ),
     ).toBe(true);
     const { messages } = await core.getConversation(result.conversation.id);
     expect(messages[0]).toMatchObject({ kind: "question", focus });
@@ -370,7 +376,7 @@ describe("The whole Mind while it fits, the parts that match the Question when i
     expect(kept).not.toContain(40);
     expect(
       sent.endsWith(
-        "</mind>\n\n<selection>\nNote 151: lorem\n</selection>\n\nWhat did I write about barnacles?",
+        '</mind>\n\nThe User\'s Minds: "Lit review: tides"\n\n<selection>\nNote 151: lorem\n</selection>\n\nWhat did I write about barnacles?',
       ),
     ).toBe(true);
     expect(answer.read).toMatchObject({ mindId: mind.id, partial: true });
@@ -416,7 +422,7 @@ describe("The whole Mind while it fits, the parts that match the Question when i
     expect(firstSent(model, 1).startsWith(`${firstMind}\n\n`)).toBe(true);
   });
 
-  // protects=the Mind starts the conversation's first message and is marked as the start the next Question repeats, so a provider's prompt cache keeps it; the next Question's own message holds only the Question; fails_when=the Mind moves to the last message, changes between Questions, or isn't marked; no_claim=a provider's own caching, the hand test's.
+  // protects=the Mind starts the conversation's first message and is marked as the start the next Question repeats, so a provider's prompt cache keeps it; the next Question's own message holds only the line of the Minds' names and the Question; fails_when=the Mind moves to the last message, changes between Questions, or isn't marked; no_claim=a provider's own caching, the hand test's.
   test("the Mind starts the conversation, the same for the next Question, marked for the prompt cache", async () => {
     const { core, model, mind, client } = await setUpCloud(streamingModel(["First.", "Second."]));
     writeLongMind(client, 20);
@@ -432,7 +438,7 @@ describe("The whole Mind while it fits, the parts that match the Question when i
     const firstMind = /^<mind [\s\S]*?<\/mind>/.exec(firstSent(model, 0))?.[0] ?? "";
     expect(firstMind).toContain("Note 20:");
     expect(firstSent(model, 1).startsWith(`${firstMind}\n\nSummarise my notes`)).toBe(true);
-    expect(lastSent(model)).toBe("And the last one?");
+    expect(lastSent(model)).toBe('The User\'s Minds: "Lit review: tides"\n\nAnd the last one?');
     for (const call of [0, 1]) {
       const user = model.doStreamCalls[call]?.prompt.find((message) => message.role === "user");
       expect(user?.providerOptions).toMatchObject({
