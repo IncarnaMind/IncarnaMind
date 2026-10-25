@@ -202,7 +202,6 @@ for (const { language, width, items: words } of SETTINGS) {
     await window.keyboard.press("Shift+Tab");
     await expect.poll(() => markers(editor)).toEqual([language === "en" ? "(a)" : "一、", second]);
 
-    // On the first item there is nothing to go under: as in Word, only it goes deeper.
     await clickEndOf(window, itemText(items(editor).first()));
     await expect
       .poll(() =>
@@ -257,7 +256,6 @@ for (const { language, width, items: words } of SETTINGS) {
     await expect(menu.getByTestId("numbering-restart")).toHaveAttribute("aria-disabled", "true");
     await screenshot(window, `numbering-right-click-${language}-${width}`);
 
-    // → opens the submenu; ↓ moves inside it, not the menu behind.
     await window.getByTestId("list-item-numbering").focus();
     await window.keyboard.press("ArrowRight");
     const submenu = window.getByTestId("numbering-menu");
@@ -327,7 +325,6 @@ for (const { language, width, items: words } of SETTINGS) {
     await window.keyboard.press(UNDO);
     await expect(itemText(items(editor).nth(3))).toHaveText(words[3]);
 
-    // The markers are drawn, not text: copying the list or finding "(a)" doesn't meet them.
     await slideSelect(window, itemText(items(editor).nth(2)), words[2], {
       line: itemText(items(editor).nth(3)),
       words: words[3],
@@ -349,7 +346,6 @@ for (const { language, width, items: words } of SETTINGS) {
     await expect(editor.locator(".find-match")).toHaveCount(0);
     await window.keyboard.press("Escape");
 
-    // A Copy the system refuses says so, in plain words, where the menu was.
     await slideSelect(window, itemText(items(editor).nth(3)), words[3]);
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("selection-menu")).toBeHidden();

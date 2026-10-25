@@ -391,7 +391,7 @@ export function numberedListAt(editor: Editor): { node: ProseMirrorNode; pos: nu
   for (let depth = $from.depth; depth > 0; depth--) {
     const node = $from.node(depth);
     if (node.type.name === "orderedList") found = { node, pos: $from.before(depth) };
-    else if (node.type.name === "bulletList" && found) break;
+    else if ((node.type.name === "bulletList" || node.type.name === "taskList") && found) break;
   }
   return found;
 }
@@ -429,7 +429,8 @@ export function canContinueNumbering(editor: Editor): boolean {
   let earlier = false;
   editor.state.doc.nodesBetween(0, list.pos, (node, pos, parent) => {
     if (earlier || pos >= list.pos) return false;
-    if (node.type.name === "orderedList" && parent?.type.name !== "listItem") earlier = true;
+    const nested = parent?.type.name === "listItem" || parent?.type.name === "taskItem";
+    if (node.type.name === "orderedList" && !nested) earlier = true;
     return !earlier;
   });
   return earlier;
@@ -578,6 +579,9 @@ export function raiseFromStartLevel(editor: Editor): boolean {
     ...raised.slice(0, -1),
     last.type.create(last.attrs, last.content.append(Fragment.from(nested))),
   ];
+  // A whole continued list is only re-levelled, so it still goes on from the list before it.
+  const keepsContinuation =
+    index === 0 && count === items.length && list.attrs[CONTINUES_ATTRIBUTE] === true;
   const lists = [
     ...(before.length ? [list.type.create(list.attrs, Fragment.fromArray(before))] : []),
     list.type.create(
@@ -585,7 +589,7 @@ export function raiseFromStartLevel(editor: Editor): boolean {
         ...list.attrs,
         start: 1,
         [START_LEVEL_ATTRIBUTE]: level - 1 || null,
-        [CONTINUES_ATTRIBUTE]: null,
+        [CONTINUES_ATTRIBUTE]: keepsContinuation ? true : null,
       },
       Fragment.fromArray(raisedItems),
     ),

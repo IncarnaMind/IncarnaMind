@@ -173,6 +173,44 @@ describe("Numbering schemes", () => {
     expect(drawnMarkers(pasted).map((each) => each.marker)).toEqual(["(100000000000000000000)"]);
   });
 
+  // protects=Restart at 1 and a scheme act on the numbered list under a to-do, not on the numbered list around it; fails_when=the outer list changes and the inner one keeps its look; no_claim=Tab and Shift-Tab there.
+  test("Restart and a scheme act on a numbered list under a to-do, not the list around it", () => {
+    const editor = editorWith([
+      ordered(
+        { numbering: "outline", start: 3 },
+        item("Outer", {
+          type: "taskList",
+          content: [
+            {
+              type: "taskItem",
+              content: [paragraph("To-do"), ordered({ start: 5 }, item("A"), item("B"))],
+            },
+          ],
+        }),
+      ),
+    ]);
+    expect(markers(editor)).toEqual(["3.", "5.", "6."]);
+    caretIn(editor, "A");
+    restartNumbering(editor);
+    expect(markers(editor)).toEqual(["3.", "1.", "2."]);
+    setNumbering(editor, "clauses");
+    expect(markers(editor)).toEqual(["3.", "(a)", "(b)"]);
+  });
+
+  // protects=Continue numbering is not offered to a list after a numbered list inside a to-do, which starts fresh; fails_when=the to-do's list is taken for a list above; no_claim=a list after a top-level one, which the Restart and Continue test covers.
+  test("a numbered list in a to-do above doesn't make a later list continuable", () => {
+    const editor = editorWith([
+      {
+        type: "taskList",
+        content: [{ type: "taskItem", content: [paragraph("To-do"), ordered({}, item("Inside"))] }],
+      },
+      paragraph("Between"),
+      ordered({}, item("After")),
+    ]);
+    caretIn(editor, "After");
+    expect(canContinueNumbering(editor)).toBe(false);
+  });
+
   // protects=a numbered list under a bullet or a to-do draws with its own scheme and level, and a scheme applies to the whole list; fails_when=it draws no marker or takes the list above's scheme; no_claim=Continue numbering, which such a list doesn't offer.
   test("a numbered list under a bullet or a to-do draws its own scheme", () => {
     const editor = editorWith([
@@ -301,7 +339,6 @@ describe("A list that starts deeper", () => {
       { numbering: "clauses", startLevel: 1, items: 1 },
       { numbering: "clauses", startLevel: 0, items: 1 },
     ]);
-    // A stays at the second level, B comes up to the first, and C nests under B, still second.
     expect(markers(editor)).toEqual(["(i)", "(a)", "(i)"]);
     expect(editor.state.selection.$from.parent.textContent).toBe("B");
 
@@ -340,12 +377,16 @@ describe("A list that starts deeper", () => {
   // protects=Tab then Shift-Tab on the first item of a list that continues the list above gives one list again, still continuing, with the numbers it had; fails_when=the raise drops the continuation, leaves two lists, or restarts the numbering; no_claim=the same round trip on a list that doesn't continue, which the test above covers.
   test("Tab then Shift-Tab on a continued list keeps it continuing", () => {
     const editor = editorWith([
-      ordered({ numbering: "clauses", startLevel: 1 }, item("P"), item("Q")),
+      ordered({ numbering: "clauses", startLevel: 1 }, item("First"), item("Second")),
       paragraph("Between"),
-      ordered({ numbering: "clauses", startLevel: 1, continues: true }, item("A"), item("B")),
+      ordered(
+        { numbering: "clauses", startLevel: 1, continues: true },
+        item("Third"),
+        item("Fourth"),
+      ),
     ]);
     expect(markers(editor)).toEqual(["(i)", "(ii)", "(iii)", "(iv)"]);
-    caretIn(editor, "A");
+    caretIn(editor, "Third");
     changeIndent(editor, 1);
     changeIndent(editor, -1);
     expect(lists(editor)).toEqual([
@@ -355,6 +396,40 @@ describe("A list that starts deeper", () => {
     const continued = editor.state.doc.child(2);
     expect(continued.attrs.continues).toBe(true);
     expect(markers(editor)).toEqual(["(i)", "(ii)", "(iii)", "(iv)"]);
+  });
+
+  // protects=a one-item list that continues the list above keeps continuing through Tab then Shift-Tab, with the number it had; fails_when=the continuation is dropped and the list starts at 1; no_claim=a list that doesn't continue.
+  test("a one-item continued list keeps continuing through Tab then Shift-Tab", () => {
+    const editor = editorWith([
+      ordered({ numbering: "clauses", startLevel: 1 }, item("First"), item("Second")),
+      paragraph("Between"),
+      ordered({ numbering: "clauses", startLevel: 1, continues: true }, item("Third")),
+    ]);
+    expect(markers(editor)).toEqual(["(i)", "(ii)", "(iii)"]);
+    caretIn(editor, "Third");
+    changeIndent(editor, 1);
+    changeIndent(editor, -1);
+    expect(editor.state.doc.child(2).attrs.continues).toBe(true);
+    expect(markers(editor)).toEqual(["(i)", "(ii)", "(iii)"]);
+  });
+
+  // protects=a continued list whose every item is selected keeps continuing through Tab then Shift-Tab, with its numbers and the selection; fails_when=the continuation is dropped; no_claim=a partial selection of a continued list with a list after it, which joins that list.
+  test("a wholly selected continued list keeps continuing through Tab then Shift-Tab", () => {
+    const editor = editorWith([
+      ordered({ numbering: "clauses", startLevel: 1 }, item("First"), item("Second")),
+      paragraph("Between"),
+      ordered(
+        { numbering: "clauses", startLevel: 1, continues: true },
+        item("Third"),
+        item("Fourth"),
+      ),
+    ]);
+    selectFromTo(editor, "Third", "Fourth");
+    changeIndent(editor, 1);
+    changeIndent(editor, -1);
+    expect(editor.state.doc.child(2).attrs.continues).toBe(true);
+    expect(markers(editor)).toEqual(["(i)", "(ii)", "(iii)", "(iv)"]);
+    expect(selectedText(editor)).toBe("Third Fourth");
   });
 
   // protects=Tab in a table moves between cells, from a list item in one too (DESIGN.md › Lists › Keys); fails_when=the item indents instead; no_claim=Shift-Tab, which the same guard covers.
