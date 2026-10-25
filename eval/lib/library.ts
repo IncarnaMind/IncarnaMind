@@ -90,7 +90,7 @@ export interface LibraryOptions {
    * The search Tool's reranking and Passage count for Answers, instead of the
    * app's (INCARNAMIND_EVAL_RERANK_DEPTH and INCARNAMIND_EVAL_MAX_PASSAGES).
    */
-  answerSearch?: Pick<AnswerSearchTuning, "rerankDepth" | "maxPassages">;
+  answerSearch?: Pick<AnswerSearchTuning, "rerankDepth" | "maxPassages" | "retrieveFirst">;
   /** Time each step of the Answers asked (see ./timing); nothing sent to the model changes. */
   recordTimings?: boolean;
   /** How outside agents reach this core (#351): where its socket is and the shim they start. */

@@ -185,6 +185,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       embeddings: false,
       recordTimings: true,
       chatModels: switcher.chatModels,
+      answerSearch: { retrieveFirst: switcher.retrieveFirst },
     });
     const { core, timings } = opened.library;
     try {

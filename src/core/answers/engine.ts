@@ -396,6 +396,11 @@ export interface AnswerRequest {
   thirdParty?: readonly ThirdPartyReason[];
   /** How this model is known to cite, from its capabilities or earlier Answers. Unknown: try Tools first. */
   support?: CitationSupport;
+  /**
+   * In the Tool loop, search the Question (and its translation) before the first call, so the
+   * model can answer from those Passages in one call; it searches on when they aren't enough.
+   */
+  retrieveFirst?: boolean;
   /** False: the model is known to give no structured output, so it isn't tried. */
   structuredOutput?: boolean;
   /**
@@ -1218,6 +1223,8 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       // again in the Documents' language if the Question is in another (see `searchLanguage`); the
       // result is kept for the next way of answering if the provider refuses this one.
       let searched: SearchResultForModel | undefined;
+      let searchedFor = request.question;
+      const read = new Set<ReadThirdPartySource>();
       async function* searchOnce(): AsyncGenerator<AnswerEngineEvent, SearchResultForModel> {
         if (searched !== undefined) return searched;
         // The quick-tasks model is asked for once, and only if a call needs it.
@@ -1229,6 +1236,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         const rewrite = await inStep("search-rewrite", () => searchQuery(request, smallModel));
         if (rewrite.usage) yield { type: "usage", usage: rewrite.usage };
         const query = rewrite.value;
+        searchedFor = query;
         signal.throwIfAborted();
         const language = searchLanguage(
           request.question,
@@ -1248,7 +1256,6 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         ];
         yield { type: "phase", phase: "searching" };
         const results: SearchResultForModel[] = [];
-        const read = new Set<ReadThirdPartySource>();
         for (const [id, each] of searches) {
           yield {
             type: "tool-call-started",
@@ -1308,8 +1315,16 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         let attempt: FittedAttempt;
         try {
           if (support === "tools") {
+            // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
+            // the Question's own search and answers in one call unless it needs more.
+            const presearched = request.retrieveFirst
+              ? { result: yield* searchOnce(), query: searchedFor, read: [...read] }
+              : undefined;
+            if (signal.aborted) return;
             attempt = fitted(() =>
-              tempered((sent) => toolLoop(request, engine, maxSteps, "tools", sent, budget)),
+              tempered((sent) =>
+                toolLoop(request, engine, maxSteps, "tools", sent, budget, presearched),
+              ),
             );
           } else {
             const found: SearchResultForModel = yield* searchOnce();
@@ -1514,6 +1529,27 @@ const runMessage = (message: AnswerMessage): RunMessage =>
       }
     : { role: "assistant", text: message.content, toolCalls: [] };
 
+/** The search an Answer made before its first call (#1633), and the third-party text it read. */
+interface Presearched {
+  query: string;
+  result: SearchResultForModel;
+  read: readonly ReadThirdPartySource[];
+}
+
+/** The search made before the first call, as the Tool loop's own first call of it. */
+function presearchMessages(
+  { query, result }: Presearched,
+  tool: string,
+  loop: ReturnType<WindowBudget["loop"]> | null,
+): RunMessage[] {
+  const id = "question-search";
+  const fitted = loop ? loop.passages(result.text, result.passageCount, result.ranks) : result;
+  return [
+    { role: "assistant", text: "", toolCalls: [{ id, tool, input: { query } }] },
+    { role: "tool", id, tool, result: fitted.text, ok: true },
+  ];
+}
+
 /**
  * The Tools' definitions as the window's estimate counts them: by name, each
  * with its description and JSON Schema (written out as the AI SDK's `ToolSet`
@@ -1544,6 +1580,7 @@ async function* toolLoop(
   mode: "tools" | "no-documents",
   temperature: number | undefined,
   budget: WindowBudget | null = null,
+  presearched?: Presearched,
 ): Attempt {
   const { signal } = request;
   /** Passages each search gave, by Tool call. */
@@ -1585,12 +1622,17 @@ async function* toolLoop(
    * Whether this Run has read untrusted content: from the first call of a
    * Tool with `untrustedResult` that returned some, each call's gate is told.
    */
-  let tainted = false;
+  let tainted = Boolean(
+    search?.untrustedResult && presearched && presearched.result.passageCount > 0,
+  );
   /**
    * Why this Run counts as having read third-party text: what it started
    * with, then what its Tools read, each once; each call's gate is told.
    */
-  const thirdParty: ThirdPartyReason[] = [...(request.thirdParty ?? [])];
+  const thirdParty: ThirdPartyReason[] = [
+    ...(request.thirdParty ?? []),
+    ...(presearched?.read ?? []).map((source) => ({ via: "read" as const, source })),
+  ];
   /** What the Tools read since the last event: the Answer hears of it with the call's result. */
   const unannounced: ReadThirdPartySource[] = [];
   const readThirdParty = (source: ReadThirdPartySource) => {
@@ -1703,7 +1745,7 @@ async function* toolLoop(
   const calls = new Map<string, Tool>();
   /** Searches running now: the Answer is "searching" while there are any. */
   let searching = 0;
-  let searched = false;
+  let searched = presearched !== undefined;
   const rambling = new AbortController();
   /** The reply that stands if the model, asked once more, fails: as it was before the last ask. */
   let standing: string | null = null;
@@ -1749,7 +1791,10 @@ async function* toolLoop(
   }
   const runTools = tools.map(tracked);
   async function* runs(): AsyncGenerator<RunEvent> {
-    let history: readonly RunMessage[] = messages.map(runMessage);
+    let history: readonly RunMessage[] = [
+      ...messages.map(runMessage),
+      ...(presearched && search ? presearchMessages(presearched, search.name, loop) : []),
+    ];
     for (;;) {
       yield* engine.run(runRequest(history, maxSteps - steps));
       if (!again) return;

@@ -25,6 +25,12 @@ export interface AnswerSearchTuning {
   rerankDepth?: number | "off";
   /** How many Passages one search hands the model. */
   maxPassages?: number;
+  /**
+   * Whether an Answer on this model searches the Question before its first call (#1633), in
+   * place of the allowlist beside the catalog; undefined: the allowlist's. A paired evaluation
+   * turns it on and off between two Questions.
+   */
+  retrieveFirst?: (model: { catalogId: string | null; modelId: string }) => boolean | undefined;
   observe?: (search: ObservedSearch) => void;
 }
 

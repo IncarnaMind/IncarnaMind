@@ -523,6 +523,8 @@ export interface AnswersOptions {
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
   ): Promise<PreparedChatModel["model"]>;
+  /** Whether an Answer on this model searches its Question before the first call (#1633). */
+  retrievesFirst?(prepared: PreparedChatModel): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** What an Answer is written in when its Question has no language of its own. */
@@ -2427,6 +2429,12 @@ export function createAnswers(options: AnswersOptions) {
         }),
         thirdParty: contextReasons,
         support: startingSupport(prepared.support, supportByModel.get(learntKey)),
+        // Call help already searches first, and a check or a Task's Run keeps the loop it was measured with.
+        retrieveFirst:
+          !help &&
+          !input.task &&
+          (input.toolSet ?? "answer") === "answer" &&
+          (options.retrievesFirst?.(prepared) ?? false),
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
         window: prepared.window,

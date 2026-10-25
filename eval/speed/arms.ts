@@ -17,6 +17,8 @@ export interface Arm {
   prepare?(core: Core): Promise<void>;
   /** Each model request while the arm runs, as it is sent. */
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
+  /** Answers search the Question before their first call (#1633), whatever the allowlist says. */
+  retrieveFirst?: boolean;
 }
 
 const CITING = "Cite every claim you draw from a Passage:\n";
@@ -58,6 +60,11 @@ function citingFirst(system: string): string {
 export const ARMS: readonly Arm[] = [
   { id: "today", label: "today's path, as the branch runs it" },
   {
+    id: "retrieve-first",
+    label: "the Question searched before the first call, answered in one call unless it needs more",
+    retrieveFirst: true,
+  },
+  {
     id: "cite-first",
     label: "the Tool loop's records first, then the Answer, as before #489",
     request: (params) => ({
@@ -91,6 +98,8 @@ export function armSwitch() {
       (inner: ChatModelFactory): ChatModelFactory =>
       (spec) =>
         wrapLanguageModel({ model: inner(spec), middleware }),
+    /** For the library's search tuning: the arm in use decides, else the allowlist. */
+    retrieveFirst: () => current?.retrieveFirst,
     use(arm: Arm): void {
       current = arm;
     },

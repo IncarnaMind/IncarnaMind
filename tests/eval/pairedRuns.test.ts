@@ -17,6 +17,7 @@ const RUN: ArmRun = {
   firstWordsMs: 3000,
   doneMs: 5000,
   modelCalls: 3,
+  answerCalls: 3,
   inputTokens: 30_000,
   outputTokens: 900,
   citations: 2,
