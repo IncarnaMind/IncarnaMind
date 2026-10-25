@@ -40,6 +40,7 @@ import { type CommandContext, commands } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { useAnswerBeingWritten } from "../conversations";
+import { nameWithPlace, useDocumentPlace } from "../documentPlaces";
 import { useGap, useLanguage, useT } from "../i18n";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
 import { useBreathing } from "../motion";
@@ -642,11 +643,12 @@ function CitationCard({
   const gap = useGap();
   const live = useAppStore((store) => store.documents.find((each) => each.id === state.documentId));
   const web = live?.web ?? null;
+  const place = useDocumentPlace(state.documentId ?? null);
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;
   const withPdfPage = location ? formatLocationWithPdf(location, t) : null;
   const opens = web ? "web" : openKind(location);
-  const name = attributes.documentName ?? "";
+  const name = nameWithPlace(attributes.documentName ?? "", place);
   // When the version it quotes was fetched: an older one's, if the page changed since.
   const fetchedAt =
     web?.versions.find((each) => each.contentHash === attributes.contentHash)?.fetchedAt ??
@@ -656,7 +658,7 @@ function CitationCard({
   // under the name says the place, so the name stands alone.
   const source =
     checked || withPdfPage
-      ? where
+      ? where || place
         ? name
         : null
       : where

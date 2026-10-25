@@ -40,7 +40,7 @@ function netDebt(call: ModelCall, stated?: string) {
     formula: "nd",
     scale: "million",
     // A check Run, as a cell is, also names the number its text writes.
-    ...(stated && { stated }),
+    ...(stated && { stated, relation: "equals" }),
     inputs: [
       {
         name: "nd",
@@ -406,6 +406,7 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
           scale: "亿",
           decimals: 1,
           stated: "3.1亿元",
+          relation: "equals",
           inputs: [
             {
               name: "nd",

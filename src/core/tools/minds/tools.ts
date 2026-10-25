@@ -34,7 +34,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { askedFor, waitsForUser } from "../../../shared/askedChanges";
-import { setOrigins } from "../../../shared/blockOrigins";
+import { setOrigins, setOriginsOf } from "../../../shared/blockOrigins";
 import {
   type ChartData,
   chartFromTable,
@@ -1863,7 +1863,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           : replaceApplied(note, over, blocks, request, { whole: unrecorded > 0 });
       const doc = note.doc;
       if (!written || !doc) return written;
-      setOrigins(doc, written, options.origin);
+      setOriginsOf(doc, request, written, options.origin);
       recordProposalRequest(doc, request, {
         source: "answer-added",
         providerId: options.prepared.provider.id,
@@ -2058,7 +2058,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           };
       if (revised) {
         minds.edit(mind.id, (note) => {
-          if (note.doc) setOrigins(note.doc, revised.blockIds, options.origin);
+          if (note.doc) setOriginsOf(note.doc, result.request, revised.blockIds, options.origin);
         });
       }
       options.changed(toolCallId, change);

@@ -13,6 +13,7 @@ export const en = {
   "library.search.hint": "Press / to search",
   "library.filter.add": "Filter",
   "library.filter.addLabel": "Add a filter",
+  "library.filter.source": "Source location",
   "library.filter.folder": "Folder",
   "library.filter.remove": "Remove the {filter} filter",
   "library.collapseAll": "Collapse all",
@@ -357,8 +358,6 @@ export const en = {
     "“{name}”, the Linked folder this link took in, isn’t on the disk any more.",
   "undo.linkedFolderPaused": "Paused reading in “{name}”",
   "undo.linkedFolderResumed": "Resumed reading in “{name}”",
-  "undo.linkedFolderFlat": "Showing “{name}” as a flat list",
-  "undo.linkedFolderTree": "Showing “{name}” as folders",
   "undo.name.linkFolder": "Link “{name}”",
   "undo.name.move": "Move “{name}”",
   "undo.name.move.minds": "Move {count} Minds",
@@ -683,6 +682,8 @@ export const en = {
   "claim.replaceCitation.doesntSupport": "Your Citation doesn’t support this sentence",
   "claim.calculated.title": "Calculated from your Documents",
   "claim.calculated.stated": "The sentence says {stated}.",
+  "claim.calculated.stated.at most": "The sentence says at most {stated}.",
+  "claim.calculated.stated.at least": "The sentence says at least {stated}.",
   "claim.calculated.inputs": "Worked out from",
   "claim.calculated.negative": "counted as negative",
   "claim.useFigure": "Use {figure}",
@@ -1427,13 +1428,6 @@ export const en = {
     "{names}, already linked, merge into this folder and keep their Tags and Citations.",
   "linkedFolders.preview.inside":
     "This folder is inside the Linked folder “{name}”, so its files are already in IncarnaMind.",
-  "linkedFolders.preview.layout": "Show it as",
-  "linkedFolders.preview.layout.tree": "Folders",
-  "linkedFolders.preview.layout.tree.hint": "Its subfolders, as they are on disk.",
-  "linkedFolders.preview.layout.flat": "A flat list",
-  "linkedFolders.preview.layout.flat.hint":
-    "One list of every Document. Suits Zotero-style storage folders.",
-  "linkedFolders.preview.suggested": "Suggested",
   "linkedFolders.preview.failed": "Couldn’t look in this folder: {message}",
   "linkedFolders.preview.cancel": "Cancel",
   "linkedFolders.preview.close": "Close",
@@ -1464,8 +1458,6 @@ export const en = {
   "linkedFolders.more": "More actions for {name}",
   "linkedFolders.pause": "Pause reading",
   "linkedFolders.resume": "Resume reading",
-  "linkedFolders.layout.tree": "Show as folders",
-  "linkedFolders.layout.flat": "Show as a flat list",
   "linkedFolders.downloadOnlineOnly.one": "Download and read 1 online-only file",
   "linkedFolders.downloadOnlineOnly.other": "Download and read {count} online-only files",
   "file.showInFinder": "Show in Finder",
@@ -3644,6 +3636,10 @@ export const en = {
   "export.comment.sentence.contradicted": "Contradicted: {says}",
   "export.comment.sentence.contradicted.worked":
     "Contradicted: your Documents give {shown}, and the sentence says {stated}.",
+  "export.comment.sentence.contradicted.worked.at most":
+    "Contradicted: your Documents give {shown}, and the sentence says at most {stated}.",
+  "export.comment.sentence.contradicted.worked.at least":
+    "Contradicted: your Documents give {shown}, and the sentence says at least {stated}.",
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
   "export.comment.sentence.unsupported": "Unsupported: I didn’t find this in “{scope}”.",
   "export.comment.sentence.unsupported.more":

@@ -11,6 +11,7 @@ import {
 } from "./components/lineIcons";
 import { TagDot } from "./components/TagColour";
 import { conversationLabel, openConversation, useConversations } from "./conversations";
+import { nameWithPlace, placesOf } from "./documentPlaces";
 import { KIND_LABELS } from "./fileInfo";
 import { type FoundObject, findable } from "./finding";
 import { folderCounts } from "./libraryPage";
@@ -100,14 +101,15 @@ findable.register({
   kind: "document",
   group: { id: "documents", title: "palette.group.documents" },
   objects(t) {
-    const { documents, library } = store();
+    const { documents, library, linkedFolders } = store();
     const folders = folderNames(library);
     const folderOf = new Map(library?.assignments.map((each) => [each.documentId, each.groupId]));
+    const places = placesOf(documents, linkedFolders);
     return documents.map((document): FoundObject => {
       const groupId = folderOf.get(document.id);
       return {
         ref: { kind: "document", id: document.id },
-        name: displayName(document),
+        name: nameWithPlace(displayName(document), places.get(document.id) ?? null),
         meta: withFolder(t(KIND_LABELS[document.kind]), groupId ? folders.get(groupId) : undefined),
         icon: (className) => <DocumentLineIcon kind={document.kind} className={className} />,
       };
@@ -116,6 +118,7 @@ findable.register({
   subscribe: onStore(
     (state) => state.documents,
     (state) => state.library,
+    (state) => state.linkedFolders,
   ),
   open: (ref, { inTab }) => openWith(inTab ? "document.openTab" : "document.open", ref),
 });

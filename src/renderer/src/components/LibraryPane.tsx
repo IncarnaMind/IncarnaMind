@@ -28,6 +28,7 @@ import {
   searchMatches,
   sectionShows,
   sectionsOf,
+  sourceFacet,
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
@@ -69,6 +70,9 @@ const SORT_SCOPE = "library:all" as const;
 /** What `openLibrary` asked for that is not a section to show. */
 const FORMS = ["all", "starters"];
 
+/** What a Linked folder's row asks for: its Documents, by Source location (#1507). */
+const SOURCE_REQUEST = /^source:(.+)$/;
+
 /**
  * The Library tab (#240): one page of every Document, grouped by Folder, as a
  * Notion page of toggles or Finder's list view. Its head holds the title,
@@ -84,6 +88,7 @@ export function LibraryPane() {
   const documents = useLibraryDocuments();
   const snapshot = useAppStore((state) => state.library);
   const tags = useAppStore((state) => state.tags);
+  const linkedFolders = useAppStore((state) => state.linkedFolders);
   const tagFilter = useAppStore(useShallow((state) => state.tagFilter));
   const request = useAppStore((state) => state.libraryFilter);
   const findingSources = useFindSources((state) => state.open);
@@ -118,8 +123,9 @@ export function LibraryPane() {
       yearFacet,
       statusFacet,
       folderFacet(folders, folderOf),
+      sourceFacet(linkedFolders),
     ],
-    [tags, tagsShown, folders, folderOf],
+    [tags, tagsShown, folders, folderOf, linkedFolders],
   );
   const selection = useMemo<FilterSelection>(
     () => (tagFilter.length ? { ...facetFilter, tag: tagFilter } : facetFilter),
@@ -228,6 +234,14 @@ export function LibraryPane() {
       return;
     }
     if (FORMS.includes(request)) return;
+    const linkedFolderId = SOURCE_REQUEST.exec(request)?.[1];
+    if (linkedFolderId) {
+      setSearch("");
+      setFacetFilter({ source: [linkedFolderId] });
+      useAppStore.getState().setTagFilter([]);
+      useAppStore.setState({ libraryFilter: "all" });
+      return;
+    }
     const key =
       request === LIBRARY_DELETED
         ? RECENTLY_DELETED
