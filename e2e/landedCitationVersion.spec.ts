@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { formatDate } from "../src/shared/dates";
 import {
   addToNote,
   askInAssistant,
@@ -44,7 +45,7 @@ const QUESTION = "What notice period does the Supplier give?";
 const LANGUAGES = {
   en: {
     recheck: "Needs re-check",
-    changedOn: "This Document changed on 21 Oct 2026.",
+    changedOn: (date: string) => `This Document changed on ${date}.`,
     words: "The cited words changed in the new version:",
     update: "Update the sentence…",
     updated: "Now citing the new version",
@@ -53,7 +54,7 @@ const LANGUAGES = {
   },
   "zh-CN": {
     recheck: "需重新核对",
-    changedOn: "此文档已于 2026年10月21日 更新。",
+    changedOn: (date: string) => `此文档已于 ${date} 更新。`,
     words: "引文在新版本中有改动：",
     update: "更新这句话…",
     updated: "已改为引用新版本",
@@ -168,7 +169,10 @@ for (const language of ["en", "zh-CN"] as const) {
       // The card says it needs re-check, when the Document changed, and the cited words as they changed.
       await showCard();
       await expect(card.getByTestId("citation-badge")).toHaveText(words.recheck);
-      await expect(card.getByTestId("citation-changed-date")).toHaveText(words.changedOn);
+      // The day as this computer's time zone has it, as the app shows it.
+      await expect(card.getByTestId("citation-changed-date")).toHaveText(
+        words.changedOn(formatDate(CHANGED, language)),
+      );
       await expect(card.getByTestId("citation-changed")).toContainText(words.words);
       const changed = card.getByTestId("citation-changed-words");
       await expect(changed.locator("del")).toHaveText("sixty (60)");

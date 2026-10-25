@@ -153,6 +153,11 @@ export function CitationView({
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;
   const recheckAsked = editor.isEditable && needsRecheck(state, attributes, recheck);
+  // Kept over only the version the card showed: a check still of an older one, or failed, isn't it.
+  const lookedAt =
+    recheck !== null && recheck !== "failed" && recheck.contentHash === liveVersion
+      ? liveVersion
+      : null;
   const newVersion = editor.isEditable ? newVersionCitation(attributes, recheck) : null;
   const badge = badgeMessage(state, shown, t);
   const badgeText = recheckAsked ? t("citation.badge.recheck") : t(badge.key, badge.params);
@@ -266,9 +271,9 @@ export function CitationView({
     if (mindId && place !== null) pinCitation(mindId, place);
   };
   const keepOldVersion = () => {
-    if (!liveVersion) return;
+    if (!lookedAt) return;
     dismiss();
-    asOneStep(editor, () => updateAttributes({ keptOver: liveVersion }));
+    asOneStep(editor, () => updateAttributes({ keptOver: lookedAt }));
     offerEditorUndo(editor, (t) => t("citation.keptOld"));
     if (!groupsMerged()) editor.view.focus();
   };
@@ -298,7 +303,7 @@ export function CitationView({
   openFromCardRef.current = openFromCard;
   const choices = {
     update: recheckAsked && newVersion ? updateSentence : null,
-    keepOld: recheckAsked && liveVersion ? keepOldVersion : null,
+    keepOld: recheckAsked && lookedAt ? keepOldVersion : null,
   };
   const choicesRef = useRef(choices);
   choicesRef.current = choices;
