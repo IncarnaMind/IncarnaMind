@@ -49,6 +49,7 @@ import { askedFor, waitsForUser as heldForUser } from "../../shared/askedChanges
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
+import { translate } from "../../shared/i18n";
 import { englishPlace } from "../../shared/locations";
 import { holdsNothing } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
@@ -2106,6 +2107,14 @@ export function createAnswers(options: AnswersOptions) {
         return mindsNow;
       };
       const changedAMind = () => [...mindChanges.values()].some(changesAMind);
+      const missingMindNames = () => [
+        ...new Set(
+          [...mindProblems.values()].flatMap((problem) =>
+            problem.kind === "not-found" && problem.name !== "" ? [problem.name] : [],
+          ),
+        ),
+      ];
+      const endedAfterRefusal = () => !changedAMind() && missingMindNames().length > 0;
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
@@ -2135,6 +2144,21 @@ export function createAnswers(options: AnswersOptions) {
                   note: askAgainNote(claims, toolCalls, options.readableMindName, appliedInTurn),
                 }
               : null;
+          },
+        },
+        {
+          name: "refused-no-reply",
+          check: (text) => {
+            const missing = missingMindNames();
+            if (text.trim() !== "" || !endedAfterRefusal()) return null;
+            const named =
+              missing.length === 1
+                ? `there is no Mind called “${missing[0]}”`
+                : `there are no Minds called ${missing.map((name) => `“${name}”`).join(", ")}`;
+            return {
+              claims: [],
+              note: `Your reply is empty. Say in the User's language that ${named}, and that nothing was changed. Don't say that you changed anything.`,
+            };
           },
         },
         {
@@ -2254,6 +2278,22 @@ export function createAnswers(options: AnswersOptions) {
           turnChecks,
           shownUpTo: heldBack,
           mayEndBlank: changedAMind,
+          blankReply: () => {
+            if (!endedAfterRefusal()) return null;
+            const language = answerLanguage(context.question);
+            const missing = missingMindNames();
+            const [only] = missing;
+            if (missing.length === 1 && only !== undefined) {
+              return translate(language, "answer.refused.noSuchMind", { name: only });
+            }
+            const quoted = missing.map((name) => `“${name}”`);
+            return translate(language, "answer.refused.noSuchMind.many", {
+              names:
+                language === "zh-CN"
+                  ? quoted.join("、")
+                  : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
+            });
+          },
         }),
         ...(input.checkScales && {
           turnChecks: [

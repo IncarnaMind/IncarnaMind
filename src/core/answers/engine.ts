@@ -427,6 +427,11 @@ export interface AnswerRequest {
   shownUpTo?(text: string): number;
   /** Whether a reply with no text still answers: the Answer changed a Mind, which its card reports. */
   mayEndBlank?(): boolean;
+  /**
+   * What to end with when the model wrote no reply: the app's own words, so
+   * a turn that ended after a refused Tool still says why. Null: end blank.
+   */
+  blankReply?(): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -1898,9 +1903,11 @@ async function* toolLoop(
           again = [...event.messages, { role: "user", text: settled.nudge }];
           break;
         }
-        if (taken.text !== keptText) {
-          yield* textEdits(keptText.slice(0, released), taken.text);
-          keptText = taken.text;
+        // A turn that ends with no reply after a refused Tool says why in the app's words.
+        const text = taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text;
+        if (text !== keptText) {
+          yield* textEdits(keptText.slice(0, released), text);
+          keptText = text;
           released = keptText.length;
         }
         yield* release(keptText.length);

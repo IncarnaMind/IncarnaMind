@@ -2819,6 +2819,8 @@ export const en = {
   "answer.error.too-long": "This Question is too long for the model. Shorten it.",
   "answer.error.too-long.hosted": "This is too long for {model}",
   "answer.error.no-answer": "The model sent no Answer",
+  "answer.refused.noSuchMind": "There is no Mind called “{name}”. Nothing was changed.",
+  "answer.refused.noSuchMind.many": "There are no Minds called {names}. Nothing was changed.",
   "answer.error.unknown": "Something went wrong with {service}",
   "answer.error.not-signed-in": "You’re not signed in to ChatGPT",
   "answer.error.plan-limit": "Your ChatGPT plan’s usage limit is reached",

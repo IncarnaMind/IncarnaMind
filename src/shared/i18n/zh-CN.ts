@@ -2699,6 +2699,8 @@ export const zhCN = {
   "answer.error.too-long": "这个问题太长，超出了模型的上限。请缩短问题。",
   "answer.error.too-long.hosted": "内容太长，超出了 {model} 的上限",
   "answer.error.no-answer": "模型没有给出回答",
+  "answer.refused.noSuchMind": "没有名为“{name}”的 Mind，因此没有做任何改动。",
+  "answer.refused.noSuchMind.many": "没有名为{names}的 Mind，因此没有做任何改动。",
   "answer.error.unknown": "{service} 出了问题，原因不明",
   "answer.error.not-signed-in": "你还没有登录 ChatGPT",
   "answer.error.plan-limit": "ChatGPT 订阅的用量已达上限",
