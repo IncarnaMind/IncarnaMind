@@ -129,6 +129,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(answer.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
       const cited = await contentHashOf(window, file);
       if (cited === undefined) throw new Error("The Document isn't indexed.");
+      await screenshot(window, `1-answer-${language}`);
 
       // The file changes on disk before the Answer is added: the clause now says forty-five days.
       await writeFile(file, amendment(NEW));
@@ -145,6 +146,7 @@ for (const language of ["en", "zh-CN"] as const) {
         quote: OLD,
         keptOver: null,
       });
+      await screenshot(window, `2-landed-${language}`);
 
       const card = window.getByTestId("citation-card");
       const showCard = async () => {
@@ -172,13 +174,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(changed.locator("ins")).toHaveText("forty-five (45)");
       await expect(card.getByTestId("citation-update")).toHaveText(words.update);
       await expect(card.getByTestId("citation-keep-old")).toHaveText(words.keep);
-      await screenshot(window, `needs-recheck-card-${language}`);
+      await screenshot(window, `3-card-${language}`);
       // The card holds at a narrow window.
       await setWindowSize(app, window, 900, 820);
       await showCard();
       await expect(card.getByTestId("citation-update")).toBeVisible();
       await expect(card.getByTestId("citation-keep-old")).toBeVisible();
-      await screenshot(window, `needs-recheck-card-narrow-${language}`);
+      await screenshot(window, `card-narrow-${language}`);
       await setWindowSize(app, window, 1440, 900);
       await showCard();
 
@@ -192,10 +194,11 @@ for (const language of ["en", "zh-CN"] as const) {
         quote: OLD,
         keptOver: current,
       });
-      await screenshot(window, `kept-old-${language}`);
+      await screenshot(window, `4-kept-old-${language}`);
       await undo();
       await expect(chip).toHaveAttribute("data-recheck", "true");
       expect((await storedCitation(editor)).keptOver).toBeNull();
+      await screenshot(window, `5-kept-undone-${language}`);
 
       // Update the sentence…: it cites the new words, which open beside, and its sentence is selected.
       await showCard();
@@ -212,7 +215,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const viewer = window.getByTestId("viewer");
       await expect(viewer.locator("[data-quote-highlight]")).toHaveText(NEW);
       await expect.poll(() => selectedText(editor)).toContain("[1]");
-      await screenshot(window, `updated-${language}`);
+      await screenshot(window, `6-updated-${language}`);
       await undo();
       await expect(chip).toHaveAttribute("data-recheck", "true");
       expect(await storedCitation(editor)).toEqual({
@@ -220,6 +223,7 @@ for (const language of ["en", "zh-CN"] as const) {
         quote: OLD,
         keptOver: null,
       });
+      await screenshot(window, `7-updated-undone-${language}`);
     } finally {
       await app.close();
     }
