@@ -456,6 +456,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // The files aren't named until the User asks for them in the export options, for this Mind.
       await openExportOptions(window);
       await expect(window.getByTestId("export-unread-names")).not.toBeChecked();
+      await screenshot(window, `export-options-unread-${language}`);
       await pointAndClick(window, window.getByTestId("export-options-close"));
 
       await exportFromMenu(window, "markdown");
