@@ -50,6 +50,21 @@ interface CatalogueState {
   load(): void;
 }
 
+let held: { promise: Promise<void>; release(): void } | null = null;
+
+export function holdStyleCatalogue(hold: boolean): void {
+  if (!hold) {
+    held?.release();
+    held = null;
+  } else if (!held) {
+    let release = () => {};
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    held = { promise, release };
+  }
+}
+
 export const useStyleCatalogue = create<CatalogueState>()((set, get) => ({
   catalogue: null,
   byId: new Map(),
@@ -57,8 +72,8 @@ export const useStyleCatalogue = create<CatalogueState>()((set, get) => ({
   load() {
     if (get().catalogue || get().loading) return;
     set({ loading: true });
-    core.listCitationStyles().then(
-      (catalogue) =>
+    Promise.all([core.listCitationStyles(), held?.promise]).then(
+      ([catalogue]) =>
         set({
           catalogue,
           byId: new Map(catalogue.styles.map((style) => [style.id, style])),

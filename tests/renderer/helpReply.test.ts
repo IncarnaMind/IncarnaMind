@@ -91,6 +91,18 @@ describe("A help reply", () => {
     ).toEqual(["a", "b", "c"]);
   });
 
+  test("with the live text behind, its one line shows first, in every shape, and alone when it is all there is (#1366)", () => {
+    const behind = "The live text is behind, so this rests on the lines so far.";
+    const shown = (text: string, shape: "options" | "lines") =>
+      shownItems(readHelpReply(text), { shape, leadIn: true, streaming: false }).map((item) =>
+        textOf(item.lead),
+      );
+    expect(shown(`${behind}\n\n★ One\n→ a\n\nTwo\n→ b`, "options")).toEqual([behind, "One", "Two"]);
+    expect(shown(`${behind}\n\n- a\n- b\n- c`, "lines")).toEqual([behind, "a", "b"]);
+    expect(shown(behind, "options")).toEqual([behind]);
+    expect(shown(behind, "lines")).toEqual([behind]);
+  });
+
   test("while it streams, an option before its arrow has no effect yet", () => {
     const items = readHelpReply("★ We can extend the pil");
     expect(items).toHaveLength(1);

@@ -246,6 +246,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     writtenFrom,
     stillReading,
     sent,
+    textBehind,
   } = parsed;
   const claimed = Array.isArray(unbackedClaims)
     ? unbackedClaims.filter((each): each is ClaimedChange =>
@@ -283,6 +284,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     }),
     ...(askedAbout.length > 0 && { askedAgainFor: askedAbout }),
     ...(example === true && { example }),
+    ...(textBehind === true && { textBehind }),
     ...(storedCoverage(coverage) ?? {}),
     ...(isRecord(writtenFrom) &&
       isCount(writtenFrom.documents) &&
