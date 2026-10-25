@@ -50,6 +50,7 @@ async function shown(window: Page, kind: string) {
     range.selectNodeContents(button);
     return (
       bounds.width > 80 &&
+      bounds.height <= Number.parseFloat(getComputedStyle(button).lineHeight) + 1 &&
       [...range.getClientRects()].every(
         (rect) => rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1,
       )
