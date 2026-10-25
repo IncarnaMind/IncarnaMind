@@ -3705,7 +3705,7 @@ export interface UnsupportedFile {
  *   (`unlockDocument`, #763); another kind needs its password removed;
  * - "damaged": the file is broken, or couldn't be read;
  * - "too-large": too large to open;
- * - "pages": a scan some of whose pages haven't been read yet.
+ * - "pages": a PDF with page content that couldn't be read.
  */
 export type UnreadReason = "format" | "scan" | "password" | "damaged" | "too-large" | "pages";
 

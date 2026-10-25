@@ -1,12 +1,10 @@
 import type { PDFPageProxy, TextContent, TextItem } from "pdfjs-dist/types/src/display/api";
+import { isRecord } from "../core/errors";
 
 const FORM_FONT = "incarnamindForm";
 const INVISIBLE = 1;
 const HIDDEN = 2;
 const NO_VIEW = 32;
-const record = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object";
-
 const strings = (value: unknown): string[] | null =>
   typeof value === "string"
     ? [value]
@@ -36,7 +34,7 @@ function fieldValue(field: Record<string, unknown>): string | null {
   const values = strings(field.fieldValue);
   if (!values) return field.fieldValue == null && field.hasAppearance !== true ? '""' : null;
   if (values.length === 0 || values.every((value) => value === "")) return '""';
-  const options = Array.isArray(field.options) ? field.options.filter(record) : [];
+  const options = Array.isArray(field.options) ? field.options.filter(isRecord) : [];
   return values
     .map((value) => {
       const option = options.find((option) => option.exportValue === value);
@@ -100,7 +98,7 @@ export function pdfFormText(
   let unread = false;
   for (const field of annotations) {
     if (
-      !record(field) ||
+      !isRecord(field) ||
       field.subtype !== "Widget" ||
       field.hidden === true ||
       (typeof field.annotationFlags === "number" &&
@@ -131,7 +129,8 @@ export function pdfFormText(
     const label = fieldLabel(field, rect, content.items);
     const value = fieldValue(field);
     unread ||= value === null || label === "";
-    const appearance = record(field.defaultAppearanceData) ? field.defaultAppearanceData : null;
+    if (value === null && !label) continue;
+    const appearance = isRecord(field.defaultAppearanceData) ? field.defaultAppearanceData : null;
     const fontSize =
       typeof appearance?.fontSize === "number" && appearance.fontSize > 0
         ? appearance.fontSize
@@ -141,7 +140,7 @@ export function pdfFormText(
     const x = left + (position?.[0] ?? 0);
     const baseline = bottom + (position?.[1] ?? height * 0.8);
     items.push({
-      str: `${label ? `${label}: ` : ""}${value ?? "[?]"}`,
+      str: value === null ? label : `${label ? `${label}: ` : ""}${value}`,
       dir: "ltr",
       transform: [height, 0, 0, height, x, baseline],
       width: Math.max(1, right - x),

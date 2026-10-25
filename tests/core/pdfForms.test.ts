@@ -242,8 +242,13 @@ test("an unreadable field is a partial-reading problem, and readable fields stay
   );
   expect(document).toMatchObject({ status: "failed", failure: { reason: "forms-unread" } });
   expect(document.failure?.message).toContain("Print to PDF");
+  expect(await core.listUnreadFiles()).toContainEqual(
+    expect.objectContaining({ documentId: document.id, reason: "pages" }),
+  );
   const text = (await core.readDocumentText(document.id)).pages[0]?.text ?? "";
-  expect(text).toContain("Approval signature: [?]");
+  expect(text).not.toContain("[?]");
+  expect(text).toContain("Approval signature");
+  expect(text).not.toContain("Signed by inspector");
   expect(text).toContain("Batch identifier: BIRCH-42");
   expect(
     (await core.searchPassages("BIRCH-42", { mode: "keyword" })).some(

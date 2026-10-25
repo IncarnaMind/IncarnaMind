@@ -90,7 +90,7 @@ export const en = {
   "unread.reason.passwordPdf": "Locked with a password.",
   "unread.reason.damaged": "The file is damaged or couldn’t be opened.",
   "unread.reason.too-large": "Too large to open.",
-  "unread.reason.pages": "Some scanned pages haven’t been read yet.",
+  "unread.reason.pages": "Some page content couldn’t be read.",
   "library.fix.damaged": "Damaged file: save a copy from its app, then add it",
   "library.fix.damaged.pdf": "Damaged file: save a copy from your PDF app, then add it",
   "library.fix.password": "Password-protected: remove it in its app, then add the copy",

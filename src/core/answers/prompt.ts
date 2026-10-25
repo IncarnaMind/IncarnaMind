@@ -486,7 +486,7 @@ const NAMED_UNREAD = 5;
 const UNREAD_WORDS: Record<UnreadReason, (pages: readonly number[]) => string> = {
   scan: () => "a scan with no text",
   pages: (pages) => {
-    if (pages.length === 0) return "its scanned pages weren't read";
+    if (pages.length === 0) return "some page content couldn't be read";
     const shown = pages.slice(0, 10).join(", ") + (pages.length > 10 ? ", …" : "");
     return pages.length === 1
       ? `scanned page ${shown} wasn't read`
@@ -511,7 +511,10 @@ export function unreadDocumentsNote(unread: readonly UnreadFile[]): string {
     .slice(0, NAMED_UNREAD)
     .map((file) => `"${listedName(file.name)}" (${UNREAD_WORDS[file.reason](file.pages)})`);
   const more = unread.length - named.length;
-  return `IncarnaMind couldn't read the text of some Documents in the search, so no Passage comes from that text: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. If the Passages don't clearly answer the Question and it may be about one of them, say in one sentence that it couldn't be read, so the answer may be there, rather than taking another Document's figure for it.`;
+  const partial = unread.some((file) => file.reason === "pages")
+    ? ' A partially read page may still have searchable Passages. Values missing from its Passages are unknown, not evidence that a field is blank or absent. For PDF form fields, a label without a value means the value could not be read; a readable blank field is recorded as "".'
+    : "";
+  return `IncarnaMind couldn't read the text of some Documents in the search, so no Passage comes from that text: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. If the Passages don't clearly answer the Question and it may be about one of them, say in one sentence that it couldn't be read, so the answer may be there, rather than taking another Document's figure for it.${partial}`;
 }
 
 /**

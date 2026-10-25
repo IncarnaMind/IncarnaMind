@@ -86,7 +86,7 @@ export const zhCN = {
   "unread.reason.passwordPdf": "已加密。",
   "unread.reason.damaged": "文件已损坏，或无法打开。",
   "unread.reason.too-large": "文件太大，无法打开。",
-  "unread.reason.pages": "有些扫描页还没有读取。",
+  "unread.reason.pages": "有些页面内容未能读取。",
   "library.fix.damaged": "文件已损坏：在它的应用中另存一份，再添加副本",
   "library.fix.damaged.pdf": "文件已损坏：用 PDF 应用另存一份，再添加副本",
   "library.fix.password": "文件设有密码：在它的应用中去掉密码，再添加副本",

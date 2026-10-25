@@ -6,6 +6,7 @@ const FAILED: Record<string, UnreadReason> = {
   "password-protected": "password",
   "too-large": "too-large",
   "pages-unread": "pages",
+  "forms-unread": "pages",
 };
 
 /**

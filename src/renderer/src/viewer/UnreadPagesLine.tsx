@@ -4,9 +4,6 @@ import { useLanguage, useT } from "../i18n";
 import { unreadPages } from "../scanStatus";
 import { useAppStore } from "../store";
 
-/**
- * A PDF's unread content, where the User is looking at it, with Retry.
- */
 export function UnreadPagesLine({ document }: { document: Document }) {
   const t = useT();
   const language = useLanguage();
