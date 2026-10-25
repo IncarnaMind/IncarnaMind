@@ -222,6 +222,25 @@ describe("pasting what Word copies", () => {
     ]);
   });
 
+  test("a page break inside a paragraph leaves a space, so Before and After stay apart", () => {
+    const doc = pasted(
+      word(`<p class=MsoNormal><span>Before</span>${pageBreak}<span>After</span></p>`),
+    );
+    expect(blocks(doc)).toEqual([{ type: "paragraph", text: "Before After" }]);
+  });
+
+  test("the empty remainder paragraph Word writes after a page break goes with it", () => {
+    const doc = pasted(
+      word(
+        `<p class=MsoNormal>Before the break</p>${pageBreak}${emptyParagraph}<p class=MsoNormal>After it</p>`,
+      ),
+    );
+    expect(blocks(doc)).toEqual([
+      { type: "paragraph", text: "Before the break" },
+      { type: "paragraph", text: "After it" },
+    ]);
+  });
+
   test("a Subtitle is a plain line, and HTML from anywhere else is left as it is", () => {
     const doc = pasted(word(`<p class=MsoSubtitle>Spring 2026</p>`));
     expect(blocks(doc)).toEqual([{ type: "paragraph", text: "Spring 2026" }]);
