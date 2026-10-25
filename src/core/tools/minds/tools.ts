@@ -1481,11 +1481,12 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     }
     if (checked) {
       redrawCharts(mindId, ids);
-      const { request, cited, sent, failed, stop, blocked } = checked;
+      const { request, checkable, cited, sent, failed, stop, blocked } = checked;
       written.change = {
         ...written.change,
         selfCheck: {
           request,
+          checkable,
           cited,
           sent,
           checked: checked.checked,

@@ -1105,15 +1105,19 @@ export interface MindChange {
    */
   checking?: number;
   /**
-   * The check of the sentences with Citations it wrote, once over: how many there were
-   * (`cited`), how many it sent to be checked (`sent`), how many got a verdict
-   * (`checked`) and how many couldn't be checked (`failed`), and what stopped it, if
-   * anything did. Those it couldn't check, or didn't, are marked not checked, under
-   * `request`; `blocked` says how many of them the User's own choice kept from being sent
-   * (the flow turned off, or Local mode), which checking again can't change. Absent: none was checked.
+   * The check of the sentences it wrote that a check reads (#1909: every claim,
+   * cited or not), once over: how many there were (`checkable`), how many have a
+   * Citation (`cited`), how many it sent to be checked (`sent`), how many got a
+   * verdict (`checked`) and how many couldn't be checked (`failed`), and what
+   * stopped it, if anything did. Those it couldn't check, or didn't, are marked
+   * not checked, under `request`; `blocked` says how many of them the User's own
+   * choice kept from being sent (the flow turned off, or Local mode), which
+   * checking again can't change. Absent: none was checked.
    */
   selfCheck?: {
     request: string;
+    /** Absent on a check recorded before #1909: `cited` was what it checked then. */
+    checkable?: number;
     cited: number;
     sent: number;
     checked: number;

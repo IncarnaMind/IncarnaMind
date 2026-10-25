@@ -1,22 +1,25 @@
 /**
- * What the checks of an Answer's writes left to do (#1111), from its calls:
- * the lines under it, and the sentences their Check again and Check the rest
- * check. Only data.
+ * What the checks of an Answer's writes left to do (#1111, #1909), from its
+ * calls: the lines under it, and the sentences their Check again and Check
+ * the rest check. Only data.
  */
 import type { AnswerToolCall, MindChange } from "../../core/api";
 import type { Language } from "../../core/language";
 import { formatResetTime } from "./cost";
-import type { ShownClaim } from "./editor/claimChecks";
 import type { Translate } from "./objects";
 
 export type SelfCheck = NonNullable<MindChange["selfCheck"]> & { mindId: string };
+
+/** How many sentences the write holds that a check reads; a check recorded before #1909 kept only the cited ones. */
+export const checkableOf = (check: NonNullable<MindChange["selfCheck"]>): number =>
+  check.checkable ?? check.cited;
 
 /** Each write's check, in the order of the calls, with something left to check: a failure, or sentences past the most one write checks. */
 export const selfChecksOf = (toolCalls: readonly AnswerToolCall[]): SelfCheck[] =>
   toolCalls.flatMap((call) => {
     const change = call.mindChange;
     const check = change?.selfCheck;
-    return change && check && (check.failed > 0 || check.sent < check.cited)
+    return change && check && (check.failed > 0 || check.sent < checkableOf(check))
       ? [{ mindId: change.mindId, ...check }]
       : [];
   });
@@ -86,22 +89,14 @@ export function selfCheckLines(
       });
     }
   }
-  if (check.sent < check.cited) {
+  const checkable = checkableOf(check);
+  if (check.sent < checkable) {
     lines.push({
       kind: "capped",
-      text: t("selfCheck.capped", { checked: check.checked, count: check.cited }),
+      text: t("selfCheck.capped", { checked: check.checked, count: checkable }),
       details: [],
       action: { label: t("selfCheck.checkRest"), does: "check" },
     });
   }
   return lines;
 }
-
-/** The sentences a write's check left not checked, as they are now: one edited since needs its own check again. */
-export const leftToCheck = (
-  claims: readonly ShownClaim[],
-  request: string,
-): { from: number; to: number }[] =>
-  claims
-    .filter((claim) => claim.check.request === request && claim.shown.state === "not-checked")
-    .map((claim) => ({ from: claim.sentence.from, to: claim.sentence.to }));

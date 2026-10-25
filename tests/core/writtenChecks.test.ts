@@ -430,17 +430,20 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     const marks = await marksIn(core, page);
     expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
       ["Spring tides come at new and full moon .", "needs-recheck"],
+      ["Neap tides come between.", "unsupported"],
+      ["Today The harbour office posts the times.", "needs-recheck"],
       ["All Neap tides are twice as strong .", "needs-recheck"],
     ]);
   });
 
-  // protects=text with no Citation isn't checked as it lands: nothing to check it against; fails_when=a check Run is made; no_claim=none beyond protects.
-  test("a sentence with no Citation isn't checked as it lands", async () => {
-    const { calls, client } = await write({
+  // protects=a sentence with no Citation is checked as it lands too (#1909): a claim no check covers would otherwise never close; fails_when=no check Run is made, or it lands unmarked; no_claim=the verdict.
+  test("a sentence with no Citation is checked as it lands", async () => {
+    const { calls, core, client } = await write({
       content: "## Tides\n\nThe harbour is quiet in winter.",
     });
 
     expect(shownWithChanges(client)).toEqual(["+ Tides", "+ The harbour is quiet in winter."]);
-    expect(calls.some(isCheckRun)).toBe(false);
+    expect(calls.some(isCheckRun)).toBe(true);
+    expect((await marksIn(core, client)).map(({ shown }) => shown.state)).toEqual(["unsupported"]);
   });
 });

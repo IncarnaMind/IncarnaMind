@@ -22,7 +22,12 @@
  *    next run doesn't send them again.
  */
 import { randomUUID } from "node:crypto";
-import { addedCouldChange, claimCheckShown, restsOn } from "../../../shared/claimChecks";
+import {
+  addedCouldChange,
+  checkedSentence,
+  claimCheckShown,
+  restsOn,
+} from "../../../shared/claimChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -274,19 +279,21 @@ export function createMindCheck(options: MindCheckOptions) {
           if (mark.check.scope.widened) widened.add(sentence);
           continue;
         }
-        if (!mark) {
-          if (!skipped.has(sentenceKey(sentence.text))) fresh.push(sentence);
+        const state = checkedSentence({
+          text: sentence.text,
+          check: mark
+            ? claimCheckShown(mark.check, { text: sentence.text, versions, folderId, scope })
+            : null,
+          skipped: skipped.has(sentenceKey(sentence.text)),
+          kept: keptAsView(marks, sentence),
+        });
+        if (state.kind === "to-check") {
+          if (state.fresh) fresh.push(sentence);
+          else again.push(sentence);
           continue;
         }
-        const shown = claimCheckShown(mark.check, {
-          text: sentence.text,
-          versions,
-          folderId,
-          scope,
-        });
-        if (shown.state === "needs-recheck") again.push(sentence);
-        else if (shown.state === "kept" || shown.state === "checking") continue;
-        else if (shown.state === "not-checked" || leftScope(mark.check)) again.push(sentence);
+        if (state.kind !== "covered" || !mark) continue;
+        if (leftScope(mark.check)) again.push(sentence);
         else held.push(mark.check.checkedAt);
       }
       return { fresh, again, keys, skipped, widened, held };

@@ -217,8 +217,15 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         proposals: 2,
         tables: 1,
         cited: 1,
-        // The cell's sentence was checked before it landed (#1111).
-        selfCheck: { request: expect.any(String), cited: 1, sent: 1, checked: 1, failed: 0 },
+        // Every claim its cells hold was checked before it landed (#1111, #1909).
+        selfCheck: {
+          request: expect.any(String),
+          checkable: 3,
+          cited: 1,
+          sent: 3,
+          checked: 3,
+          failed: 0,
+        },
       },
     ]);
     expect(lastResult(model)).toContain("One of them adds a table.");

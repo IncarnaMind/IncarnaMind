@@ -22,7 +22,7 @@ import {
   type UnsupportedReason,
 } from "../core/api";
 import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
-import { comparableSentence } from "./sentences";
+import { comparableSentence, isClaim } from "./sentences";
 
 /** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
 export const SENTENCES_CHECKED_AT_MOST = 12;
@@ -267,6 +267,54 @@ export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckS
   check.action !== "contradiction-watch" &&
   check.checkedAt !== "" &&
   (shown.state === "unsupported" || shown.state === "not-checked");
+
+/**
+ * A sentence as every surface counts it (#1909): a claim no check covers now
+ * is "to check", whether it has no check at all, one that failed, or one that
+ * no longer holds; a verdict that holds covers it; a sentence the User keeps
+ * as their own view, one the last whole-Mind check found makes no claim, and
+ * one that makes no claim count as nothing.
+ */
+export type CheckedSentence =
+  | { kind: "covered" }
+  | { kind: "checking" }
+  | { kind: "to-check"; fresh: boolean; why: "none" | "failed" | "recheck" }
+  | { kind: "kept" }
+  | { kind: "not-claim" };
+
+export function checkedSentence(input: {
+  text: string;
+  /** How its check shows now; null for none. */
+  check: ClaimCheckShown | null;
+  /** The last whole-Mind check found it makes no claim. */
+  skipped: boolean;
+  /** The User keeps it as their own view. */
+  kept: boolean;
+}): CheckedSentence {
+  if (input.kept || input.check?.state === "kept") return { kind: "kept" };
+  if (input.skipped || !isClaim(input.text)) return { kind: "not-claim" };
+  switch (input.check?.state) {
+    case undefined:
+      return { kind: "to-check", fresh: true, why: "none" };
+    case "checking":
+      return { kind: "checking" };
+    case "supported":
+    case "unsupported":
+    case "contradicted":
+      return { kind: "covered" };
+    case "not-checked":
+      return { kind: "to-check", fresh: false, why: "failed" };
+    case "needs-recheck":
+      return { kind: "to-check", fresh: false, why: "recheck" };
+  }
+}
+
+/** How many of these sentences a check still has to make: the one count (#1909). */
+export function toCheckCount(sentences: Iterable<CheckedSentence>): number {
+  let count = 0;
+  for (const sentence of sentences) if (sentence.kind === "to-check") count++;
+  return count;
+}
 
 /**
  * A sentence's check as a record lists it: the counts' keys (`needsRecheck` is a Document or the

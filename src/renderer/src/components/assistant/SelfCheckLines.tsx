@@ -1,22 +1,25 @@
 import { useState } from "react";
 import type { ConversationAnswer } from "../../../../core/api";
+import { mindCheckOf } from "../../../../shared/mindCheck";
 import { checkSentences } from "../../checks";
-import { shownClaims } from "../../editor/claimChecks";
+import { toCheckRanges } from "../../editor/healthCounts";
 import { mindEditor, whenMindEditor } from "../../editor/openEditors";
 import { editorDoc } from "../../editor/proposalReview";
 import { useLanguage, useT } from "../../i18n";
-import { leftToCheck, selfCheckLines, selfChecksOf } from "../../selfChecks";
+import { selfCheckLines, selfChecksOf } from "../../selfChecks";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
 
 const OPEN_WAIT_MS = 10_000;
 
-async function checkLeft(mindId: string, request: string): Promise<void> {
+/** Checks every sentence the Mind still has to check (#1909), so the badge's count closes. */
+async function checkLeft(mindId: string): Promise<void> {
   useAppStore.getState().openMind(mindId);
   const editor = mindEditor(mindId) ?? (await whenMindEditor(mindId, OPEN_WAIT_MS));
   const doc = editor && editorDoc(editor);
   if (!editor || !doc) return;
-  const ranges = leftToCheck(shownClaims(editor.state), request);
+  const skipped = new Set(mindCheckOf(doc)?.skipped ?? []);
+  const ranges = toCheckRanges(editor.state, skipped);
   if (ranges.length > 0) {
     await checkSentences(editor, mindId, doc, "check-against-documents", { ranges });
   }
@@ -38,7 +41,7 @@ export function SelfCheckLines({ answer }: { answer: Pick<ConversationAnswer, "t
     if (asked.has(request)) return null;
     const checkNow = () => {
       setAsked((before) => new Set([...before, request]));
-      checkLeft(mindId, request).catch(useAppStore.getState().reportError);
+      checkLeft(mindId).catch(useAppStore.getState().reportError);
     };
     return (
       <div key={request}>

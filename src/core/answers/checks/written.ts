@@ -1,7 +1,7 @@
 /**
  * What the assistant writes into a Mind, checked before it lands (#1111).
  *
- * The sentences it wrote that have Citations, the first
+ * The sentences it wrote that make a claim, cited or not, the first
  * `SENTENCES_CHECKED_AT_MOST` of them, are checked as Check this Mind would
  * check them (./claimCheck: the Mind's Folder, the Citations' quotes sent), a
  * few at a time, each within a time limit. The words are still the
@@ -12,12 +12,11 @@
  *   what is left, each word keeps its own formatting, and the sentence shows
  *   it needs a check again, as after the card's cut. A cut that would lose
  *   every Citation, or add one, isn't used.
- * - A sentence still unsupported, or one a Document contradicts, lands with
- *   its check's mark, so Check this Mind doesn't find it again later.
+ * - A sentence the check covered, supported included, lands with its check's
+ *   mark, so Check this Mind doesn't find it again later and the count that
+ *   must close after a write counts it once (#1909).
  * - One that couldn't be checked (a failure, a limit, the time limit, or past
  *   the first `SENTENCES_CHECKED_AT_MOST`) lands marked not checked, with why.
- * - A supported sentence lands unmarked: its Citations' own checks stand for
- *   it, as after Add as Citation.
  *
  * Only the sentences cut or marked are written, and only while each reads as
  * it was written: one the User changed meanwhile keeps their words, marked to
@@ -32,7 +31,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
-import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
+import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -103,14 +102,16 @@ export interface CheckWrittenInput {
 }
 
 /**
- * What the check did: of the sentences with Citations (`cited`), how many it
- * sent, how many got a verdict and how many couldn't be checked, and what
- * stopped it; each part it cut, as it named it; how many land marked. Its
- * marks share `request`. `blocked`: the sentences the User's own choice kept
- * from being sent, among those that couldn't be checked.
+ * What the check did: of the sentences a check reads that the write holds
+ * (`checkable`), how many have a Citation (`cited`), how many it sent, how
+ * many got a verdict and how many couldn't be checked, and what stopped it;
+ * each part it cut, as it named it; how many land marked. Its marks share
+ * `request`. `blocked`: the sentences the User's own choice kept from being
+ * sent, among those that couldn't be checked.
  */
 export interface WrittenCheck {
   request: string;
+  checkable: number;
   cited: number;
   sent: number;
   checked: number;
@@ -162,7 +163,8 @@ function quoteOf(node: NodeJSON): CitedQuote | null {
   };
 }
 
-function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
+/** The sentences a check reads that the write holds (#1909): every claim, cited or not. */
+function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
   const visit = (nodes: readonly NodeJSON[], path: number[]) => {
     nodes.forEach((node, index) => {
@@ -176,19 +178,13 @@ function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
       const context = paragraphText(content);
       const layout = inlineLayout(content);
       for (const span of sentenceSpans(context)) {
+        const text = context.slice(span.from, span.to);
+        if (!isClaim(text)) continue;
         const cited = layout.flatMap(({ node: inline, start }) => {
           if (inline.type !== CITATION_NODE || start < span.from || start >= span.to) return [];
           return quoteOf(inline) ?? [];
         });
-        if (cited.length === 0) continue;
-        found.push({
-          path: here,
-          from: span.from,
-          to: span.to,
-          text: context.slice(span.from, span.to),
-          context,
-          cited,
-        });
+        found.push({ path: here, from: span.from, to: span.to, text, context, cited });
       }
     });
   };
@@ -497,7 +493,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   async function checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null> {
     const { mindId, blocks, signal } = input;
     if (judgesUnreliably(input.prepared)) return null;
-    const sentences = citedSentences(blocks);
+    const sentences = checkableSentences(blocks);
     if (sentences.length === 0) return null;
     const prepared = await options.prepare(input.prepared);
     if (!prepared) return null;
@@ -526,7 +522,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
 
     const done: WrittenCheck = {
       request,
-      cited: sentences.length,
+      checkable: sentences.length,
+      cited: sentences.filter((sentence) => sentence.cited.length > 0).length,
       sent: sending.length,
       checked: 0,
       failed: 0,
@@ -599,8 +596,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       done.checked++;
-      if (result.verdict === "supported") return;
       const mark = options.withResult(markOf(sentence), result, at);
+      if (result.verdict === "supported") {
+        landings.push({ sentence, nodes: null, mark });
+        return;
+      }
       if (nodes && uncovered) {
         done.cut.push(uncovered);
         landings.push({ sentence, nodes: withMark(nodes, mark), mark });
