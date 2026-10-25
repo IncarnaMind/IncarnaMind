@@ -58,6 +58,7 @@ import { ReferenceImportPanel } from "./ReferenceImportPanel";
 import { UnreadFilesLine } from "./UnreadFilesLine";
 
 const NO_GROUPS: readonly LibraryGroup[] = [];
+const NO_DOCUMENTS: readonly Document[] = [];
 
 const inReviewList = (target: EventTarget) =>
   target instanceof Element && target.closest("[data-review]") !== null;
@@ -155,24 +156,28 @@ export function LibraryPane() {
     },
     [assignments, t],
   );
+  const unsortedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of snapshot?.assignments ?? [])
+      if (notSortedError(item)) ids.add(item.documentId);
+    return ids;
+  }, [snapshot?.assignments]);
   const notSorted = useMemo(
-    () => ordered.filter((doc) => notSortedOf(doc.id) !== null),
-    [ordered, notSortedOf],
-  );
-  const notSortedCount = useMemo(
-    () => documents.filter((doc) => notSortedOf(doc.id) !== null).length,
-    [documents, notSortedOf],
-  );
-  // Nothing is left to look at once Organize has been through every Document and no Folder waits.
-  const allSorted = useMemo(
     () =>
-      documents.length > 0 &&
-      documents.every((doc) => {
-        const item = assignments.get(doc.id);
-        return item?.status === "classified" && !item.suggested;
-      }),
-    [documents, assignments],
+      unsortedIds.size === 0 ? NO_DOCUMENTS : ordered.filter((doc) => unsortedIds.has(doc.id)),
+    [ordered, unsortedIds],
   );
+  const { notSortedCount, allSorted } = useMemo(() => {
+    let count = 0;
+    // Nothing is left to look at once Organize has been through every Document and no Folder waits.
+    let sorted = documents.length > 0;
+    for (const doc of documents) {
+      const item = assignments.get(doc.id);
+      if (item && notSortedError(item)) count++;
+      if (item?.status !== "classified" || item.suggested) sorted = false;
+    }
+    return { notSortedCount: count, allSorted: sorted && count === 0 };
+  }, [documents, assignments]);
   const review = useMemo(
     () => toReviewOf(ordered, folders, snapshot?.assignments ?? []),
     [ordered, folders, snapshot?.assignments],

@@ -35,7 +35,7 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-/** The Library's section with this name: a Folder's, or Not in a Folder. */
+/** A section of the Library page by its key, which the language never changes: a Folder's id, or not-in-a-folder. */
 const section = (library: Locator, key: string) =>
   library.locator(`[data-testid="library-section"][data-section="${key}"]`);
 

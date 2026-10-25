@@ -45,6 +45,7 @@ const NOT_IN_A_FOLDER = "not-in-a-folder";
 
 const NO_DOCUMENTS: readonly Document[] = [];
 const NO_MINDS: readonly Mind[] = [];
+const NO_DOCUMENT_IDS: ReadonlySet<string> = new Set();
 
 const FOLDS_KEY = "incarnamind.sidebar.folders";
 
@@ -153,6 +154,18 @@ export function LibraryFolders({
   }, [openMindId, openMindFolder]);
 
   const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents);
+  const assignments = useAppStore((state) => state.library?.assignments);
+  // Which Documents a Folder only suggests, by Folder: they count there until the User accepts them.
+  const suggestedByFolder = useMemo(() => {
+    const byFolder = new Map<string, Set<string>>();
+    for (const item of assignments ?? []) {
+      if (!item.suggested || item.groupId === null) continue;
+      const ids = byFolder.get(item.groupId) ?? new Set<string>();
+      ids.add(item.documentId);
+      byFolder.set(item.groupId, ids);
+    }
+    return byFolder;
+  }, [assignments]);
 
   const draggingOut = useDraggedOutOfFolder();
   const looseMinds = mindsByFolder.get(null) ?? NO_MINDS;
@@ -188,6 +201,7 @@ export function LibraryFolders({
                 folder={folder}
                 minds={mindsByFolder.get(folder.id) ?? NO_MINDS}
                 documents={documentsByFolder.get(folder.id) ?? NO_DOCUMENTS}
+                suggested={suggestedByFolder.get(folder.id) ?? NO_DOCUMENT_IDS}
                 renderDocument={renderDocument}
               />
             ))}
@@ -283,11 +297,14 @@ function FolderGroup({
   folder,
   minds,
   documents,
+  suggested,
   renderDocument,
 }: {
   folder: LibraryGroup;
   minds: readonly Mind[];
   documents: readonly Document[];
+  /** The Documents this Folder only suggests, of those it lists. */
+  suggested: ReadonlySet<string>;
   renderDocument(document: Document, depth: number): ReactNode;
 }) {
   const expanded = useFolds((state) => state.open.has(folder.id));
@@ -330,17 +347,10 @@ function FolderGroup({
   const treeItem = useTreeItem({ depth: 0, expanded, selected: lit });
   const fold = foldKeys(expanded, toggle);
   const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
-  const assignments = useAppStore((state) => state.library?.assignments);
-  // How many of the Folder's Documents are only suggested: they count here until the User accepts them.
-  const suggested = useMemo(() => {
-    if (!assignments) return 0;
-    const waiting = new Set(
-      assignments.flatMap((item) =>
-        item.suggested && item.groupId === folder.id ? [item.documentId] : [],
-      ),
-    );
-    return documents.reduce((count, doc) => count + (waiting.has(doc.id) ? 1 : 0), 0);
-  }, [assignments, documents, folder.id]);
+  const suggestedCount = useMemo(
+    () => documents.reduce((count, doc) => count + (suggested.has(doc.id) ? 1 : 0), 0),
+    [documents, suggested],
+  );
 
   return (
     <li
@@ -401,8 +411,10 @@ function FolderGroup({
               className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
             >
               {minds.length + documents.length}
-              {suggested > 0 &&
-                ` · ${t("sidebar.folder.suggested", { count: formatCount(suggested, language) })}`}
+              {suggestedCount > 0 &&
+                ` · ${t("sidebar.folder.suggested", {
+                  count: formatCount(suggestedCount, language),
+                })}`}
             </span>
             <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
           </button>
