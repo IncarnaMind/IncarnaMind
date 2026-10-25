@@ -6,7 +6,7 @@ import { ChevronDownLineIcon, ChevronUpLineIcon, CloseLineIcon } from "../compon
 import { ProblemMark } from "../components/ProblemLine";
 import { useT } from "../i18n";
 import { useMindTools } from "../mindTools";
-import { clearFind, findStateOf, setFindQuery, stepFind } from "./findInMind";
+import { clearFind, closeFind, findStateOf, setFindQuery, stepFind } from "./findInMind";
 
 /** The words selected in one line, to start the search with. */
 function selectedWords(editor: Editor): string {
@@ -92,7 +92,7 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
   useHandle(findHandle, handle);
 
   const close = () => {
-    clearFind(editor, true);
+    closeFind(editor);
     onClose();
   };
 

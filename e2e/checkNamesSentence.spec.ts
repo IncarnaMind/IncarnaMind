@@ -291,6 +291,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
     await expect(outlined).toHaveCount(0);
+    // A card shown by the mark's focus was not opened from the keyboard: Esc leaves the mark focused.
+    await expect(marks.nth(1)).toBeFocused();
     await window.mouse.move(2, 2);
     await marks.nth(2).hover();
     await expect(card).toHaveAttribute("data-check", "contradicted");
