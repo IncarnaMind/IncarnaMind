@@ -675,7 +675,7 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
           return { kind: "answer", content: readChildren(element.toArray(), options) };
         }
         if (!state.problem) return { kind: "words", text: "…" };
-        const { key, params } = cellProblemMessage(state.problem);
+        const { key, params } = cellProblemMessage(state.problem, state.message);
         return { kind: "words", text: say(key, params) };
       }),
     });
