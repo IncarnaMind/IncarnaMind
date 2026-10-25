@@ -1575,9 +1575,6 @@
   .check-badge {
     display: flex;
     align-items: center;
-    justify-content: center;
-    /* The badge takes the same width in every state, so its words changing move nothing. */
-    min-width: 252px;
     gap: 6px;
     height: 28px;
     padding: 0 6px;
@@ -1609,8 +1606,14 @@
       outline-offset: 1px;
     }
   }
-  /* The pill keeps its width, so the button does too: its words change inside it. */
-  .check-badge-open {
+  /* A running or just-checked badge keeps one width, so its words changing move nothing; at rest it
+     takes only its words' width, clear of the page's foot. The button fills the pill, so it can't
+     move either. */
+  .check-badge[data-stable] {
+    justify-content: center;
+    min-width: 252px;
+  }
+  .check-badge[data-stable] .check-badge-open {
     flex: 1 1 auto;
     justify-content: center;
   }
@@ -1834,7 +1837,7 @@
     }
   }
   @container group (width < 400px) {
-    .check-badge {
+    .check-badge[data-stable] {
       min-width: 0;
     }
     .check-badge-words {
