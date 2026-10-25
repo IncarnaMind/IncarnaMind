@@ -51,7 +51,13 @@ describe("the sidebar's one nudge (#123)", () => {
   });
 
   test("steps done with the ready Question still wait for an Answer of the User's own", () => {
-    const done = { ...OPEN, citationChecked: true, mistakeSeen: true, indexed: true, askedReady: true };
+    const done = {
+      ...OPEN,
+      citationChecked: true,
+      mistakeSeen: true,
+      indexed: true,
+      askedReady: true,
+    };
     expect(chooseNudge(state({ steps: done }))).toBeNull();
     expect(chooseNudge(state({ steps: done, ownAnswerArrived: true }))).toBe("usage-data");
   });
