@@ -90,8 +90,8 @@ describe("The line under an Answer that wrote uncited text into a Mind (#1415)",
     mindChange: { created: true, request: "r", proposals: 1, ...change },
   });
 
-  // protects=a Mind given new text with no Citation after the Answer read Passages gets one line, in English and Chinese, unless another write there cites; fails_when=the line is missing, shows for a cited write, or shows twice for one Mind; no_claim=when the core marks a write uncited (tests/core/summaryAfterSkip.test.ts).
-  test("each Mind written with no Citation, unless a write there cites", () => {
+  // protects=a Mind given new text with no Citation after the Answer searched gets one line, in English and Chinese, until a later call revises that text with Citations; fails_when=the line is missing, shows twice for one Mind, goes when only a cited paragraph is added beside it, or stays after the text was revised with Citations; no_claim=when the core marks a write uncited (tests/core/summaryAfterSkip.test.ts).
+  test("each Mind written with no Citation, until that text is revised with Citations", () => {
     expect(uncitedWritesOf({ toolCalls: [wrote({ mindId: "a", uncited: true })] })).toEqual(["a"]);
     expect(
       uncitedWritesOf({
@@ -101,6 +101,14 @@ describe("The line under an Answer that wrote uncited text into a Mind (#1415)",
     expect(
       uncitedWritesOf({
         toolCalls: [wrote({ mindId: "a", uncited: true }), wrote({ mindId: "a", cited: 3 })],
+      }),
+    ).toEqual(["a"]);
+    expect(
+      uncitedWritesOf({
+        toolCalls: [
+          wrote({ mindId: "a", uncited: true }),
+          wrote({ mindId: "a", cited: 3, revised: true }),
+        ],
       }),
     ).toEqual([]);
     expect(uncitedWritesOf({ toolCalls: [wrote({ mindId: "b", cited: 2 })] })).toEqual([]);

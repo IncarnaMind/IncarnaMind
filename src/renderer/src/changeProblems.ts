@@ -63,15 +63,19 @@ export function unbackedClaimLine(
 
 /**
  * The Minds an Answer wrote new text into with none of it cited, once it had searched and found
- * Passages (#1415): nothing written there was checked against the Documents. In the order it wrote them.
+ * Passages (#1415): nothing written there was checked against the Documents. A later call that
+ * revised that text with Citations takes it back; a cited paragraph added beside it doesn't. In
+ * the order it wrote them.
  */
 export function uncitedWritesOf(answer: Pick<ConversationAnswer, "toolCalls">): string[] {
   const changes = answer.toolCalls.flatMap((call) => call.mindChange ?? []);
-  const cited = new Set(
-    changes.flatMap((change) => ((change.cited ?? 0) > 0 ? [change.mindId] : [])),
-  );
-  const uncited = changes.flatMap((change) =>
-    change.uncited && !cited.has(change.mindId) ? [change.mindId] : [],
+  const uncited = changes.flatMap((change, at) =>
+    change.uncited &&
+    !changes
+      .slice(at + 1)
+      .some((later) => later.mindId === change.mindId && later.revised && (later.cited ?? 0) > 0)
+      ? [change.mindId]
+      : [],
   );
   return [...new Set(uncited)];
 }

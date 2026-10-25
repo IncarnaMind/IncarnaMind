@@ -505,8 +505,11 @@ test("a summary written with no Citation after a search is refused once, and wri
   await expect(line.getByTestId("answer-uncited-retry")).toBeInViewport();
   await screenshot(window, "uncited-write-narrow");
 
+  const first = await changeRequestOf(window);
+  expect(first).not.toBeNull();
   await pointAndClick(window, line.getByTestId("answer-uncited-retry"));
-  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await expect.poll(() => changeRequestOf(window), { timeout: 15_000 }).not.toBe(first);
+  await expect.poll(() => changeRequestOf(window)).not.toBeNull();
   await expect(line).toBeVisible();
   await expect(window.getByTestId("mind-tab").filter({ hasText: "Lease summary" })).toHaveCount(1);
 });
