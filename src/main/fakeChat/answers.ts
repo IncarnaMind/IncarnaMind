@@ -29,7 +29,8 @@
  * table whose one Citation stands in a paragraph under it, and one with "framed" (or 带说明)
  * gets a lead-in before its content and a closing note after it (#702); one that says "without
  * searching" (不用搜索) cites the Passages given with it, as a model does that is given a short
- * Document's whole text, and calls no search.
+ * Document's whole text, and calls no search. One that turns the Mind "into a report" (整理成报告)
+ * keeps each Citation it reads there by its id, with no search, as #1800 asks of a model.
  * One that says "边想边写" writes pages of working notes after its search, with no
  * marker (#1344). One that asks how much something grew (增长) has the growth from the first
  * two numbers of its quote calculated, and writes it with its marker.
@@ -105,6 +106,27 @@ const THINKING_ALOUD = /边想边写/;
 const WORKING_NOTES = "等一下，可能还有一份相同的文件。再搜一次确认一下。".repeat(600);
 
 const WITHOUT_SEARCHING = /\bwithout searching\b|不用搜索/i;
+
+const INTO_A_REPORT = /\binto a report\b|整理成报告/i;
+
+/** A report of the Mind: each Citation it reads there recorded by its id, then a marker for each. */
+function reportReply(prompt: Prompt, question: string): Reply {
+  const read = prompt
+    .filter((message) => message.role === "user")
+    .map(userText)
+    .join("\n");
+  const ids = [...new Set([...read.matchAll(/· (C\d+)\]/g)].map((match) => match[1]))];
+  if (toolResults(prompt, "cite").length === 0 && ids.length > 0) {
+    const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
+    return { tool: "cite", input: { citations } };
+  }
+  const markers = ids.map((_, index) => `[^${index + 1}]`).join("");
+  return {
+    text: /\p{Script=Han}/u.test(question)
+      ? `# 报告\n\nMind 里的发现，来源都在${markers}。`
+      : `# Report\n\nWhat the Mind found, with its sources ${markers}.`,
+  };
+}
 
 /** A Question the model answers with a marker and no `cite` call. */
 const WITHOUT_CITING = /\bwithout citing\b|不引用/i;
@@ -503,6 +525,7 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   }
   const skill = skillFollowed(prompt);
   if (!tools.includes("search_documents")) return { text: fakeAnswer(question, skill) };
+  if (INTO_A_REPORT.test(question)) return reportReply(prompt, question);
   const given = passagesIn(lastUserText(prompt)).length > 0 && WITHOUT_SEARCHING.test(question);
   const searches = given ? [lastUserText(prompt)] : toolResults(prompt, "search_documents");
   if (searches.length === 0) {
