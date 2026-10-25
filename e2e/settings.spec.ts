@@ -116,6 +116,31 @@ test("Settings lists its pages, and each holds its settings", async () => {
   }
 });
 
+test("a press on the dimmed area closes Settings, and one inside it doesn't", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1280, 800);
+    await window.getByRole("button", { name: "Settings" }).click();
+    const settings = window.getByTestId("settings");
+    await expect(settings).toBeVisible();
+
+    // Inside: a page's name switches the page and leaves Settings open.
+    await settings.getByTestId("settings-nav-models").click();
+    await expect(settings).toHaveAttribute("data-page", "models");
+    await expect(settings).toBeVisible();
+
+    // Outside: the press lands on the dimmed area, clear of Settings, and closes it.
+    const box = await settings.boundingBox();
+    if (!box) throw new Error("Settings isn't on the page.");
+    expect(box.x).toBeGreaterThan(24);
+    await window.mouse.click(box.x - 24, box.y + box.height / 2);
+    await expect(settings).toBeHidden();
+  } finally {
+    await app.close();
+  }
+});
+
 test("the list of pages works by keyboard, with a focus ring", async () => {
   const { app, window } = await launchApp(dataDir);
   try {

@@ -1071,6 +1071,72 @@ describe("Organize says what it did (#763)", () => {
   });
 });
 
+describe("Undo of an Organize that began with Documents unfinished (#1391)", () => {
+  const FOLDERS = ["g1", "g2", "g3", "g4", "g5"];
+  const ids = (count: number) => Array.from({ length: count }, (_, at) => `d${at}`);
+  const suggestedIn = (id: string, groupId: string) => ({
+    ...assignment(id, "classified", groupId),
+    suggested: true,
+  });
+
+  // protects=Documents that were waiting for a model or queued when Organize was asked go back with no assignment, so none shows "Needs attention" with a model chosen and none is organized again at the next start, and Redo gives each its Folder back, for 70 Documents in 5 Folders; fails_when=Undo puts them back as waiting or queued, or Redo skips Documents that have no assignment; no_claim=the core's restore.
+  test.each([
+    { count: 2, before: "waiting" as const },
+    { count: 70, before: "waiting" as const },
+    { count: 70, before: "pending" as const },
+  ])(
+    "$count Documents $before: Undo puts them back with no assignment, and Redo gives their Folders",
+    async ({ count, before: status }) => {
+      const { sayWhenOrganized } = await import("../../src/renderer/src/organizeRun");
+      const { useUndo } = await import("../../src/renderer/src/undo");
+      method("restoreAssignment").mockClear();
+      const documents = ids(count);
+      const folderOf = (at: number) => FOLDERS[at % FOLDERS.length] ?? "g1";
+      const before = new Map(documents.map((id) => [id, assignment(id, status)]));
+      useAppStore.setState({
+        library: snapshot(documents.map((id) => assignment(id, "pending"))),
+      });
+      sayWhenOrganized(documents, before);
+      useAppStore.setState({
+        library: snapshot(documents.map((id, at) => suggestedIn(id, folderOf(at)))),
+      });
+
+      await useUndo.getState().undo();
+      const restored = method("restoreAssignment");
+      expect(restored).toHaveBeenCalledTimes(count);
+      expect(restored.mock.calls.map((call) => call[1])).toEqual(documents.map(() => null));
+
+      // Nothing is left for Organize to do: the Library holds no assignment for them.
+      restored.mockClear();
+      useAppStore.setState({ library: snapshot([]) });
+      await useUndo.getState().redo();
+      expect(restored).toHaveBeenCalledTimes(count);
+      documents.forEach((id, at) => {
+        const call = restored.mock.calls.find((each) => each[0] === id);
+        expect(call?.[1]).toMatchObject({ groupId: folderOf(at), suggested: true });
+      });
+    },
+  );
+
+  test("a Document that was filed before Organize is put back as it was", async () => {
+    const { sayWhenOrganized } = await import("../../src/renderer/src/organizeRun");
+    const { useUndo } = await import("../../src/renderer/src/undo");
+    method("restoreAssignment").mockClear();
+    const before = new Map([["a", assignment("a", "classified", "g0")]]);
+    useAppStore.setState({ library: snapshot([assignment("a", "pending")]) });
+    sayWhenOrganized(["a"], before);
+    useAppStore.setState({ library: snapshot([suggestedIn("a", "g")]) });
+
+    await useUndo.getState().undo();
+
+    expect(method("restoreAssignment").mock.calls[0]?.[1]).toMatchObject({
+      groupId: "g0",
+      suggested: false,
+      status: "classified",
+    });
+  });
+});
+
 describe("an undo line keeps only what it shows", () => {
   const plan: Mind = {
     id: "m",

@@ -114,6 +114,32 @@ test("the words inside a Mind are found as soon as they are typed", async () => 
   await expect(group(window, "notes").locator("b")).toHaveText("Ålesund");
 });
 
+test("a press on the dimmed area closes ⌘K, and one inside it doesn't", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1280, 660);
+    await dismissChatSetup(window);
+    await writeMind(window, ["Harbour log", "Tides in Bergen"]);
+
+    await openPalette(window);
+    // Inside: the press lands in the field and the palette stays.
+    await window.getByTestId("palette-search").click();
+    await window.keyboard.type("Bergen");
+    await expect(palette(window)).toBeVisible();
+    await expect(group(window, "notes")).toContainText("Harbour log");
+
+    // Outside: the press lands on the dimmed area, clear of the palette, and closes it.
+    const box = await palette(window).boundingBox();
+    if (!box) throw new Error("The palette isn't on the page.");
+    expect(box.x).toBeGreaterThan(24);
+    await window.mouse.click(box.x - 24, box.y + box.height / 2);
+    await expect(palette(window)).toBeHidden();
+    await expect.poll(() => focusInNote(window)).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
+
 test("names, commands and the words in Documents, all by keyboard; Esc closes and gives the focus back", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1280, 660);
@@ -542,6 +568,33 @@ test('with words typed, the last row is Ask “words”: Enter opens the first m
   await window.keyboard.press("ControlOrMeta+a");
   await window.keyboard.type(">rename");
   await expect(group(window, "ask")).toHaveCount(0);
+  await app.close();
+});
+
+test("a word is never matched across words, and a name read two ways is found by either (#1372, #1416)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+  await (await coreOf(window)).evaluate(async (core) => {
+    await core.createMind({ title: "重命名" });
+  });
+
+  await openPalette(window);
+  // The action is offered by its own name, so the failure is the match, not a missing command.
+  await window.keyboard.type("> remove the examples");
+  await expect(group(window, "actions")).toContainText("Remove the examples");
+  // "theme" is not "the e" of "the examples": nothing is highlighted, and the row says so.
+  await window.keyboard.press("ControlOrMeta+a");
+  await window.keyboard.type("> theme");
+  await expect(window.getByTestId("palette-empty")).toHaveText("No actions match");
+  await expect(palette(window).getByTestId("palette-item")).toHaveCount(0);
+
+  // 重命名 is found by the reading people say ("chong") and by the collation's ("zhong").
+  for (const typed of ["chongming", "zhongming"]) {
+    await window.keyboard.press("ControlOrMeta+a");
+    await window.keyboard.type(typed);
+    await expect(group(window, "minds")).toContainText("重命名");
+  }
   await app.close();
 });
 

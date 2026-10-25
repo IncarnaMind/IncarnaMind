@@ -192,6 +192,8 @@ export type Inline = (
       runs: StyledRun[];
       note: boolean;
       unverified: boolean;
+      /** What it cites, as one key: the sources and places of its Citations. */
+      of?: string;
       /** The footnotes of its Citations whose check failed. */
       failed?: Footnote[];
     }
@@ -675,7 +677,7 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
           return { kind: "answer", content: readChildren(element.toArray(), options) };
         }
         if (!state.problem) return { kind: "words", text: "…" };
-        const { key, params } = cellProblemMessage(state.problem);
+        const { key, params } = cellProblemMessage(state.problem, state.message);
         return { kind: "words", text: say(key, params) };
       }),
     });

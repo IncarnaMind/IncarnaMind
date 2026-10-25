@@ -383,6 +383,78 @@ test("⌘Z takes Organize's suggestions back and ⇧⌘Z brings them back in one
   }
 });
 
+test("Undo of an Organize that began with no model leaves the Documents unfiled with nothing waiting, ⇧⌘Z files them again, and the next start organizes nothing (#1391)", async () => {
+  const names = ["Research notes A", "Research notes B", "Research notes C"];
+  const paths: string[] = [];
+  for (const name of names) {
+    const path = join(sources, `${name}.txt`);
+    await writeFile(path, `Research report about membrane separation, part ${name.slice(-1)}.`);
+    paths.push(path);
+  }
+  const first = await launchApp(dataDir, { fakeChat: true });
+  try {
+    const { window } = first;
+    await dismissChatSetup(window);
+    await makeFolders(window, [{ name: "Research", description: "Research papers and reports" }]);
+    await addDocuments(window, paths);
+    await connectLocalChatModel(window, "main-chat");
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    await pointAndClick(window, organize(library));
+    await pointAndClick(window, library.getByTestId("library-organize-use"));
+
+    const research = section(library, "Research");
+    const suggested = research.getByTestId("library-suggested");
+    await expect(suggested).toHaveCount(3);
+    await expect(window.getByTestId("undo-line")).toContainText(
+      "Organize suggested a Folder for 3 Documents",
+    );
+    const assignments = async () =>
+      (await coreOf(window)).evaluate(async (core) => (await core.getLibrary()).assignments);
+
+    // ⌘Z puts the three back unfiled, with no assignment left to wait or to organize.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(research.getByTestId("library-document")).toHaveCount(0);
+    await expect(section(library, "Not in a Folder").getByTestId("library-document")).toHaveCount(
+      3,
+    );
+    expect(await assignments()).toEqual([]);
+    await expect(window.getByTestId("organization-attention")).toHaveCount(0);
+
+    // ⇧⌘Z gives the Folders back.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(research.getByTestId("library-document")).toHaveCount(3);
+    await expect(suggested).toHaveCount(3);
+
+    // Undone again, the next start finds nothing to organize.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(research.getByTestId("library-document")).toHaveCount(0);
+    expect(await assignments()).toEqual([]);
+  } finally {
+    await first.app.close();
+  }
+  const reopened = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await reopened.window.getByTestId("open-library").click();
+    await expect(
+      section(reopened.window.getByTestId("library"), "Not in a Folder").getByTestId(
+        "library-document",
+      ),
+    ).toHaveCount(3);
+    expect(
+      await (await coreOf(reopened.window)).evaluate(
+        async (core) => (await core.getLibrary()).assignments,
+      ),
+    ).toEqual([]);
+    await expect(reopened.window.getByTestId("organization-attention")).toHaveCount(0);
+  } finally {
+    await reopened.app.close();
+  }
+});
+
 test("onboarding offers starter folders, and Organize with no model chosen opens its settings, in Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
   try {

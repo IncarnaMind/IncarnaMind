@@ -67,6 +67,7 @@ import {
 import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
 import type { AnswerSearchOptions } from "./answers/engine";
+import type { LiveTranscript } from "./answers/liveTranscript";
 import {
   type AddDocumentsResult,
   type ChatModelChoice,
@@ -112,7 +113,7 @@ import { createConnectors } from "./connectors";
 import { connectorDirectory } from "./connectors/directory";
 import { createConnectorRegistry, REGISTRY, REGISTRY_SENDS } from "./connectors/registry";
 import { createConsent, type DataFlowRegistry } from "./consent";
-import { createConversations, type QuestionInput } from "./conversations";
+import { createConversations, type QuestionInput, type Turn } from "./conversations";
 import { createMeter } from "./cost/meter";
 import {
   createDocuments,
@@ -127,13 +128,13 @@ import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { createOwnFiles } from "./documents/ownFiles";
 import { createPdfPasswords } from "./documents/pdfPasswords";
+import { READING_SPEED } from "./documents/readingSpeed";
 import { createVersionRetention, type VersionRetention } from "./documents/retention";
 import {
   BUILT_IN_TEXT_RECOGNITION_MODEL,
   createTextRecognitionModel,
   type TextRecognitionModel,
 } from "./documents/scan";
-import type { WindowedPassage } from "./documents/search";
 import type { Reranker } from "./documents/searchTool";
 import { tunedSearch } from "./documents/searchTuning";
 import { LANGUAGE_SAMPLE, writtenInChinese } from "./documents/textLanguage";
@@ -389,6 +390,8 @@ export interface Core extends CoreApi, CoreEventSource {
 /** How long a Question asked during a call waits for the live transcript's newest lines to be indexed (#144). */
 const LIVE_TRANSCRIPT_WAIT_MS = 3_000;
 
+const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
+
 /**
  * Opens (or creates) the data folder and its database, brings the schema up to
  * date, and returns the core. The host passes in every platform capability.
@@ -520,6 +523,12 @@ export function createCore(adapters: CoreAdapters): Core {
   // The assistant's conversations (ADR-0017); Answers a quit left being written are settled now.
   const conversations = createConversations(db, now);
   const conversationsChanged = () => events.emit("conversations.changed", null);
+  const publishConversation = (turn: Turn) => {
+    conversations.publish(turn);
+    events.emit("conversation.message", turn.question);
+    events.emit("conversation.message", turn.answer);
+    conversationsChanged();
+  };
   const unsaved = createUnsavedChanges({
     dataDir: adapters.paths.dataDir,
     tempDir: adapters.paths.tempDir ?? tmpdir(),
@@ -540,6 +549,16 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     { unsaved: unsaved.mindUnsaved },
   );
+  // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
+  const eachCitingMind = (visit: (blocks: Y.XmlFragment) => void, exceptMindId?: string) => {
+    for (const mind of db.all<{ id: string; deleted_at: string | null }>(
+      "SELECT id, deleted_at FROM minds WHERE purged_at IS NULL",
+    )) {
+      if (mind.id === exceptMindId) continue;
+      if (mind.deleted_at === null) content.peek(mind.id, visit);
+      else content.peekDeleted(mind.id, visit);
+    }
+  };
   const mindIndex = createMindIndex({
     db,
     now,
@@ -739,6 +758,10 @@ export function createCore(adapters: CoreAdapters): Core {
       textRecognition: textRecognitionModel && timedRecognition(textRecognitionModel),
       ...(adapters.scansAtOnce !== undefined && { scansAtOnce: adapters.scansAtOnce }),
       pdfPassword: (id) => pdfPasswords.of(id),
+      readingSpeed: {
+        read: () => settings.readDeviceValue(READING_SPEED),
+        write: (speed) => settings.writeDeviceValue(READING_SPEED, speed),
+      },
       folders,
       emitStatus: (document) => {
         timeIndexing(document);
@@ -772,9 +795,7 @@ export function createCore(adapters: CoreAdapters): Core {
       citedUnits: (documentIds) => {
         const wanted = new Set(documentIds);
         const cited: CitedUnits[] = [];
-        for (const mind of minds.list()) {
-          content.peek(mind.id, (fragment) => addCitedUnits(fragment, wanted, cited));
-        }
+        eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
         conversations.addCitedUnits(wanted, cited);
         retention.addRetainedUnits(wanted, cited);
         return cited;
@@ -818,12 +839,10 @@ export function createCore(adapters: CoreAdapters): Core {
     const pagesCited = citedPages.collector();
     if (collectVersions || pagesCited) {
       const cited: CitedVersions = new Map();
-      for (const mind of minds.list()) {
-        content.peek(mind.id, (fragment) => {
-          if (collectVersions) addCitedVersions(fragment, cited);
-          if (pagesCited) eachCitation(fragment, pagesCited.cite);
-        });
-      }
+      eachCitingMind((fragment) => {
+        if (collectVersions) addCitedVersions(fragment, cited);
+        if (pagesCited) eachCitation(fragment, pagesCited.cite);
+      });
       // First, so a version only a page that went retained goes now too.
       if (pagesCited) {
         conversations.eachCitation(pagesCited.cite);
@@ -1452,6 +1471,7 @@ export function createCore(adapters: CoreAdapters): Core {
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     providerExists: (providerId) => chat.exists(providerId),
+    defaultModel: () => settings.get().user.chatModel,
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
     async prepareQuickModel(answers, prepared) {
@@ -1582,22 +1602,22 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read) => {
-        const turn = conversations.add(input, answerModel, read);
-        events.emit("conversation.message", turn.question);
-        events.emit("conversation.message", turn.answer);
-        conversationsChanged();
-        return turn;
+      add: (input, answerModel, read, emit = true) => {
+        const added = conversations.add(input, answerModel, read);
+        if (emit) publishConversation(added.turn);
+        return added;
       },
+      publish: publishConversation,
+      discard: (added) => conversations.discard(added),
       questionOf: (input) => conversations.questionOf(input),
       clearScope: (questionId) => {
         const question = conversations.clearScope(questionId);
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read) => {
+      restartAnswer: (answerId, answerModel, read, emit = true) => {
         const turn = conversations.restartAnswer(answerId, answerModel, read);
-        events.emit("conversation.message", turn.answer);
+        if (emit) events.emit("conversation.message", turn.answer);
         return turn;
       },
       writeAnswer: (answerId, write) => {
@@ -1619,6 +1639,11 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     interfaceLanguage: () => settings.get().language,
     emptyScopeAnswer: () => translate(settings.get().language, "scope.answer.empty"),
+    liveTextBehind: (lines) =>
+      translate(
+        settings.get().language,
+        lines ? "meetings.help.textBehind.some" : "meetings.help.textBehind",
+      ),
     onWritingChange: (writing) => {
       background.setAnswering(writing);
       tasks.setAnswering(writing);
@@ -2592,13 +2617,10 @@ export function createCore(adapters: CoreAdapters): Core {
   const recentlyDeleted = createRecentlyDeleted({
     db,
     now,
-    // A Mind still waiting in Recently deleted comes back with its Citations, so they count too.
     documentText: (documentIds) => {
       const wanted = new Set(documentIds);
       const cited: CitedUnits[] = [];
-      for (const { id } of db.all<{ id: string }>("SELECT id FROM minds WHERE purged_at IS NULL")) {
-        content.peek(id, (fragment) => addCitedUnits(fragment, wanted, cited));
-      }
+      eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
       conversations.addCitedUnits(wanted, cited);
       retention.addRetainedUnits(wanted, cited);
       documents.purgeText(documentIds, cited);
@@ -2990,15 +3012,7 @@ export function createCore(adapters: CoreAdapters): Core {
     citationsRelyOn: (documentIds, exceptMindId) => {
       const wanted = new Set(documentIds);
       const cited: CitedUnits[] = [];
-      // A Mind waiting in Recently deleted comes back with its Citations, as a Conversation does.
-      for (const mind of db.all<{ id: string; deleted_at: string | null }>(
-        "SELECT id, deleted_at FROM minds WHERE purged_at IS NULL AND id <> ?",
-        [exceptMindId],
-      )) {
-        const add = (fragment: Y.XmlFragment) => addCitedUnits(fragment, wanted, cited);
-        if (mind.deleted_at === null) content.peek(mind.id, add);
-        else content.peekDeleted(mind.id, add);
-      }
+      eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited), exceptMindId);
       conversations.addCitedUnits(wanted, cited);
       return cited.length > 0;
     },
@@ -3024,7 +3038,7 @@ export function createCore(adapters: CoreAdapters): Core {
   /** See `AnswersOptions.meetingHelp`; set once Meetings are. */
   let meetingHelpOf = (_mindId: string, _question: string): MeetingHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
-  let liveTranscriptOf = async (_mindId: string): Promise<WindowedPassage[] | null> => null;
+  let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
   let transcriptSaved = (_meetingId: string) => {};
   const meetingsChanged = () => {
     if (listMeetings) events.emit("meetings.changed", listMeetings());
@@ -3341,11 +3355,16 @@ export function createCore(adapters: CoreAdapters): Core {
         (each) =>
           each.mindId === mindId && (each.status === "recording" || each.status === "paused"),
       );
-    const documentId = meeting?.transcript?.documentId;
-    if (!meeting || !documentId || !transcripts) return null;
+    if (!meeting) return null;
+    const documentId = meeting.transcript?.documentId;
+    if (!documentId || !transcripts) return { passages: [], behind: isBehind(meeting) };
     await transcripts.refresh(meeting.id);
     await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
-    return documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+    const now = meetings.list().find((each) => each.id === meeting.id) ?? meeting;
+    return {
+      passages: await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
+      behind: isBehind(now),
+    };
   };
 
   // Outside agents (#351): the User's own agent, paired in Settings, reads its Folders over the
@@ -3508,7 +3527,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!ready) {
         throw new InvalidInputError({ key: "error.examples.reading" });
       }
-      const turn = conversations.add(
+      const { turn } = conversations.add(
         {
           conversationId: null,
           text: ready.question,

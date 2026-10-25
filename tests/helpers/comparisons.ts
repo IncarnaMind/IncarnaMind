@@ -3,6 +3,8 @@
  * careful one does, from the one line of its Document that answers its
  * Question, and a way to wait for a table to fill.
  */
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import * as Y from "yjs";
 import {
   COMPARISON_ROW_NODE,
@@ -167,4 +169,60 @@ export async function copyRows(client: MindClient, tableId: string, rows: number
     table.push(Array.from({ length: rows - table.length }, () => row.clone()));
   });
   await client.settled();
+}
+
+/** The final workbook of #1798, its amounts in GBP thousands in a Unit column, beside a draft in GBP million. */
+export const CEDAR_FINAL = "Cedar Q3 2026 final.xlsx";
+const CEDAR_DRAFT = {
+  name: "Cedar Q3 2026 draft.txt",
+  contents: "Cedar Q3 2026 draft, superseded.\nAll amounts in GBP million.\nNet debt: 340.\n",
+};
+
+/**
+ * A model that writes a net debt cell from the line it cites, as a careless one does: GBP
+ * thousands as "310,000 GBP million", and the draft's 340 as "GBP 340 million". While `fixes()`
+ * says so, being told the scale changed, it writes "GBP 310 million" instead.
+ */
+export function rescalingModel(fixes: () => boolean) {
+  return scriptedModel((call) => {
+    const searches = call.results.filter((result) => result.tool === "search_documents");
+    if (searches.length === 0) {
+      return { calls: [{ tool: "search_documents", input: { query: "net debt" } }] };
+    }
+    const found = lineFor(shownPassages(searches.at(-1)?.text ?? ""), "net debt");
+    if (!found) return { text: "NOT_FOUND" };
+    if (!call.results.some((result) => result.tool === "cite")) {
+      return {
+        calls: [
+          {
+            tool: "cite",
+            input: { citations: [{ marker: 1, passage: found.passage.id, quote: found.line }] },
+          },
+        ],
+      };
+    }
+    if (!found.line.includes("thousands")) return { text: "GBP 340 million [^1]" };
+    return {
+      text:
+        call.prompt.includes("Your cell writes") && fixes()
+          ? "GBP 310 million [^1]"
+          : "310,000 GBP million [^1]",
+    };
+  });
+}
+
+/** The final workbook and the draft compared by their net debt, by `model`, its table filled. */
+export async function compareCedar(model: ReturnType<typeof rescalingModel>) {
+  const book = await readFile(join(import.meta.dirname, "../fixtures/comparisons", CEDAR_FINAL));
+  const setup = await setUpWithDocuments(model, [
+    { name: CEDAR_FINAL, contents: new Uint8Array(book) },
+    CEDAR_DRAFT,
+  ]);
+  const { core, client, mind, documents } = setup;
+  const tableId = await compare(core, client, {
+    mindId: mind.id,
+    documentIds: documents.map((document) => document.id),
+    questions: ["Net debt at Q3 2026, in GBP millions"],
+  });
+  return { ...setup, tableId };
 }

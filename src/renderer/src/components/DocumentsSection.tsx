@@ -3,7 +3,7 @@ import type { Document, DocumentStatus, Tag } from "../../../core/api";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
 import { documentStatusText, isProcessing } from "../documentStatus";
-import { useDragSource } from "../dragDrop";
+import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
@@ -262,6 +262,7 @@ const DocumentRow = memo(function DocumentRow({
   const muted = !lit && (isProcessing(item.status) || item.fileStatus !== "available");
   const treeItem = useTreeItem({ depth, selected: select.selected });
   const dragSource = useDragSource(() => rowDrag(object, "sidebar"));
+  const dragged = useDraggedRef(object);
 
   return (
     <li
@@ -272,12 +273,13 @@ const DocumentRow = memo(function DocumentRow({
       data-status={item.status}
       data-file-status={item.fileStatus}
       data-tagging={item.tagging}
+      data-dragging={dragged || undefined}
       role="none"
       {...select.refProps}
       {...peek.rowProps}
       {...(rename.renaming ? {} : objectMenu.rowProps)}
       ref={row}
-      className={rowClass(lit, muted ? "muted" : "item", several)}
+      className={rowClass(lit, muted ? "muted" : "item", several, dragged)}
     >
       {rename.renaming ? (
         <div

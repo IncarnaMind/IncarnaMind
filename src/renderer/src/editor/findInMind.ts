@@ -2,6 +2,7 @@ import { type Editor, Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { keepMenuClosed } from "./selectionDismissal";
 
 /** One match: the stretches of text it covers (more than one when marks split it). */
 export interface FindMatch {
@@ -156,6 +157,17 @@ export function clearFind(editor: Editor, select = false): void {
   if (select && match) tr.setSelection(TextSelection.create(tr.doc, match.from, match.to));
   editor.view.dispatch(tr);
   if (select) editor.commands.focus();
+}
+
+/**
+ * Closes find: its marks go, the cursor selects the current match, and the selection menu stays
+ * closed over it, since the User didn't select those words (#1355).
+ */
+export function closeFind(editor: Editor): void {
+  const { matches, current } = findStateOf(editor);
+  const match = matches[current];
+  if (match) keepMenuClosed(editor, match.from, match.to);
+  clearFind(editor, true);
 }
 
 function scrollToCurrent(editor: Editor): void {
