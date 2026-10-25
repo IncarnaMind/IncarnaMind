@@ -156,6 +156,7 @@ const stateOf = (
 ): "old" | "final" | "unfinished" => {
   const oldPair =
     NOTE.test(english) === entry.englishOld &&
+    !YOUR_TEXT.test(english) &&
     !HAS_YOUR_TEXT.test(chinese) &&
     count(chinese, NOTES_ALL) === entry.old;
   if (oldPair) return "old";
@@ -218,6 +219,9 @@ describe("the retired Block-level Note", () => {
     expect(stateOf("Include in Question context", "提问时包含此笔记", entry)).toBe("old");
     expect(stateOf("Include your text in Question context", "提问时包含你写的内容", entry)).toBe(
       "final",
+    );
+    expect(stateOf("Include your text in Question context", "提问时包含此笔记", entry)).toBe(
+      "unfinished",
     );
     expect(stateOf("Include in Question context", "提问时包含你写的内容", entry)).toBe(
       "unfinished",
