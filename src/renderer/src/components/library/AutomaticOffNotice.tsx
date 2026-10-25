@@ -27,7 +27,7 @@ export function AutomaticOffNotice() {
         testId: "library-automatic-off-settings",
         onClick: () => {
           void close();
-          useAppStore.getState().openSettings("models");
+          useAppStore.getState().openSettings("models", "tagging");
         },
       }}
       also={{

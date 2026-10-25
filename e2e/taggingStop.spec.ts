@@ -150,6 +150,7 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
     "stopped",
   );
   const settings = await openSettings(again.window, "models");
+  await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
   await expect(settings.getByTestId("tagging-stopped")).toContainText(
     `Tagging with AI is stopped for Documents in “${FOLDER}”.`,
   );

@@ -380,47 +380,194 @@ test("emptying Recently deleted with many items asks once, counting what is lost
   await screenshot(window, "recently-deleted-empty-en");
 });
 
-test("the view holds at a narrow window and in Chinese, with a very long name", async () => {
+test("deleted names stay readable beside metadata and actions in English and Chinese (#1952)", async () => {
+  const testInfo = test.info();
   test.setTimeout(120_000);
-  const longName = "The annual report of the harbour authority on tides and ferries ".repeat(3);
+  const names = [
+    "Audit cited forecast",
+    "The annual report of the harbour authority on tides and ferries ".repeat(3).trim(),
+    "季度报告及港口轮渡年度预算分析".repeat(8),
+  ];
+  const file = join(sources, "Forecast.txt");
+  await writeFile(file, "Synthetic forecast for the harbour authority.\n");
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  await addDocuments(window, [file]);
   await read(
     window,
-    async (core, name) => {
-      for (const title of [name, "季度报告"]) {
+    async (core, titles) => {
+      const [document] = await core.listDocuments();
+      if (!document) throw new Error("The synthetic Document was not added.");
+      await core.renameDocument(document.id, titles[0] ?? "Forecast");
+      await core.deleteDocument(document.id);
+      for (const title of titles.slice(1)) {
         const mind = await core.createMind({ title });
         await core.deleteMind(mind.id);
       }
-      await core.updateSettings({ user: { language: "zh-CN" } });
     },
-    longName.trim(),
+    names,
   );
-  await setWindowSize(app, window, 900, 660);
   await openDeleted(window);
-  await expect(window.getByTestId("deleted-heading")).toHaveText("回收站");
-  await expect(rows(window)).toHaveCount(2);
-  const overflow = await window.getByTestId("library").evaluate((element) => {
-    const scroller = element.querySelector<HTMLElement>(":scope > div");
-    return (scroller?.scrollWidth ?? 0) - (scroller?.clientWidth ?? 0);
-  });
-  expect(overflow).toBeLessThanOrEqual(0);
-  // The name is cut by the row, not wrapped by letter; the actions stay inside it.
-  const long = row(window, "harbour authority");
-  const name = await long.getByTestId("deleted-name").boundingBox();
-  const box = await long.boundingBox();
-  if (!name || !box) throw new Error("The row isn't showing.");
-  expect(name.x + name.width).toBeLessThanOrEqual(box.x + box.width);
-  await expect(long.getByTestId("deleted-restore")).toHaveText("恢复");
-  await expect(long.getByTestId("deleted-delete")).toHaveText("彻底删除…");
-  await expect(long.getByTestId("deleted-left")).toHaveText("30 天");
-  await screenshot(window, "recently-deleted-zh-narrow");
+  await expect(rows(window)).toHaveCount(names.length);
+  await expect(rows(window).getByTestId("deleted-name")).toHaveText(names.toReversed());
 
-  await long.getByTestId("deleted-delete").click();
-  const dialog = window.getByTestId("delete-permanently-dialog");
-  await expect(dialog).toContainText("此操作无法撤销。你的文件仍在原处。");
-  await screenshot(window, "delete-permanently-zh-narrow");
-  await window.keyboard.press("Escape");
-  await setWindowSize(app, window, 1600, 660);
-  await screenshot(window, "recently-deleted-zh-wide");
+  for (const language of ["en", "zh-CN"] as const) {
+    await read(window, (core, language) => core.updateSettings({ user: { language } }), language);
+    await expect(window.getByTestId("deleted-heading")).toHaveText(
+      language === "en" ? "Recently deleted" : "回收站",
+    );
+    for (const width of [1280, 900, 1600]) {
+      await setWindowSize(app, window, width, 660);
+      await row(window, names[0] ?? "Forecast").hover();
+      await screenshot(window, `recently-deleted-${language}-${width}`);
+      const geometry = await rows(window).evaluateAll((elements) =>
+        elements.map((element) => {
+          const name = element.querySelector<HTMLElement>('[data-testid="deleted-name"]');
+          const icon = name?.parentElement?.querySelector("svg");
+          const box = element.getBoundingClientRect();
+          const text = name?.getBoundingClientRect();
+          const mark = icon?.getBoundingClientRect();
+          return {
+            name: name?.textContent,
+            rowWidth: box.width,
+            metadata: element
+              .querySelector('[data-testid="deleted-was-in"]')
+              ?.getBoundingClientRect().width,
+            actions: element
+              .querySelector('[data-testid="deleted-restore"]')
+              ?.parentElement?.parentElement?.getBoundingClientRect().width,
+            width: text?.width ?? 0,
+            fullWidth: name?.scrollWidth ?? 0,
+            iconRight: mark?.right ?? 0,
+            nameLeft: text?.left ?? 0,
+            nameRight: text?.right ?? 0,
+            rowRight: box.right,
+            overflow: element.scrollWidth - element.clientWidth,
+            cells: [
+              name,
+              icon,
+              element.querySelector('[data-testid="deleted-was-in"]'),
+              element.querySelector('[data-testid="deleted-when"]')?.parentElement,
+              element.querySelector('[data-testid="deleted-menu"]')?.parentElement,
+            ].flatMap((cell) => {
+              if (!cell || cell.getClientRects().length === 0) return [];
+              const { left, right, top, bottom } = cell.getBoundingClientRect();
+              return [{ left, right, top, bottom }];
+            }),
+          };
+        }),
+      );
+      await testInfo.attach(`geometry-${language}-${width}`, {
+        body: JSON.stringify(geometry, null, 2),
+        contentType: "application/json",
+      });
+      for (const item of geometry) {
+        expect
+          .soft(item.width, `${language} ${width}: ${item.name}`)
+          .toBeGreaterThanOrEqual(Math.min(160, item.fullWidth, item.rowWidth / 2) - 1);
+        expect.soft(item.nameLeft).toBeGreaterThanOrEqual(item.iconRight);
+        expect.soft(item.nameRight).toBeLessThanOrEqual(item.rowRight);
+        expect.soft(item.overflow).toBeLessThanOrEqual(1);
+        for (let i = 0; i < item.cells.length; i++) {
+          for (const other of item.cells.slice(i + 1)) {
+            const cell = item.cells[i];
+            if (!cell) continue;
+            const overlap = Math.min(cell.right, other.right) - Math.max(cell.left, other.left);
+            const sameLine = cell.top < other.bottom && other.top < cell.bottom;
+            expect.soft(sameLine && overlap > 1).toBe(false);
+          }
+        }
+      }
+    }
+  }
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`deleted row actions keep their target with mouse and keyboard in ${language} (#1952)`, async () => {
+    test.setTimeout(120_000);
+    const name = language === "en" ? "Harbour forecast" : "港口季度预测";
+    const file = join(sources, `${name}.txt`);
+    await writeFile(file, "Synthetic harbour forecast.\n");
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await addDocuments(window, [file]);
+    await read(window, (core, language) => core.updateSettings({ user: { language } }), language);
+    const document = window.getByTestId("sidebar").getByTestId("document-list-item");
+    await openDocumentMenu(document);
+    await pointAndClick(window, document.getByTestId("document.delete"));
+    await noQuestion(window);
+
+    for (const width of [1600, 900]) {
+      await setWindowSize(app, window, width, 660);
+      await window.keyboard.press("ControlOrMeta+k");
+      const search = window.getByTestId("palette-search");
+      await expect(search).toBeFocused();
+      await search.fill(language === "en" ? ">recently deleted" : ">回收站");
+      await expect(window.locator('[data-key="command:deleted.show"]')).toBeVisible();
+      await window.keyboard.press("Enter");
+      const target = row(window, name);
+      await expect(target.getByTestId("deleted-name")).toBeVisible();
+      await target.hover();
+      await expect(target.getByTestId("deleted-restore")).toHaveText(
+        language === "en" ? "Restore" : "恢复",
+      );
+      await expect(target.getByTestId("deleted-delete")).toHaveText(
+        language === "en" ? "Delete Permanently…" : "彻底删除…",
+      );
+      await expect(target.getByTestId("deleted-left")).toHaveText(
+        language === "en" ? "30 days" : "30 天",
+      );
+      await expect(target.getByTestId("deleted-menu")).toHaveAttribute(
+        "aria-label",
+        language === "en" ? `More for ${name}` : `“${name}”的更多操作`,
+      );
+      await expect(target.getByTestId("deleted-restore").locator("..")).toHaveCSS("opacity", "1");
+      await pointAndClick(window, target.getByTestId("deleted-delete"));
+      const dialog = window.getByTestId("delete-permanently-dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText(
+        language === "en"
+          ? "This can’t be undone. Your files stay where they are."
+          : "此操作无法撤销。你的文件仍在原处。",
+      );
+      await expect(dialog.getByRole("heading")).toContainText(name);
+      await window.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(target).toHaveCount(1);
+
+      await window.mouse.move(0, 0);
+      await target.getByTestId("deleted-select").focus();
+      await window.keyboard.press("Tab");
+      await expect(target.getByTestId("deleted-restore")).toBeFocused();
+      await expect(target.getByTestId("deleted-restore").locator("..")).toHaveCSS("opacity", "1");
+      await window.keyboard.press("Shift+F10");
+      await expect(target.getByTestId("deleted-actions")).toBeVisible();
+      await expect(target.getByTestId("deleted.restore")).toBeFocused();
+      await expect(target.getByTestId("deleted.deletePermanently")).toBeVisible();
+      await window.keyboard.press("Enter");
+      await expect(target).toHaveCount(0);
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(target).toHaveCount(1);
+
+      await target.hover();
+      await target.getByTestId("deleted-select").check();
+      await expect(window.getByTestId("deleted-selection")).toBeVisible();
+      await expect(target).toHaveAttribute("aria-selected", "true");
+      await window.getByTestId("deleted-delete-selected").hover();
+      await window.getByTestId("deleted-delete-selected").click();
+      await expect(dialog.getByRole("heading")).toContainText(name);
+      await window.keyboard.press("Escape");
+      await window.getByTestId("deleted-restore-selected").hover();
+      await window.getByTestId("deleted-restore-selected").click();
+      await expect(target).toHaveCount(0);
+      await pointAndClick(window, undoLine(window).getByTestId("undo-action"));
+      await expect(target).toHaveCount(1);
+      await target.getByTestId("deleted-name").click({ button: "right" });
+      await expect(target.getByTestId("deleted-actions")).toBeVisible();
+      await expect(target.getByTestId("deleted.restore")).toBeVisible();
+      await expect(target.getByTestId("deleted.deletePermanently")).toBeVisible();
+      await window.keyboard.press("Escape");
+      await screenshot(window, `recently-deleted-actions-${language}-${width}`);
+    }
+  });
+}

@@ -187,8 +187,17 @@ export interface CreateMindInput {
  *   `chosen` in the `claimCheck` mark's `scope`. An older version would read
  *   it as made in the Mind's Folder or in every Document, and say so on its
  *   card. Older content is version 26 content as it is.
+ * - 27: a numbered list's scheme, start level and continuation (#1419): the
+ *   `numbering`, `startLevel` and `continues` attributes on an ordered list,
+ *   which an older version's editor would strip, so it would draw the list as
+ *   a "1. a. i." list from level 0 that starts again. Older content is
+ *   version 27 content as it is.
+ * - 28: a Citation the User keeps on the version it quotes though its
+ *   Document changed (#99): `keptOver` on the Citation, which an older
+ *   version's editor would strip, so it would ask again to be checked. Older
+ *   content is version 28 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 26;
+export const CONTENT_SCHEMA_VERSION = 28;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -355,8 +364,8 @@ export const PROPOSAL_ATTRIBUTE = "proposal";
 export const GENERATED_MARK = "generated";
 
 /**
- * A check of a sentence the User wrote (#96): Find support or Check against
- * Documents put this mark on the sentence's text, with the result as its
+ * A check of a sentence the User wrote (#96): Check against Documents puts
+ * this mark on the sentence's text, with the result as its
  * attributes (`ClaimCheckAttributes`). It isn't inclusive, so words typed
  * after the sentence aren't under it. Whether it still holds is worked out
  * from what it records (`claimCheckShown` in src/shared/claimChecks.ts).
@@ -406,6 +415,15 @@ export const MIND_PROPOSAL_REQUESTS_FIELD = "proposalRequests";
  * (`restoreRevised`); accepting any of it lets them go.
  */
 export const MIND_REVISIONS_FIELD = "revisions";
+
+/**
+ * The name of the Y.Map, beside a Mind's Blocks, that keeps by request the origin
+ * (`MIND_ORIGINS_FIELD`) each Block had before that request's change gave it its own: a change
+ * written over Blocks keeps their ids, so rejecting it in a Block puts that origin back
+ * (`restoreOrigins`). Entries are kept for good: History can bring back a version from
+ * before any decision. An older version leaves it as it is and keeps the new origin (ADR-0003).
+ */
+export const MIND_REPLACED_ORIGINS_FIELD = "replacedOrigins";
 
 /**
  * What a change the assistant made in a Mind was (#880, #1559): text changed
@@ -1020,6 +1038,8 @@ export type MindProblem =
   | { kind: "no-mind" }
   | { kind: "not-found"; name: string }
   | { kind: "several"; name: string }
+  /** Minds of close titles, and the User didn't pick which one was meant (#1865). */
+  | { kind: "not-picked"; name: string }
   | { kind: "no-heading"; mindId: string; heading: string }
   | { kind: "no-place"; mindId: string; place: string }
   | { kind: "several-places"; mindId: string; name: string; adding: boolean }
@@ -1097,6 +1117,12 @@ export interface MindChange {
    * are gone, and its request holds the new text and the rest of them.
    */
   revised?: true;
+  /**
+   * Of the text it revised, what earlier calls of the same Answer had written: their counts
+   * already hold it, so the Answer's card counts it once. Absent: none, or the text was an
+   * earlier Answer's.
+   */
+  replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
@@ -1107,15 +1133,21 @@ export interface MindChange {
    */
   checking?: number;
   /**
-   * The check of the sentences with Citations it wrote, once over: how many there were
-   * (`cited`), how many it sent to be checked (`sent`), how many got a verdict
-   * (`checked`) and how many couldn't be checked (`failed`), and what stopped it, if
-   * anything did. Those it couldn't check, or didn't, are marked not checked, under
-   * `request`; `blocked` says how many of them the User's own choice kept from being sent
-   * (the flow turned off, or Local mode), which checking again can't change. Absent: none was checked.
+   * The check of the sentences it wrote that a check reads (#1909: every claim,
+   * cited or not), once over: how many there were (`checkable`), how many have a
+   * Citation (`cited`), how many it sent to be checked (`sent`), how many got a
+   * verdict (`checked`) and how many couldn't be checked (`failed`), and what
+   * stopped it, if anything did. Those it couldn't check, or didn't, are marked
+   * not checked, under `request`; `blocked` says how many of them the User's own
+   * choice kept from being sent (the flow turned off, or Local mode), which
+   * checking again can't change. Absent: none was checked.
    */
   selfCheck?: {
     request: string;
+    /** The write's top-level Blocks; absent on a check recorded before #1909. */
+    blocks?: string[];
+    /** Absent on a check recorded before #1909: `cited` was what it checked then. */
+    checkable?: number;
     cited: number;
     sent: number;
     checked: number;
@@ -1677,6 +1709,12 @@ export interface RecheckCitationInput {
   pageFrom: number | null;
   pageTo: number | null;
   quote: string;
+  /**
+   * The version the Citation quotes. When the Document has a newer one, the result also says
+   * how the Citation stands in this version (`inQuotedVersion`) and how its words changed
+   * (`changed`).
+   */
+  contentHash?: string | null;
 }
 
 /**
@@ -1695,6 +1733,26 @@ export interface CitationRecheck {
   pageFrom: number | null;
   pageTo: number | null;
   location: CitationLocation | null;
+  /**
+   * Asked with the version the Citation quotes, which is no longer the current one: its check
+   * in that version, at the Units it cites (ADR-0017's amendment); null once that version's
+   * text is no longer kept.
+   */
+  inQuotedVersion?: Pick<CitationRecheck, "check" | "checkReason"> | null;
+  /**
+   * Asked with the version the Citation quotes, which is no longer the current one, and the
+   * quote isn't in the current one as cited: its words as they changed at its place; null
+   * when nothing there is like them any more.
+   */
+  changed?: ChangedQuote | null;
+}
+
+/** A Citation's quote as its words changed in its Document's current version (#99). */
+export interface ChangedQuote {
+  /** From the quote to the words at its place now, in order: kept, taken out or put in. */
+  parts: { kind: "same" | "removed" | "added"; text: string }[];
+  /** The words at its place now, cited in the current version: what Update the sentence… cites. */
+  now: CitedSelection;
 }
 
 /** Words the User selected in a Document's viewer, on one of its Units (`citeSelection`). */
@@ -1855,6 +1913,11 @@ export interface CitationAttributes {
   verdict?: string | null;
   /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
   quotedWords?: QuotedWords | null;
+  /**
+   * The Document's version the User chose to keep citing the old one over (Keep citing the old
+   * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
+   */
+  keptOver?: string | null;
 }
 
 /** A Citation, as the Answer event stream reports it. */
@@ -2081,8 +2144,8 @@ export interface UserSettings {
 
 /**
  * The "Get started" checklist of a first run, at the bottom of the sidebar:
- * check a Citation in the example Mind, add Documents or connect an app, and
- * ask a Question of one's own. Each step ticks itself as the User does it.
+ * add Documents or connect an app, ask a Question of one's own, and check a
+ * Citation. Each step ticks itself as the User does it.
  */
 export interface GettingStarted {
   /** Shown: the examples were made on this device's first run. */
@@ -4836,13 +4899,13 @@ export type EditWithAiResult =
   | { kind: "failed"; error: ProviderError };
 
 /**
- * The checks of the User's own sentences (#96). Each checks a sentence's
- * claim against the Documents: Find support looks for a Passage that backs
- * it; Check against Documents does the same for a sentence that already has
- * Citations, telling the model what they quote, so the claim is checked and
- * not only the quote. Contradiction watch (#112) checks a cited sentence
- * against the other Documents in its Mind's Folder, the ones it cites left
- * out, and keeps a mark only where one contradicts it.
+ * The checks of the User's own sentences (#96). Check against Documents
+ * checks a sentence's claim against the Documents, telling the model what
+ * the sentence already cites, so the claim is checked and not only the
+ * quote. "find-support" is that check as an older version named it, and
+ * runs as Check against Documents does. Contradiction watch (#112) checks a
+ * cited sentence against the other Documents in its Mind's Folder, the ones
+ * it cites left out, and keeps a mark only where one contradicts it.
  */
 export const claimCheckActions = [
   "find-support",
@@ -5525,6 +5588,11 @@ export interface AnswerFinished extends AnswerPlace {
    * them, and why: for looking into how a model cites (the evaluation reports them).
    */
   rejectedRecords: RejectedRecord[];
+  /**
+   * How many of the Question context's Citations the model wrote as ids in text rather than
+   * citing them (#1800), each made that Citation or taken out: the evaluation counts them.
+   */
+  idsAsText: number;
   /** Markers the model left out of its text for records it gave, which the engine put in. */
   placedMarkers: number;
   /**
@@ -6447,9 +6515,9 @@ export type DataKind = (typeof dataKinds)[number];
  *   local mode.
  * - "edits": when the User asks Edit with AI (#93), the text they selected
  *   and the paragraphs it is in, to the chat model's provider. None in local mode.
- * - "checks": when the User asks Find support or Check against Documents
- *   (#96), each sentence they selected, with its paragraph and what it cites,
- *   and the Passages the check's searches find, to the chat model's provider;
+ * - "checks": when the User asks Check against Documents (#96), each sentence
+ *   they selected, with its paragraph and what it cites, and the Passages the
+ *   check's searches find, to the chat model's provider;
  *   when they verify a document (#97), its sentences, to find its claims, then
  *   each claim with its paragraph and the Passages found. None in local mode.
  * - "agents": what an outside agent reads (#351), to that agent, which sends
@@ -7790,7 +7858,7 @@ export interface MindExport extends MindExportPreview {
   trackedChanges: number;
   /**
    * The Documents whose Bibliography entries are too thin to cite (`BibliographyEntry.needsDetails`),
-   * each marked so in the file. None in Numbered, which lists Documents by name.
+   * for the result line's count. None in Numbered, which lists Documents by name.
    */
   needsDetails: string[];
 }
@@ -9191,6 +9259,12 @@ export interface CoreApi {
   createExamples(group?: ExampleGroup): Promise<Examples>;
   /** Deletes the example Mind, and unlinks the example Documents and deletes their copies. */
   removeExamples(group?: ExampleGroup): Promise<void>;
+  /**
+   * Brings back an example removed in this session, as Undo does: the same Mind
+   * from Recently deleted, and its Documents as the same Documents with their
+   * files copied again, so its Citations still open them. The credit paper by default.
+   */
+  restoreExamples(group?: ExampleGroup): Promise<Examples>;
   /** Shows a Linked folder as a tree of Folders or as a flat list. Returns it. */
   setLinkedFolderLayout(linkedFolderId: string, layout: LinkedFolderLayout): Promise<LinkedFolder>;
   /**
@@ -9205,8 +9279,9 @@ export interface CoreApi {
   downloadOnlineOnlyFiles(linkedFolderId: string): Promise<LinkedFolder>;
   /**
    * Checks a Citation again against its Document's current version (see
-   * `CitationRecheck`), e.g. after the Document changed. Nothing is stored:
-   * the editor writes the result onto the Citation's node.
+   * `CitationRecheck`), e.g. after the Document changed; given the version it
+   * quotes, in that version too. Nothing is stored: the editor writes the
+   * result onto the Citation's node.
    */
   recheckCitation(input: RecheckCitationInput): Promise<CitationRecheck>;
   /**
@@ -9489,7 +9564,7 @@ export interface CoreApi {
   /** Stops an Edit with AI request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelEdit(requestId: string): Promise<void>;
   /**
-   * Find support and Check against Documents (#96): checks each sentence the
+   * Check against Documents (#96): checks each sentence the
    * selection touches against the Mind's Folder (or every Document), one at a
    * time, with `checkClaim`. Each sentence gets a `CLAIM_CHECK_MARK` at once,
    * "checking", then its result, pushed as a "mind.update" like any edit.
@@ -10680,6 +10755,7 @@ const methods: Record<CoreApiMethod, true> = {
   offerExamples: true,
   createExamples: true,
   removeExamples: true,
+  restoreExamples: true,
   editConnector: true,
   setConnectorEnabled: true,
   restartConnector: true,
