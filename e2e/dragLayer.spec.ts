@@ -514,6 +514,8 @@ for (const [system, platform] of [
           await expect.poll(() => pictureLeaving(window, onto, false)).toBe(true);
           await screenshot(window, `refused-drop-fading-${platform}-${index}`);
           await expect(loose).toHaveCount(0);
+        } else {
+          expect(await leavingCopies(window)).toEqual([]);
         }
         await motionSettled(window);
         expect(await leavingCopies(window)).toEqual([]);
