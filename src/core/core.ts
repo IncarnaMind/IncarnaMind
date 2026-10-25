@@ -36,7 +36,7 @@ import {
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
-import { isCitableWork } from "../shared/references";
+import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
@@ -1548,9 +1548,9 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       read: (mindId, look) => content.read(mindId, look),
       edit: (mindId, change) => content.edit(mindId, change),
-      text: (mindId, name, tokens) => {
+      text: (mindId, name, tokens, ids) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null))
+          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids))
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -1869,7 +1869,7 @@ export function createCore(adapters: CoreAdapters): Core {
         cited: [...versions.keys()],
       };
     });
-    const citesWorks = cited.some((id) => isCitableWork(liveDocument(id)?.reference ?? null));
+    const citesWorks = cited.some((id) => isPaperOrBook(liveDocument(id)?.reference ?? null));
     const context = { language: settings.get().language, chineseText, citesWorks };
     const style: MindCitationStyle = content.readSettings(mindId, (mindSettings) => ({
       style: citationStyleIn(mindSettings, context),
@@ -2264,7 +2264,7 @@ export function createCore(adapters: CoreAdapters): Core {
     localOnly: () => embedding.localOnly(),
     ollamaUrl: adapters.ollamaUrl ?? defaultOllamaUrl(),
     localModels: adapters.localModels ?? installedOllamaModels,
-    planPausedUntil: () => chatGptPace.pausedUntil(),
+    planPausedUntil: () => chatGptPace.pausedUntil() ?? claudePace.pausedUntil(),
     now: () => paceTimers.now(),
   });
   const tagsWith = (): TaggingClassifier | null => {

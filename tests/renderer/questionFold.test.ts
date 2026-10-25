@@ -73,4 +73,13 @@ describe("what a streaming Answer reads out", () => {
       ),
     ).toBe("Your Documents answer this. It streams in Math: That is all.");
   });
+
+  // protects=a Citation's id the model wrote as text isn't read aloud while the Answer streams (#1800); fails_when=the screen reader says "C1"; no_claim=none beyond protects.
+  test("a Citation's id written as text is not read out", () => {
+    expect(
+      spokenText(
+        "It drops recurrence [Attention, p. 1 · C1]. 它不用循环【Attention, p. 1 · C2】。",
+      ),
+    ).toBe("It drops recurrence. 它不用循环。");
+  });
 });

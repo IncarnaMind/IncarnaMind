@@ -400,8 +400,9 @@ export function exportAgain(
 }
 
 /**
- * Shows the first entry of the Mind's References too thin to cite, as the result line's Show
- * does: scrolled to the middle, its "Needs details" focused, which opens its "Cite as" on Enter.
+ * Adds the first entry of the Mind's References too thin to cite, as the result line's Add
+ * details does: scrolled to the middle, its "Needs details" clicked, which opens its "Cite as"
+ * at the first gap.
  */
 export function revealNeedsDetails(mindId: string): boolean {
   const needs = document.querySelector<HTMLElement>(
@@ -409,7 +410,7 @@ export function revealNeedsDetails(mindId: string): boolean {
   );
   if (!needs) return false;
   needs.scrollIntoView({ block: "center" });
-  needs.focus();
+  needs.click();
   return true;
 }
 

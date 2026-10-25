@@ -26,7 +26,7 @@
  * lines, narrowed to those the quote covers ("Revenue, rows 12–14"); for
  * sections, the heading it sits under.
  */
-import { shownRanges } from "../../shared/answerBlocks";
+import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
 import {
@@ -69,6 +69,13 @@ import type { PageText } from "../documents/passages";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
 import { closestWords } from "./closestWords";
+import {
+  type ContextCitation,
+  type ContextCitations,
+  issuedForm,
+  replaceWritten,
+  writtenIds,
+} from "./contextCitations";
 import { withCueMarks } from "./cueMarks";
 import type {
   AnswerSearchOptions,
@@ -872,6 +879,8 @@ interface Accepted {
   result: CheckResult | null;
   /** The Answer's quoted words that its sentence's Citations don't have, when they made `result` not found (#483). */
   quotedWords?: QuotedWords;
+  /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
+  kept?: true;
 }
 
 /** A record as `take` read it: accepted, with its Passage's Units; or why not. */
@@ -918,12 +927,14 @@ export interface CitationSessionEvents {
  * as "P3", which is what the model cites), the records it gave, and the Tools
  * the Answer engine offers the model. `opening`, when the Question is asked
  * beside the working copy of a Document (#1036): that Document's opening
- * Passages, which a search that finds nothing gives instead, once.
+ * Passages, which a search that finds nothing gives instead, once. `ids`: the Citations the
+ * Question context shows, which a record names by id to keep one as it is.
  */
 export function createCitationSession(
   documents: AnswerDocuments,
   events: CitationSessionEvents,
   opening?: { documentId: string; name: string; passages(): WindowedPassage[] },
+  ids?: ContextCitations,
 ) {
   const handles = new Map<string, string>();
   const handleOf = new Map<string, string>();
@@ -939,6 +950,8 @@ export function createCitationSession(
   let removedMarkers = 0;
   /** Markers whose Citations went into a Mind rather than the Answer's text (#202). */
   const placedElsewhere = new Set<number>();
+  /** The Question context's Citations the model wrote as ids in text, not as records (`citeWrittenIds`), each once. */
+  const idsAsText = new Set<string>();
 
   const handleFor = (passageId: string) => {
     let handle = handleOf.get(passageId);
@@ -1079,8 +1092,10 @@ export function createCitationSession(
     marker: number,
     options: CiteOptions,
   ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
-    const quote = cleanQuote(typeof input.quote === "string" ? input.quote : "");
     const named = typeof input.passage === "string" ? input.passage : "";
+    const kept = ids?.get(named);
+    if (kept) return takeKept(issuedForm(named), kept, marker);
+    const quote = cleanQuote(typeof input.quote === "string" ? input.quote : "");
     // Structured output can't be told it named no Passage (see `CiteOptions`): its id read loosely,
     // else the Passage it was given that holds its quote.
     const known = <Found extends { passageId: string }>(each: Found | null): Found | null =>
@@ -1137,6 +1152,56 @@ export function createCitationSession(
     return { ok: true, record, source, passageUnits };
   }
 
+  /**
+   * A Citation of the Question context, as it is: its Passage, the version it quotes (ADR-0010),
+   * its Units, Location and quote. The check reads that version, so a Document changed or
+   * deleted since says so, as the Citation did where it was read.
+   */
+  function takeKept(
+    id: string,
+    kept: ContextCitation,
+    marker: number,
+  ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
+    const passage = kept.passageId === null ? null : documents.citationSource(kept.passageId);
+    if (!passage) {
+      return {
+        ok: false,
+        problem: `${id} can't be kept: what it cites is no longer in the User's Documents. Keep its claim without a marker, and say its source is no longer available.`,
+      };
+    }
+    if (passage.notCited) {
+      return {
+        ok: false,
+        problem: `${id} is from the User's own working file, which is read but never cited; leave its claim without a marker.`,
+      };
+    }
+    const source: CitationSource = {
+      ...passage,
+      documentName: kept.documentName ?? passage.documentName,
+      contentHash: kept.contentHash ?? passage.contentHash,
+    };
+    const passageUnits = documents.pageTexts(
+      source.documentId,
+      source.contentHash,
+      source.pageFrom,
+      source.pageTo,
+    );
+    const record: Accepted = {
+      marker,
+      handle: id,
+      source,
+      given: { location: null, pageFrom: kept.pageFrom, pageTo: kept.pageTo },
+      range: { pageFrom: kept.pageFrom, pageTo: kept.pageTo },
+      requested: null,
+      unresolved: false,
+      quote: kept.quote,
+      location: kept.location,
+      result: null,
+      kept: true,
+    };
+    return { ok: true, record, source, passageUnits };
+  }
+
   /** Takes records; returns what to tell the model about them. */
   function cite(inputs: readonly CitationRecordInput[], options: CiteOptions = {}): string {
     const recorded: number[] = [];
@@ -1154,7 +1219,7 @@ export function createCitationSession(
       recorded.push(marker);
       events.onRecord(marker, toCitation(record, null));
       // Tell the model now what the check will find, so it can fix the record.
-      const problem = recordProblem(record, source, passageUnits);
+      const problem = record.kept ? null : recordProblem(record, source, passageUnits);
       if (problem) problems.push(`[^${marker}]: ${problem}`);
     }
     const done = recorded.length
@@ -1339,7 +1404,7 @@ export function createCitationSession(
 
     unfoundQuotes(): UnfoundQuote[] {
       return [...records.values()]
-        .filter((record) => check(record).check === "not-found")
+        .filter((record) => !record.kept && check(record).check === "not-found")
         .sort((a, b) => a.marker - b.marker)
         .map((record) => ({
           marker: record.marker,
@@ -1361,7 +1426,7 @@ export function createCitationSession(
 
     correctQuote(marker: number, quote: string): boolean {
       const earlier = records.get(marker);
-      if (!earlier) return false;
+      if (!earlier || earlier.kept) return false;
       const taken = take(
         { marker, passage: earlier.handle, ...earlier.given, quote },
         { structured: true },
@@ -1537,6 +1602,35 @@ export function createCitationSession(
       return citationNode(toCitation(record, record.result));
     },
 
+    /**
+     * `markdown` with each id of the Question context's Citations written as text (`writtenIds`,
+     * "[Tides, p. 3 · C2]") made a marker of that Citation, kept as `cite` keeps one; one the
+     * Answer can't keep is taken out, `notKept` said in its place. An id never shows (#1800).
+     */
+    citeWrittenIds(markdown: string, notKept: string): string {
+      const written = writtenIds(markdown, (id) => ids !== undefined && ids.get(id) !== null);
+      if (written.length === 0) return markdown;
+      // A write into a Mind is read again as its input grows: a Citation counts once, however often it's read.
+      for (const each of written) for (const id of each.ids) idsAsText.add(id);
+      let next = Math.max(0, ...records.keys(), ...markersIn(markdown)) + 1;
+      const markerOf = (id: string): number | null => {
+        for (const record of records.values()) if (record.handle === id) return record.marker;
+        const kept = ids?.get(id);
+        const taken = kept ? takeKept(id, kept, next) : null;
+        if (!taken?.ok) return null;
+        records.set(next, taken.record);
+        events.onRecord(next, toCitation(taken.record, null));
+        return next++;
+      };
+      return replaceWritten(markdown, written, (each) => {
+        const markers = each.ids.map(markerOf);
+        const shown = markers.flatMap((marker) => (marker === null ? [] : [`[^${marker}]`]));
+        // No space before full-width words: "（未能保留来源）" (docs/agents/zh-CN.md, rule 2).
+        const said = /^[\x20-\x7e]/.test(notKept) ? ` ${notKept}` : notKept;
+        return `${shown.join("")}${markers.includes(null) ? said : ""}`;
+      });
+    },
+
     /** The marker of a Citation recorded for a source written as its name in brackets; null for none. */
     markerFor(source: NamedSource): number | null {
       for (const record of records.values()) {
@@ -1557,6 +1651,7 @@ export function createCitationSession(
       droppedMarkers: number;
       droppedRecords: number;
       rejectedRecords: RejectedRecord[];
+      idsAsText: number;
     } {
       const citations = finalMarkers.flatMap((marker) => {
         const record = records.get(marker);
@@ -1570,6 +1665,7 @@ export function createCitationSession(
         droppedMarkers: removedMarkers,
         droppedRecords: unused + rejected.length,
         rejectedRecords: rejected,
+        idsAsText: idsAsText.size,
       };
     },
   };

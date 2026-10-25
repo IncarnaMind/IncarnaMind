@@ -1,11 +1,13 @@
 import { describe, expect, test } from "vitest";
 import type { ProviderErrorKind } from "../../src/core/api";
+import { CHATGPT_SERVICE } from "../../src/core/providers/chatgpt/service";
+import { CLAUDE_ACCOUNT_SERVICE } from "../../src/core/providers/claudeAccount/service";
 import {
   ClaudePlanLimitError,
   classifyProviderError,
   SignInRouteError,
 } from "../../src/core/providers/providerErrors";
-import { taggingProblem } from "../../src/renderer/src/taggingProblem";
+import { planLimitLine, taggingProblem } from "../../src/renderer/src/taggingProblem";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const say = (language: "en" | "zh-CN") => (key: MessageKey, params?: MessageParams) =>
@@ -72,5 +74,43 @@ describe("why a Document couldn't be tagged, in the tag footer's tooltip and the
     expect(taggingProblem(problem, say("zh-CN"))).toBe(
       "未发送：已开启“所有内容都留在这台电脑上”。",
     );
+  });
+});
+
+describe("the sidebar's line while Tagging and Organize wait for a plan's limit", () => {
+  const now = new Date(2026, 9, 12, 9, 0);
+  const later = new Date(2026, 9, 12, 14, 30).toISOString();
+
+  test("names the plan and when it resets, in English and Chinese", () => {
+    expect(planLimitLine(CHATGPT_SERVICE, later, say("en"), "en", now)).toMatch(
+      /^Your ChatGPT plan’s limit is reached until (14:30|2:30 pm)$/,
+    );
+    expect(planLimitLine(CHATGPT_SERVICE, later, say("zh-CN"), "zh-CN", now)).toMatch(
+      /^ChatGPT 订阅额度已用完，(14:30|下午2:30) 恢复$/,
+    );
+    expect(planLimitLine(CLAUDE_ACCOUNT_SERVICE, later, say("en"), "en", now)).toMatch(
+      /^Your Claude plan’s limit is reached until (14:30|2:30 pm)$/,
+    );
+  });
+
+  test("says no time when the plan didn't say one, or once it has passed", () => {
+    expect(planLimitLine(CLAUDE_ACCOUNT_SERVICE, null, say("en"), "en", now)).toBe(
+      "Your Claude plan’s limit is reached",
+    );
+    expect(planLimitLine(CLAUDE_ACCOUNT_SERVICE, null, say("zh-CN"), "zh-CN", now)).toBe(
+      "Claude 订阅额度已用完",
+    );
+    const earlier = new Date(2026, 9, 12, 8, 0).toISOString();
+    expect(planLimitLine(CHATGPT_SERVICE, earlier, say("en"), "en", now)).toBe(
+      "Your ChatGPT plan’s limit is reached",
+    );
+  });
+
+  test("names no plan while the service it sends to is unknown, or isn't a plan's", () => {
+    expect(planLimitLine(null, later, say("en"), "en", now)).toMatch(
+      /^Your plan’s limit is reached until (14:30|2:30 pm)$/,
+    );
+    const key = { id: "https://api.openai.com", name: "OpenAI" };
+    expect(planLimitLine(key, null, say("zh-CN"), "zh-CN", now)).toBe("订阅额度已用完");
   });
 });
