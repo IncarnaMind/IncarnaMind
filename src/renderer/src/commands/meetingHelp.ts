@@ -131,9 +131,16 @@ export const meetingHelpCommands: readonly Command[] = [
       const meeting = liveMeetingNow();
       if (!meeting?.help) return;
       const { mindId, blockIds } = await addHelpToNotes(meeting, meeting.help);
+      let kept = 0;
       return {
         said: (t) => t("meetings.help.added"),
-        undo: () => core.undoAddToNote({ mindId, blockIds }),
+        undo: async () => {
+          kept = (await core.undoAddToNote({ mindId, blockIds })).kept;
+        },
+        undoneNote: () =>
+          kept === 0
+            ? null
+            : (t) => t(kept === 1 ? "answer.undoKept.one" : "answer.undoKept", { count: kept }),
       };
     },
   },
