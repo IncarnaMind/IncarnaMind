@@ -38,6 +38,7 @@ describe("What a reply says a Tool did", () => {
     ["经计算工具验证，结果正确。", ["calculate"]],
     ["我重新计算了杠杆率，结果是3.26倍。", ["calculate"]],
     ["我已核实上述计算结果。", ["calculate"]],
+    ["文中的数字已用计算工具核算的，本回答没有附引用标记。", ["calculate"]],
     ["我搜索了你的文档。", ["search"]],
     ["搜索结果显示，修订函2027年才生效。", ["search"]],
   ])("“%s” claims %j", (reply, tools) => {
