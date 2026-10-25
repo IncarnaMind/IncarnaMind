@@ -183,8 +183,13 @@ export async function inspectPackage(bytes: Uint8Array): Promise<PackageReport> 
       [...text.matchAll(/<w:bookmarkStart\b[^>]*\bw:name="([^"]*)"/g)].map((m) => m[1]),
     );
     for (const found of text.matchAll(/\bNOTEREF\s+(\S+)/g)) {
-      if (!bookmarks.has(found[1]))
-        problems.push(`${name}: NOTEREF ${found[1]} points at no bookmark`);
+      const argument = found[1];
+      if (!argument) continue;
+      // Word opens a field with no bookmark name and shows its inline error; it offers no
+      // repair, and this list stands in for Word's repair prompt.
+      if (argument.startsWith("\\")) continue;
+      if (!bookmarks.has(argument))
+        problems.push(`${name}: NOTEREF ${argument} points at no bookmark`);
     }
   }
   return { features: countFeatures(parts, names), problems };
