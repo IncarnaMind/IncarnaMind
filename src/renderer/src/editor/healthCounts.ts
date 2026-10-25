@@ -176,7 +176,8 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
       health.checkable++;
       health.toCheck.push(from);
       if (table) health.tableCells.push(from);
-      if (citations.length > 0 || answered) health.citable.push(from);
+      // A Citation, an Answer's words, or a check that failed or no longer holds shows the badge (#1194).
+      if (citations.length > 0 || answered || state.why !== "none") health.citable.push(from);
       return;
     }
     if (state.kind !== "covered" || !claim) return;

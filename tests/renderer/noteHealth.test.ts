@@ -165,6 +165,19 @@ describe("A Mind's health", () => {
     expect(health.checkable).toBe(3);
   });
 
+  test("a failed check on a plain note shows the badge, a plain note with no check does not (#1194, #1909)", () => {
+    const failed = docOf(
+      paragraph(
+        checked("The rate limit stopped this sentence's check.", "not-checked", "rate-limit"),
+      ),
+    );
+    expect(healthOf(failed).toCheck).toHaveLength(1);
+    expect(healthOf(failed).citable).toHaveLength(1);
+    const plain = docOf(paragraph(text("Spring tides come at full moon.")));
+    expect(healthOf(plain).toCheck).toHaveLength(1);
+    expect(healthOf(plain).citable).toHaveLength(0);
+  });
+
   // protects=a Citation's state shows only on its marker, so every Citation is counted and reachable, in sentences with a verdict too; fails_when=a Citation in an unsupported, contradicted or unchecked sentence stops counting, or such a sentence also counts as having no Citation; no_claim=how the card sets it.
   test("counts every Citation, also those in a sentence with a verdict of its own", () => {
     const doc = docOf(
