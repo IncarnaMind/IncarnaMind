@@ -1,4 +1,5 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -249,3 +250,103 @@ for (const gap of [0, 20, 40, 60, 80]) {
     }
   });
 }
+
+/**
+ * The copies started with this switch, and those they started again: main processes only, or
+ * with `relaunching` the helpers waiting to start one too.
+ */
+function copiesWith(tag: string, relaunching = false): number[] {
+  const listing = execFileSync("ps", ["-A", "-ww", "-o", "pid=", "-o", "args="], {
+    encoding: "utf8",
+  });
+  return listing.split("\n").flatMap((line) => {
+    const [, pid, args = ""] = line.trim().match(/^(\d+)\s+(.*)$/) ?? [];
+    const main = !args.includes("--type=") || (relaunching && args.includes("--type=relauncher"));
+    return pid && args.includes(tag) && main ? [Number(pid)] : [];
+  });
+}
+
+const killAll = (pids: number[]) => {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  }
+};
+
+/**
+ * Starts a copy, then `starts` more that ask for the data folder while it quits
+ * (`startDuringQuit.cjs`), and waits until one copy is left, with one window. A start after that
+ * must come to that window and quit.
+ */
+async function startWhileQuitting(how: "quit" | "quit-twice" | "crash", starts: number) {
+  const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
+  const boxes = join(home, "error-boxes.jsonl");
+  const mark = join(home, "quit-started");
+  const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
+  const ports: number[] = [];
+  const start = async (extraEnv: Record<string, string> = {}) => {
+    const port = await freePort();
+    ports.push(port);
+    return startCopy(
+      home,
+      [
+        tag,
+        `--remote-debugging-port=${port}`,
+        ...["-r", join(__dirname, "errorBoxes.cjs"), "-r", join(__dirname, "startDuringQuit.cjs")],
+      ],
+      { INCARNAMIND_TEST_ERROR_BOXES: boxes, ...extraEnv },
+    );
+  };
+  const left = async () => ({
+    copies: copiesWith(tag).length,
+    windows: (await Promise.all(ports.map(windowsOf))).reduce((sum, each) => sum + each, 0),
+  });
+  try {
+    await start({ INCARNAMIND_TEST_QUIT_MARK: mark, INCARNAMIND_TEST_QUIT_ON_START: how });
+    await expect.poll(() => windowsOf(ports[0] as number), { timeout: 60_000 }).toBe(1);
+    for (let index = 0; index < starts; index += 1) {
+      await start({ INCARNAMIND_TEST_QUIT_MARK: mark });
+    }
+    await expect
+      .poll(left, { timeout: 90_000, message: "one copy is left, with a window" })
+      .toEqual({ copies: 1, windows: 1 });
+
+    const [code] = await exited(await start());
+    expect(code).toBe(0);
+    await expect.poll(left, { timeout: 30_000 }).toEqual({ copies: 1, windows: 1 });
+    expect(existsSync(boxes)).toBe(false);
+  } finally {
+    await expect
+      .poll(
+        () => {
+          killAll(copiesWith(tag, true));
+          return copiesWith(tag, true);
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual([]);
+    await rm(home, { recursive: true, force: true, maxRetries: 3 });
+  }
+}
+
+// protects=a start that arrives while the app quits ends with one copy, with a window (#1448);
+// fails_when=that start sits with no window and holds the data folder, so every later start
+// quits, or it hands over to the quitting copy and nothing opens.
+test("starts while the app quits, crashes or quits twice each end with one window", async () => {
+  test.skip(process.platform === "win32", "lists the copies with ps");
+  test.setTimeout(600_000);
+  for (const how of ["quit", "quit", "quit-twice", "crash"] as const) {
+    await test.step(how, () => startWhileQuitting(how, 1));
+  }
+});
+
+// protects=a double-click storm during a quit leaves one copy with one window (#1448);
+// fails_when=one of the five starts is left with no window, or none of them opens.
+test("five starts in a row while the app quits leave one window", async () => {
+  test.skip(process.platform === "win32", "lists the copies with ps");
+  test.setTimeout(300_000);
+  await startWhileQuitting("quit", 5);
+});
