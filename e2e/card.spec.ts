@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
+  addFilesLabel,
   confirmLink,
   createDataFolder,
   dismissChatSetup,
@@ -216,7 +217,8 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   await window.mouse.up();
   await expect(menu).toBeVisible();
   const items = menu.getByRole("menuitem");
-  await expect(items).toHaveText([/New Mind/, /Add files or a folder…/, /New Folder/, /More/]);
+  const add = addFilesLabel("en").replace(/…$/, "…");
+  await expect(items).toHaveText([/New Mind/, new RegExp(add), /New Folder/, /More/]);
   const mod = process.platform === "darwin" ? "⌘" : "Ctrl+";
   await expect(items.nth(0)).toContainText(`${mod}T`);
   // The one way in has no key of its own: ⌘O still opens the file picker, and ⌘K finds this.
@@ -307,7 +309,7 @@ test("the + menu and the shell speak Chinese too", async () => {
   await plus.click();
   await expect(window.getByRole("menuitem")).toHaveText([
     /新建 Mind/,
-    /添加文件或文件夹…/,
+    new RegExp(addFilesLabel("zh-CN")),
     /新建文件夹/,
     /更多/,
   ]);

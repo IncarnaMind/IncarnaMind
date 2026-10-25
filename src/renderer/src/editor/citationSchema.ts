@@ -84,6 +84,8 @@ export const Citation = Node.create<CitationOptions>({
           return words ? { "data-quoted-words": JSON.stringify(words) } : {};
         },
       },
+      // Only Keep citing the old version sets it (#99), so a Citation without one stores nothing.
+      keptOver: { ...dataAttribute("keptOver"), default: undefined },
     };
     return attributes;
   },

@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import type { MessageKey, MessageParams } from "../src/shared/i18n/types";
 import {
+  addFilesLabelKey,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dragOnto,
@@ -586,7 +587,7 @@ for (const [language, width] of [
 
 const NEW_MENU_ROWS: readonly MessageKey[] = [
   "menu.newMind",
-  "documents.add.filesOrFolder",
+  addFilesLabelKey,
   "menu.newFolder",
   "sidebar.plus.more",
 ];
@@ -601,7 +602,7 @@ const MORE_ROWS: readonly MessageKey[] = [
 ];
 const IN_PALETTE: readonly MessageKey[] = [
   "menu.newMind",
-  "documents.add.filesOrFolder",
+  addFilesLabelKey,
   "menu.newFolder",
   "sidebar.plus.linkFolder",
   "wordImport.command",

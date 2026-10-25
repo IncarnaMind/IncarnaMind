@@ -33,6 +33,14 @@ import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 
 const appDir = resolve(__dirname, "..");
 
+// CI runs two workers, each on a virtual display of its own: windows on one display take the
+// keyboard focus from each other and share its clipboard.
+const displays = (process.env.INCARNAMIND_DISPLAYS ?? "").split(",").filter(Boolean);
+const workerIndex = Number(process.env.TEST_PARALLEL_INDEX);
+if (displays.length > 0 && Number.isInteger(workerIndex)) {
+  process.env.DISPLAY = displays[workerIndex % displays.length];
+}
+
 /**
  * The apps this test launched that are still open, by the data folder each
  * runs on: `removeDataFolder` closes them, keeping a picture of the window if
@@ -2783,3 +2791,20 @@ export async function decisionServer(
     },
   };
 }
+
+/**
+ * What the one way in says on this machine: macOS takes files and a folder in
+ * one sheet; Windows and Linux offer files, so the words say files (#1942).
+ */
+export const addFilesLabel = (language: "en" | "zh-CN") =>
+  process.platform === "darwin"
+    ? language === "en"
+      ? "Add files or a folder…"
+      : "添加文件或文件夹…"
+    : language === "en"
+      ? "Add files…"
+      : "添加文件…";
+
+/** Its label's message key, for the menus and ⌘K that show it. */
+export const addFilesLabelKey =
+  process.platform === "darwin" ? "documents.add.filesOrFolder" : "startGuide.documents.addFiles";

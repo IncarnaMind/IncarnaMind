@@ -6,6 +6,7 @@ import { contractFile, RESUME_TEXT_WIDTH_TWIPS, resumeFile } from "../tests/help
 import {
   createDataFolder,
   dismissChatSetup,
+  focusSettled,
   importWordFile,
   launchApp,
   pointAndClick,
@@ -136,6 +137,7 @@ test("a résumé's tab stops line its columns up at the file's stops, its dates 
   await expect.poll(() => offStop(date, "right", RESUME_WIDTH)).toBeLessThan(3);
 
   // Typed right after a tab, a letter is text in the column, not part of the tab.
+  await focusSettled(window, window.getByTestId("mind-editor"));
   for (let key = 0; key < "复旦大学\t".length; key++) await window.keyboard.press("ArrowRight");
   await window.keyboard.type("B");
   await expect.poll(() => offStop("B金融学", "left", 120)).toBeLessThan(3);

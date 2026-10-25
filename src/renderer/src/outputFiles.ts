@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { OutputSettings } from "../../core/api";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { core, files } from "./core";
@@ -28,3 +29,40 @@ export const outputFolderLabel = (folder: string, suggested: string, t: Translat
 /** Opens Settings at the Output location, its Change… focused: a first save's Change folder… (D209). */
 export const showOutputLocationSetting = (): void =>
   useAppStore.getState().openSettings("general", "output-location");
+
+/**
+ * Which Linked folders the User allows IncarnaMind to add files to, by id: the
+ * store of the answers as read, so a row says "read-only" only when the folder
+ * is (#1942).
+ */
+export function useLinkedFolderWriting(): Readonly<Record<string, boolean>> {
+  const [writing, setWriting] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    let stopped = false;
+    // A read asked for before an answer arrived must not put the older answer back.
+    let heard = false;
+    const set = (settings: OutputSettings) => {
+      if (stopped) return;
+      setWriting(
+        Object.fromEntries(
+          settings.linkedFolders.map((each) => [each.linkedFolderId, each.allowed]),
+        ),
+      );
+    };
+    core.getOutputSettings().then(
+      (loaded) => {
+        if (!heard) set(loaded);
+      },
+      (error: unknown) => console.error("Couldn't read where IncarnaMind may write.", error),
+    );
+    const stop = core.on("outputSettings.changed", (settings) => {
+      heard = true;
+      set(settings);
+    });
+    return () => {
+      stopped = true;
+      stop();
+    };
+  }, []);
+  return writing;
+}

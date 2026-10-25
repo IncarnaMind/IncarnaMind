@@ -4,6 +4,7 @@ import { expect, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  addFilesLabel,
   createDataFolder,
   dismissChatSetup,
   interceptOpenDialog,
@@ -33,9 +34,9 @@ test.afterEach(async () => {
 
 const SHOTS = process.env.ADD_FILES_SHOTS;
 
-const WORDS = {
-  en: { add: "Add files or a folder…", link: "Link a folder…", readOnly: "read-only" },
-} as const;
+const ADD = addFilesLabel("en");
+const LINK = "Link a folder…";
+const READ_ONLY = "read-only";
 
 async function threePdfs(): Promise<string[]> {
   const written: string[] = [];
@@ -75,61 +76,103 @@ async function start() {
 
 test("the + menu offers one way in, and a folder picked there is read where it is", async () => {
   test.setTimeout(180_000);
-  const words = WORDS.en;
   const folder = join(sources, "Contracts");
   await mkdir(folder);
   await writeFile(join(folder, "Lease.txt"), "The lease term is five years.\n");
   const { app, window } = await start();
+  try {
+    await window.getByTestId("plus-menu").click();
+    await expect(window.getByTestId("plus-add-documents")).toContainText(ADD);
+    await shot(window, "plus-menu-one-way-in");
+    await window.getByTestId("plus-more").click();
+    await expect(window.getByTestId("plus-more-menu")).not.toContainText(LINK);
+    await window.keyboard.press("Escape");
+    await window.keyboard.press("Escape");
 
-  await window.getByTestId("plus-menu").click();
-  await expect(window.getByTestId("plus-add-documents")).toContainText(words.add);
-  await shot(window, "plus-menu-one-way-in");
-  await window.getByTestId("plus-more").click();
-  await expect(window.getByTestId("plus-more-menu")).not.toContainText(words.link);
-  await window.keyboard.press("Escape");
-  await window.keyboard.press("Escape");
+    await interceptOpenDialog(app, folder);
+    await window.getByTestId("plus-menu").click();
+    await window.getByTestId("plus-add-documents").click();
+    const dialog = window.getByTestId("link-folder-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByTestId("link-folder-confirm").click();
+    await expect(dialog).toBeHidden();
 
-  await interceptOpenDialog(app, folder);
-  await window.getByTestId("plus-menu").click();
-  await window.getByTestId("plus-add-documents").click();
-  const dialog = window.getByTestId("link-folder-dialog");
-  await expect(dialog).toBeVisible();
-  await dialog.getByTestId("link-folder-confirm").click();
-  await expect(dialog).toBeHidden();
+    const row = linkedFolderRow(window, "Contracts");
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId("linked-folder-read-only")).toHaveText(READ_ONLY);
+    await expect
+      .poll(() =>
+        window.evaluate(
+          async () =>
+            (
+              await (
+                globalThis as unknown as { incarnamind: CoreBridge }
+              ).incarnamind.listDocuments()
+            ).filter((each) => each.name === "Lease").length,
+        ),
+      )
+      .toBe(1);
+    // The file is still where the User keeps it.
+    await expect
+      .poll(() =>
+        window.evaluate(
+          async () =>
+            (
+              await (
+                globalThis as unknown as { incarnamind: CoreBridge }
+              ).incarnamind.listDocuments()
+            ).find((each) => each.name === "Lease")?.fileStatus,
+        ),
+      )
+      .toBe("available");
 
-  const row = linkedFolderRow(window, "Contracts");
-  await expect(row).toBeVisible();
-  await expect(row.getByTestId("linked-folder-read-only")).toHaveText(words.readOnly);
-  await expect
-    .poll(() =>
-      window.evaluate(
-        async () =>
-          (
-            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments()
-          ).filter((each) => each.name === "Lease").length,
-      ),
-    )
-    .toBe(1);
-  // The file is still where the User keeps it.
-  await expect
-    .poll(() =>
-      window.evaluate(
-        async () =>
-          (
-            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments()
-          ).find((each) => each.name === "Lease")?.fileStatus,
-      ),
-    )
-    .toBe("available");
+    // A folder the User allows IncarnaMind to add files to is not read-only: the label goes.
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      // The example has a Linked folder of its own: the one this test linked is Contracts.
+      const linked = (await core.listLinkedFolders()).find((each) =>
+        each.path.endsWith("Contracts"),
+      );
+      if (!linked) throw new Error("Contracts isn't linked.");
+      await core.setLinkedFolderWriting(linked.id, true);
+    });
+    await expect
+      .poll(() =>
+        window.evaluate(async () => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          const settings = await core.getOutputSettings();
+          return settings.linkedFolders.map((each) => each.allowed);
+        }),
+      )
+      .toEqual([true]);
+    await expect(row.getByTestId("linked-folder-read-only")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
 });
 
-test("⌘K finds Add files or a folder…", async () => {
+test("⌘K finds the one way in, and running it opens the one sheet, at 1,600 px too", async () => {
   test.setTimeout(180_000);
-  const { window } = await start();
-  await window.keyboard.press("ControlOrMeta+k");
-  await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("Add files or a folder");
-  await expect(paletteFound(window).filter({ hasText: "Add files or a folder…" })).toHaveCount(1);
-  await window.keyboard.press("Escape");
-  await expect(window.getByTestId("palette")).toBeHidden();
+  const folder = join(sources, "Contracts");
+  await mkdir(folder);
+  await writeFile(join(folder, "Lease.txt"), "The lease term is five years.\n");
+  const { app, window } = await start();
+  try {
+    await setWindowSize(app, window, 1600, 1000);
+
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(ADD.replace(/…$/, ""));
+    const found = paletteFound(window).filter({ hasText: ADD });
+    await expect(found).toHaveCount(1);
+    await interceptOpenDialog(app, folder);
+    await window.keyboard.press("Enter");
+    const dialog = window.getByTestId("link-folder-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(window.getByTestId("palette")).toBeHidden();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+  } finally {
+    await app.close();
+  }
 });
