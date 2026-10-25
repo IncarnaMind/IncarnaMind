@@ -454,6 +454,9 @@ export const en = {
   "undo.title": "Undo ({shortcut})",
   "line.actionKeys": "{label} ({keys})",
 
+  "assistant.whichMind": "Which Mind: {names} or {last}?",
+  "assistant.whichMind.separator": ", ",
+  "assistant.whichMind.where": "{folder} · edited {date}",
   "mind.untitled": "Untitled",
   "conversation.untitled": "New chat",
   "mind.noneOpen.title": "Start a Mind",

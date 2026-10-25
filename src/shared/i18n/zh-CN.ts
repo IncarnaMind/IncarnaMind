@@ -444,6 +444,9 @@ export const zhCN = {
   "undo.title": "撤销（{shortcut}）",
   "line.actionKeys": "{label}（{keys}）",
 
+  "assistant.whichMind": "要改哪个 Mind：{names}还是{last}？",
+  "assistant.whichMind.separator": "、",
+  "assistant.whichMind.where": "{folder} · {date}编辑",
   "mind.untitled": "未命名",
   "conversation.untitled": "新对话",
   "mind.noneOpen.title": "新建一个 Mind",
