@@ -424,6 +424,15 @@ describe("exporting a Mind", () => {
         ],
       },
       { type: "bulletList", content: [item(paragraph(text("Ordinary bullet")))] },
+      {
+        type: "bulletList",
+        content: [
+          item(paragraph(text("Parent bullet")), {
+            type: "taskList",
+            content: [task(false, paragraph(text("Under bullet")))],
+          }),
+        ],
+      },
     ]);
     await client.settled();
     const { document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
@@ -440,11 +449,13 @@ describe("exporting a Mind", () => {
       { text: "Supporting note", indent: ["1140", "360"], listed: true },
       { text: "☒\t", indent: ["420", "420"], listed: false },
       { text: "Ordinary bullet", indent: ["720", "360"], listed: true },
+      { text: "Parent bullet", indent: ["720", "360"], listed: true },
+      { text: "☐\tUnder bullet", indent: ["1140", "420"], listed: false },
     ]);
     const todos = [...document.matchAll(/<w:p>.*?<\/w:p>/g)]
       .map((found) => found[0])
       .filter((each) => /<w:t xml:space="preserve">[☐☒]<\/w:t>/.test(each));
-    expect(todos).toHaveLength(4);
+    expect(todos).toHaveLength(5);
     for (const xml of todos) {
       expect(xml).toContain("<w:r><w:tab/></w:r>");
       // Word's schema has no bare <w:tab/> under <w:p>: every tab sits in a run.

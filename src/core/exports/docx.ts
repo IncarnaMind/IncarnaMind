@@ -616,7 +616,12 @@ export class DocxWriter {
           child.kind === "list"
             ? this.list(
                 child,
-                pendingContext(child, { ...context, listDepth: context.listDepth + 1 }),
+                pendingContext(child, {
+                  ...context,
+                  listDepth: context.listDepth + 1,
+                  // A checklist starts at the text of the bullet or number it hangs under.
+                  ...(child.checked && { indent: textIndent }),
+                }),
               )
             : this.block(
                 child,

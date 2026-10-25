@@ -339,7 +339,15 @@ describe("the Word corpus", () => {
             task(true, prose()),
           ],
         },
-        { type: "bulletList", content: [item(prose("Ordinary bullet"))] },
+        {
+          type: "bulletList",
+          content: [
+            item(prose("Ordinary bullet"), {
+              type: "taskList",
+              content: [task(false, prose("Under bullet"))],
+            }),
+          ],
+        },
       ]);
       await client.settled();
       const exported = await core.exportMind(mind.id, { format: "docx" });
@@ -364,10 +372,10 @@ describe("the Word corpus", () => {
           indent: child(child(each, "w:pPr") ?? each, "w:ind")?.attrs["w:left"],
         }))
         .filter((each) => /^[☐☒]/u.test(each.text));
-      expect(boxes.map((each) => each.indent)).toEqual(["420", "780", "1140", "420"]);
+      expect(boxes.map((each) => each.indent)).toEqual(["420", "780", "1140", "420", "1140"]);
       expect(
         paragraphLines(document.structure.blocks).filter((line) => /^[☐☒]/u.test(line)),
-      ).toEqual(["☐\t核查清单项", "☒\t已核对", "☐\tDeeper", "☒\t"]);
+      ).toEqual(["☐\t核查清单项", "☒\t已核对", "☐\tDeeper", "☒\t", "☐\tUnder bullet"]);
       // A box is text in Word: the import makes a paragraph of it, not a to-do the User can tick.
       expect(JSON.stringify(document.structure.blocks)).not.toContain('"taskList"');
     },
