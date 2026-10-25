@@ -4,7 +4,12 @@
  * and short lines, while it streams too.
  */
 import { describe, expect, test } from "vitest";
-import { quoted, readHelpReply, shownItems } from "../../src/renderer/src/helpReply";
+import {
+  citationNumbers,
+  quoted,
+  readHelpReply,
+  shownItems,
+} from "../../src/renderer/src/helpReply";
 
 const textOf = (pieces: ReturnType<typeof readHelpReply>[number]["lead"]) =>
   pieces.map((piece) => (piece.kind === "text" ? piece.text : `[${piece.marker}]`)).join("");
@@ -107,5 +112,17 @@ describe("A help reply", () => {
     const items = readHelpReply("★ We can extend the pil");
     expect(items).toHaveLength(1);
     expect(items[0]?.effect).toBeNull();
+  });
+
+  // protects=the call help panel numbers its Citations from 1 in the order the reply cites them, a figure's input's ("[^9001]") included, as the assistant does (#1831); fails_when=a chip or source row reads "9001"; no_claim=how a chip looks.
+  test("Citations are numbered from 1 in the order cited, never by the core's marker", () => {
+    const items = readHelpReply(
+      "★ Net debt is £310 million [^9001], inside the covenant [^2].\n→ answers at once\n\nThe rate was 4% [^2] [^7].\n→ gives the detail",
+    );
+    const known = new Set([9001, 2]);
+    expect([...citationNumbers(items, (marker) => known.has(marker))]).toEqual([
+      [9001, 1],
+      [2, 2],
+    ]);
   });
 });

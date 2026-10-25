@@ -21,9 +21,10 @@ import {
 } from "./app";
 
 /*
- * The check badge (#909): at a Mind's bottom right, the margin marks' counts
- * and the cited or Answer-written claims no check has looked at; nothing on a
- * Mind of plain notes. Its card opens from it, and from ⌘K. The scripted model
+ * The check badge (#909, #1909): at a Mind's bottom right, the margin marks'
+ * counts and every claim no check covers; nothing on a Mind of plain notes
+ * with no Citation and no problem (#1194). Its card opens from it, and from
+ * ⌘K. The scripted model
  * (src/main/fakeChat/checks.ts) finds a sentence supported when it shares
  * three words with a line of a Document, and otherwise unsupported. Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
@@ -73,12 +74,12 @@ test("a Mind of plain notes is bare, whatever it claims; its card, from ⌘K, ha
   await expect(editor).toContainText("Thanks!");
   await expect(badge).toHaveCount(0);
 
-  // A claim in the User's own notes, with no Citation, is not one to check: no badge.
+  // A claim in the User's own notes is one to check, but no Citation shows the badge: it stays bare.
   await window.keyboard.type(` ${SUPPORTED}`);
   await expect(editor).toContainText(SUPPORTED);
   const card = await checkCard(window);
-  await expect(card.getByTestId("health-noCitation")).toContainText("1 with no Citation");
-  await expect(card.getByTestId("health-unchecked")).toHaveCount(0);
+  await expect(card.getByTestId("health-toCheck")).toContainText("1 claim not checked yet");
+  await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
   await expect(badge).toHaveCount(0);
   // One action, and the one under it; no lines about them, and no Close: Esc closes it.
   await expect(card.getByTestId("badge-check-mind")).toHaveText("Check this Mind");

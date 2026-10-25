@@ -22,7 +22,7 @@ import {
   type UnsupportedReason,
 } from "../core/api";
 import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
-import { comparableSentence } from "./sentences";
+import { comparableSentence, isClaim } from "./sentences";
 
 /** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
 export const SENTENCES_CHECKED_AT_MOST = 12;
@@ -291,6 +291,81 @@ export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckS
   check.action !== "contradiction-watch" &&
   check.checkedAt !== "" &&
   (shown.state === "unsupported" || shown.state === "not-checked");
+
+/**
+ * A sentence as every surface counts it (#1909): a claim no check covers now
+ * is "to check", whether it has no check at all, one that failed, or one that
+ * no longer holds; a verdict that holds covers it; a sentence the User keeps
+ * as their own view, one the last whole-Mind check found makes no claim, and
+ * one that makes no claim count as nothing.
+ */
+export type CheckedSentence =
+  | { kind: "covered" }
+  | { kind: "checking" }
+  | { kind: "to-check"; fresh: boolean; why: "none" | "failed" | "recheck" }
+  | { kind: "kept" }
+  | { kind: "not-claim" };
+
+/** A kept mark's place and the words it was made on. */
+export interface KeptMark {
+  from: number;
+  to: number;
+  text: string;
+}
+
+/**
+ * Whether a sentence is at a kept mark's place (#1909): the one rule the core
+ * and the window read, so a kept sentence elsewhere with the same words
+ * doesn't hide the margin's mark on this one.
+ */
+export function keptOn(
+  kept: readonly KeptMark[],
+  sentence: { from: number; to: number; text: string },
+): boolean {
+  const words = comparableSentence(sentence.text);
+  return kept.some(
+    (mark) =>
+      mark.from < sentence.to && mark.to > sentence.from && comparableSentence(mark.text) === words,
+  );
+}
+
+export function checkedSentence(input: {
+  text: string;
+  /** How its check shows now; null for none. */
+  check: ClaimCheckShown | null;
+  /** The last whole-Mind check found it makes no claim. */
+  skipped: boolean;
+  /** A kept mark is at this sentence's place. */
+  kept: boolean;
+}): CheckedSentence {
+  // A check that shows decides first: a verdict on a figure or a short line is still a verdict (#1909).
+  if (input.check) {
+    switch (input.check.state) {
+      case "kept":
+        return { kind: "kept" };
+      case "checking":
+        return { kind: "checking" };
+      case "supported":
+      case "unsupported":
+      case "contradicted":
+        return { kind: "covered" };
+      case "not-checked":
+        return { kind: "to-check", fresh: false, why: "failed" };
+      case "needs-recheck":
+        return { kind: "to-check", fresh: false, why: "recheck" };
+    }
+  }
+  if (input.kept) return { kind: "kept" };
+  if (input.skipped || !isClaim(input.text)) return { kind: "not-claim" };
+  return { kind: "to-check", fresh: true, why: "none" };
+}
+
+/** How many of these sentences a check still has to make: the one count (#1909). */
+export function toCheckCount(sentences: Iterable<CheckedSentence>): number {
+  let count = 0;
+  for (const sentence of sentences) if (sentence.kind === "to-check") count++;
+  return count;
+}
 
 /**
  * A sentence's check as a record lists it: the counts' keys (`needsRecheck` is a Document or the

@@ -21,7 +21,6 @@ import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
 import { useCardPlace } from "./checkPlace";
 import { shownClaims } from "./claimChecks";
-import { HEALTH_PARTS } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, useMindCheckProgress } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
@@ -108,8 +107,13 @@ function MindBadge({
       : shownClaims(editor.state).filter((each) => each.check.request === finished).length,
   );
   const input: BadgeInput = {
-    marks: Object.fromEntries(HEALTH_PARTS.map((part) => [part, health[part].length])),
-    toCheck: health.unchecked.length,
+    marks: {
+      contradicted: health.contradicted.length,
+      unsupported: health.unsupported.length,
+      notFound: health.notFound.length,
+    },
+    toCheck: health.toCheck.length,
+    citable: health.citable.length,
     running: running !== undefined,
     asking: askingMind || askingContradictions,
     problem,
@@ -224,9 +228,9 @@ function VerifyBadge({
       contradicted: rows.contradicted.length,
       unsupported: rows.unsupported.length,
       notChecked: rows.notChecked.length,
-      recheck: rows.recheck.length,
     },
     toCheck,
+    citable: toCheck,
     running: state.running !== null,
     asking: state.asking,
     problem: state.problem || nothing,
@@ -403,7 +407,7 @@ function BadgePill({
     ...badge.marks.map(({ part, count }) => partLabel(t, part, count, format(count))),
     ...(badge.toCheck > 0
       ? [
-          t(badge.toCheck === 1 ? "health.unchecked.one" : "health.unchecked", {
+          t(badge.toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
             count: format(badge.toCheck),
           }),
         ]

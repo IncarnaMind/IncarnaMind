@@ -1,23 +1,14 @@
-import { getSchema, type JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import {
-  type AnswerToolCall,
-  CLAIM_CHECK_MARK,
-  type ClaimCheckAttributes,
-  type MindChange,
-} from "../../src/core/api";
-import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
-import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { leftToCheck, selfCheckLines, selfChecksOf } from "../../src/renderer/src/selfChecks";
+import type { AnswerToolCall, MindChange } from "../../src/core/api";
+import { checkableOf, selfCheckLines, selfChecksOf } from "../../src/renderer/src/selfChecks";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
  * The lines under an Answer whose writes were checked before they landed
- * (#1111): "1 sentence couldn't be checked · Check again" and "Checked 12 of
- * 13 cited sentences · Check the rest", and the sentences either checks.
+ * (#1111, #1909): "1 sentence couldn't be checked · Check again" and
+ * "Checked 12 of 20 sentences · Check the rest", counting every claim the
+ * write holds, cited or not.
  */
-
-const schema = getSchema(noteExtensions());
 
 let calls = 0;
 const call = (mindChange: MindChange): AnswerToolCall => ({
@@ -38,57 +29,38 @@ const change = (selfCheck?: MindChange["selfCheck"]): MindChange => ({
   ...(selfCheck && { selfCheck }),
 });
 
-function checked(
-  sentence: string,
-  check: Pick<ClaimCheckAttributes, "id" | "request" | "state">,
-  text = sentence,
-): JSONContent {
-  const attrs: ClaimCheckAttributes = {
-    ...check,
-    action: "check-against-documents",
-    reason: check.state === "not-checked" ? "failed" : null,
-    detail: null,
-    providerId: null,
-    modelId: null,
-    text,
-    evidence: null,
-    says: null,
-    unsupported: null,
-    calculation: null,
-    citedCaseUnchecked: false,
-    citedCaseFound: false,
-    scope: { folderId: null, widened: false },
-    versions: [],
-    excluded: [],
-    checkedAt: "2026-10-18T09:00:00.000Z",
-  };
-  return {
-    type: "paragraph",
-    content: [{ type: "text", text: sentence, marks: [{ type: CLAIM_CHECK_MARK, attrs }] }],
-  };
-}
-
 describe("What a write's check left to do", () => {
-  // protects=a line shows only for a write whose check failed somewhere or stopped at the cap; fails_when=a write checked whole shows one, or a failed or capped one doesn't; no_claim=the words.
-  test("a write whose check failed or stopped at the most it checks has a line; one checked whole has none", () => {
-    const failed = { request: "w1", cited: 2, sent: 2, checked: 1, failed: 1 };
-    const capped = { request: "w2", cited: 13, sent: 12, checked: 12, failed: 0 };
-    const whole = { request: "w3", cited: 3, sent: 3, checked: 3, failed: 0 };
+  // protects=a line shows only for a write whose check failed or left sentences it did not check (uncited claims or past the cap); fails_when=a write checked whole shows one, or a failed or left one doesn't; no_claim=the words.
+  test("a write whose check failed or left sentences has a line; one checked whole has none", () => {
+    const failed = { request: "w1", checkable: 2, cited: 2, sent: 2, checked: 1, failed: 1 };
+    const left = { request: "w2", checkable: 20, cited: 13, sent: 12, checked: 12, failed: 0 };
+    const uncited = { request: "w4", checkable: 4, cited: 2, sent: 2, checked: 2, failed: 0 };
+    const whole = { request: "w3", checkable: 3, cited: 3, sent: 3, checked: 3, failed: 0 };
     expect(
       selfChecksOf([
         call(change(failed)),
         call(change(whole)),
         call(change()),
-        call(change(capped)),
+        call(change(left)),
+        call(change(uncited)),
       ]),
     ).toEqual([
       { mindId: "mind-1", ...failed },
-      { mindId: "mind-1", ...capped },
+      { mindId: "mind-1", ...left },
+      { mindId: "mind-1", ...uncited },
     ]);
   });
 
-  // protects=the lines say how many couldn't be checked and why, with the action that can help, and the cap's line counts the sentences checked, not those sent; fails_when=a failure overstates the count, a capped or limited run offers Check again, or a plan's limit hides when it resumes; no_claim=design's final words beyond these.
-  test("the lines say how many couldn't be checked and why, and the cap's line counts those checked", () => {
+  // protects=a line recorded before #1909, with only the cited count, still shows and counts; fails_when=a stored Answer stops offering the check.
+  test("a check recorded before #1909 counts the cited sentences it kept", () => {
+    expect(checkableOf({ request: "w", cited: 13, sent: 12, checked: 12, failed: 0 })).toBe(13);
+    expect(
+      selfChecksOf([call(change({ request: "w", cited: 2, sent: 1, checked: 1, failed: 0 }))]),
+    ).toHaveLength(1);
+  });
+
+  // protects=the lines say how many couldn't be checked and why, with the action that can help, and the left line counts what no check covers, not what was sent; fails_when=a failure overstates the count, a left or limited run offers Check again, or a plan's limit hides when it resumes; no_claim=design's final words beyond these.
+  test("the lines say how many couldn't be checked and why, and the left line says what is left", () => {
     const words = (language: "en" | "zh-CN", check: Parameters<typeof selfCheckLines>[0]) =>
       selfCheckLines(
         check,
@@ -101,7 +73,9 @@ describe("What a write's check left to do", () => {
       ...selfCheck,
     });
 
-    expect(words("en", of({ request: "w", cited: 13, sent: 12, checked: 10, failed: 2 }))).toEqual([
+    expect(
+      words("en", of({ request: "w", checkable: 20, cited: 13, sent: 12, checked: 10, failed: 2 })),
+    ).toEqual([
       {
         kind: "failed",
         text: "2 sentences couldn’t be checked",
@@ -109,10 +83,35 @@ describe("What a write's check left to do", () => {
         action: { label: "Check again", does: "check" },
       },
       {
-        kind: "capped",
-        text: "Checked 10 of 13 cited sentences",
+        kind: "left",
+        text: "Checked 10 sentences",
         details: [],
         action: { label: "Check the rest", does: "check" },
+      },
+    ]);
+    // The write's own live left, by the one count: the card's unit, 10 then 0 (#1909).
+    const live = (left: number) =>
+      selfCheckLines(
+        of({ request: "w", checkable: 20, cited: 13, sent: 12, checked: 10, failed: 2 }),
+        (key: MessageKey, params?: MessageParams) => translate("en", key, params),
+        "en",
+        new Date("2026-10-18T09:00:00.000Z"),
+        left,
+      ).filter((line) => line.kind === "left");
+    expect(live(10)).toEqual([
+      {
+        kind: "left",
+        text: "Checked 10 sentences · 10 claims not checked yet",
+        details: [],
+        action: { label: "Check the rest", does: "check" },
+      },
+    ]);
+    expect(live(0)).toEqual([
+      {
+        kind: "left",
+        text: "Checked 10 sentences · 0 claims not checked yet",
+        details: [],
+        action: null,
       },
     ]);
     expect(
@@ -120,6 +119,7 @@ describe("What a write's check left to do", () => {
         "zh-CN",
         of({
           request: "w",
+          checkable: 1,
           cited: 1,
           sent: 1,
           checked: 0,
@@ -137,6 +137,7 @@ describe("What a write's check left to do", () => {
     ]);
     const limited = of({
       request: "w",
+      checkable: 3,
       cited: 3,
       sent: 3,
       checked: 1,
@@ -161,7 +162,7 @@ describe("What a write's check left to do", () => {
         (key: MessageKey, params?: MessageParams) => translate(language, key, params),
         language,
       ).map(({ kind, text, action }) => ({ kind, text, action }));
-    const write = { request: "w", cited: 3, sent: 3, checked: 0 };
+    const write = { request: "w", checkable: 3, cited: 3, sent: 3, checked: 0 };
 
     expect(
       lines("en", { ...write, failed: 3, blocked: { reason: "consent-revoked", count: 3 } }),
@@ -228,38 +229,5 @@ describe("What a write's check left to do", () => {
         blocked: { reason: "consent-revoked", count: 1 },
       }).map(({ kind }) => kind),
     ).toEqual(["cost-cap"]);
-  });
-
-  // protects=Check again and Check the rest check only the sentences that write's check left not checked, as they are now; fails_when=another write's, a checked one, or one edited since is sent; no_claim=how the check runs.
-  test("Check again and Check the rest check only the sentences that write left not checked", () => {
-    const doc = schema.nodeFromJSON({
-      type: "doc",
-      content: [
-        checked("The quay floods at spring tides.", {
-          id: "a",
-          request: "w1",
-          state: "not-checked",
-        }),
-        checked("Gulls nest on the harbour walls.", {
-          id: "b",
-          request: "w1",
-          state: "unsupported",
-        }),
-        checked("Boats moor by the quay.", { id: "c", request: "w2", state: "not-checked" }),
-        checked(
-          "Seals rest on the sand bar today.",
-          { id: "d", request: "w1", state: "not-checked" },
-          "Seals rest on the sand bar.",
-        ),
-        checked("Ferries leave on the hour.", { id: "e", request: "w1", state: "not-checked" }),
-      ],
-    });
-    const { claims } = claimsOf(doc, { versions: null, folderId: null, scope: null });
-    const left = leftToCheck(claims, "w1");
-
-    expect(left.map(({ from, to }) => doc.textBetween(from, to))).toEqual([
-      "The quay floods at spring tides.",
-      "Ferries leave on the hour.",
-    ]);
   });
 });

@@ -98,8 +98,8 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await useLocalChatModel(window);
   const { editor, line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
   await setWindowSize(app, window, 1440, 900);
-  await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
-    "2 with no Citation",
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "2 claims not checked yet",
   );
 
   await checkAll(window, line, "Spring tides", "harbour cliffs.", "check-against-documents");
@@ -165,8 +165,9 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await slideSelect(window, line, "Penguins");
   await window.keyboard.type("Gulls");
   await expect(marks(window)).toHaveAttribute("data-check", "needs-recheck");
-  await expect((await checkCard(window)).getByTestId("health-recheck")).toContainText(
-    "1 needs re-check",
+  // Its Citation's check stands for the supported sentence, which has no mark now; the edited one is to check too.
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "2 claims not checked yet",
   );
   await screenshot(window, "check-recheck-en");
   await pointAndClick(window, marks(window));
@@ -240,8 +241,8 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   const { line } = await mindWithSentences(window, [CONTRADICTED, BLANK]);
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
-  await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
-    "2 条没有引用",
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "2 条说法待核对",
   );
 
   await slideSelect(window, line, "Harbours publish", { line, words: "blank reply." });
@@ -265,8 +266,8 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   await expect((await checkCard(window)).getByTestId("health-contradicted")).toContainText(
     "1 条与文档矛盾",
   );
-  await expect((await checkCard(window)).getByTestId("health-notChecked")).toContainText(
-    "1 条未核对",
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "1 条说法待核对",
   );
   await screenshot(window, "check-results-zh-narrow");
   // In a narrow window the card covers the margin: Esc puts it away.
@@ -291,7 +292,7 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
 
   // Each row of the badge's card moves to its sentence.
   await window.keyboard.press("Escape");
-  await pointAndClick(window, (await checkCard(window)).getByTestId("health-notChecked"));
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
   await expect(window.getByTestId("mind-editor")).toBeFocused();
 });
 
