@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, MindProblem } from "../../src/core/api";
+import type { AnswerToolCall, MindChange, MindProblem } from "../../src/core/api";
 import {
   problemText,
   unbackedClaimLine,
+  uncitedWritesOf,
   waitingProblemOf,
 } from "../../src/renderer/src/changeProblems";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
@@ -79,6 +80,36 @@ describe("The line under a reply that still claims a change (#1559)", () => {
   test("no line without a claim", () => {
     expect(unbackedClaimLine(en, { steps: null, toolCalls: [] })).toBeNull();
     expect(unbackedClaimLine(en, { steps: {}, toolCalls: [call(null, "a")] })).toBeNull();
+  });
+});
+
+describe("The line under an Answer that wrote uncited text into a Mind (#1415)", () => {
+  const wrote = (change: Partial<MindChange> & { mindId: string }): AnswerToolCall => ({
+    ...call(null),
+    tool: "create_mind",
+    mindChange: { created: true, request: "r", proposals: 1, ...change },
+  });
+
+  // protects=a Mind given new text with no Citation after the Answer read Passages gets one line, in English and Chinese, unless another write there cites; fails_when=the line is missing, shows for a cited write, or shows twice for one Mind; no_claim=when the core marks a write uncited (tests/core/summaryAfterSkip.test.ts).
+  test("each Mind written with no Citation, unless a write there cites", () => {
+    expect(uncitedWritesOf({ toolCalls: [wrote({ mindId: "a", uncited: true })] })).toEqual(["a"]);
+    expect(
+      uncitedWritesOf({
+        toolCalls: [wrote({ mindId: "a", uncited: true }), wrote({ mindId: "a", uncited: true })],
+      }),
+    ).toEqual(["a"]);
+    expect(
+      uncitedWritesOf({
+        toolCalls: [wrote({ mindId: "a", uncited: true }), wrote({ mindId: "a", cited: 3 })],
+      }),
+    ).toEqual([]);
+    expect(uncitedWritesOf({ toolCalls: [wrote({ mindId: "b", cited: 2 })] })).toEqual([]);
+    expect(en("answer.uncitedWrite", { mind: "Summary" })).toBe(
+      "What was written in “Summary” has no Citations, so none of it was checked against your Documents",
+    );
+    expect(zh("answer.uncitedWrite", { mind: "主要文档总结" })).toBe(
+      "“主要文档总结”中写入的内容没有引用，未与文档核对",
+    );
   });
 });
 

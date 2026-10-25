@@ -61,6 +61,21 @@ export function unbackedClaimLine(
   return t("answer.notWritten", { reason });
 }
 
+/**
+ * The Minds an Answer wrote new text into with none of it cited, once it had searched and found
+ * Passages (#1415): nothing written there was checked against the Documents. In the order it wrote them.
+ */
+export function uncitedWritesOf(answer: Pick<ConversationAnswer, "toolCalls">): string[] {
+  const changes = answer.toolCalls.flatMap((call) => call.mindChange ?? []);
+  const cited = new Set(
+    changes.flatMap((change) => ((change.cited ?? 0) > 0 ? [change.mindId] : [])),
+  );
+  const uncited = changes.flatMap((change) =>
+    change.uncited && !cited.has(change.mindId) ? [change.mindId] : [],
+  );
+  return [...new Set(uncited)];
+}
+
 /** Why a call of a Minds' Tool changed nothing, in its row's words; null for one of no kind it knows. */
 export function problemText(t: Translate, problem: MindProblem, mind: string): string | null {
   switch (problem.kind) {

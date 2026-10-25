@@ -1,6 +1,6 @@
 import type { ConversationAnswer } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
-import { unbackedClaimLine, waitingProblemOf } from "../../changeProblems";
+import { unbackedClaimLine, uncitedWritesOf, waitingProblemOf } from "../../changeProblems";
 import { useT } from "../../i18n";
 import { showWaitingChanges, useWaitingIn } from "../../mindChanges";
 import { useAppStore } from "../../store";
@@ -70,4 +70,37 @@ export function UnbackedClaimLine({
       {line}
     </ProblemLine>
   );
+}
+
+/**
+ * Under an Answer that wrote text drawn from the Documents into a Mind with no Citation (#1415):
+ * that nothing there was checked against them, with Try again. One line for each such Mind.
+ */
+export function UncitedWritesLine({
+  answer,
+  onRetry,
+}: {
+  answer: Pick<ConversationAnswer, "toolCalls">;
+  onRetry(): void;
+}) {
+  const t = useT();
+  const minds = useAppStore((state) => state.minds);
+  return uncitedWritesOf(answer).map((mindId) => {
+    const mind = minds.find((each) => each.id === mindId);
+    if (!mind) return null;
+    return (
+      <ProblemLine
+        key={mindId}
+        role="status"
+        testId="answer-uncited-write"
+        action={{
+          label: t("answer.notWritten.retry"),
+          testId: "answer-uncited-retry",
+          onClick: onRetry,
+        }}
+      >
+        {t("answer.uncitedWrite", { mind: mindName(mind) || t("mind.untitled") })}
+      </ProblemLine>
+    );
+  });
 }

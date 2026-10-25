@@ -27,15 +27,17 @@
  * when nothing matches, the Answer has no Citation at all and one of its
  * sentences shares at least five words with one of the Passages'. What it
  * gives is taken the same way, a Citation taking the marker its sentence has.
- * A marker is enough to ask, so an Answer in another language than its
- * Passages, which shares no words with them, is asked too. Never more than
- * once per Answer, so an Answer saying the Documents don't cover the Question
- * doesn't pay for it. In the Tool loop the ask is one of the end-of-turn
- * checks' (see ./turnChecks): `mayAsk`.
+ * An Answer in another language than its Passages shares no words with them,
+ * so it is asked whenever it has no Citation (#1415: Claude Haiku 5.5's Chinese
+ * summary of English Documents stayed uncited where its English one was asked).
+ * Never more than once per Answer, so an Answer in the Passages' language
+ * saying the Documents don't cover the Question doesn't pay for it. In the
+ * Tool loop the ask is one of the end-of-turn checks' (see ./turnChecks): `mayAsk`.
  */
 import { jsonSchema, Output, streamText } from "ai";
 import { answerSentences } from "../../shared/answerSentences";
 import { sentenceSpans } from "../../shared/sentences";
+import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
 import type { AnswerEngineEvent, AnswerRequest } from "./engine";
 import {
   answerTableUnits,
@@ -258,8 +260,16 @@ function takingMarkers(
   });
 }
 
+const languageOf = (text: string) => detectLanguage(text.slice(0, LANGUAGE_SAMPLE));
+
+function inAnotherLanguage(answer: string, passages: readonly ShownPassage[]): boolean {
+  const ours = languageOf(answer);
+  const theirs = languageOf(passages.map((passage) => passage.text).join("\n"));
+  return ours !== null && theirs !== null && ours !== theirs;
+}
+
 /** Whether a sentence of `answer` shares as many words with a sentence of the Passages as a match needs. */
-function drawsOn(answer: string, passages: readonly ShownPassage[]): boolean {
+function sharesWords(answer: string, passages: readonly ShownPassage[]): boolean {
   const theirs = passages.flatMap((passage) => passageSentences(passage.text).map(wordsOf));
   return answerSentences(answer).some((sentence) => {
     const words = wordsOf(sentence.text);
@@ -446,7 +456,12 @@ export async function* citeUnmarked(
       markers.length > 0 &&
       !markers.some((marker) => recorded(marker) || matchedMarkers.has(marker)),
   );
-  if (unbacked || (matches.length === 0 && !cited && drawsOn(answer, passages))) {
+  if (
+    unbacked ||
+    (matches.length === 0 &&
+      !cited &&
+      (inAnotherLanguage(answer, passages) || sharesWords(answer, passages)))
+  ) {
     const toAsk = passagesToAsk(answer, passages, budget);
     if (toAsk.length > 0 && mayAsk()) {
       asked = true;

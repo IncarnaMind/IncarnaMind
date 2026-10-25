@@ -34,6 +34,8 @@
  * "Retell the summary" (重述总结) gives edit_mind the whole new text of the summary page, three
  * paragraphs for the two, as a model does to make it longer (#1335).
  * "Say you added the risks" (说你加了风险部分) claims a write and makes none.
+ * "Summarise my leases without citing" (不加引用地总结我的租约) searches, then writes a summary
+ * with no Citation into a new Mind, and again as it was once told it has none (#1415).
  */
 
 import { answerReply, CITED_ANSWER } from "./answers";
@@ -148,6 +150,7 @@ const firstSentence = (result: string) => /^[^.。]*[.。]?/u.exec(result)?.[0] 
  */
 /** "Say you added the risks" (说你加了风险部分): a reply that claims a write no call made (#1559). */
 const CLAIMS_A_WRITE = /^say you added the risks|^说你加了风险部分/i;
+const UNCITED_SUMMARY = /\bsummari[sz]e my leases without citing\b|不加引用地总结我的租约/i;
 
 export function mindsReply(prompt: Prompt, asked: string, names: readonly string[]): Reply | null {
   if (!names.includes("edit_mind")) return null;
@@ -192,6 +195,7 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
       return { tool: "add_to_mind", input: { content: "## Risks\n\nThe supplier is late." } };
     return { text: firstSentence(added) };
   }
+  if (UNCITED_SUMMARY.test(question)) return uncitedSummary(prompt, question);
   if (REVENUE_CHART.test(question)) return revenueChart(prompt, question);
   if (RENT_CHART.test(question)) return tableChart(prompt, RENT);
   if (LEASES_SUMMARY.test(question)) {
@@ -284,6 +288,28 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   const title = called?.[1] ?? called?.[2] ?? "Scripted notes";
   const content = `## Summary\n\n${cited ? CITED_ANSWER : "Written by the scripted assistant."}`;
   return { tool: "create_mind", input: { title, content } };
+}
+
+function uncitedSummary(prompt: Prompt, question: string): Reply {
+  if (lastResult(prompt, "search_documents") === undefined) {
+    return { tool: "search_documents", input: { query: "monthly rent" } };
+  }
+  const made = lastResult(prompt, "create_mind");
+  if (made !== undefined && !made.includes("content has no Citation")) {
+    return { text: firstSentence(made) };
+  }
+  return /\p{Script=Han}/u.test(question)
+    ? {
+        tool: "create_mind",
+        input: { title: "租约总结", content: "## 总结\n\n租约规定了每月的租金。" },
+      }
+    : {
+        tool: "create_mind",
+        input: {
+          title: "Lease summary",
+          content: "## Summary\n\nThe leases set the monthly rent.",
+        },
+      };
 }
 
 interface ChartedFigures {
