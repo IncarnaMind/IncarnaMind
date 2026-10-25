@@ -895,8 +895,8 @@ export function createConversations(db: Database, now: () => string) {
       const questionId = turn.question.id;
       const answerId = turn.answer.id;
       db.transaction(() => {
-        const question = db.get<{ seq: number; conversation_id: string }>(
-          `SELECT seq, conversation_id FROM conversation_messages
+        const question = db.get<{ seq: number; conversation_id: string; position: number }>(
+          `SELECT seq, conversation_id, position FROM conversation_messages
            WHERE id = ? AND kind = 'question' AND deleted_at IS NULL`,
           [questionId],
         );
@@ -918,11 +918,21 @@ export function createConversations(db: Database, now: () => string) {
         );
         if (remaining?.count !== 0) {
           if (turn.previousConversationUpdatedAt !== undefined) {
-            db.run("UPDATE conversations SET updated_at = ? WHERE id = ? AND updated_at = ?", [
-              turn.previousConversationUpdatedAt,
-              question.conversation_id,
-              turn.conversation.updatedAt,
-            ]);
+            db.run(
+              `UPDATE conversations SET updated_at = ?
+               WHERE id = ? AND updated_at = ?
+                 AND NOT EXISTS (
+                   SELECT 1 FROM conversation_messages
+                   WHERE conversation_id = ? AND position > ? AND deleted_at IS NULL
+                 )`,
+              [
+                turn.previousConversationUpdatedAt,
+                question.conversation_id,
+                turn.conversation.updatedAt,
+                question.conversation_id,
+                question.position,
+              ],
+            );
           }
           return;
         }

@@ -243,6 +243,72 @@ describe("Empty conversations", { timeout: 30_000 }, () => {
     expect(result).toMatchObject({ asked: false, reason: "skill-unavailable" });
     expect(await core.getConversation(first.conversation.id)).toEqual(before);
   });
+
+  test("a rejected turn doesn't restore an older time over a later turn in the same millisecond", async () => {
+    const slowUrl = "http://127.0.0.1:2";
+    let hold = false;
+    let release = () => {};
+    const readiness = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let began = () => {};
+    const readinessBegan = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const { core, clock, ended } = await setUp(streamingModel(["Hello.", "Latest answer."]), {
+      ollamaModels: {
+        describe: async (baseUrl) => {
+          if (hold && baseUrl === slowUrl) {
+            began();
+            await readiness;
+          }
+          return null;
+        },
+        loaded: async () => null,
+        running: async () => true,
+      },
+    });
+    const other = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: slowUrl,
+      modelId: "other-model",
+      keepDefault: true,
+    });
+    const first = await ask(core, ended, { text: "Hello" });
+    clock.advance(1000);
+    hold = true;
+
+    const rejecting = core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Rejected",
+      forcedSkill: "no-such-skill",
+    });
+    const accepting = core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Latest",
+      model: { providerId: other.id, modelId: "other-model" },
+    });
+    await readinessBegan;
+    await expect(rejecting).resolves.toMatchObject({
+      asked: false,
+      reason: "skill-unavailable",
+    });
+    release();
+    const accepted = await accepting;
+    if (!accepted.asked) throw new Error("Not asked.");
+    expect(await ended(accepted.answerId)).toBe("finished");
+
+    const content = await core.getConversation(first.conversation.id);
+    expect(content.conversation.updatedAt).toBe(accepted.conversation.updatedAt);
+    expect(content.conversation.updatedAt).not.toBe(first.conversation.updatedAt);
+    expect(content.messages.map((message) => message.kind)).toEqual([
+      "question",
+      "answer",
+      "question",
+      "answer",
+    ]);
+    expect(content.messages[2]).toMatchObject({ kind: "question", text: "Latest" });
+  });
 });
 
 describe("History: by Folder, all of them, and search", { timeout: 30_000 }, () => {
