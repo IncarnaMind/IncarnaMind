@@ -169,13 +169,14 @@ describe("A comparison table exported to Excel", () => {
     ).rejects.toThrow(translate("en", "error.comparison.notFound"));
   });
 
-  // protects=a column's label is its heading and names its Citations, and a column without one keeps its Question, as older tables do; fails_when=a heading shows the Question instead of the label, or a label is needed for an older table; no_claim=Excel's own rendering.
+  // protects=a column's label is its heading and names its Citations, and a column without one keeps its whole Question, as an older table did, however long; fails_when=a heading shows the Question instead of the label, a Question is cut to a heading's length, or a label is needed for an older table; no_claim=Excel's own rendering.
   test("a column's label is its heading in the table and in Sources", () => {
     const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
     const caption: Footnote = { source: "Corvane, p. 1", unverified: false };
     const work: CitedWork = { documentId: "doc", documentName: "Corvane", location: null };
+    const question = "What notice, in days, must either party give to end the agreement, and when?";
     const reading = (label?: string): ComparisonReading => ({
-      questions: [{ id: "q1", text: "Termination notice", ...(label && { label }) }],
+      questions: [{ id: "q1", text: question, ...(label && { label }) }],
       rows: [
         {
           documentId: "doc",
@@ -215,8 +216,11 @@ describe("A comparison table exported to Excel", () => {
       );
 
     expect(headings(bookOf("Notice"))).toEqual(["Document", "Notice"]);
-    expect(headings(bookOf())).toEqual(["Document", "Termination notice"]);
+    expect(headings(bookOf())).toEqual(["Document", question]);
+    expect(question.length).toBeGreaterThan(40);
     const source = bookOf("Notice").sheets[1]?.rows[1]?.cells[0]?.value;
     expect(source?.kind === "text" ? source.text : "").toBe("Corvane · Notice");
+    const unnamed = bookOf().sheets[1]?.rows[1]?.cells[0]?.value;
+    expect(unnamed?.kind === "text" ? unnamed.text : "").toBe(`Corvane · ${question}`);
   });
 });

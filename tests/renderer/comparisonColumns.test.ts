@@ -15,6 +15,7 @@ import { undoStackOf } from "../../src/renderer/src/editor/editorUndo";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
   comparisonLabelOf,
+  comparisonNameOf,
   comparisonQuestionsOf,
   MAX_COMPARISON_QUESTIONS,
 } from "../../src/shared/comparisons";
@@ -290,6 +291,17 @@ describe("A comparison table's columns", () => {
     });
     expect(long.endsWith("…")).toBe(true);
     expect(long.length).toBeLessThan(50);
+    expect(
+      comparisonNameOf({
+        text: "What notice, in days, must either party give to end the agreement?",
+      }),
+    ).toBe("What notice, in days, must either party give to end the agreement?");
+    expect(
+      comparisonNameOf({
+        text: "What notice, in days, must either party give to end the agreement?",
+        label: " Notice ",
+      }),
+    ).toBe("Notice");
 
     for (const language of ["en", "zh-CN"] as const) {
       expect(translate(language, "comparison.column.maxQuestions")).toContain(

@@ -35,10 +35,16 @@ function shortened(question: string): string {
   return `${kept.trimEnd()}…`;
 }
 
-/** A column's heading: its own label, or its Question shortened. */
+/** A column's heading in the table: its own label, or its Question shortened to fit a heading. */
 export function comparisonLabelOf(question: Pick<ComparisonQuestion, "label" | "text">): string {
   const label = question.label?.trim();
   return label ? label : shortened(question.text);
+}
+
+/** A column's name in an export: its own label, or its whole Question, which a file has room for. */
+export function comparisonNameOf(question: Pick<ComparisonQuestion, "label" | "text">): string {
+  const label = question.label?.trim();
+  return label ? label : question.text;
 }
 
 /** A table's columns, in order, each once. */

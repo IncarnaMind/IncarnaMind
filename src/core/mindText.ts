@@ -38,7 +38,7 @@ import { type RecheckReason, readClaimCheck } from "../shared/claimChecks";
 import {
   cellProblemMessage,
   comparisonCellOf,
-  comparisonLabelOf,
+  comparisonNameOf,
   comparisonQuestionsOf,
 } from "../shared/comparisons";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
@@ -709,7 +709,7 @@ function readComparison(table: Y.XmlElement, options: ReadOptions): TableCell[][
   return [
     [
       cell(words(say("comparison.document")), true),
-      ...questions.map((question) => cell(words(comparisonLabelOf(question)), true)),
+      ...questions.map((question) => cell(words(comparisonNameOf(question)), true)),
     ],
     ...rows.map((row) => [
       cell(words(row.name)),

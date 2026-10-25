@@ -216,6 +216,7 @@ function rewordCellsInYjs(
     }, origin);
   } finally {
     manager.removeTrackedOrigin(origin);
+    manager.stopCapturing();
   }
   return true;
 }
