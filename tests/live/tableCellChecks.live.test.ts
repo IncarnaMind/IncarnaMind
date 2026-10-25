@@ -4,7 +4,8 @@
  * The table is the scripted writer's, so its right and wrong cells are known; every check
  * goes to the real model. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY (the model is
  * INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku 5.5 by default). INCARNAMIND_LIVE_TABLE_RUNS asks
- * each language that many times, and INCARNAMIND_LIVE_REPORT keeps what each cell came to.
+ * each language that many times, INCARNAMIND_LIVE_TABLE_FEW=1 cites only four of the cells, and
+ * INCARNAMIND_LIVE_REPORT keeps what each cell came to.
  */
 import { appendFile } from "node:fs/promises";
 import { wrapLanguageModel } from "ai";
@@ -31,10 +32,18 @@ const MODEL =
   (catalogProvider("anthropic")?.roles.quickTasks as string);
 const RUNS = Number(process.env.INCARNAMIND_LIVE_TABLE_RUNS ?? 1);
 
+/** A cell as written, cited by `marker`; `few`: cited also when the run asks for few cells. */
 interface Cell {
-  /** The cell's text as written, its Citation's marker after it. */
   text: string;
   right: boolean;
+  marker: number;
+  few?: boolean;
+}
+
+interface Table {
+  before: string;
+  headings: string[];
+  rows: [string, ...Cell[]][];
 }
 
 interface Case {
@@ -43,9 +52,19 @@ interface Case {
   ask: string;
   /** The rows the Citations quote, by marker. */
   quoted: Record<number, string>;
-  content: string;
-  cells: Cell[];
+  tables: Table[];
 }
+
+// A costlier model checks only the cells marked `few`: a right and a wrong one in a row, another
+// right one, and the wrong unit line.
+const FEW = process.env.INCARNAMIND_LIVE_TABLE_FEW === "1";
+
+const cell = (text: string, right: boolean, marker: number, few = false): Cell => ({
+  text,
+  right,
+  marker,
+  few,
+});
 
 const CASES: Case[] = [
   {
@@ -56,34 +75,25 @@ const CASES: Case[] = [
     },
     ask: "请根据预算表，在当前 Mind 末尾加一张2024年与2025年收入、成本、利润的对比表，单位万元。",
     quoted: { 1: "收入", 2: "利润", 3: "成本" },
-    content: [
-      "2024年与2025年收入、利润对比（单位：万元）",
-      "",
-      "| 项目 | 2024年 | 2025年 |",
-      "|---|---|---|",
-      "| 收入 | 100[^1] | 210[^1] |",
-      "| 利润 | 30[^2] | 42[^2] |",
-      "",
-      "成本",
-      "",
-      "| 项目 | 2024年 | 2025年 |",
-      "|---|---|---|",
-      "| 成本 | 70万元[^3] | 78亿元[^3] |",
-      "",
-      "单位：亿元",
-      "",
-      "| 项目 | 2025年 |",
-      "|---|---|",
-      "| 成本 | 78[^3] |",
-    ].join("\n"),
-    cells: [
-      { text: "100", right: true },
-      { text: "210", right: false },
-      { text: "30", right: true },
-      { text: "42", right: true },
-      { text: "70万元", right: true },
-      { text: "78亿元", right: false },
-      { text: "78", right: false },
+    tables: [
+      {
+        before: "2024年与2025年收入、利润对比（单位：万元）",
+        headings: ["项目", "2024年", "2025年"],
+        rows: [
+          ["收入", cell("100", true, 1, true), cell("210", false, 1, true)],
+          ["利润", cell("30", true, 2, true), cell("42", true, 2)],
+        ],
+      },
+      {
+        before: "成本",
+        headings: ["项目", "2024年", "2025年"],
+        rows: [["成本", cell("70万元", true, 3), cell("78亿元", false, 3)]],
+      },
+      {
+        before: "单位：亿元",
+        headings: ["项目", "2025年"],
+        rows: [["成本", cell("78", false, 3, true)]],
+      },
     ],
   },
   {
@@ -95,37 +105,49 @@ const CASES: Case[] = [
     },
     ask: "From the budget, add a table comparing 2024 and 2025 revenue, cost and profit at the end of this Mind, in thousand tonnes.",
     quoted: { 1: "Revenue", 2: "Profit", 3: "Cost" },
-    content: [
-      "Revenue and profit, 2024 against 2025 (thousand tonnes)",
-      "",
-      "| Item | 2024 | 2025 |",
-      "|---|---|---|",
-      "| Revenue | 100[^1] | 210[^1] |",
-      "| Profit | 30[^2] | 42[^2] |",
-      "",
-      "Cost",
-      "",
-      "| Item | 2024 | 2025 |",
-      "|---|---|---|",
-      "| Cost | 70 thousand tonnes[^3] | 78 million tonnes[^3] |",
-      "",
-      "Unit: million tonnes",
-      "",
-      "| Item | 2025 |",
-      "|---|---|",
-      "| Cost | 78[^3] |",
-    ].join("\n"),
-    cells: [
-      { text: "100", right: true },
-      { text: "210", right: false },
-      { text: "30", right: true },
-      { text: "42", right: true },
-      { text: "70 thousand tonnes", right: true },
-      { text: "78 million tonnes", right: false },
-      { text: "78", right: false },
+    tables: [
+      {
+        before: "Revenue and profit, 2024 against 2025 (thousand tonnes)",
+        headings: ["Item", "2024", "2025"],
+        rows: [
+          ["Revenue", cell("100", true, 1, true), cell("210", false, 1, true)],
+          ["Profit", cell("30", true, 2, true), cell("42", true, 2)],
+        ],
+      },
+      {
+        before: "Cost",
+        headings: ["Item", "2024", "2025"],
+        rows: [["Cost", cell("70 thousand tonnes", true, 3), cell("78 million tonnes", false, 3)]],
+      },
+      {
+        before: "Unit: million tonnes",
+        headings: ["Item", "2025"],
+        rows: [["Cost", cell("78", false, 3, true)]],
+      },
     ],
   },
 ];
+
+const cited = (each: Cell) => !FEW || each.few === true;
+
+const cellsOf = (each: Case) =>
+  each.tables.flatMap((table) => table.rows.flatMap(([, ...cells]) => cells.filter(cited)));
+
+const markdownOf = (each: Case) =>
+  each.tables
+    .map((table) =>
+      [
+        table.before,
+        "",
+        `| ${table.headings.join(" | ")} |`,
+        `|${table.headings.map(() => "---").join("|")}|`,
+        ...table.rows.map(
+          ([label, ...cells]) =>
+            `| ${label} | ${cells.map((one) => (cited(one) ? `${one.text}[^${one.marker}]` : one.text)).join(" | ")} |`,
+        ),
+      ].join("\n"),
+    )
+    .join("\n\n");
 
 /** Searches, cites each row it uses, writes the table into the Mind in focus, and replies. */
 function writer(each: Case) {
@@ -144,7 +166,7 @@ function writer(each: Case) {
       return { calls: [{ tool: "cite", input: { citations } }] };
     }
     if (!call.results.some((result) => result.tool === "add_to_mind")) {
-      return { calls: [{ tool: "add_to_mind", input: { content: each.content } }] };
+      return { calls: [{ tool: "add_to_mind", input: { content: markdownOf(each) } }] };
     }
     return { text: each.language === "en" ? "Added the table." : "已加上对比表。" };
   });
@@ -217,11 +239,11 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
           if (cited) found.push({ text: text.trim(), check });
           return false;
         });
-        each.cells.forEach((cell, index) => {
+        cellsOf(each).forEach((written, index) => {
           const { text, check } = found[index] ?? { text: "(missing)", check: null };
           verdicts.push({
-            cell: text === cell.text ? cell.text : `${cell.text} (now ${text})`,
-            right: cell.right,
+            cell: text === written.text ? written.text : `${written.text} (now ${text})`,
+            right: written.right,
             verdict: check ? check.state : "supported",
             why: check ? (check.unsupported?.reason ?? check.says ?? check.reason ?? "") : "",
           });
@@ -233,7 +255,7 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
       const count = (right: boolean, verdict: string) =>
         verdicts.filter((each) => each.right === right && each.verdict === verdict).length;
       const lines = [
-        `## ${MODEL} · ${each.language} · ${RUNS} run(s) · $${spent.toFixed(4)}`,
+        `## ${MODEL} · ${each.language} · ${RUNS} run(s)${FEW ? " · few cells" : ""} · $${spent.toFixed(4)}`,
         `right cells: ${count(true, "supported")} supported, ${count(true, "unsupported")} unsupported, ${count(true, "contradicted")} contradicted, ${count(true, "not-checked")} not checked`,
         `wrong cells: ${count(false, "contradicted")} contradicted, ${count(false, "unsupported")} unsupported, ${count(false, "supported")} supported, ${count(false, "not-checked")} not checked`,
         ...verdicts.map(

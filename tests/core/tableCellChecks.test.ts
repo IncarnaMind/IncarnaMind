@@ -9,7 +9,7 @@ import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { readMind, writeMind } from "../helpers/minds";
+import { readMind, resolveChanges, writeMind } from "../helpers/minds";
 import {
   type GenerateCall,
   type ModelCall,
@@ -158,9 +158,9 @@ function writingModel(budget: Budget, checks: ModelCall[], judged: GenerateCall[
 }
 
 async function budgetMind(budget: Budget, model: ReturnType<typeof scriptedModel>) {
-  const core = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(model).createChatModel,
-  });
+  const dataDir = await createTempDataFolder();
+  const adapters = { createChatModel: scriptedModels(model).createChatModel };
+  const core = startCore(dataDir, adapters);
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   await core.updateSettings({ user: { language: budget.language } });
   const sources = await createTempDataFolder();
@@ -171,7 +171,12 @@ async function budgetMind(budget: Budget, model: ReturnType<typeof scriptedModel
   await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
   const mind = await core.createMind({ title: "Budget notes", folderId: folder.id });
   const client = await connectToMind(core, mind.id);
-  return { core, client, mindId: mind.id, folderId: folder.id };
+  /** Quits the app and opens the Mind again on the same data. */
+  const reopen = async () => {
+    core.close();
+    return connectToMind(startCore(dataDir, adapters), mind.id);
+  };
+  return { core, client, mindId: mind.id, folderId: folder.id, reopen };
 }
 
 /** Each check's mark in the Mind, by its cell's words. */
@@ -226,7 +231,7 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
     async (budget) => {
       const checks: ModelCall[] = [];
       const judged: GenerateCall[] = [];
-      const { core, client, mindId, folderId } = await budgetMind(
+      const { core, client, mindId, folderId, reopen } = await budgetMind(
         budget,
         writingModel(budget, checks, judged),
       );
@@ -251,7 +256,9 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
       for (const call of confirmed) expect(call.prompt).toContain(tableBeside(budget));
       expect(marksIn(client)).toEqual([[budget.wrong, "contradicted"]]);
       expect(changesIn(answer)[0]?.selfCheck).toMatchObject({ cited: 4, sent: 4, checked: 4 });
-      await core.close();
+      await resolveChanges(client, "accept");
+      expect(marksIn(client)).toEqual([[budget.wrong, "contradicted"]]);
+      expect(marksIn(await reopen())).toEqual([[budget.wrong, "contradicted"]]);
     },
   );
 });

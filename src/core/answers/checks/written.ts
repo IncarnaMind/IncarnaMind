@@ -207,7 +207,7 @@ function citedSentences(blocks: readonly NodeJSON[]): Sentence[] {
         return;
       }
       if (node.type !== "paragraph") {
-        visit(content, here, cell);
+        visit(content, here, null);
         return;
       }
       const context = paragraphText(content);
