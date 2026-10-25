@@ -1,5 +1,5 @@
 import { type Editor, useEditorState } from "@tiptap/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import { caretAnchor, LinkField } from "./LinkField";
 import { Popover } from "./Popover";
@@ -55,11 +55,14 @@ export function LinkBubble({ editor }: { editor: Editor }) {
     }
   }, [link]);
 
+  // A new anchor each render would open the popover again and take the focus from the field (#1705).
+  const anchor = useMemo(() => caretAnchor(editor), [editor]);
+
   if (!link) return null;
   if (editing) {
     return (
       <LinkField
-        anchor={caretAnchor(editor)}
+        anchor={anchor}
         current={link.href}
         onApply={(typed) => {
           setEditing(false);
