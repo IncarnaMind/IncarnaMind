@@ -107,7 +107,7 @@ import { inStep } from "../timing/flows";
 import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { asksForFixes } from "./citations";
-import { earlierContext, type RequestMind } from "./context";
+import { earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import { missingMarkerEvents, textEdits } from "./markerPlacement";
 import {
@@ -347,6 +347,12 @@ export interface AnswerRequest {
    * once it has rewritten it into a query that stands on its own.
    */
   question: string;
+  /**
+   * The line naming the User's Minds (#1790), right before `asked`, the end of the last message:
+   * only in a pass that offers the Minds' Tools. Without them it would reach a model that can't
+   * read the Minds, and the search rewrite's notebook.
+   */
+  mindsLine?: { line: string; asked: string };
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
   /**
@@ -737,7 +743,11 @@ const recordsSchema = {
     type: "object",
     properties: {
       marker: { type: "integer", description: "The marker's number: 1 for [^1]." },
-      passage: { type: "string", description: "The Passage's id, e.g. P1." },
+      passage: {
+        type: "string",
+        description:
+          "The Passage's id, e.g. P1; or, to keep a Citation shown in <mind>, read_mind or an earlier Answer, its id, e.g. C2.",
+      },
       location: {
         type: "string",
         description:
@@ -754,10 +764,11 @@ const recordsSchema = {
       },
       quote: {
         type: "string",
-        description: "A short quote, copied word for word from the Passage.",
+        description:
+          "A short quote, copied word for word from the Passage. Leave it out for a Citation's id: it keeps its own.",
       },
     },
-    required: ["marker", "passage", "quote"],
+    required: ["marker", "passage"],
   },
 } as const;
 
@@ -782,9 +793,7 @@ function parseRecords(value: unknown): CitationRecordInput[] {
     const number =
       typeof marker === "string" ? Number(/\d{1,4}/.exec(marker)?.[0] ?? Number.NaN) : marker;
     const named = typeof passage === "number" ? String(passage) : passage;
-    if (typeof number !== "number" || typeof named !== "string" || typeof quote !== "string") {
-      return [];
-    }
+    if (typeof number !== "number" || typeof named !== "string") return [];
     const page = (value: unknown) =>
       typeof value === "number" ? value : typeof value === "string" ? Number(value) : null;
     return [
@@ -794,7 +803,7 @@ function parseRecords(value: unknown): CitationRecordInput[] {
         ...(typeof location === "string" && location.trim() ? { location } : {}),
         pageFrom: page(pageFrom),
         pageTo: page(pageTo),
-        quote,
+        quote: typeof quote === "string" ? quote : "",
       },
     ];
   });
@@ -1415,7 +1424,7 @@ export function documentTools(
     cite: {
       ...own(DOCUMENT_TOOLS.cite),
       description:
-        "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage.",
+        "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead.",
       inputSchema: {
         type: "object",
         properties: { citations: recordsSchema },
@@ -1602,7 +1611,15 @@ async function* toolLoop(
   });
 
   // Within a window: the Question context that fits beside the instructions, the Tools and a search.
-  let messages = request.messages;
+  let messages =
+    request.mindsLine && tools.some((each) => each.provider.kind === "minds")
+      ? withLineBefore(
+          request.messages,
+          request.mindsLine.line,
+          request.mindsLine.asked,
+          request.question,
+        )
+      : request.messages;
   let estimated: number | undefined;
   let window: RunWindow | undefined;
   if (budget) {
@@ -1956,7 +1973,11 @@ async function* structured(
             type: "string",
             description: "The Answer, in Markdown, with Citation markers and figure markers.",
           },
-          citations: recordsSchema,
+          // A small local model leaves out what its schema doesn't require: a record needs its quote here.
+          citations: {
+            ...recordsSchema,
+            items: { ...recordsSchema.items, required: [...recordsSchema.items.required, "quote"] },
+          },
           ...(request.documents.calculate && { calculations: calculationsSchema }),
         },
         required: ["answer", "citations"],
