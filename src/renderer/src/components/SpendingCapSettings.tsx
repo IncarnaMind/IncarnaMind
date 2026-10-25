@@ -1,14 +1,21 @@
 import { type KeyboardEvent, useEffect, useId, useState } from "react";
-import type { CostSummary, Currency, MonthlyCap } from "../../../core/api";
+import {
+  type CostSummary,
+  type Currency,
+  MAX_MONTHLY_CAP,
+  type MonthlyCap,
+} from "../../../core/api";
 import { core } from "../core";
 import { formatMoney, formatSpent, setAsideText } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import type { SettingsPage } from "../settingsPages";
 import { useAppStore } from "../store";
+import { InfoTip } from "./InfoTip";
+import { ProblemMark } from "./ProblemLine";
 import {
+  errorTextClass,
   fieldClass,
   hintClass,
-  rowTextClass,
   rowTitleClass,
   ruledListClass,
   ruledRowClass,
@@ -47,20 +54,33 @@ export function SpendingCapSettings() {
   const summary = useCostSummary("general");
   const id = useId();
   const [draft, setDraft] = useState("");
+  const [showProblem, setShowProblem] = useState(false);
+  const capAmount = cap?.amount;
+  const capCurrency = cap?.currency;
   useEffect(() => {
-    if (cap) setDraft(String(cap.amount));
-  }, [cap]);
+    if (capCurrency && capAmount !== undefined) setDraft(String(capAmount));
+    setShowProblem(false);
+  }, [capAmount, capCurrency]);
   if (cap === undefined) return null;
 
   const save = (next: MonthlyCap | null) => void updateSettings({ user: { monthlyCap: next } });
   const currency: Currency = cap?.currency ?? (language === "zh-CN" ? "CNY" : "USD");
   const typed = Number(draft);
-  const valid = draft.trim() !== "" && Number.isFinite(typed) && typed >= 0;
+  const empty = draft.trim() === "";
+  const valid = !empty && Number.isFinite(typed) && typed >= 0 && typed <= MAX_MONTHLY_CAP;
+  const problem = cap && showProblem && !valid;
 
   const commit = () => {
     if (!cap) return;
-    if (!valid) setDraft(String(cap.amount));
-    else if (typed !== cap.amount) save({ amount: typed, currency: cap.currency });
+    if (empty) {
+      setDraft(String(cap.amount));
+      setShowProblem(false);
+    } else if (!valid) {
+      setShowProblem(true);
+    } else {
+      setShowProblem(false);
+      if (typed !== cap.amount) save({ amount: typed, currency: cap.currency });
+    }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") commit();
@@ -68,6 +88,7 @@ export function SpendingCapSettings() {
       // Esc puts a changed amount back, and doesn't close Settings as well.
       event.preventDefault();
       setDraft(String(cap.amount));
+      setShowProblem(false);
     }
   };
 
@@ -92,12 +113,12 @@ export function SpendingCapSettings() {
       <div className={ruledListClass}>
         <div className={ruledRowClass}>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <label htmlFor={id} className={rowTitleClass}>
-              {t("cost.cap.switch")}
-            </label>
-            <p id={`${id}-description`} className={rowTextClass}>
-              {t("cost.cap.body")}
-            </p>
+            <div className="flex items-center">
+              <label htmlFor={id} className={rowTitleClass}>
+                {t("cost.cap.switch")}
+              </label>
+              <InfoTip id={`${id}-description`} text={t("cost.cap.tip")} />
+            </div>
             {spentLine && (
               <p data-testid="spending-cap-spent" className={hintClass}>
                 {spentLine}
@@ -106,7 +127,7 @@ export function SpendingCapSettings() {
             {setAside && (
               <p
                 data-testid="spending-cap-set-aside"
-                title={t("cost.setAside.hint")}
+                title={t("cost.setAside.tip")}
                 className={hintClass}
               >
                 {setAside}
@@ -134,12 +155,16 @@ export function SpendingCapSettings() {
                   aria-label={t("cost.cap.currency")}
                   data-testid="spending-cap-currency"
                   value={cap.currency}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    if (!valid && !empty) {
+                      setShowProblem(true);
+                      return;
+                    }
                     save({
                       amount: valid ? typed : cap.amount,
                       currency: event.target.value === "CNY" ? "CNY" : "USD",
-                    })
-                  }
+                    });
+                  }}
                   className={`${fieldClass} w-16`}
                 >
                   <option value="USD">$</option>
@@ -149,8 +174,11 @@ export function SpendingCapSettings() {
                   type="number"
                   inputMode="decimal"
                   min="0"
+                  max={MAX_MONTHLY_CAP}
                   step="any"
                   aria-label={t("cost.cap.amount")}
+                  aria-invalid={problem ? true : undefined}
+                  aria-describedby={problem ? `${id}-problem` : undefined}
                   data-testid="spending-cap-amount"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
@@ -178,6 +206,20 @@ export function SpendingCapSettings() {
               className="switch"
             />
           </div>
+          {problem && (
+            <p
+              id={`${id}-problem`}
+              role="alert"
+              data-testid="spending-cap-problem"
+              className={`col-span-2 mt-1 ${errorTextClass}`}
+            >
+              <ProblemMark />
+              {t("cost.cap.problem", {
+                max: new Intl.NumberFormat(language).format(MAX_MONTHLY_CAP),
+                cap: formatMoney(cap, language),
+              })}
+            </p>
+          )}
         </div>
       </div>
     </section>

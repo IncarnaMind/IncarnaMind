@@ -6,9 +6,9 @@ import type { useAppStore } from "./store";
 
 type AppState = ReturnType<typeof useAppStore.getState>;
 
-/** What a tab is called: a Mind's title, "Library", or a Document's name only. */
 export function tabTitle(state: AppState, item: TabItem, t: Translate): string {
   if (item.kind === "library") return t("library.title");
+  if (item.kind === "home") return t("home.title");
   if (item.kind === "mind") {
     const mind = state.minds.find((each) => each.id === item.mindId);
     return (mind && mindName(mind)) || t("mind.untitled");

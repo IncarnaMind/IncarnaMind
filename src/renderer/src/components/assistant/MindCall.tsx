@@ -1,16 +1,10 @@
 import type { AnswerToolCall } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
-import { problemText } from "../../changeProblems";
+import { namedMind, problemText } from "../../changeProblems";
 import { useT } from "../../i18n";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
 import { MindLineIcon } from "../lineIcons";
-
-/** A text field of what a Tool call was asked, or "". */
-const field = (call: AnswerToolCall, name: string): string => {
-  const value: unknown = call.input?.[name];
-  return typeof value === "string" ? value : "";
-};
 
 /**
  * The Mind a call of a Minds' Tool (#202) is about, as the User knows it: the
@@ -28,15 +22,17 @@ function useCallMind(call: AnswerToolCall): { mindId: string | null; name: strin
   return { mindId: mind ? changed : null, name: (mind && mindName(mind)) || namedMind(t, call) };
 }
 
-/** The Mind a call names before it has changed one: the name it gave, else the Mind in focus. */
-export const namedMind = (t: Translate, call: AnswerToolCall): string =>
-  field(call, "mind") || field(call, "title") || t("mindCall.thisMind");
-
 /** What a call of a Minds' Tool is doing, or did, in its row's words. */
 export function mindCallText(t: Translate, call: AnswerToolCall, mind: string): string {
   const change = call.mindChange;
   if (call.status === "running") {
     if (call.tool === "read_mind") return t("mindCall.reading", { mind });
+    const checking = change?.checking ?? 0;
+    if (checking > 0) {
+      return checking === 1
+        ? t("mindCall.checking.one", { mind })
+        : t("mindCall.checking", { mind, count: checking });
+    }
     if (call.tool === "create_mind") {
       return mind ? t("mindCall.creating", { mind }) : t("mindCall.creating.new");
     }

@@ -1,8 +1,3 @@
-/**
- * A range of a sheet or CSV as an Analysis reads it (#447): its cells from
- * the Document version's rows Units, the number a cell stores where it has
- * one (#435), its first row as the headings, cut to what an Analysis takes.
- */
 import type { AnalysisCell } from "../../shared/analysis";
 import { cellNumber, columnName, parseCellRef, type UnitText } from "../../shared/units";
 
@@ -67,7 +62,6 @@ export function parseRange(written: string | undefined): ParsedRange {
   };
 }
 
-/** A plain number as a cell shows it: "1240", "-3.5", "1e6"; not "1,240" or "12%", which a sheet stores apart. */
 const PLAIN_NUMBER = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
 const GROUPED_NUMBER = /^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
 
@@ -116,6 +110,7 @@ export function sheetsOf(units: readonly UnitText[]): (string | null)[] {
 }
 
 export interface ReadRange {
+  headingRow: number;
   /** Each column's heading, from the range's first row; its letter where that row is empty. */
   columns: string[];
   rows: AnalysisCell[][];
@@ -166,6 +161,7 @@ export function readRange(
   const toTheEnd = bounds.lastRow === null || bounds.lastRow > lastStored;
   const lastRead = read.at(-1) ?? headingRow;
   return {
+    headingRow,
     columns,
     rows: read.map(slice),
     rowNumbers: read,

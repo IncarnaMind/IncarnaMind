@@ -59,7 +59,7 @@ export async function addLineToNote(input: {
     );
     if (added === "already") return "already";
     if (!added) throw new Error(translateNow("transcript.addToNote.failed"));
-    offerEditorUndo(note.editor, translateNow("transcript.addToNote.undo"));
+    offerEditorUndo(note.editor, (t) => t("transcript.addToNote.undo"));
     return "added";
   } catch (error) {
     useAppStore.getState().reportError(error);

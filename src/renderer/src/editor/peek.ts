@@ -1,7 +1,8 @@
 /**
- * A Citation's card opens when its marker, or its mark in the margin, is
- * hovered or focused. The mark lives outside the marker's node view, so it
- * tells the marker with this event, which the node view listens to.
+ * A Citation's card opens when its marker is hovered or focused, or when the
+ * pointer is over its words in the cluster a neighbour draws. The one asking
+ * lives outside the marker's node view, so it tells the marker with this
+ * event, which the node view listens to.
  */
 const PEEK = "citation-peek";
 

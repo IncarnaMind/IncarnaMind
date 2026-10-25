@@ -56,6 +56,8 @@ describe("The languages of the Documents, in the search Tool", { timeout: 30_000
     expect(description).toContain(
       "when the Question is in another language than the Documents it may be about, search with the query translated into their language too.",
     );
+    // Searching in their language must not turn the reply into it (#1273).
+    expect(description).toContain("write the reply in the Question's.");
   });
 
   test("names only the languages of the Documents in the Question's Search scope", async () => {

@@ -19,6 +19,7 @@ import {
   setLanguage,
   setWindowSize,
   slideSelect,
+  tabMenu,
   useLocalChatModel,
 } from "./app";
 
@@ -48,7 +49,6 @@ const TEXTS = {
     command: "Export AI use statement",
     title: "AI use statement: Thesis",
     sections: ["AI models and what they were used for", "AI text, by section", "Checks"],
-    made: "Made “AI use statement: Thesis”",
     undo: "Undo",
     added: "Answers added to the document",
     found: "Quote found",
@@ -61,6 +61,8 @@ const TEXTS = {
     supported: "Supported",
     unsupported: "Unsupported",
     noRecord: "has no record of AI writing",
+    checkedIntro:
+      "Sentences the author had checked against the Documents, with Check against Documents, by result:",
   },
   "zh-CN": {
     heading: "第一章 绪论",
@@ -71,7 +73,6 @@ const TEXTS = {
       "二、AI 生成文字的保留与改写（按章节）",
       "三、引用与说法的核对",
     ],
-    made: "已新建“AI 使用声明：Thesis”",
     undo: "撤销",
     added: "将助手的回答加入文档",
     found: "找到引文",
@@ -83,6 +84,7 @@ const TEXTS = {
     supported: "有依据",
     unsupported: "无依据",
     noRecord: "中没有本文档使用 AI 撰写",
+    checkedIntro: "以下是“对照文档核对”的结果：",
   },
 } as const;
 
@@ -140,11 +142,11 @@ async function runCommand(
     await pointAt(window, row);
     await pointAndClick(window, row.getByTestId("mind-menu"));
     const menu = row.getByTestId("mind-actions");
-    // In the menu's order: right after the export items.
+    // In the menu's order: right after Export….
     const ids = await menu
       .getByRole("menuitem")
       .evaluateAll((items) => items.map((item) => item.getAttribute("data-testid")));
-    expect(ids.indexOf("mind.aiUseStatement")).toBe(ids.indexOf("mind.exportOptions") + 1);
+    expect(ids.indexOf("mind.aiUseStatement")).toBe(ids.indexOf("mind.exportMenu") + 1);
     await expect(menu.getByTestId("mind.aiUseStatement")).toHaveText(text.command);
     await screenshot(window, `${shot}-menu`);
     await pointAndClick(window, menu.getByTestId("mind.aiUseStatement"));
@@ -189,7 +191,7 @@ for (const { language, width, via } of CASES) {
     await expect(tabs(window).nth(1)).toHaveAttribute("aria-selected", "true");
     const statement = editorOf(window);
     await expect(statement.getByRole("heading")).toHaveText(text.sections);
-    await expect(window.getByTestId("undo-message")).toHaveText(text.made);
+    await expect(window.getByTestId("undo-message")).toHaveCount(0);
     await screenshot(window, shot);
 
     // The counts are the Mind's: its Answer added once, its one Citation found, its heading's section.
@@ -214,13 +216,19 @@ for (const { language, width, via } of CASES) {
       await window.evaluate(() => document.documentElement.scrollWidth <= globalThis.innerWidth),
     ).toBe(true);
 
-    // Undo takes the new Mind to Recently deleted, leaving the Mind it is of in front; ⇧⌘Z brings it back.
-    await expect(window.getByTestId("undo-action")).toHaveText(text.undo);
-    await pointAndClick(window, window.getByTestId("undo-action"));
+    // ⌘Z never takes it back: Delete sends it to Recently deleted, and Undo brings it back.
+    await window.getByTestId("plus-menu").focus();
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(tabs(window)).toHaveCount(2);
+    await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.delete"));
     await expect(tabs(window)).toHaveCount(1);
     await expect(tabs(window).nth(0)).toContainText("Thesis");
-    await window.getByTestId("plus-menu").focus();
-    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(window.getByTestId("undo-action")).toHaveText(text.undo);
+    await pointAndClick(window, window.getByTestId("undo-action"));
+    await pointAndClick(
+      window,
+      window.getByTestId("mind-list-item").filter({ hasText: text.title }),
+    );
     await expect(tabs(window)).toHaveCount(2);
     await expect(tabs(window).nth(1)).toContainText(text.title);
     await expect(statement.getByRole("heading")).toHaveText(text.sections);
@@ -288,7 +296,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "Spring tides", { line, words: "harbour cliffs." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     const marks = window.getByTestId("claim-mark");
     await expect(marks.and(window.locator("[data-check=supported]"))).toHaveCount(1);
@@ -309,8 +317,14 @@ for (const language of ["en", "zh-CN"] as const) {
     ]);
     for (const row of rows) expect(days).toContain(row[3]);
     await expect(statement.getByText(text.noRecord)).toHaveCount(0);
+    await expect(statement.getByText(text.checkedIntro, { exact: true })).toBeVisible();
     await screenshot(window, `ai-statement-checks-${language}`);
     await statement.locator(":scope > p").last().scrollIntoViewIfNeeded();
     await screenshot(window, `ai-statement-checks-${language}-end`);
+    for (const width of [900, 1440]) {
+      await setWindowSize(app, window, width, 900);
+      await statement.getByText(text.checkedIntro, { exact: true }).scrollIntoViewIfNeeded();
+      await screenshot(window, `ai-statement-checks-${language}-intro-${width}`);
+    }
   });
 }

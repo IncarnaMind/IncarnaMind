@@ -158,6 +158,7 @@ export default defineConfig({
           print: resolve(__dirname, "src/renderer/print.html"),
           citedPage: resolve(__dirname, "src/renderer/citedPage.html"),
           meetingPanel: resolve(__dirname, "src/renderer/meetingPanel.html"),
+          permissionGuide: resolve(__dirname, "src/renderer/permissionGuide.html"),
           analysis: resolve(__dirname, "src/renderer/analysis.html"),
         },
       },

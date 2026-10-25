@@ -29,13 +29,13 @@ const WIDTHS = [900, 1600] as const;
 
 const WORDS = {
   en: {
-    notRunning: "Ollama isn't running on this computer",
+    notRunning: "Ollama isn’t running on this computer",
     open: "Open Ollama",
     opening: "Opening Ollama…",
     get: "Get Ollama ↗",
     tryAgain: "Try again",
     notDetected: "Install and start Ollama from ollama.com to run models here.",
-    installed: "Ollama is on this computer, but it isn't running.",
+    installed: "Ollama is on this computer, but it isn’t running.",
     detected: "Ollama is running. Questions and Documents stay on this computer.",
     recommended: (model: string) => `Recommended: ${model}, 3.3 GB. It is downloaded once.`,
     use: (model: string) => `Use local models (${model}, 3.3 GB)`,
@@ -68,25 +68,35 @@ test.afterEach(async () => {
   );
 });
 
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
-}
-
-async function startOllama(port: number, models: string[] = []): Promise<void> {
+/**
+ * A stand-in for Ollama that holds its port from the start, so nothing else can take it, and drops
+ * every connection until `run` says it runs: not running is then a port that refuses, as
+ * Ollama's is, with no gap in which an app launched on a free port finds something else answering.
+ */
+async function ollamaStandIn(): Promise<{ url: string; run(models?: string[]): void }> {
+  let models: string[] | null = null;
   const server = createServer((request, response) => {
     if (request.url === "/api/tags") {
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ models: models.map((name) => ({ name, model: name })) }));
+      response.end(
+        JSON.stringify({ models: (models ?? []).map((name) => ({ name, model: name })) }),
+      );
       return;
     }
     response.writeHead(404).end();
   });
-  await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
+  server.on("connection", (socket) => {
+    if (models === null) socket.destroy();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   servers.push(server);
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    run: (listed = []) => {
+      models = listed;
+    },
+  };
 }
 
 const bridge = (window: Page) => ({
@@ -145,10 +155,10 @@ for (const language of LANGUAGES) {
   const words = WORDS[language];
 
   test(`Use a local model opens the Ollama choice in place, with Get Ollama and the recommended model, and one click uses it (${language})`, async () => {
-    const port = await freePort();
+    const ollama = await ollamaStandIn();
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
-      ollama: `http://127.0.0.1:${port}`,
+      ollama: ollama.url,
       ollamaApp: "missing",
     });
     await interceptOpenExternal(app);
@@ -189,7 +199,7 @@ for (const language of LANGUAGES) {
     await expect(dialog).toBeVisible();
     expect(await ollamaAppOpened(app)).toBe(0);
 
-    await startOllama(port, [recommended]);
+    ollama.run([recommended]);
     await pointAndClick(window, dialog.getByTestId("ollama-check-again"));
     await expect(dialog.getByTestId("local-model-status")).toHaveText(words.detected);
     const use = dialog.getByTestId("ollama-use");
@@ -211,10 +221,10 @@ for (const language of LANGUAGES) {
   });
 
   test(`Ollama installed but not running: the Answer says so with Open Ollama, and is asked again once it runs (${language})`, async () => {
-    const port = await freePort();
+    const ollama = await ollamaStandIn();
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
-      ollama: `http://127.0.0.1:${port}`,
+      ollama: ollama.url,
       ollamaApp: "installed",
     });
     await dismissChatSetup(window);
@@ -241,7 +251,7 @@ for (const language of LANGUAGES) {
     await expect(line).toHaveText(words.opening);
     await expect(line.getByTestId("answer-error-action")).toHaveCount(0);
 
-    await startOllama(port);
+    ollama.run();
     const answered = assistantAnswers(window).last();
     await expect(answered).toHaveAttribute("data-status", "done", { timeout: 20_000 });
     await expect(answered.getByTestId("assistant-answer-text")).not.toBeEmpty();
@@ -250,10 +260,10 @@ for (const language of LANGUAGES) {
   });
 
   test(`Ollama not installed: the Answer says so with Get Ollama, which opens ollama.com; back with it running, Try again asks the Question again (${language})`, async () => {
-    const port = await freePort();
+    const ollama = await ollamaStandIn();
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
-      ollama: `http://127.0.0.1:${port}`,
+      ollama: ollama.url,
       ollamaApp: "missing",
     });
     await interceptOpenExternal(app);
@@ -281,7 +291,7 @@ for (const language of LANGUAGES) {
     expect(await ollamaAppOpened(app)).toBe(0);
     await expect(line).toBeVisible();
 
-    await startOllama(port);
+    ollama.run();
     await window.evaluate(() => globalThis.dispatchEvent(new Event("focus")));
     await expect(line).toHaveText(`${words.notRunning} · ${words.tryAgain}`);
     await pointAndClick(window, line.getByTestId("answer-error-action"));

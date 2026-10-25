@@ -9,6 +9,7 @@ import { useT } from "../i18n";
 import { helpKeysLabel, useMeetingHelp } from "../meetingHelp";
 import { useMeetings, useMeetingTime } from "../meetings";
 import { clockTime, durationLabel } from "../meetingTime";
+import { useGuideInPlace } from "../permissionGuide";
 import { useAppStore } from "../store";
 import { hideTranscript, showTranscript, useDocumentTab } from "../transcripts";
 import { CaptureDetailsToggle } from "./CaptureDetails";
@@ -20,7 +21,10 @@ import {
   ResumeLineIcon,
   StopLineIcon,
 } from "./lineIcons";
+import { BarMore } from "./meetings/BarMore";
 import { LevelBars } from "./meetings/LevelBars";
+import { MicrophoneButton } from "./meetings/MicrophoneButton";
+import { ROUTE_LABELS } from "./meetings/TranscriptionRouteSelect";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { TranscriptLines } from "./TranscriptLines";
 import { useTabPlace } from "./tabs/tabItems";
@@ -43,16 +47,25 @@ export function MeetingBar({ meeting, children }: { meeting: Meeting; children?:
     >
       <MeetingControls meeting={meeting} />
       <MeetingLines meeting={meeting} />
-      <TranscriptLines meeting={meeting} />
+      <TranscriptLines meeting={meeting} over />
       {children}
     </section>
   );
 }
 
+/** The bar's own controls, unseen, where the bar will be: the page keeps its place when it comes, at any width. */
+export function MeetingBarRoom({ meeting }: { meeting: Meeting }) {
+  return (
+    <div aria-hidden="true" data-testid="meeting-bar-room" className="meeting-bar meeting-bar-room">
+      <MeetingControls meeting={{ ...meeting, status: "recording" }} />
+    </div>
+  );
+}
+
 /**
  * The live-recording dot (red, the one red outside Citation checks; grey
- * while paused), "Recording 24:16" (or "Paused") with its level bars, Pause or Resume and Stop.
- * ⌘⇧P is the "meeting.pauseResume" command's (../commands/meetings).
+ * while paused), "Recording 24:16" (or "Paused") with its level bars, Pause my mic, Pause or
+ * Resume and Stop. ⌘⇧P is the "meeting.pauseResume" command's (../commands/meetings).
  */
 function MeetingControls({ meeting }: { meeting: Meeting }) {
   const t = useT();
@@ -80,6 +93,11 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
         </span>
         <LevelBars meeting={meeting} />
       </span>
+      <MicrophoneButton
+        meeting={meeting}
+        testId="meeting-mic"
+        className="meeting-button meeting-button--icon"
+      />
       <button
         type="button"
         data-testid={recording ? "meeting-pause" : "meeting-resume"}
@@ -100,28 +118,30 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
         aria-label={t("meetings.bar.stopLabel")}
         title={t("meetings.bar.stopLabel")}
         onClick={() => void stop(meeting.id)}
-        className="meeting-button"
+        className="meeting-button meeting-button--words"
       >
         <StopLineIcon className="size-3.5" />
-        {t("meetings.bar.stop")}
+        <span className="meeting-button-word">{t("meetings.bar.stop")}</span>
       </button>
       <button
         type="button"
         data-testid="meeting-mark"
+        data-fold="mark"
         disabled={!recording}
         aria-label={t("meetings.mark.title", { shortcut: markShortcut })}
         title={t(recording ? "meetings.mark.title" : "meetings.command.markPaused", {
           shortcut: markShortcut,
         })}
         onClick={() => void commands.run("meeting.mark")}
-        className="meeting-button"
+        className="meeting-button meeting-button--words"
       >
         <BookmarkLineIcon className="size-3.5" />
-        {t("meetings.mark")}
+        <span className="meeting-button-word">{t("meetings.mark")}</span>
       </button>
       <CallHelpToggle />
       <TranscriptToggle meeting={meeting} />
       <CaptureDetailsToggle meeting={meeting} />
+      <BarMore />
     </div>
   );
 }
@@ -140,13 +160,15 @@ function CallHelpToggle() {
     <button
       type="button"
       data-testid="meeting-call-help"
+      data-fold="help"
       aria-pressed={shown}
+      aria-label={title}
       title={title}
       onClick={() => files.showMeetingPanel(!shown)}
-      className="meeting-button"
+      className="meeting-button meeting-button--words"
     >
       <FloatLineIcon className="size-3.5" />
-      {t("meetings.callHelp")}
+      <span className="meeting-button-word">{t("meetings.callHelp")}</span>
     </button>
   );
 }
@@ -154,28 +176,30 @@ function CallHelpToggle() {
 /**
  * Show transcript (显示转写稿): opens the Meeting's Transcript as a tab in
  * the group beside its Mind; then Hide transcript closes it (#136). Before
- * the first line there is no Transcript to show yet.
+ * the first line there is no Transcript to show yet, and the button waits
+ * greyed, so the bar has the same width from its first paint.
  */
 function TranscriptToggle({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const place = useTabPlace();
   const documentId = meeting.transcript?.documentId ?? null;
   const tab = useDocumentTab(documentId);
-  if (!meeting.transcript) return null;
   const label = t(tab ? "meetings.bar.hideTranscript" : "meetings.bar.showTranscript");
   return (
     <button
       type="button"
       data-testid="meeting-transcript-toggle"
+      data-fold="transcript"
       aria-pressed={tab !== null}
       disabled={!documentId}
+      aria-label={documentId ? label : t("meetings.bar.transcriptSoon")}
       title={documentId ? label : t("meetings.bar.transcriptSoon")}
       onClick={() => {
         if (!documentId) return;
         if (tab) hideTranscript(tab.id);
         else showTranscript(documentId, place?.groupId);
       }}
-      className="meeting-button meeting-button--end"
+      className="meeting-button meeting-button--words meeting-button--end"
     >
       <DocumentLineIcon kind="transcript" className="size-3.5" />
       <span className="meeting-button-label">{label}</span>
@@ -183,12 +207,16 @@ function TranscriptToggle({ meeting }: { meeting: Meeting }) {
   );
 }
 
-/** What the User should know about the recording, a line each: its health, a cut, a gap. */
+/**
+ * What the User should know about the recording, a line each: its health, a cut, a gap, and
+ * transcription back on this computer after the cloud service stopped (#141).
+ */
 function MeetingLines({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const problem = useMeetings((state) => state.problems[meeting.id]);
   const gapsSeen = useMeetings((state) => state.gapsSeen[meeting.id] ?? 0);
-  const { openSettings, resume, dismissGaps } = useMeetings.getState();
+  const inPlace = useGuideInPlace();
+  const { openSettings, resume, dismissGaps, setMicrophonePaused } = useMeetings.getState();
   const settings = (source: AudioSource): ProblemAction => ({
     label: t(isMacOS() ? "meetings.line.openSettings.mac" : "meetings.line.openSettings.other"),
     testId: `meeting-settings-${source}`,
@@ -226,6 +254,17 @@ function MeetingLines({ meeting }: { meeting: Meeting }) {
       ...(meeting.sources.system !== "unavailable" && { action: settings("system") }),
     });
   }
+  if (meeting.microphonePausedAtMs !== null) {
+    lines.push({
+      key: "microphone-paused",
+      text: t("meetings.mic.pausedSince", { time: clockTime(meeting.microphonePausedAtMs) }),
+      action: {
+        label: t("meetings.mic.resumeLine"),
+        testId: "meeting-mic-resume",
+        onClick: () => void setMicrophonePaused(meeting.id, false),
+      },
+    });
+  }
   const gap = meeting.gaps.length > gapsSeen ? meeting.gaps.at(-1) : undefined;
   if (gap && meeting.status === "recording") {
     lines.push({
@@ -237,6 +276,26 @@ function MeetingLines({ meeting }: { meeting: Meeting }) {
       action: { label: t("error.dismiss"), onClick: () => dismissGaps(meeting.id) },
     });
   }
+  const fellBack = meeting.transcript?.fellBack;
+  if (fellBack) {
+    const service = t(ROUTE_LABELS[fellBack.route]);
+    const time = clockTime(fellBack.atMs);
+    lines.push({
+      key: "cloud",
+      text: t(FELL_BACK[fellBack.reason], { service, time }),
+      ...(fellBack.reason === "refused" && {
+        action: {
+          label: t("meetings.key.replace"),
+          testId: "meeting-line-change-key",
+          // OpenAI's key is its provider's, in Models; a service's own key is in Meetings.
+          onClick: () =>
+            useAppStore
+              .getState()
+              .openSettings(fellBack.route === "openai" ? "models" : "meetings"),
+        },
+      }),
+    });
+  }
 
   return (
     <>
@@ -244,16 +303,49 @@ function MeetingLines({ meeting }: { meeting: Meeting }) {
         <ProblemLine
           key={line.key}
           testId={`meeting-line-${line.key}`}
-          role={line.key === "gap" || line.key === "interrupted" ? "status" : "alert"}
+          role={STATUS_LINES.has(line.key) ? "status" : "alert"}
           className="meeting-line"
           action={line.action}
         >
           {line.text}
         </ProblemLine>
       ))}
+      {inPlace && (
+        <ProblemLine
+          testId="meeting-line-guide"
+          role="status"
+          className="meeting-line"
+          action={{
+            label: t("move.dismiss"),
+            testId: "meeting-line-guide-close",
+            onClick: () => files.closePermissionGuide(),
+          }}
+        >
+          {inPlace.status === "granted"
+            ? t(`meetings.guide.done.${inPlace.source}`)
+            : t("meetings.guide.inline", { where: t(`meetings.guide.where.${inPlace.source}`) })}
+        </ProblemLine>
+      )}
     </>
   );
 }
+
+const STATUS_LINES: ReadonlySet<string> = new Set([
+  "gap",
+  "interrupted",
+  "cloud",
+  "microphone-paused",
+]);
+
+const FELL_BACK: Record<
+  NonNullable<NonNullable<Meeting["transcript"]>["fellBack"]>["reason"],
+  MessageKey
+> = {
+  dropped: "meetings.line.cloudDropped",
+  refused: "meetings.line.cloudRefused",
+  cap: "meetings.line.cloudCap",
+  "local-mode": "meetings.line.cloudLocalMode",
+};
 
 const MICROPHONE_LINES: Partial<Record<MeetingSourceState, MessageKey>> = {
   denied: "meetings.line.microphoneDenied",

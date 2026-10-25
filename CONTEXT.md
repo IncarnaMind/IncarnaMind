@@ -4,19 +4,19 @@ A notebook where people write Notes and ask Questions that are answered from the
 
 ## Language
 
-### Minds
+### Notes
 
-**Mind**:
-A notebook a User writes in: an ordered sequence of Blocks.
-_Avoid_: session, chat
+**Note**:
+A notebook a User writes in: an ordered sequence of Blocks. The code, the data and the APIs keep the name `mind`, and nothing migrates.
+_Avoid_: Mind, session, chat
 
 **Block**:
 One unit of content in a Mind, positioned where the User placed it.
 _Avoid_: message
 
-**Note**:
-A Block the User writes.
-_Avoid_: text block
+**Your text**:
+A Block the User writes, as opposed to one the assistant wrote.
+_Avoid_: Note, text block
 
 **Chart**:
 A Block in a Mind that draws values from a table or from cited figures (a bar, line, pie or scatter chart), each value kept with where it came from and its Citation, so each point can be traced to its source.
@@ -31,11 +31,11 @@ What is generated in response to exactly one Question, right after it: a Block i
 _Avoid_: output, response, reply
 
 **Question context**:
-What an Answer is generated from: in a Mind, every Block above its Question, except Notes the User has excluded; in a Conversation, its earlier Questions and Answers, and the Mind in focus when the Question was asked. Plus Passages from the Documents in the Question's Search scope.
+What an Answer is generated from: in a Mind, every Block above its Question, except the Blocks of your text the User has excluded; in a Conversation, its earlier Questions and Answers, the Mind in focus when the Question was asked, the names of the Documents open on screen then, and the words the User selected in Documents to ask about, as each Document has them where they were selected. Plus Passages from the Documents in the Question's Search scope.
 _Avoid_: prompt, history
 
 **Search scope**:
-The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Mind starts with the Folder as its Search scope, which the User can remove; a Question with no Search scope searches all Documents.
+The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Mind starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Mind's composer stays with the Mind, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Mind that has none.
 _Avoid_: filter, context
 
 ### The assistant
@@ -87,11 +87,11 @@ A Document the User marks with "Don't cite this Document", such as a spreadsheet
 _Avoid_: private Document, hidden Document, excluded Document
 
 **Citation**:
-A reference, anchored in the text of an Answer, to the Passage a claim was drawn from: the Location it cites, and a quote from the Passage that is checked against the text at that Location. Copied into a Note, it stays a Citation; Question context shows it as a plain reference to its Document. It names its Document as the Document is named now, so a rename shows in every Citation of it, on screen, in exports and in what a model or an outside agent reads; the name it was made with is kept, never rewritten, and shown only when the Document can't be found. A History comparison keeps each Checkpoint's own names.
+A reference, anchored in the text of an Answer, to the Passage a claim was drawn from: the Location it cites, and a quote from the Passage that is checked against the text at that Location. Copied into your text, it stays a Citation; Question context shows it as a reference to its Document with an id, by which an Answer keeps it as the same Citation. It names its Document as the Document is named now, so a rename shows in every Citation of it, on screen, in exports and in what a model or an outside agent reads; the name it was made with is kept, never rewritten, and shown only when the Document can't be found. A History comparison keeps each Checkpoint's own names.
 _Avoid_: source, reference
 
 **Calculated figure**:
-A number in an Answer or Note that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated".
+A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated".
 _Avoid_: computed figure, calculated citation, derived number, formula
 
 **Input**:
@@ -111,7 +111,7 @@ How a Mind's Citations read, in its text and its exports, and how its Bibliograp
 _Avoid_: citation format, reference style
 
 **Bibliography**:
-Every Document a Mind cites, once each, in its citation style: the References at the Mind's end, kept up to date, and the end of its exports. A Mind in Numbered shows none. A Document whose reference record is too thin to cite is listed by its name, marked "needs details", in the Mind and in its exports.
+Every Document a Mind cites, once each, in its citation style: the References at the Mind's end, kept up to date, and the end of its exports. A Mind in Numbered shows none. A Document whose reference record is too thin to cite is listed by its name in the Mind, marked "needs details"; an export writes the details it has, never a placeholder, and the Saved line counts the Documents that lack authors or dates.
 _Avoid_: works cited (except as a style's own heading), sources list
 
 **Source provider**:
@@ -141,6 +141,10 @@ _Avoid_: Unsorted, Uncategorised, Inbox
 **Suggested Folder**:
 A Folder that Organize proposes for a Document, which waits for the User to accept it (it becomes the User's choice) or reject it (the Document stays Not in a Folder and that Folder isn't suggested for it again). While it waits, the Document counts as in that Folder, for listings and for the Folder's Search scope, marked as a suggestion.
 _Avoid_: automatic Folder, proposed Folder
+
+**To review**:
+The Library's view of what Organize suggested and the User hasn't accepted yet: the Documents waiting in a Suggested Folder, listed by that Folder, each to accept, move to another Folder or turn down ("Not this Folder"). It is the first section of the Library page while anything waits, with how many, and goes when nothing does.
+_Avoid_: inbox, queue, pending
 
 **Source location**:
 The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind.
@@ -244,7 +248,7 @@ The result of a Citation check when the Citation's quote, or words its sentence 
 _Avoid_: broken, invalid, failed
 
 **Unsupported**:
-The result for a sentence when Find support, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
+The result for a sentence when Check against Documents, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
 _Avoid_: not found, unverified, false
 
 **Contradicted**:
@@ -298,7 +302,7 @@ The words of a Meeting, in order and with times, kept as a Document so that a Ci
 _Avoid_: captions, subtitles, minutes
 
 **Speaker**:
-A person in a Transcript who is told apart from the others. A Speaker is named by the User, and a Citation to a Transcript names who said the quote. Before that, a live Meeting's lines are "Me" (the microphone) or "Them" (the computer's sound), or "Speaker ?" with no computer sound.
+A person in a Transcript who is told apart from the others. A Speaker is named by the User, and a Citation to a Transcript names who said the quote. Before that, a live Meeting's lines are "Me" (the microphone) or "Them" (the computer's sound), or "Speaker ?" with no computer sound. After the call, the speaker pass numbers several voices "Speaker 1, 2…"; one other voice stays "Them", and "Me" stays "Me".
 _Avoid_: voice, participant, user
 
 ### Files

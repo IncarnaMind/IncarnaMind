@@ -1,16 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, NodeSelection } from "@tiptap/pm/state";
-import { TableMap } from "@tiptap/pm/tables";
-import {
-  BLOCK_ID_ATTRIBUTE,
-  CHART_NODE,
-  CITATION_NODE,
-  type CitationAttributes,
-  FOOTNOTE_NODE,
-  PROPOSAL_ATTRIBUTE,
-  PROPOSAL_INSERT_MARK,
-} from "../../../core/api";
+import { BLOCK_ID_ATTRIBUTE, CHART_NODE } from "../../../core/api";
 import {
   type ChartAttributes,
   type ChartData,
@@ -19,85 +10,19 @@ import {
   chartFromFigures,
   chartFromTable,
   drawnSeries,
+  gridOfTable,
   readChart,
   type SourceGrid,
   type SourceLine,
   sameChartData,
+  sourceLineOf,
   switchedChart,
 } from "../../../shared/charts";
-import { readProposalAttribute } from "../../../shared/proposals";
 import { asOwnUndoStep } from "./selectionCommands";
 
-/** A copy of a Citation without the editor's own attributes (`proposal`). */
-const CITATION_KEYS: readonly (keyof CitationAttributes)[] = [
-  "passageId",
-  "documentId",
-  "documentName",
-  "contentHash",
-  "pageFrom",
-  "pageTo",
-  "location",
-  "quote",
-  "check",
-  "checkReason",
-  "verdict",
-  "quotedWords",
-];
+const readText = (node: ProseMirrorNode): SourceLine => sourceLineOf(node.toJSON());
 
-function citationOf(node: ProseMirrorNode): CitationAttributes {
-  const copy: Record<string, unknown> = {};
-  for (const key of CITATION_KEYS) {
-    const value: unknown = node.attrs[key];
-    if (value !== undefined) copy[key] = value;
-  }
-  return copy as unknown as CitationAttributes;
-}
-
-const proposed = (node: ProseMirrorNode) =>
-  readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE])?.kind === "insert" ||
-  node.marks.some((mark) => mark.type.name === PROPOSAL_INSERT_MARK);
-
-function readText(node: ProseMirrorNode): SourceLine {
-  let text = "";
-  let citation: CitationAttributes | null = null;
-  node.descendants((child) => {
-    if (proposed(child)) return false;
-    if (child.type.name === CITATION_NODE) {
-      citation ??= citationOf(child);
-      return false;
-    }
-    if (child.type.name === FOOTNOTE_NODE) return false;
-    if (child.isText) text += child.text ?? "";
-    else if (child.type.name === "hardBreak" || (child.isBlock && text !== "")) text += " ";
-    return true;
-  });
-  return { text: text.replace(/\s+/g, " ").trim(), citation };
-}
-
-export function tableGrid(table: ProseMirrorNode): SourceGrid {
-  const map = TableMap.get(table);
-  const seen = new Set<number>();
-  const grid: SourceGrid[number][] = [];
-  for (let row = 0; row < map.height; row++) {
-    const slots: SourceGrid[number][number][] = [];
-    for (let column = 0; column < map.width; column++) {
-      const offset = map.map[row * map.width + column];
-      const cell = offset === undefined ? null : table.nodeAt(offset);
-      if (!cell || offset === undefined) {
-        slots.push(null);
-        continue;
-      }
-      slots.push({
-        ...readText(cell),
-        header: cell.type.name === "tableHeader",
-        continued: seen.has(offset),
-      });
-      seen.add(offset);
-    }
-    grid.push(slots);
-  }
-  return grid;
-}
+export const tableGrid = (table: ProseMirrorNode): SourceGrid => gridOfTable(table.toJSON());
 
 export function tableAround(state: EditorState): { node: ProseMirrorNode; pos: number } | null {
   const { $from } = state.selection;

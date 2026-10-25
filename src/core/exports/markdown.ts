@@ -146,21 +146,28 @@ class MarkdownWriter {
   private list(block: Extract<Block, { kind: "list" }>, context: Context): string {
     let number = block.start;
     return block.items
-      .map((item) => {
+      .map((item, at) => {
         const marker = block.ordered ? `${number++}.` : "-";
+        const checked = block.checked?.[at];
+        const prefix = checked === undefined ? marker : `${marker} [${checked ? "x" : " "}]`;
         const indent = " ".repeat(marker.length + 1);
         // A list right under the item's text stays tight; other Blocks are a paragraph apart.
         let body = "";
+        let started = false;
         for (const child of item) {
           const text = this.block(child, context);
-          if (!text.trim()) continue;
-          if (body) body += child.kind === "list" ? "\n" : "\n\n";
+          if (!text.trim()) {
+            if (checked !== undefined && child.kind === "paragraph") started = true;
+            continue;
+          }
+          if (started) body += child.kind === "list" ? "\n" : "\n\n";
           body += text;
+          started = true;
         }
-        if (!body) return marker;
+        if (!body) return checked === undefined ? prefix : `${prefix} `;
         return body
           .split("\n")
-          .map((line, index) => (index === 0 ? `${marker} ${line}` : line ? indent + line : ""))
+          .map((line, index) => (index === 0 ? `${prefix} ${line}` : line ? indent + line : ""))
           .join("\n");
       })
       .join("\n");

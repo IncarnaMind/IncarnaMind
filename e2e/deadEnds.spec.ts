@@ -110,7 +110,7 @@ test("checks with no Documents offer Add files…, in the menu, in an empty Fold
   await app.close();
 });
 
-test("a Mind in an empty Folder checks nothing: its line offers Add files… and Close stays", async () => {
+test("a Mind in an empty Folder checks against every Document, as its chip says (#1359)", async () => {
   test.setTimeout(120_000);
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { app, window } = await launchApp(dataDir, { fakeChat: true, home: sources });
@@ -120,7 +120,6 @@ test("a Mind in an empty Folder checks nothing: its line offers Add files… and
   await addDocuments(window, [join(sources, "Tides.pdf")]);
   await newMind(window);
   await nameMind(window, "Deal memo");
-  // The Mind is filed in a Folder that holds no Document: its checks have nothing to check against.
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     const folder = await core.createLibraryGroup({ name: "Contracts", description: "" });
@@ -136,11 +135,8 @@ test("a Mind in an empty Folder checks nothing: its line offers Add files… and
     window,
     window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
-  // A check the User started that can't run opens the badge's card to say why.
-  const problem = window.getByTestId("check-card").getByTestId("checks-problem");
-  await expect(problem).toContainText("Nothing to check against");
-  await expect(problem.getByTestId("checks-add-files")).toHaveText("Add files…");
-  await expect(problem.getByTestId("checks-problem-close")).toBeVisible();
+  await expect(window.getByTestId("claim-mark")).toHaveCount(1);
+  await expect(window.getByTestId("checks-problem")).toHaveCount(0);
   await app.close();
 });
 
@@ -160,12 +156,12 @@ test("most sentences unsupported says so once; an unsupported card offers its th
   await slideSelect(window, line, "Penguins", { line, words: "waters." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   const marks = window.getByTestId("claim-mark");
   await expect(marks).toHaveCount(2);
   const covered = (await checkCard(window)).getByTestId("checks-uncovered");
-  await expect(covered).toContainText("Your Documents don't cover most of this");
+  await expect(covered).toContainText("Your Documents don’t cover most of this");
   await expect(covered.getByTestId("checks-add-files")).toHaveText("Add files…");
   await window.keyboard.press("Escape");
   await expect(window.getByTestId("check-card")).toHaveCount(0);
@@ -201,9 +197,10 @@ test("in Chinese, the card's button and the panel it opens have one name, 查找
   await slideSelect(window, line, "Penguins", { line, words: "waters." });
   const menu = window.getByTestId("selection-menu");
   await expect(menu.getByTestId("selection-action-shorten")).toContainText("精简");
-  await pointAndClick(window, menu.getByTestId("selection-action-find-support"));
+  await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
   const marks = window.getByTestId("claim-mark");
   await expect(marks).toHaveCount(2);
+  await expect(window.locator('[data-check="unsupported"]')).toHaveCount(2);
 
   await pointAndClick(window, marks.first());
   const button = window.getByTestId("claim-card").getByTestId("claim-find-sources");

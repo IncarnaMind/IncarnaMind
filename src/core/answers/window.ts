@@ -30,7 +30,13 @@
  */
 import type { ProviderError } from "../api";
 import type { ContextWindow } from "../providers/models";
-import { estimateTokens, fitQuestionContext, head, type RequestMind } from "./context";
+import {
+  estimateTokens,
+  fitQuestionContext,
+  head,
+  holdsDocumentText,
+  type RequestMind,
+} from "./context";
 import type { AnswerMessage } from "./engine";
 
 /** The factor on the estimate until a request's real count is known. */
@@ -63,10 +69,17 @@ const CUT_RESULT = "\n…(the rest doesn't fit in your context)";
 /**
  * The request's Question context, fitted, and its estimated size, and the
  * share of the Mind read with the Question it kept when that had to be cut
- * (0: none of it); or why it can't fit.
+ * (0: none of it), and whether the whole text of Documents it held was left
+ * out; or why it can't fit.
  */
 export type Fitted =
-  | { ok: true; messages: AnswerMessage[]; estimated: number; mindCut?: number }
+  | {
+      ok: true;
+      messages: AnswerMessage[];
+      estimated: number;
+      mindCut?: number;
+      documentsDropped?: true;
+    }
   | { ok: false; error: ProviderError };
 
 export interface FitRequest {
@@ -192,6 +205,8 @@ export function createWindowBudget(
         messages,
         estimated: fixed + messagesTokens(messages),
         ...(mindCut !== undefined && { mindCut }),
+        ...(holdsDocumentText(request.messages) &&
+          !holdsDocumentText(messages) && { documentsDropped: true as const }),
       };
     },
 

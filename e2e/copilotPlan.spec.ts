@@ -12,6 +12,7 @@ import {
   acceptPlainTextKeys,
   assistantAnswers,
   catchCopies,
+  continueSetup,
   copied,
   createDataFolder,
   interceptOpenExternal,
@@ -91,7 +92,7 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
 
   const notice = card.getByTestId("copilot-notice");
   await expect(notice.getByRole("listitem")).toHaveText([
-    "Answers count toward your Copilot plan's usage limits.",
+    "Answers count toward your Copilot plan’s usage limits.",
     "Experimental: GitHub may block this sign-in.",
     "Sends your questions and document text to GitHub. · Details",
   ]);
@@ -102,16 +103,16 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
 
   await notice.getByTestId("copilot-notice-sends-details").click();
   await expect(notice.getByTestId("copilot-notice-sends-list")).toHaveText(
-    "Your Questions, the Mind you're in, Passages from your Documents, and Document text for Tags go to GitHub under your account.",
+    "Your Questions, the Mind you’re in, Passages from your Documents, and Document text for Tags go to GitHub under your account.",
   );
 
   await pointAndClick(window, notice.getByTestId("copilot-sign-in"));
   const waiting = card.getByTestId("copilot-waiting");
   await expect(waiting.getByTestId("copilot-code")).toHaveText(USER_CODE);
   await expect(waiting.getByTestId("copilot-copy-code")).toBeFocused();
-  await expect(waiting).toContainText("Enter this code on GitHub's page");
+  await expect(waiting).toContainText("Enter this code on GitHub’s page");
   await expect(waiting).toContainText("Waiting for you to approve it in the browser…");
-  await expect(waiting).toContainText("Answers count toward your Copilot plan's usage limits.");
+  await expect(waiting).toContainText("Answers count toward your Copilot plan’s usage limits.");
   await expect.poll(() => urlsOpened(app)).toEqual([`${github.origin}/login/device`]);
   await pointAndClick(window, waiting.getByTestId("copilot-copy-code"));
   expect(await copied(window)).toBe(USER_CODE);
@@ -126,7 +127,7 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
   await pointAndClick(window, card.getByTestId("copilot-sign-in"));
   await expect(card.getByTestId("copilot-code")).toHaveText(USER_CODE);
   github.approve();
-  await expect(card).toBeHidden();
+  await continueSetup(window);
   await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
     timeout: 15_000,
   });
@@ -147,9 +148,9 @@ test("first run: an organization's block says so, with an API key or another way
   github.approve();
 
   const failure = card.getByTestId("copilot-failure");
-  await expect(failure).toContainText("Your organization doesn't allow this app");
+  await expect(failure).toContainText("Your organization doesn’t allow this app");
   await expect(failure).toContainText(
-    "Your organization's Copilot policy blocks IncarnaMind. Ask an admin.",
+    "Your organization’s Copilot policy blocks IncarnaMind. Ask an admin.",
   );
   await expect(failure.getByRole("button")).toHaveText([
     "Use an API key instead",
@@ -182,13 +183,11 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   const settings = await openSettings(window, "models");
   const row = settings.getByTestId("plans-copilot");
   await expect(row).toContainText("GitHub Copilot Pro, Pro+, Business or Enterprise");
-  await expect(row).toContainText(
-    "Sign in with GitHub. Answers count toward your plan's usage limits.",
-  );
+  await expect(row).toContainText("Answers count toward your plan’s limits.");
 
   await pointAndClick(window, row.getByTestId("plans-copilot-sign-in"));
   await expect(row.getByTestId("copilot-notice-usage")).toHaveText(
-    "Answers count toward your Copilot plan's usage limits.",
+    "Answers count toward your Copilot plan’s usage limits.",
   );
   expect(github.requests).toEqual([]);
   await pointAndClick(window, row.getByTestId("copilot-sign-in"));
@@ -198,7 +197,7 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   const account = row.getByTestId("plans-copilot-account");
   await expect(account).toHaveText(`Copilot Pro+ · ${LOGIN}`);
   await expect(row.getByTestId("plans-copilot-sign-out")).toBeFocused();
-  await expect(row).toContainText("Answers count toward your plan's usage limits.");
+  await expect(row).toContainText("Answers count toward your plan’s usage limits.");
   const signOut = row.getByTestId("plans-copilot-sign-out");
   const [accountBox, signOutBox] = await Promise.all([
     account.boundingBox(),
@@ -236,9 +235,7 @@ test("Settings › Models: signed in but with no model listed, the row says so w
   await acceptPlainTextKeys(window);
   const settings = await openSettings(window, "models");
   const row = settings.getByTestId("plans-copilot");
-  await expect(row).toContainText(
-    "Sign in with GitHub. Answers count toward your plan's usage limits.",
-  );
+  await expect(row).toContainText("Answers count toward your plan’s limits.");
   // By keyboard: the Models page above the row is still settling, which moves a pointer's target.
   await row.getByTestId("plans-copilot-sign-in").focus();
   await window.keyboard.press("Enter");
@@ -253,13 +250,13 @@ test("Settings › Models: signed in but with no model listed, the row says so w
   await expect(failure).toContainText("GitHub Copilot listed no models for this account");
   await expect(failure.getByRole("button")).toHaveText(["Try again", "Use an API key instead"]);
   await expect(row.getByTestId("plans-copilot-account")).toHaveText(`Copilot Pro+ · ${LOGIN}`);
-  await expect(row).not.toContainText("Answers count toward your plan's usage limits.");
+  await expect(row).not.toContainText("Answers count toward your plan’s usage limits.");
   await screenshot(row, "settings-copilot-no-models");
 
   github.listedModels = LISTED_MODELS;
   await pointAndClick(window, failure.getByTestId("copilot-way-back-try-again"));
   await expect(failure).toBeHidden();
-  await expect(row).toContainText("Answers count toward your plan's usage limits.");
+  await expect(row).toContainText("Answers count toward your plan’s usage limits.");
   await expect
     .poll(() =>
       window.evaluate(async () => {
@@ -278,9 +275,7 @@ test("signed in, an Answer GitHub refuses offers Sign in again: a new code even 
   await acceptPlainTextKeys(window);
   const settings = await openSettings(window, "models");
   const row = settings.getByTestId("plans-copilot");
-  await expect(row).toContainText(
-    "Sign in with GitHub. Answers count toward your plan's usage limits.",
-  );
+  await expect(row).toContainText("Answers count toward your plan’s limits.");
   // By keyboard: the Models page above the row is still settling, which moves a pointer's target.
   await row.getByTestId("plans-copilot-sign-in").focus();
   await window.keyboard.press("Enter");
@@ -309,7 +304,7 @@ test("signed in, an Answer GitHub refuses offers Sign in again: a new code even 
   await expect(answer).toHaveAttribute("data-status", "failed", { timeout: 15_000 });
   const line = answer.getByTestId("answer-error");
   await expect(line).toHaveText(
-    "GitHub didn't let IncarnaMind use your Copilot plan · Sign in again · Use an API key instead",
+    "GitHub didn’t let IncarnaMind use your Copilot plan · Sign in again · Use an API key instead",
   );
 
   await pointAndClick(window, line.getByTestId("answer-error-action"));

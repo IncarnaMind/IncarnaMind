@@ -1,5 +1,6 @@
-import { type KeyboardEvent, type MouseEvent, useEffect, useRef } from "react";
+import { type KeyboardEvent, type MouseEvent, type RefObject, useEffect, useRef } from "react";
 import { create } from "zustand";
+import { currentTabOf } from "./layoutSlice";
 import type { ObjectRef } from "./objects";
 import {
   choose,
@@ -15,6 +16,7 @@ import {
   toggle,
 } from "./selectionModel";
 import { useAppStore } from "./store";
+import { SHOWN_ROW_EVENT } from "./treeKeys";
 
 export type { SelectSurface } from "./selectionModel";
 
@@ -96,6 +98,9 @@ export const selectedOn = (surface: SelectSurface): readonly ObjectRef[] => {
 export const useSelectedOn = (surface: SelectSurface): readonly ObjectRef[] =>
   useSelection((state) => (state.surface === surface ? state.items : NONE));
 
+export const useSeveralSelected = (surface: SelectSurface): boolean =>
+  useSelection((state) => state.surface === surface && state.items.length > 1);
+
 /**
  * One row's part in the gestures. A click opens it and selects just it;
  * ⌘-click or Ctrl-click adds or removes it, and Shift-click extends from the
@@ -158,13 +163,15 @@ export function extendThroughRows(
   return true;
 }
 
-/** Keeps the selection to Documents and Minds that still exist, as they are deleted. */
+/** Keeps the selection to Documents, Minds and Folders that still exist, as they are deleted. */
 export function usePruneSelection(): void {
   const documents = useAppStore((state) => state.documents);
   const minds = useAppStore((state) => state.minds);
+  const folders = useAppStore((state) => state.library?.groups);
   useEffect(() => {
     const documentIds = new Set(documents.map((each) => each.id));
     const mindIds = new Set(minds.map((each) => each.id));
+    const folderIds = folders ? new Set(folders.map((each) => each.id)) : null;
     useSelection
       .getState()
       .keepOnly((ref) =>
@@ -172,7 +179,61 @@ export function usePruneSelection(): void {
           ? documentIds.has(ref.id)
           : ref.kind === "mind"
             ? mindIds.has(ref.id)
-            : true,
+            : ref.kind === "folder" && folderIds
+              ? folderIds.has(ref.id)
+              : true,
       );
-  }, [documents, minds]);
+  }, [documents, minds, folders]);
+}
+
+const shownKey = (state: ReturnType<typeof useAppStore.getState>): string | null => {
+  if (state.settingsOpen) return null;
+  const item = currentTabOf(state.layout)?.item;
+  if (item?.kind === "mind") return refKey({ kind: "mind", id: item.mindId });
+  if (item?.kind === "document") return refKey({ kind: "document", id: item.documentId });
+  return null;
+};
+
+/**
+ * A sidebar selection of one, or of none, follows what the User is looking at
+ * (#1098): the focused group's shown Mind or Document, once its row is in the
+ * tree, which no Folder unfolds for; none while the Library or Settings shows.
+ * A selection of several, made with ⌘-click or Shift-click, stays as it is.
+ */
+export function useSelectionFollowsShown(tree: RefObject<HTMLElement | null>): void {
+  const shown = useAppStore(shownKey);
+  useEffect(() => {
+    const root = tree.current;
+    // Only while the shown item has no row does a row that comes later light: Esc stays.
+    let missing = false;
+    const follow = (later: boolean) => {
+      const { surface, items, choose, clear } = useSelection.getState();
+      // The Library's selection, or one of several made on purpose, is the User's to keep.
+      if ((surface !== null && surface !== "sidebar") || items.length > 1) return;
+      // A row chosen since, while the shown item had none, is the User's to keep too.
+      if (later && items.length > 0) return;
+      const ref = shown === null ? null : refOfKey(shown);
+      const row =
+        shown === null ? null : root?.querySelector(`[data-select-ref="${CSS.escape(shown)}"]`);
+      missing = !ref || !row;
+      if (!ref || !row) {
+        if (!later) clear("sidebar");
+        return;
+      }
+      choose("sidebar", ref);
+      const main = row.matches("[data-tree-row]") ? row : row.querySelector("[data-tree-row]");
+      if (!(main instanceof HTMLElement)) return;
+      main.dispatchEvent(new Event(SHOWN_ROW_EVENT, { bubbles: true }));
+      // A row with the focus hands it on with the Tab stop, so the two never part.
+      if (root?.contains(document.activeElement) && document.activeElement !== main) main.focus();
+    };
+    follow(false);
+    if (!root) return;
+    // A row that comes later (a Mind just made, a Folder unfolded) is lit once it is there.
+    const observer = new MutationObserver(() => {
+      if (missing) follow(true);
+    });
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [shown, tree]);
 }

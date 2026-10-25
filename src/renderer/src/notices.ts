@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { ErrorWording } from "../../core/errors";
 import type { MessageKey } from "../../shared/i18n";
 import { describeError } from "./errors";
+import type { Words } from "./lineNames";
 
 /** How long a confirmation ("Copied") shows before it goes by itself. An error never does. */
 export const CONFIRMATION_SHOWN_MS = 3000;
@@ -33,7 +34,7 @@ export interface ErrorNotice {
 }
 
 export interface NoticeAction {
-  label: string;
+  label: Words;
   run(): Promise<void> | void;
 }
 

@@ -9,6 +9,7 @@
  */
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import type { TranscriberPort, TranscriberResponse } from "./channel";
+import type { FakeCloudOptions } from "./fakeCloud";
 import type { SpeechEngine, VoiceDetector } from "./speech";
 
 export const FAKE_LINES: readonly string[] = [
@@ -43,6 +44,8 @@ export interface FakeSpeechOptions {
   realTimeFactor?: number;
   /** The decodes, counted from 1, that fail as a real engine's can: their stretches lose their text. */
   failing?: readonly number[];
+  /** The engine can't start, for this reason: as a real one's JavaScript error says. */
+  failToLoad?: string;
 }
 
 /** A transcriber that says it moved its streams to the cloud, and back, after so many lines each. */
@@ -56,6 +59,8 @@ export interface FakeFailover {
 /** What the smoke tests ask of the fake transcriber (INCARNAMIND_TEST_TRANSCRIBER_OPTIONS). */
 export interface FakeTranscriberOptions extends FakeSpeechOptions {
   failover?: FakeFailover;
+  /** How the pretend cloud service behaves, for streams opened with one (#141). */
+  cloud?: FakeCloudOptions;
 }
 
 /**
@@ -94,6 +99,7 @@ const LEVEL = 0.01;
 const QUIET_FRAMES = 25;
 
 export function createFakeSpeechEngine(options: FakeSpeechOptions = {}): SpeechEngine {
+  if (options.failToLoad) throw new Error(options.failToLoad);
   const mine = options.lines ?? FAKE_LINES;
   const theirs = options.theirLines ?? FAKE_THEIR_LINES;
   const maxFrames = Math.round((options.maxSpeechMs ?? 2000) / 20);

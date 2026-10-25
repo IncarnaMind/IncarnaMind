@@ -27,6 +27,7 @@ import {
   quoteMarkOf,
   quoteTone,
 } from "./quoteMark";
+import { domSelection, useSelectionReader } from "./selectedText";
 import { findInDrawing, rangesByKey } from "./slides/pieces";
 import { SlideCanvas } from "./slides/SlideCanvas";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
@@ -121,11 +122,24 @@ function pictureParts(slide: SlideDrawing): string[] {
   return parts;
 }
 
+// A slide's speaker notes are part of its Unit (ADR-0011).
+const slideOf = (node: Node) => {
+  const slide = node.parentElement?.closest<HTMLElement>("[data-slide]")?.dataset.slide;
+  return slide ? Number(slide) : null;
+};
+
 function Slides({ loaded, target }: { loaded: Loaded; target: ViewerTarget }) {
   const t = useT();
   const { slides } = loaded.deck;
   const { drawing } = loaded;
   const scroller = useRef<HTMLDivElement>(null);
+  useSelectionReader(
+    useCallback(
+      (range) =>
+        scroller.current ? domSelection(range, scroller.current, slideOf) : { parts: [] },
+      [],
+    ),
+  );
   const slideElements = useRef(new Map<number, HTMLElement>());
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [current, setCurrent] = useState<number | null>(null);
@@ -429,7 +443,7 @@ function SlideFrame({
       className={`viewer-deck-slide ${outline.hidden ? "viewer-deck-slide--hidden" : ""}`}
       style={{ width: width * scale }}
     >
-      <p className="viewer-slide-number">
+      <p data-quote-skip="" className="viewer-slide-number">
         {t("viewer.slide.label", { number: slide.number })}
         {outline.hidden && <span> · {t("viewer.slide.hidden")}</span>}
       </p>
@@ -458,7 +472,7 @@ function SlideFrame({
             if (open !== notesOpen) onNotesToggle(open);
           }}
         >
-          <summary>{t("viewer.slide.notes")}</summary>
+          <summary data-quote-skip="">{t("viewer.slide.notes")}</summary>
           <div className="viewer-deck-notes-body">
             {outline.notes.map((line, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: notes never reorder
@@ -588,7 +602,7 @@ function SlideSheet({
       style={width !== undefined ? { width, maxWidth: "none" } : undefined}
     >
       <div ref={column} className="relative">
-        <p className="viewer-slide-number">
+        <p data-quote-skip="" className="viewer-slide-number">
           {t("viewer.slide.label", { number: slide.number })}
           {slide.hidden && <span> · {t("viewer.slide.hidden")}</span>}
         </p>
@@ -646,7 +660,7 @@ function SlideSheet({
         </div>
         {slide.notes.length > 0 && (
           <section data-testid="viewer-slide-notes" className="viewer-slide-notes">
-            <h3>{t("viewer.slide.notes")}</h3>
+            <h3 data-quote-skip="">{t("viewer.slide.notes")}</h3>
             {slide.notes.map((line, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: notes never reorder
               <p key={index}>{text(`notes${index}`, line)}</p>

@@ -86,17 +86,29 @@ describe("a Mind without a title", () => {
   });
 });
 
-describe("a Mind whose first Note was added from an Answer (#769)", () => {
-  const addAnswer = (core: Core, mindId: string, question: string, answer: string) =>
+describe("a Mind whose first Note was added from an Answer (#1174)", () => {
+  const addAnswer = (
+    core: Core,
+    mindId: string,
+    question: string,
+    answer: string,
+    type: "paragraph" | "heading" = "paragraph",
+  ) =>
     core.addToNote({
       mindId,
-      blocks: [{ type: "paragraph", content: [{ type: "text", text: answer }] }],
+      blocks: [
+        {
+          type,
+          ...(type === "heading" && { attrs: { level: 2 } }),
+          content: [{ type: "text", text: answer }],
+        },
+      ],
       origin: { from: messageReference("conversation-1", "answer-1"), question },
       model: null,
     });
   const nameOf = async (core: Core) => (await core.listMinds())[0]?.autoTitle;
 
-  test("is named by the Question, cut at a clause, not by the Answer's first line", async () => {
+  test("is named by the Note's first line, cut at a clause, not by the Question", async () => {
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind();
     await addAnswer(
@@ -106,22 +118,43 @@ describe("a Mind whose first Note was added from an Answer (#769)", () => {
       "The employee gets 27 days of paid holiday per year, plus bank holidays, and the notice after probation is one month.",
     );
 
-    expect(await nameOf(core)).toBe("How many days of holiday does the employee get");
+    expect(await nameOf(core)).toBe("The employee gets 27 days of paid holiday per year");
   });
 
-  test("is named by a Chinese Question, cut cleanly", async () => {
+  test("is named by a Chinese first line, cut cleanly", async () => {
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind();
     await addAnswer(
       core,
       mind.id,
-      "员工每年享有多少天带薪年假，试用期结束后需要提前多久通知公司解除劳动合同，以及需要支付哪些补偿，还有哪些情形下公司可以不提前通知直接解除合同？",
-      "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方。",
+      "员工每年享有多少天带薪年假？",
+      "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方，并且需要在合同中写明相关的补偿安排。",
     );
 
     expect(await nameOf(core)).toBe(
-      "员工每年享有多少天带薪年假，试用期结束后需要提前多久通知公司解除劳动合同，以及需要支付哪些补偿",
+      "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方",
     );
+  });
+
+  test("is named by the heading, never by the instruction the assistant was given for it", async () => {
+    const core = startCore(await createTempDataFolder());
+    const mind = await core.createMind();
+    await addAnswer(core, mind.id, "Make the summary longer.", "Summary", "heading");
+    expect(await nameOf(core)).toBe("Summary");
+
+    await addAnswer(core, mind.id, "Write a short summary of this agreement.", "A second note.");
+    expect(await nameOf(core)).toBe("Summary");
+
+    const chinese = await core.createMind();
+    await core.addToNote({
+      mindId: chinese.id,
+      blocks: [{ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "摘要" }] }],
+      origin: { from: messageReference("conversation-1", "answer-2"), question: "把摘要写长一点" },
+      model: null,
+    });
+    const names = (await core.listMinds()).map((each) => each.autoTitle);
+    expect(names).toContain("摘要");
+    expect(names).not.toContain("把摘要写长一点");
   });
 
   test("keeps the name of a line the User wrote above it", async () => {
@@ -148,7 +181,7 @@ describe("a Mind whose first Note was added from an Answer (#769)", () => {
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind();
     const added = await addAnswer(core, mind.id, "How many days of holiday?", "Twenty-seven days.");
-    expect(await nameOf(core)).toBe("How many days of holiday");
+    expect(await nameOf(core)).toBe("Twenty-seven days");
 
     await core.undoAddToNote({ mindId: mind.id, blockIds: added.blockIds });
 

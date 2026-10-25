@@ -97,12 +97,47 @@ export function foldersMovedFrom(move: FolderMove): string[] {
   return [...new Set(from.filter((id): id is string => id !== null && id !== move.folderId))];
 }
 
+/** The names of these Folders, for the refusal when one is gone by the time an undo puts something back in it. */
+export function namesOfFolders(
+  library: LibrarySnapshot | null,
+  ids: readonly (string | null)[],
+): Map<string, string> {
+  const wanted = new Set(ids);
+  return new Map(
+    (library?.groups ?? [])
+      .filter((group) => wanted.has(group.id))
+      .map((group) => [group.id, group.name]),
+  );
+}
+
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
-interface Names {
-  minds: readonly Mind[];
-  documents: readonly Document[];
-  conversations?: readonly Conversation[];
+export interface Names {
+  minds: readonly Pick<Mind, "id" | "title" | "autoTitle">[];
+  documents: readonly Pick<Document, "id" | "name">[];
+  conversations?: readonly Pick<Conversation, "id" | "title" | "autoTitle">[];
+}
+
+/**
+ * `names` kept to what a line about these items says: the one item, by the fields its name is
+ * made from, when there is one, and none when it says only how many. A line made from the result
+ * holds nothing of the lists the names were found in.
+ */
+export function namesOfMoving(items: MoveItems, names: Names): Names {
+  const { mindIds, documentIds, conversationIds } = itemsOf(items);
+  const one = mindIds.length + documentIds.length + conversationIds.length === 1;
+  const mind = one ? names.minds.find((each) => each.id === mindIds[0]) : undefined;
+  const document = one ? names.documents.find((each) => each.id === documentIds[0]) : undefined;
+  const conversation = one
+    ? names.conversations?.find((each) => each.id === conversationIds[0])
+    : undefined;
+  return {
+    minds: mind ? [{ id: mind.id, title: mind.title, autoTitle: mind.autoTitle }] : [],
+    documents: document ? [{ id: document.id, name: document.name }] : [],
+    conversations: conversation
+      ? [{ id: conversation.id, title: conversation.title, autoTitle: conversation.autoTitle }]
+      : [],
+  };
 }
 
 /** What moves, as the line and the Edit menu say it: one by its name, several by how many of what. */
@@ -150,6 +185,13 @@ export function moveMessage(
   return t(`move.done.${what.kind}`, { count: what.count, folder: folderName });
 }
 
+/** What a drop on a Folder would do, as its target says it: "Move to Finance", "Move 3 Documents to Finance". */
+export function moveLabel(t: Translate, items: MoveItems, folderName: string): string {
+  const what = whatMoves(t, items, { minds: [], documents: [] });
+  if ("name" in what) return t("drop.moveTo", { folder: folderName });
+  return t(`drop.moveTo.${what.kind}`, { count: what.count, folder: folderName });
+}
+
 /**
  * What the line says once a Folder is made: "Made “Chapter 2”", and with what
  * went into it, "Made “Chapter 2” with 3 Documents".
@@ -168,6 +210,15 @@ export function madeMessage(
   if ("name" in what) return t("folder.made.one", { name: folderName, item: what.name });
   const kind = what.kind === "minds" || what.kind === "documents" ? what.kind : "items";
   return t(`folder.made.${kind}`, { name: folderName, count: what.count });
+}
+
+/** What is moved, as its drag and "Move to…" name it: "Shortlist", "3 Documents", "3 items". */
+export function movingName(t: Translate, items: MoveItems, names: Names): string {
+  const what = whatMoves(t, items, names);
+  if ("name" in what) return what.name;
+  if (what.kind === "minds") return t("mind.count", { count: what.count });
+  if (what.kind === "documents") return t("library.count", { count: what.count });
+  return t("move.items", { count: what.count });
 }
 
 /** The move as the Edit menu names it: "Move “Shortlist”", "Move 3 Documents". */

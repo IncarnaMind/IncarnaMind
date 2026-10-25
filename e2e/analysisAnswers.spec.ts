@@ -62,11 +62,10 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-/** The app with a model measured to write calculated figures (the scripted one answers for it), and the workbooks. */
-async function launchWithSheets() {
+async function launchWithSheets(language: "en" | "zh-CN" = "en", width = 1600) {
   const launched = await launchApp(dataDir, { fakeChat: true, sandboxed: true });
   const { app, window } = launched;
-  await setWindowSize(app, window, 1440, 900);
+  await setWindowSize(app, window, width, 900);
   await dismissChatSetup(window);
   await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
@@ -81,18 +80,22 @@ async function launchWithSheets() {
       modelId: "claude-haiku-5-5",
     });
   });
+  await (await coreOf(window)).evaluate(
+    (bridge, language) => bridge.updateSettings({ user: { language } }),
+    language,
+  );
   await writeFile(join(sources, "Sales 2026.xlsx"), SALES);
   await writeFile(join(sources, "Regions.xlsx"), REGIONS);
   await addDocuments(window, [join(sources, "Sales 2026.xlsx"), join(sources, "Regions.xlsx")]);
-  await expect(window.getByTestId("document-list-item")).toHaveCount(2);
-  for (const item of await window.getByTestId("document-list-item").all()) {
-    await expect(item).toHaveAttribute("data-status", "ready", { timeout: 30_000 });
+  for (const name of ["Sales 2026", "Regions"]) {
+    await expect(
+      window.getByTestId("document-list-item").filter({ hasText: name }).first(),
+    ).toHaveAttribute("data-status", "ready", { timeout: 30_000 });
   }
   await newMind(window);
   return launched;
 }
 
-/** The last Answer of the open conversation, as the core keeps it. */
 async function storedAnswer(window: Page): Promise<ConversationAnswer> {
   const core = await coreOf(window);
   return core.evaluate(async (bridge) => {
@@ -105,37 +108,65 @@ async function storedAnswer(window: Page): Promise<ConversationAnswer> {
   });
 }
 
-test("asked for revenue by region, the Answer runs an Analysis over the whole sheet: its table and total show, its step says so, and the conversation keeps it", async () => {
-  test.setTimeout(180_000);
-  const { app, window } = await launchWithSheets();
+for (const language of ["en", "zh-CN"] as const) {
+  for (const width of [900, 1600]) {
+    test(`${language} ${width}: real Python gives the revenue table and total, with its step and retained conversation`, async () => {
+      test.setTimeout(180_000);
+      const { app, window } = await launchWithSheets(language, width);
+      const evidence = process.env.INCARNAMIND_ANALYSIS_EVIDENCE_DIR;
+      let closed = false;
+      try {
+        if (evidence)
+          await window.screenshot({ path: join(evidence, `${language}-${width}-before.png`) });
+        const answer = await askInAssistant(
+          window,
+          language === "en" ? "What was revenue by region?" : "按地区汇总 Revenue",
+          { timeout: 60_000 },
+        );
 
-  const answer = await askInAssistant(window, "What was revenue by region?", { timeout: 60_000 });
+        const text = answer.getByTestId("assistant-answer-text");
+        await expect(text.locator("table")).toHaveCount(1);
+        await expect(text.locator("table tr")).toHaveCount(5);
+        await expect(text.locator("table")).toContainText("North");
+        await expect(text.locator("table")).toContainText("270.5");
+        await expect(text).toContainText(language === "en" ? "In total, 450.5" : "合计 450.5");
+        await expect(text).not.toContainText("[=");
+        const timeline = await openSteps(window, answer);
+        await expect(timeline.getByTestId("answer-analysis-call")).toHaveText(
+          language === "en" ? "Ran an analysis on Sales 2026" : "对“Sales 2026”运行了数据分析",
+        );
+        expect(
+          await answer.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+        ).toBe(true);
 
-  const text = answer.getByTestId("assistant-answer-text");
-  await expect(text.locator("table")).toHaveCount(1);
-  await expect(text.locator("table tr")).toHaveCount(5);
-  await expect(text.locator("table")).toContainText("North");
-  await expect(text.locator("table")).toContainText("270.5");
-  await expect(text).toContainText("In total, 450.5");
-  await expect(text).not.toContainText("[=");
-  const timeline = await openSteps(window, answer);
-  await expect(timeline.getByTestId("answer-analysis-call")).toHaveText(
-    "Ran an analysis on Sales 2026",
-  );
-
-  const stored = await storedAnswer(window);
-  expect(stored.analyses).toHaveLength(1);
-  expect(stored.analyses[0]).toMatchObject({
-    number: 1,
-    end: { kind: "done" },
-    inputs: [{ kind: "range", name: "sales", range: "A1:C6", rows: 5, columns: 3 }],
-    versions: { language: "python", languageVersion: "3.14.2" },
-  });
-  expect(stored.figures).toEqual([
-    expect.objectContaining({ value: 450.5, analysis: { analysis: 1, result: "total" } }),
-  ]);
-  await app.close();
-});
+        const stored = await storedAnswer(window);
+        expect(stored.analyses).toHaveLength(1);
+        expect(stored.analyses[0]).toMatchObject({
+          number: 1,
+          end: { kind: "done" },
+          inputs: [{ kind: "range", name: "sales", range: "A1:C6", rows: 5, columns: 3 }],
+          versions: { language: "python", languageVersion: "3.14.2" },
+        });
+        expect(stored.figures).toEqual([
+          expect.objectContaining({ value: 450.5, analysis: { analysis: 1, result: "total" } }),
+        ]);
+        if (evidence)
+          await window.screenshot({ path: join(evidence, `${language}-${width}-after.png`) });
+        await app.close();
+        closed = true;
+        const reopened = await launchApp(dataDir, { fakeChat: true, sandboxed: true });
+        try {
+          await setWindowSize(reopened.app, reopened.window, width, 900);
+          expect((await storedAnswer(reopened.window)).analyses).toEqual(stored.analyses);
+        } finally {
+          await reopened.app.close();
+        }
+      } finally {
+        if (!closed) await app.close();
+      }
+    });
+  }
+}
 
 test("an Analysis that joins two sheets reports the rows that matched and those that didn't", async () => {
   test.setTimeout(180_000);
@@ -157,26 +188,6 @@ test("an Analysis that joins two sheets reports the rows that matched and those 
       rightOnly: 1,
     }),
   ]);
-  await app.close();
-});
-
-test("in Chinese, the step says it ran an analysis on the workbook, and the total is in the Answer", async () => {
-  test.setTimeout(180_000);
-  const { app, window } = await launchWithSheets();
-  await window.evaluate(async () => {
-    const bridge = (
-      globalThis as unknown as { incarnamind: { updateSettings(patch: unknown): Promise<unknown> } }
-    ).incarnamind;
-    await bridge.updateSettings({ user: { language: "zh-CN" } });
-  });
-
-  const answer = await askInAssistant(window, "按地区汇总 Revenue", { timeout: 60_000 });
-
-  await expect(answer.getByTestId("assistant-answer-text")).toContainText("合计 450.5");
-  const timeline = await openSteps(window, answer);
-  await expect(timeline.getByTestId("answer-analysis-call")).toHaveText(
-    "对“Sales 2026”运行了数据分析",
-  );
   await app.close();
 });
 

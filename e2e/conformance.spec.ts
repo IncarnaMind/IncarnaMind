@@ -98,6 +98,15 @@ const NO_UNDO_YET: Record<string, string> = {
   "folder.organize": "what it suggests is taken back in To review (#241), not by ⌘Z",
 };
 
+/** Commands that only make a Mind: it gets no undo line and no ⌘Z step, because Delete takes it back (#1191). */
+const MAKES_A_MIND = new Set([
+  "document.ask",
+  "document.startMind",
+  "folder.ask",
+  "folder.newMind",
+  "mind.aiUseStatement",
+]);
+
 let dataDir: string;
 let homeDir: string;
 let sources: string;
@@ -134,12 +143,13 @@ const registryOf = (window: Page): Promise<Registry> =>
     return hooks.registry();
   });
 
+/** The sidebar shows all its sections at once; Tags, which folds, is unfolded first. */
 async function showView(window: Page, name: "Folders" | "Tags"): Promise<void> {
-  const button = window.getByTestId("browse-views").getByRole("button", { name, exact: true });
-  // Folders is what the sidebar shows until there is something else to switch to.
-  if (name === "Folders" && (await button.count()) === 0) return;
-  if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
-  await expect(button).toHaveAttribute("aria-pressed", "true");
+  if (name !== "Tags") return;
+  const toggle = window.getByTestId("tags-toggle");
+  await expect(toggle).toBeVisible();
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }
 
 /** Shows an object, and says where it is: its row, the part a click lands on, its ⋯ button and its menu. */
@@ -210,6 +220,19 @@ function withoutTakenBack(state: unknown, before: unknown): unknown {
     ...(state as object),
     deleted: waiting(state).filter((item) => waited.has(item.id)),
   };
+}
+
+const mindIdsOf = (state: unknown): string[] =>
+  typeof state === "object" && state !== null && "minds" in state && Array.isArray(state.minds)
+    ? state.minds.map((mind: { id: string }) => mind.id)
+    : [];
+
+/** Takes back the Minds a command made, as a person does: by deleting them. */
+async function deleteMadeMinds(window: Page, before: unknown): Promise<void> {
+  const known = new Set(mindIdsOf(before));
+  for (const id of mindIdsOf(await coreState(window))) {
+    if (!known.has(id)) await read(window, (core, mindId) => core.deleteMind(mindId), id);
+  }
 }
 
 /** ⌘Z where it goes to the app's changes: out of any text; in the note, to the note's own. */
@@ -409,14 +432,22 @@ async function checkCommand(
     return "ran";
   }
 
-  // The note keeps its own undo, with no line.
-  if (changed && !stage.inNote) {
+  if (MAKES_A_MIND.has(commandId)) {
+    expect.soft(changed, `${commandId} makes a Mind`).toBe(true);
     expect
-      .soft(await undoOffered(window), `${commandId} changed the core, with no Undo`)
-      .toBe(true);
+      .soft(await undoOffered(window), `${commandId} makes a Mind and says nothing`)
+      .toBe(false);
+    await deleteMadeMinds(window, before);
+  } else {
+    // The note keeps its own undo, with no line.
+    if (changed && !stage.inNote) {
+      expect
+        .soft(await undoOffered(window), `${commandId} changed the core, with no Undo`)
+        .toBe(true);
+    }
+    if (changed || (await undoOffered(window))) await takeBack(window, stage);
+    else await window.keyboard.press("Escape");
   }
-  if (changed || (await undoOffered(window))) await takeBack(window, stage);
-  else await window.keyboard.press("Escape");
   await expect
     .configure({ soft: true })
     .poll(async () => withoutTakenBack(await settled(window, readState), before), {
@@ -646,7 +677,7 @@ const STAGES: Record<Staged, Stage> = {
     opened: ({ window }) => window.locator('[data-testid="folder-row"][aria-expanded="true"]'),
   },
   tag: {
-    // The Tags view is there once there is a Document to Tag.
+    // The Tags section is there once a Document has a Tag.
     async make({ window, sources: dir }) {
       const path = join(dir, "Tides.txt");
       await writeFile(path, "Neap tides are the smallest of the month.\n");

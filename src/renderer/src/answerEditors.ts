@@ -7,9 +7,9 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
 import { type ConversationAnswer, NOTE_BLOCK_TYPES } from "../../core/api";
-import { answerBlocks } from "../../shared/answerBlocks";
+import { pageBlocks } from "../../shared/answerBlocks";
 import type { NodeJSON } from "../../shared/blockJson";
-import { withoutFraming } from "../../shared/noteBlocks";
+import { questionOf } from "./conversations";
 import { tablesOf } from "./editor/answerTables";
 import { withoutCitationGlue } from "./editor/citationGlue";
 import { useAppStore } from "./store";
@@ -118,9 +118,6 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
   }
 }
 
-/**
- * What Add to note puts in from an Answer: what is selected in it, as it is,
- * or all of it without the model's lead-in and closing note.
- */
+/** What Add to note puts in from an Answer: what is selected in it, as it is, or all of it as a page holds it. */
 export const notesToAdd = (answer: ConversationAnswer): NodeJSON[] =>
-  selectedNotes(answer.id) ?? withoutFraming(answerBlocks({ ...answer, status: "done" }));
+  selectedNotes(answer.id) ?? pageBlocks(answer, questionOf(answer)?.text ?? "");

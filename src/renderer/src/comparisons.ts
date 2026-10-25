@@ -9,17 +9,21 @@ import { create } from "zustand";
 import type { ComparisonResult, ComparisonTableRef, Document } from "../../core/api";
 import { MAX_COMPARISON_DOCUMENTS } from "../../shared/comparisons";
 import { leftOutOfEvidence } from "../../shared/evidence";
+import { startingChecks } from "./compareScope";
 import { core } from "./core";
 import { currentMindIdOf } from "./layoutSlice";
+import type { ObjectRef } from "./objects";
+import { selectedOn } from "./selection";
 import { useAppStore } from "./store";
 
-/** Where a sheet takes its Documents from: a Folder, or every Document ("all"). */
-export type SheetSource = string | "all";
+// "all" and "selected" never clash with a Folder's id, which is a UUID.
+export type SheetSource = string | "all" | "selected";
 
 export interface CompareSheet {
   /** The Block the table goes after (where the cursor was); null: the Mind's end. */
   afterBlockId: string | null;
   source: SheetSource;
+  selected: readonly string[];
   /** The Documents ticked, by id. */
   checked: readonly string[];
   questions: readonly string[];
@@ -63,8 +67,14 @@ export function openCompareSheet(
   {
     afterBlockId,
     source,
+    selected,
     documentIds,
-  }: { afterBlockId: string | null; source: SheetSource; documentIds: readonly string[] },
+  }: {
+    afterBlockId: string | null;
+    source: SheetSource;
+    selected: readonly string[];
+    documentIds: readonly string[];
+  },
 ): void {
   useComparisons.setState((state) => {
     const open = state.sheets[mindId];
@@ -73,6 +83,7 @@ export function openCompareSheet(
       : {
           afterBlockId,
           source,
+          selected,
           checked: documentIds,
           questions: [],
           instruction: "",
@@ -83,23 +94,35 @@ export function openCompareSheet(
   setProblem(mindId, null);
 }
 
-/** The Documents a sheet offers: those of its Folder (or every one), less those checks leave out (#80) and those kept as own workings. */
-export function sheetDocuments(source: SheetSource): Document[] {
+/** The Documents a sheet offers: those of its Folder (or every one, or the Library's selection), less those checks leave out (#80) and those kept as own workings. */
+export function sheetDocuments(source: SheetSource, selected: readonly string[] = []): Document[] {
   const { documents, library, settings } = useAppStore.getState();
   const folderOf = new Map(library?.assignments.map((each) => [each.documentId, each.groupId]));
+  const chosen = new Set(selected);
+  const inSource = (document: Document) =>
+    source === "all" ||
+    (source === "selected" ? chosen.has(document.id) : folderOf.get(document.id) === source);
   return documents.filter(
     (document) =>
-      (source === "all" || folderOf.get(document.id) === source) &&
-      !document.notCited &&
-      !leftOutOfEvidence(document, settings, library),
+      inSource(document) && !document.notCited && !leftOutOfEvidence(document, settings, library),
   );
+}
+
+export const documentIdsIn = (refs: readonly ObjectRef[]): string[] =>
+  refs.filter((ref) => ref.kind === "document").map((ref) => ref.id);
+
+const librarySelection = () => documentIdsIn(selectedOn("library"));
+
+// The Library's selection is the User's own choice, so it comes ticked whole; any other source starts with a few Documents or none.
+function startingIds(source: SheetSource, offered: Document[]): string[] {
+  const ticked = source === "selected" ? offered : startingChecks(offered);
+  return ticked.slice(0, MAX_COMPARISON_DOCUMENTS).map((document) => document.id);
 }
 
 /**
  * Compare Documents… (⌘K, "/", the + menu): opens the sheet in `mindId`, or
  * in the Mind in front, or in a new Mind when none is, its table to go after
- * `afterBlockId`. It starts from the Mind's Folder, every Document ticked;
- * from All Documents for a Mind in none, ticked only when there are few.
+ * `afterBlockId`.
  */
 export async function startCompareDocuments(
   mindId: string | null,
@@ -112,14 +135,26 @@ export async function startCompareDocuments(
     target = currentMindIdOf(useAppStore.getState().layout);
   }
   if (!target) return;
+  const selected = librarySelection();
   const folderId = useAppStore.getState().minds.find((mind) => mind.id === target)?.folderId;
-  const source: SheetSource = folderId ?? "all";
-  const offered = sheetDocuments(source);
-  const ticked = source !== "all" || offered.length <= MAX_COMPARISON_DOCUMENTS ? offered : [];
+  const source: SheetSource =
+    sheetDocuments("selected", selected).length > 0 ? "selected" : (folderId ?? "all");
   openCompareSheet(target, {
     afterBlockId,
     source,
-    documentIds: ticked.slice(0, MAX_COMPARISON_DOCUMENTS).map((document) => document.id),
+    selected,
+    documentIds: startingIds(source, sheetDocuments(source, selected)),
+  });
+}
+
+export function chooseCompareSource(mindId: string, source: SheetSource): void {
+  const open = useComparisons.getState().sheets[mindId];
+  if (!open) return;
+  const selected = source === "selected" ? librarySelection() : open.selected;
+  updateCompareSheet(mindId, {
+    source,
+    selected,
+    checked: startingIds(source, sheetDocuments(source, selected)),
   });
 }
 

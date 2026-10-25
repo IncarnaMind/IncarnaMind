@@ -80,7 +80,7 @@ for (const width of [900, 1600]) {
         const notice = await failToRename(window, language);
         await expect(notice).toBeVisible();
         await expect(notice.getByTestId("error-notice-message")).toContainText(
-          language === "en" ? "That didn't work:" : "无法完成操作：",
+          language === "en" ? "That didn’t work:" : "无法完成操作：",
         );
         await screenshot(window, `notice-over-settings-${width}-${language}`);
 

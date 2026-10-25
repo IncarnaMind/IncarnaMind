@@ -22,6 +22,7 @@ import {
 import type { Consent } from "../consent";
 import { InvalidInputError, isRecord, TaggingNotReadyError } from "../errors";
 import { decisionGroupClassifier, reviewBandFor } from "../library/classifier";
+import { parseApiKey } from "../providers/apiKey";
 import {
   askJev,
   JEV_HOSTED_URL,
@@ -32,6 +33,7 @@ import {
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { Secrets } from "../secrets";
+import { createSendGate } from "../sendGate";
 import type { SettingsStore } from "../settings";
 import {
   type DocumentExcerpt,
@@ -80,13 +82,6 @@ function parseStored(value: unknown): StoredJev | null {
     model: typeof model === "string" ? model : null,
     reviewBand: isReviewBand(reviewBand) ? reviewBand : { ...JEV_DEFAULT_REVIEW_BAND },
   };
-}
-
-/** undefined: keep the stored key. Blank text counts as "keep". */
-function parseApiKey(value: unknown): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new InvalidInputError("The API key must be text.");
-  return value.trim() || undefined;
 }
 
 /** A base URL, without a trailing `/v1/systemone` if the whole endpoint was pasted; null for TypeSafe's. */
@@ -190,8 +185,10 @@ export function createJevTagging(options: {
   hostedUrl?: string;
   /** Aborts requests when the core closes. */
   signal: AbortSignal;
+  localOnly(): boolean;
 }) {
   const { settings, secrets, consent, signal } = options;
+  const gate = createSendGate(consent, options.localOnly);
   const hostedUrl = options.hostedUrl ?? JEV_HOSTED_URL;
 
   const stored = () => parseStored(settings.readDeviceValue(SETTINGS_KEY));
@@ -301,6 +298,7 @@ export function createJevTagging(options: {
         local: service === null,
         async decide({ tags, excerpt, signal: stop }) {
           const probabilities = await askJev({
+            ...(service && { beforeSend: () => gate.check("tagging", service) }),
             baseUrl: baseUrlOf(jev.endpoint),
             apiKey,
             model: jev.model ?? JEV_DEFAULT_MODEL,
@@ -324,6 +322,7 @@ export function createJevTagging(options: {
       const service = serviceOf(jev.endpoint);
       if (service) await consent.ensure("classification", service);
       return decisionGroupClassifier({
+        ...(service && { beforeSend: () => gate.check("classification", service) }),
         baseUrl: baseUrlOf(jev.endpoint),
         apiKey,
         model: jev.model ?? JEV_DEFAULT_MODEL,

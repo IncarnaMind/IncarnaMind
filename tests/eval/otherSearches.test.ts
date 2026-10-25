@@ -397,6 +397,7 @@ describe("The chat-model modes with a local chat model", () => {
     apiKey: null,
     baseUrl: null,
     numCtx: null,
+    endpoint: null,
     citing: null,
   };
   const question = {

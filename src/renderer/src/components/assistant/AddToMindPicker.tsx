@@ -159,6 +159,7 @@ export function AddToMindPicker({
       placement="top-start"
       onDismiss={onClose}
       initialFocus={field}
+      returnFocus
       aria-label={t("answer.addTo.label")}
       data-testid="add-to-picker"
       className="add-to-picker"

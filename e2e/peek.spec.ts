@@ -662,7 +662,10 @@ test("a Document whose file is gone says Missing in its peek, and a press elsewh
     await openShortlist(window);
     await linkFolderFromSidebar(app, window, folder);
     await showSourceLocations(window);
-    const doomed = window.getByTestId("document-list-item").filter({ hasText: "Deleted later" });
+    const doomed = window
+      .getByTestId("not-in-a-folder")
+      .getByTestId("document-list-item")
+      .filter({ hasText: "Deleted later" });
     await expect(doomed).toHaveAttribute("data-status", "ready");
     await rm(join(folder, "Deleted later.txt"));
     await expect(doomed).toHaveAttribute("data-file-status", "missing", { timeout: 15_000 });

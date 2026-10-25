@@ -166,6 +166,9 @@ export function ChatReadinessNotice() {
   // The setup card already says it.
   const settingUp = useSettingUp();
   if (!readiness || readiness.ready || settingUp) return null;
+  // Local mode's refusal is said once, in the composer where the Question was asked (#1511): a
+  // second line above the page would move the page.
+  if (readiness.reason === "local-mode") return null;
   return (
     <ReadinessLine
       readiness={readiness}

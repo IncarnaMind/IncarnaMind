@@ -4,21 +4,23 @@
  * checks (see ./read), on this computer; the host decides where the bytes go, and nothing is sent.
  */
 import type * as Y from "yjs";
+import { checkedScope } from "../../shared/claimChecks";
+import type { MessageKey } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
 import { readableQuoteText } from "../../shared/readableQuote";
+import { SCOPE_KINDS, type ScopeKind, scopeIds } from "../../shared/searchScope";
 import type { Printer } from "../adapters";
-import {
-  CHECK_RECORD_FORMATS,
-  type ChatProvider,
-  type CheckRecordFormat,
-  type CitationAttributes,
-  type Document,
-  type KeptCitationText,
-  type Mind,
+import type {
+  ChatProvider,
+  CheckRecordFormat,
+  CitationAttributes,
+  Document,
+  KeptCitationText,
+  Mind,
 } from "../api";
 import { describeModel } from "../chatModelNames";
-import { InvalidInputError, TranslatableError } from "../errors";
+import { TranslatableError } from "../errors";
 import { unifyIdeographs } from "../exports/pdfUnicode";
 import { safeFileName } from "../fileNames";
 import type { Language } from "../language";
@@ -37,14 +39,20 @@ export interface CheckRecordDependencies {
   keptCitationTexts(): readonly KeptCitationText[];
   /** A Citation's quote as its Document's text reads it, or null when the Document or the quote isn't there. */
   readableQuote(attributes: Partial<CitationAttributes>): string | null;
-  /** A Folder's name; null for one that isn't there. */
-  folderName(folderId: string): string | null;
+  /** A Folder's, Tag's or Document's name; null for one that isn't there. */
+  scopeItemName(kind: ScopeKind, id: string): string | null;
   localMode(): boolean;
   language(): Language;
   printer: Printer | null;
   paper(): PrintPaper;
   now(): string;
 }
+
+const GONE: Record<ScopeKind, MessageKey> = {
+  folder: "checkRecord.summary.folderGone",
+  tag: "scope.chip.deleted.tag",
+  document: "scope.chip.deleted.document",
+};
 
 export interface CheckRecord {
   mind: string;
@@ -64,10 +72,9 @@ export interface CheckRecordFile {
   data: Uint8Array;
 }
 
-function parseFormat(format: unknown): CheckRecordFormat {
-  const known = CHECK_RECORD_FORMATS.find((each) => each === format);
-  if (!known) throw new InvalidInputError({ key: "error.checkRecord.format" });
-  return known;
+export interface CheckRecordMaker {
+  format: CheckRecordFormat;
+  make(): Promise<CheckRecordFile>;
 }
 
 export function createCheckRecord(deps: CheckRecordDependencies) {
@@ -95,12 +102,13 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
     const models = new Map<string, number>();
     for (const { check } of sentences) {
       if (!check) continue;
-      const { folderId, widened } = check.scope;
-      searched.add(
-        widened || folderId === null
-          ? t("checkRecord.summary.allDocuments")
-          : (deps.folderName(folderId) ?? t("checkRecord.summary.folderGone")),
-      );
+      const looked = checkedScope(check.scope);
+      const names = looked
+        ? SCOPE_KINDS.flatMap((kind) =>
+            scopeIds(looked, kind).map((id) => deps.scopeItemName(kind, id) ?? t(GONE[kind])),
+          )
+        : [t("checkRecord.summary.allDocuments")];
+      for (const name of names) searched.add(name);
       const label = check.model ? modelLabel(check.model, t) : t("checkRecord.notRecorded");
       models.set(label, (models.get(label) ?? 0) + 1);
     }
@@ -126,28 +134,35 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
   return {
     build,
 
-    async file(mindId: unknown, format: unknown): Promise<CheckRecordFile> {
-      const chosen = parseFormat(format);
+    /** The record's files, the PDF first, each made when asked so that one failing leaves the other. */
+    async files(mindId: unknown): Promise<CheckRecordMaker[]> {
       const record = await build(mindId);
       const { language } = record;
       const t = translatorFor(language);
       const base = t("checkRecord.fileName", { name: safeFileName(record.mind, "Mind") });
-      if (chosen === "csv") {
-        return {
-          fileName: `${base}.csv`,
-          data: new TextEncoder().encode(renderCsv(record)),
-        };
-      }
-      if (!deps.printer) throw new TranslatableError({ key: "error.checkRecord.noPdf" });
-      const printed = await deps.printer.print({
-        language,
-        paper: deps.paper(),
-        title: base,
-        body: renderRecordHtml(record),
-        notes: [],
-        footer: t("checkRecord.note"),
-      });
-      return { fileName: `${base}.pdf`, data: unifyIdeographs(printed) };
+      return [
+        {
+          format: "pdf",
+          async make() {
+            if (!deps.printer) throw new TranslatableError({ key: "error.checkRecord.noPdf" });
+            const printed = await deps.printer.print({
+              language,
+              paper: deps.paper(),
+              title: base,
+              body: renderRecordHtml(record),
+              notes: [],
+              footer: t("checkRecord.note"),
+            });
+            return { fileName: `${base}.pdf`, data: unifyIdeographs(printed) };
+          },
+        },
+        {
+          format: "csv",
+          async make() {
+            return { fileName: `${base}.csv`, data: new TextEncoder().encode(renderCsv(record)) };
+          },
+        },
+      ];
     },
   };
 }

@@ -2,6 +2,7 @@ import { Fragment, type Ref, useEffect, useImperativeHandle, useRef, useState } 
 import type { Skill } from "../../../core/api";
 import { menuTitleClass } from "../components/ui";
 import { useT } from "../i18n";
+import { skillTitle } from "../skills";
 import type { ChoiceListHandle } from "./ScopePicker";
 import { matchSlashItems, type SlashItem, skillSlashItems } from "./slashItems";
 
@@ -20,6 +21,7 @@ export function SkillChoiceList({
   query,
   onChoose,
   onResearch,
+  researchHint,
   onManage,
   id,
   onSelect,
@@ -32,6 +34,8 @@ export function SkillChoiceList({
   onChoose(name: string): void;
   /** "Research…", when it can be chosen. */
   onResearch?(): void;
+  /** What Research does with the composer's model: the web and the Library, or the Library only and why. */
+  researchHint?: string;
   /** "Manage Skills…": Settings → Skills. */
   onManage(): void;
   /** The listbox's id, and its options' (`${id}-${index}`). */
@@ -46,14 +50,17 @@ export function SkillChoiceList({
         {
           id: RESEARCH_ID,
           label: "research.command",
-          hint: t("research.command.hint"),
+          hint: researchHint ?? t("research.command.hint"),
           keywords: ["deep", "web", "sources"],
           icon: null,
           run: () => undefined,
         },
       ]
     : [];
-  const items = [...research, ...skillSlashItems(skills, describe)];
+  const items = [
+    ...research,
+    ...skillSlashItems(skills, describe, undefined, (skill) => skillTitle(skill.name, t)),
+  ];
   const isBuiltIn = (item: SlashItem) =>
     skills.some((skill) => `skill-${skill.name}` === item.id && skill.builtIn);
   // The User's own first, then the built-in ones, as Settings lists them.
@@ -80,8 +87,8 @@ export function SkillChoiceList({
       onResearch?.();
       return;
     }
-    const name = nameOf(index);
-    if (name) onChoose(name);
+    const id = shown[index]?.id;
+    if (id?.startsWith("skill-")) onChoose(id.slice("skill-".length));
   };
 
   useEffect(() => {

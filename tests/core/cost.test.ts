@@ -1153,6 +1153,8 @@ describe("Settings", () => {
     expect((await core.getSettings()).user.monthlyCap).toEqual({ amount: 20, currency: "USD" });
     const refused: unknown[] = [
       { amount: -1, currency: "USD" },
+      { amount: 1_000_001, currency: "USD" },
+      { amount: Number.POSITIVE_INFINITY, currency: "USD" },
       { amount: 5, currency: "EUR" },
       { amount: 5 },
     ];

@@ -31,11 +31,13 @@ const REASONS: Record<TranscriptionEngine, Record<EngineSwitchReason, MessageKey
     behind: "meetings.health.reason.localBehind",
     failed: "meetings.health.reason.localFailed",
     user: "meetings.health.reason.user",
+    cap: "meetings.health.reason.cap",
   },
   cloud: {
     behind: "meetings.health.reason.cloudBehind",
     failed: "meetings.health.reason.cloudFailed",
     user: "meetings.health.reason.user",
+    cap: "meetings.health.reason.cap",
   },
 };
 

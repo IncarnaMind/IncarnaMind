@@ -307,6 +307,33 @@ describe("Edit with AI", () => {
     ]);
   });
 
+  // protects=a Citation the User keeps on the version it quotes (Keep citing the old version, ADR-0017's amendment) stays on that version when a rewrite of its sentence is accepted, though its quote is in the current version; fails_when=accepting the rewrite re-points it at the current version; no_claim=none beyond protects.
+  test("a Citation kept on the old version stays on it through an accepted rewrite", async () => {
+    const { core, mind, client, tides } = await setUp(
+      editingModel(() => "Spring tides come at new and full moon [1]."),
+    );
+    const kept = citation(tides);
+    kept.attrs = { ...kept.attrs, contentHash: "an-older-version", keptOver: tides.contentHash };
+    const note = paragraph(
+      text("Spring tides happen at new moon and at full moon "),
+      kept,
+      text("."),
+    );
+    writeMind(client, [note]);
+    await client.settled();
+
+    await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "shorten"));
+    await resolveChanges(client, "accept");
+
+    const after: Record<string, unknown>[] = [];
+    readMind(client).descendants((node) => {
+      if (node.type.name === "citation") after.push(node.attrs);
+    });
+    expect(after).toEqual([
+      expect.objectContaining({ contentHash: "an-older-version", keptOver: tides.contentHash }),
+    ]);
+  });
+
   test("the model sees Citations as numbered markers, formulas as written, and the paragraphs around the selection", async () => {
     const calls: EditCall[] = [];
     const { core, mind, client, tides } = await setUp(
@@ -1780,6 +1807,78 @@ describe("Edit with AI and the model's service", () => {
     expect(
       await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve")),
     ).toEqual({ kind: "local-mode" });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("Local mode turned on while the edit waits for consent: the prompt closes, nothing is sent, and the edit says Local mode (#1120)", async () => {
+    const calls: EditCall[] = [];
+    const model = editingModel(() => "合成私密段落：已改写。", calls);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await saveProviderUnasked(core, { kind: "openai", apiKey: "sk-test", modelId: "gpt-test" });
+    const mind = await core.createMind({ title: "Private" });
+    const client = await connectToMind(core, mind.id);
+    const note = paragraph(text("合成私密段落：此文字不应离开本机。"));
+    writeMind(client, [note]);
+    await client.settled();
+
+    const asked = nextEvent(core, "consent.requested");
+    const editing = core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+    const request = (await asked) as ConsentRequest;
+    const closed = nextEvent(core, "consent.resolved");
+    await core.setLocalOnly(true);
+
+    expect(await closed).toEqual({ requestId: request.requestId, accepted: false });
+    expect(await core.listConsentRequests()).toEqual([]);
+    // The old prompt, answered late, changes nothing.
+    await core.respondToConsent(request.requestId, true);
+    expect(await editing).toEqual({ kind: "local-mode" });
+    expect(calls).toHaveLength(0);
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual(["合成私密段落：此文字不应离开本机。"]);
+
+    // Local mode off, the usual consent flow runs again.
+    await core.setLocalOnly(false);
+    const again = nextEvent(core, "consent.requested");
+    const second = core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+    const prompt = (await again) as ConsentRequest;
+    expect(prompt.flow).toMatchObject({ id: "edits" });
+    await core.respondToConsent(prompt.requestId, true);
+    expect(await second).toMatchObject({ kind: "proposed" });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("Local mode turned on while a rate-limited request waits to be tried again: nothing more is sent, and the edit says Local mode", async () => {
+    const calls: EditCall[] = [];
+    const model = editingModel((call) => {
+      if (calls.length === 1) {
+        throw new APICallError({
+          message: "Rate limit reached.",
+          url: "https://api.openai.com/v1/responses",
+          requestBodyValues: {},
+          statusCode: 429,
+          responseHeaders: { "retry-after-ms": "2000" },
+          isRetryable: true,
+        });
+      }
+      return call.passage;
+    }, calls);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-test" });
+    const mind = await core.createMind({ title: "Private" });
+    const client = await connectToMind(core, mind.id);
+    const note = paragraph(text("合成私密段落：此文字不应离开本机。"));
+    writeMind(client, [note]);
+    await client.settled();
+
+    const editing = core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    await core.setLocalOnly(true);
+
+    expect(await editing).toEqual({ kind: "local-mode" });
     expect(calls).toHaveLength(1);
   });
 

@@ -20,6 +20,8 @@ export function sentencesEnd(text: string, from: number): number {
 export function spokenText(markdown: string): string {
   return (
     markdown
+      // A Citation's id the model wrote as text (#1800): the core takes it out once the Answer ends.
+      .replace(/\s*[[【［〔(（][^\]】］〕)）\n]*[·・]\s*C\d{1,4}\s*[\]】］〕)）]/g, "")
       .replace(/\[\^[^\]]*\]/g, "")
       .replace(/```[\s\S]*?(```|$)/g, " ")
       .replace(/\$[^$\n]*\$/g, " ")

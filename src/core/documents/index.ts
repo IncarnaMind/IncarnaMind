@@ -74,9 +74,10 @@ import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
 import {
   DOCUMENT_EXTENSIONS,
-  isInside,
+  isLegacyCopy,
   openFile,
   openImageBeside,
+  pathIn,
   relativePath,
   type StatIdentity,
 } from "./files";
@@ -98,6 +99,7 @@ import {
   unreadMessage,
 } from "./processing";
 import { createProcessor } from "./processor";
+import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
 import { type TextRecognitionModel, TextRecognitionUnavailableError } from "./scan";
 import { MIN_PAGE_TEXT } from "./scan/pages";
 import {
@@ -157,6 +159,7 @@ interface DocumentRow {
   tagging_status: string;
   tagging_error_kind: string | null;
   tagging_error_message: string | null;
+  tagging_error_resets_at: string | null;
   embedding_model: string | null;
   path: string;
   linked_folder_id: string | null;
@@ -201,7 +204,7 @@ const toUnitText = (row: UnitRow): PageText => ({
 
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   failure_reason, failure_message, folder_id, tagging_status, tagging_error_kind,
-  tagging_error_message, embedding_model, path, linked_folder_id, file_status,
+  tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   creation_date, title, own_file, counted_as_evidence, not_cited, processing_version, file_mtime_ms,
   created_at, updated_at`;
 
@@ -360,6 +363,17 @@ export interface CitationSource {
   notCited: boolean;
 }
 
+/**
+ * A Document's date as Answers see it beside its Passages, and where it comes from:
+ * the Document ("document"), or its file's information ("file-created", "file-modified"),
+ * which says when the file was made or changed, never what the Document is dated (#1173).
+ */
+export interface DocumentDate {
+  /** ISO 8601 at the precision known: "2025-05-14", "2024-03" or "2019". */
+  date: string;
+  of: "document" | "file-created" | "file-modified";
+}
+
 /** A live Document's file, opened for reading. */
 export interface DocumentFile {
   document: Document;
@@ -418,8 +432,11 @@ export interface DocumentsOptions {
    * scanned pages are left with the little text they have, as before.
    */
   textRecognition?: TextRecognitionModel;
+  /** How many scans are read at once (./processor, `scansAtOnce`). */
+  scansAtOnce?: number;
   /** The password kept for a locked PDF (./pdfPasswords, #763); undefined when none is. */
   pdfPassword?(documentId: string): Promise<string | undefined>;
+  readingSpeed: Pick<ReadingMeterOptions, "read" | "write">;
   linkedFolders: {
     watch: WatchFolder;
     stat: StatIdentity;
@@ -462,12 +479,6 @@ export function createDocuments(options: DocumentsOptions) {
   const { textRecognition } = options;
   /** Where reading each Document's scanned pages is, while its job reads them (#397). */
   const scanProgress = new Map<string, DocumentScanProgress>();
-  /**
-   * Scanned pages read by a job that didn't finish (stopped, paused, or the
-   * worker crashed), by Document, with their version: the next job uses
-   * them rather than reading them again. Kept for this session only.
-   */
-  const partialScans = new Map<string, { contentHash: string; units: Map<number, TextUnit> }>();
 
   /** The scanned pages of a Document's current version that couldn't be read (see "pages-unread"). */
   const unreadPages = (row: Pick<DocumentRow, "id" | "content_hash">): number[] =>
@@ -531,7 +542,8 @@ export function createDocuments(options: DocumentsOptions) {
       pageCount: row.page_count,
       status,
       progress: status === "embedding" ? progressOf(row) : null,
-      scan: status === "extracting" ? (scanProgress.get(row.id) ?? null) : null,
+      scan:
+        status === "extracting" || status === "queued" ? (scanProgress.get(row.id) ?? null) : null,
       failure: failed
         ? {
             reason: (row.failure_reason ?? "processing-error") as DocumentFailureReason,
@@ -542,12 +554,15 @@ export function createDocuments(options: DocumentsOptions) {
       folderId: row.folder_id,
       tags: tagsOfDocument(db, row.id),
       tagging,
-      // Why it failed, or why it waits when that is worth saying (the ChatGPT plan's limit).
+      // Why it failed, or why it waits when that is worth saying (a plan's or a rate limit).
       taggingError:
         tagging === "failed" || (tagging === "waiting-for-provider" && row.tagging_error_kind)
           ? {
               kind: (row.tagging_error_kind ?? "unknown") as ProviderErrorKind,
               message: row.tagging_error_message ?? "",
+              ...(row.tagging_error_resets_at !== null && {
+                resetsAt: row.tagging_error_resets_at,
+              }),
             }
           : null,
       creationDate:
@@ -629,12 +644,58 @@ export function createDocuments(options: DocumentsOptions) {
         });
       }
     }
-    const partial = partialScans.get(row.id);
-    if (partial && partial.contentHash !== row.content_hash) {
-      return { contentHash: partial.contentHash, units: [...partial.units.values()] };
-    }
-    for (const [page, unit] of partial?.units ?? []) keep.set(page, unit);
+    const unfinished = unfinishedScan(row);
+    if (unfinished) return unfinished;
     return keep.size > 0 ? { contentHash: row.content_hash, units: [...keep.values()] } : null;
+  }
+
+  // A read that a quit, a crash or a stop ended leaves the pages of a version not yet indexed
+  // (#1504); the job uses them only if the file is still that version.
+  function unfinishedScan(row: Pick<DocumentRow, "id" | "content_hash">): ScanJob["keep"] {
+    const latest = db.get<{ content_hash: string }>(
+      `SELECT content_hash FROM document_pages
+       WHERE document_id = ? AND deleted_at IS NULL
+         AND json_extract(label, '$.scan.reader') IS NOT NULL
+       ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      [row.id],
+    );
+    if (!latest || latest.content_hash === row.content_hash) return null;
+    const units = db
+      .all<UnitRow>(
+        `SELECT page, text, kind, label, anchors FROM document_pages
+         WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL
+           AND json_extract(label, '$.scan.reader') = ?
+           AND json_extract(label, '$.scan.unread') IS NOT 1
+         ORDER BY page`,
+        [row.id, latest.content_hash, textRecognition?.reader ?? ""],
+      )
+      .map(toUnitText)
+      .map(
+        (unit): TextUnit => ({
+          page: unit.page ?? 0,
+          kind: unit.kind ?? "page",
+          label: unit.label ?? null,
+          text: unit.text,
+          anchors: unit.anchors ?? null,
+        }),
+      );
+    return units.length > 0 ? { contentHash: latest.content_hash, units } : null;
+  }
+
+  // Written as soon as it is read, so a quit or a crash keeps it (#1504); the finished read
+  // writes them all again.
+  function keepScannedPage(documentId: string, contentHash: string, unit: TextUnit): void {
+    db.transaction(() => {
+      // A job stopped meanwhile read it all the same: the next one keeps it.
+      if (!find(documentId)) return;
+      const at = now();
+      db.run(
+        `UPDATE document_pages SET deleted_at = ?, updated_at = ?
+         WHERE document_id = ? AND content_hash = ? AND page = ? AND deleted_at IS NULL`,
+        [at, at, documentId, contentHash, BigInt(unit.page)],
+      );
+      insertPages(documentId, contentHash, [unit]);
+    });
   }
 
   const jobFor = (
@@ -658,6 +719,13 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists.
   let isPaused = (_documentId: string) => false;
 
+  const reading = createReadingMeter({
+    ...options.readingSpeed,
+    clock: () => performance.now(),
+    embedding: () => (model.enabled() ? model.id : ""),
+    reportError,
+  });
+
   const embedding = createEmbeddingQueue({
     db,
     now,
@@ -665,6 +733,7 @@ export function createDocuments(options: DocumentsOptions) {
     vectors,
     announce,
     onReady: options.onReady,
+    onEmbedded: (id, ms) => reading.embedded(id, ms),
     isPaused: (id) => isPaused(id),
   });
 
@@ -938,9 +1007,21 @@ export function createDocuments(options: DocumentsOptions) {
   let checkFile = (_path: string) => {};
 
   const processor = createProcessor({
-    onStart(job) {
-      if (find(job.documentId)?.status !== "queued") return;
+    scansAtOnce: options.scansAtOnce,
+    onStart(job, warm) {
+      reading.started(job.documentId, warm);
+      const row = find(job.documentId);
+      if (row?.status !== "queued") return undefined;
       setStatus(job.documentId, "extracting");
+      announce(job.documentId);
+      // A job queued again while one before it ran keeps the pages that one read meanwhile.
+      return job.scan ? { ...job, scan: { ...job.scan, keep: keptScans(row) } } : undefined;
+    },
+    onWaiting(job) {
+      // Queued, a quit doesn't count it as what stopped the app; its scan progress, kept, says
+      // it is a scan waiting its turn.
+      if (find(job.documentId)?.status !== "extracting") return;
+      setStatus(job.documentId, "queued");
       announce(job.documentId);
     },
     onProgress(job, { contentHash, read, of, unit }) {
@@ -949,14 +1030,9 @@ export function createDocuments(options: DocumentsOptions) {
         read,
         of: job.kind === "web" ? "pictures" : "scanned-pages",
       });
-      if (unit) {
-        let partial = partialScans.get(job.documentId);
-        if (partial?.contentHash !== contentHash) {
-          partial = { contentHash, units: new Map() };
-          partialScans.set(job.documentId, partial);
-        }
-        // A page that couldn't be read is read again by the next job.
-        if (!unit.label?.scan?.unread) partial.units.set(unit.page, unit);
+      // A page that couldn't be read is read again by the next job; a web page's pictures are few.
+      if (unit && job.kind === "pdf" && !unit.label?.scan?.unread) {
+        keepScannedPage(job.documentId, contentHash, unit);
       }
       announce(job.documentId);
     },
@@ -978,14 +1054,13 @@ export function createDocuments(options: DocumentsOptions) {
     isUnavailable: (error) => error instanceof TextRecognitionUnavailableError,
     password: async (job) => options.pdfPassword?.(job.documentId),
     onResult(job, result) {
-      scanProgress.delete(job.documentId);
-      // Pages read by a job that stopped or crashed wait for the next; any other result has them.
-      if (result.outcome !== "stopped" && result.outcome !== "crashed") {
-        partialScans.delete(job.documentId);
-      }
+      const scanned = scanProgress.delete(job.documentId);
       const recorded = record(job, result);
       if (recorded === undefined) return; // deleted, or queued again, while processing
       const { status, replaced } = recorded;
+      if (result.outcome === "ready" && !scanned) {
+        reading.processed(job.documentId, job.kind, result.size, status === "ready");
+      }
       // Any vectors from an earlier processing went with the old Passages.
       if (replaced) vectors.removeDocument(job.documentId);
       if (result.outcome === "file-unreadable") {
@@ -1251,6 +1326,7 @@ export function createDocuments(options: DocumentsOptions) {
     for (const id of ids) {
       vectors.removeDocument(id);
       processor.cancel(id);
+      reading.forget(id);
     }
     // Pushed first, so a Citation quoting what is kept never shows "can't check" meanwhile.
     if (keep) options.emitKept?.(keptCitationTexts());
@@ -1259,15 +1335,21 @@ export function createDocuments(options: DocumentsOptions) {
 
   // Startup: Documents copied into the data folder by the old layout (before
   // ADR-0010) are files kept there, until the User links their originals.
-  // Each copy gets its kind's extension, so another app can open it.
-  for (const row of db.all<{ id: string; content_hash: string; kind: string }>(
-    "SELECT id, content_hash, kind FROM documents WHERE deleted_at IS NULL AND path IS NULL",
+  // Each copy gets its kind's extension, so another app can open it. One
+  // deleted then can still be restored, so it gets its path too, after the live
+  // ones and without renaming: its copy went with the delete, unless a live one
+  // with the same content, maybe of another kind, still has it.
+  for (const row of db.all<{ id: string; content_hash: string; kind: string; deleted: number }>(
+    `SELECT id, content_hash, kind, deleted_at IS NOT NULL AS deleted FROM documents
+     WHERE path IS NULL AND purged_at IS NULL ORDER BY deleted`,
   )) {
     const bare = join(legacyFolder, row.content_hash);
     const extension = DOCUMENT_EXTENSIONS[row.kind as DocumentKind]?.[0];
     const named = extension ? `${bare}.${extension}` : bare;
     try {
-      if (named !== bare && !existsSync(named) && existsSync(bare)) renameSync(bare, named);
+      if (!row.deleted && named !== bare && !existsSync(named) && existsSync(bare)) {
+        renameSync(bare, named);
+      }
     } catch (error) {
       reportError(error);
     }
@@ -1286,8 +1368,12 @@ export function createDocuments(options: DocumentsOptions) {
     stat: options.linkedFolders.stat,
     retryMs: options.linkedFolders.retryMs,
     detectDataless: options.linkedFolders.detectDataless,
+    readingSeconds: (files) => reading.seconds(files),
     hooks: {
       process,
+      stillQueued: (id) => {
+        if (find(id)?.status === "queued" && !processor.has(id)) process(id);
+      },
       announce,
       added: (id) => options.onFound?.(id),
       moved: (ids) => {
@@ -1470,7 +1556,7 @@ export function createDocuments(options: DocumentsOptions) {
    * Documents already embedded with it stay ready. `thorough` also finds ready
    * Documents with a Passage that has no vector yet, as one can after a time
    * with embeddings off: their vectors from the model are kept, and only the
-   * missing ones made.
+   * missing ones made. `only` leaves the other Documents as they are.
    *
    * While embeddings are off, the other way round: a Document being embedded,
    * or waiting for the model, is ready, since its keyword index is; any
@@ -1478,13 +1564,16 @@ export function createDocuments(options: DocumentsOptions) {
    *
    * Returns the Documents whose status changed.
    */
-  function embedWithCurrentModel(thorough = false): string[] {
+  function embedWithCurrentModel(thorough = false, only?: readonly string[]): string[] {
+    const filter = only === undefined ? "" : " AND id IN (SELECT value FROM json_each(?))";
+    const ids = only === undefined ? [] : [JSON.stringify(only)];
     if (!model.enabled()) {
       const readied = db.transaction(() => {
         const rows = db.all<{ id: string }>(
           `SELECT id FROM documents
-           WHERE deleted_at IS NULL AND status IN ('embedding', 'waiting-for-model')
+           WHERE deleted_at IS NULL AND status IN ('embedding', 'waiting-for-model')${filter}
            ORDER BY created_at, rowid`,
+          ids,
         );
         for (const { id } of rows) setStatus(id, "ready");
         return rows.map((row) => row.id);
@@ -1509,8 +1598,9 @@ export function createDocuments(options: DocumentsOptions) {
                      AND p.deleted_at IS NULL AND p.embedding IS NULL)`
                : ""
            })
+           ${only === undefined ? "" : "AND d.id IN (SELECT value FROM json_each(?))"}
          ORDER BY d.created_at, d.rowid`,
-        [model.id],
+        [model.id, ...ids],
       );
       const target = ready ? "embedding" : "waiting-for-model";
       return rows.filter((row) => {
@@ -1871,21 +1961,24 @@ export function createDocuments(options: DocumentsOptions) {
     /**
      * How many live Documents have Passages to search (of all of them, or only
      * of these), and the names of the `limit` most recently added, newest
-     * first, each with its title when its name doesn't hold it.
+     * first, each with its title when its name doesn't hold it; `webPage`: one
+     * of them is a saved web page, named by its own title.
      */
     searchableNames(
       documentIds: readonly string[] | undefined,
       limit: number,
-    ): { total: number; names: string[] } {
+    ): { total: number; names: string[]; webPage: boolean } {
       const { where, params } = searchable(documentIds);
-      const names = db
-        .all<{ name: string; title: string | null }>(
-          `SELECT d.name, d.title FROM documents d WHERE ${where}
-           ORDER BY d.created_at DESC, d.rowid DESC LIMIT ?`,
-          [...params, BigInt(limit)],
-        )
-        .map((row) => withTitle(row.name, row.title));
-      return { total: searchableCount(documentIds), names };
+      const rows = db.all<{ name: string; title: string | null; kind: string }>(
+        `SELECT d.name, d.title, d.kind FROM documents d WHERE ${where}
+         ORDER BY d.created_at DESC, d.rowid DESC LIMIT ?`,
+        [...params, BigInt(limit)],
+      );
+      return {
+        total: searchableCount(documentIds),
+        names: rows.map((row) => withTitle(row.name, row.title)),
+        webPage: rows.some((row) => row.kind === "web"),
+      };
     },
 
     /** The live Documents with Passages to search (of all of them, or only of these), the most text first: `size` characters. */
@@ -1989,22 +2082,27 @@ export function createDocuments(options: DocumentsOptions) {
     /**
      * A live Document's date, as Answers see it beside its Passages (#548):
      * the date it states (its reference record's, else its creation date),
-     * else the day its file was last modified, in UTC. ISO 8601 at the
-     * precision known: "2025-05-14", "2024-03" or "2019". Null when nothing
+     * else the day its file was last modified, in UTC. Null when nothing
      * gives one, or the Document was deleted.
      */
-    documentDate(documentId: string): string | null {
+    documentDate(documentId: string): DocumentDate | null {
       const row = find(documentId);
       if (!row) return null;
       const issued = referenceOf(db, documentId)?.fields.issued;
-      if (issued) return issued;
+      if (issued) return { date: issued, of: "document" };
       // A date stored before it was known to be a placeholder (2000-01-01) isn't shown either.
       if (row.creation_date && !isPlaceholderDate(row.creation_date)) {
-        return row.creation_date.slice(0, 10);
+        // A year alone is the one written in the first Unit (see ./creationDate): file metadata
+        // gives a day. A web page's date is the one it says it was published on.
+        const stated = row.creation_date.length === 4 || row.kind === "web";
+        return {
+          date: row.creation_date.slice(0, 10),
+          of: stated ? "document" : "file-created",
+        };
       }
       if (row.file_mtime_ms === null) return null;
       const modified = new Date(row.file_mtime_ms).toISOString().slice(0, 10);
-      return isPlaceholderDate(modified) ? null : modified;
+      return isPlaceholderDate(modified) ? null : { date: modified, of: "file-modified" };
     },
 
     /**
@@ -2163,7 +2261,11 @@ export function createDocuments(options: DocumentsOptions) {
       added?: (documentId: string) => void,
     ): Promise<Omit<AddDocumentsResult, "batchId">> {
       const paths = parsePaths(input);
-      const results = await library.addFiles(paths, added);
+      const brought: string[] = [];
+      const results = await library.addFiles(paths, (documentId) => {
+        brought.push(documentId);
+        added?.(documentId);
+      });
       const documents: Document[] = [];
       const skipped: SkippedFile[] = [];
       results.forEach((result, at) => {
@@ -2177,7 +2279,7 @@ export function createDocuments(options: DocumentsOptions) {
           });
         }
       });
-      return { documents, skipped };
+      return { documents, skipped, added: brought };
     },
 
     /** See the library's `newVersionFrom`: a newer draft of a Word file imported before (#720). */
@@ -2269,6 +2371,19 @@ export function createDocuments(options: DocumentsOptions) {
         .map(toDocument);
     },
 
+    /** The live Documents (of these, or all of them) whose text is still being read: queued or extracting, newest first. */
+    reading(documentIds?: readonly string[]): Document[] {
+      const { where, params } = filterWhere(documentIds ? { ids: documentIds } : {});
+      return db
+        .all<DocumentRow>(
+          `SELECT ${COLUMNS} FROM documents
+           WHERE ${where} AND status IN ('queued', 'extracting')
+           ORDER BY created_at DESC, rowid DESC`,
+          params,
+        )
+        .map(toDocument);
+    },
+
     /** A live Document. Throws NotFoundError for an unknown or deleted one. */
     get(idInput: unknown): Document {
       const row = find(parseId(idInput));
@@ -2353,18 +2468,23 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     /**
-     * Removes a Document from the index. The User's file isn't touched; only a
-     * copy the old layout made in the data folder is removed with it.
+     * Removes Documents from the index, all in one step, or none when one isn't found. No file
+     * is touched: a copy the old layout made in the data folder goes once its Document is
+     * deleted permanently (`dropPurged`).
      */
-    async delete(idInput: unknown): Promise<void> {
-      const id = parseId(idInput);
-      const row = find(id);
-      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
-      removeFromIndex([id], now());
-      if (row.path !== legacyFolder && isInside(legacyFolder, row.path)) {
-        await rm(row.path, { force: true }).catch(reportError);
+    delete(idsInput: unknown): string[] {
+      const ids = [...new Set((Array.isArray(idsInput) ? idsInput : [idsInput]).map(parseId))];
+      const rows = ids.map((id) => {
+        const row = find(id);
+        if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+        return row;
+      });
+      removeFromIndex(ids, now());
+      // Once a Linked folder, not once a Document: 1,700 Documents took 90 s one by one (#1349).
+      for (const linkedFolderId of new Set(rows.map((row) => row.linked_folder_id))) {
+        library.documentsChanged(linkedFolderId);
       }
-      library.documentsChanged(row.linked_folder_id);
+      return ids;
     },
 
     /**
@@ -2374,44 +2494,51 @@ export function createDocuments(options: DocumentsOptions) {
      */
     restore(ids: readonly string[]): void {
       const at = now();
-      for (const id of ids) {
-        const row = db.get<DocumentRow & { deleted_at: string }>(
-          `SELECT ${COLUMNS}, deleted_at FROM documents WHERE id = ? AND deleted_at IS NOT NULL`,
-          [id],
-        );
-        if (!row) continue;
-        const deleted = [at, id, row.deleted_at] as const;
-        db.run("UPDATE documents SET deleted_at = NULL, updated_at = ? WHERE id = ?", [at, id]);
+      const rows = db.all<DocumentRow & { deleted_at: string }>(
+        `SELECT ${COLUMNS}, deleted_at FROM documents
+         WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NOT NULL`,
+        [JSON.stringify(ids)],
+      );
+      if (rows.length === 0) return;
+      const list = JSON.stringify(rows.map((row) => row.id));
+      // What went with each Document, by its own delete time: read from its row, so its parts go
+      // back before it does. One statement a table, however many there are (#1349).
+      const deletedWith = (table: string) =>
+        `(SELECT d.deleted_at FROM documents d WHERE d.id = ${table}.document_id)`;
+      db.run(
+        `UPDATE passages SET deleted_at = NULL, updated_at = ?
+         WHERE document_id IN (SELECT value FROM json_each(?))
+           AND deleted_at = ${deletedWith("passages")}
+           AND content_hash IS (SELECT d.content_hash FROM documents d WHERE d.id = passages.document_id)`,
+        [at, list],
+      );
+      for (const table of ["document_pages", "web_pages", "web_page_pictures"]) {
         db.run(
-          `UPDATE passages SET deleted_at = NULL, updated_at = ?
-           WHERE document_id = ? AND deleted_at = ? AND content_hash IS ?`,
-          [...deleted, row.content_hash],
+          `UPDATE ${table} SET deleted_at = NULL, updated_at = ?
+           WHERE document_id IN (SELECT value FROM json_each(?)) AND deleted_at = ${deletedWith(table)}`,
+          [at, list],
         );
-        db.run(
-          "UPDATE document_pages SET deleted_at = NULL, updated_at = ? WHERE document_id = ? AND deleted_at = ?",
-          deleted,
-        );
-        db.run(
-          "UPDATE web_pages SET deleted_at = NULL, updated_at = ? WHERE document_id = ? AND deleted_at = ?",
-          deleted,
-        );
-        db.run(
-          "UPDATE web_page_pictures SET deleted_at = NULL, updated_at = ? WHERE document_id = ? AND deleted_at = ?",
-          deleted,
-        );
-        db.run(
-          `UPDATE document_tags SET deleted_at = NULL, updated_at = ?
-           WHERE document_id = ? AND deleted_at = ?
-             AND NOT EXISTS (SELECT 1 FROM document_tags live
-                             WHERE live.document_id = document_tags.document_id
-                               AND live.tag_id = document_tags.tag_id AND live.deleted_at IS NULL)`,
-          deleted,
-        );
-        reindexName(id, row.name);
-        if (row.status === "extracting") setStatus(id, "queued");
+      }
+      db.run(
+        `UPDATE document_tags SET deleted_at = NULL, updated_at = ?
+         WHERE document_id IN (SELECT value FROM json_each(?))
+           AND deleted_at = ${deletedWith("document_tags")}
+           AND NOT EXISTS (SELECT 1 FROM document_tags live
+                           WHERE live.document_id = document_tags.document_id
+                             AND live.tag_id = document_tags.tag_id AND live.deleted_at IS NULL)`,
+        [at, list],
+      );
+      db.run(
+        `UPDATE documents SET deleted_at = NULL, updated_at = ?
+         WHERE id IN (SELECT value FROM json_each(?))`,
+        [at, list],
+      );
+      for (const row of rows) {
+        reindexName(row.id, row.name);
+        if (row.status === "extracting") setStatus(row.id, "queued");
         else if (["ready", "embedding", "waiting-for-model"].includes(row.status)) {
           const status = indexedStatus(row);
-          if (status !== null && status !== row.status) setStatus(id, status);
+          if (status !== null && status !== row.status) setStatus(row.id, status);
         }
       }
     },
@@ -2436,7 +2563,42 @@ export function createDocuments(options: DocumentsOptions) {
         if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id);
         if (row.status === "waiting-for-model") model.ensure();
       }
+      // A Document back from an unlinked Linked folder lost its vectors with it: they are embedded again (#1292).
+      for (const id of embedWithCurrentModel(true, ids))
+        if (!embedding.isEmbedding(id)) announce(id);
       for (const linkedFolderId of linkedFolders) library.documentsChanged(linkedFolderId);
+      const copies = db
+        .all<{ path: string; relative_path: string }>(
+          `SELECT path, relative_path FROM documents
+           WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL
+             AND source_kind = 'data-folder' AND relative_path IS NOT NULL`,
+          [JSON.stringify(ids)],
+        )
+        .filter((row) => isLegacyCopy(dataDir, pathIn(dataDir, row.relative_path)))
+        .map((row) => row.path);
+      // Builds before #1432 removed the copy at delete: one gone shows missing now, not when opened.
+      if (copies.length > 0) library.check(copies).catch(reportError);
+    },
+
+    /**
+     * Removes the old layout's copies of Documents deleted permanently, each once no Document
+     * that can still come back is at its place. Again at each start, for a quit that cut it short.
+     */
+    async dropPurged(): Promise<void> {
+      // By place, not by path: a Document added from a data folder reached through a link has
+      // the path with links resolved, an old one the path as the app was given it.
+      const copies = db
+        .all<{ relative_path: string }>(
+          `SELECT DISTINCT d.relative_path FROM documents d
+           WHERE d.purged_at IS NOT NULL AND d.source_kind = 'data-folder'
+             AND d.linked_folder_id IS NULL AND d.relative_path IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM documents o WHERE o.purged_at IS NULL
+               AND (o.path = d.path
+                    OR (o.source_kind = 'data-folder' AND o.relative_path = d.relative_path)))`,
+        )
+        .map((row) => pathIn(dataDir, row.relative_path))
+        .filter((path) => isLegacyCopy(dataDir, path));
+      await Promise.all(copies.map((path) => rm(path, { force: true }).catch(reportError)));
     },
 
     /**
@@ -2682,6 +2844,7 @@ export function createDocuments(options: DocumentsOptions) {
       library.close();
       embedding.close();
       processor.close();
+      reading.close();
       // Closed in good order, a Document being read is read again at the next start; one
       // still "extracting" then is one whose reading stopped the app (see `unfinished`).
       db.run(

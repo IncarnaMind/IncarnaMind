@@ -13,7 +13,7 @@ If you already use an AI agent, such as Claude, ChatGPT, Codex, Cursor or Antigr
 
 Keep IncarnaMind open while you use your agent: the agent talks to it.
 
-**What leaves your computer.** What the agent reads goes to the AI model the agent uses, under that service's terms, not IncarnaMind's. Some plans may use it to train their models; check your agent's privacy settings. While **Keep everything on this computer** is on (Settings → Search), every agent is paused.
+**What leaves your computer.** What the agent reads goes to the AI model the agent uses, under that service's terms, not IncarnaMind's. Some plans may use it to train their models; check your agent's privacy settings. While **Keep everything on this computer** is on (Settings → Privacy), every agent is paused.
 
 **To stop.** Settings → Agents → **Disconnect**. The agent can't read anything from then on. Each agent's **Activity** lists everything it did.
 
@@ -78,7 +78,7 @@ Your agent passes on what IncarnaMind says, in plain words.
 
 - **"IncarnaMind isn't open"**: open IncarnaMind, check that **Connect AI agents** is on, then restart the agent or reconnect it to IncarnaMind.
 - **"This agent can't read any Documents yet"**: choose its folders in Settings → Agents → **Folders…**.
-- **"Agents are paused"**: turn off **Keep everything on this computer** in Settings → Search.
+- **"Agents are paused"**: turn off **Keep everything on this computer** in Settings → Privacy.
 - **"This agent isn't connected to IncarnaMind any more"**: it was disconnected. Click **Connect** again.
 - **An answer from IncarnaMind takes long**: asking IncarnaMind writes a whole Answer on your own chat model. Some agents stop waiting after a minute; Codex is given two minutes when IncarnaMind sets it up.
 

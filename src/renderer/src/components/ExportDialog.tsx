@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
 import {
   EXPORT_FORMATS,
   type ExportFormat,
@@ -11,16 +11,19 @@ import {
   type TheirChangesShown,
   type WordExportPreferences,
 } from "../../../core/api";
+import { hasCitationPlace, hasQuestionsOption } from "../../../shared/exportOptions";
 import type { MessageKey } from "../../../shared/i18n";
 import { useCitationStylePicker, useStyleLabel } from "../citationStylePicker";
 import { shortcutLabel } from "../commands/keymap";
 import { core } from "../core";
 import { errorMessage } from "../errors";
-import { exportPreferences, FORMAT_LABELS, hasQuestionsOption } from "../exports";
+import { exportPreferences, FORMAT_LABELS } from "../exports";
 import { useT } from "../i18n";
 import { chooseOutputLocation, outputFolderLabel } from "../outputFiles";
 import { useAppStore } from "../store";
+import { CitationPlaceRow } from "./CitationPlace";
 import { ChevronDownLineIcon, CloseLineIcon } from "./lineIcons";
+import { MarkAiTextRow } from "./MarkAiText";
 import { ProblemLine } from "./ProblemLine";
 import { SharePageContents } from "./SharePageContents";
 import {
@@ -56,7 +59,7 @@ function SwitchRow({
   testId,
 }: {
   label: string;
-  hint?: string;
+  hint?: ReactNode;
   checked: boolean;
   onChange(checked: boolean): void;
   testId: string;
@@ -89,6 +92,29 @@ function SwitchRow({
   );
 }
 
+/** The hint of the tracked-changes switch, with the name a link to where it is changed. */
+function TrackedAsHint({ name }: { name: string }) {
+  const t = useT();
+  const openSettings = useAppStore((state) => state.openSettings);
+  // The name sits in the sentence wherever the language puts it, so the sentence is cut at it.
+  const mark = "\u0000";
+  const [before = "", after = ""] = t("export.trackChanges.hint", { name: mark }).split(mark);
+  return (
+    <>
+      {before}
+      <button
+        type="button"
+        data-testid="export-author-name"
+        onClick={() => openSettings("general", "author-name")}
+        className="underline"
+      >
+        {name}
+      </button>
+      {after}
+    </>
+  );
+}
+
 /**
  * A Word file's review choices (#107): the User's edits as tracked changes,
  * for a Mind imported from a Word file, and IncarnaMind's comments on AI
@@ -110,18 +136,15 @@ function WordReviewRows({
       {fromWord && (
         <SwitchRow
           label={t("export.trackChanges")}
-          hint={t("export.trackChanges.hint", { name: author })}
+          hint={<TrackedAsHint name={author} />}
           checked={draft.trackChanges}
           onChange={(trackChanges) => onChange({ ...draft, trackChanges })}
           testId="export-track-changes"
         />
       )}
-      <SwitchRow
-        label={t("export.markAiText")}
-        hint={t("export.markAiText.hint")}
-        checked={draft.markAiText}
+      <MarkAiTextRow
+        value={draft.markAiText}
         onChange={(markAiText) => onChange({ ...draft, markAiText })}
-        testId="export-mark-ai-text"
       />
       <SwitchRow
         label={t("export.commentFailedChecks")}
@@ -220,18 +243,11 @@ function TheirChangesRow({
   );
 }
 
-/**
- * The Mind's citation style (#289), which its export is written in, with the button that
- * changes it: the same picker as the References block's. It changes at once, not on Save.
- * A Mind that hasn't chosen and isn't Numbered follows the Chinese default (GB/T 7714), which the
- * row says.
- */
-function CitationStyleRow({ mindId }: { mindId: string }) {
-  const t = useT();
+/** The Mind's citation style, read again once the picker closes, since the User may have chosen another. */
+function useMindCitationStyle(mindId: string): MindCitationStyle | null {
   const [style, setStyle] = useState<MindCitationStyle | null>(null);
   const picking = useCitationStylePicker((state) => state.open?.mindId === mindId);
   useEffect(() => {
-    // Read again once the picker closes: the User may have chosen another.
     if (picking) return;
     let current = true;
     core.getMindCitationStyle(mindId).then(
@@ -244,6 +260,18 @@ function CitationStyleRow({ mindId }: { mindId: string }) {
       current = false;
     };
   }, [mindId, picking]);
+  return style;
+}
+
+/**
+ * The Mind's citation style (#289), which its export is written in, with the button that
+ * changes it: the same picker as the References block's. It changes at once, not on Save.
+ * A Mind that hasn't chosen and isn't Numbered follows the Chinese default (GB/T 7714), which the
+ * row says.
+ */
+function CitationStyleRow({ mindId }: { mindId: string }) {
+  const t = useT();
+  const style = useMindCitationStyle(mindId);
   const byDefault = style !== null && !style.chosen && style.style !== "numbered";
   const label = useStyleLabel(style?.style);
   return (
@@ -352,7 +380,7 @@ export function ExportDialog({ mind, onClose }: { mind: Mind | null; onClose(): 
       data-testid="export-dialog"
       aria-labelledby="export-title"
       // A sheet hanging from the tab strip, as the design has it, rather than a dialog in the middle.
-      className={`${dialogFrameClass} mt-11 mb-auto max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] overflow-y-auto rounded-t-none`}
+      className={`${dialogFrameClass} mt-11 mb-auto max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] overflow-hidden rounded-t-none open:flex open:flex-col`}
     >
       {/* Mounted only while open, so each opening starts from the options last saved. */}
       {mind && <ExportOptionsForm mind={mind} onDone={onClose} />}
@@ -382,6 +410,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
 
   const { includeQuestions, checkedLine } = draft["share-page"];
   const theirChanges = draft.theirChanges ?? "shown";
+  const citationStyle = useMindCitationStyle(mind.id);
 
   useEffect(() => {
     if (!wantsShared) return;
@@ -457,8 +486,8 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
   const emptyPack = format === "source-pack" && counts?.packCitations === 0;
 
   return (
-    <form onSubmit={(event) => void save(event)} className="flex flex-col">
-      <header className="flex items-center justify-between gap-3 pt-4 pr-4 pb-2.5 pl-6">
+    <form onSubmit={(event) => void save(event)} className="flex min-h-0 flex-col">
+      <header className="flex shrink-0 items-center justify-between gap-3 pt-4 pr-4 pb-2.5 pl-6">
         <h2 id="export-title" className={dialogTitleClass}>
           {t("export.options.title")}
         </h2>
@@ -474,7 +503,10 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
         </button>
       </header>
 
-      <div className={`mx-6 ${ruledListClass}`}>
+      <div
+        data-testid="export-options-body"
+        className={`mx-6 min-h-0 overflow-y-auto ${ruledListClass}`}
+      >
         <div className={rowClass}>
           <label htmlFor={formatId} className="text-ui text-ink">
             {t("export.format")}
@@ -573,6 +605,14 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           />
         )}
 
+        {hasCitationPlace(format) && citationStyle && (
+          <CitationPlaceRow
+            value={draft.citationPlace}
+            byStyle={citationStyle.style !== "numbered"}
+            onChange={(citationPlace) => setDraft({ ...draft, citationPlace })}
+          />
+        )}
+
         {(format !== "share-page" || !draft["share-page"].citationCards) && (
           <CitationStyleRow mindId={mind.id} />
         )}
@@ -580,12 +620,12 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
       </div>
 
       {problem && (
-        <ProblemLine testId="export-problem" className="mx-6 mt-3">
+        <ProblemLine testId="export-problem" className="mx-6 mt-3 shrink-0">
           {t("export.failed.options", { reason: problem })}
         </ProblemLine>
       )}
 
-      <div className={`${dialogActionsClass} px-6 pt-5 pb-6`}>
+      <div className={`${dialogActionsClass} shrink-0 px-6 pt-5 pb-6`}>
         <button type="button" onClick={onDone} className={buttonClass}>
           {t("export.cancel")}
         </button>

@@ -7,6 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  moveAssistant,
   nameMind,
   newMind,
   removeDataFolder,
@@ -41,8 +42,7 @@ type Dock = "right" | "left" | "bottom" | "float";
 const DOCKS: Dock[] = ["right", "left", "bottom", "float"];
 
 async function dockAs(window: Page, dock: Dock) {
-  await window.getByTestId("assistant-more").click();
-  await window.getByTestId(`assistant-menu-${dock}`).click();
+  await moveAssistant(window, dock);
   await expect(window.getByTestId("assistant")).toHaveAttribute("data-dock", dock);
 }
 

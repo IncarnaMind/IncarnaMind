@@ -52,7 +52,7 @@ test("a Mind written by a newer version opens read-only with a notice, and its s
   const editor = window.getByTestId("mind-editor");
   await expect(editor).toContainText("Written on another computer");
   await expect(window.getByTestId("mind-notice-read-only")).toContainText("Read-only");
-  await expect(window.getByTestId("mind-notice-read-only")).toContainText("Update IncarnaMind");
+  await expect(window.getByTestId("mind-notice-read-only")).toContainText("Update to edit it");
   await expect(editor).toHaveAttribute("contenteditable", "false");
   // The assistant's composer asks of every Document, not of this Mind, which it can't read.
   await expect(window.getByTestId("assistant")).toBeVisible();

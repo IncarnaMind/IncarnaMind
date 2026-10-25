@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { PanelBoundary } from "./components/PanelBoundary";
 import "./commands/app";
 import { files } from "./core";
 import "./fonts.css";
@@ -11,8 +12,10 @@ import { installErrorLog } from "./errorLog";
 import { installMotion } from "./motion";
 import { retryTaggingWhenOnline } from "./taggingRetry";
 import { installTestHooks } from "./viewerControls";
+import { installWindowMemory } from "./windowMemory";
 
 installErrorLog();
+installWindowMemory();
 installTestHooks();
 retryTaggingWhenOnline();
 // Before the first paint: the system's Reduce motion holds until the settings say the User's choice.
@@ -33,7 +36,9 @@ const root = createRoot(container);
 flushSync(() =>
   root.render(
     <StrictMode>
-      <App />
+      <PanelBoundary name="window">
+        <App />
+      </PanelBoundary>
     </StrictMode>,
   ),
 );

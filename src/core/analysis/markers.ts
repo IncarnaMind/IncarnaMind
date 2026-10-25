@@ -1,10 +1,3 @@
-/**
- * An Answer's text with each "[=table n]" and "[=chart n]" its Analyses gave
- * it in place (#447). On a line of its own, a table marker becomes the
- * result's table as Markdown, and a chart marker the values it draws under
- * its title, until a Mind draws charts from an Analysis (#449). Inline, or for
- * a marker no Analysis gave, the marker is left out.
- */
 import type { AnalysisCell, AnalysisTable } from "../../shared/analysis";
 import { translate } from "../../shared/i18n";
 import type { AnswerAnalysis } from "../api";

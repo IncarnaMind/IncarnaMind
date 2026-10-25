@@ -107,6 +107,7 @@ export function markdownUnits(source: string): SourceUnit[] {
     current.last = index;
   });
   sections.push(current);
+  const headed = sections.length > 1;
 
   for (const section of sections) {
     // Split a long section at blank lines (or, without any, at a line) into parts.
@@ -129,7 +130,11 @@ export function markdownUnits(source: string): SourceUnit[] {
         units.push({
           page: units.length + 1,
           kind: "section",
-          label: { path: section.path, ...(part > 1 ? { part } : {}) },
+          label: {
+            path: section.path,
+            ...(part > 1 ? { part } : {}),
+            ...(headed && section.path.length === 0 ? { beforeHeading: true } : {}),
+          },
           text: source.slice(slice.start, slice.end),
           anchors: [],
           start: slice.start,

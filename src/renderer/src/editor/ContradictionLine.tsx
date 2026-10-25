@@ -9,6 +9,7 @@ import {
 } from "../contradictions";
 import { formatMoney } from "../cost";
 import { useLanguage, useT } from "../i18n";
+import { saidInLine } from "../lineNames";
 import { contradictionOutcomeParts } from "./contradictionOutcome";
 import { AskBlock } from "./MindCheckLine";
 
@@ -48,12 +49,16 @@ export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string 
     const watched = shown.run;
     const [first = "", ...rest] = outcome(watched);
     const cost = watched.cost ? [formatMoney(watched.cost, language)] : [];
+    const after = saidInLine(t, (t) =>
+      t("contradictions.after", { document: watched.documentName, result: first }),
+    );
     return (
       <>
         <div className="check-card-sep" />
         <ProblemLine
           role="status"
           testId="contradictions-watched"
+          title={after.fullMessage}
           className="mind-health-line"
           details={[...rest, ...cost]}
           action={{
@@ -63,7 +68,7 @@ export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string 
             onClick: () => clearContradictionWatch(doc.getMap(MIND_SETTINGS_FIELD)),
           }}
         >
-          {t("contradictions.after", { document: watched.documentName, result: first })}
+          {after.message}
         </ProblemLine>
       </>
     );

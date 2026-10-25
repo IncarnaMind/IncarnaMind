@@ -1,10 +1,11 @@
 import { DOCKS, dockCommandId } from "../../commands/assistant";
-import { commands, labelOf, offered } from "../../commands/registry";
+import { commands, labelOf } from "../../commands/registry";
 import { useConversations } from "../../conversations";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import {
   CheckLineIcon,
+  ChevronRightLineIcon,
   DockBottomLineIcon,
   DockLeftLineIcon,
   DockRightLineIcon,
@@ -12,7 +13,7 @@ import {
   MoreLineIcon,
 } from "../lineIcons";
 import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "../ui";
-import { usePopoverMenu } from "../usePopoverMenu";
+import { usePopoverMenu, useSubmenu } from "../usePopoverMenu";
 
 const ICONS = {
   right: DockRightLineIcon,
@@ -22,23 +23,23 @@ const ICONS = {
 } as const;
 
 /**
- * The assistant's ⋯: where it sits (the User's choice is checked, even while
- * a narrow window shows a side dock at the bottom), and, `withFold`, Fold
- * (on Windows docked right, where the header has no room for it); then what
- * acts on its conversation. Each is a command, as in ⌘K.
+ * The assistant's ⋯: "Move assistant ▸", whose submenu has where it sits (the
+ * User's choice is checked, even while a narrow window shows a side dock at the
+ * bottom); `withFold`, Fold (on Windows docked right, where the header has no
+ * room for it); then what acts on its conversation. Each is a command, as in ⌘K.
  */
 export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
   const t = useT();
   const menu = usePopoverMenu();
+  const submenu = useSubmenu();
   const chosen = useAppStore((state) => state.layout?.assistant.dock);
   const run = (id: Parameters<typeof commands.run>[0]) => {
     menu.close();
+    // The item that had the focus is gone with the menu, and the page body would get it.
+    menu.buttonProps.ref.current?.focus();
     commands.run(id).catch(useAppStore.getState().reportError);
   };
-  // Offered while there is a Mind to make it from: the one the assistant reads.
-  const make = commands.get("skill.fromMind");
-  const makeSkill =
-    menu.open && make && offered(make, { selection: [], focus: null, surface: "mind" });
+  const HereIcon = ICONS[chosen ?? "right"];
   return (
     <>
       <button
@@ -61,24 +62,16 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
       >
         {menu.open && (
           <>
-            {DOCKS.map(({ dock, label }) => {
-              const Icon = ICONS[dock];
-              return (
-                <button
-                  key={dock}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={chosen === dock}
-                  data-testid={`assistant-menu-${dock}`}
-                  onClick={() => run(dockCommandId(dock))}
-                  className={`${menuItemClass} pl-2`}
-                >
-                  <Icon className="size-4 shrink-0 text-ink-meta" />
-                  <span className="flex-1">{t(label)}</span>
-                  {chosen === dock && <CheckLineIcon className="size-4 shrink-0 text-ink-meta" />}
-                </button>
-              );
-            })}
+            <button
+              {...submenu.itemProps}
+              type="button"
+              data-testid="assistant-menu-move"
+              className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
+            >
+              <HereIcon className="size-4 shrink-0 text-ink-meta" />
+              <span className="flex-1">{t("assistant.moveMenu")}</span>
+              <ChevronRightLineIcon className="size-3.5 text-ink-meta" />
+            </button>
             {withFold && (
               <button
                 type="button"
@@ -91,17 +84,6 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
               </button>
             )}
             <div className={menuRuleClass} />
-            {makeSkill && (
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="assistant-menu-make-skill"
-                onClick={() => run("skill.fromMind")}
-                className={`${menuItemClass} pl-8`}
-              >
-                {t("skills.make.command")}
-              </button>
-            )}
             <ConversationItem
               id="assistant.lastToNewMind"
               testId="assistant-menu-last-to-new-mind"
@@ -110,6 +92,32 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
             <ConversationItem id="assistant.clear" testId="assistant-menu-clear" onRun={run} />
           </>
         )}
+      </div>
+      <div
+        {...submenu.menuProps}
+        role="menu"
+        aria-label={t("assistant.moveMenu")}
+        data-testid="assistant-menu-docks"
+        className={menuClass}
+      >
+        {DOCKS.map(({ dock, label }) => {
+          const Icon = ICONS[dock];
+          return (
+            <button
+              key={dock}
+              type="button"
+              role="menuitemradio"
+              aria-checked={chosen === dock}
+              data-testid={`assistant-menu-${dock}`}
+              onClick={() => run(dockCommandId(dock))}
+              className={`${menuItemClass} pl-2`}
+            >
+              <Icon className="size-4 shrink-0 text-ink-meta" />
+              <span className="flex-1">{t(label)}</span>
+              {chosen === dock && <CheckLineIcon className="size-4 shrink-0 text-ink-meta" />}
+            </button>
+          );
+        })}
       </div>
     </>
   );

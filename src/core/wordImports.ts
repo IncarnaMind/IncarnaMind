@@ -10,8 +10,8 @@
  * the first at once, so a long document shows as it fills in and the app stays
  * responsive; the Mind records how far it has got (`WordImportProgress`) and
  * can't be edited until it is done. An import a quit cut short goes on from
- * where it was at the next start: reading the kept package again gives the
- * same Blocks.
+ * where it was at the next start, and one whose Mind was deleted goes on when
+ * the Mind is restored: reading the kept package again gives the same Blocks.
  *
  * Each node mapped from the document records where it came from and its
  * fingerprint as imported (`WordSource`), for export to write into the
@@ -173,6 +173,8 @@ export function createWordImports(options: WordImportsOptions) {
   const folder = join(options.dataDir, WORD_PACKAGES_FOLDER);
   /** Packages being kept for an import whose Mind isn't recorded yet: never dropped. */
   const keeping = new Set<string>();
+  /** Minds whose Blocks are being written now, so a Mind never has two writers. */
+  const writing = new Set<string>();
   let closed = false;
   /** The file the import screen checked last, read whole, so importing it doesn't read it again. */
   let checked: ReadFile | null = null;
@@ -208,7 +210,8 @@ export function createWordImports(options: WordImportsOptions) {
   /**
    * Writes the import's Blocks from `from` on, a batch at a time, after those
    * already written; marks the import complete once all are. Stops if the
-   * Mind is deleted meanwhile.
+   * Mind is deleted meanwhile, and does nothing for a Mind that already has a
+   * writer.
    */
   const writeBlocks = async (
     mindId: string,
@@ -217,45 +220,51 @@ export function createWordImports(options: WordImportsOptions) {
     from: number,
     first: boolean,
   ) => {
-    const total = structure.blocks.length;
-    let done = from;
-    let size = WORD_IMPORT_BATCH;
-    let last: Y.XmlElement | null = null;
-    while (done < total) {
-      // Other work runs between batches.
-      if (!first) await new Promise<void>((resolve) => setImmediate(resolve));
-      first = false;
-      if (closed) return;
-      if (!db.get("SELECT 1 FROM minds WHERE id = ? AND deleted_at IS NULL", [mindId])) return;
-      const batch = structure.blocks.slice(done, done + size);
-      size = Math.min(size * 2, WORD_IMPORT_MOST);
-      const written = done;
-      content.edit(mindId, (blocks) => {
-        const doc = blocks.doc;
-        if (!doc) return;
-        if (written === from) recordChanges(doc, structure);
-        const elements = batch.map(createElement);
-        const after = last ? blocks.toArray().indexOf(last) + 1 : 0;
-        blocks.insert(after > 0 ? after : Math.min(written, blocks.length), elements);
-        for (const element of elements) recordSources(doc, element, structure);
-        if (origin === "someone-else") {
-          const ids = elements.flatMap((element) => {
-            const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
-            return typeof id === "string" ? [id] : [];
-          });
-          setTextOrigin(doc, ids, "imported");
-        }
-        recordWordImportProgress(doc, written + batch.length, total);
-        last = elements.at(-1) ?? last;
-      });
-      done += batch.length;
+    if (writing.has(mindId)) return;
+    writing.add(mindId);
+    try {
+      const total = structure.blocks.length;
+      let done = from;
+      let size = WORD_IMPORT_BATCH;
+      let last: Y.XmlElement | null = null;
+      while (done < total) {
+        // Other work runs between batches.
+        if (!first) await new Promise<void>((resolve) => setImmediate(resolve));
+        first = false;
+        if (closed) return;
+        if (!db.get("SELECT 1 FROM minds WHERE id = ? AND deleted_at IS NULL", [mindId])) return;
+        const batch = structure.blocks.slice(done, done + size);
+        size = Math.min(size * 2, WORD_IMPORT_MOST);
+        const written = done;
+        content.edit(mindId, (blocks) => {
+          const doc = blocks.doc;
+          if (!doc) return;
+          if (written === from) recordChanges(doc, structure);
+          const elements = batch.map(createElement);
+          const after = last ? blocks.toArray().indexOf(last) + 1 : 0;
+          blocks.insert(after > 0 ? after : Math.min(written, blocks.length), elements);
+          for (const element of elements) recordSources(doc, element, structure);
+          if (origin === "someone-else") {
+            const ids = elements.flatMap((element) => {
+              const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+              return typeof id === "string" ? [id] : [];
+            });
+            setTextOrigin(doc, ids, "imported");
+          }
+          recordWordImportProgress(doc, written + batch.length, total);
+          last = elements.at(-1) ?? last;
+        });
+        done += batch.length;
+      }
+      const at = options.now();
+      db.run(
+        "UPDATE word_packages SET completed_at = ?, updated_at = ? WHERE mind_id = ? AND deleted_at IS NULL",
+        [at, at, mindId],
+      );
+      log.info("word.import.done", { blocks: total });
+    } finally {
+      writing.delete(mindId);
     }
-    const at = options.now();
-    db.run(
-      "UPDATE word_packages SET completed_at = ?, updated_at = ? WHERE mind_id = ? AND deleted_at IS NULL",
-      [at, at, mindId],
-    );
-    log.info("word.import.done", { blocks: total });
   };
 
   /**
@@ -449,14 +458,17 @@ export function createWordImports(options: WordImportsOptions) {
     },
 
     /**
-     * Goes on with imports a quit cut short, from where each got to, reading
-     * its kept package again. Run once at start-up.
+     * Goes on with imports that stopped, from where each got to, reading its
+     * kept package again: a quit cut them short (all of them, run once at
+     * start-up), or their Mind was deleted and is back (`only` names those).
      */
-    resume(): void {
-      const unfinished = db.all<{ mind_id: string; sha256: string }>(
-        `SELECT p.mind_id, p.sha256 FROM word_packages p JOIN minds m ON m.id = p.mind_id
-         WHERE p.completed_at IS NULL AND p.deleted_at IS NULL AND m.deleted_at IS NULL`,
-      );
+    resume(only?: readonly string[]): void {
+      const unfinished = db
+        .all<{ mind_id: string; sha256: string }>(
+          `SELECT p.mind_id, p.sha256 FROM word_packages p JOIN minds m ON m.id = p.mind_id
+           WHERE p.completed_at IS NULL AND p.deleted_at IS NULL AND m.deleted_at IS NULL`,
+        )
+        .filter(({ mind_id: mindId }) => only === undefined || only.includes(mindId));
       for (const { mind_id: mindId, sha256 } of unfinished) {
         const resumed = (async () => {
           const bytes = await readFile(packagePath(sha256));

@@ -54,8 +54,7 @@ const WORDS = {
   en: {
     settings: "Settings",
     emptyTitle: "Nothing to read yet",
-    emptyBody:
-      "Add the Documents you want Claude Code to read. They’ll appear here, ready to choose.",
+    emptyBody: "Add Documents for Claude Code to read. They appear here.",
     add: "Add Documents…",
     notInFolder: "Not in a Folder",
     allUnfiled:
@@ -67,7 +66,7 @@ const WORDS = {
   "zh-CN": {
     settings: "设置",
     emptyTitle: "还没有可读取的内容",
-    emptyBody: "添加你想让 Claude Code 读取的文档。它们会出现在这里，随时可选。",
+    emptyBody: "添加要让 Claude Code 读取的文档，它们会显示在这里。",
     add: "添加文档…",
     notInFolder: "不在文件夹中",
     allUnfiled:

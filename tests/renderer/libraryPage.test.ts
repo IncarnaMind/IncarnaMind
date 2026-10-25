@@ -7,6 +7,7 @@ import type {
 } from "../../src/core/api";
 import {
   addedLabel,
+  folderCounts,
   folderFacet,
   foundLine,
   NOT_IN_A_FOLDER,
@@ -19,6 +20,7 @@ import {
   searchMatches,
   sectionShows,
   sectionsOf,
+  sourceFacet,
 } from "../../src/renderer/src/libraryPage";
 import { queryWords } from "../../src/renderer/src/matcher";
 import { displayName } from "../../src/shared/documentNames";
@@ -70,6 +72,20 @@ describe("sections", () => {
     expect(sections[1]?.documents).toEqual([a]);
     // A Document in a Folder that isn't there any more is in none.
     expect(sections[2]?.documents).toEqual([b, c]);
+  });
+
+  test("a Folder's count is the Documents the page lists in it, not those filed there and since deleted", () => {
+    const assignments = [
+      { documentId: a.id, groupId: "finance" },
+      { documentId: b.id, groupId: "finance" },
+      { documentId: "deleted", groupId: "finance" },
+    ];
+    expect(folderCounts([board, finance], [a, b, c], assignments)).toEqual(
+      new Map([
+        ["board", 0],
+        ["finance", 2],
+      ]),
+    );
   });
 
   test("an empty Folder still shows; Not in a Folder only while it holds something", () => {
@@ -213,7 +229,7 @@ describe("the problem line", () => {
     expect(problemText(one, zh)).toBe("1 个文档没有文字：扫描件");
     const two = problemOf([doc({ fileStatus: "missing" }), doc({ fileStatus: "missing" })]);
     if (!two) throw new Error("No problem found.");
-    expect(problemText(two, en)).toBe("2 Documents' files are missing");
+    expect(problemText(two, en)).toBe("2 Documents’ files are missing");
     expect(problemText(two, zh)).toBe("2 个文档的文件缺失");
   });
 
@@ -296,5 +312,17 @@ describe("the Folder filter", () => {
     expect(facet.label(NOT_IN_A_FOLDER, en)).toBe("Not in a Folder");
     expect(facet.label(NOT_IN_A_FOLDER, zh)).toBe("不在文件夹中");
     expect(facet.label("finance", en)).toBe("Finance");
+  });
+
+  test("Source locations name Linked folders apart when two have one name (#1507)", () => {
+    const facet = sourceFacet([
+      { id: "a", path: "/work/2025/Reading" },
+      { id: "b", path: "/work/2026/Reading" },
+      { id: "c", path: "/work/Other" },
+    ]);
+    expect(facet.label("a", en)).toBe("2025 / Reading");
+    expect(facet.label("b", en)).toBe("2026 / Reading");
+    expect(facet.label("c", en)).toBe("Other");
+    expect(facet.compare("a", "b")).toBeLessThan(0);
   });
 });

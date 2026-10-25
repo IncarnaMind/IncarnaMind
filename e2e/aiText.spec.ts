@@ -119,7 +119,7 @@ test("an Answer added to a note is AI text until typed over or marked as mine, b
   await window.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => inkOf(line, "Answer to")).toEqual(AI);
 
-  // By keyboard: selected with the keys, ⌘/ into the menu, up from Edit with AI at its foot.
+  // By keyboard: selected with the keys, ⌘/ into the menu, up from the Edit with AI field at its foot.
   const last = editor.locator(":scope > p", { hasText: "That is all." });
   await clickEndOf(window, last);
   for (let index = 0; index < "all.".length; index++) {
@@ -129,7 +129,9 @@ test("an Answer added to a note is AI text until typed over or marked as mine, b
   await window.keyboard.press("ControlOrMeta+/");
   await expect(menu.getByTestId("selection-turn-into")).toBeFocused();
   await window.keyboard.press("End");
-  await expect(menu.getByTestId("selection-action-edit")).toBeFocused();
+  await expect(menu.getByTestId("selection-edit-handoff")).toBeFocused();
+  await window.keyboard.press("ArrowUp");
+  await expect(menu.getByTestId("selection-edit-field")).toBeFocused();
   await window.keyboard.press("ArrowUp");
   await expect(mine).toBeFocused();
   await window.keyboard.press("Enter");

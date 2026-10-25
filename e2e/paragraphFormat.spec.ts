@@ -126,7 +126,7 @@ async function inSpacing(window: Page, menu: Locator, id: string): Promise<void>
 
 const CONTROLS: readonly Control[] = [
   {
-    name: "centre",
+    name: "center",
     choose: (window, menu) => click(window, menu.getByTestId("format-align-center")),
     async changed(before, after) {
       expect(after[1]?.align).toBe("center");
@@ -178,7 +178,7 @@ const CONTROLS: readonly Control[] = [
     },
   },
   {
-    name: "text colour",
+    name: "text color",
     choose: (window, menu) => click(window, menu.getByTestId("format-color-red")),
     async changed(_before, _after, middle) {
       await expect(middle.locator('[data-text-color="B42318"]').first()).toHaveCSS(

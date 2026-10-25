@@ -22,6 +22,7 @@ import {
   createTempDataFolder,
   manualClock,
   nextEvent,
+  nextTurn,
   queryDatabase,
   startCore,
 } from "../helpers/core";
@@ -32,6 +33,8 @@ import {
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 import { controlledModel, promptOf, scriptedModels, streamingModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
@@ -96,6 +99,37 @@ const answerOf = (content: ConversationContent, answerId: string): ConversationA
 
 const rowCount = (dataDir: string, table: string) =>
   queryDatabase<{ count: number }>(dataDir, `SELECT count(*) AS count FROM ${table}`)[0]?.count;
+
+/** Model readiness that waits until the test releases it, saying when it has begun. */
+function heldReadiness() {
+  let holding = false;
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let began = () => {};
+  const beginning = new Promise<void>((resolve) => {
+    began = resolve;
+  });
+  return {
+    hold: () => {
+      holding = true;
+    },
+    beginning,
+    release: () => release(),
+    ollamaModels: {
+      describe: async () => {
+        if (holding) {
+          began();
+          await released;
+        }
+        return null;
+      },
+      loaded: async () => null,
+      running: async () => true,
+    },
+  };
+}
 
 describe("Which Folder a conversation belongs to", { timeout: 30_000 }, () => {
   test("the Folder of the Mind its first Question was asked from; a Question from a Mind in another Folder leaves it there, and each Question names its Mind", async () => {
@@ -223,6 +257,233 @@ describe("Empty conversations", { timeout: 30_000 }, () => {
       skill: "no-such-skill",
     });
     expect(rowCount(dataDir, "conversations")).toBe(0);
+  });
+
+  test("a rejected follow-up leaves its existing conversation untouched", async () => {
+    const { core, clock, ended } = await setUp(streamingModel("Hello."));
+    const first = await ask(core, ended, { text: "Hello" });
+    const before = await core.getConversation(first.conversation.id);
+    clock.advance(1000);
+
+    const result = await core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Summarise",
+      forcedSkill: "no-such-skill",
+    });
+
+    expect(result).toMatchObject({ asked: false, reason: "skill-unavailable" });
+    expect(await core.getConversation(first.conversation.id)).toEqual(before);
+  });
+
+  test("a rejected turn doesn't restore an older time over a later turn in the same millisecond", async () => {
+    const slowUrl = "http://127.0.0.1:2";
+    let hold = false;
+    let release = () => {};
+    const readiness = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let began = () => {};
+    const readinessBegan = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const { core, clock, ended } = await setUp(streamingModel(["Hello.", "Latest answer."]), {
+      ollamaModels: {
+        describe: async (baseUrl) => {
+          if (hold && baseUrl === slowUrl) {
+            began();
+            await readiness;
+          }
+          return null;
+        },
+        loaded: async () => null,
+        running: async () => true,
+      },
+    });
+    const other = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: slowUrl,
+      modelId: "other-model",
+      keepDefault: true,
+    });
+    const first = await ask(core, ended, { text: "Hello" });
+    clock.advance(1000);
+    hold = true;
+
+    const rejecting = core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Rejected",
+      forcedSkill: "no-such-skill",
+    });
+    const accepting = core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Latest",
+      model: { providerId: other.id, modelId: "other-model" },
+    });
+    await readinessBegan;
+    await expect(rejecting).resolves.toMatchObject({
+      asked: false,
+      reason: "skill-unavailable",
+    });
+    release();
+    const accepted = await accepting;
+    if (!accepted.asked) throw new Error("Not asked.");
+    expect(await ended(accepted.answerId)).toBe("finished");
+
+    const content = await core.getConversation(first.conversation.id);
+    expect(content.conversation.updatedAt).toBe(accepted.conversation.updatedAt);
+    expect(content.conversation.updatedAt).not.toBe(first.conversation.updatedAt);
+    expect(content.messages.map((message) => message.kind)).toEqual([
+      "question",
+      "answer",
+      "question",
+      "answer",
+    ]);
+    expect(content.messages[2]).toMatchObject({ kind: "question", text: "Latest" });
+  });
+
+  test.each(["older first", "newer first"])(
+    "rejected overlapping turns leave the conversation untouched (%s)",
+    async (order) => {
+      const slowUrl = "http://127.0.0.1:2";
+      let hold = false;
+      let release = () => {};
+      const readiness = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let began = () => {};
+      const readinessBegan = new Promise<void>((resolve) => {
+        began = resolve;
+      });
+      const { core, clock, ended } = await setUp(streamingModel("Hello."), {
+        ollamaModels: {
+          describe: async (baseUrl) => {
+            if (hold && baseUrl === slowUrl) {
+              began();
+              await readiness;
+            }
+            return null;
+          },
+          loaded: async () => null,
+          running: async () => true,
+        },
+      });
+      const other = await core.saveChatProvider({
+        kind: "ollama",
+        baseUrl: slowUrl,
+        modelId: "other-model",
+        keepDefault: true,
+      });
+      const first = await ask(core, ended, { text: "Hello" });
+      const before = await core.getConversation(first.conversation.id);
+      clock.advance(1000);
+      hold = true;
+      const slowModel = { providerId: other.id, modelId: "other-model" };
+
+      const older = core.askInConversation({
+        conversationId: first.conversation.id,
+        text: "Older",
+        forcedSkill: "no-such-skill",
+        ...(order === "newer first" && { model: slowModel }),
+      });
+      const newer = core.askInConversation({
+        conversationId: first.conversation.id,
+        text: "Newer",
+        forcedSkill: "no-such-skill",
+        ...(order === "older first" && { model: slowModel }),
+      });
+      await readinessBegan;
+      const firstRejection = order === "older first" ? older : newer;
+      const secondRejection = order === "older first" ? newer : older;
+      await expect(firstRejection).resolves.toMatchObject({
+        asked: false,
+        reason: "skill-unavailable",
+      });
+      release();
+      await expect(secondRejection).resolves.toMatchObject({
+        asked: false,
+        reason: "skill-unavailable",
+      });
+
+      expect(await core.getConversation(first.conversation.id)).toEqual(before);
+    },
+  );
+
+  test("a rejected turn after a published one leaves History at the published turn's time", async () => {
+    const acceptedUrl = "http://127.0.0.1:2";
+    const rejectedUrl = "http://127.0.0.1:3";
+    const gate = () => {
+      const held = Promise.withResolvers<void>();
+      const begun = Promise.withResolvers<void>();
+      return {
+        release: () => held.resolve(),
+        held: held.promise,
+        began: begun.promise,
+        begin: () => begun.resolve(),
+      };
+    };
+    const acceptingGate = gate();
+    const rejectingGate = gate();
+    const { core, clock, ended } = await setUp(streamingModel("Hello."), {
+      ollamaModels: {
+        describe: async (baseUrl) => {
+          if (baseUrl === acceptedUrl) {
+            acceptingGate.begin();
+            await acceptingGate.held;
+          }
+          if (baseUrl === rejectedUrl) {
+            rejectingGate.begin();
+            await rejectingGate.held;
+          }
+          return null;
+        },
+        loaded: async () => null,
+        running: async () => true,
+      },
+    });
+    const acceptingModel = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: acceptedUrl,
+      modelId: "accepting-model",
+      keepDefault: true,
+    });
+    const rejectingModel = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: rejectedUrl,
+      modelId: "rejecting-model",
+      keepDefault: true,
+    });
+    const first = await ask(core, ended, { text: "Hello" });
+    clock.advance(1000);
+
+    // The accepted turn is added first, then the rejected one a second later.
+    const accepting = core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Accepted",
+      model: { providerId: acceptingModel.id, modelId: "accepting-model" },
+    });
+    await acceptingGate.began;
+    clock.advance(1000);
+    const rejecting = core.askInConversation({
+      conversationId: first.conversation.id,
+      text: "Rejected",
+      forcedSkill: "no-such-skill",
+      model: { providerId: rejectingModel.id, modelId: "rejecting-model" },
+    });
+    await rejectingGate.began;
+
+    acceptingGate.release();
+    const accepted = await accepting;
+    if (!accepted.asked) throw new Error("Not asked.");
+    expect(await ended(accepted.answerId)).toBe("finished");
+    rejectingGate.release();
+    await expect(rejecting).resolves.toMatchObject({ asked: false, reason: "skill-unavailable" });
+
+    const { conversation, messages } = await core.getConversation(first.conversation.id);
+    const asked = messages.find(
+      (message) => message.kind === "question" && message.text === "Accepted",
+    );
+    if (asked?.kind !== "question") throw new Error("The accepted Question is missing.");
+    expect(conversation.updatedAt).toBe(asked.createdAt);
   });
 });
 
@@ -600,6 +861,108 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
     expect(messages.at(-1)).toMatchObject({ text: "A Mind is a notebook.", status: "done" });
   });
 
+  test("a Mind edited while model readiness waits is read after the wait", async () => {
+    const ready = heldReadiness();
+    const model = streamingModel("Noted.");
+    const { core, ended } = await setUp(model, { ollamaModels: ready.ollamaModels });
+    const mind = await core.createMind({ title: "Tides" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [note("Before the wait.")]);
+    await client.settled();
+
+    ready.hold();
+    const asking = core.askInConversation({ text: "Summarise my notes", mindId: mind.id });
+    try {
+      await ready.beginning;
+      writeMind(client, [note("After the wait.")]);
+      await client.settled();
+    } finally {
+      ready.release();
+    }
+    const result = await asking;
+    if (!result.asked) throw new Error("Not asked.");
+    expect(await ended(result.answerId)).toBe("finished");
+
+    const sent = promptOf(model).at(-1)?.text ?? "";
+    expect(sent).toContain("After the wait.");
+    expect(sent).not.toContain("Before the wait.");
+  });
+
+  test("its Question and Answer are in its conversation while model readiness waits", async () => {
+    const ready = heldReadiness();
+    const { core, ended } = await setUp(streamingModel("Noted."), {
+      ollamaModels: ready.ollamaModels,
+    });
+    ready.hold();
+
+    const asking = core.askInConversation({ text: "Keep this Question" });
+    try {
+      await ready.beginning;
+      const [conversation] = await core.listConversations();
+      if (!conversation) throw new Error("The conversation wasn't kept.");
+      const { messages } = await core.getConversation(conversation.id);
+      expect(messages.map((message) => message.kind)).toEqual(["question", "answer"]);
+      expect(messages[1]).toMatchObject({ kind: "answer", status: "streaming", text: "" });
+    } finally {
+      ready.release();
+    }
+    const result = await asking;
+    if (!result.asked) throw new Error("Not asked.");
+    expect(await ended(result.answerId)).toBe("finished");
+  });
+
+  test("a Search scope and quotes changed while model readiness waits are used as they are after it", async () => {
+    const ready = heldReadiness();
+    const model = streamingModel("Noted.");
+    const { core, ended } = await setUp(model, { ollamaModels: ready.ollamaModels });
+    const folder = await core.createLibraryGroup({ name: "Harbour", description: "" });
+    const sources = await createSourceFolder();
+    const quote = "Margins recover within two quarters of each cut.";
+    const path = await writeSourceFile(sources, "Chain survey.txt", quote);
+    const [survey] = await addAndProcess(core, [path]);
+    if (!survey) throw new Error("The Document wasn't added.");
+    await core.moveToFolder({ documentIds: [survey.id], folderId: folder.id });
+    const cited = await core.citeSelection({
+      documentId: survey.id,
+      parts: [{ unit: null, text: quote }],
+    });
+    expect(cited.check).toBe("found");
+
+    ready.hold();
+    const asking = core.askInConversation({
+      text: "How do margins recover?",
+      scope: { folderIds: [folder.id], tagIds: [], documentIds: [] },
+      quotes: [
+        {
+          documentId: survey.id,
+          documentName: survey.name,
+          quote: cited.quote,
+          pageFrom: cited.pageFrom,
+          pageTo: cited.pageTo,
+          location: cited.location,
+        },
+      ],
+    });
+    try {
+      await ready.beginning;
+      // Out of the Folder, and a version of its file without the quoted words.
+      await core.moveToFolder({ documentIds: [survey.id], folderId: null });
+      await writeFile(path, "The panel ends in March.");
+      await core.reconcileDocuments();
+      await waitForProcessing(core, [survey.id]);
+    } finally {
+      ready.release();
+    }
+    const result = await asking;
+    if (!result.asked) throw new Error("Not asked.");
+    expect(await ended(result.answerId)).toBe("finished");
+
+    expect(result.leftOut).toMatchObject([{ documentId: survey.id, quote: cited.quote }]);
+    const sent = promptOf(model).at(-1)?.text ?? "";
+    expect(sent).not.toContain("Chain survey");
+    expect(sent).not.toContain(quote);
+  }, 60_000);
+
   test("stopped, or with its conversation deleted, keeps what it has; regenerated, it is written again in place", async () => {
     const controlled = controlledModel();
     const { core } = await setUp(controlled.model);
@@ -647,7 +1010,7 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
     });
   });
 
-  test("one left being written when IncarnaMind quit is stopped at the next start, and found by search", async () => {
+  test("one left being written when IncarnaMind quit is stopped at the next start, not asked again, and found by search", async () => {
     const controlled = controlledModel();
     const { core, dataDir, adapters } = await setUp(controlled.model);
     const result = await core.askInConversation({ text: "What is a Mind?" });
@@ -666,7 +1029,9 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
     db.close();
 
     const later = startCore(dataDir, adapters);
+    await nextTurn();
 
+    expect(controlled.model.doStreamCalls).toHaveLength(1);
     expect(
       answerOf(await later.getConversation(result.conversation.id), result.answerId),
     ).toMatchObject({ text: "A notebook for a topic.", status: "stopped" });

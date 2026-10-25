@@ -4,28 +4,15 @@ import {
   MAX_TAB_GROUPS,
   type WindowLayout,
 } from "../../../../core/api";
+import { shortcutLabel } from "../../commands/keymap";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../../layoutSlice";
 import { useAppStore } from "../../store";
+import { focusTab } from "../../tabFocus";
 
 /*
  * What the tab commands and buttons do beyond one change to the layout: they
  * say why nothing happened, and move the keyboard's focus with the tab.
  */
-
-/**
- * Moves the keyboard's focus to a tab once it is drawn. With `onlyIfLost`, only if the focus
- * is nowhere by then: a field the User has moved to since keeps it.
- */
-export function focusTab(
-  tabId: string | null | undefined,
-  { onlyIfLost = false }: { onlyIfLost?: boolean } = {},
-): void {
-  if (!tabId) return;
-  requestAnimationFrame(() => {
-    if (onlyIfLost && document.activeElement !== document.body) return;
-    document.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabId)}"]`)?.focus();
-  });
-}
 
 /** ⌥⌘\: a copy of a tab (the shown one by default) in a new group on the right. */
 export async function splitToTheRight(tabId?: string): Promise<void> {
@@ -49,7 +36,7 @@ export async function focusGroup(number: number): Promise<void> {
   const store = useAppStore.getState();
   const group = store.layout?.groups[number - 1];
   if (!group) {
-    store.showTabNotice({ kind: "noGroup", group: number });
+    store.showTabNotice({ kind: "noGroup", group: number, shortcut: shortcutLabel("tab.split") });
     return;
   }
   const next = await store.changeLayout({ type: "focus", groupId: group.id });
@@ -90,4 +77,22 @@ export function cycleTabs(step: 1 | -1): void {
   const index = group.tabs.findIndex((tab) => tab.id === group.activeTabId);
   const next = group.tabs[(index + step + group.tabs.length) % group.tabs.length];
   if (next) void store.changeLayout({ type: "show", tabId: next.id });
+}
+
+/**
+ * The focused group's tab at this place from 1, or its last for 9 (⌃1–⌃9); null where there is
+ * none. With the groups merged, their one strip holds every group's tabs, as the User sees them.
+ */
+export function tabByNumber(number: number): LayoutTab | null {
+  const { layout } = useAppStore.getState();
+  if (!layout) return null;
+  const tabs = groupsMerged()
+    ? layout.groups.flatMap((group) => group.tabs)
+    : focusedGroupOf(layout).tabs;
+  return (number === 9 ? tabs.at(-1) : tabs[number - 1]) ?? null;
+}
+
+export async function showTabByNumber(number: number): Promise<void> {
+  const tab = tabByNumber(number);
+  if (tab) await useAppStore.getState().changeLayout({ type: "show", tabId: tab.id });
 }

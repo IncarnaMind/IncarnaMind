@@ -118,7 +118,7 @@ test("“Summarise my notes” beside a Mind reads it: the consent says so, the 
   const answer = await ask(window, "Summarise my notes");
   const consent = window.getByTestId("consent-dialog");
   await expect(consent).toContainText(
-    "This Mind's text, Notes and earlier Answers, minus excluded Notes",
+    "This Mind’s text, Notes and earlier Answers, minus excluded Notes",
   );
   await expect(consent).toContainText(
     "Nothing is sent unless you allow it. Change it any time in Settings → Privacy.",

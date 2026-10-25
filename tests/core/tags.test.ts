@@ -26,6 +26,7 @@ import {
   queryDatabase,
   startCore,
   tickingClock,
+  turnOnAutomaticTagging,
 } from "../helpers/core";
 import {
   addAndProcess,
@@ -420,6 +421,87 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     expect(tagged?.tagging).toBe("tagged");
   });
 
+  test("when no Tag fits, the model has been asked and the Document is tagged with none", async () => {
+    const { core, tagging } = await startTagging([]);
+    await core.saveChatProvider(LOCAL);
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [tagged] = await waitForTagging(core, [document.id]);
+
+    expect(tagged).toMatchObject({ tagging: "tagged", tags: [] });
+    expect(tagging.requests).toHaveLength(1);
+  });
+
+  test("with no Tags to choose from, no model is asked and the Document is checked once a Tag exists", async () => {
+    const { core, tagging } = await startTagging(["Paper"]);
+    await core.saveChatProvider(LOCAL);
+    for (const tag of await core.listTags()) await core.deleteTag(tag.id);
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [waiting] = await waitForTagging(
+      core,
+      [document.id],
+      (each) => each.tagging === "no-tags",
+    );
+
+    expect(waiting).toMatchObject({ status: "ready", tags: [] });
+    expect(tagging.requests).toEqual([]);
+
+    await core.createTag({ name: "Paper", description: "A research paper." });
+    const [tagged] = await waitForTagging(core, [document.id]);
+
+    expect(tagged?.tagging).toBe("tagged");
+    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(tagging.requests).toHaveLength(1);
+  });
+
+  test("while Organize files new Documents by itself, a Document the tagger checked with no Tags is checked once a Tag exists", async () => {
+    const { core } = await startTagging(["Paper"]);
+    const provider = await core.saveChatProvider(LOCAL);
+    const classifier = {
+      kind: "chat",
+      choice: { providerId: provider.id, modelId: "local-model" },
+    } as const;
+    await core.saveLibrarySettings({ classifier, automatic: true });
+    for (const tag of await core.listTags()) await core.deleteTag(tag.id);
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    await waitForTagging(core, [document.id], (each) => each.tagging === "no-tags");
+
+    // With a Folder, Organize files new Documents by itself and takes them over.
+    await core.createLibraryGroup({ name: "Papers", description: "Research papers" });
+    await core.createTag({ name: "Paper", description: "A research paper." });
+    const [tagged] = await waitForTagging(core, [document.id]);
+
+    expect(tagged?.tagging).toBe("tagged");
+    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+  });
+
+  test("a Document still waiting for a Tag when the app quits is checked at the next start, if a Tag exists by then", async () => {
+    const dataDir = await createTempDataFolder();
+    const first = await startTagging(["Paper"], dataDir);
+    await first.core.saveChatProvider(LOCAL);
+    for (const tag of await first.core.listTags()) await first.core.deleteTag(tag.id);
+    const document = await addDocument(first.core, "Attention.md", PAPER_TEXT);
+    await waitForTagging(first.core, [document.id], (each) => each.tagging === "no-tags");
+    first.core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        `INSERT INTO tags (id, name, description, preset, colour, created_at, updated_at)
+         VALUES (?, 'Paper', 'A research paper.', NULL, 'teal', ?, ?)`,
+        [randomUUID(), AT, AT],
+      );
+    } finally {
+      db.close();
+    }
+
+    const second = await startTagging(["Paper"], dataDir);
+    const [tagged] = await waitForTagging(second.core, [document.id]);
+
+    expect(tagged?.tagging).toBe("tagged");
+    expect(await tagNamesOf(second.core, document.id)).toEqual(["Paper"]);
+  });
+
   test("removing the chat model sends Documents not yet tagged back to waiting", async () => {
     const { core, tagging } = await startTagging(["Paper"]);
     tagging.fail(new Error("The model is down."));
@@ -436,10 +518,10 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     const { core, tagging } = await startTagging(["Paper"]);
     tagging.fail(
       new APICallError({
-        message: "Too many requests",
+        message: "Internal server error",
         url: "http://127.0.0.1:11434/v1/chat/completions",
         requestBodyValues: {},
-        statusCode: 429,
+        statusCode: 500,
         isRetryable: false,
       }),
     );
@@ -447,12 +529,47 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
 
     const [failed] = await waitForTagging(core, [document.id], (each) => each.tagging === "failed");
-    expect(failed?.taggingError).toEqual({ kind: "rate-limit", message: "Too many requests" });
+    expect(failed?.taggingError).toEqual({ kind: "provider", message: "Internal server error" });
     expect(failed?.status).toBe("ready");
 
     tagging.fail(null);
     await retag(core, [document.id]);
     expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+  });
+
+  test("back online, the Documents that couldn't reach the model are tagged again, once however many windows say so", async () => {
+    const { core, tagging } = await startTagging(["Paper"]);
+    const failure = (statusCode?: number) =>
+      new APICallError({
+        message: statusCode ? "The model does not exist" : "fetch failed",
+        url: "http://127.0.0.1:11434/v1/chat/completions",
+        requestBodyValues: {},
+        ...(statusCode && { statusCode }),
+        isRetryable: false,
+      });
+    await core.saveChatProvider(LOCAL);
+    tagging.fail(failure());
+    const offline = await addDocument(core, "Attention.md", PAPER_TEXT);
+    await waitForTagging(core, [offline.id], (each) => each.tagging === "failed");
+    tagging.fail(failure(404));
+    const unknownModel = await addDocument(core, "Unknown.md", PAPER_TEXT);
+    const [unknown] = await waitForTagging(
+      core,
+      [unknownModel.id],
+      (each) => each.tagging === "failed",
+    );
+    expect(unknown?.taggingError?.kind).toBe("model");
+    const before = tagging.requests.length;
+
+    tagging.fail(null);
+    await Promise.all([core.backOnline(), core.backOnline()]);
+    await waitForTagging(core, [offline.id]);
+
+    expect(tagging.requests).toHaveLength(before + 1);
+    expect(await tagNamesOf(core, offline.id)).toEqual(["Paper"]);
+    expect((await core.listDocuments()).find((each) => each.id === unknownModel.id)?.tagging).toBe(
+      "failed",
+    );
   });
 });
 
@@ -464,17 +581,30 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     return requests;
   };
 
-  test("choosing a cloud model's provider allows tagging: Tags start without a dialog", async () => {
+  test("choosing a cloud model's provider sends nothing to tag; turning tagging on allows it, and Tags start without a dialog", async () => {
     const { core, tagging } = await startTagging(["Paper"]);
     const requests = countRequests(core);
     await core.saveChatProvider(OPENAI);
 
+    const before = await addDocument(core, "Invoice.txt", "Invoice 42. Amount due: 120 EUR.");
+    expect(before.tagging).toBe("off");
+    expect(tagging.requests).toEqual([]);
+    expect(await core.listDataFlows()).toContainEqual(
+      expect.objectContaining({
+        flow: expect.objectContaining({ id: "tagging" }),
+        consent: "not-asked",
+      }),
+    );
+
+    await turnOnAutomaticTagging(core);
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
 
     expect(requests).toEqual([]);
     expect(tagging.requests).toHaveLength(1);
     expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    // The Document that came in while it was off isn't tagged by turning it on.
+    expect((await core.listDocuments()).find((each) => each.id === before.id)?.tagging).toBe("off");
     expect(await core.listDataFlows()).toContainEqual({
       flow: { id: "tagging", service: OPENAI_SERVICE, sends: ["tags", "document-excerpts"] },
       consent: "accepted",
@@ -497,7 +627,8 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
   test("for a provider chosen before, tagging never asks: Documents wait until the User allows it", async () => {
     const { core, tagging, models } = await startTagging(["Paper"]);
     await core.saveChatProvider(OPENAI);
-    // As choosing the provider left it before ADR-0022: tagging never asked.
+    await turnOnAutomaticTagging(core);
+    // As turning it on left it before ADR-0022: tagging never asked.
     await core.revokeConsent("tagging", OPENAI_SERVICE.id);
     const requests = countRequests(core);
     const specsBefore = models.specs.length;
@@ -525,6 +656,7 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
   test("revoking Tags stops tagging alone", async () => {
     const { core, tagging } = await startTagging(["Paper"]);
     await core.saveChatProvider(OPENAI);
+    await turnOnAutomaticTagging(core);
     const first = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [first.id]);
     const requests = countRequests(core);
@@ -543,14 +675,14 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
       ["suggestions", "accepted"],
       ["edits", "accepted"],
       ["checks", "accepted"],
-      ["classification", "accepted"],
     ]);
   });
 
-  test("a declined tagging flow sends nothing, until choosing the provider again replaces the decline", async () => {
+  test("a declined tagging flow sends nothing, until choosing the model again replaces the decline", async () => {
     const dataDir = await createTempDataFolder();
     const { core, tagging } = await startTagging(["Paper"], dataDir);
-    await core.saveChatProvider(OPENAI);
+    const provider = await core.saveChatProvider(OPENAI);
+    await turnOnAutomaticTagging(core);
     await core.revokeConsent("tagging", OPENAI_SERVICE.id);
     // Declined in the dialog tagging asked before ADR-0022.
     const db = openDatabase(join(dataDir, DATABASE_FILE));
@@ -569,8 +701,11 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     expect(document.tagging).toBe("waiting-for-provider");
     expect(tagging.requests).toEqual([]);
 
-    // "Use this provider" again: a new choice, where the line names Document text for Tags.
-    await core.saveChatProvider(OPENAI);
+    // Choosing the model again in Settings › Tagging: a new choice, where the line names Document text for Tags.
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: OPENAI.modelId } },
+      automatic: true,
+    });
     await waitForTagging(core, [document.id]);
     expect(tagging.requests).toHaveLength(1);
     expect(await core.listDataFlows()).toContainEqual(

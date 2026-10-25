@@ -8,8 +8,14 @@ import { Extension, Mark } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { CLAIM_CHECK_MARK, type ClaimCheckAttributes } from "../../../core/api";
-import { type ClaimCheckShown, claimCheckShown, readClaimCheck } from "../../../shared/claimChecks";
+import { CLAIM_CHECK_MARK, type ClaimCheckAttributes, type SearchScope } from "../../../core/api";
+import {
+  type ClaimCheckShown,
+  claimCheckShown,
+  type KeptMark,
+  readClaimCheck,
+} from "../../../shared/claimChecks";
+import { sameScope } from "../../../shared/searchScope";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 
 /** Every attribute a check's mark keeps: all of `ClaimCheckAttributes`, never read from pasted HTML. */
@@ -33,6 +39,7 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "versions",
   "excluded",
   "checkedAt",
+  "kept",
 ];
 
 /**
@@ -53,17 +60,42 @@ export const ClaimCheck = Mark.create({
   renderHTML: ({ mark }) => ["span", { "data-claim-check": String(mark.attrs.id ?? "") }, 0],
 });
 
-/** A paragraph's text as checks read it: an inline node as U+FFFC, a line break as "\n". */
-export function paragraphText(block: ProseMirrorNode): string {
-  let text = "";
-  block.forEach((child) => {
-    text += child.isText
-      ? (child.text ?? "")
-      : child.type.name === "hardBreak"
-        ? "\n"
-        : INLINE_NODE;
+/** A paragraph's text as checks read it, and where it is in the document. */
+export interface ParagraphPlaces {
+  /** An inline node that isn't text is one U+FFFC, a line break "\n". */
+  text: string;
+  /** Where each character of `text` starts in the document, and where it ends: a footnote takes more room than its one character. */
+  starts: number[];
+  ends: number[];
+  /** The inline nodes that aren't text, each at its character of `text` and its position. */
+  inline: { node: ProseMirrorNode; at: number; pos: number }[];
+}
+
+/** A paragraph (`block`, at `pos` in the document) read as checks read it, leaving out the children `skip` says. */
+export function paragraphPlaces(
+  block: ProseMirrorNode,
+  pos: number,
+  skip: (child: ProseMirrorNode) => boolean = () => false,
+): ParagraphPlaces {
+  const places: ParagraphPlaces = { text: "", starts: [], ends: [], inline: [] };
+  block.forEach((child, offset) => {
+    const start = pos + 1 + offset;
+    if (skip(child)) return;
+    if (child.isText) {
+      const words = child.text ?? "";
+      for (let index = 0; index < words.length; index++) {
+        places.starts.push(start + index);
+        places.ends.push(start + index + 1);
+      }
+      places.text += words;
+      return;
+    }
+    places.inline.push({ node: child, at: places.text.length, pos: start });
+    places.starts.push(start);
+    places.ends.push(start + child.nodeSize);
+    places.text += child.type.name === "hardBreak" ? "\n" : INLINE_NODE;
   });
-  return text;
+  return places;
 }
 
 /** A check where it is in the editor now. */
@@ -82,29 +114,32 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
   doc.descendants((block, pos) => {
     if (!block.isTextblock) return true;
     const found = new Map<string, { check: ClaimCheckAttributes; from: number; to: number }>();
-    let offset = 0;
+    let at = 0;
     block.forEach((child) => {
+      const length = child.isText ? (child.text ?? "").length : 1;
       const mark = child.marks.find((each) => each.type.name === CLAIM_CHECK_MARK);
       const check = mark ? readClaimCheck(mark.attrs) : null;
       if (check) {
         const known = found.get(check.id);
-        if (known) known.to = offset + child.nodeSize;
-        else found.set(check.id, { check, from: offset, to: offset + child.nodeSize });
+        if (known) known.to = at + length;
+        else found.set(check.id, { check, from: at, to: at + length });
       }
-      offset += child.nodeSize;
+      at += length;
     });
     if (found.size === 0) return false;
-    const text = paragraphText(block);
+    const { text, starts, ends } = paragraphPlaces(block, pos);
     const sentences = sentenceSpans(text);
+    const startOf = (index: number) => starts[index] ?? pos + 1;
+    const endOf = (index: number) => ends[index - 1] ?? startOf(index);
     for (const { check, from, to } of found.values()) {
       const touched = sentences.filter((span) => span.from < to && span.to > from);
       const start = Math.min(from, touched[0]?.from ?? from);
       const end = Math.max(to, touched.at(-1)?.to ?? to);
       spans.push({
         check,
-        from: pos + 1 + from,
-        to: pos + 1 + to,
-        sentence: { from: pos + 1 + start, to: pos + 1 + end, text: text.slice(start, end) },
+        from: startOf(from),
+        to: endOf(to),
+        sentence: { from: startOf(start), to: endOf(end), text: text.slice(start, end) },
       });
     }
     return false;
@@ -117,16 +152,19 @@ export interface ClaimContext {
   /** Each live Document's current version, by id; null while they aren't known. */
   versions: ReadonlyMap<string, string> | null;
   folderId: string | null;
+  scope: SearchScope | null;
 }
 
-/** A check where it is, and how it shows. */
+/** A check where it is, and how it shows: never one the User keeps as their own view, which shows nothing. */
 export interface ShownClaim extends ClaimSpan {
-  shown: ClaimCheckShown;
+  shown: Exclude<ClaimCheckShown, { state: "kept" }>;
 }
 
 interface ClaimState {
   context: ClaimContext;
   claims: readonly ShownClaim[];
+  /** The marks the User keeps as their own view (#1111), at their places. */
+  kept: readonly KeptMark[];
   decorations: DecorationSet;
 }
 
@@ -135,19 +173,32 @@ const claimsKey = new PluginKey<ClaimState>("claimChecks");
 /** A transaction with this meta compares the checks with new Documents or a new Folder (`setClaimContext`). */
 const CONTEXT = "claimContext";
 
-const NO_CONTEXT: ClaimContext = { versions: null, folderId: null };
+const NO_CONTEXT: ClaimContext = { versions: null, folderId: null, scope: null };
+
+/** The checks in a document as they show now, and the sentences the User keeps as their own view. */
+export function claimsOf(
+  doc: ProseMirrorNode,
+  context: ClaimContext,
+): Pick<ClaimState, "claims" | "kept"> {
+  const claims: ShownClaim[] = [];
+  const kept: KeptMark[] = [];
+  for (const span of claimSpans(doc)) {
+    const shown = claimCheckShown(span.check, { ...context, text: span.sentence.text });
+    if (shown.state === "kept") {
+      kept.push({ from: span.from, to: span.to, text: span.sentence.text });
+    } else claims.push({ ...span, shown });
+  }
+  return { claims, kept };
+}
 
 function stateOf(doc: ProseMirrorNode, context: ClaimContext): ClaimState {
-  const claims = claimSpans(doc).map((span) => ({
-    ...span,
-    shown: claimCheckShown(span.check, { ...context, text: span.sentence.text }),
-  }));
+  const { claims, kept } = claimsOf(doc, context);
   const washes = claims.flatMap(({ shown, from, to }) =>
     shown.state === "unsupported" || shown.state === "contradicted"
       ? [Decoration.inline(from, to, { class: `claim-wash claim-wash--${shown.state}` })]
       : [],
   );
-  return { context, claims, decorations: DecorationSet.create(doc, washes) };
+  return { context, claims, kept, decorations: DecorationSet.create(doc, washes) };
 }
 
 /** How the checks of a Mind's sentences cover its Documents (#764). */
@@ -208,10 +259,20 @@ export function shownClaims(state: EditorState): readonly ShownClaim[] {
   return claimsKey.getState(state)?.claims ?? [];
 }
 
-/** Compares the checks with the Documents and the Mind's Folder as they are now. */
+const NONE_KEPT: readonly KeptMark[] = [];
+
+/** The marks the User keeps as their own view, at their places: not counted. */
+export function keptSpans(state: EditorState): readonly KeptMark[] {
+  return claimsKey.getState(state)?.kept ?? NONE_KEPT;
+}
+
+/** Compares the checks with the Documents and the Mind's Folder and scope as they are now. */
 export function setClaimContext(view: EditorView, context: ClaimContext): void {
   const now = claimsKey.getState(view.state)?.context;
-  if (now?.versions === context.versions && now.folderId === context.folderId) return;
+  const sameScopes =
+    now?.scope === context.scope ||
+    (now?.scope && context.scope && sameScope(now.scope, context.scope));
+  if (now?.versions === context.versions && now.folderId === context.folderId && sameScopes) return;
   view.dispatch(view.state.tr.setMeta(CONTEXT, context).setMeta("addToHistory", false));
 }
 

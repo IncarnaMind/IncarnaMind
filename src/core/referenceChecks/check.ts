@@ -6,6 +6,7 @@
  * leaves the reference unchecked rather than reading as a mismatch.
  */
 import type { ReferenceCheck, ReferenceCheckReason, ReferenceService } from "../api";
+import { ConsentRevokedError, LocalModeError } from "../errors";
 import { SourceError } from "../sources/http";
 import type { Lookups } from "./lookups";
 import {
@@ -54,7 +55,10 @@ async function ask<T>(
   try {
     return await call();
   } catch (error) {
-    if (signal.aborted) throw error;
+    // Stopped before sending: no service failed.
+    if (signal.aborted || error instanceof LocalModeError || error instanceof ConsentRevokedError) {
+      throw error;
+    }
     const reason = reasonOf(error);
     const resetsAt = error instanceof SourceError ? error.resetsAt : null;
     const failure = new ServiceFailure(service, reason, resetsAt, error);

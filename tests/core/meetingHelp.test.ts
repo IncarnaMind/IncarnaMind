@@ -7,9 +7,11 @@
  */
 import { describe, expect, test } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
+import { setMindModel } from "../../src/shared/mindModel";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 import { transcribingCore, until } from "../helpers/transcription";
 
@@ -63,6 +65,31 @@ async function setUp(
   return { core, meeting, calls, specs: models.specs };
 }
 
+/**
+ * A meeting whose live text fell behind (#1366): `before` seconds were transcribed first, then
+ * forty arrived at once, more than the engine decodes in time, so it stopped keeping up.
+ */
+async function behindSetUp(before = 0) {
+  const calls: ModelCall[] = [];
+  const dataDir = await createTempDataFolder();
+  const models = scriptedModels(helpingModel(calls));
+  const { core, record } = await transcribingCore(dataDir, {
+    createChatModel: models.createChatModel,
+    engine: { decodeMs: 30 },
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const meeting = await core.createMeeting();
+  await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+  await until(core, meeting.id, (transcript) => transcript.state === "live");
+  if (before > 0) {
+    record(before * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 4);
+  }
+  record(40 * SECOND);
+  const behind = await until(core, meeting.id, (transcript) => transcript.state === "behind");
+  return { core, meeting, calls, lines: behind.lines };
+}
+
 async function press(core: Core, meeting: Meeting, kind: MeetingHelpKind, conversationId?: string) {
   const result = await core.askMeetingHelp({
     meetingId: meeting.id,
@@ -85,9 +112,11 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     const { result, answer, messages, latest } = await press(core, meeting, "no");
 
     const [first] = calls;
-    expect(first?.system).toContain("pressed a button for help");
-    expect(first?.system).toContain('starting with "★ "');
+    expect(first?.prompt).toContain("pressed a button for help");
+    expect(first?.prompt).toContain('starting with "★ "');
     expect(first?.prompt).toContain("<live-transcript>");
+    expect(first?.system).not.toContain("live text fell behind");
+    expect(answer.steps?.textBehind).toBeUndefined();
     expect(first?.tools).toEqual(expect.arrayContaining(["search_documents", "cite"]));
     expect(first?.tools).not.toContain("add_to_mind");
     expect(messages[0]).toMatchObject({ kind: "question", text: "Say no politely" });
@@ -98,6 +127,18 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       answerId: result.asked && result.answerId,
       heard: { text: expect.any(String), speaker: "Them" },
     });
+  });
+
+  // protects=every button sends the same instructions, its own going with its Question, so a call's presses share them in the provider's cache (#1634: about 3k tokens written again each press before); fails_when=a button's words, its shape or the call's language are in the instructions; no_claim=the provider's cache itself.
+  test("every button sends the same instructions, its own with its Question", async () => {
+    const { core, meeting, calls } = await setUp();
+    await press(core, meeting, "no");
+    const second = calls.length;
+    await press(core, meeting, "want");
+
+    expect(calls[second]?.system).toBe(calls[0]?.system);
+    expect(calls[0]?.prompt).toContain("Decline what was just asked of the User");
+    expect(calls[second]?.prompt).toContain("What does the other side want?");
   });
 
   test("Answer their question finds the User's Documents ahead for the newest lines, not the transcript, and cites them", async () => {
@@ -125,6 +166,46 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(answer.citations).toEqual([
       expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
     ]);
+  });
+
+  // protects=a button pressed while the live text is behind and has no line yet is answered with one plain line saying so, in the User's language, without asking the model; fails_when=the model is asked and may tell the User to retype what was said; no_claim=the panel's drawing of it (the smoke test) (#1366).
+  test("with the live text behind and no line yet, a button's reply says so in the User's language, and the model isn't asked", async () => {
+    const { core, meeting, calls, lines } = await behindSetUp();
+    expect(lines).toBe(0);
+
+    const english = await press(core, meeting, "answer");
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const chinese = await press(core, meeting, "answer");
+
+    expect(calls).toEqual([]);
+    expect(english.answer.text).toBe(
+      "The live text is behind, so none of the call is written yet. It is transcribed after the meeting stops.",
+    );
+    expect(chinese.answer.text).toBe(
+      "实时转写跟不上，通话内容还没有转写出来，会议结束后才会转写。",
+    );
+    expect(english.answer.steps?.textBehind).toBe(true);
+    expect(english.answer.citations).toEqual([]);
+  });
+
+  // protects=a button pressed while the live text is behind but has lines starts its reply with one line saying so, in the User's language, then the button's form from those lines; fails_when=the lines are left out, the form is replaced, or the line is left to the model; no_claim=what a real model writes after it (#1366).
+  test("with the live text behind but some lines, a button's reply starts with a line saying so, then rests on them in its form", async () => {
+    const { core, meeting, calls, lines } = await behindSetUp(9);
+    expect(lines).toBeGreaterThanOrEqual(4);
+
+    const english = await press(core, meeting, "answer");
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const chinese = await press(core, meeting, "answer");
+
+    const [first] = calls;
+    expect(first?.prompt).toContain("<live-transcript>");
+    expect(first?.prompt).toContain("Reply in exactly this form");
+    expect(first?.prompt).toContain("A line saying so already starts the reply");
+    expect(english.answer.text).toMatch(
+      /^The live text is behind, so this rests on the lines so far\.\n\n★ /,
+    );
+    expect(chinese.answer.text).toMatch(/^实时转写跟不上，以下只依据已转写的内容。\n\n★ /);
+    expect(english.answer.steps?.textBehind).toBe(true);
   });
 
   test("a second press goes on in the same conversation, the assistant's when it says so, and a deleted one starts anew", async () => {
@@ -187,16 +268,48 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     });
     for (const kind of ["sum", "ask", "check"] as const) {
       await press(core, meeting, kind);
-      const system = calls.at(-1)?.system ?? "";
-      expect(system).toContain(
+      expect(calls.at(-1)?.prompt).toContain(
         '- The call is in Chinese: write all of it in Chinese, the "→" lines too',
       );
-      expect(system).not.toContain("The Question is written in English");
+      expect(calls.at(-1)?.system).not.toContain("The Question is written in English");
       expect(calls.at(-1)?.prompt).toContain("企业版");
     }
     await core.updateSettings({ user: { language: "zh-CN" } });
     const { messages } = await press(core, meeting, "ask");
     expect(messages.at(-2)).toMatchObject({ kind: "question", text: "接下来问什么" });
+  });
+
+  test("the help Question is asked with the model in use in the Meeting's Mind: its own pick, else the last pick, else the Answers default", async () => {
+    const { core, meeting } = await setUp();
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
+      keepDefault: true,
+    });
+    const claude = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+      keepDefault: true,
+    });
+    for (const provider of [openai, claude]) {
+      if (provider.service) await core.allowDataFlow("chat", provider.service.id);
+    }
+    const answers = (await core.getSettings()).user.chatModel;
+    const last = { providerId: claude.id, modelId: "claude-haiku-5-5" };
+    const own = { providerId: openai.id, modelId: "gpt-6-luna" };
+    const writtenBy = async () => (await press(core, meeting, "no")).answer.model;
+
+    expect(await writtenBy()).toEqual(answers);
+
+    await core.updateSettings({ device: { lastChatModel: last } });
+    expect(await writtenBy()).toEqual(last);
+
+    const client = await connectToMind(core, meeting.mindId);
+    setMindModel(client.doc, own);
+    await client.settled();
+    expect(await writtenBy()).toEqual(own);
   });
 
   test("the buttons' and Call help's shortcuts are kept per device, and only keys with ⌘, ⌃ or ⌥ are taken", async () => {

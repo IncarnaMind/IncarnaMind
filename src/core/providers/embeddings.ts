@@ -16,6 +16,7 @@ import {
   type ProviderError,
 } from "../api";
 import { InvalidInputError, isRecord } from "../errors";
+import { parseApiKey as parseKey } from "./apiKey";
 import { normalizeBaseUrl, OLLAMA_DEFAULT_URL, serviceForUrl } from "./kinds";
 
 /** The providers reached through an API: every kind but "off" and the built-in model. */
@@ -130,9 +131,8 @@ function parseModelId(value: unknown): string {
 /** undefined: keep the stored key. Blank text counts as "keep". */
 function parseApiKey(value: unknown, kind: ApiEmbeddingProviderKind): string | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") throw new InvalidInputError("The API key must be text.");
-  const key = value.trim();
-  if (key === "") return undefined;
+  const key = parseKey(value);
+  if (key === undefined) return undefined;
   if (!embeddingKeyAccepted(kind)) {
     throw new InvalidInputError("This provider doesn't take an API key.");
   }

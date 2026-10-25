@@ -1,3 +1,4 @@
+import { shortcutLabel } from "../commands/keymap";
 import { commands } from "../commands/registry";
 import { useFindSources } from "../findSources";
 import { useT } from "../i18n";
@@ -62,6 +63,7 @@ export function AddDocumentsMenu() {
         >
           <PlusLineIcon className="size-4 shrink-0 text-ink-meta" />
           <span className="flex-1">{t("documents.add.files")}</span>
+          <span className="pl-4 text-[13px] text-ink-meta">{shortcutLabel("documents.add")}</span>
         </button>
         <button
           type="button"

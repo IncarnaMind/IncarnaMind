@@ -100,13 +100,11 @@ test("the assistant reads someone's changes as changes and cites the contract, a
   await sheet.getByTestId("export-format").selectOption("pdf");
   const shown = sheet.getByTestId("export-their-changes");
   await expect(shown).toHaveValue("shown");
-  await expect(sheet).toContainText(
-    "2 changes from the Word file are waiting to be accepted or rejected.",
-  );
+  await expect(sheet).toContainText("2 changes from the Word file are still waiting.");
   await motionSettled(window);
   await screenshot(window, "export-their-changes");
   await setLanguage(window, "zh-CN");
-  await expect(sheet).toContainText("Word 文件中有 2 处修订尚未接受或拒绝。");
+  await expect(sheet).toContainText("Word 文件中还有 2 处修订待处理。");
   await expect(shown.locator("option")).toHaveText(["显示修订", "按全部接受"]);
   await motionSettled(window);
   await screenshot(window, "export-their-changes-zh");

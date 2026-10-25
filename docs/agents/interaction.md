@@ -17,6 +17,7 @@ Each rule has a check a reviewer can apply. A UI change that breaks a rule says 
 3. **Keep the User's place.** Nothing replaces the Mind the User is in. The Library, a Folder or a Tag opens as a tab; a Document opens beside the Mind; Settings opens over it and closes with Esc.
    - Check: no label starts with "Back to". One that does means this rule is broken.
 4. **Undo instead of asking.** Anything the User can take back happens at once and offers Undo: ⌘Z / Ctrl+Z, and one short line such as "Moved 3 Documents to Finance · Undo". Deleting a Mind, Conversation, Document, Folder or Tag moves it to Recently deleted, where it waits 30 days, with no question asked. Ask first only before something that can't be taken back, and say what will be lost.
+   - Making a Mind is the one exception, by any way of making one: from ⌘N, a template, a Folder, a Document, an Answer, a table, Record or the AI use statement. It says nothing and leaves no step for ⌘Z, so a habitual ⌘Z never closes the tab; Delete takes it back, with Undo. What a step puts into a Mind (an Answer added as changes) is the Mind's own to accept or reject.
    - Check: each action in the change is marked reversible (with its undo) or irreversible (with its confirmation text).
    - In a multi-line field a run of typing is one step to undo, as on the computer: use `TypingTextarea`, never a plain `<textarea>` (the linter fails one).
 5. **Every object has one right-click menu, in one order.** Open (and Open in new tab), the object's own actions, Move to…, Tags…, Rename, the file's actions (Show in Finder, Copy path), then Delete last, after a separator. The ⋯ button opens the same menu, and each item shows its shortcut.
@@ -35,8 +36,10 @@ Each rule has a check a reviewer can apply. A UI change that breaks a rule says 
     - Check: the copy reads well in English and Chinese, in `CONTEXT.md`'s words; no line shows an error's wrapping or a stack.
 11. **Hold the layout.** Every screen works at every window size the app supports, with and without the viewer open, in English and in Chinese. Text wraps by word, never by letter, and long names truncate with the full name in a tooltip.
     - Check: screenshots at a narrow and a wide window.
-12. **Match the design.** Every UI issue names its design boards (the design canvas's main page, "IncarnaMind: all screens"). Build to them: layout, labels, chips, states. Where the built screen differs, say why in the pull request, or fix it.
-    - Check: the pull request shows the built screen beside each board, with every difference listed.
+12. **Match the prototype's behaviour, not only its picture.** The interactive prototype is the reference for how every screen works. A design board is a still frame: it fixes the looks, never the behaviour. Every UI issue names the prototype flow it implements, and the design boards for the looks.
+    - Build what the flow does, step by step: what each click, key, hover and focus move does; what appears, moves or goes away, and when; the empty, loading and error states; and where focus lands after each step.
+    - Where the built screen behaves differently from the prototype, say why in the pull request, or fix it.
+    - Check: the pull request has a short recording of the flow in the built app beside the same flow in the prototype, with the mouse and the keyboard, and every difference listed.
 13. **Use the shared building blocks.** Selection, drag and drop, undo, the right-click menus, rename in place, the command list behind ⌘K and the menus, and optimistic updates each have one shared implementation, so the same gesture does the same thing everywhere. Where a block doesn't exist yet, don't build a one-off: say so in the pull request and keep the current behaviour, or build the block in its own issue.
     - Motion comes from the shared module (`src/renderer/src/motion.ts`) and follows `DESIGN.md` › Motion, Reduced and Off included; no hand-written transitions or animations.
     - Check: code review; no `onContextMenu`, `draggable` or undo handling outside the shared blocks.
@@ -58,6 +61,7 @@ Each rule has a check a reviewer can apply. A UI change that breaks a rule says 
 | Find anything | ⌘K searches Minds, Conversations, Documents, Folders and Tags, and runs any action | ChatGPT, Claude, Notion, Linear |
 | Open and rename | Click or Enter opens; double-click or F2 renames | Windows Explorer, Notion, Linear, Obsidian |
 | Make a Folder | ⇧⌘N makes "Untitled Folder" in the tree with its name field open; ⌃⌘N on macOS (or the selection's menu) makes it with the selected Documents and Minds in it; Enter keeps the name, Esc keeps "Untitled Folder", ⌘Z removes it | Finder, Windows Explorer (Ctrl+Shift+N) |
+| Add Documents | ⌘O (Ctrl+O) opens the file picker from a Mind, the sidebar and the Library, but not while the focus is in text; the Add menus, the File menu and ⌘K list it, with Link a folder… beside it and no keys | Finder, VS Code |
 | File into a Folder | Drag onto the Folder, or Move to… (⇧⌘M) | ChatGPT projects, Notion, Granola, Finder |
 | One Folder per Document | A drop on a Folder moves the Document; Tags group Documents across Folders | Finder |
 | Tags | Created, renamed, recoloured, merged and deleted in the sidebar's Tags view; a rename applies everywhere | Finder, Bear, Apple Notes |
@@ -72,11 +76,12 @@ Each rule has a check a reviewer can apply. A UI change that breaks a rule says 
 
 ## In an issue that changes UI
 
-Add the interaction checklist from the pull request template to the acceptance criteria, name the design boards, and name the convention each gesture follows (rule 0).
+Add the interaction checklist from the pull request template to the acceptance criteria. Name the prototype flow the change implements, step by step (rule 12), the design boards for its looks, and the convention each gesture follows (rule 0).
 
 ## In a pull request that changes UI
 
 - Tick the interaction checklist in the pull request template.
 - Add before and after screenshots, at a narrow and a wide window, in English and Chinese where text changed.
-- Put a screenshot of the built screen beside the design board it implements, and list every difference with its reason.
+- Record the flow in the built app beside the same flow in the prototype (a short GIF of each), with the mouse and the keyboard, and list every difference in behaviour or looks with its reason.
 - Test it like a person: with the mouse and the keyboard, in the built app, not only in unit tests.
+- If it changes a flow the feel check covers (`e2e/feel*.spec.ts`), run that spec (testing.md, The feel check).

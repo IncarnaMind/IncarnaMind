@@ -16,7 +16,14 @@ export const settingsPages = [
 
 export type SettingsPage = (typeof settingsPages)[number];
 
-export type SettingsTarget = "output-location" | "chat-model" | SignInRoute;
+export type SettingsTarget =
+  | "output-location"
+  | "author-name"
+  | "local-mode"
+  | "chat-model"
+  | "add-provider"
+  | "tagging"
+  | SignInRoute;
 
 export const offeredSettingsPages: readonly SettingsPage[] = settingsPages.filter(
   (page) => page !== "agents" || SHOW_AGENT_CONNECTION,

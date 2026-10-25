@@ -1,5 +1,8 @@
 import { useGap, useT } from "../i18n";
 import { useMeetings } from "../meetings";
+import { useAppStore } from "../store";
+import { useAudioKeptKey } from "../transcriptionServices";
+import { TranscriptionRouteChoice } from "./meetings/TranscriptionRouteChoice";
 import {
   buttonClass,
   dialogActionsClass,
@@ -13,8 +16,9 @@ import { useModal } from "./useModal";
 
 /**
  * The one-time recording notice: the first "Start recording" on this device
- * says what is recorded and where it stays, and reminds the User to tell the
- * others. Starting from it records; Esc or Cancel doesn't.
+ * says what is recorded and where it stays, reminds the User to tell the
+ * others, and where it is transcribed. Starting from it records; Esc or Cancel
+ * doesn't.
  */
 export function MeetingNoticeDialog() {
   const t = useT();
@@ -25,7 +29,12 @@ export function MeetingNoticeDialog() {
   const recording = t(
     waiting?.systemAudio === false ? "meetings.notice.microphone" : "meetings.notice.both",
   );
-  const kept = t("meetings.audio.kept");
+  const kept = t(useAudioKeptKey());
+  const transcribedHere = useAppStore(
+    (state) =>
+      (state.settings?.device.transcriptionRoute ?? "local") === "local" ||
+      state.embedding?.localOnly === true,
+  );
 
   return (
     <dialog
@@ -34,7 +43,7 @@ export function MeetingNoticeDialog() {
       aria-labelledby="meeting-notice-title"
       aria-describedby="meeting-notice-body"
       onClose={cancelNotice}
-      className={`${dialogClass} w-[28rem]`}
+      className={`${dialogClass} w-[32.5rem]`}
     >
       <div className={dialogBodyClass}>
         <h2 id="meeting-notice-title" className={dialogTitleClass}>
@@ -47,7 +56,10 @@ export function MeetingNoticeDialog() {
             {kept}
           </p>
           <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>
+          {transcribedHere && <p className={dialogTextClass}>{t("meetings.notice.model")}</p>}
         </div>
+        {/* Mounted as the sheet opens, so it reads the keys as they are now. */}
+        {waiting && <TranscriptionRouteChoice />}
         <div className={dialogActionsClass}>
           <button type="button" onClick={cancelNotice} className={buttonClass}>
             {t("meetings.notice.cancel")}

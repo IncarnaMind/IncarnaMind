@@ -2,6 +2,8 @@
 
 IncarnaMind runs an Analysis in a sandbox that has no access to your files or the network. That sandbox is Chromium's, the same one the rest of the app runs in, so an Analysis can't run while the app runs without it. Instead, the place where the Analysis would have appeared says "Analyses need the app's sandbox, which is off", and the rest of the app works as usual.
 
+Without the sandbox the whole app is less safe, not only Analyses, so the app also says "Running without the app’s sandbox" at the foot of the sidebar when it first starts that way, and in Settings › Privacy for as long as it does. Both link to this page.
+
 ## Why it is off
 
 Ubuntu 23.10 and later, including 24.04, have an AppArmor rule that refuses unprivileged user namespaces to programs without a profile that allows them. Chromium's sandbox needs them. The AppImage checks for this when it starts, and if the rule is in the way it starts the app with the sandbox off, without saying so. Starting the app with `--no-sandbox` turns it off the same way.

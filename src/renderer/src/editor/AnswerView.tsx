@@ -11,6 +11,7 @@ import {
   SOURCE_KIND_PROVIDERS,
   type ToolApprovalRequest,
 } from "../../../core/api";
+import { billingUrlOf, catalogProviderOf } from "../../../core/providers/catalog/providers";
 import { isSignInRoute, isSignInRouteProblem } from "../../../core/providers/signInRoutes";
 import { asksAfterThirdParty } from "../../../shared/approvalRules";
 import { toolCallsOf } from "../../../shared/toolCalls";
@@ -19,6 +20,8 @@ import { isCalculated, RUN_SCRIPT, SEARCH } from "../answerSteps";
 import { useAnswers } from "../answers";
 import { useApprovals, waitingFor } from "../approvals";
 import { signInAgain } from "../chatGptSignIn";
+import { AskCall } from "../components/assistant/AskCall";
+import { CommandCall } from "../components/assistant/CommandCall";
 import { MindCall } from "../components/assistant/MindCall";
 import { DetailsLine } from "../components/DetailsLine";
 import { useIsExampleAnswer } from "../components/GettingStarted";
@@ -33,22 +36,26 @@ import {
 import { RouteProblemLine } from "../components/providers/RouteProblemLine";
 import { core } from "../core";
 import { formatResetTime } from "../cost";
+import { useDeclineEnded } from "../declineEnded";
 import { useFindSources } from "../findSources";
 import { useLanguage, useT } from "../i18n";
 import { useKeyRefusals, useKeySavedSince } from "../keyRefusals";
 import { requestModelMenu } from "../modelMenu";
-import { useModelNames } from "../modelNames";
+import { useModelNames, useServiceName } from "../modelNames";
 import { useStoppedByPlanLimit } from "../planLimits";
-import { ANSWER_PROBLEMS, failedAnswerLine } from "../problems";
+import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
 import { useRouteOffered } from "../routeSignIn";
 import type { SettingsPage } from "../settingsPages";
+import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { reasonKey } from "../webPages";
 import { AnalysisCall } from "./AnalysisCall";
+import { CommandApprovalCard } from "./CommandApprovalCard";
 import { ChevronRightSmallIcon, RegenerateSmallIcon } from "./icons";
 import { useMindId } from "./mindContext";
 import { PlanLimitLine } from "./PlanLimitLine";
 import { ThirdPartyLine } from "./ThirdPartyLine";
+import { withShortcut } from "./withShortcut";
 
 const text = (value: unknown) => (typeof value === "string" ? value : null);
 
@@ -82,7 +89,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
   const answerId = text(node.attrs[BLOCK_ID_ATTRIBUTE]);
   const questionId = text(node.attrs.questionId);
   const modelId = text(node.attrs.modelId);
-  const shownModel = useModelNames()(modelId ?? "");
+  const shownModel = useModelNames()(modelId ?? "", text(node.attrs.providerId));
   const status = text(node.attrs.status) ?? "done";
   const writing = useAnswers((state) => (answerId ? state.writing.has(answerId) : false));
   // The event says so first; the status says so in windows that opened since.
@@ -282,6 +289,7 @@ export function NoCitationsLine({
 const WRONG_MODEL: ReadonlySet<ProviderErrorKind> = new Set([
   "model",
   "provider",
+  "refused",
   "no-answer",
   "unknown",
 ]);
@@ -320,11 +328,15 @@ export function AnswerError({
     (state) => state.models?.find((group) => group.provider.id === providerId)?.provider,
   );
   const provider = providerInUse?.kind;
-  const service = providerInUse
-    ? (providerInUse.service?.name ?? t(`providers.kind.${providerInUse.kind}`))
-    : t("answer.error.thisService");
+  const service = useServiceName(providerId);
   const [shownAt] = useState(() => new Date().toISOString());
+  // Once the User has been sent to add credit, asking again is what's next.
+  const [billingOpened, setBillingOpened] = useState(false);
   const keySaved = useKeySavedSince(providerId, failedAt ?? shownAt);
+  const declineEnded = useDeclineEnded(
+    providerInUse?.service?.id ?? null,
+    kind === "consent-declined" && onRetry !== undefined,
+  );
   // Whose plan or sign-in it was decides the line. A sign-in that ends changes readiness, which
   // clears the list, so it is read again then, and not on every error (offline, that only fails).
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -348,7 +360,12 @@ export function AnswerError({
         }
       : undefined;
   const offered = useRouteOffered(isSignInRoute(provider) ? provider : null);
-  const shown = failedAnswerLine(kind, provider, signInRoute, offered);
+  const catalog = providerInUse && catalogProviderOf(providerInUse.kind, providerInUse.catalogId);
+  const billingUrl = catalog && billingUrlOf(catalog, providerInUse.endpoint);
+  const shown = failedAnswerLine(kind, provider, signInRoute, offered, {
+    ...(billingUrl && { billingUrl }),
+    ...(providerInUse && { local: providerInUse.service === null }),
+  });
   if (shown.kind === "route") {
     return (
       <RouteProblemLine
@@ -362,7 +379,13 @@ export function AnswerError({
       />
     );
   }
-  const { line, fix } = shown.problem;
+  const { line } = shown.problem;
+  const fix =
+    kind === "consent-declined" && declineEnded
+      ? retry
+      : kind === "out-of-credit" && billingOpened && onRetry
+        ? retry
+        : shown.problem.fix;
   if (fix.kind === "ollama") return <OllamaNotRunningLine details={details} onRetry={onRetry} />;
   if (fix.kind === "local-model") {
     return (
@@ -396,7 +419,10 @@ export function AnswerError({
               ? // The main process opens it in the User's browser.
                 {
                   label: `${t(fix.label)} ↗`,
-                  onClick: () => window.open(fix.url, "_blank", "noreferrer"),
+                  onClick: () => {
+                    window.open(fix.url, "_blank", "noreferrer");
+                    setBillingOpened(kind === "out-of-credit");
+                  },
                 }
               : fix.kind === "retry" && onRetry
                 ? { label: t(fix.label), onClick: onRetry }
@@ -460,8 +486,10 @@ export function CallRows({
 
 /** The row of a call through a Connector, of Find sources, of web search, of a Minds' Tool, of an Analysis, or of a Skill script. */
 export function CallRow({ call }: { call: AnswerToolCall }) {
+  if (call.source === "asks") return <AskCall call={call} />;
   if (call.source === "minds") return <MindCall call={call} />;
   if (call.source === "analysis") return <AnalysisCall call={call} />;
+  if (call.source === "commands") return <CommandCall call={call} />;
   if (call.source === "connector") return <ConnectorCall call={call} />;
   if (call.source === "sources") return <SourcesCall call={call} />;
   if (call.source === "web") return <WebCall call={call} />;
@@ -469,18 +497,11 @@ export function CallRow({ call }: { call: AnswerToolCall }) {
 }
 
 /**
- * A button's tooltip and name with its shortcut: its label drops the hint when
- * the assistant is narrow (#612), and the shortcut still works.
- */
-export function withShortcut(label: string, keys: string | undefined) {
-  return keys ? { title: `${label} (${keys})`, "aria-label": `${label} (${keys})` } : {};
-}
-
-/**
  * The approval card for a request: a Connector's Tool, or a Skill script.
  * `keys`: the shortcut that allows it once, shown on its button (the Task tray's ⌘↵).
  */
 export function ApprovalCard({ request, keys }: { request: ApprovalRequest; keys?: string }) {
+  if ("ask" in request) return <CommandApprovalCard request={request} keys={keys} />;
   return request.subject.kind === "skill-script" ? (
     <ScriptApprovalCard request={request as SkillScriptApprovalRequest} keys={keys} />
   ) : (
@@ -604,7 +625,7 @@ function ScriptApprovalCard({
   const [warning, setWarning] = useState(false);
   const titleId = useId();
   const warningId = useId();
-  const params = { skill: request.skill.name, script: request.script };
+  const params = { skill: skillTitle(request.skill.name, t), script: request.script };
   return (
     <div
       contentEditable={false}
@@ -645,7 +666,7 @@ function ScriptApprovalCard({
         <p className="approval-label">{t("scripts.card.wouldRun")}</p>
         <dl data-testid="approval-script" className="approval-args">
           <dt>{t("scripts.card.skill")}</dt>
-          <dd data-testid="approval-script-skill">{request.skill.name}</dd>
+          <dd data-testid="approval-script-skill">{skillTitle(request.skill.name, t)}</dd>
           <dt>{t("scripts.card.script")}</dt>
           <dd data-testid="approval-script-path" className="font-mono">
             {request.script}
@@ -786,7 +807,7 @@ function ApprovalArguments({ input }: { input: Record<string, unknown> }) {
 function ScriptCall({ call }: { call: AnswerToolCall }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
-  const params = { skill: field(call, "skill"), script: field(call, "script") };
+  const params = { skill: skillTitle(field(call, "skill"), t), script: field(call, "script") };
   const args = Array.isArray(call.input.args) ? call.input.args.map(String) : [];
   const run = call.script;
   const running = call.status === "running";
@@ -1090,12 +1111,13 @@ function skillRows(calls: AnswerToolCall[]): SkillUse[] {
 export function SkillRow({ name, use, reads }: SkillUse) {
   const t = useT();
   const status = use?.status ?? "done";
+  const title = skillTitle(name, t);
   const summary =
     status === "running"
-      ? t("skills.answer.loading", { name })
+      ? t("skills.answer.loading", { name: title })
       : status === "failed"
-        ? t("skills.answer.failed", { name })
-        : t("skills.answer.used", { name });
+        ? t("skills.answer.failed", { name: title })
+        : t("skills.answer.used", { name: title });
   return (
     <div
       data-testid="answer-skill"

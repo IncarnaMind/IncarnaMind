@@ -3,14 +3,8 @@ import type { SuggestionStatus } from "../../../core/api";
 import { core } from "../core";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import {
-  hintClass,
-  rowTextClass,
-  rowTitleClass,
-  ruledListClass,
-  ruledRowClass,
-  sectionTitleClass,
-} from "./ui";
+import { InfoTip } from "./InfoTip";
+import { hintClass, rowTitleClass, ruledListClass, ruledRowClass, sectionTitleClass } from "./ui";
 
 /**
  * Settings → General → Writing: the switch for suggestions as the User
@@ -54,12 +48,12 @@ export function SuggestionSettings() {
       <div className={ruledListClass}>
         <div className={ruledRowClass}>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <label htmlFor={id} className={rowTitleClass}>
-              {t("suggestions.settings.switch")}
-            </label>
-            <p id={`${id}-description`} className={rowTextClass}>
-              {t("suggestions.settings.body")}
-            </p>
+            <div className="flex items-center">
+              <label htmlFor={id} className={rowTitleClass}>
+                {t("suggestions.settings.switch")}
+              </label>
+              <InfoTip id={`${id}-description`} text={t("suggestions.settings.tip")} />
+            </div>
             {status && (
               <p data-testid="suggestion-counts" className={hintClass}>
                 {t("suggestions.settings.today", status.today)}

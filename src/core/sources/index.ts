@@ -13,6 +13,7 @@
  */
 import { mkdir, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { cleanApiKey } from "../../shared/apiKey";
 import { arxivIdOf, normalizeDoi } from "../../shared/references";
 import type {
   AddFoundSourceResult,
@@ -28,15 +29,23 @@ import type {
 } from "../api";
 import type { Consent } from "../consent";
 import { isInside } from "../documents/files";
-import { ConsentDeclinedError, InvalidInputError, isRecord } from "../errors";
+import {
+  ConsentDeclinedError,
+  ConsentRevokedError,
+  InvalidInputError,
+  isRecord,
+  LocalModeError,
+} from "../errors";
 import { safeFileName, writeNewFile } from "../fileNames";
+import { readApiKey } from "../providers/apiKey";
 import { fillReference, linkReference, writeUnlinkedReference } from "../referenceRecords/store";
 import type { Secrets } from "../secrets";
+import { createSendGate } from "../sendGate";
 import type { Database } from "../storage";
 import type { Tool } from "../tools";
 import { cfrId, parseCfr, parseUsc, uscId } from "./citations";
 import { downloadOpenPdf, fileOf } from "./fullText";
-import { SourceError, type SourceHttp } from "./http";
+import { gatedHttp, SourceError, type SourceHttp } from "./http";
 import { licenceOf } from "./licences";
 import { type MergedWork, mergeWorks } from "./merge";
 import { sourceKeySecret } from "./providers";
@@ -223,6 +232,7 @@ function accessOf(work: MergedWork): SourceAccess {
 
 export function createSources(options: SourcesOptions) {
   const { db, now, consent, providers, http } = options;
+  const gate = createSendGate(consent, options.localOnly);
   const byId = new Map(providers.map((provider) => [provider.id, provider]));
   const nameOf = (id: string) => byId.get(id)?.name ?? id;
   /** Each work seen this session, by key: what `add` adds. */
@@ -263,8 +273,8 @@ export function createSources(options: SourcesOptions) {
     provider.needsKey !== undefined &&
     (await options.secrets.tryGet(sourceKeySecret(provider.id))) === null;
 
-  const context = (signal: AbortSignal) => ({
-    http,
+  const context = (signal: AbortSignal, service: ExternalService) => ({
+    http: gatedHttp(http, () => gate.check("find-sources", service)),
     signal: AbortSignal.any([signal, options.signal]),
   });
 
@@ -275,6 +285,8 @@ export function createSources(options: SourcesOptions) {
       return true;
     } catch (error) {
       if (error instanceof ConsentDeclinedError) return false;
+      // Its prompt closed as Local mode came on: the check after it says so.
+      if (error instanceof LocalModeError) return true;
       throw error;
     }
   };
@@ -309,7 +321,7 @@ export function createSources(options: SourcesOptions) {
     if (options.localOnly()) return { works: [], outcome: outcome(0) };
     try {
       const found = identifier
-        ? [await provider.resolve?.(identifier, context(signal))].filter(
+        ? [await provider.resolve?.(identifier, context(signal, provider.service))].filter(
             (work): work is ProviderWork => !!work,
           )
         : ((await provider.search?.(
@@ -320,10 +332,17 @@ export function createSources(options: SourcesOptions) {
               openAccessOnly: input.openAccessOnly,
               limit: RESULTS_PER_PROVIDER,
             },
-            context(signal),
+            context(signal, provider.service),
           )) ?? []);
       return { works: found, outcome: outcome(found.length) };
     } catch (error) {
+      if (error instanceof LocalModeError) return { works: [], outcome: outcome(0) };
+      if (error instanceof ConsentRevokedError) {
+        return {
+          works: [],
+          outcome: outcome(0, { reason: "declined", message: error.message }),
+        };
+      }
       if (!(error instanceof SourceError)) throw error;
       return {
         works: [],
@@ -481,10 +500,15 @@ export function createSources(options: SourcesOptions) {
       let text: FullText;
       try {
         text = provider?.fetchFullText
-          ? await provider.fetchFullText(copy, context(options.signal))
+          ? await provider.fetchFullText(copy, context(options.signal, provider.service))
           : await downloadOpenPdf(http, copy.url, options.signal);
         path = await keepCopy(text, work);
       } catch (error) {
+        if (error instanceof LocalModeError) return LOCAL_MODE;
+        if (error instanceof ConsentRevokedError) {
+          declined = provider?.name ?? declined;
+          continue;
+        }
         if (!(error instanceof SourceError)) throw error;
         const reason = ADD_FAILURES[error.reason];
         if (reason) refused = { reason, message: error.message };
@@ -577,13 +601,13 @@ export function createSources(options: SourcesOptions) {
         throw new InvalidInputError("A key must be text, or null to remove it.");
       }
       const name = sourceKeySecret(provider.id);
-      const trimmed = key?.trim() ?? "";
+      const trimmed = cleanApiKey(key ?? "");
       if (trimmed === "") return options.secrets.delete(name);
       // A key is one token: anything else is a paste gone wrong, and it isn't echoed back.
       if (trimmed.length > 200 || /\s/.test(trimmed)) {
         throw new InvalidInputError({ key: "error.sources.keyLooksWrong" });
       }
-      await options.secrets.set(name, trimmed);
+      await options.secrets.set(name, readApiKey(trimmed));
     },
 
     /** See `CoreApi.findSources`. */

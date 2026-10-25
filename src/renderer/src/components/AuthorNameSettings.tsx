@@ -1,7 +1,11 @@
-import { type KeyboardEvent, useEffect, useId, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { useT } from "../i18n";
+import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
-import { fieldClass, sectionNoteClass, sectionTitleClass } from "./ui";
+import { InfoTip } from "./InfoTip";
+import { fieldClass, sectionTitleClass } from "./ui";
+
+const TARGET = ["author-name"] as const;
 
 /**
  * Settings → General → Your name (#107): the name the User's edits go under
@@ -18,6 +22,11 @@ export function AuthorNameSettings() {
   useEffect(() => {
     if (author !== undefined) setDraft(author);
   }, [author]);
+  const field = useRef<HTMLInputElement>(null);
+  // The name is already loaded, so this runs before the dialog is shown, and showing it moves the focus.
+  const section = useSettingsTarget<HTMLElement>(TARGET, author !== undefined, () =>
+    queueMicrotask(() => field.current?.focus({ preventScroll: true })),
+  );
   if (author === undefined) return null;
 
   const commit = () => {
@@ -35,14 +44,15 @@ export function AuthorNameSettings() {
   };
 
   return (
-    <section data-testid="author-name-settings">
-      <label htmlFor={id} className={sectionTitleClass}>
-        {t("settings.authorName")}
-      </label>
-      <p id={`${id}-note`} className={sectionNoteClass}>
-        {t("settings.authorName.body")}
-      </p>
+    <section ref={section} data-testid="author-name-settings">
+      <div className="mb-2 flex items-center">
+        <label htmlFor={id} className={sectionTitleClass}>
+          {t("settings.authorName")}
+        </label>
+        <InfoTip id={`${id}-note`} text={t("settings.authorName.tip")} />
+      </div>
       <input
+        ref={field}
         id={id}
         type="text"
         data-testid="author-name"

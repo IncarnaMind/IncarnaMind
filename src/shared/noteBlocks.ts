@@ -80,10 +80,13 @@ const unit = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
 
 /**
- * The Blocks with each Citation in them checked again against its Document's
- * current version, where they land: its check, and where it points, as the
- * check finds them now. A Citation whose Document is gone, or that can't be
- * checked again for any reason, keeps what it had.
+ * The Blocks with each Citation in them checked again where they land: against
+ * its Document's current version, its check and where it points as the check
+ * finds them now; once its Document has a newer version than the one it quotes,
+ * in that version, where it points kept, so its card says the Document changed
+ * and only the User's choice moves it (ADR-0017's amendment). A Citation whose
+ * Document is gone, or that can't be checked again for any reason, keeps what
+ * it had.
  */
 export async function recheckCitations(
   blocks: readonly NodeJSON[],
@@ -108,9 +111,15 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
       quote: typeof quote === "string" ? quote : "",
       pageFrom,
       pageTo: unit(attrs.pageTo) ?? pageFrom,
+      contentHash: typeof attrs.contentHash === "string" ? attrs.contentHash : null,
     });
     // A deleted Document: the check made when it was cited stands, as the badge shows it.
     if (checked.contentHash === null) return node;
+    const quoted = checked.inQuotedVersion;
+    if (quoted !== undefined) {
+      if (quoted === null) return node;
+      return { ...node, attrs: { ...attrs, check: quoted.check, checkReason: quoted.checkReason } };
+    }
     return {
       ...node,
       attrs: {
@@ -148,6 +157,21 @@ export function textLength(blocks: readonly NodeJSON[]): number {
 
 const textOf = (node: NodeJSON): string =>
   node.type === "text" ? (node.text ?? "") : (node.content ?? []).map(textOf).join("");
+
+/** The first stretch of text in a Block: a list's first item or a table's first cell, not all of them run together. */
+function firstText(node: NodeJSON): string {
+  const children = node.content ?? [];
+  if (node.type === "text" || children.some((child) => child.type === "text")) return textOf(node);
+  for (const child of children) {
+    const text = firstText(child);
+    if (text.trim() !== "") return text;
+  }
+  return "";
+}
+
+/** The text of the first Block that has any: what an unnamed Mind is called once they are in it. */
+export const firstLineOfBlocks = (blocks: readonly NodeJSON[]): string =>
+  blocks.map(firstText).find((text) => text.trim() !== "") ?? "";
 
 const holdsCitation = (node: NodeJSON): boolean =>
   node.type === CITATION_NODE || (node.content ?? []).some(holdsCitation);

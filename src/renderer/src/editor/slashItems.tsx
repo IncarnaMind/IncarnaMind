@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { QUESTION_BLOCK, type Skill } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { SkillIcon } from "../components/icons";
+import { matchName, queryWords } from "../matcher";
 import { showBibliography } from "./bibliographyCommands";
 import { insertFootnote } from "./footnoteSchema";
 import { TableIcon } from "./icons";
@@ -225,21 +226,21 @@ export function compareSlashItem(onCompare: (afterBlockId: string | null) => voi
 }
 
 /**
- * The slash menu's entries for the enabled Skills, labelled with their names
- * as they are. Choosing one forces the Skill on the Question the cursor is
- * in; in a Note, it goes to the composer as a chip, for the Question asked
+ * The slash menu's entries for the enabled Skills, labelled with their titles.
+ * Choosing one forces the Skill on the Question the cursor is in; in a Note, it goes to the composer as a chip, for the Question asked
  * there next (`onComposer`), and the composer takes the focus.
  */
 export function skillSlashItems(
   skills: readonly Skill[],
   describe: (skill: Skill) => string = (skill) => skill.description,
   onComposer: (skill: string) => void = () => undefined,
+  titleOf: (skill: Skill) => string = (skill) => skill.name,
 ): SlashItem[] {
   return skills
     .filter((skill) => skill.enabled)
     .map((skill) => ({
       id: `skill-${skill.name}`,
-      label: { text: skill.name },
+      label: { text: titleOf(skill) },
       hint: describe(skill),
       keywords: ["skill"],
       icon: <SkillIcon className="size-3.5" />,
@@ -262,22 +263,18 @@ export function skillSlashItems(
 
 /**
  * The items `query` finds, in their order: those with a word of their label,
- * ID or keywords starting with it. A query in Chinese (or any non-Latin script)
- * finds the labels that contain it, as Chinese doesn't separate words.
+ * ID or keywords starting with it, as a Chinese label is found by its pinyin
+ * ("biaoge" for 表格) or initials ("bg") through the one matcher ⌘K uses.
  */
 export function matchSlashItems(
   items: readonly SlashItem[],
   query: string,
   labelOf: (item: SlashItem) => string,
 ): SlashItem[] {
-  const wanted = query.trim().toLowerCase();
-  if (!wanted) return [...items];
-  const nonLatin = /[\u0080-￿]/.test(wanted);
+  const words = queryWords(query);
+  if (words.length === 0) return [...items];
   return items.filter((item) => {
-    const label = labelOf(item).toLowerCase();
-    if (nonLatin) return label.includes(wanted);
-    return [label, item.id, ...(item.keywords ?? [])]
-      .flatMap((text) => text.toLowerCase().split(/[\s-]+/))
-      .some((word) => word.startsWith(wanted));
+    const text = [labelOf(item), item.id, ...(item.keywords ?? [])].join(" ");
+    return matchName(words, text)?.atWordStart === true;
   });
 }

@@ -8,8 +8,9 @@ import type {
   Tag,
 } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
-import { SCOPE_KINDS, type ScopeKind, scopeIds } from "../../shared/searchScope";
+import { holdsText, SCOPE_KINDS, type ScopeKind, scopeIds } from "../../shared/searchScope";
 import { buildFolderTree, flattenFolderTree } from "./folders";
+import { matchName, queryWords } from "./matcher";
 
 /** What a scope item gone without its name is called: "Deleted Folder". */
 export const DELETED_NAMES: Record<ScopeKind, MessageKey> = {
@@ -66,12 +67,6 @@ export interface ScopeChip {
 /** The most choices of one kind the picker lists at once; typing narrows them. */
 const MAX_CHOICES_PER_KIND = 50;
 
-/** Whether a search can use the Document now. */
-const searchable = (document: Document) =>
-  document.fileStatus !== "missing" &&
-  document.status !== "failed" &&
-  document.status !== "no-text";
-
 /**
  * How many Documents each Folder and Tag holds that can be searched (#764): an in-app
  * Folder's filed Documents (suggested ones too, as a search counts them), a
@@ -79,7 +74,7 @@ const searchable = (document: Document) =>
  */
 export function scopeCounts(library: ScopeLibrary): Map<string, number> {
   const counts = new Map<string, number>();
-  const live = library.documents.filter(searchable);
+  const live = library.documents.filter(holdsText);
   const liveIds = new Set(live.map((document) => document.id));
   for (const group of library.groups ?? []) {
     const filed = (library.assignments ?? []).filter(
@@ -176,30 +171,35 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
 
 /**
  * What the picker offers for `query` (typed after the "@"): the Folders, Tags
- * and Documents whose names contain it, ignoring case, those starting with it
- * first, grouped in that order. Those already in the scope aren't offered again.
+ * and Documents whose names match it, a Chinese name by its pinyin too (the
+ * matcher ⌘K uses), those starting a word first, grouped in that order. Those
+ * already in the scope aren't offered again.
  */
 export function scopeChoices(
   library: ScopeLibrary,
   scope: SearchScope,
   query: string,
 ): ScopeChoice[] {
-  const wanted = query.trim().toLocaleLowerCase();
+  const words = queryWords(query);
   const chosen = new Set(
     SCOPE_KINDS.flatMap((kind) => scopeIds(scope, kind).map((id) => `${kind}:${id}`)),
   );
   const all = everything(library).filter((choice) => !chosen.has(`${choice.kind}:${choice.id}`));
   return SCOPE_KINDS.flatMap((kind) => {
     const ofKind = all.filter((choice) => choice.kind === kind);
-    const named = (choice: ScopeChoice) => choice.name.toLocaleLowerCase();
-    const matching = wanted
-      ? [
-          ...ofKind.filter((choice) => named(choice).startsWith(wanted)),
-          ...ofKind.filter(
-            (choice) => !named(choice).startsWith(wanted) && named(choice).includes(wanted),
-          ),
-        ]
-      : ofKind;
+    const matching =
+      words.length === 0
+        ? ofKind
+        : ofKind
+            .flatMap((choice, index) => {
+              const match = matchName(words, choice.name);
+              return match && !match.typo ? [{ choice, index, match }] : [];
+            })
+            .sort(
+              (a, b) =>
+                Number(b.match.atWordStart) - Number(a.match.atWordStart) || a.index - b.index,
+            )
+            .map(({ choice }) => choice);
     return matching.slice(0, MAX_CHOICES_PER_KIND);
   });
 }

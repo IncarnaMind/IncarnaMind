@@ -1,23 +1,25 @@
 import type { BlockOrigin } from "../../../core/api";
+import { MENU_COMMANDS } from "../../../shared/commands";
 import { signInAgain } from "../chatGptSignIn";
-import { setCheckCardOpen } from "../checks";
 import { useCitationStylePicker } from "../citationStylePicker";
 import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
 import { blockMenuOpeners } from "../editor/blockMenuOpeners";
 import { originOf } from "../editor/blockOrigins";
+import { goToCitation } from "../editor/citationMark";
 import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
 import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
-import { frontTabOfMind, groupsMerged } from "../layoutSlice";
 import { startSkillFromMind } from "../makeSkill";
-import { startMindCheck } from "../mindCheck";
+import { showCheckCard, startCheckThisMind, startMindCheck } from "../mindCheck";
 import { useMindTools } from "../mindTools";
+import { citationStepOpen } from "../nudges";
 import { useReferenceImport } from "../referenceImport";
 import { useAppStore } from "../store";
 import { verifyDocument } from "../verify";
 import { useWordImport } from "../wordImport";
+import { addDocumentCommands } from "./addDocuments";
 import { analysisCommands } from "./analysis";
 import { answerTableCommands } from "./answerTables";
 import { assistantCommands } from "./assistant";
@@ -35,6 +37,8 @@ import { fileCommands } from "./fileInfo";
 import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
 import { citationHandle, findHandle, readMindHandle, sidebarHandle } from "./handles";
+import { languageCommands } from "./language";
+import { libraryCommands } from "./library";
 import { linkCommands } from "./links";
 import { meetingHelpCommands } from "./meetingHelp";
 import { meetingCommands } from "./meetings";
@@ -46,6 +50,7 @@ import {
   folderCommands,
   linkedFolderCommands,
   mindCommands,
+  mixedSelectionCommands,
   tagCommands,
 } from "./objects";
 import { pageCommands } from "./page";
@@ -53,7 +58,9 @@ import { paletteCommands } from "./palette";
 import { peekCommands } from "./peek";
 import { proposalCommands } from "./proposals";
 import { researchCommands } from "./research";
+import { reviewCommands } from "./review";
 import { sortCommands } from "./sort";
+import { suggestionCommands } from "./suggestions";
 import "./objectMenus";
 import { type Command, type CommandContext, commands, fromMenu } from "./registry";
 import { selectionCommands } from "./selection";
@@ -64,6 +71,7 @@ import { tabCommands } from "./tabs";
 import { taggingCommands } from "./tagging";
 import { mindInFront, mindShown, onlyOne } from "./targets";
 import { taskCommands } from "./tasks";
+import { viewerSelectionCommands } from "./viewerSelection";
 import { webPageCommands } from "./webPages";
 import { wordLookCommands } from "./wordLook";
 
@@ -94,9 +102,26 @@ function mindOf(ctx: CommandContext): string | null {
 const appCommands: readonly Command[] = [
   {
     ...fromMenu("mind.new"),
+    shortcut: { keys: MENU_COMMANDS["mind.new"].keys, also: "CmdOrCtrl+N" },
     group: "main",
+    top: 20,
     reversible: true,
     run: () => useAppStore.getState().createMind({ titled: true }),
+  },
+  {
+    id: "home.open",
+    label: "home.title",
+    group: "open",
+    reversible: true,
+    run: () => useAppStore.getState().openHome(),
+  },
+  {
+    id: "firstOpen.checkCitation",
+    label: "firstOpen.step.citation.title",
+    group: "open",
+    reversible: true,
+    when: () => citationStepOpen(useAppStore.getState().settings?.device.gettingStarted),
+    run: () => goToCitation(),
   },
   {
     id: "word.import",
@@ -108,29 +133,36 @@ const appCommands: readonly Command[] = [
   {
     id: "verify.document",
     label: "verify.command",
+    purpose: "verify.command.purpose",
     keywords: ["verify.command.keywords"],
     group: "main",
     // It adds the PDF and makes a Mind of it, each deleted as any other is.
     reversible: true,
     run: () => verifyDocument(),
   },
+  ...addDocumentCommands,
   ...editCommands,
   ...selectionCommands,
   ...mindCommands,
   ...documentCommands,
   ...peekCommands,
+  ...suggestionCommands,
   ...folderCommands,
+  ...mixedSelectionCommands,
   ...taggingCommands,
   ...newFolderCommands,
   ...tagCommands,
   ...linkedFolderCommands,
   ...deletedCommands,
+  ...libraryCommands,
+  ...languageCommands,
   ...answerCommands,
   ...citationCommands,
   ...tabCommands,
   ...meetingCommands,
   ...meetingHelpCommands,
   ...webPageCommands,
+  ...viewerSelectionCommands,
   ...feedbackCommands,
   ...exampleCommands,
   ...sortCommands,
@@ -200,6 +232,20 @@ const appCommands: readonly Command[] = [
     when: (ctx) => ctx.here?.["citation.open"] !== undefined || citationHandle.current !== null,
     run: (ctx) => (ctx.here?.["citation.open"] ?? citationHandle.current?.open)?.(),
   },
+  // A Citation that needs re-check (#99), while its card shows or from its menu: the note's ⌘Z takes each back.
+  ...(["update", "keepOld"] as const).map(
+    (choice): Command => ({
+      id: `citation.${choice}`,
+      label: `citation.${choice}`,
+      group: "main",
+      reversible: true,
+      when: (ctx) =>
+        ctx.here?.[`citation.${choice}`] !== undefined ||
+        (citationHandle.current?.choices()[choice] ?? null) !== null,
+      run: (ctx) =>
+        (ctx.here?.[`citation.${choice}`] ?? citationHandle.current?.choices()[choice])?.(),
+    }),
+  ),
   {
     // The Mind in front's citation style (#289): the same picker as its References' button.
     id: "mind.citationStyle",
@@ -236,11 +282,25 @@ const appCommands: readonly Command[] = [
     },
   },
   {
-    id: "mind.checkAll",
+    id: "mind.check",
     label: "mindCheck.command",
+    purpose: "mindCheck.command.purpose",
     keywords: ["mindCheck.command.keywords"],
     group: "main",
+    top: 12,
     // It changes no words: its marks go with Check again, or when the sentence is edited.
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
+    run: (ctx) => {
+      const mindId = mindShown(ctx);
+      if (mindId) return startCheckThisMind(mindId);
+    },
+  },
+  {
+    id: "mind.checkEverySentence",
+    label: "mindCheck.every",
+    keywords: ["mindCheck.command.keywords"],
+    group: "main",
     reversible: true,
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
     run: (ctx) => {
@@ -260,13 +320,13 @@ const appCommands: readonly Command[] = [
       const mindId = mindShown(ctx);
       if (!mindId) return;
       await useAppStore.getState().openMind(mindId);
-      const tab = frontTabOfMind(useAppStore.getState().layout, mindId, groupsMerged());
-      setCheckCardOpen(tab?.id ?? mindId, true);
+      showCheckCard(mindId);
     },
   },
   {
     id: "mind.checkContradictions",
     label: "contradictions.command",
+    purpose: "contradictions.command.purpose",
     keywords: ["contradictions.command.keywords"],
     group: "main",
     // It changes no words: its marks go with Check again, or when the sentence is edited.
@@ -414,6 +474,7 @@ const appCommands: readonly Command[] = [
   ...tableCommands,
   ...chartCommands,
   ...proposalCommands,
+  ...reviewCommands,
   ...checkCommands,
 ];
 

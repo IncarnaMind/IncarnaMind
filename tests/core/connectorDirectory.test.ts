@@ -122,7 +122,7 @@ describe("Connecting from the directory", { timeout: 30_000 }, () => {
     const { core } = await setUp();
 
     await expect(core.addConnectorFromDirectory("nothing")).rejects.toThrow(
-      "That Connector isn't in the directory.",
+      "That Connector isn’t in the directory.",
     );
     expect(await core.listConnectors()).toEqual([]);
   });

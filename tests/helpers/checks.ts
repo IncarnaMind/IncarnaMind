@@ -21,16 +21,30 @@ export interface Plan {
   reply?: ScriptedReply;
   /** What it says when asked to confirm a contradiction it found. */
   judgement?: "conflict" | "same" | "neither";
+  /** Its reply to the strict judgement, a contradiction's second; `judgement` when absent. */
+  strict?: GeneratedReply;
+  /** Its reply when asked for the parts of a sentence it called contradicted that the strict judgement didn't uphold. */
+  part?: string;
   /**
    * A figure it works out with calculate before its verdict (#707), each
-   * input from the Passage that holds its quote, as marker 1.
+   * input from the Passage that holds its quote, as marker 1; or several, as
+   * markers 1, 2, … in their order.
    */
-  calculation?: {
-    inputs: { name: string; label: string; quote: string; number: string }[];
-    formula: string;
-    as?: string;
-    stated: string;
-  };
+  calculation?: PlannedFigure | readonly PlannedFigure[];
+}
+
+interface PlannedFigure {
+  inputs: readonly {
+    name: string;
+    label: string;
+    quote: string;
+    number: string;
+    bracketedCost?: boolean;
+  }[];
+  formula: string;
+  as?: string;
+  stated: string;
+  relation?: "equals" | "at most" | "at least";
 }
 
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
@@ -56,6 +70,9 @@ function plannedNumbers(prompt: string, plans: Record<string, Plan>): number[] {
   });
 }
 
+/** The strict judgement's instructions, which ask for the sentence's detail and the quote's before the word. */
+export const isStrict = (call: { system: string }) => call.system.includes("Judgement: one word");
+
 /** A check Run's instructions (src/core/answers/checks/prompt.ts). */
 export const isCheckRun = (call: ModelCall) => call.system.startsWith("You check one sentence");
 
@@ -73,25 +90,17 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
   const shown = shownPassages(searches.at(-1)?.text ?? "");
   const { calculation } = plan;
   if (calculation && !call.results.some((result) => result.tool === "calculate")) {
-    const { inputs, ...figure } = calculation;
     const passageOf = (quote: string) => shown.find((each) => each.text.includes(quote))?.id;
-    return {
-      calls: [
-        {
-          tool: "calculate",
-          input: {
-            figures: [
-              {
-                marker: 1,
-                label: "The sentence's figure",
-                ...figure,
-                inputs: inputs.map((input) => ({ ...input, passage: passageOf(input.quote) })),
-              },
-            ],
-          },
-        },
-      ],
-    };
+    const planned: readonly PlannedFigure[] =
+      "formula" in calculation ? [calculation] : calculation;
+    const figures = planned.map(({ inputs, ...figure }, index) => ({
+      marker: index + 1,
+      label: "The sentence's figure",
+      relation: "equals",
+      ...figure,
+      inputs: inputs.map((input) => ({ ...input, passage: passageOf(input.quote) })),
+    }));
+    return { calls: [{ tool: "calculate", input: { figures } }] };
   }
   const { quote } = plan;
   if (quote && !call.results.some((result) => result.tool === "cite")) {
@@ -117,9 +126,13 @@ export const checkGenerate =
     if (call.system.startsWith("You sort the sentences")) {
       return { text: JSON.stringify({ claims: plannedNumbers(call.prompt, plans) }) };
     }
+    if (call.system.startsWith("A sentence the User wrote says more")) {
+      return { text: plans[SENTENCE.exec(call.prompt)?.[1] ?? ""]?.part ?? "" };
+    }
     if (call.system.startsWith("Compare a sentence")) {
-      const sentence = SENTENCE.exec(call.prompt)?.[1] ?? "";
-      return { text: plans[sentence]?.judgement ?? "conflict" };
+      const plan = plans[SENTENCE.exec(call.prompt)?.[1] ?? ""];
+      if (plan?.strict && isStrict(call)) return plan.strict;
+      return { text: plan?.judgement ?? "conflict" };
     }
     return { text: evidence };
   };

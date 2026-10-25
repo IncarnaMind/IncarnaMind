@@ -14,6 +14,7 @@ import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
+import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
 import {
   buttonClass,
@@ -265,16 +266,16 @@ function RerankForm({
 
   const builtIn = kind === "built-in";
   const keySaved = current.kind === kind && current.hasApiKey;
-  const hasKey = builtIn || apiKey.trim() !== "" || keySaved;
+  const hasKey = builtIn || (key.stray === null && (key.text !== "" || keySaved));
   const keyBlocked =
-    !builtIn && apiKey.trim() !== "" && secretStorage !== null && !secretStorage.canSave;
+    !builtIn && key.text !== "" && secretStorage !== null && !secretStorage.canSave;
 
   const input = (): SaveRerankSettingsInput =>
     builtIn
       ? { kind }
       : {
           kind,
-          ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          ...(key.text ? { apiKey: key.text } : {}),
           modelId: model.trim() || null,
         };
 
@@ -288,7 +289,7 @@ function RerankForm({
           setTest(
             await core.testRerankConnection({
               kind,
-              ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+              ...(key.text ? { apiKey: key.text } : {}),
               modelId: model.trim() || null,
             }),
           );
@@ -367,8 +368,11 @@ function RerankForm({
               onChange={(event) => key.type(event.target.value)}
               autoComplete="off"
               spellCheck={false}
+              aria-invalid={key.stray ? true : undefined}
+              aria-describedby={key.stray ? `${id}-stray` : undefined}
               className={inputClass}
             />
+            {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
             {keySaved && <span className={hintClass}>{t("providers.form.apiKeySaved")}</span>}
           </label>
 

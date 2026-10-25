@@ -8,6 +8,9 @@ import { CNY_PER_USD } from "../providers/catalog/billing";
 import type { Price } from "../providers/catalog/types";
 import type { TokenUsage } from "../runs/engine";
 
+/** The one assumption behind every estimate of what Answers cost: about three calls, a search then the writing. */
+export const TYPICAL_ANSWER = { inputTokens: 12_000, outputTokens: 750 } as const;
+
 /** Anthropic bills a 5-minute prompt-cache write at 1.25 times the input price. */
 const CACHE_WRITE_FACTOR = 1.25;
 
@@ -95,4 +98,10 @@ export function promptTokensOf(
     }
   }
   return Math.ceil(bytes / 3) + files * FILE_TOKENS + prompt.length * MESSAGE_TOKENS;
+}
+
+/** At the full rate, so an estimate doesn't change with the hour. */
+export function typicalAnswerCost(price: Price): number {
+  const { offPeak: _offPeak, ...full } = price;
+  return costOf(TYPICAL_ANSWER, full, new Date());
 }

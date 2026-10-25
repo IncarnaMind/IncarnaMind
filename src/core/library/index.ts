@@ -2,9 +2,19 @@ import { randomUUID } from "node:crypto";
 import { type CitationStyleId, isCitationStyleId } from "../../shared/citationStyles";
 import { wordingOf } from "../../shared/errorWording";
 import { translate } from "../../shared/i18n";
-import { organizeModelOf, supportsLibraryImages } from "../../shared/libraryModels";
+import {
+  LIBRARY_DEFAULTS,
+  organizeModelOf,
+  supportsLibraryImages,
+} from "../../shared/libraryModels";
 import { libraryPresetKeys } from "../../shared/libraryPresets";
-import type { DocumentKind, FolderDeletion, MovedDocument, ProviderError } from "../api";
+import type {
+  DocumentKind,
+  ExternalService,
+  FolderDeletion,
+  MovedDocument,
+  ProviderError,
+} from "../api";
 import type { BackgroundQueue } from "../backgroundQueue";
 import {
   ChatNotReadyError,
@@ -15,12 +25,13 @@ import {
   NotFoundError,
   TaggingNotReadyError,
 } from "../errors";
-import { isPlanLimit } from "../providers/chatgpt/errors";
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
+import { gateStop } from "../sendGate";
 import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import { sameName, type TagsStore } from "../tags";
+import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
 import type { GroupClassifier } from "./classifier";
 import {
   ORGANIZE_PASSAGES,
@@ -33,6 +44,7 @@ import {
   ROUTING_PAGES,
 } from "./excerpt";
 import type { DocumentPageImage } from "./pdfImages";
+import { reachedPlanLimit } from "./planPace";
 import type {
   AssignmentChange,
   ClassificationModel,
@@ -46,6 +58,8 @@ import type {
 } from "./types";
 
 const AUTOMATIC: LibraryClassifier = { kind: "automatic" };
+
+const AUTOMATIC_OFF_NOTICE = "libraryAutomaticOffNotice";
 
 function taggingClassifierOf(value: unknown): TaggingClassifier | null {
   if (!isRecord(value)) return null;
@@ -161,17 +175,14 @@ function parsePreviousAssignment(
 }
 
 /**
- * What Organize sends to a cloud model: the Folders and Tags, each
- * Document's excerpt, and a scan's page images, which go only to a chat
- * model that reads images. Page images are a kind of their own, so a User
- * who allowed the flow before it sent them is asked again.
+ * What Organize sends to a cloud model: the Folders and Tags, and each
+ * Document's excerpt. A scan's page images are the "scan-images" flow's, which
+ * choosing the provider doesn't allow.
  */
-export const CLASSIFICATION_FLOW_SENDS = [
-  "groups",
-  "tags",
-  "document-excerpts",
-  "page-images",
-] as const;
+export const CLASSIFICATION_FLOW_SENDS = ["groups", "tags", "document-excerpts"] as const;
+
+/** Up to 3 page images of a PDF with no text, to a model that reads images. */
+export const SCAN_IMAGES_FLOW_SENDS = ["page-images"] as const;
 
 /**
  * One flat group per Document; user choices, including Not in a Folder, always win.
@@ -195,7 +206,22 @@ export function createLibrary(options: {
    * no text, a scan: itself, or through the image model.
    */
   readsPages(classifier: TaggingClassifier): boolean;
+  /**
+   * Whether the model tagging or organizing would use runs on another computer:
+   * the switch for doing it by itself is off for one until the User turns it on.
+   */
+  usesCloud(settings: {
+    classifier: LibraryClassifier;
+    organizeWith: TaggingClassifier | null;
+  }): boolean;
+  /**
+   * The service that would read a scan's pages for this classifier if the User
+   * allowed it, while they haven't; null when it reads them, or can't.
+   */
+  pagesWaitFor(classifier: TaggingClassifier): ExternalService | null;
   pageImages(id: string, contentHash: string, signal: AbortSignal): Promise<DocumentPageImage[]>;
+  /** The pause a rate limit puts on all Tagging (see ../tags/rateLimit). */
+  rateLimit: Pick<RateLimitPause, "pausedUntil" | "pause" | "succeeded" | "refusal" | "refuse">;
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -206,12 +232,13 @@ export function createLibrary(options: {
    * "Organize manually" before there was Automatic, gets Automatic; any other
    * choice is kept as it was saved.
    */
-  const getSettings = (): LibrarySettings => {
+  const savedSettings = () => {
     const stored = settings.readDeviceValue("library");
     const saved = isRecord(stored) ? stored : {};
     return {
-      classifier: taggingClassifierOf(saved.classifier) ?? AUTOMATIC,
-      automatic: typeof saved.automatic === "boolean" ? saved.automatic : true,
+      classifier: taggingClassifierOf(saved.classifier) ?? LIBRARY_DEFAULTS.classifier,
+      // Null until the User sets the switch: it follows the model then (see `LibrarySettings.automatic`).
+      automatic: typeof saved.automatic === "boolean" ? saved.automatic : null,
       organizeWith: taggingClassifierOf(saved.organizeWith),
       taggingStopped: Array.isArray(saved.taggingStopped)
         ? saved.taggingStopped.filter(
@@ -219,6 +246,20 @@ export function createLibrary(options: {
           )
         : [],
     };
+  };
+  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !options.usesCloud(saved);
+  const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => ({
+    ...saved,
+    automatic: saved.automatic ?? defaultAutomatic(saved),
+  });
+  const getSettings = (): LibrarySettings => shownSettings(savedSettings());
+  const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
+  const automaticOffNotice = (): boolean => {
+    const marker = settings.readDeviceValue(AUTOMATIC_OFF_NOTICE);
+    if (!noticeIsOpen(marker)) return false;
+    const off = !getSettings().automatic;
+    if (marker === "pending" || !off) settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, off);
+    return off;
   };
   const placeOf = (id: string): string | null =>
     db.get<{ group_id: string }>(
@@ -321,6 +362,18 @@ export function createLibrary(options: {
         ]))
     );
   };
+  const scanWaits = (doc: DocumentRow): ProviderError | undefined => {
+    if (doc.kind !== "pdf" || doc.status !== "no-text") return undefined;
+    const classifier = organizeModelOf(getSettings());
+    const service = classifier && options.pagesWaitFor(classifier);
+    return service
+      ? {
+          kind: "consent-declined",
+          message: `Page images of scans aren't sent to ${service.name}.`,
+          wording: { key: "error.library.scanImagesOff", values: { service: service.name } },
+        }
+      : undefined;
+  };
   /** What Organize reads of the indexed version (see ./excerpt). */
   const source = (doc: DocumentRow, withPassages = true): OrganizeSource => ({
     name: doc.name,
@@ -352,8 +405,8 @@ export function createLibrary(options: {
       failed: "failed",
     }[status];
     db.run(
-      "UPDATE documents SET tagging_status = ?, tagging_error_kind = ?, tagging_error_message = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
-      [tagging, error?.kind ?? null, error?.message ?? null, now(), id],
+      "UPDATE documents SET tagging_status = ?, tagging_error_kind = ?, tagging_error_message = ?, tagging_error_resets_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+      [tagging, error?.kind ?? null, error?.message ?? null, error?.resetsAt ?? null, now(), id],
     );
   };
   const state = (id: string, status: ClassificationStatus, error?: ProviderError) => {
@@ -378,7 +431,7 @@ export function createLibrary(options: {
       [now(), id],
     );
     db.run(
-      "UPDATE documents SET tagging_status = 'stopped', tagging_error_kind = NULL, tagging_error_message = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+      "UPDATE documents SET tagging_status = 'stopped', tagging_error_kind = NULL, tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
       [now(), id],
     );
     options.tagged([id]);
@@ -472,7 +525,14 @@ export function createLibrary(options: {
     } catch {
       return;
     }
-    if (!hasContent(doc) || !assignment(id)) return;
+    const current = assignment(id);
+    if (!current) return;
+    if (!hasContent(doc)) {
+      const waits = scanWaits(doc);
+      const saidSo = current.error_wording?.includes("error.library.scanImagesOff") === true;
+      if (current.status !== "classified" && !!waits !== saidSo) state(id, "waiting", waits);
+      return;
+    }
     queued.add(id);
     background.add({
       kind: "classification",
@@ -488,7 +548,7 @@ export function createLibrary(options: {
           if (!initial || initial.status === "classified") return;
           const current = document(id);
           if (!hasContent(current)) {
-            state(id, "waiting");
+            state(id, "waiting", scanWaits(current));
             return;
           }
           const definitions = groups();
@@ -499,6 +559,16 @@ export function createLibrary(options: {
           }
           if (taggingStoppedFor(id) && !asked.has(id)) {
             stopped(id);
+            return;
+          }
+          const limitedUntil = options.rateLimit.pausedUntil();
+          if (limitedUntil !== null) {
+            state(id, "waiting", rateLimitError(limitedUntil));
+            return;
+          }
+          const refusal = options.rateLimit.refusal();
+          if (refusal !== null) {
+            state(id, "waiting", refusal);
             return;
           }
           state(id, "classifying");
@@ -521,6 +591,7 @@ export function createLibrary(options: {
             images,
           );
           if (stale()) return;
+          options.rateLimit.succeeded();
           const latest = document(id);
           if (!hasContent(latest) || latest.content_hash !== current.content_hash) {
             state(id, "pending");
@@ -554,14 +625,25 @@ export function createLibrary(options: {
         } catch (error) {
           if (!stale()) {
             if (error instanceof NotFoundError) return;
-            // The ChatGPT plan's limit: it waits for the plan to reset (see ./planPace).
+            const limitedUntil = options.rateLimit.pause(error);
+            const refused = limitedUntil === null ? options.rateLimit.refuse(error) : null;
+            // The plan's limit: it waits for the plan to reset (see ./planPace).
             const waiting =
+              limitedUntil !== null ||
+              refused !== null ||
               error instanceof ChatNotReadyError ||
               error instanceof ConsentDeclinedError ||
               error instanceof ConsentNeededError ||
+              gateStop(error) !== null ||
               error instanceof TaggingNotReadyError ||
-              isPlanLimit(error);
-            state(id, waiting ? "waiting" : "failed", classifyProviderError(error));
+              reachedPlanLimit(error);
+            state(
+              id,
+              waiting ? "waiting" : "failed",
+              limitedUntil === null
+                ? (refused ?? classifyProviderError(error))
+                : rateLimitError(limitedUntil, error),
+            );
           }
         } finally {
           if (!lifetime.signal.aborted) {
@@ -636,6 +718,14 @@ export function createLibrary(options: {
   return {
     settings: getSettings,
     taggingStoppedFor,
+    /**
+     * Whether Organize holds the Document's Tags: it has an assignment that isn't finished (queued,
+     * running, waiting or failed), or, while Organize files new Documents by itself, any assignment.
+     */
+    isOrganizing(id: string): boolean {
+      const held = assignment(id);
+      return !!held && (getSettings().automatic || held.status !== "classified");
+    },
     taggingPlaces(): (string | null)[] {
       const ids = db
         .all<{ id: string }>(
@@ -649,9 +739,8 @@ export function createLibrary(options: {
     },
     /**
      * Stops automatic Tagging with AI in these places, or turns it back on.
-     * Turned back on while Organize tags, their stopped Documents are
-     * organized as the User asked, even with automatic Organize off;
-     * otherwise automatic tagging picks them up.
+     * Turned back on while Organize tags new Documents, their stopped Documents
+     * are organized; otherwise automatic tagging picks them up.
      */
     setTaggingStopped(places: readonly (string | null)[], stop: boolean): void {
       if (stop) for (const place of places) if (place !== null) group(place);
@@ -659,9 +748,9 @@ export function createLibrary(options: {
       const taggingStopped = stop
         ? [...new Set([...before.taggingStopped, ...places])]
         : before.taggingStopped.filter((each) => !places.includes(each));
-      settings.writeDeviceValue("library", { ...before, taggingStopped });
+      settings.writeDeviceValue("library", { ...savedSettings(), taggingStopped });
       changed();
-      if (stop || !organizeModelOf(before) || groups().length === 0) return;
+      if (stop || !before.automatic || !organizeModelOf(before) || groups().length === 0) return;
       const ids = db
         .all<{ id: string }>(
           "SELECT id FROM documents WHERE deleted_at IS NULL AND tagging_status = 'stopped'",
@@ -720,7 +809,20 @@ export function createLibrary(options: {
           `SELECT ${GROUP_COLUMNS} FROM library_groups WHERE deleted_at IS NOT NULL ORDER BY name COLLATE NOCASE, id`,
         )
         .map(toGroup);
-      return { groups: groups(), deletedGroups, assignments, settings: getSettings() };
+      const saved = savedSettings();
+      return {
+        groups: groups(),
+        deletedGroups,
+        assignments,
+        settings: shownSettings(saved),
+        automaticDefault: defaultAutomatic(saved),
+        automaticOffNotice: automaticOffNotice(),
+      };
+    },
+    dismissAutomaticOffNotice(): void {
+      if (settings.readDeviceValue(AUTOMATIC_OFF_NOTICE) !== true) return;
+      settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
+      changed();
     },
     /** A live Folder, or NotFoundError. */
     folder: group,
@@ -907,11 +1009,18 @@ export function createLibrary(options: {
         if (!isRecord(each)) throw new InvalidInputError("Choose a classifier.");
         checkClassifier(each);
       }
+      // A save that leaves the switch where it shows doesn't set it: it goes on following the model.
+      const before = savedSettings();
+      const showing = before.automatic ?? !options.usesCloud(before);
+      const setByUser = before.automatic !== null || input.automatic !== showing;
+      if (setByUser && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
+        settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
+      }
       settings.writeDeviceValue("library", {
         classifier: automaticChosen ? AUTOMATIC : chosen,
-        automatic: input.automatic,
+        ...(setByUser && { automatic: input.automatic }),
         organizeWith,
-        taggingStopped: getSettings().taggingStopped,
+        taggingStopped: before.taggingStopped,
       });
       revision++;
       changed();
@@ -999,6 +1108,14 @@ export function createLibrary(options: {
       const status = previous.status === "classifying" ? "pending" : previous.status;
       db.transaction(() => {
         write(doc, previous.groupId, previous.source, status, previous.model, previous.suggested);
+        // Taking back a rejection brings the Folder back among those Organize may offer again.
+        if (previous.suggested && previous.groupId) {
+          const at = now();
+          db.run(
+            "UPDATE document_group_rejections SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND group_id = ? AND deleted_at IS NULL",
+            [at, at, doc.id, previous.groupId],
+          );
+        }
         if (previous.filedAt !== undefined)
           db.run(
             "UPDATE document_groups SET filed_at = ? WHERE document_id = ? AND deleted_at IS NULL",
@@ -1018,7 +1135,8 @@ export function createLibrary(options: {
       });
       options.tagged([doc.id]);
       announce([doc.id]);
-      resume();
+      // A Document put back as waiting waits as it did: resuming now would organize it again at once (#1391).
+      if (status === "pending") resume();
     },
     // A new request id makes a run already under way for these Documents stale.
     accept(input: unknown): AssignmentChange[] {
@@ -1067,6 +1185,26 @@ export function createLibrary(options: {
           (doc.status === "no-text" || doc.status === "failed")
         )
           state(id, "classified");
+        // A scan whose page images may not go yet is left unsorted, with the reason.
+        const waits = scanWaits(doc);
+        if (
+          waits &&
+          existing?.source !== "user" &&
+          getSettings().automatic &&
+          groups().length > 0 &&
+          !taggingStoppedFor(id) &&
+          (!existing || existing.content_hash !== doc.content_hash)
+        ) {
+          write(
+            doc,
+            existing?.group_id ?? null,
+            existing?.source ?? "automatic",
+            "waiting",
+            null,
+            false,
+          );
+          state(id, "waiting", waits);
+        }
         return;
       }
       if (

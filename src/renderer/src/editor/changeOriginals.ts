@@ -71,7 +71,12 @@ export function rewrittenSections(
       .find((each) => each.node.type.name === "heading" && Number(each.node.attrs.level) <= level);
     const from = pos + node.nodeSize;
     const to = next?.pos ?? doc.content.size;
-    const members = blocks.filter((block) => block.pos >= from && block.pos < to);
+    // A Block an applied edit removed has no room left in `doc`: one that ended the section sits at its end.
+    const members = blocks.filter(
+      (block) =>
+        block.pos >= from &&
+        (block.pos < to || (block.pos === to && block.how === "removed" && !removedInDoc)),
+    );
     const removedApart = removedInDoc
       ? 0
       : members.filter((block) => block.how === "removed").length;
@@ -130,15 +135,20 @@ export function sectionLine(t: Translate, section: RewrittenSection, shown: bool
 /** What shows a section's old text: its heading's key, marked as the section's. */
 export const sectionKey = (section: RewrittenSection) => `${section.heading.key}:section`;
 
+/** The section a Block reads as part of, if it does. */
+export const sectionOf = (
+  block: ChangedBlock,
+  sections: readonly RewrittenSection[],
+): RewrittenSection | null =>
+  sections.find((section) => section.heading === block || section.members.includes(block)) ?? null;
+
 /** Whether a Block's old text shows: its own line opened it, or its section's. */
 export function originalShown(
   block: ChangedBlock,
   sections: readonly RewrittenSection[],
   shown: ReadonlySet<string>,
 ): { inSection: RewrittenSection | null; shown: boolean } {
-  const inSection =
-    sections.find((section) => section.heading === block || section.members.includes(block)) ??
-    null;
+  const inSection = sectionOf(block, sections);
   return {
     inSection,
     shown: inSection ? shown.has(sectionKey(inSection)) : shown.has(block.key),

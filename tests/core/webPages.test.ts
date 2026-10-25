@@ -219,7 +219,7 @@ describe("Saving a web page", { timeout: 30_000 }, () => {
     });
     await expect(
       core.saveWebPage({ address: site.url("/cha"), folderId: "no-such-folder" }),
-    ).rejects.toThrow("That Folder doesn't exist or has been deleted.");
+    ).rejects.toThrow("That Folder doesn’t exist or has been deleted.");
   });
 
   test("a page that can't be fetched, or is mostly not text, says why, and nothing is added", async () => {

@@ -1,10 +1,12 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Document, DocumentPlace, LayoutTab } from "../../../../core/api";
 import { citedTextKept } from "../../../../shared/citations";
 import { useT } from "../../i18n";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
+import { SelectionMenu } from "../../viewer/SelectionMenu";
+import { type SelectionReader, SelectionReaderContext } from "../../viewer/selectedText";
 import { type ViewerFrame, ViewerFrameContext, ViewerHeader } from "../../viewer/ViewerHeader";
 import { DocumentRemoved } from "../../viewer/ViewerMessage";
 
@@ -15,21 +17,29 @@ const KEEP_AFTER_SCROLL_PX = 120;
  * What the viewer shows of a Document's file, as a key that changes when
  * there is something new to show, so the view reads the file again: a new
  * version, once it is indexed (its `contentHash`), or the file back after it
- * went missing or out of reach. A file that goes while it is shown leaves
+ * went missing or out of reach, or a PDF recovers with its last good bytes (#1954).
+ * A file that goes while it is shown leaves
  * what was read of it on screen. A Transcript reads its file again itself as
  * lines arrive, so a new version doesn't start it afresh (#136).
  */
 function useFileKey(document: Document | undefined): string {
   const id = document?.id;
   const available = document?.fileStatus === "available";
+  const ready = document?.kind === "pdf" && document.status === "ready";
+  const version = document?.kind === "transcript" ? "" : document?.contentHash;
   const [returns, setReturns] = useState(0);
-  const last = useRef({ id, available });
+  const last = useRef({ id, available, ready, version });
   useEffect(() => {
     const before = last.current;
-    if (before.id === id && available && !before.available) setReturns((count) => count + 1);
-    last.current = { id, available };
-  }, [id, available]);
-  const version = document?.kind === "transcript" ? "" : document?.contentHash;
+    if (
+      before.id === id &&
+      available &&
+      (!before.available || (ready && !before.ready && version === before.version))
+    ) {
+      setReturns((count) => count + 1);
+    }
+    last.current = { id, available, ready, version };
+  }, [id, available, ready, version]);
   return `${id}:${version}:${returns}`;
 }
 
@@ -149,12 +159,16 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
       document,
       preview,
       keep: () => void useAppStore.getState().changeLayout({ type: "keep", tabId }),
+      target,
     }),
-    [document, preview, tabId],
+    [document, preview, tabId, target],
   );
   const fileKey = useFileKey(document);
   const places = usePlaceMemory(target);
   const [section, setSection] = useState<HTMLElement | null>(null);
+  const [reader, setReader] = useState<SelectionReader | null>(null);
+  // A reader is a function: kept as one, not called as an update.
+  const lendReader = useCallback((lent: SelectionReader | null) => setReader(() => lent), []);
   useKeepOnReading(section, tab.id, tab.preview);
 
   return (
@@ -177,8 +191,13 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
             // Keyed, so another Document, or a new read of its file, starts afresh (the last one
             // goes at once). While its view loads, the header alone: the page comes a moment later.
             <Suspense key={fileKey} fallback={<ViewerHeader />}>
-              <DocumentView document={document} target={target} />
+              <SelectionReaderContext.Provider value={lendReader}>
+                <DocumentView document={document} target={target} />
+              </SelectionReaderContext.Provider>
             </Suspense>
+          )}
+          {document && reader && (
+            <SelectionMenu document={document} section={section} reader={reader} />
           )}
         </PlaceMemoryContext.Provider>
       </ViewerFrameContext.Provider>

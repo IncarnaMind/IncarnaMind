@@ -49,7 +49,7 @@ const WORDS = {
     notes: ["Spring tides come at new and full moon.", "Neap tides come at the quarter moons."],
     first: "new and full moon",
     second: "the quarter moons",
-    drop: "Don't ask about this",
+    drop: "Don’t ask about this",
     steps: "Read your selection in “Tide notes”",
     whole: "Read “Tide notes”",
     question: "Explain what I selected",

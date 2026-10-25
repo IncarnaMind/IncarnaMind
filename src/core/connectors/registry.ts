@@ -13,7 +13,8 @@ import type {
   ExternalService,
 } from "../api";
 import type { Consent } from "../consent";
-import { ConsentDeclinedError, isRecord } from "../errors";
+import { ConsentDeclinedError, ConsentRevokedError, isRecord, LocalModeError } from "../errors";
+import { createSendGate } from "../sendGate";
 
 export const REGISTRY: ExternalService = {
   id: "https://registry.modelcontextprotocol.io",
@@ -126,6 +127,7 @@ export interface ConnectorRegistryOptions {
 }
 
 export function createConnectorRegistry({ baseUrl, consent, localOnly }: ConnectorRegistryOptions) {
+  const gate = createSendGate(consent, localOnly);
   return {
     /**
      * Searches the Registry for what the User typed, asking them first the
@@ -137,12 +139,14 @@ export function createConnectorRegistry({ baseUrl, consent, localOnly }: Connect
       if (localOnly()) return { outcome: "failed", reason: "local-mode" };
       try {
         await consent.ensure("connector-registry", REGISTRY);
+        gate.check("connector-registry", REGISTRY);
       } catch (error) {
-        if (error instanceof ConsentDeclinedError) return { outcome: "failed", reason: "declined" };
+        if (error instanceof ConsentDeclinedError || error instanceof ConsentRevokedError) {
+          return { outcome: "failed", reason: "declined" };
+        }
+        if (error instanceof LocalModeError) return { outcome: "failed", reason: "local-mode" };
         throw error;
       }
-      // Local mode may have come on while the User was being asked.
-      if (localOnly()) return { outcome: "failed", reason: "local-mode" };
       const url = new URL("/v0.1/servers", baseUrl);
       url.searchParams.set("search", words);
       url.searchParams.set("version", "latest");

@@ -3,6 +3,7 @@
  * when the app is launched with INCARNAMIND_TEST_HOOKS=1.
  */
 import type { DocumentLocation } from "./documentViewer";
+import type { PanelName } from "./panels";
 
 export interface TestHooks {
   /**
@@ -21,6 +22,11 @@ export interface TestHooks {
    * does, once their paths are known: a test can't drop a folder.
    */
   addPaths(paths: string[]): Promise<void>;
+  /**
+   * Makes a part of the window fail while it draws, as an error in it would (#1500): it shows
+   * "This panel stopped working" with Reload, and the rest stays.
+   */
+  failPanel(name: PanelName): void;
   /**
    * The command registry as plain data, for the conformance spec (e2e/conformance.spec.ts):
    * the menu groups in order, each kind's menu as command IDs with their sections, and what
@@ -41,6 +47,13 @@ export interface TestHooks {
    * usually takes (15 seconds), so a test needn't wait for it.
    */
   setSilentWaitMs(ms: number): void;
+  /** Home's Coming up shows these meetings, as a calendar would give them. */
+  setComingUp(meetings: { id: string; title: string; start: string }[]): void;
+  /**
+   * While true, the citation style picker's list of every style doesn't arrive, as on a slow
+   * computer: it finds only the common styles until this is set back to false.
+   */
+  holdStyleCatalogue(hold: boolean): void;
   /** How many animations are running, leaving copies of closed menus included: settled at 0. */
   motionRunning(): number;
   /** Plays every animation at this speed (0.25: four times slower), so a test can act during one. */

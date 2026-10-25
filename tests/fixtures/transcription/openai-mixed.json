@@ -1,0 +1,1344 @@
+{
+  "service": "openai",
+  "model": "gpt-live-transcribe",
+  "recorded": "2026-10-19",
+  "events": [
+    {
+      "type": "session.updated"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " When",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " you",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " call",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " someone",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " who",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " is",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " thousands",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " of",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " miles",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " away",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": ",",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " you",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " are",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " using",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " a",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "previous_item_id": null
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": " satellite",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "delta": ".",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUOXekS2FrZNQXc0LuYz",
+      "transcript": "When you call someone who is thousands of miles away, you are using a satellite.",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "报告",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "警",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "告",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "称",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "，",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "没有",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "人",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "能",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "保证",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "目前",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "在",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "伊",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "拉",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "克",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "采取",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "的",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "任何",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "previous_item_id": "item_EaUOXekS2FrZNQXc0LuYz"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "delta": "行动",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUOjFxmw0Wo3cnbunqrk",
+      "transcript": "报告警告称，没有人能保证目前在伊拉克采取的任何行动",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "能够",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "阻",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "止",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "宗",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "派",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "战争",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "不断",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "增长",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "的",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "暴",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "力",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "或",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "走",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "向",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "previous_item_id": "item_EaUOjFxmw0Wo3cnbunqrk"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "混",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "乱",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "delta": "。",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUOpGtXODP5rMv2eMl8g",
+      "transcript": "能够阻止宗派战争不断增长的暴力或走向混乱。",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " Now",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " widely",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " available",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " throughout",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " the",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " arch",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": "ipelago",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": ",",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " Japanese",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " cuisine",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " features",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " an",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " array",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " of",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " simply",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " seasoned",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " dishes",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": ",",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " the",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " predominant",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " flavor",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": "ings",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " the",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " Japanese",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " favor",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " being",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " peanuts",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": ",",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " chil",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": "ies",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": ",",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " sugar",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": ",",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " especially",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " Japanese",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " coconut",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " sugar",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": ",",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " and",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " various",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " aromatic",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "previous_item_id": "item_EaUOpGtXODP5rMv2eMl8g"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": " spices",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "delta": ".",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUOyuQt4RJwwtuiXjgPl",
+      "transcript": "Now widely available throughout the archipelago, Japanese cuisine features an array of simply seasoned dishes, the predominant flavorings the Japanese favor being peanuts, chilies, sugar, especially Japanese coconut sugar, and various aromatic spices.",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "因为",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "远",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "离",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "大陆",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "，",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "哺",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "乳",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "动物",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "无法",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "长",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "途",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "跋",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "涉",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "而",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "来",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "，",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "使",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "得",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "巨",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "龟",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "成为",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "克",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "隆",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "群",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "岛",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "主要",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "的",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "previous_item_id": "item_EaUOyuQt4RJwwtuiXjgPl"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "食",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "草",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "动物",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "delta": "。",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUPGwXXqz2QnqmLasK8R",
+      "transcript": "因为远离大陆，哺乳动物无法长途跋涉而来，使得巨龟成为克隆群岛主要的食草动物。",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " The",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " UN",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " also",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " hopes",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " to",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " finalize",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " a",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " fund",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " to",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " help",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " countries",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " affected",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " by",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " global",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " warming",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " to",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " cope",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " with",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " the",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "previous_item_id": "item_EaUPGwXXqz2QnqmLasK8R"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": " impacts",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "delta": ".",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUPPc5HIK13tHPSjqwKM",
+      "transcript": "The UN also hopes to finalize a fund to help countries affected by global warming to cope with the impacts.",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "信",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "和",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "也是",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "地",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "球",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "上",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "最",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "宽",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "的",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "河",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "流",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "，",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "有",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "些",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "河",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "段",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "的",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "宽",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "度",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "可",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "达",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "previous_item_id": "item_EaUPPc5HIK13tHPSjqwKM"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "六",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "英",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "里",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "delta": "。",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUPatW0OqSg6a0sixpi4",
+      "transcript": "信和也是地球上最宽的河流，有些河段的宽度可达六英里。",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " Then",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " like",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " I",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " said",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " to",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " lead",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " in",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " singing",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " the",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "previous_item_id": "item_EaUPatW0OqSg6a0sixpi4"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "delta": " passions",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUPiRDj7diNUEf8m8p4O",
+      "transcript": "Then like I said to lead in singing the passions",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "家",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "南",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "没有",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "打",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "森林",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "。",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "所以",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "木",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "材",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "非常",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "previous_item_id": "item_EaUPiRDj7diNUEf8m8p4O"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "昂",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "贵",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "delta": "。",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUPq4LkGupWjktDv7phh",
+      "transcript": "家南没有打森林。所以木材非常昂贵。",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "delta": " The",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "delta": " major",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "delta": " religion",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "delta": " in",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "delta": " Moldova",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "delta": " is",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "delta": " Orthodox",
+      "content_index": 0
+    },
+    {
+      "type": "input_audio_buffer.committed",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "previous_item_id": "item_EaUPq4LkGupWjktDv7phh"
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "delta": " Christian",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.delta",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "delta": ".",
+      "content_index": 0
+    },
+    {
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_EaUPzpKGvLkoKbsXEJeA2",
+      "transcript": "The major religion in Moldova is Orthodox Christian.",
+      "content_index": 0
+    }
+  ]
+}

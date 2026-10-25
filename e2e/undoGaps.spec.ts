@@ -12,6 +12,7 @@ import {
   launchApp,
   linkedFolderRow,
   linkFolderFromSidebar,
+  motionRunning,
   motionSettled,
   newMind,
   openLinkedFolderMenu,
@@ -19,14 +20,16 @@ import {
   removeDataFolder,
   renameInTab,
   setLanguage,
+  setMotionSpeed,
   setWindowSize,
   showSourceLocations,
   sidebarFolder,
+  tabMenu,
 } from "./app";
 
 /*
  * Undo, the remaining gaps (#606): a Mind made from a Document, in a Folder, with ⌘N or the
- * sidebar's + is taken back by ⌘Z to Recently deleted and made again by ⇧⌘Z; a run of typing in
+ * sidebar's + says nothing and leaves nothing for ⌘Z to take back (Delete does); a run of typing in
  * a multi-line field is one step; pausing a Linked folder and changing its layout are taken
  * back. Each is checked in the core, through the bridge. Set INCARNAMIND_SCREENSHOTS to a folder
  * to also save screenshots.
@@ -76,32 +79,6 @@ const deletedMindIds = (window: Page) =>
     (await core.listDeleted()).filter((item) => item.kind === "mind").map((item) => item.id),
   );
 
-/** Runs a command that makes a Mind, and gives the Mind it made. */
-async function madeBy(window: Page, make: () => Promise<void>, line: string): Promise<string> {
-  const before = await mindIds(window);
-  await make();
-  await expect(undoMessage(window)).toHaveText(line);
-  await expect.poll(async () => (await mindIds(window)).length).toBe(before.length + 1);
-  const made = (await mindIds(window)).find((id) => !before.includes(id));
-  if (!made) throw new Error("No Mind was made.");
-  return made;
-}
-
-/** ⌘Z sends the Mind to Recently deleted and ⇧⌘Z makes it again, twice over, with the line each time. */
-async function takenBackAndMadeAgain(window: Page, made: string, line: string): Promise<void> {
-  const withIt = await mindIds(window);
-  for (let round = 0; round < 2; round++) {
-    await leaveText(window);
-    await undo(window);
-    await expect.poll(() => mindIds(window)).toEqual(withIt.filter((id) => id !== made));
-    expect(await deletedMindIds(window)).toContain(made);
-    await redo(window);
-    await expect.poll(() => mindIds(window)).toEqual(withIt);
-    expect(await deletedMindIds(window)).not.toContain(made);
-    await expect(undoMessage(window)).toHaveText(line);
-  }
-}
-
 const documentRow = (window: Page, name: string) =>
   window.getByTestId("document-list-item").filter({ hasText: name });
 
@@ -118,102 +95,90 @@ async function startWithADocument(language: "en" | "zh-CN" = "en") {
   const { window } = running;
   await dismissChatSetup(window);
   await writeFile(join(sources, "Tides.txt"), "Neap tides are the smallest of the month.\n");
-  await addDocuments(window, [join(sources, "Tides.txt")]);
+  // Added by the core, not through the sidebar's picker, which leaves a step of its own for ⌘Z.
+  const path = join(sources, "Tides.txt");
+  await (await coreOf(window)).evaluate(async (core, file) => core.addDocuments([file]), path);
+  await expect(window.getByTestId("document-list-item")).toHaveAttribute("data-status", "ready");
   await read(window, (core) => core.createLibraryGroup({ name: "Finance", description: "" }));
   if (language !== "en") await setLanguage(window, language);
   return running;
 }
 
-test("Ask about a Document with no Mind to ask in, Start a Mind from it, New Mind here, ⌘N and +: each is taken back to Recently deleted by ⌘Z and made again by ⇧⌘Z, twice over", async () => {
-  const { window } = await startWithADocument();
-  const made = "Made a new Mind";
-
-  // With no Mind, asking about a Document makes one.
-  const asked = await madeBy(
-    window,
-    () => documentMenuCommand(window, "Tides", "document.ask"),
-    made,
-  );
-  await takenBackAndMadeAgain(window, asked, made);
-
-  const started = await madeBy(
-    window,
-    () => documentMenuCommand(window, "Tides", "document.startMind"),
-    "Started “Tides”",
-  );
-  await takenBackAndMadeAgain(window, started, "Started “Tides”");
-
-  const finance = sidebarFolder(window, "Finance");
-  const here = await madeBy(
-    window,
-    async () => {
-      await finance.getByTestId("folder-row").click({ button: "right" });
-      await finance.getByTestId("folder.newMind").click();
-    },
-    made,
-  );
-  expect(await read(window, async (core) => (await core.listMinds()).length)).toBe(3);
-  await takenBackAndMadeAgain(window, here, made);
-
-  const byKeys = await madeBy(window, () => window.keyboard.press("ControlOrMeta+n"), made);
-  await takenBackAndMadeAgain(window, byKeys, made);
-
-  const byPlus = await madeBy(window, () => newMind(window), made);
-  await takenBackAndMadeAgain(window, byPlus, made);
-});
-
-const LINES = {
-  en: { started: "Started “Tides”", made: "Made a new Mind" },
-  "zh-CN": { started: "已新建“Tides”", made: "已新建 Mind" },
-} as const;
-
-for (const language of ["en", "zh-CN"] as const) {
-  test(`the line of a Mind made holds at 900 and 1,600px, in ${language}`, async () => {
-    const { app, window } = await startWithADocument(language);
-    const lines = LINES[language];
-    await documentMenuCommand(window, "Tides", "document.startMind");
-    await expect(undoMessage(window)).toHaveText(lines.started);
-    await screenshot(window, `start-a-mind-${language}-1600`);
-    await setWindowSize(app, window, 900, 660);
-    await leaveText(window);
-    await undo(window);
-    await redo(window);
-    await expect(undoMessage(window)).toHaveText(lines.started);
-    await expect(window.getByTestId("undo-line")).toBeInViewport();
-    await screenshot(window, `start-a-mind-${language}-900`);
-
-    const finance = sidebarFolder(window, "Finance");
-    await finance.getByTestId("folder-row").click({ button: "right" });
-    await finance.getByTestId("folder.newMind").click();
-    await expect(undoMessage(window)).toHaveText(lines.made);
-    await leaveText(window);
-    await undo(window);
-    await expect(window.getByTestId("sidebar").getByTestId("mind-row")).toHaveCount(1);
-  });
+async function madeQuietly(window: Page, make: () => Promise<void>): Promise<string> {
+  const before = await mindIds(window);
+  await make();
+  await expect.poll(async () => (await mindIds(window)).length).toBe(before.length + 1);
+  await expect(undoMessage(window)).toHaveCount(0);
+  await leaveText(window);
+  await undo(window);
+  expect((await mindIds(window)).length).toBe(before.length + 1);
+  expect(await deletedMindIds(window)).toHaveLength(0);
+  const made = (await mindIds(window)).find((id) => !before.includes(id));
+  if (!made) throw new Error("No Mind was made.");
+  return made;
 }
 
-test("⌘N twice in a row makes two Minds, and ⌘Z twice and ⇧⌘Z twice take them back and make them again, one at a time", async () => {
+test("Ask about a Document with no Mind to ask in, New Mind here, ⌘N, + and Start a Mind from a Document: each makes a Mind with no line and nothing for ⌘Z to take back", async () => {
+  const { window } = await startWithADocument();
+
+  // With no Mind, asking about a Document makes one.
+  await madeQuietly(window, () => documentMenuCommand(window, "Tides", "document.ask"));
+
+  const finance = sidebarFolder(window, "Finance");
+  await madeQuietly(window, async () => {
+    await finance.getByTestId("folder-row").click({ button: "right" });
+    await finance.getByTestId("folder.newMind").click();
+  });
+  expect(await read(window, async (core) => (await core.listMinds()).length)).toBe(2);
+
+  await madeQuietly(window, () => window.keyboard.press("ControlOrMeta+n"));
+  await madeQuietly(window, () => newMind(window));
+
+  // Named after the Document, it is no more news than one with no name.
+  await madeQuietly(window, () => documentMenuCommand(window, "Tides", "document.startMind"));
+});
+
+test("a line already showing follows a switch of language, in its words and its Undo", async () => {
+  const { window } = await startWithADocument();
+  const undoButton = window.getByTestId("undo-action");
+  const started = await madeQuietly(window, () =>
+    documentMenuCommand(window, "Tides", "document.startMind"),
+  );
+
+  // A line of plain words, with Undo's accessible name: Undo still takes the change back.
+  const font = async () =>
+    (await coreOf(window)).evaluate(
+      async (core, mindId) => (await core.getMindStyle(mindId)).font,
+      started,
+    );
+  const menu = await tabMenu(window);
+  await pointAndClick(window, menu.getByTestId("mind.style"));
+  await pointAndClick(window, window.getByTestId("mind-style-font-serif"));
+  await expect(undoMessage(window)).toHaveText("Font changed to Serif");
+  await expect.poll(font).toBe("serif");
+  await setLanguage(window, "zh-CN");
+  await expect(undoMessage(window)).toHaveText("字体已改为“衬线”");
+  await expect(undoButton).toHaveText("撤销");
+  await expect(undoButton).toHaveAttribute("aria-label", /衬线/);
+  await pointAndClick(window, undoButton);
+  await expect.poll(font).toBe("default");
+});
+
+test("⌘N twice in a row makes two Minds with no line, and ⌘Z takes neither back: Delete does", async () => {
   const { window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await window.keyboard.press("ControlOrMeta+n");
   await window.keyboard.press("ControlOrMeta+n");
   await expect.poll(() => mindIds(window)).toHaveLength(2);
-  const both = await mindIds(window);
+  await expect(undoMessage(window)).toHaveCount(0);
 
   await leaveText(window);
   await undo(window);
-  await expect.poll(() => mindIds(window)).toHaveLength(1);
-  await undo(window);
-  await expect.poll(() => mindIds(window)).toHaveLength(0);
-  expect((await deletedMindIds(window)).sort()).toEqual(both);
-  await redo(window);
-  await expect.poll(() => mindIds(window)).toHaveLength(1);
-  await redo(window);
-  await expect.poll(() => mindIds(window)).toEqual(both);
+  expect(await mindIds(window)).toHaveLength(2);
   expect(await deletedMindIds(window)).toHaveLength(0);
 });
 
-test("a Mind made, then written in, goes to Recently deleted with its text, and comes back with it", async () => {
+test("a Mind made, then written in, goes to Recently deleted with its text when deleted, and ⌘Z brings it back with it", async () => {
   const { window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await newMind(window);
@@ -223,16 +188,13 @@ test("a Mind made, then written in, goes to Recently deleted with its text, and 
   await window.keyboard.type("Ferries run at noon");
   await expect(editor).toContainText("Ferries run at noon");
 
-  // The rename is the last step, then the Mind: the text goes with it, and is kept.
+  await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.delete"));
+  await expect.poll(() => mindIds(window)).toHaveLength(0);
+  expect(await deletedMindIds(window)).toHaveLength(1);
   await leaveText(window);
   await undo(window);
   await expect.poll(() => mindIds(window)).toHaveLength(1);
-  await undo(window);
-  await expect.poll(() => mindIds(window)).toHaveLength(0);
-  expect(await deletedMindIds(window)).toHaveLength(1);
-  await redo(window);
-  await redo(window);
-  await expect.poll(() => mindIds(window)).toHaveLength(1);
+  await pointAndClick(window, window.getByTestId("mind-list-item"));
   await expect(frontMindName(window)).toHaveText("Ferries");
   await expect(window.getByTestId("mind-editor")).toContainText("Ferries run at noon");
 });
@@ -260,6 +222,7 @@ test("typing in a multi-line field is one step: a form in a dialog, and a form i
 
   // A dialog: the addresses of web pages.
   await window.getByTestId("plus-menu").click();
+  await window.getByTestId("plus-more").click();
   await window.getByTestId("plus-add-web-page").click();
   const dialog = window.getByTestId("add-web-page-dialog");
   await typedWordIsOneStep(window, dialog.getByTestId("add-web-page-addresses"), "");
@@ -272,10 +235,32 @@ test("typing in a multi-line field is one step: a form in a dialog, and a form i
   await typedWordIsOneStep(window, description, "Rent");
 });
 
+// protects=one Undo takes back a whole word typed while a menu's closing copy is still fading, which
+// leaves the page mid-word; fails_when=that copy's removal ends the typing run (#1140).
+test("typing while a closed menu is still fading is one step, though its copy would leave mid-word", async () => {
+  const { window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await setMotionSpeed(window, 0.2);
+  await window.getByTestId("plus-menu").click();
+  await window.getByTestId("plus-more").click();
+  await window.getByTestId("plus-add-web-page").click();
+  const addresses = window.getByTestId("add-web-page-dialog").getByTestId("add-web-page-addresses");
+  await pointAndClick(window, addresses);
+  await window.keyboard.type("ti");
+  await expect.poll(() => motionRunning(window)).toBe(0);
+  await window.keyboard.type("des");
+  await expect(addresses).toHaveValue("tides");
+  await undo(window);
+  await expect(addresses).toHaveValue("");
+  await redo(window);
+  await expect(addresses).toHaveValue("tides");
+});
+
 test("Chinese typed by an input method into a multi-line field is one step too", async () => {
   const { window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await window.getByTestId("plus-menu").click();
+  await window.getByTestId("plus-more").click();
   await window.getByTestId("plus-add-web-page").click();
   const addresses = window.getByTestId("add-web-page-dialog").getByTestId("add-web-page-addresses");
   await pointAndClick(window, addresses);
@@ -314,7 +299,7 @@ async function linkPapers(window: Page, app: ElectronApplication) {
   return { row: linkedFolderRow(window, "Papers"), linked };
 }
 
-test("pausing a Linked folder and showing it as a flat list: ⌘Z sets it back as it was, ⇧⌘Z does it again, with the line in English and Chinese", async () => {
+test("pausing a Linked folder: ⌘Z sets it back as it was, ⇧⌘Z does it again, with the line in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const { row, linked } = await linkPapers(window, app);
@@ -334,17 +319,6 @@ test("pausing a Linked folder and showing it as a flat list: ⌘Z sets it back a
   await undo(window);
   await expect.poll(async () => (await linked())?.status).toBe("watching");
 
-  await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.layout").click();
-  await expect(undoMessage(window)).toHaveText("Showing “Papers” as a flat list");
-  expect((await linked())?.layout).toBe("flat");
-  await leaveText(window);
-  await undo(window);
-  await expect.poll(async () => (await linked())?.layout).toBe("tree");
-  await redo(window);
-  await expect.poll(async () => (await linked())?.layout).toBe("flat");
-  await undo(window);
-  await expect.poll(async () => (await linked())?.layout).toBe("tree");
-
   await setLanguage(window, "zh-CN");
   await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.pause").click();
   await expect(undoMessage(window)).toHaveText("已暂停读取“Papers”");
@@ -357,8 +331,6 @@ test("pausing a Linked folder and showing it as a flat list: ⌘Z sets it back a
   await screenshot(window, "pause-a-linked-folder-zh-1600");
   await undo(window);
   await expect.poll(async () => (await linked())?.status).toBe("watching");
-  await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.layout").click();
-  await expect(undoMessage(window)).toHaveText("已将“Papers”显示为平铺列表");
 });
 
 test("quitting between the change and its Undo leaves the change made, and ⌘Z in the next launch takes back nothing", async () => {
@@ -367,20 +339,15 @@ test("quitting between the change and its Undo leaves the change made, and ⌘Z 
   const { row } = await linkPapers(first.window, first.app);
   await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.pause").click();
   await expect(undoMessage(first.window)).toHaveText("Paused reading in “Papers”");
-  await newMind(first.window);
-  await expect(undoMessage(first.window)).toHaveText("Made a new Mind");
   await first.app.close();
 
   const { window } = await launchApp(dataDir);
   await showSourceLocations(window);
-  expect(await mindIds(window)).toHaveLength(1);
   await expect
     .poll(() => read(window, async (core) => (await core.listLinkedFolders())[0]?.status))
     .toBe("paused");
   await leaveText(window);
   await undo(window);
   await expect(undoMessage(window)).toHaveCount(0);
-  expect(await mindIds(window)).toHaveLength(1);
-  expect(await deletedMindIds(window)).toHaveLength(0);
   expect((await read(window, (core) => core.listLinkedFolders()))[0]?.status).toBe("paused");
 });

@@ -73,6 +73,21 @@ export function toFloat(samples: Int16Array): Float32Array {
   return out;
 }
 
+/** One stream's audio raised towards `TARGET_PEAK` by its recent level (see `MAX_GAIN`), chunk by chunk. */
+export function createLeveler(): (samples: Float32Array) => Float32Array {
+  let recent = 0;
+  return (samples) => {
+    let peak = 0;
+    for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+    const decay = 0.5 ** (samples.length / samplesOf(LEVEL_HALF_LIFE_MS));
+    recent = Math.max(peak, recent * decay);
+    if (recent === 0) return samples;
+    const gain = Math.min(MAX_GAIN, Math.max(1, TARGET_PEAK / recent));
+    if (gain === 1) return samples;
+    return samples.map((sample) => Math.max(-1, Math.min(1, sample * gain)));
+  };
+}
+
 interface Job {
   stream: string;
   id: number;
@@ -92,8 +107,7 @@ interface Stream {
   keptLength: number;
   /** The speech in progress: its id, and where it was first heard. */
   speech: { id: number; start: number; lastPartial: number } | null;
-  /** The recent peak, before the gain. */
-  level: number;
+  level: (samples: Float32Array) => Float32Array;
   nextId: number;
   /** Final decodes queued or running, by where they start. */
   unfinished: Set<number>;
@@ -125,18 +139,6 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       at = end;
     }
     return out;
-  }
-
-  /** The samples raised towards `TARGET_PEAK` by the stream's recent level (see `MAX_GAIN`). */
-  function level(stream: Stream, samples: Float32Array): Float32Array {
-    let peak = 0;
-    for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
-    const decay = 0.5 ** (samples.length / samplesOf(LEVEL_HALF_LIFE_MS));
-    stream.level = Math.max(peak, stream.level * decay);
-    if (stream.level === 0) return samples;
-    const gain = Math.min(MAX_GAIN, Math.max(1, TARGET_PEAK / stream.level));
-    if (gain === 1) return samples;
-    return samples.map((sample) => Math.max(-1, Math.min(1, sample * gain)));
   }
 
   function keep(stream: Stream, samples: Float32Array): void {
@@ -261,7 +263,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
         keptFrom: 0,
         keptLength: 0,
         speech: null,
-        level: 0,
+        level: createLeveler(),
         nextId: 1,
         unfinished: new Set(),
         finishing: null,
@@ -277,7 +279,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       if (closed || samples.length === 0) return;
       const stream = streamOf(name);
       if (stream.finishing) return;
-      const leveled = level(stream, samples);
+      const leveled = stream.level(samples);
       stream.detector.accept(leveled);
       keep(stream, leveled);
       stream.received += leveled.length;

@@ -1,11 +1,13 @@
 /**
- * Tagging on a ChatGPT plan: the plan's limits are ChatGPT's own, so
- * tagging takes one Document at a time, its requests spaced, and when the
- * plan's limit is reached it waits for it to reset, sending nothing meanwhile.
- * Through the core, against the fake OpenAI the plan's own tests use.
+ * Tagging on a plan, the ChatGPT plan or a Claude account's: the plan's
+ * limits are ChatGPT's or Claude's own, so tagging takes one Document at a
+ * time, its requests spaced, and when the plan's limit is reached it waits for
+ * it to reset, sending nothing meanwhile, as Organize does. Each Document that
+ * waits says when the plan resets, when the plan said. Through the core,
+ * against the fake OpenAI and the fake Anthropic the plans' own tests use.
  */
-import { describe, expect, test, vi } from "vitest";
-import { type Core, createAiSdkChatModel } from "../../src/core";
+import { describe, expect, onTestFinished, test, vi } from "vitest";
+import { type Core, createAiSdkChatModel, type Document } from "../../src/core";
 import { PLAN_PACE } from "../../src/core/library/planPace";
 import type { PaceTimers } from "../../src/core/sources/pace";
 import { createFakeBrowser, type FakeOpenAI, startFakeOpenAI } from "../helpers/chatgpt";
@@ -13,9 +15,17 @@ import {
   createMemoryKeychain,
   createTempDataFolder,
   manualClock,
+  nextTurn,
   startCore,
+  turnOnAutomaticTagging,
 } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import {
+  createFakeAnthropic,
+  createFakeClaudeBrowser,
+  type FakeAnthropic,
+} from "../helpers/fakeAnthropic";
+import { createFakeGitHub, createRecordingBrowser } from "../helpers/fakeGitHub";
 import { waitForTagging } from "../helpers/tags";
 
 const LIMIT = {
@@ -80,9 +90,10 @@ async function onPlan() {
   });
   expect((await core.signInToChatGpt()).ok).toBe(true);
   core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
-  await core.saveChatProvider({ kind: "chatgpt", modelId: "gpt-6.1-sol" });
+  const provider = await core.saveChatProvider({ kind: "chatgpt", modelId: "gpt-6.1-sol" });
+  await turnOnAutomaticTagging(core);
   fake.reply = { kind: "answer", text: JSON.stringify({ tags: [] }) };
-  return { core, fake, pacing };
+  return { core, fake, pacing, provider };
 }
 
 async function add(core: Core, names: readonly string[]) {
@@ -136,6 +147,12 @@ describe("Tagging on a ChatGPT plan", () => {
     // One request met the limit; the others never went.
     expect(tagging(fake)).toHaveLength(1);
     expect((await core.getTaggingModels()).planPausedUntil).toEqual(expect.any(String));
+    // OpenAI didn't say when the limit resets, so no Document says so: the wait is IncarnaMind's.
+    expect(waiting.map((each) => each.taggingError?.resetsAt)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
 
     // A re-tag while it waits sends nothing either: it never retries in a loop.
     await core.retagDocuments(ids);
@@ -146,6 +163,35 @@ describe("Tagging on a ChatGPT plan", () => {
     // The limit resets: tagging goes on by itself.
     fake.reply = { kind: "answer", text: JSON.stringify({ tags: [] }) };
     pacing.advance(PLAN_PACE.firstWaitMs);
+    await waitForTagging(core, ids);
+    expect(tagging(fake)).toHaveLength(4);
+    expect((await core.getTaggingModels()).planPausedUntil).toBeNull();
+  });
+
+  test("when the plan says when its limit resets, every Document waiting says so, one re-tagged meanwhile too, and tagging goes on then", async () => {
+    const { core, fake, pacing } = await onPlan();
+    const resets = pacing.timers.now() + 2 * 60 * 60_000;
+    fake.reply = {
+      kind: "error",
+      status: 429,
+      body: { error: { ...LIMIT.error, resets_at: resets / 1000 } },
+    };
+    const documents = await add(core, ["One", "Two", "Three"]);
+    const ids = documents.map((each) => each.id);
+    const at = new Date(resets).toISOString();
+    const saysWhen = (each: Document) =>
+      each.tagging === "waiting-for-provider" &&
+      each.taggingError?.kind === "plan-limit" &&
+      each.taggingError.resetsAt === at;
+    await waitForTagging(core, ids, saysWhen);
+    expect((await core.getTaggingModels()).planPausedUntil).toBe(at);
+
+    await core.retagDocuments(ids);
+    await waitForTagging(core, ids, saysWhen);
+    expect(tagging(fake)).toHaveLength(1);
+
+    fake.reply = { kind: "answer", text: JSON.stringify({ tags: [] }) };
+    pacing.advance(resets - pacing.timers.now());
     await waitForTagging(core, ids);
     expect(tagging(fake)).toHaveLength(4);
     expect((await core.getTaggingModels()).planPausedUntil).toBeNull();
@@ -167,5 +213,199 @@ describe("Tagging on a ChatGPT plan", () => {
     // Not over yet after another first wait: it doubled.
     pacing.advance(PLAN_PACE.firstWaitMs);
     expect(pacing.held()).toBe(1);
+  });
+});
+
+describe("Organize on a ChatGPT plan", () => {
+  test("on the plan's limit, the Documents it files wait, each saying when the plan resets, and it files them then", async () => {
+    const { core, fake, pacing, provider } = await onPlan();
+    await core.createLibraryGroup({ name: "Reports", description: "Reports" });
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "gpt-6-luna" } },
+      automatic: true,
+    });
+    const resets = pacing.timers.now() + 60 * 60_000;
+    fake.reply = {
+      kind: "error",
+      status: 429,
+      body: { error: { ...LIMIT.error, resets_at: resets / 1000 } },
+    };
+    const documents = await add(core, ["One", "Two"]);
+    const ids = documents.map((each) => each.id);
+    const at = new Date(resets).toISOString();
+    await waitForTagging(
+      core,
+      ids,
+      (each) =>
+        each.tagging === "waiting-for-provider" &&
+        each.taggingError?.kind === "plan-limit" &&
+        each.taggingError.resetsAt === at,
+    );
+    const filing = async () =>
+      (await core.getLibrary()).assignments.filter((each) => ids.includes(each.documentId));
+    expect(await filing()).toEqual(
+      ids.map(() =>
+        expect.objectContaining({
+          status: "waiting",
+          error: expect.objectContaining({ kind: "plan-limit" }),
+        }),
+      ),
+    );
+    const organizing = () =>
+      fake.responses().filter((request) => JSON.stringify(request.body).includes("document_group"));
+    expect(organizing()).toHaveLength(1);
+
+    fake.reply = {
+      kind: "answer",
+      text: JSON.stringify({ groupId: "__unsorted__", tags: [] }),
+    };
+    pacing.advance(resets - pacing.timers.now());
+    await vi.waitFor(async () =>
+      expect((await filing()).map((each) => each.status)).toEqual(["classified", "classified"]),
+    );
+    expect(organizing()).toHaveLength(3);
+  });
+});
+
+/** Signed in with a Claude account, whose Claude Sonnet 5.5 answers Questions, with every consent accepted. */
+async function onClaudePlan() {
+  const clock = manualClock();
+  const fake = await createFakeAnthropic();
+  onTestFinished(() => fake.close());
+  const browser = createFakeClaudeBrowser(fake);
+  const pacing = pacingClock();
+  const core = startCore(await createTempDataFolder(), {
+    keychain: createMemoryKeychain(),
+    browser,
+    now: clock.now,
+    createChatModel: createAiSdkChatModel,
+    claudeAccount: fake.profile("page"),
+    paceTimers: pacing.timers,
+  });
+  const signIn = core.signInToClaude();
+  await vi.waitFor(() => expect(browser.opened).toHaveLength(1));
+  await nextTurn();
+  expect(await core.pasteClaudeSignInAddress(browser.shown?.code ?? "")).toEqual({ ok: true });
+  expect(await signIn).toMatchObject({ ok: true });
+  core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
+  await core.saveChatProvider({ kind: "claude-account", modelId: "claude-sonnet-5-5" });
+  await turnOnAutomaticTagging(core);
+  fake.answer = JSON.stringify({ tags: [] });
+  return { core, fake, pacing };
+}
+
+const claudeTagging = (fake: FakeAnthropic) =>
+  fake.messages.filter((request) => JSON.stringify(request.body).includes("names of the Tags"));
+
+describe("Tagging on a Claude plan", () => {
+  test("Automatic tags with Claude Haiku 5.5, one Document at a time, its requests spaced", async () => {
+    const { core, fake, pacing } = await onClaudePlan();
+    expect((await core.getTaggingModels()).automatic).toMatchObject({ name: "Claude Haiku 5.5" });
+    const documents = await add(core, ["One", "Two", "Three"]);
+    await waitForTagging(
+      core,
+      documents.map((each) => each.id),
+    );
+    const sent = claudeTagging(fake);
+    expect(sent.map((request) => request.body.model)).toEqual([
+      "claude-haiku-5-5",
+      "claude-haiku-5-5",
+      "claude-haiku-5-5",
+    ]);
+    expect(pacing.short).toEqual([PLAN_PACE.gapMs, PLAN_PACE.gapMs]);
+  });
+
+  test("on the plan's limit, Documents wait, nothing more is sent, and tagging goes on once it resets", async () => {
+    const { core, fake, pacing } = await onClaudePlan();
+    const resets = Date.parse("2026-10-11T10:00:00.000Z");
+    fake.replies.push({
+      kind: "error",
+      status: 429,
+      headers: {
+        "anthropic-ratelimit-unified-status": "rejected",
+        "anthropic-ratelimit-unified-reset": String(resets / 1000),
+      },
+      body: JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "" } }),
+    });
+    const documents = await add(core, ["One", "Two", "Three"]);
+    const ids = documents.map((each) => each.id);
+    const waiting = await waitForTagging(
+      core,
+      ids,
+      (each) => each.tagging === "waiting-for-provider",
+    );
+    const at = new Date(resets).toISOString();
+    expect(waiting.map((each) => each.taggingError)).toEqual(
+      ids.map(() => expect.objectContaining({ kind: "plan-limit", resetsAt: at })),
+    );
+    expect((await core.getTaggingModels()).planPausedUntil).toBe(at);
+    expect(claudeTagging(fake)).toHaveLength(1);
+    expect(pacing.held()).toBe(1);
+
+    pacing.advance(60 * 60_000);
+    await waitForTagging(core, ids);
+    expect(claudeTagging(fake)).toHaveLength(4);
+    expect((await core.getTaggingModels()).planPausedUntil).toBeNull();
+  });
+
+  test("when Claude doesn't say when its limit resets, no Document says so, and tagging tries again after its own wait", async () => {
+    const { core, fake, pacing } = await onClaudePlan();
+    fake.replies.push({
+      kind: "error",
+      status: 429,
+      headers: { "anthropic-ratelimit-unified-status": "rejected" },
+      body: JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "" } }),
+    });
+    const documents = await add(core, ["One", "Two"]);
+    const ids = documents.map((each) => each.id);
+    const waiting = await waitForTagging(
+      core,
+      ids,
+      (each) => each.tagging === "waiting-for-provider",
+    );
+    expect(waiting.map((each) => each.taggingError?.kind)).toEqual(["plan-limit", "plan-limit"]);
+    expect(waiting.map((each) => each.taggingError?.resetsAt)).toEqual([undefined, undefined]);
+    expect((await core.getTaggingModels()).planPausedUntil).toBe(
+      new Date(pacing.timers.now() + PLAN_PACE.firstWaitMs).toISOString(),
+    );
+
+    pacing.advance(PLAN_PACE.firstWaitMs);
+    await waitForTagging(core, ids);
+    expect(claudeTagging(fake)).toHaveLength(3);
+  });
+});
+
+describe("Tagging on a Copilot plan", () => {
+  test("the plan's limit fails the Document, for Retry, rather than waiting: Copilot's is a monthly allowance", async () => {
+    const fake = await createFakeGitHub();
+    onTestFinished(() => fake.close());
+    const core = startCore(await createTempDataFolder(), {
+      keychain: createMemoryKeychain(),
+      browser: createRecordingBrowser(),
+      createChatModel: createAiSdkChatModel,
+      copilotProfiles: { own: fake.profile("own"), editor: fake.profile("editor") },
+    });
+    const signIn = core.signInToCopilot({});
+    await vi.waitFor(async () => expect((await core.getCopilot()).deviceCode).not.toBeNull());
+    fake.approve();
+    expect(await signIn).toMatchObject({ ok: true });
+    core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
+    await core.saveChatProvider({ kind: "copilot", modelId: "gpt-5.5" });
+    await turnOnAutomaticTagging(core);
+    fake.replies.push({
+      kind: "error",
+      status: 402,
+      body: JSON.stringify({ error: { message: "You have no premium requests left." } }),
+    });
+
+    const [document] = await add(core, ["One"]);
+    if (!document) throw new Error("Nothing was added.");
+    const [settled] = await waitForTagging(
+      core,
+      [document.id],
+      (each) => each.tagging === "failed" || each.tagging === "waiting-for-provider",
+    );
+
+    expect(settled).toMatchObject({ tagging: "failed", taggingError: { kind: "plan-limit" } });
   });
 });

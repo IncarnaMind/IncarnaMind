@@ -254,7 +254,7 @@ describe("outside agents", () => {
       arguments: { documentId: budget.id },
     });
     expect(fromStart.isError).toBe(true);
-    expect(resultText(fromStart)).toMatch(/no such Passage, Document, Mind or Citation/);
+    expect(resultText(fromStart)).toMatch(/No such Passage, Document, Mind or Citation/);
 
     const listed = structured<{ folders: { id: string; name: string }[] }>(
       await agent.callTool({ name: "list_minds", arguments: {} }),
@@ -283,7 +283,7 @@ describe("outside agents", () => {
     const again = await connectLegacyAgent(launch);
     const refused = await again.callTool({ name: "search", arguments: { query: "tides" } });
     expect(refused.isError).toBe(true);
-    expect(resultText(refused)).toMatch(/isn’t connected to IncarnaMind any more/);
+    expect(resultText(refused)).toMatch(/no longer connected/);
     await expect(core.getAgentLaunch(pairing.id)).rejects.toThrow();
   });
 

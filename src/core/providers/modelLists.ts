@@ -16,6 +16,7 @@
  * model can do (Anthropic's capabilities and limits, Ollama's and LM Studio's
  * capabilities), that is kept as the server's word on it (see ./capabilities).
  */
+import { APICallError } from "ai";
 import type { ChatProviderKind, OtherModel } from "../api";
 import { isRecord } from "../errors";
 import type { ModelFactsLayer } from "./capabilities";
@@ -60,7 +61,16 @@ export interface ListedModel {
 
 async function getJson(url: string, headers: Record<string, string>): Promise<unknown> {
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) {
+    // As a model request's refusal, so a Test can say whose side failed (a refused key, a wrong address).
+    throw new APICallError({
+      message: `HTTP ${response.status}`,
+      url,
+      requestBodyValues: undefined,
+      statusCode: response.status,
+      responseBody: await response.text().catch(() => ""),
+    });
+  }
   return response.json();
 }
 
@@ -306,27 +316,32 @@ async function fetchModels({ kind, baseUrl, apiKey, endpoint, catalogId }: Model
   }
 }
 
-/** The models a provider lists: the menu's first, then `other`, each sorted; empty if it can't be reached. */
+/** The models a provider lists: the menu's first, then `other`, each sorted. Throws when it can't be asked. */
+export async function fetchProviderModels(spec: ModelListSpec): Promise<ListedModel[]> {
+  const catalogId = modelsProviderOfKind(spec.kind, spec.endpoint, spec.catalogId);
+  const byId = new Map<string, ListedModel>();
+  for (const model of await fetchModels(spec)) {
+    if (!byId.has(model.id) && !isNonChatModel(catalogId, model.id)) byId.set(model.id, model);
+  }
+  const ids = new Set(byId.keys());
+  const sorted = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const classified = sorted.map((model): ListedModel => {
+    const other =
+      spec.kind === "chatgpt"
+        ? undefined
+        : otherModel(catalogId, model.id, ids, model.shuttingDown);
+    return other ? { ...model, other } : model;
+  });
+  return [
+    ...classified.filter((model) => !model.other).slice(0, MAX_MENU_MODELS),
+    ...classified.filter((model) => model.other).slice(0, MAX_MENU_MODELS),
+  ];
+}
+
+/** Empty when it can't be reached. */
 export async function listProviderModels(spec: ModelListSpec): Promise<ListedModel[]> {
   try {
-    const catalogId = modelsProviderOfKind(spec.kind, spec.endpoint, spec.catalogId);
-    const byId = new Map<string, ListedModel>();
-    for (const model of await fetchModels(spec)) {
-      if (!byId.has(model.id) && !isNonChatModel(catalogId, model.id)) byId.set(model.id, model);
-    }
-    const ids = new Set(byId.keys());
-    const sorted = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
-    const classified = sorted.map((model): ListedModel => {
-      const other =
-        spec.kind === "chatgpt"
-          ? undefined
-          : otherModel(catalogId, model.id, ids, model.shuttingDown);
-      return other ? { ...model, other } : model;
-    });
-    return [
-      ...classified.filter((model) => !model.other).slice(0, MAX_MENU_MODELS),
-      ...classified.filter((model) => model.other).slice(0, MAX_MENU_MODELS),
-    ];
+    return await fetchProviderModels(spec);
   } catch {
     return [];
   }

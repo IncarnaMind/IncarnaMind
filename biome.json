@@ -14,7 +14,8 @@
       "*.ts",
       "*.json",
       "!**/package-lock.json",
-      "!tests/fixtures/web"
+      "!tests/fixtures/web",
+      "!tests/fixtures/formats/*.html"
     ]
   },
   "formatter": {

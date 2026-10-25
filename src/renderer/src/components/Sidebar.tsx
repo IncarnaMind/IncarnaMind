@@ -1,36 +1,19 @@
 import type { ClipboardEvent, ReactNode } from "react";
-import { shortcutLabel } from "../commands/keymap";
-import { commands } from "../commands/registry";
-import { TableIcon } from "../editor/icons";
-import { useFindSources } from "../findSources";
 import { useFirstOpen } from "../firstOpen";
 import { useT } from "../i18n";
-import { canRecordMeetings } from "../meetings";
 import { usePruneSelection } from "../selection";
-import { useAppStore } from "../store";
 import { linksIn, useWebPages } from "../webPages";
 import { CopiedLine } from "./CopiedLine";
 import { DocumentsSection } from "./DocumentsSection";
-import {
-  AppMark,
-  DocumentLineIcon,
-  FindSourcesLineIcon,
-  FolderLineIcon,
-  FolderPlusLineIcon,
-  MindLineIcon,
-  PlusLineIcon,
-  RecordingLineIcon,
-  SettingsLineIcon,
-  VerifyLineIcon,
-} from "./lineIcons";
+import { AppMark, PlusLineIcon, SettingsLineIcon } from "./lineIcons";
+import { NewMenu } from "./NewMenu";
 import { NudgeSlot } from "./NudgeSlot";
 import { SidebarSelection } from "./SidebarSelection";
 import { SidebarStatus } from "./SidebarStatus";
 import { SidebarToggle } from "./SidebarToggle";
 import { rowButtonClass, rowClass, rowIconClass } from "./sidebarRows";
 import { UndoLine } from "./UndoLine";
-import { iconButtonClass, menuClass, menuItemClass, menuRuleClass } from "./ui";
-import { usePopoverMenu } from "./usePopoverMenu";
+import { iconButtonClass } from "./ui";
 
 /**
  * The sidebar, on the frame: a 44px header like every pane's (the window's
@@ -57,7 +40,7 @@ export function Sidebar({ width, onOpenSettings }: { width: number; onOpenSettin
       onPaste={pasteLinks}
     >
       <SidebarHeader>
-        <PlusMenu />
+        <NewMenu />
       </SidebarHeader>
 
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -135,168 +118,4 @@ function pasteLinks(event: ClipboardEvent<HTMLElement>) {
   event.preventDefault();
   const folder = target?.closest('[data-testid="library-folder"]')?.getAttribute("data-folder-id");
   void useWebPages.getState().add(addresses, folder ?? null);
-}
-
-/**
- * The one "+" menu, the one place to add: New Mind, Import a Word file…,
- * Record a meeting (once Meetings are turned on), Compare Documents…, Verify
- * a document…, New Folder,
- * Add Documents…, Add a web page…,
- * Find sources… and Link a folder…. Opened by keyboard or mouse, its items
- * are menu items reached with the arrow keys.
- */
-function PlusMenu() {
-  const t = useT();
-  const menu = usePopoverMenu();
-  const createMind = useAppStore((state) => state.createMind);
-  const pickDocuments = useAppStore((state) => state.pickDocuments);
-  const picking = useAppStore((state) => state.pickingDocuments);
-  const addLinkedFolder = useAppStore((state) => state.addLinkedFolder);
-  const meetingsOn = useAppStore((state) => canRecordMeetings(state.settings));
-  const reportError = useAppStore((state) => state.reportError);
-
-  /** Closes the menu, then does it. */
-  const choose = (action: () => void) => () => {
-    menu.close();
-    action();
-  };
-
-  return (
-    <>
-      <button
-        {...menu.buttonProps}
-        type="button"
-        data-testid="plus-menu"
-        aria-label={t("sidebar.plus")}
-        title={t("sidebar.plus")}
-        className={`${iconButtonClass} text-ink-secondary`}
-      >
-        <PlusLineIcon className="size-4" />
-      </button>
-      <div
-        {...menu.menuProps}
-        role="menu"
-        aria-label={t("sidebar.plus")}
-        data-testid="plus-menu-items"
-        className={menuClass}
-      >
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-new-mind"
-          onClick={choose(() => void createMind({ titled: true }))}
-          className={`${menuItemClass} pl-2`}
-        >
-          <MindLineIcon className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("sidebar.newMind")}</span>
-          <span className="pl-4 text-[13px] text-ink-meta">{shortcutLabel("tab.new")}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-import-word"
-          onClick={choose(() => void commands.run("word.import").catch(reportError))}
-          className={`${menuItemClass} pl-2`}
-        >
-          <DocumentLineIcon kind="docx" className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("wordImport.command")}</span>
-        </button>
-        {meetingsOn && (
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="plus-record-meeting"
-            onClick={choose(() => void commands.run("meeting.record").catch(reportError))}
-            className={`${menuItemClass} pl-2`}
-          >
-            <RecordingLineIcon className="size-4 shrink-0 text-ink-meta" />
-            <span className="flex-1">{t("meetings.record")}</span>
-          </button>
-        )}
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-compare-documents"
-          onClick={choose(() => void commands.run("comparison.start").catch(reportError))}
-          className={`${menuItemClass} pl-2`}
-        >
-          <TableIcon className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("command.compareDocuments")}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-verify-document"
-          onClick={choose(() => void commands.run("verify.document").catch(reportError))}
-          className={`${menuItemClass} pl-2`}
-        >
-          <VerifyLineIcon className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("verify.command")}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-new-folder"
-          onClick={choose(() => void commands.run("folder.new").catch(reportError))}
-          className={`${menuItemClass} pl-2`}
-        >
-          <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("menu.newFolder")}</span>
-          <span className="pl-4 text-[13px] text-ink-meta">{shortcutLabel("folder.new")}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-starter-folders"
-          onClick={choose(() => void commands.run("folder.starters").catch(reportError))}
-          className={`${menuItemClass} pl-2`}
-        >
-          <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("folder.fromStarters")}</span>
-        </button>
-        <div className={menuRuleClass} />
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-add-documents"
-          disabled={picking}
-          onClick={choose(() => void pickDocuments())}
-          className={`${menuItemClass} pl-2`}
-        >
-          <PlusLineIcon className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("sidebar.plus.addDocuments")}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-add-web-page"
-          onClick={choose(() => void commands.run("webPage.add").catch(reportError))}
-          className={`${menuItemClass} pl-2`}
-        >
-          <DocumentLineIcon kind="web" className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("sidebar.plus.addWebPage")}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-find-sources"
-          onClick={choose(() => useFindSources.getState().show())}
-          className={`${menuItemClass} pl-2`}
-        >
-          <FindSourcesLineIcon className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("sidebar.plus.findSources")}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="plus-link-folder"
-          onClick={choose(() => void addLinkedFolder())}
-          className={`${menuItemClass} pl-2`}
-        >
-          <FolderPlusLineIcon className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("sidebar.plus.linkFolder")}</span>
-        </button>
-      </div>
-    </>
-  );
 }

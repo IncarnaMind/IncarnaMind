@@ -3,11 +3,11 @@ import { modelName } from "../../../shared/modelName";
 import { searchesTheWeb } from "../../../shared/webSearch";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
+import { InfoTip } from "./InfoTip";
 import { providerLabel } from "./providers/shared";
 import {
   hintClass,
   rowStatusClass,
-  rowTextClass,
   rowTitleClass,
   ruledListClass,
   ruledRowClass,
@@ -47,12 +47,12 @@ export function WebSearchSettings() {
       <div className={ruledListClass}>
         <div className={ruledRowClass}>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <label htmlFor={id} className={rowTitleClass}>
-              {t("web.settings.switch")}
-            </label>
-            <p id={`${id}-description`} className={rowTextClass}>
-              {t("web.settings.body")}
-            </p>
+            <div className="flex items-center">
+              <label htmlFor={id} className={rowTitleClass}>
+                {t("web.settings.switch")}
+              </label>
+              <InfoTip id={`${id}-description`} text={t("web.settings.tip")} />
+            </div>
             {on && status && (
               <p data-testid="web-search-status" role="status" className={hintClass}>
                 {status}
@@ -73,8 +73,10 @@ export function WebSearchSettings() {
         </div>
         <div className={ruledRowClass}>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <p className={rowTitleClass}>{t("web.settings.route")}</p>
-            <p className={rowTextClass}>{t("web.settings.route.hint")}</p>
+            <div className="flex items-center">
+              <p className={rowTitleClass}>{t("web.settings.route")}</p>
+              <InfoTip text={t("web.settings.route.tip")} />
+            </div>
           </div>
           <p data-testid="web-search-route" className={`shrink-0 ${rowStatusClass}`}>
             {t("web.settings.route.model")}

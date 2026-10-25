@@ -4,24 +4,41 @@
  * The desktop app runs the engine in an Electron utility process
  * (src/main/transcriber.ts); the evaluation and the tests run it in this one.
  *
- * Requests: { type: "load", id, model }, { type: "audio", stream, samples },
- * { type: "finish", id, stream } and { type: "drop", stream }. The other end
- * answers a load or a finish with { type: "done", id } or { type: "error",
- * id, message }, and reports { type: "segment", segment }, { type:
- * "progress", stream, doneMs }, { type: "failed", stream, message } and
- * { type: "switched", change } as they happen.
+ * Requests: { type: "load", id, model }, { type: "open", stream, cloud },
+ * { type: "audio", stream, samples }, { type: "finish", id, stream } and
+ * { type: "drop", stream }. The other end answers a load or a finish with
+ * { type: "done", id } or { type: "error", id, message }, and reports
+ * { type: "segment", segment }, { type: "progress", stream, doneMs },
+ * { type: "failed", stream, message }, { type: "switched", change },
+ * { type: "lost", stream, loss } and { type: "opened", stream } as they happen.
+ *
+ * A stream opened with a cloud service (#141) goes to it instead of the engine, from the same
+ * process: OpenAI's live model needs Silero VAD, which runs here.
  */
 import type {
+  CloudLoss,
+  CloudStream,
   EngineSwitch,
   SpeechSegment,
   Transcriber,
   TranscriberListener,
   TranscriptionModelFiles,
 } from "../adapters";
-import { createSpeechHost, type SpeechEngine, type SpeechHost, toFloat } from "./speech";
+import { createOpenAiStream } from "./cloud/openai";
+import type { CloudConnect } from "./cloud/socket";
+import { createSonioxStream } from "./cloud/soniox";
+import type { CloudStreamHandle } from "./cloud/stream";
+import {
+  createSpeechHost,
+  type SpeechEngine,
+  type SpeechHost,
+  toFloat,
+  type VoiceDetector,
+} from "./speech";
 
 export type TranscriberRequest =
   | { type: "load"; id: number; model: TranscriptionModelFiles }
+  | { type: "open"; stream: string; cloud: CloudStream }
   | { type: "audio"; stream: string; samples: Int16Array }
   | { type: "finish"; id: number; stream: string }
   | { type: "drop"; stream: string };
@@ -32,7 +49,9 @@ export type TranscriberResponse =
   | { type: "segment"; segment: SpeechSegment }
   | { type: "progress"; stream: string; doneMs: number }
   | { type: "failed"; stream: string; message: string }
-  | { type: "switched"; change: EngineSwitch };
+  | { type: "switched"; change: EngineSwitch }
+  | { type: "lost"; stream: string; loss: CloudLoss }
+  | { type: "opened"; stream: string };
 
 /** A running process that serves the engine, as the side that sends requests sees it. */
 export interface TranscriberChannel {
@@ -54,6 +73,8 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
   let channel: TranscriberChannel | undefined;
   let loadedKey: string | undefined;
   let loading: { key: string; done: Promise<void> } | undefined;
+  /** Streams going to a cloud service: they need no engine loaded. */
+  const clouds = new Set<string>();
   const pending = new Map<number, Pending>();
   const listeners: TranscriberListener[] = [];
   let nextId = 1;
@@ -82,12 +103,20 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
         case "switched":
           for (const listener of listeners) listener.switched(response.change);
           return;
+        case "lost":
+          clouds.delete(response.stream);
+          for (const listener of listeners) listener.lost(response.stream, response.loss);
+          return;
+        case "opened":
+          for (const listener of listeners) listener.opened(response.stream);
+          return;
       }
     });
     started.onExit((code) => {
       if (channel !== started) return;
       channel = undefined;
       loadedKey = undefined;
+      clouds.clear();
       const reason = `The transcription process stopped (exit code ${code}).`;
       const error = new Error(reason);
       for (const waiting of pending.values()) waiting.reject(error);
@@ -126,19 +155,27 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
       await loading.done;
     },
 
+    open(stream, cloud) {
+      channel ??= open();
+      clouds.add(stream);
+      channel.send({ type: "open", stream, cloud });
+    },
+
     push(stream, samples) {
-      if (!channel || loadedKey === undefined || samples.length === 0) return;
+      if (!channel || samples.length === 0) return;
+      if (loadedKey === undefined && !clouds.has(stream)) return;
       channel.send({ type: "audio", stream, samples });
     },
 
     finish(stream) {
-      if (!channel || loadedKey === undefined) {
+      if (!channel || (loadedKey === undefined && !clouds.has(stream))) {
         return Promise.reject(new Error("The transcription model isn't loaded."));
       }
       return request({ type: "finish", stream });
     },
 
     drop(stream) {
+      clouds.delete(stream);
       channel?.send({ type: "drop", stream });
     },
 
@@ -150,9 +187,17 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
       const stopping = channel;
       channel = undefined;
       loadedKey = undefined;
+      clouds.clear();
       stopping?.stop();
     },
   };
+}
+
+/** What the serving end needs for streams that go to a cloud service. */
+export interface CloudServing {
+  connect: CloudConnect;
+  /** Silero VAD from its file, for OpenAI's turns. */
+  detectors(vadFile: string): Promise<() => VoiceDetector>;
 }
 
 /** The serving end's connection to the side that sends requests. */
@@ -168,6 +213,7 @@ export interface TranscriberPort {
 export function serveTranscriber(
   createEngine: (model: TranscriptionModelFiles) => Promise<SpeechEngine>,
   port: TranscriberPort,
+  cloud?: CloudServing,
 ): void {
   let host: SpeechHost | undefined;
   let loadedKey: string | undefined;
@@ -180,9 +226,71 @@ export function serveTranscriber(
     failed: (stream: string, message: string) => port.respond({ type: "failed", stream, message }),
   };
   const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+  /** Cloud streams, each once its connection is made: requests for one wait for it, in order. */
+  const clouds = new Map<string, Promise<CloudStreamHandle | null>>();
+  const detectors = new Map<string, Promise<() => VoiceDetector>>();
+
+  async function openCloud(stream: string, config: CloudStream): Promise<CloudStreamHandle | null> {
+    const lost = (loss: CloudLoss) => {
+      clouds.delete(stream);
+      port.respond({ type: "lost", stream, loss });
+    };
+    if (!cloud) {
+      lost("dropped");
+      return null;
+    }
+    const streamReport = {
+      segment: report.segment,
+      progress: (doneMs: number) => report.progress(stream, doneMs),
+      lost,
+      opened: () => port.respond({ type: "opened", stream }),
+    };
+    const options = {
+      stream,
+      model: config.model,
+      apiKey: config.apiKey,
+      connect: cloud.connect,
+      report: streamReport,
+    };
+    if (config.service === "soniox") return createSonioxStream(options);
+    try {
+      let made = detectors.get(config.vad);
+      if (!made) {
+        made = cloud.detectors(config.vad);
+        detectors.set(config.vad, made);
+        made.catch(() => detectors.delete(config.vad));
+      }
+      return createOpenAiStream({ ...options, detector: (await made)() });
+    } catch (error) {
+      // The process has no logger of its own: its output goes to the app's log.
+      console.error("Silero VAD couldn't load for a cloud stream:", messageOf(error));
+      lost("dropped");
+      return null;
+    }
+  }
 
   port.onRequest((request) => {
+    const handle = "stream" in request ? clouds.get(request.stream) : undefined;
+    if (handle) {
+      switch (request.type) {
+        case "audio":
+          void handle.then((each) => each?.push(request.samples));
+          return;
+        case "finish":
+          void handle
+            .then((each) => each?.finish())
+            .then(() => port.respond({ type: "done", id: request.id }));
+          return;
+        case "drop":
+          clouds.delete(request.stream);
+          void handle.then((each) => each?.drop());
+          return;
+      }
+    }
     switch (request.type) {
+      case "open":
+        clouds.set(request.stream, openCloud(request.stream, request.cloud));
+        return;
       case "load":
         ready = ready.then(async () => {
           try {

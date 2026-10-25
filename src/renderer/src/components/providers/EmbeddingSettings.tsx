@@ -14,7 +14,7 @@ import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { DetailsLine } from "../DetailsLine";
+import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
 import {
   buttonClass,
@@ -31,12 +31,10 @@ import {
   ghostButtonClass,
   hintClass,
   inputClass,
-  noticeClass,
   pageIntroClass,
   primaryButtonClass,
   rowButtonsClass,
   rowTextClass,
-  rowTitleClass,
   ruledListClass,
   ruledRowClass,
   successTextClass,
@@ -103,7 +101,7 @@ export function embeddingProviderLabel(provider: EmbeddingProvider, t: Translate
  * Settings → Search: embeddings, off by default, or the embedding
  * model search uses (the built-in one, or a provider chosen instead),
  * turning them on or off or switching model with a warning, its error and
- * rebuild, and local mode.
+ * rebuild.
  */
 export function EmbeddingSettingsSection() {
   const t = useT();
@@ -167,66 +165,10 @@ export function EmbeddingSettingsSection() {
             )}
           </div>
         </div>
-        <LocalOnlySetting localOnly={embedding.localOnly} />
       </div>
 
       {editing && <EmbeddingForm current={embedding} onDone={() => setEditing(false)} />}
     </section>
-  );
-}
-
-/** "Keep everything on this computer", and what it doesn't cover. */
-function LocalOnlySetting({ localOnly }: { localOnly: boolean }) {
-  const t = useT();
-  const id = useId();
-  const readiness = useAppStore((state) => state.chatReadiness);
-  const [busy, setBusy] = useState(false);
-  const chatService = readiness && "provider" in readiness ? readiness.provider.service : null;
-
-  const change = async (enabled: boolean) => {
-    setBusy(true);
-    try {
-      useAppStore.setState({ embedding: await core.setLocalOnly(enabled) });
-    } catch (failure) {
-      useAppStore.getState().reportError(failure);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className={ruledRowClass}>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <label htmlFor={id} className={rowTitleClass}>
-          {t("embeddingProviders.localOnly.label")}
-        </label>
-        <DetailsLine
-          id={`${id}-description`}
-          testId="embedding-local-only-description"
-          className={rowTextClass}
-          details={t("embeddingProviders.localOnly.body.details")}
-        >
-          {t("embeddingProviders.localOnly.body")}
-        </DetailsLine>
-        {localOnly && chatService && (
-          <p className={`mt-1.5 ${noticeClass}`}>
-            {t("embeddingProviders.localOnly.cloudChat", { service: chatService.name })}
-          </p>
-        )}
-      </div>
-      <input
-        id={id}
-        type="checkbox"
-        role="switch"
-        data-testid="local-only"
-        aria-describedby={`${id}-description`}
-        checked={localOnly}
-        aria-checked={localOnly}
-        disabled={busy}
-        onChange={(event) => void change(event.target.checked)}
-        className="switch"
-      />
-    </div>
   );
 }
 
@@ -256,15 +198,16 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
     saved.kind === kind && (saved.baseUrl ?? "") === baseUrl.trim().replace(/\/+$/, "");
   const takesKey = kind === "openai" || kind === "google" || kind === "openai-compatible";
   const keyRequired = kind === "openai" || kind === "google";
-  const hasKey = apiKey.trim() !== "" || (sameServer && saved.hasApiKey);
-  const keyBlocked = apiKey.trim() !== "" && secretStorage !== null && !secretStorage.canSave;
+  const hasKey = key.text !== "" || (sameServer && saved.hasApiKey);
+  const keyBlocked = key.text !== "" && secretStorage !== null && !secretStorage.canSave;
   const complete =
     isPlainKind(kind) ||
-    (modelId.trim() !== "" &&
+    (key.stray === null &&
+      modelId.trim() !== "" &&
       (kind !== "openai-compatible" || baseUrl.trim() !== "") &&
       (!keyRequired || hasKey));
   const unchanged =
-    sameServer && apiKey.trim() === "" && (isPlainKind(kind) || modelId.trim() === saved.modelId);
+    sameServer && key.text === "" && (isPlainKind(kind) || modelId.trim() === saved.modelId);
   const cloudService = cloudServiceOf(kind, baseUrl, t);
   // A server elsewhere, in local mode: said as the address is typed, not refused at the end.
   const outsideLocalMode = current.localOnly && cloudService !== null;
@@ -294,7 +237,7 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
           ...((kind === "openai-compatible" || kind === "ollama") && baseUrl.trim()
             ? { baseUrl: baseUrl.trim() }
             : {}),
-          ...(takesKey && apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          ...(takesKey && key.text ? { apiKey: key.text } : {}),
         };
 
   const runTest = async () => {
@@ -414,8 +357,11 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
             onChange={(event) => key.type(event.target.value, baseUrl)}
             autoComplete="off"
             spellCheck={false}
+            aria-invalid={key.stray ? true : undefined}
+            aria-describedby={key.stray ? `${id}-stray` : undefined}
             className={inputClass}
           />
+          {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
           {sameServer && saved.hasApiKey && (
             <span className={hintClass}>{t("providers.form.apiKeySaved")}</span>
           )}

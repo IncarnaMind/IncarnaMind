@@ -23,18 +23,18 @@ describe("an error from the core", () => {
     const failure = ipc(
       "core:renameDocument",
       "InvalidInputError",
-      "A Document's name can't be empty.",
+      "A Document’s name can’t be empty.",
     );
-    expect(errorMessage(failure, english)).toBe("A Document's name can't be empty.");
+    expect(errorMessage(failure, english)).toBe("A Document’s name can’t be empty.");
     expect(describeError(failure).reason).toBeNull();
   });
 
   test("keeps the method and the class for the Details, not the wrapping", () => {
     const { detail } = describeError(
-      ipc("core:renameDocument", "InvalidInputError", "A Document's name can't be empty."),
+      ipc("core:renameDocument", "InvalidInputError", "A Document’s name can’t be empty."),
     );
     expect(detail).toBe(
-      "core:renameDocument\nInvalidInputError: A Document's name can't be empty.",
+      "core:renameDocument\nInvalidInputError: A Document’s name can’t be empty.",
     );
     expect(detail).not.toContain("Error invoking remote method");
   });
@@ -48,10 +48,10 @@ describe("an error from the core", () => {
     const failure = ipc(
       "core:addDocuments",
       "Error",
-      "Couldn't read it.\n    at read (/app/core.js:10:5)\n    at async run (/app/core.js:20:3)",
+      "Couldn’t read it.\n    at read (/app/core.js:10:5)\n    at async run (/app/core.js:20:3)",
     );
     const { message, detail } = describeError(failure);
-    expect(message).toBe("Couldn't read it.");
+    expect(message).toBe("Couldn’t read it.");
     expect(detail).not.toMatch(/\n\s+at /);
   });
 
@@ -68,7 +68,7 @@ describe("an error from the core", () => {
 const crossed = (method: string, error: Error) =>
   new Error(`Error invoking remote method '${method}': ${String(errorForWindow(error))}`);
 
-const TOO_LONG = "A Document's name can't be longer than 500 characters.";
+const TOO_LONG = "A Document’s name can’t be longer than 500 characters.";
 const tooLong = () =>
   new InvalidInputError({ key: "error.document.nameTooLong", values: { max: 500 } });
 
@@ -138,6 +138,10 @@ describe("a failure of the system's", () => {
     ["ENOENT: no such file or directory, open '/a/b.pdf'", "error.system.gone"],
     ["ENAMETOOLONG: name too long, rename '/a/b.pdf' -> '/a/c'", "error.system.nameTooLong"],
     ["EEXIST: file already exists, mkdir '/a/b'", "error.system.exists"],
+    ["database or disk is full", "error.system.full"],
+    ["disk I/O error", "error.system.diskError"],
+    ["attempt to write a readonly database", "error.system.notAllowed"],
+    ["database is locked", "error.system.busy"],
   ])("%s gets plain words", (text, reason) => {
     const description = describeError(ipc("core:renameDocument", "Error", text));
     expect(description.reason).toBe(reason);

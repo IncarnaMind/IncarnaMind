@@ -7,6 +7,7 @@ import {
   type MotionMode,
   type Plan,
   physics,
+  planBreathe,
   planEnter,
   planExit,
   planMove,
@@ -185,6 +186,23 @@ describe("each helper, On, Reduced and Off", () => {
     expect(planEnter("reduced", { y: -4 }, { delay: 0.03 })?.transition).toMatchObject({
       delay: 0.03,
     });
+  });
+});
+
+describe("a live dot", () => {
+  test("breathes in On and Reduced, 1.6 s a round between full and 0.45, and is still in Off", () => {
+    for (const mode of ["on", "reduced"] as const) {
+      expect(planBreathe(mode)).toEqual({
+        keyframes: { opacity: [1, 0.45] },
+        transition: {
+          duration: 0.8,
+          ease: "easeInOut",
+          repeat: Number.POSITIVE_INFINITY,
+          repeatType: "reverse",
+        },
+      });
+    }
+    expect(planBreathe("off")).toBeNull();
   });
 });
 

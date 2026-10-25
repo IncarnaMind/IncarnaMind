@@ -8,10 +8,8 @@ import {
   addDocuments,
   addToNote,
   askInAssistant,
-  clickEndOf,
   createDataFolder,
   dismissChatSetup,
-  focusEditor,
   launchApp,
   newMind,
   pointAndClick,
@@ -107,7 +105,10 @@ test("Shorten applies at once; Review changes shows its two changes over the app
   await selectWords(window, note, "The tides here are very strong and really regular", 3);
   const menu = window.getByTestId("selection-menu");
   await expect(menu.getByTestId("selection-action-shorten")).toBeVisible();
-  await expect(menu.getByTestId("selection-action-edit")).toContainText("Edit with AI…");
+  await expect(menu.getByTestId("selection-edit-field")).toHaveAttribute(
+    "placeholder",
+    "Edit with AI…",
+  );
   await screenshot(window, "edit-menu-en");
   await pointAndClick(window, menu.getByTestId("selection-action-shorten"));
   await expect(note).toContainText("The tides here are strong and regular");
@@ -120,16 +121,11 @@ test("Shorten applies at once; Review changes shows its two changes over the app
   const removed = note.locator("del.applied-old");
   await expect(removed).toHaveText(["very ", "really "]);
   await expect(removed.first()).toHaveCSS("text-decoration-line", "line-through");
-  const changeBar = window.getByTestId("applied-change-bar");
-  await expect(changeBar).toBeVisible();
-  await expect(changeBar).toContainText("Change 1 of 2");
+  const restores = note.getByTestId("change-restore");
+  await expect(restores).toHaveCount(2);
   await screenshot(window, "edit-changes-en");
-  // Its bar keeps clear of the edit's own line over the paragraph.
-  const barBox = await changeBar.boundingBox();
-  const lineBox = await line.boundingBox();
-  expect(barBox?.y ?? 0).toBeGreaterThanOrEqual((lineBox?.y ?? 0) + (lineBox?.height ?? 0) - 1);
 
-  await pointAndClick(window, changeBar.getByTestId("change-restore"));
+  await pointAndClick(window, restores.first());
   await expect(removed).toHaveText(["really "]);
   await expect(note).toContainText("The tides here are very strong and");
   await expect(line.getByTestId("applied-count")).toHaveText("1 paragraph changed by Edit with AI");
@@ -137,7 +133,7 @@ test("Shorten applies at once; Review changes shows its two changes over the app
 
   // Restore by keyboard, with the cursor at the other change: then none is left to show.
   await pointAndClick(window, removed.first());
-  await expect(changeBar).toContainText("Change 1 of 1");
+  await expect(restores).toHaveCount(1);
   await window.keyboard.press("ControlOrMeta+Backspace");
   await expect(removed).toHaveCount(0);
   await expect(line).toHaveCount(0);
@@ -265,7 +261,7 @@ test("a whole Mind restructured with ⌘A and ⌘J keeps its headings, lists and
   );
 });
 
-test("⌘J with text selected says what to change in the composer, in Chinese; the change applies at once, ⌘Z takes it back, and the line fits a narrow window", async () => {
+test("⌘J with text selected says what to change in the selection menu's field, in Chinese; the change applies at once, ⌘Z takes it back, and the line fits a narrow window", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -277,17 +273,16 @@ test("⌘J with text selected says what to change in the composer, in Chinese; t
   await window.keyboard.type("潮水每天非常规律地涨落两次。");
   const note = editor.locator(":scope > p").first();
 
-  // ⌘J with the line selected: the composer quotes it and asks what to change.
+  // ⌘J with the line selected: the menu's field takes the cursor, and the selection stays drawn.
   await selectWords(window, note, "潮水每天非常规律地涨落两次。");
   await window.keyboard.press("ControlOrMeta+j");
-  const composer = window.getByTestId("composer");
-  const input = composer.getByTestId("composer-input");
+  const input = window.getByTestId("selection-menu").getByTestId("selection-edit-field");
   await expect(input).toBeFocused();
-  await expect(composer.getByTestId("composer-edit-quote")).toContainText("正在编辑“潮水每天");
-  await expect(input).toHaveAttribute("placeholder", "说说要怎么改…");
-  await expect(note.locator(".proposal-target")).toHaveText("潮水每天非常规律地涨落两次。");
+  await expect(input).toHaveAttribute("placeholder", "用 AI 编辑…");
+  await expect(note.locator(".held-selection")).toHaveText("潮水每天非常规律地涨落两次。");
+  await expect(window.getByTestId("composer-edit-quote")).toHaveCount(0);
   await window.keyboard.type("把规律换成准时");
-  await screenshot(window, "edit-composer-zh");
+  await screenshot(window, "edit-field-zh");
   await window.keyboard.press("Enter");
 
   await expect(note).toHaveText("潮水每天非常准时地涨落两次。");
@@ -411,157 +406,4 @@ test("⌘J's change streams in and applies paragraph by paragraph, with Writing�
   await expect(paragraphs.first()).toHaveText("The tides here are strong and regular.");
   await window.keyboard.press("ControlOrMeta+z");
   await expect(paragraphs.first()).toHaveText("The tides here are very strong and really regular.");
-});
-
-/** Asks the assistant, with no text selected: its changes to the Mind wait for the User. */
-async function askTheAssistant(window: Page, request: string) {
-  await window.keyboard.press("ControlOrMeta+j");
-  await expect(window.getByTestId("composer-input")).toBeFocused();
-  // As a person waits for Stop to turn back into Ask before asking again.
-  await expect(window.getByTestId("composer-ask")).toBeVisible();
-  await window.keyboard.type(request);
-  await window.keyboard.press("Enter");
-  await expect(window.getByTestId("proposals-bar")).toBeVisible({ timeout: 15_000 });
-}
-
-test("the assistant's changes wait: a double click accepts one once; a change whose words the User edits is out of date until Regenerate makes it again", async () => {
-  const { window } = await launchApp(dataDir, { fakeChat: true });
-  await dismissChatSetup(window);
-  await useLocalChatModel(window);
-  await newMind(window);
-  const editor = window.getByTestId("mind-editor");
-  await editor.click();
-  await window.keyboard.type("The tides are really very strong. They are very high.");
-  const note = editor.locator(":scope > p").first();
-
-  await askTheAssistant(window, "Could you shorten this?");
-  const bar = window.getByTestId("proposals-bar");
-  const count = bar.getByTestId("proposals-count");
-  await expect(count).toHaveText("2 changes from the assistant");
-  const removed = note.locator("del.proposal-delete");
-  await expect(removed).toHaveText(["really very ", "very "]);
-
-  // Double-clicking Accept applies the change once: one step, which one Undo takes back.
-  await pointAndClick(window, removed.nth(1));
-  const changeBar = window.getByTestId("change-bar");
-  await expect(changeBar).toContainText("Change 2 of 2");
-  const accept = changeBar.getByTestId("change-accept");
-  const box = await accept.boundingBox();
-  if (!box) throw new Error("Accept isn't visible.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
-  await window.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(count).toHaveText("1 change from the assistant");
-  await expect(removed).toHaveText(["really very "]);
-  await expect(note).toContainText("They are high.");
-  await expect(window.getByTestId("undo-message")).toHaveText("Accepted 1 change");
-  await editor.focus();
-  await window.keyboard.press("ControlOrMeta+z");
-  await expect(count).toHaveText("2 changes from the assistant");
-  await expect(removed).toHaveText(["really very ", "very "]);
-
-  // The User writes among the words the first change removes: they are theirs now.
-  await editor.evaluate((dom) => {
-    const { view, commands } = (dom as unknown as { editor: Editor }).editor;
-    let at = -1;
-    view.state.doc.descendants((node, pos) => {
-      if (at < 0 && node.isText && node.text === "really very ") at = pos + "really ".length;
-    });
-    commands.setTextSelection(at);
-  });
-  await window.keyboard.type("quite ");
-  await expect(note).toContainText("really quite very strong");
-  // "Out of date · Regenerate", on a line under its paragraph.
-  const outOfDate = window.getByTestId("change-out-of-date");
-  await expect(outOfDate).toHaveCount(1);
-  await expect(outOfDate).toContainText("Out of date");
-  await expect(outOfDate.getByTestId("change-regenerate")).toHaveText("Regenerate");
-  const lineBox = await outOfDate.boundingBox();
-  const noteBox = await note.boundingBox();
-  expect(lineBox?.y ?? 0).toBeGreaterThanOrEqual((noteBox?.y ?? 0) + (noteBox?.height ?? 0) - 1);
-  // It can't be accepted: its line is its only bar, and ⌘↵ leaves it, saying why.
-  await expect(changeBar).toHaveCount(0);
-  await window.keyboard.press("ControlOrMeta+Enter");
-  await expect(window.getByTestId("proposal-spoken")).toHaveText(
-    "This change is out of date: regenerate it or reject it.",
-  );
-  await expect(count).toHaveText("2 changes from the assistant");
-  await screenshot(window, "edit-out-of-date-en");
-
-  // Accept all takes the other one, and leaves it.
-  await expect(bar.getByTestId("proposals-accept-all")).toHaveAttribute(
-    "title",
-    "Changes out of date are left as they are",
-  );
-  await pointAndClick(window, bar.getByTestId("proposals-accept-all"));
-  await expect(count).toHaveText("1 change from the assistant");
-  await expect(note).toContainText("They are high.");
-
-  // Reject on its line takes it away, and Undo brings it back.
-  await pointAndClick(window, outOfDate.getByTestId("change-reject"));
-  await expect(bar).toHaveCount(0);
-  await expect(note).toHaveText("The tides are really quite very strong. They are high.");
-  await expect(window.getByTestId("undo-message")).toHaveText("Rejected 1 change");
-  await window.keyboard.press("ControlOrMeta+z");
-  await expect(outOfDate).toHaveCount(1);
-
-  // Regenerate makes it again from the words as they are now, the User's among them.
-  await pointAndClick(window, outOfDate.getByTestId("change-regenerate"));
-  await expect(outOfDate).toHaveCount(0);
-  await expect(removed).toHaveText(["really quite "]);
-  await expect(count).toHaveText("1 change from the assistant");
-  await pointAndClick(window, bar.getByTestId("proposals-accept-all"));
-  await expect(bar).toHaveCount(0);
-  await expect(note).toHaveText("The tides are very strong. They are high.");
-});
-
-test("copying a paragraph with the assistant's changes waiting gives the text as it stands, in plain text and rich text; accepting them changes the copy", async () => {
-  const { window } = await launchApp(dataDir, { fakeChat: true });
-  await dismissChatSetup(window);
-  await useLocalChatModel(window);
-  await newMind(window);
-  const editor = window.getByTestId("mind-editor");
-  await editor.click();
-  const sentence = "The tides here are strong and really regular.";
-  await window.keyboard.type(sentence);
-  const note = editor.locator(":scope > p").first();
-
-  // What Copy would put on the clipboard for the whole paragraph, by type.
-  const copyParagraph = async () => {
-    await focusEditor(window, editor);
-    await window.keyboard.press("ControlOrMeta+a");
-    return editor.evaluate((dom) => {
-      const data = new DataTransfer();
-      dom.dispatchEvent(
-        new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }),
-      );
-      return { plain: data.getData("text/plain"), html: data.getData("text/html") };
-    });
-  };
-
-  // A change that replaces "strong" with "powerful", waiting: the copy is the sentence as it was.
-  await askTheAssistant(window, "replace strong with powerful");
-  await expect(note.locator("ins.proposal-insert")).toHaveText("powerful");
-  const bar = window.getByTestId("proposals-bar");
-  const replacing = await copyParagraph();
-  expect(replacing.plain).toBe(sentence);
-  expect(replacing.html).toContain(sentence);
-  expect(replacing.html).not.toContain("powerful");
-
-  // Accepted, the copy has the new word.
-  await pointAndClick(window, bar.getByTestId("proposals-accept-all"));
-  await expect(bar).toHaveCount(0);
-  await expect(note).toHaveText("The tides here are powerful and really regular.");
-
-  // Shorten drops "really": waiting, the copy still has it; accepted, it doesn't.
-  await clickEndOf(window, note);
-  await askTheAssistant(window, "Could you shorten this?");
-  await expect(note.locator("del.proposal-delete")).toHaveText("really ");
-  const shortening = await copyParagraph();
-  expect(shortening.plain).toBe("The tides here are powerful and really regular.");
-  expect(shortening.html).toContain("really");
-  await pointAndClick(window, bar.getByTestId("proposals-accept-all"));
-  await expect(bar).toHaveCount(0);
-  const shortened = await copyParagraph();
-  expect(shortened.plain).toBe("The tides here are powerful and regular.");
-  expect(shortened.html).not.toContain("really");
 });

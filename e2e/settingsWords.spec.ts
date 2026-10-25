@@ -25,12 +25,12 @@ test.afterEach(async () => {
 
 const WORDS = {
   en: {
-    models: ["AI model", "Service"],
+    models: ["Defaults", "Your providers"],
     search: ["Search model"],
     gone: [/chat model/i, /embedding/i, /rerank/i, /\bindex/i, /local mode(?!l)/i],
   },
   "zh-CN": {
-    models: ["AI 模型", "服务"],
+    models: ["默认模型", "已添加的服务"],
     search: ["搜索模型"],
     gone: [/对话模型/, /提供商/, /嵌入/, /重排序|重新排序/, /本地模式/],
   },
@@ -53,7 +53,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.updateSettings({ user: { language: chosen } });
     }, language);
-    const chat = window.getByTestId("chat-model-settings");
+    const chat = window.getByTestId("models-settings");
     for (const word of words.models) await expect(settings).toContainText(word);
     for (const gone of words.gone) await expect(chat).not.toContainText(gone);
 

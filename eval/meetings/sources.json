@@ -1,0 +1,169 @@
+{
+  "format": 1,
+  "files": {
+    "ami-text": {
+      "url": "https://huggingface.co/datasets/edinburghcstr/ami/resolve/831ea5d6035059ce66bf14f13e5ccdb222db48f9/annotations/eval/text",
+      "sha256": "2c3127739b78d32c3608916f39e0a9528f2adfefabfa90d742a1dd9b658d7394",
+      "bytes": 944225
+    },
+    "ami-ihm-EN2002a": {
+      "url": "https://huggingface.co/datasets/edinburghcstr/ami/resolve/831ea5d6035059ce66bf14f13e5ccdb222db48f9/audio/ihm/eval/EN2002a.tar.gz",
+      "sha256": "1bcc543f287c6f59d4548d477096b1ecf7487393970ec201eb93815dbed4cd0d",
+      "bytes": 62847922
+    },
+    "ami-ihm-IS1009b": {
+      "url": "https://huggingface.co/datasets/edinburghcstr/ami/resolve/831ea5d6035059ce66bf14f13e5ccdb222db48f9/audio/ihm/eval/IS1009b.tar.gz",
+      "sha256": "326846f7479a46d52bc30a1d2e817759fcc288339e4b305b411b0123ca885929",
+      "bytes": 70354979
+    },
+    "ami-sdm-test-0": {
+      "url": "https://huggingface.co/datasets/diarizers-community/ami/resolve/8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0/sdm/test-00000-of-00003.parquet",
+      "sha256": "36f277c695a47e4f28b8f73060df611d89fa32deb0a095aca79330eb5d58249c",
+      "bytes": 328468433,
+      "rows": {
+        "ES2004b": 3,
+        "TS3003b": 4
+      }
+    },
+    "ascend-test": {
+      "url": "https://huggingface.co/datasets/CAiRE/ASCEND/resolve/737e9800ae31be9932ba8464c80366559bd28424/main/test-00000-of-00001.parquet",
+      "sha256": "a4c81d2b5ed6124f052089a695972808c16e0ce0c365ec9773c5d1a8fcf043a7",
+      "bytes": 105756434
+    }
+  },
+  "alimeeting": {
+    "url": "https://speech-lab-share-data.oss-cn-shanghai.aliyuncs.com/AliMeeting/openlr/Eval_Ali.tar.gz",
+    "entries": [
+      {
+        "session": "R8003_M8001",
+        "name": "Eval_Ali/Eval_Ali_far/audio_dir/R8003_M8001_MS801.wav",
+        "file": "R8003_M8001.far.wav",
+        "keep": "first-channel",
+        "sha256": "33fc940588079005bf16491527e04a0e416e62bf57d5d471a4ff46bc0d6275e4",
+        "bytes": 529408080,
+        "keptSha256": "95224cdef7bca327c9c113c4f2d3c38cbfd65f1c61e3aba3235ab399c1466341",
+        "keptBytes": 66176044
+      },
+      {
+        "session": "R8007_M8010",
+        "name": "Eval_Ali/Eval_Ali_far/audio_dir/R8007_M8010_MS803.wav",
+        "file": "R8007_M8010.far.wav",
+        "keep": "first-channel",
+        "sha256": "d92169f2c90dde2482ec6f794588a597870f2dff51a1f123e92bcf052a7ca9b2",
+        "bytes": 475218496,
+        "keptSha256": "60c0decb4c942bf68e7ae6c058984f4f7c72beac878d9230be66eb19d0cad25a",
+        "keptBytes": 59402346
+      },
+      {
+        "session": "R8003_M8001",
+        "name": "Eval_Ali/Eval_Ali_far/textgrid_dir/R8003_M8001.TextGrid",
+        "file": "R8003_M8001.TextGrid",
+        "keep": "as-is",
+        "sha256": "a015bbcc642596ad8e40de7578208510e920832d15320aa109a0e9e3256d7235",
+        "bytes": 80400,
+        "keptSha256": "a015bbcc642596ad8e40de7578208510e920832d15320aa109a0e9e3256d7235",
+        "keptBytes": 80400
+      },
+      {
+        "session": "R8007_M8010",
+        "name": "Eval_Ali/Eval_Ali_far/textgrid_dir/R8007_M8010.TextGrid",
+        "file": "R8007_M8010.TextGrid",
+        "keep": "as-is",
+        "sha256": "0ab9ae505fd81a283e645ce9896610c57e34e747e5551144f98f0cbac0604e44",
+        "bytes": 129859,
+        "keptSha256": "0ab9ae505fd81a283e645ce9896610c57e34e747e5551144f98f0cbac0604e44",
+        "keptBytes": 129859
+      },
+      {
+        "session": "R8007_M8011",
+        "name": "Eval_Ali/Eval_Ali_far/textgrid_dir/R8007_M8011.TextGrid",
+        "file": "R8007_M8011.TextGrid",
+        "keep": "as-is",
+        "sha256": "4baea9f7b9ef4182c4fceeb3a10d0ea966359b214fa04ae54434fab084b8c316",
+        "bytes": 89858,
+        "keptSha256": "4baea9f7b9ef4182c4fceeb3a10d0ea966359b214fa04ae54434fab084b8c316",
+        "keptBytes": 89858
+      },
+      {
+        "session": "R8008_M8013",
+        "name": "Eval_Ali/Eval_Ali_far/textgrid_dir/R8008_M8013.TextGrid",
+        "file": "R8008_M8013.TextGrid",
+        "keep": "as-is",
+        "sha256": "b0f938c81b95728bd38f7aec655f6804ca4dcc3182bb0facb8d05a9a84293869",
+        "bytes": 79663,
+        "keptSha256": "b0f938c81b95728bd38f7aec655f6804ca4dcc3182bb0facb8d05a9a84293869",
+        "keptBytes": 79663
+      },
+      {
+        "session": "R8007_M8011",
+        "name": "Eval_Ali/Eval_Ali_near/audio_dir/R8007_M8011_N_SPK8066.wav",
+        "file": "R8007_M8011_N_SPK8066.wav",
+        "keep": "as-is",
+        "sha256": "2e31e76fa71dcc6f1f2fa337cbc34076cb406990a9556369cc9a79db1b47f020",
+        "bytes": 59616684,
+        "keptSha256": "2e31e76fa71dcc6f1f2fa337cbc34076cb406990a9556369cc9a79db1b47f020",
+        "keptBytes": 59616684
+      },
+      {
+        "session": "R8007_M8011",
+        "name": "Eval_Ali/Eval_Ali_near/audio_dir/R8007_M8011_N_SPK8067.wav",
+        "file": "R8007_M8011_N_SPK8067.wav",
+        "keep": "as-is",
+        "sha256": "91bd1622c724ba6069cb9eaaef9b182a2d9b9ca3cab47dc0fd94218ec96c7800",
+        "bytes": 59616684,
+        "keptSha256": "91bd1622c724ba6069cb9eaaef9b182a2d9b9ca3cab47dc0fd94218ec96c7800",
+        "keptBytes": 59616684
+      },
+      {
+        "session": "R8007_M8011",
+        "name": "Eval_Ali/Eval_Ali_near/audio_dir/R8007_M8011_N_SPK8068.wav",
+        "file": "R8007_M8011_N_SPK8068.wav",
+        "keep": "as-is",
+        "sha256": "09118f8ec6be18f5d848c3ee13fe8c466f35e2da82a8819082e7b9061c40c915",
+        "bytes": 59616684,
+        "keptSha256": "09118f8ec6be18f5d848c3ee13fe8c466f35e2da82a8819082e7b9061c40c915",
+        "keptBytes": 59616684
+      },
+      {
+        "session": "R8007_M8011",
+        "name": "Eval_Ali/Eval_Ali_near/audio_dir/R8007_M8011_N_SPK8069.wav",
+        "file": "R8007_M8011_N_SPK8069.wav",
+        "keep": "as-is",
+        "sha256": "a6f672533c4cb2469d73addc2d82a4e7aff82ca13e6dea673a1bcae2699dddd7",
+        "bytes": 59616684,
+        "keptSha256": "a6f672533c4cb2469d73addc2d82a4e7aff82ca13e6dea673a1bcae2699dddd7",
+        "keptBytes": 59616684
+      },
+      {
+        "session": "R8008_M8013",
+        "name": "Eval_Ali/Eval_Ali_near/audio_dir/R8008_M8013_N_SPK8047.wav",
+        "file": "R8008_M8013_N_SPK8047.wav",
+        "keep": "as-is",
+        "sha256": "9ac386157aaaf079b6961c4b5f28e790f2cd3032b7daa1359d5dd6ea849d442c",
+        "bytes": 71663100,
+        "keptSha256": "9ac386157aaaf079b6961c4b5f28e790f2cd3032b7daa1359d5dd6ea849d442c",
+        "keptBytes": 71663100
+      },
+      {
+        "session": "R8008_M8013",
+        "name": "Eval_Ali/Eval_Ali_near/audio_dir/R8008_M8013_N_SPK8048.wav",
+        "file": "R8008_M8013_N_SPK8048.wav",
+        "keep": "as-is",
+        "sha256": "5828b2a9da9710346b23ce79f3568a24dfcbf411107ad329b226b6250f83aedb",
+        "bytes": 71663100,
+        "keptSha256": "5828b2a9da9710346b23ce79f3568a24dfcbf411107ad329b226b6250f83aedb",
+        "keptBytes": 71663100
+      },
+      {
+        "session": "R8008_M8013",
+        "name": "Eval_Ali/Eval_Ali_near/audio_dir/R8008_M8013_N_SPK8049.wav",
+        "file": "R8008_M8013_N_SPK8049.wav",
+        "keep": "as-is",
+        "sha256": "bea1c439dbe45cfc52610b57b4dff6f4b14dc63f064f2fd2de1bd628cc7287d5",
+        "bytes": 71663100,
+        "keptSha256": "bea1c439dbe45cfc52610b57b4dff6f4b14dc63f064f2fd2de1bd628cc7287d5",
+        "keptBytes": 71663100
+      }
+    ]
+  }
+}

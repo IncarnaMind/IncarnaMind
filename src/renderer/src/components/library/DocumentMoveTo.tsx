@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { displayName } from "../../../../shared/documentNames";
+import { moveIntoFolder } from "../../folderDrag";
 import { useT } from "../../i18n";
 import { selectedOn } from "../../selection";
 import { useAppStore } from "../../store";
@@ -9,6 +10,8 @@ interface MoveRequest {
   /** What the picker opens beside: the row's ⋯, or the selection bar's button. */
   anchor: HTMLElement;
   documentIds: readonly string[];
+  /** The page keeps the focus itself once they have moved, as To review does (`useReviewFocus`). */
+  keepFocus?: true;
 }
 
 /** The Documents whose "Move to…" is open on the Library page, if any. */
@@ -28,6 +31,17 @@ export function documentsToMove(documentId: string): string[] {
   return chosen.includes(documentId) ? chosen : [documentId];
 }
 
+/** "Move to…" for these Documents beside the ⋯ in `place`, once a menu has closed and given the focus back. */
+export function moveDocumentsBeside(
+  place: HTMLElement | null,
+  documentIds: readonly string[],
+): void {
+  requestAnimationFrame(() => {
+    const anchor = place?.querySelector<HTMLElement>("[data-object-menu]");
+    if (anchor) useDocumentMove.getState().show({ anchor, documentIds });
+  });
+}
+
 /** The focus follows a Document moved to its row in the section it went to, if that shows it. */
 function focusRowOf(documentId: string | undefined): void {
   if (!documentId) return;
@@ -39,8 +53,9 @@ function focusRowOf(documentId: string | undefined): void {
 }
 
 /**
- * The Library page's "Move to…" for Documents: the shared Folder picker, beside
- * what asked for it. Choosing a Folder moves them all, with the undo line.
+ * "Move to…" for Documents: the shared Folder picker, beside what asked for it.
+ * Choosing a Folder moves them all, with the undo line. Mounted only while open:
+ * closed, its hidden dialog would sit beside the Mind row's own.
  */
 export function DocumentMoveTo() {
   const t = useT();
@@ -54,21 +69,20 @@ export function DocumentMoveTo() {
     ids.map((id) => assignments?.find((each) => each.documentId === id)?.groupId ?? null),
   );
   const [current] = folders;
+  if (!request) return null;
   return (
     <MoveToPicker
-      anchor={request?.anchor ?? null}
+      anchor={request.anchor}
       name={one ? displayName(one) : t("library.count", { count: ids.length })}
       current={folders.size === 1 ? (current ?? null) : undefined}
       onChoose={(folderId) => {
         // From a row, the focus goes with what it moved; from the selection's bar, it stays there.
-        const fromRow = request?.anchor.closest("[data-document-id]") != null;
-        void useAppStore
-          .getState()
-          .moveToFolder({ documentIds: [...ids] }, folderId)
-          .then(() => {
-            if (fromRow) requestAnimationFrame(() => focusRowOf(only));
-          });
+        const fromRow = request.anchor.closest("[data-document-id]") != null && !request.keepFocus;
+        void moveIntoFolder({ documentIds: [...ids] }, folderId).then(() => {
+          if (fromRow) requestAnimationFrame(() => focusRowOf(only));
+        });
       }}
+      onCreate={(name) => void useAppStore.getState().createFolder({ documentIds: [...ids] }, name)}
       onClose={() => useDocumentMove.getState().hide()}
     />
   );

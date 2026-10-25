@@ -4,7 +4,6 @@ import type { Command } from "./registry";
 
 export const analysisCommands: readonly Command[] = [
   {
-    // Analyse data… (#447): the next Question may run an Analysis, whatever its Search scope holds.
     id: "analysis.start",
     label: "analysis.command",
     keywords: ["analysis.command.keywords"],

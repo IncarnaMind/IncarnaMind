@@ -1,13 +1,3 @@
-/**
- * `run_analysis` (#447, ADR-0023): the model writes Python over ranges of the
- * sheets and CSV files it found and over numbers quoted from Passages, and
- * IncarnaMind runs it in the analysis sandbox. A whole range is read into the
- * sandbox without being sent anywhere; only what the code reports and prints
- * goes back to the model, cut to the limits, as `analysisReport` writes it.
- * Each figure it gives becomes a calculated figure of the Answer, written
- * with a marker as `calculate`'s are.
- */
-import { createHash } from "node:crypto";
 import { type AnalysisInput, type AnalysisValue, noAnalysisOutput } from "../../shared/analysis";
 import {
   FORMULA_VERSION,
@@ -18,9 +8,9 @@ import {
 import type { UnitText } from "../../shared/units";
 import type { AnalysisRuntime } from "../adapters";
 import type {
+  AnalysisFigureInput,
   AnalysisRangeInput,
   AnswerAnalysis,
-  AnswerAnalysisInput,
   CalculatedFigure,
   Citation,
   FigureInput,
@@ -28,7 +18,7 @@ import type {
 import type { CitationSource } from "../documents";
 import type { Language } from "../language";
 import { ANALYSIS_TOOLS, type Tool, type ToolProviderInfo } from "../tools";
-import { runAnalysis } from ".";
+import { runAnalysis, sha256 } from ".";
 import { parseRange, readRange, sheetRows, sheetsOf } from "./ranges";
 import { analysisReport } from "./report";
 
@@ -52,8 +42,6 @@ export interface AnalysisToolOptions {
   ran(toolCallId: string, analysis: AnswerAnalysis): void;
 }
 
-const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
-
 const fields = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -61,7 +49,6 @@ const fields = (value: unknown): Record<string, unknown> =>
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
-/** A unit the code gives a result, as a result is shown: an ISO currency, a percent, or a word. */
 function unitOf(unit: string | null): ResultUnit {
   if (!unit) return { kind: "plain" };
   if (/^[A-Z]{3}$/.test(unit)) return { kind: "currency", code: unit };
@@ -72,7 +59,11 @@ function unitOf(unit: string | null): ResultUnit {
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 type Read =
-  | { ok: true; job: AnalysisInput; record: AnswerAnalysisInput }
+  | {
+      ok: true;
+      job: AnalysisInput;
+      record: Omit<AnalysisRangeInput, "sha256"> | Omit<AnalysisFigureInput, "sha256">;
+    }
   | { ok: false; problem: string };
 
 export function analysisTool(options: AnalysisToolOptions): Tool {
@@ -113,12 +104,11 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         problem: `the range has no rows under its headings in ${source.documentName}`,
       };
     }
-    const values = sha256(JSON.stringify([read.columns, read.rows]));
     const heading = units.find(
       (unit) =>
         unit.kind === "rows" &&
         (unit.label?.sheet ?? null) === named &&
-        unit.label?.rows?.includes(read.rowNumbers[0] ?? 0),
+        unit.label?.rows?.includes(read.headingRow),
     );
     const citation: Citation = {
       passageId: source.passageId,
@@ -130,14 +120,14 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       location: {
         kind: "rows",
         sheet: named,
-        from: (read.rowNumbers[0] ?? 2) - 1,
-        to: read.rowNumbers.at(-1) ?? 1,
+        from: read.headingRow,
+        to: read.rowNumbers.at(-1) ?? read.headingRow,
       },
       quote: read.columns.join("\t"),
       check: "found",
       checkReason: null,
     };
-    const record: AnalysisRangeInput = {
+    const record: Omit<AnalysisRangeInput, "sha256"> = {
       kind: "range",
       name,
       citation: heading?.page ? { ...citation, pageFrom: heading.page } : citation,
@@ -146,7 +136,6 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       columns: read.columns.length,
       rowCount: read.rowCount,
       cut: read.cut,
-      sha256: values,
     };
     return {
       ok: true,
@@ -179,7 +168,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     return {
       ok: true,
       job: { kind: "number", name, value },
-      record: { kind: "figure", name, input: read.input, sha256: sha256(JSON.stringify(value)) },
+      record: { kind: "figure", name, input: read.input },
     };
   };
 
@@ -268,14 +257,13 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       if (problems.length > 0) {
         return `Nothing ran. Fix the inputs and run it again:\n- ${problems.join("\n- ")}`;
       }
-      runs++;
+      const number = ++runs;
       const ok = reads.flatMap((read) => (read.ok ? [read] : []));
       const run = await runAnalysis(
         options.runtime,
         { language: "python", code, inputs: ok.map((read) => read.job) },
         signal,
       );
-      const number = runs;
       const output = run.result.end.kind === "unavailable" ? noAnalysisOutput() : run.result.output;
       const markers: AnswerAnalysis["markers"] = { figures: [], tables: [], charts: [] };
       for (const result of output.results) {
@@ -291,7 +279,16 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         title,
         language: "python",
         code,
-        inputs: ok.map((read) => read.record),
+        inputs: await Promise.all(
+          ok.map(async (read) => ({
+            ...read.record,
+            sha256: await sha256(
+              JSON.stringify(
+                read.job.kind === "table" ? [read.job.columns, read.job.rows] : read.job.value,
+              ),
+            ),
+          })),
+        ),
         versions: run.versions,
         codeSha256: run.code,
         outputSha256: run.output,

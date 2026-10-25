@@ -4,6 +4,7 @@ import { PluginKey, TextSelection } from "@tiptap/pm/state";
 import { type Editor, useEditorState } from "@tiptap/react";
 import { BubbleMenu, type BubbleMenuProps } from "@tiptap/react/menus";
 import {
+  type FocusEvent,
   type KeyboardEvent,
   type ReactNode,
   useCallback,
@@ -15,6 +16,9 @@ import type { MessageKey } from "../../../shared/i18n";
 import { shortcutLabel } from "../commands/keymap";
 import { ChevronIcon } from "../components/icons";
 import { useT } from "../i18n";
+import { isComposing } from "./composing";
+import { EditField, EditWorking } from "./EditField";
+import { selectionForEdit } from "./editSelection";
 import { CustomSpacing, FormatMenu } from "./FormatMenu";
 import { footnotePlace, insertFootnote } from "./footnoteSchema";
 import { FORMAT_OPEN, setLineSpacing } from "./formatCommands";
@@ -26,15 +30,18 @@ import {
   canTurnInto,
   clearFormatting,
   currentTurnInto,
+  EDIT_FIELD,
   inOneTextblock,
   LINK_EDIT,
   selectionToMath,
   TURN_INTO,
 } from "./selectionCommands";
+import { forgetMenuClosed, keepMenuClosed, menuClosedOver } from "./selectionDismissal";
+import { type EditWithAiField, useEditField } from "./useEditField";
 
 /**
- * One action of the menu's AI section: Edit with AI, Find support and the
- * like. The section is hidden while there are none.
+ * One action of the menu's AI section: Edit with AI, Check against Documents
+ * and the like. The section is hidden while there are none.
  */
 export interface SelectionAction {
   /** A stable name; tests find the action by it (`selection-action-<id>`). */
@@ -119,31 +126,43 @@ const MARKS: readonly {
   },
 ];
 
-const isComposing = (event: KeyboardEvent) =>
-  event.nativeEvent.isComposing || event.key === "Process";
-
 /** The menu's controls, in the order the arrow keys go through them. */
 const controlsOf = (menu: HTMLElement | null) =>
   Array.from(
-    menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not([aria-disabled="true"])') ?? [],
+    menu?.querySelectorAll<HTMLElement>(
+      '[role^="menuitem"]:not([aria-disabled="true"]), [data-menu-field]',
+    ) ?? [],
   );
 
-/** The selection the User closed the menu over, which keeps it closed until the selection changes, even for an update already waiting. */
-const dismissedOver = new WeakMap<Editor, string>();
-const selectionKey = (editor: Editor) =>
-  `${editor.state.selection.from}-${editor.state.selection.to}`;
+function fitToView(frame: HTMLElement | null) {
+  const view = frame?.closest(".mind-scroller");
+  // A short view can't hold the whole menu: its rows scroll and the field stays at its foot. The
+  // room leaves the 8px padding at both ends of the view, and the 8px offset that comes after the slide.
+  frame?.style.setProperty("--selection-menu-room", view ? `${view.clientHeight - 24}px` : "100vh");
+}
 
 function hideMenu(editor: Editor) {
-  dismissedOver.set(editor, selectionKey(editor));
+  keepMenuClosed(editor, editor.state.selection.from, editor.state.selection.to);
   editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, "hide"));
+}
+
+// While the menu is hidden Tiptap takes its contents off the page, where a popover can't open
+// (#1461): what the keys open then goes at the caret, outside the menu.
+function openedAt<Anchor extends Element | VirtualElement>(
+  editor: Editor,
+  menuShown: boolean,
+  inMenu: Anchor | null | undefined,
+) {
+  return menuShown && inMenu
+    ? { at: "menu" as const, anchor: inMenu }
+    : { at: "caret" as const, anchor: caretAnchor(editor) };
 }
 
 /** Shown over selected text, not over code or a selected Block, nor while a mouse button or an input method is working on the selection. */
 function showsOver(editor: Editor, pressed: boolean): boolean {
   const { selection, doc } = editor.state;
   if (pressed || editor.view.composing || !editor.isEditable) return false;
-  if (dismissedOver.get(editor) === selectionKey(editor)) return false;
-  dismissedOver.delete(editor);
+  if (menuClosedOver(editor)) return false;
   if (selection.empty || !(selection instanceof TextSelection)) return false;
   if (editor.isActive("codeBlock")) return false;
   return doc.textBetween(selection.from, selection.to).length > 0;
@@ -159,11 +178,15 @@ function showsOver(editor: Editor, pressed: boolean): boolean {
 export function SelectionMenu({
   editor,
   ai = [],
+  edit,
 }: {
   editor: Editor;
   ai?: readonly SelectionAction[];
+  /** What the "Edit with AI…" field at the menu's foot asks with; with none the field isn't there. */
+  edit?: EditWithAiField;
 }) {
   const t = useT();
+  const frame = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const turnRow = useRef<HTMLButtonElement>(null);
   const linkButton = useRef<HTMLButtonElement>(null);
@@ -171,7 +194,10 @@ export function SelectionMenu({
   const shown = useRef(false);
   const pressed = useRef(false);
   const [turning, setTurning] = useState<"mouse" | "keyboard" | null>(null);
-  const [linking, setLinking] = useState(false);
+  const [linking, setLinking] = useState<{
+    at: "menu" | "caret";
+    anchor: Element | VirtualElement;
+  } | null>(null);
   /**
    * The Aa menu: beside this menu, or at the caret (⌘K), or only its custom line spacing there.
    * Its anchor is made once, as the popover places itself again whenever its anchor changes;
@@ -199,6 +225,19 @@ export function SelectionMenu({
   const actions = useRef(ai);
   actions.current = ai;
 
+  const closeMenu = useCallback(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body || frame.current?.contains(active)) {
+      editor.view.focus();
+    }
+    hideMenu(editor);
+  }, [editor]);
+  const field = useEditField(editor, edit, closeMenu);
+  const fieldNow = useRef(field);
+  fieldNow.current = field;
+  const withField = useRef(edit !== undefined);
+  withField.current = edit !== undefined;
+
   const state = useEditorState({
     editor,
     selector: ({ editor: current }) => ({
@@ -218,15 +257,19 @@ export function SelectionMenu({
       ai: actions.current
         .filter((action) => action.available?.(current) ?? true)
         .map((action) => action.id),
+      editable: selectionForEdit(current.state) !== null,
     }),
   });
   const shownAi = ai.filter((action) => state.ai.includes(action.id));
 
+  const working = field.working;
   const shouldShow = useCallback<NonNullable<BubbleMenuProps["shouldShow"]>>(
     ({ editor: current, element, view }) =>
-      showsOver(current, pressed.current) &&
-      (view.hasFocus() || element.contains(document.activeElement)),
-    [],
+      working.current
+        ? element.contains(document.activeElement)
+        : showsOver(current, pressed.current) &&
+          (view.hasFocus() || element.contains(document.activeElement)),
+    [working],
   );
 
   // While a mouse button is down the menu waits: it opens under what the User
@@ -236,12 +279,37 @@ export function SelectionMenu({
     const press = () => {
       pressed.current = true;
     };
+    // A press changes nothing by itself: only a selection change under it is the User's own (#1355).
+    const selectionMoved = () => {
+      if (pressed.current) forgetMenuClosed(editor);
+    };
     const release = () => {
       if (!pressed.current) return;
       pressed.current = false;
       if (editor.isDestroyed || !showsOver(editor, false)) return;
       editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, "show"));
       editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, "updatePosition"));
+    };
+    // Over a selection of all of the Mind the menu can't open, and ⌘J is left to the composer.
+    const takeEditField = (event: Event) => {
+      const anywhere = event instanceof CustomEvent && event.detail?.anywhere === true;
+      const current = fieldNow.current;
+      const inField = current.input.current === document.activeElement;
+      if (!withField.current || !current.input.current || current.working.current) return;
+      const inMenu = frame.current?.contains(document.activeElement) === true;
+      if (!anywhere && !inMenu && !editor.view.hasFocus()) return;
+      if (!inField) {
+        if (selectionForEdit(editor.state) === null) return;
+        forgetMenuClosed(editor);
+        if (!showsOver(editor, false)) return;
+      }
+      event.preventDefault();
+      if (inField) return;
+      if (!shown.current) {
+        editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, "show"));
+        editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, "updatePosition"));
+      }
+      current.focus();
     };
     // ⌘/ moves into the menu; Esc, with the focus still in the text, closes it, ahead of the editor's own use of Esc.
     const onKey = (event: globalThis.KeyboardEvent) => {
@@ -264,28 +332,34 @@ export function SelectionMenu({
       }, 50);
     // ⌘K on a selection: its link's address.
     const editLink = () => {
-      if (!editor.state.selection.empty) setLinking(true);
+      if (!editor.state.selection.empty) {
+        setLinking(openedAt(editor, shown.current, linkButton.current));
+      }
     };
     const openFormat = (event: Event) => {
-      const part = event instanceof CustomEvent && event.detail === "custom" ? "custom" : null;
-      const rect = !part && shown.current ? menu.current?.getBoundingClientRect() : undefined;
-      setFormatting(
-        rect
-          ? { at: "menu", focus: true, anchor: { getBoundingClientRect: () => rect } }
-          : { at: part ?? "caret", focus: true, anchor: caretAnchor(editor) },
-      );
+      if (event instanceof CustomEvent && event.detail === "custom") {
+        setFormatting({ at: "custom", focus: true, anchor: caretAnchor(editor) });
+        return;
+      }
+      const rect = menu.current?.getBoundingClientRect();
+      const beside = rect && { getBoundingClientRect: () => rect };
+      setFormatting({ ...openedAt(editor, shown.current, beside), focus: true });
     };
     dom.addEventListener(LINK_EDIT, editLink);
+    dom.addEventListener(EDIT_FIELD, takeEditField);
     dom.addEventListener(FORMAT_OPEN, openFormat);
     dom.addEventListener("compositionend", afterComposition);
     dom.addEventListener("mousedown", press);
+    editor.on("selectionUpdate", selectionMoved);
     document.addEventListener("mouseup", release);
     dom.addEventListener("keydown", onKey, true);
     return () => {
       dom.removeEventListener(LINK_EDIT, editLink);
+      dom.removeEventListener(EDIT_FIELD, takeEditField);
       dom.removeEventListener(FORMAT_OPEN, openFormat);
       dom.removeEventListener("compositionend", afterComposition);
       dom.removeEventListener("mousedown", press);
+      editor.off("selectionUpdate", selectionMoved);
       document.removeEventListener("mouseup", release);
       dom.removeEventListener("keydown", onKey, true);
     };
@@ -299,11 +373,14 @@ export function SelectionMenu({
     shift: { crossAxis: true, padding: 8 },
     onShow: () => {
       shown.current = true;
+      fitToView(frame.current);
     },
+    onUpdate: () => fitToView(frame.current),
     onHide: () => {
       shown.current = false;
+      fieldNow.current.reset();
       setTurning(null);
-      setLinking(false);
+      setLinking((open) => (open?.at === "menu" ? null : open));
       setChoosing(null);
       setFormatting((open) => (open?.at === "menu" ? null : open));
     },
@@ -327,6 +404,7 @@ export function SelectionMenu({
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
+      editor.view.focus();
       editor.commands.focus();
       hideMenu(editor);
       return;
@@ -389,19 +467,59 @@ export function SelectionMenu({
     editor.commands.focus();
   };
 
+  const leaveField = (event: FocusEvent<HTMLElement>) => {
+    const next = event.relatedTarget;
+    if (
+      next instanceof Element &&
+      (frame.current?.contains(next) || next.closest(".editor-popover"))
+    ) {
+      return;
+    }
+    // A click in the text moves the selection, which closes the menu over the field; the working line has no selection to follow.
+    if (field.working.current || (next instanceof Element && !editor.view.dom.contains(next))) {
+      hideMenu(editor);
+    }
+  };
+
+  const handOff = () => {
+    edit?.handOff?.(editor, field.text);
+    hideMenu(editor);
+  };
+
+  const linkField = linking && (
+    <LinkField
+      anchor={linking.anchor}
+      current={editor.getAttributes("link").href as string | undefined}
+      onApply={(typed) => {
+        setLinking(null);
+        applyLink(editor, typed);
+      }}
+      onClose={() => {
+        setLinking(null);
+        editor.commands.focus();
+      }}
+    />
+  );
+
   return (
     <>
       <BubbleMenu
+        ref={frame}
         editor={editor}
         pluginKey={PLUGIN_KEY}
         updateDelay={50}
         shouldShow={shouldShow}
+        getReferencedVirtualElement={field.anchor}
         options={options}
         className="selection-menu-frame"
       >
+        {field.phase === "working" && edit && (
+          <EditWorking mindId={edit.mindId} pill={field.pill} onLeave={leaveField} />
+        )}
         <div
           ref={menu}
           role="menu"
+          hidden={field.phase === "working"}
           aria-label={t("editor.selection.label")}
           data-testid="selection-menu"
           onKeyDown={onMenuKeyDown}
@@ -469,7 +587,10 @@ export function SelectionMenu({
               title={`${t("editor.format.link")} ${shortcutLabel("link.edit")}`}
               aria-label={t("editor.format.link")}
               onMouseDown={keepSelection}
-              onClick={() => act(() => setLinking(true))}
+              onClick={(event) => {
+                const anchor = event.currentTarget;
+                act(() => setLinking({ at: "menu", anchor }));
+              }}
               className="selection-format"
             >
               <span aria-hidden="true">↗</span>
@@ -541,7 +662,7 @@ export function SelectionMenu({
               <span aria-hidden="true">T×</span>
             </button>
           </div>
-          {shownAi.length > 0 && (
+          {(shownAi.length > 0 || (edit && state.editable)) && (
             <>
               <hr className="selection-rule" />
               {/* biome-ignore lint/a11y/useSemanticElements: a group of a menu's items, which a fieldset can't hold. */}
@@ -580,6 +701,16 @@ export function SelectionMenu({
                     {action.choices && <ChevronIcon className="size-4 text-ink-meta" />}
                   </button>
                 ))}
+                {edit && state.editable && (
+                  <EditField
+                    editor={editor}
+                    edit={edit}
+                    field={field}
+                    keys={shortcutLabel("composer.focus")}
+                    onLeave={leaveField}
+                    onHandOff={handOff}
+                  />
+                )}
               </div>
             </>
           )}
@@ -624,22 +755,10 @@ export function SelectionMenu({
             }}
           />
         )}
-        {linking && (
-          <LinkField
-            anchor={shown.current && linkButton.current ? linkButton.current : caretAnchor(editor)}
-            current={editor.getAttributes("link").href as string | undefined}
-            onApply={(typed) => {
-              setLinking(false);
-              applyLink(editor, typed);
-            }}
-            onClose={() => {
-              setLinking(false);
-              editor.commands.focus();
-            }}
-          />
-        )}
+        {linking?.at === "menu" && linkField}
       </BubbleMenu>
-      {/* With nothing selected the menu isn't shown, and what is in it isn't on the page. */}
+      {/* While the menu isn't shown, what is in it isn't on the page. */}
+      {linking?.at === "caret" && linkField}
       {formatting?.at === "caret" && (
         <FormatMenu
           editor={editor}

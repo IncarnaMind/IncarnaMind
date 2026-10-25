@@ -9,6 +9,7 @@ export interface Registered {
 }
 
 const registered = new Map<ObjectKind, Registered[]>();
+const mixed: Registered[] = [];
 
 /**
  * Adds commands to a kind's menu. Within a section they show in the order of
@@ -20,6 +21,13 @@ export function registerMenu(kind: ObjectKind, ids: readonly CommandId[], sectio
   const held = registered.get(kind) ?? [];
   const fresh = ids.filter((id) => !held.some((each) => each.id === id));
   registered.set(kind, [...held, ...fresh.map((id) => ({ id, section }))]);
+}
+
+/** The menu of a selection of several kinds of object, in place of any one kind's. */
+export function registerMixedMenu(ids: readonly CommandId[]): void {
+  mixed.push(
+    ...ids.filter((id) => !mixed.some((each) => each.id === id)).map((id) => ({ id, section: 0 })),
+  );
 }
 
 export const menuKinds = (): ObjectKind[] => [...registered.keys()];
@@ -49,7 +57,17 @@ export function buildMenu(
   ctx: CommandContext,
   without: readonly CommandId[] = [],
 ): MenuEntry[] {
-  const items = (registered.get(kind) ?? []).flatMap(({ id, section }) => {
+  return entriesOf(registered.get(kind) ?? [], ctx, without);
+}
+
+export const buildMixedMenu = (ctx: CommandContext): MenuEntry[] => entriesOf(mixed, ctx, []);
+
+function entriesOf(
+  menu: readonly Registered[],
+  ctx: CommandContext,
+  without: readonly CommandId[],
+): MenuEntry[] {
+  const items = menu.flatMap(({ id, section }) => {
     const command = commands.get(id);
     if (!command || without.includes(id) || !offered(command, ctx)) return [];
     const item: MenuItem = { command, enabled: command.enabled?.(ctx) ?? true, section };

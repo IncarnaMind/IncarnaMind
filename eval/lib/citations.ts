@@ -36,7 +36,7 @@ import { outputTokensFor } from "../../src/core/providers/ollamaModels";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { SIMPLIFIED } from "../../src/shared/hanVariants";
 import { normaliseText } from "../../src/shared/text";
-import type { ChatSettings, EvalConfig } from "./config";
+import { type ChatSettings, chatProviderOf, type EvalConfig } from "./config";
 import { type EvalLanguage, type EvalQuestion, isGating } from "./evaluationSet";
 import { type ExpectedCounts, expectedCounts, type HandedSummary, summariseHanded } from "./handed";
 import type { Library } from "./library";
@@ -814,12 +814,7 @@ export async function runCitations(
       .catch((error: unknown) => console.error(error));
   });
   try {
-    const provider = await core.saveChatProvider({
-      kind: chat.kind,
-      modelId: chat.modelId,
-      ...(chat.apiKey !== null && { apiKey: chat.apiKey }),
-      ...(chat.baseUrl !== null && { baseUrl: chat.baseUrl }),
-    });
+    const provider = await core.saveChatProvider(chatProviderOf(chat));
     const model = `${chat.kind}/${chat.modelId}`;
     const searchOverrides = [
       ...(config.rerankDepth != null

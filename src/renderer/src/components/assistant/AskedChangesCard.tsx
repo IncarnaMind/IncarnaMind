@@ -3,22 +3,27 @@ import {
   reviewAsked,
   undoAsked,
   useAskedFacts,
+  useAskedReview,
   useAskedState,
   useWrittenOnTop,
 } from "../../askedChanges";
 import type { ChangedMind } from "../../changedMinds";
-import { changeFact, leftText } from "../../changeFacts";
+import { appliedFact, changeFact, keptText, leftText } from "../../changeFacts";
+import { shortcutLabel } from "../../commands/keymap";
 import { useT } from "../../i18n";
 import { showChanges, type Waiting } from "../../mindChanges";
 import { PencilLineIcon } from "../lineIcons";
+import { useReadMindId } from "./readMind";
 
 /**
- * The card under an Answer whose changes the User asked for applied at once
- * (#880): a line for each Mind with the count its own line shows,
- * "Changed 12 places in “Credit note: draft” · Undo · Review changes", where
- * Undo takes back this Answer's changes alone, and says why it can't once
- * the Mind changed since or closed; then a line of their own for the changes
- * it made beyond the request, which wait: "I also suggested 2 changes in
+ * The card under an Answer whose changes applied at once (#880, #1559): a
+ * line for each Mind, "Wrote “Q3 summary” · Open · Undo" for one it made,
+ * "Wrote it into “Untitled” · Undo" for the empty Mind in front, "Changed 3
+ * paragraphs in “Q3 review” · Undo" for an edit, with Open too when that Mind
+ * isn't the one in front. Undo takes back this Answer's changes there alone,
+ * and says why it can't once the Mind changed since or closed; Review changes
+ * shows them while the Mind's ⌘K and ⋯ offer it (#1795). Then a line of
+ * their own for the changes that wait: "I also suggested 2 changes in
  * “Sources” · Review".
  */
 export function AskedChangesCard({
@@ -93,24 +98,45 @@ function AskedRow({
   const facts = useAskedFacts(answerId, row.mindId) ?? row;
   // Applied, what still waits there is what the User didn't ask for.
   const left =
-    outcome === "held" || (typeof waiting === "number" && waiting > 0)
+    outcome === "held" || (outcome === "applied" && typeof waiting === "number" && waiting > 0)
       ? leftText(t, row, waiting)
       : null;
+  const kept = keptText(t, row);
   return (
     <div className="mind-changes-head">
       <PencilLineIcon aria-hidden="true" className="mind-changes-icon" />
       <p className="mind-changes-line">
         <span data-testid="mind-changes-title" className="mind-changes-title">
-          {changeFact(t, facts, name)}
+          {outcome === "held" ? changeFact(t, facts, name) : appliedFact(t, facts, name)}
         </span>
         {left && (
-          <span data-testid="mind-changes-left" className="mind-changes-count">
+          <>
             {" "}
-            {left}
+            <span data-testid="mind-changes-left" className="mind-changes-count whitespace-nowrap">
+              {left}
+            </span>
+          </>
+        )}
+        {kept && (
+          <span data-testid="mind-changes-kept" className="mind-changes-count">
+            {" "}
+            {kept}
           </span>
         )}
-        {outcome === "applied" && (
-          <AppliedActions answerId={answerId} mindId={row.mindId} name={name} />
+        {outcome === "applied" && <AppliedActions answerId={answerId} row={row} name={name} />}
+        {outcome === "opening" && (
+          <>
+            <Dot />
+            <button
+              type="button"
+              data-testid="mind-changes-open"
+              aria-label={`${t("mindChanges.open")} ${name}`}
+              onClick={() => showChanges(row)}
+              className="mind-changes-review"
+            >
+              {t("mindChanges.open")}
+            </button>
+          </>
         )}
         {outcome === "held" && (
           <>
@@ -132,16 +158,19 @@ function AskedRow({
 
 function AppliedActions({
   answerId,
-  mindId,
+  row,
   name,
 }: {
   answerId: string;
-  mindId: string;
+  row: ChangedMind;
   name: string;
 }) {
   const t = useT();
+  const { mindId } = row;
   const state = useAskedState(answerId, mindId);
+  const reviewable = useAskedReview(answerId, mindId);
   const onTop = useWrittenOnTop(answerId, mindId);
+  const inFront = useReadMindId() === mindId;
   if (state === "undone") {
     return (
       <>
@@ -154,7 +183,9 @@ function AppliedActions({
   }
   const why =
     state === "changed-since"
-      ? t("mindChanges.undo.changedSince", { mind: name })
+      ? reviewable
+        ? t("mindChanges.undo.changedSince", { mind: name, palette: shortcutLabel("palette.open") })
+        : t("mindChanges.undo.changedSince.noReview", { mind: name })
       : state === "closed"
         ? t("mindChanges.undo.closed", { mind: name })
         : undefined;
@@ -165,6 +196,20 @@ function AppliedActions({
           {" "}
           {t("mindChanges.onTop")}
         </span>
+      )}
+      {(row.created || !inFront) && state !== "closed" && (
+        <>
+          <Dot />
+          <button
+            type="button"
+            data-testid="mind-changes-open"
+            aria-label={`${t("mindChanges.open")} ${name}`}
+            onClick={() => showChanges(row)}
+            className="mind-changes-review"
+          >
+            {t("mindChanges.open")}
+          </button>
+        </>
       )}
       <Dot />
       <button
@@ -177,13 +222,13 @@ function AppliedActions({
       >
         {t("edit.applied.undo")}
       </button>
-      {state !== "closed" && (
+      {reviewable && (
         <>
           <Dot />
           <button
             type="button"
             data-testid="mind-changes-review"
-            onClick={() => void reviewAsked(answerId, mindId)}
+            onClick={() => reviewAsked(answerId, mindId)}
             className="mind-changes-review"
           >
             {t("edit.applied.review")}
@@ -194,7 +239,7 @@ function AppliedActions({
   );
 }
 
-const Dot = () => (
+export const Dot = () => (
   <span aria-hidden="true" className="mind-changes-dot">
     {" · "}
   </span>

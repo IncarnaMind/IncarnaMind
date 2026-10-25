@@ -12,10 +12,10 @@
  *   time on a model off this computer, one at a time on one on it; a provider
  *   limiting requests makes the run pause and try again; the monthly cap or
  *   a plan's limit stops it, and every cell left says it wasn't checked.
- * - Each cell is written as it finishes, with its problem when it has no
- *   Answer. A fill reads the cells to fill from the table each time, so a
- *   column added meanwhile, or the cells a quit left, are filled by the same
- *   call.
+ * - A cell shows its words as they stream, and is settled when it finishes:
+ *   its Citations checked, or its problem when it has no Answer. A fill
+ *   reads the cells to fill from the table each time, so a column added
+ *   meanwhile, or the cells a quit left, are filled by the same call.
  * - A fill is a Task (#126, ../runs/tasks): closing the Mind or quitting
  *   doesn't stop it, it goes on when IncarnaMind starts again, and it comes
  *   below Answers. Each cell is a step in its journal. The monthly cap or a
@@ -63,7 +63,7 @@ import { plainText } from "../mindText";
 import { classifyProviderError } from "../providers/providerErrors";
 import { type ItemOutcome, RunItemError, RunItemGaveWay, runItems } from "../runs/stop";
 import type { TaskEnd, TaskKind, TaskRun } from "../runs/tasks";
-import { cellContext, isNotFoundReply, saysNotFound } from "./prompt";
+import { cellContext, hasMarker, isNotFoundReply, saysNotFound } from "./prompt";
 
 /** Cells written at once on a model off this computer. */
 export const CLOUD_CELLS_AT_ONCE = 4;
@@ -111,6 +111,7 @@ export interface ComparisonsOptions {
       documentIds: string[];
       model: ChatModelChoice;
       signal: AbortSignal;
+      onText(streamed: Pick<CellAnswer, "markdown" | "blocks">): void;
     }): Promise<CellAnswer>;
   };
   chat: {
@@ -450,18 +451,41 @@ export function createComparisons(options: ComparisonsOptions) {
       const value = tableIn(all, tableId)?.getAttribute("instruction");
       return typeof value === "string" && value !== "" ? value : null;
     });
+    // Words show once they carry a marker: a reply with none ends as no Answer, and NOT_FOUND is never words.
+    let shown = "";
     const answer = await options.answers.answerCell({
       context: cellContext(cell.question, document.name, instruction),
       documentIds,
       model: fill.model,
       signal,
+      onText(streamed) {
+        if (signal.aborted || !hasMarker(streamed.markdown) || isNotFoundReply(streamed.markdown)) {
+          return;
+        }
+        const blocks = JSON.stringify(streamed.blocks);
+        if (blocks === shown) return;
+        shown = blocks;
+        try {
+          if (setCell(fill, tableId, cell, { blocks: streamed.blocks }) === "table") {
+            fill.controller.abort();
+          }
+        } catch (error) {
+          options.reportError(error);
+        }
+      },
     });
+    if (answer.status !== "done" && shown !== "") {
+      setCell(fill, tableId, cell, { status: "waiting", blocks: EMPTY_CELL });
+    }
     if (answer.status === "stopped") throw new DOMException("Stopped.", "AbortError");
     if (answer.status === "failed" && answer.error) throw new RunItemError(answer.error);
     if (saysNotFound(answer.markdown, answer.citations)) {
       // What the model said instead, if anything but NOT_FOUND, for the cell's tooltip.
       const said = isNotFoundReply(answer.markdown) ? "" : answer.markdown.trim();
       return { kind: "problem", problem: "not-found", ...(said && { message: said }) };
+    }
+    if (answer.changedScale) {
+      return { kind: "problem", problem: "scale-changed", message: answer.changedScale.given };
     }
     return { kind: "answer", blocks: answer.blocks };
   }

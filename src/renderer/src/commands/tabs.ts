@@ -4,7 +4,9 @@ import {
   cycleTabs,
   focusGroup,
   moveToGroup,
+  showTabByNumber,
   splitToTheRight,
+  tabByNumber,
 } from "../components/tabs/tabActions";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../layoutSlice";
 import { useAppStore } from "../store";
@@ -68,17 +70,24 @@ const focusGroupCommands = [1, 2, 3].map(
   }),
 );
 
-export const tabCommands: readonly Command[] = [
-  {
-    id: "tab.new",
-    label: "command.tab.new",
-    shortcut: { keys: "CmdOrCtrl+T" },
-    // The same as New Mind, which ⌘K offers.
-    palette: false,
-    group: "main",
+/**
+ * ⌃1–⌃8 show a tab of the focused group by its place, ⌃9 its last, as in VS Code: Alt on Windows
+ * and Linux, where Ctrl+1–3 go to a group.
+ */
+const showTabCommands = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(
+  (number): Command => ({
+    id: number === 9 ? "tab.showLast" : `tab.show${number}`,
+    label:
+      number === 9 ? "command.tab.showLast" : (_ctx, t) => t("command.tab.show", { n: number }),
+    shortcut: { keys: { mac: `Ctrl+${number}`, other: `Alt+${number}` } },
+    group: "open",
     reversible: true,
-    run: () => store().createMind({ titled: true }),
-  },
+    when: () => tabByNumber(number) !== null,
+    run: () => showTabByNumber(number),
+  }),
+);
+
+export const tabCommands: readonly Command[] = [
   {
     ...fromMenu("tab.close"),
     menuLabel: "tabs.menu.close",
@@ -103,7 +112,7 @@ export const tabCommands: readonly Command[] = [
   },
   {
     ...fromMenu("tab.split"),
-    menuLabel: "tabs.menu.side",
+    menuLabel: "tabs.menu.split",
     group: "open",
     reversible: true,
     when: (ctx) => targetOf(ctx) !== null,
@@ -125,6 +134,7 @@ export const tabCommands: readonly Command[] = [
     reversible: true,
     run: () => cycleTabs(-1),
   },
+  ...showTabCommands,
   ...focusGroupCommands,
   {
     id: "tab.keep",
@@ -182,10 +192,12 @@ export const tabCommands: readonly Command[] = [
     shortcut: { keys: "F2", list: true },
     group: "edit",
     reversible: true,
-    // Not from another list's F2: only on a tab, or on the shown one from ⌘K.
+    // Not from another list's F2: only on a tab, or on the shown one from ⌘K, where its Mind's own Rename comes first.
     when: (ctx) =>
       targetOf(ctx)?.tab.item.kind === "mind" &&
-      (ctx.focus?.kind === "tab" || ctx.surface === "palette" || keyboardTab() !== undefined),
+      (ctx.focus?.kind === "tab" ||
+        (ctx.surface === "palette" && ctx.here?.["mind.rename"] === undefined) ||
+        keyboardTab() !== undefined),
     run: onTarget(({ tab }) => store().renameTab(tab.id)),
   },
   {

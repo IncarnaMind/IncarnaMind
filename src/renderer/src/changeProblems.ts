@@ -1,12 +1,21 @@
 /**
  * What an Answer in the assistant says under its reply about the changes it
  * couldn't make: changes waiting in a Mind that kept it from changing
- * the text, a reply that claims a change none of its calls made, and why a
+ * the text, what wasn't done of a change its reply still claims, and why a
  * call changed nothing. Only data and words.
  */
-import type { ClaimedChange, ConversationAnswer, MindProblem } from "../../core/api";
-import type { MessageKey } from "../../shared/i18n";
+import type { AnswerSteps, AnswerToolCall, ConversationAnswer, MindProblem } from "../../core/api";
+import { changedMinds } from "./changedMinds";
 import type { Translate } from "./objects";
+
+const field = (call: AnswerToolCall, name: string): string => {
+  const value: unknown = call.input?.[name];
+  return typeof value === "string" ? value : "";
+};
+
+/** The Mind a call names before it has changed one: the name it gave, else the Mind in focus. */
+export const namedMind = (t: Translate, call: AnswerToolCall): string =>
+  field(call, "mind") || field(call, "title") || t("mindCall.thisMind");
 
 /**
  * The Mind whose waiting changes kept the Answer from changing it, and how
@@ -26,12 +35,30 @@ export function waitingProblemOf(
   return null;
 }
 
-/** The line for a reply that claims changes none of its calls made, the weightiest first; null for none. */
-export function unbackedClaimKey(claims: readonly ClaimedChange[] | undefined): MessageKey | null {
-  if (!claims || claims.length === 0) return null;
-  if (claims.includes("made")) return "answer.unbacked.made";
-  if (claims.includes("removed") && claims.length === 1) return "answer.unbacked.removed";
-  return "answer.unbacked.changed";
+/**
+ * The line under a reply that still claims a change none of its calls made, once asked again
+ * (#1559). With no Mind changed, "Nothing was written: {reason}", the reason being what the
+ * first write call that changed nothing says, else that none ran; with one changed, whose card
+ * says how, that not all the reply says was done. Null for no such claim.
+ */
+export function unbackedClaimLine(
+  t: Translate,
+  answer: {
+    steps: Pick<AnswerSteps, "unbackedClaims"> | null;
+    toolCalls: ConversationAnswer["toolCalls"];
+  },
+): string | null {
+  if ((answer.steps?.unbackedClaims ?? []).length === 0) return null;
+  if (changedMinds(answer).length > 0) return t("answer.notAllDone");
+  const failed = answer.toolCalls.find(
+    (call) => call.source === "minds" && call.status === "failed" && call.tool !== "read_mind",
+  );
+  const mind = failed ? namedMind(t, failed) : "";
+  const reason = !failed
+    ? t("answer.notWritten.noCall")
+    : (failed.mindProblem && problemText(t, failed.mindProblem, mind)) ||
+      t(failed.tool === "create_mind" ? "mindCall.createFailed" : "mindCall.failed", { mind });
+  return t("answer.notWritten", { reason });
 }
 
 /** Why a call of a Minds' Tool changed nothing, in its row's words; null for one of no kind it knows. */
@@ -49,6 +76,8 @@ export function problemText(t: Translate, problem: MindProblem, mind: string): s
       return t("mindCall.failed.notFound", { name: problem.name });
     case "several":
       return t("mindCall.failed.several", { name: problem.name });
+    case "not-picked":
+      return t("mindCall.failed.notPicked", { name: problem.name });
     case "no-heading":
       return t("mindCall.failed.noHeading", { mind, heading: problem.heading });
     case "no-place":
@@ -79,6 +108,10 @@ export function problemText(t: Translate, problem: MindProblem, mind: string): s
       return t("mindCall.failed.noTable", { mind });
     case "uncited":
       return t("mindCall.failed.uncited", { mind });
+    case "no-chart":
+      return t(`mindCall.failed.noChart.${problem.problem}`, { mind });
+    case "new-mind":
+      return t("mindCall.failed.newMind", { mind });
     case "local-mode":
       return t("mindCall.failed.localMode", { mind });
     case "not-ready":

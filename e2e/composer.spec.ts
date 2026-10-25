@@ -13,6 +13,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   enterContent,
+  forceQuit,
   launchApp,
   nameMind,
   ollamaListing,
@@ -119,6 +120,12 @@ const bridge = (window: Page) => ({
       const answer = messages.filter((message) => message.kind === "answer").at(-1);
       return answer?.kind === "answer" ? { status: answer.status, text: answer.text } : null;
     }),
+  storedConversation: () =>
+    window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [conversation] = await core.listConversations();
+      return conversation ? core.getConversation(conversation.id) : null;
+    }),
 });
 
 /** The scripted Answer repeats the Question: a long one keeps it streaming for a few seconds. */
@@ -135,6 +142,7 @@ async function busyOllama() {
   const waiting: (() => void)[] = [];
   let holding = false;
   let cloud = false;
+  let tags = 0;
   const server: Server = createServer((request, response) => {
     request.resume();
     if (request.url !== "/api/tags") {
@@ -142,6 +150,7 @@ async function busyOllama() {
       response.end();
       return;
     }
+    tags += 1;
     const listing = {
       name: "fake-model",
       model: "fake-model",
@@ -160,6 +169,9 @@ async function busyOllama() {
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}`,
+    get tags() {
+      return tags;
+    },
     hold() {
       holding = true;
     },
@@ -261,7 +273,7 @@ test("typing in the composer and pressing Enter shows the Question in the assist
   await window.mouse.move(10, 10);
   const actions = answer.getByTestId("answer-actions");
   await expect.poll(() => opacityOf(actions)).toBe(1);
-  await expect(actions).toHaveText("CopyAdd to note");
+  await expect(actions).toHaveText("CopyAdd to noteNew Mind");
   await expect(answer.getByTestId("answer-steps")).toHaveText("Searched All Documents · 1 source");
   await expect(answer.getByTestId("answer-regenerate")).toHaveCount(0);
   await screenshot(window, "composer-answered-en");
@@ -323,6 +335,121 @@ test("Stop keeps what streamed, and Regenerate writes the Answer again", async (
   await expect(assistantAnswers(window)).toHaveCount(1);
   await expect(window.getByTestId("mind-editor").getByTestId("answer")).toHaveCount(0);
   await app.close();
+});
+
+test("a Question waiting for model readiness survives a force-quit, is stopped on restart, and can be retried", async () => {
+  const ollama = await busyOllama();
+  try {
+    const first = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(first.window);
+    await bridge(first.window).ollama(ollama.url);
+    await pointAndClick(first.window, first.window.getByTestId("plus-menu"));
+    await pointAndClick(first.window, first.window.getByTestId("plus-new-mind"));
+    const input = first.window.getByTestId("composer-input");
+    await pointAndClick(first.window, input);
+    const question = "Keep this Question through a crash";
+    const before = ollama.tags;
+    ollama.hold();
+    await first.window.keyboard.type(question);
+    await first.window.keyboard.press("Enter");
+    await expect(first.window.getByTestId("assistant-question")).toContainText(question);
+    await expect(first.window.getByTestId("assistant-answer-on-its-way")).toBeVisible();
+    // The held response proves the ask is waiting inside readyModel.
+    await expect.poll(() => ollama.tags).toBeGreaterThan(before);
+    await expect.poll(() => bridge(first.window).storedConversation()).not.toBeNull();
+    await forceQuit(first.app);
+    ollama.release();
+
+    const restarted = await launchApp(dataDir, { fakeChat: true });
+    const content = await bridge(restarted.window).storedConversation();
+    if (!content) throw new Error("The Question and its Conversation were not kept.");
+    expect(content.messages.map((message) => message.kind)).toEqual(["question", "answer"]);
+    const [storedQuestion, storedAnswer] = content.messages;
+    expect(storedQuestion).toMatchObject({ kind: "question", text: question });
+    expect(storedAnswer).toMatchObject({ kind: "answer", status: "stopped", text: "" });
+    if (storedAnswer?.kind !== "answer") throw new Error("The recovered Answer is missing.");
+
+    await pointAndClick(restarted.window, restarted.window.getByTestId("assistant-title"));
+    await expect(
+      restarted.window.getByTestId("assistant-history-row").filter({ hasText: question }),
+    ).toHaveCount(1);
+    await restarted.window.keyboard.press("Escape");
+
+    // Opened as a person does, by its words in ⌘K.
+    await restarted.window.keyboard.press("ControlOrMeta+k");
+    const palette = restarted.window.getByTestId("palette");
+    await expect(palette).toBeVisible();
+    await restarted.window.keyboard.type(question);
+    const found = palette
+      .locator('[data-testid="palette-group"][data-group="conversations"]')
+      .getByTestId("palette-item")
+      .first();
+    await expect(found).toBeVisible();
+    await pointAndClick(restarted.window, found);
+    await expect(palette).toBeHidden();
+
+    // Recovered, it says it was stopped where the User looks, and its own retry writes it again.
+    const answer = assistantAnswers(restarted.window).first();
+    await expect(answer).toHaveAttribute("data-status", "stopped");
+    await restarted.window.mouse.move(10, 10);
+    await expect(answer.getByTestId("answer-stopped")).toHaveText("Stopped");
+    await expect.poll(() => opacityOf(answer.getByTestId("answer-actions"))).toBe(1);
+    await openSteps(restarted.window, answer);
+    await pointAndClick(restarted.window, answer.getByTestId("answer-regenerate"));
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+    await expect(answer).toContainText("scripted");
+    await expect
+      .poll(async () => (await bridge(restarted.window).storedAnswer())?.status)
+      .toBe("done");
+    await restarted.app.close();
+  } finally {
+    ollama.close();
+  }
+});
+
+test("a Question already inserted while Thinking survives a force-quit (control)", async () => {
+  const ollama = await busyOllama();
+  try {
+    const first = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(first.window);
+    await bridge(first.window).ollama(ollama.url);
+    await pointAndClick(first.window, first.window.getByTestId("plus-menu"));
+    await pointAndClick(first.window, first.window.getByTestId("plus-new-mind"));
+    const input = first.window.getByTestId("composer-input");
+    await pointAndClick(first.window, input);
+    const before = ollama.tags;
+    ollama.hold();
+    await first.window.keyboard.type("Answer slowly: what is a Mind?");
+    await first.window.keyboard.press("Enter");
+    await expect.poll(() => ollama.tags).toBeGreaterThan(before);
+    ollama.release();
+    const answer = assistantAnswers(first.window).first();
+    await expect(answer).toHaveAttribute("data-status", "streaming");
+    // Thinking is shown only after the turn is inserted and its Answer starts.
+    await expect(answer.getByTestId("answer-writing")).toHaveText("Thinking…", {
+      timeout: 15_000,
+    });
+    await forceQuit(first.app);
+
+    const restarted = await launchApp(dataDir, { fakeChat: true });
+    const content = await bridge(restarted.window).storedConversation();
+    if (!content) throw new Error("The inserted Question and its Conversation were not kept.");
+    expect(content.messages.map((message) => message.kind)).toEqual(["question", "answer"]);
+    expect(content.messages[0]).toMatchObject({
+      kind: "question",
+      text: "Answer slowly: what is a Mind?",
+    });
+    expect(content.messages[1]).toMatchObject({ kind: "answer", status: "stopped" });
+    await pointAndClick(restarted.window, restarted.window.getByTestId("assistant-title"));
+    await expect(
+      restarted.window
+        .getByTestId("assistant-history-row")
+        .filter({ hasText: "Answer slowly: what is a Mind" }),
+    ).toHaveCount(1);
+    await restarted.app.close();
+  } finally {
+    ollama.close();
+  }
 });
 
 test("sending empties the composer and shows the Question with its Answer on its way at once; until it is written the send button is Stop, so a second Enter, a double click, or Enter then a click never asks twice, and the same Question can be asked again once it is done", async () => {
@@ -549,7 +676,7 @@ test("⌘J focuses the composer from the note; Shift+Enter breaks the Question's
   await app.close();
 });
 
-test("the model chip chooses the model for one Mind, which remembers it after a restart, while new Minds take the default", async () => {
+test("the model chip chooses the model for one Mind, which remembers it after a restart, and a new Mind starts on the last one chosen", async () => {
   // Listed a second late, so the menu opens before its models are there, as on a slow machine
   // or with a provider far away: the current one still takes the focus once it is listed.
   const ollama = await ollamaListing(["fake-model", "other-model"], { delayMs: 1000 });
@@ -580,12 +707,15 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(options).toHaveText([/fake-model/, /other-model/]);
     await expect(options.first()).toHaveAttribute("aria-checked", "true");
     await expect(options.first()).toBeFocused();
-    await expect(menu).toContainText("For this Mind’s Questions.");
+    await expect(menu).not.toContainText("For this Mind’s Questions.");
     await expect(menu).toContainText("Default for new Minds: fake-model · Change in Settings");
     // What stays on this computer says so with its icon, in ink-secondary: green is for checks.
     const stays = menu.getByTestId("on-this-computer").first();
     await expect(stays).toHaveCSS("color", "rgb(74, 79, 87)");
     expect(await stays.evaluate((element) => element.firstElementChild?.tagName)).toBe("svg");
+    // Where models run is said once, by the group's heading, not on every row.
+    await expect(menu.getByTestId("on-this-computer")).toHaveCount(1);
+    await expect(menu.getByText(/^Stays on this/)).toHaveCount(0);
     await screenshot(window, "composer-model-menu-en");
     await pointAndClick(window, options.nth(1));
     await expect(menu).toBeHidden();
@@ -597,20 +727,26 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
     await expect(await openSteps(window, answer)).toContainText("Answered by other-model");
 
-    // A new Mind takes the default; by keyboard, the menu opens and closes again.
     await pointAndClick(window, window.getByTestId("plus-menu"));
     await pointAndClick(window, window.getByTestId("plus-new-mind"));
     await nameMind(window, "Default model");
-    await expect(chip).toHaveText("fake-model");
+    await expect(chip).toHaveText("other-model");
+    await expect(menu).toBeHidden();
     await chip.focus();
     await window.keyboard.press("Enter");
     await expect(menu).toBeVisible();
-    await expect(options.first()).toBeFocused();
-    await window.keyboard.press("ArrowDown");
     await expect(options.nth(1)).toBeFocused();
+    await window.keyboard.press("ArrowUp");
+    await expect(options.first()).toBeFocused();
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     await expect(chip).toBeFocused();
+    await expect(chip).toHaveText("other-model");
+    await window.keyboard.press("Enter");
+    await expect(options.nth(1)).toBeFocused();
+    await window.keyboard.press("ArrowUp");
+    await window.keyboard.press("Enter");
+    await expect(menu).toBeHidden();
     await expect(chip).toHaveText("fake-model");
     await first.app.close();
 
@@ -631,10 +767,7 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
 
     // In Chinese.
     await bridge(window).language("zh-CN");
-    await expect(window.getByTestId("composer-input")).toHaveAttribute(
-      "placeholder",
-      "提问，或说明要修改的内容…",
-    );
+    await expect(window.getByTestId("composer-input")).toHaveAttribute("placeholder", "追问…");
     await pointAndClick(window, window.getByTestId("composer-model"));
     const menuZh = window.getByTestId("composer-model-menu");
     await expect(menuZh.getByRole("group", { name: "在本机运行" })).toBeVisible();
@@ -790,7 +923,7 @@ test("in Chinese: the composer with a Search scope and a Skill chosen from its p
   await screenshot(window, "composer-skill-picker-zh");
   await window.keyboard.type("lit");
   await window.keyboard.press("Enter");
-  await expect(composer.getByTestId("composer-skill")).toHaveText("literature-review");
+  await expect(composer.getByTestId("composer-skill")).toHaveText("文献综述");
   await window.keyboard.type("大潮什么时候出现？");
   await screenshot(window, "composer-chips-zh");
 
@@ -800,7 +933,7 @@ test("in Chinese: the composer with a Search scope and a Skill chosen from its p
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect(composer.getByTestId("composer-live")).toContainText("回答已生成。");
   const question = window.getByTestId("assistant-question");
-  await expect(question.getByTestId("assistant-question-skill")).toHaveText("literature-review");
+  await expect(question.getByTestId("assistant-question-skill")).toHaveText("文献综述");
   await expect(answer.getByTestId("answer-steps")).toContainText("已搜索“Tides”");
   await openSteps(window, answer);
   await expect(answer.getByTestId("answer-regenerate")).toHaveText("重新生成");

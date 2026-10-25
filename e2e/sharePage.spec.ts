@@ -19,8 +19,10 @@ import {
   nameMind,
   newMind,
   openOptions,
+  openSavedPage,
   pointAndClick,
   removeDataFolder,
+  requestsMade,
   savedPath,
   setLanguage,
   useLocalChatModel,
@@ -62,39 +64,6 @@ function citation(document: Document, quote: string, line: number, check: "found
 
 const paragraph = (...children: MindChild[]) =>
   mindNode("paragraph", { id: randomUUID() }, children);
-
-/**
- * Opens a saved page in a window of its own, in a session with the network off that records
- * every request it is asked for, as a reader opening the file in a browser would.
- */
-async function openOffline(app: ElectronApplication, path: string): Promise<Page> {
-  const opened = app.waitForEvent("window");
-  await app.evaluate(async ({ BrowserWindow, session }, file) => {
-    const offline = session.fromPartition("shared-page", { cache: false });
-    offline.enableNetworkEmulation({ offline: true });
-    const requested: string[] = [];
-    (globalThis as { sharedPageRequests?: string[] }).sharedPageRequests = requested;
-    offline.webRequest.onBeforeRequest((details, callback) => {
-      requested.push(details.url);
-      callback({ cancel: !details.url.startsWith("file:") });
-    });
-    const window = new BrowserWindow({
-      width: 1100,
-      height: 760,
-      useContentSize: true,
-      // macOS keeps a window no taller than the screen otherwise, and CI's Mac has a small one.
-      enableLargerThanScreen: true,
-      webPreferences: { session: offline, sandbox: true, contextIsolation: true },
-    });
-    await window.loadFile(file);
-  }, path);
-  const page = await opened;
-  await page.waitForLoadState("load");
-  return page;
-}
-
-const requestsMade = (app: ElectronApplication) =>
-  app.evaluate(() => (globalThis as { sharedPageRequests?: string[] }).sharedPageRequests ?? []);
 
 async function resize(app: ElectronApplication, page: Page, width: number, height: number) {
   const window = await app.browserWindow(page);
@@ -184,7 +153,7 @@ test("a web page to share: the sheet offers it, and the file loads nothing and o
   await expect(window.getByTestId("export-mind")).toHaveAttribute("data-format", "share-page");
 
   await exportFromMenu(window);
-  const page = await openOffline(app, await savedPath(window, "Tides.html"));
+  const page = await openSavedPage(app, await savedPath(window, "Tides.html"));
 
   // Nothing but the file was asked for, and the page's policy refuses a request it tries.
   await expect(page.locator(".shared-foot a")).toHaveText("Citations checked with IncarnaMind");
@@ -360,7 +329,7 @@ test("page pictures: the sheet says what goes in the file and updates as a Docum
   await sheet.getByTestId("export-format").selectOption("share-page");
   const contents = sheet.getByTestId("share-contents");
   await expect(contents.locator("p").first()).toHaveText(
-    "In the file: 5 quotes and 2 page pictures from 5 Documents. Anyone you send it to can read them. The Documents themselves aren't included.",
+    "In the file: 5 quotes and 2 page pictures from 5 Documents. Anyone with the file can read these; Documents aren’t included.",
   );
   await expect(contents.getByTestId("share-document")).toHaveCount(5);
   await expect(contents.getByTestId("share-size")).toHaveText(/^The file will be about \d/);
@@ -377,7 +346,7 @@ test("page pictures: the sheet says what goes in the file and updates as a Docum
   await expect(sheet).toBeHidden();
 
   await exportFromMenu(window);
-  const page = await openOffline(app, await savedPath(window, "Gauges.html"));
+  const page = await openSavedPage(app, await savedPath(window, "Gauges.html"));
   const pictureOf = (name: string) =>
     page
       .locator("section.card", { has: page.locator(".card-source", { hasText: name }) })
@@ -422,7 +391,270 @@ test("page pictures: the sheet says what goes in the file and updates as a Docum
   await setLanguage(window, "zh-CN");
   await openOptions(window, "导出选项");
   await expect(sheet.getByTestId("share-contents").locator("p").first()).toHaveText(
-    "文件中包含：来自 5 个文档的 5 处引文和 2 张页面截图。收到文件的人都能看到这些内容；文档本身不会包含在内。",
+    "文件中包含：来自 5 个文档的 5 处引文和 2 张页面截图。收到文件的人都能看到这些，文档本身不包含在内。",
   );
+  await app.close();
+});
+
+test("export options keeps its title, ×, Cancel and Save options in view at 1,100 px while the body scrolls, in English and Chinese", async () => {
+  test.setTimeout(240_000);
+  const { app, window } = await launchApp(dataDir, { home });
+  await dismissChatSetup(window);
+  await newMind(window);
+  await nameMind(window, "Tides");
+  const mindId = await window.getByTestId("mind-pane").getAttribute("data-mind-id");
+  if (!mindId) throw new Error("No Mind is open.");
+  const names = ["Tides", "Currents", "Swells", "Winds", "Moon"];
+  const paths = names.map((name) => join(sources, `${name}.txt`));
+  for (const [index, path] of paths.entries()) {
+    await writeFile(path, `${names[index]} rise and fall twice a day.\n`);
+  }
+  await addDocuments(window, paths);
+  const documents = await core(window).documents();
+  await core(window).write(
+    mindId,
+    blocksUpdate(
+      names.map((name) => {
+        const document = documents.find((each) => each.name === name);
+        if (!document) throw new Error(`No ${name}.`);
+        return paragraph(
+          `${name} each day`,
+          citation(document, `${name} rise and fall`, 1, "found"),
+          ".",
+        );
+      }),
+    ),
+  );
+  await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(5);
+  await useOutputLocation(window, out);
+
+  const sheet = window.getByTestId("export-dialog");
+  const body = sheet.getByTestId("export-options-body");
+  const viewport = () => window.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  const inside = (
+    box: { x: number; y: number; width: number; height: number },
+    size: { width: number; height: number },
+  ) =>
+    box.x >= -0.5 &&
+    box.y >= -0.5 &&
+    box.x + box.width <= size.width + 0.5 &&
+    box.y + box.height <= size.height + 0.5;
+  const focused = () =>
+    window.evaluate(() => {
+      const element = document.activeElement;
+      if (!(element instanceof HTMLElement)) return null;
+      const box = element.getBoundingClientRect();
+      return {
+        id: element.getAttribute("data-testid") ?? element.textContent?.trim() ?? "",
+        inside:
+          box.top >= -0.5 &&
+          box.left >= -0.5 &&
+          box.bottom <= innerHeight + 0.5 &&
+          box.right <= innerWidth + 0.5,
+      };
+    });
+
+  for (const [width, height] of [
+    [1100, 720],
+    [1100, 760],
+  ] as const) {
+    for (const language of ["en", "zh-CN"] as const) {
+      await resize(app, window, width, height);
+      await setLanguage(window, language);
+      await expect(window.getByTestId("export-mind")).toHaveText(
+        language === "en" ? "Export" : "导出",
+      );
+      const title = language === "en" ? "Export options" : "导出选项";
+      await openOptions(window, title);
+      await sheet.getByTestId("export-format").selectOption("share-page");
+      await expect(sheet.getByTestId("share-document")).toHaveCount(5);
+
+      // #1017: the sheet opens with its × focused.
+      await sheet.getByTestId("export-options-close").focus();
+      const order: string[] = [];
+      for (let step = 0; step < 12; step++) {
+        const now = await focused();
+        if (!now) throw new Error("Nothing has the focus.");
+        order.push(now.id);
+        expect(now.inside).toBe(true);
+        if (now.id === "export-save") break;
+        await window.keyboard.press("Tab");
+      }
+      expect(order.slice(0, 6)).toEqual([
+        "export-options-close",
+        "export-format",
+        "export-citation-cards",
+        "export-checked-line",
+        "export-include-questions",
+        "export-save-to-change",
+      ]);
+      expect(order.slice(6)).toEqual([language === "en" ? "Cancel" : "取消", "export-save"]);
+      expect(await body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+      const line = sheet.getByTestId("export-checked-line");
+      await pointAndClick(window, line);
+      await expect(line).toBeChecked();
+
+      const size = await viewport();
+      const frame = await sheet.boundingBox();
+      if (!frame) throw new Error("The sheet isn't shown.");
+      expect(Math.abs(frame.y - 44)).toBeLessThanOrEqual(1);
+      expect(Math.abs(frame.x - (size.width - 520) / 2)).toBeLessThanOrEqual(1);
+      expect(frame.y + frame.height).toBeLessThanOrEqual(size.height - 23.5);
+      for (const control of [
+        sheet.locator("#export-title"),
+        sheet.getByTestId("export-options-close"),
+        sheet.getByRole("button", { name: language === "en" ? "Cancel" : "取消" }),
+        sheet.getByTestId("export-save"),
+      ]) {
+        const box = await control.boundingBox();
+        if (!box) throw new Error("A control of the sheet isn't shown.");
+        expect(inside(box, size)).toBe(true);
+      }
+      const room = await body.evaluate((element) => ({
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+      }));
+      expect(room.scrollHeight).toBeGreaterThan(room.clientHeight);
+
+      const bodyBox = await body.boundingBox();
+      if (!bodyBox) throw new Error("The body isn't shown.");
+      const saveBox = await sheet.getByTestId("export-save").boundingBox();
+      const titleBox = await sheet.locator("#export-title").boundingBox();
+      await window.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height / 2);
+      await window.mouse.wheel(0, -400);
+      await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+      await window.mouse.wheel(0, 400);
+      await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      if (!saveBox || !titleBox) throw new Error("A control of the sheet isn't shown.");
+      expect(await sheet.getByTestId("export-save").boundingBox()).toEqual(saveBox);
+      expect(await sheet.locator("#export-title").boundingBox()).toEqual(titleBox);
+      await window.keyboard.press("Escape");
+      await expect(sheet).toBeHidden();
+      await expect(window.getByRole("dialog")).toHaveCount(0);
+    }
+  }
+
+  await resize(app, window, 1440, 900);
+  await setLanguage(window, "en");
+  await expect(window.getByTestId("export-mind")).toHaveText("Export");
+  await openOptions(window, "Export options");
+  await sheet.getByTestId("export-format").selectOption("share-page");
+  await expect(sheet.getByTestId("share-document")).toHaveCount(5);
+  const wideSize = await viewport();
+  const wide = await sheet.boundingBox();
+  if (!wide) throw new Error("The sheet isn't shown.");
+  expect(Math.abs(wide.width - 520)).toBeLessThanOrEqual(1);
+  expect(Math.abs(wide.y - 44)).toBeLessThanOrEqual(1);
+  for (const control of [
+    sheet.locator("#export-title"),
+    sheet.getByTestId("export-options-close"),
+    sheet.getByRole("button", { name: "Cancel" }),
+    sheet.getByTestId("export-save"),
+  ]) {
+    const box = await control.boundingBox();
+    if (!box) throw new Error("A control of the sheet isn't shown.");
+    expect(inside(box, wideSize)).toBe(true);
+  }
+  const room = await body.evaluate((element) => [element.scrollHeight, element.clientHeight]);
+  expect(room[0]).toBe(room[1]);
+  await app.close();
+});
+
+test("the shared page's Notes list is compact and each line links back to its Citation, in English and Chinese, and holds at 375 px", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await dismissChatSetup(window);
+  await newMind(window);
+  await nameMind(window, "Tides");
+  const mindId = await window.getByTestId("mind-pane").getAttribute("data-mind-id");
+  if (!mindId) throw new Error("No Mind is open.");
+  await writeFile(
+    join(sources, "Tides.txt"),
+    "Spring tides come twice a month, at new and full moon.\n\nNeap tides fall between them.\n",
+  );
+  await addDocuments(window, [join(sources, "Tides.txt")]);
+  const [tides] = await core(window).documents();
+  if (!tides) throw new Error("No Tides.");
+  await core(window).write(
+    mindId,
+    blocksUpdate([
+      paragraph(
+        "Spring tides follow the moon",
+        citation(tides, "Spring tides come twice a month", 1, "found"),
+        ".",
+      ),
+      paragraph(
+        "Neap tides come between",
+        citation(tides, "Neap tides fall between them", 3, "found"),
+        ".",
+      ),
+    ]),
+  );
+  await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(2);
+  await useOutputLocation(window, out);
+  await openOptions(window, "Export options");
+  const sheet = window.getByTestId("export-dialog");
+  await sheet.getByTestId("export-format").selectOption("share-page");
+  await pointAndClick(window, sheet.getByTestId("export-save"));
+  await expect(sheet).toBeHidden();
+  await exportFromMenu(window);
+  const page = await openSavedPage(app, await savedPath(window, "Tides.html"));
+
+  const look = (target: Page) =>
+    target.locator(".notes").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        font: style.fontFamily.split(",")[0]?.trim().replaceAll('"', "") ?? "",
+        size: style.fontSize,
+      };
+    });
+  await expect(page.locator(".notes h2")).toHaveText("Notes");
+  expect(await look(page)).toEqual({ font: "system-ui", size: "12px" });
+  const serif = await page
+    .locator("main")
+    .evaluate((element) => getComputedStyle(element).fontFamily.split(",")[0]?.trim() ?? "");
+  expect(serif).not.toBe("system-ui");
+  const lines = page.locator(".notes li");
+  await expect(lines).toHaveCount(2);
+  await expect(lines.first()).toContainText(
+    "1 · Tides, line 1 · “Spring tides come twice a month”",
+  );
+  await expect(lines.nth(1)).toContainText("2 · Tides, line 3 · “Neap tides fall between them”");
+  for (const number of [1, 2]) {
+    await expect(page.locator(`.notes #note-${number} a.backref`)).toHaveAttribute(
+      "href",
+      `#ref-${number}`,
+    );
+    await expect(page.locator(`main a.cite[href="#note-${number}"]`)).toHaveCount(1);
+  }
+
+  await resize(app, page, 375, 720);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  const line = await lines.first().boundingBox();
+  if (!line) throw new Error("The first note isn't shown.");
+  expect(line.width).toBeLessThanOrEqual(375);
+  await expect(page.locator(".notes")).toBeVisible();
+  await page.close();
+
+  await setLanguage(window, "zh-CN");
+  await expect(window.getByTestId("export-mind")).toHaveText("导出");
+  await openOptions(window, "导出选项");
+  await expect(sheet.getByTestId("export-format").locator("option:checked")).toHaveText(
+    "可分享的网页（.html）",
+  );
+  await pointAndClick(window, sheet.getByTestId("export-save"));
+  await expect(sheet).toBeHidden();
+  await exportFromMenu(window);
+  const done = window.getByTestId("export-result").getByTestId("export-done");
+  await expect(done).toContainText("已保存“Tides 2.html”到");
+  const zh = await openSavedPage(app, (await done.getAttribute("title")) ?? "");
+  await expect(zh.locator(".notes h2")).toHaveText("注释");
+  expect(await look(zh)).toEqual({ font: "system-ui", size: "12px" });
+  await expect(zh.locator(".notes li").first()).toContainText(
+    "1 · Tides，第 1 行 · “Spring tides come twice a month”",
+  );
+  await zh.locator(".notes #note-2 a.backref").click();
+  await expect(zh).toHaveURL(/#ref-2$/);
+  await zh.close();
   await app.close();
 });

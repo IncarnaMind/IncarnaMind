@@ -17,11 +17,12 @@ import {
   stopComparisonTable,
   useComparisons,
 } from "../comparisons";
-import { PlusLineIcon } from "../components/lineIcons";
+import { ExportLineIcon, PlusLineIcon } from "../components/lineIcons";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
 import { runStopParts } from "../cost";
 import { resolveProposalsIn } from "../editWithAi";
+import { exportComparison } from "../exports";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { tableTask, useTasks } from "../tasks";
@@ -240,6 +241,17 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
         )}
         <span className="comparison-head-end">
           {addButton("head")}
+          {expanded && (
+            <button
+              type="button"
+              data-testid="comparison-export-excel"
+              className="comparison-export"
+              onClick={() => void exportComparison(mindId, tableId)}
+            >
+              <ExportLineIcon className="size-3.5" />
+              {t("export.excel.button")}
+            </button>
+          )}
           {expanded ? (
             <button
               type="button"

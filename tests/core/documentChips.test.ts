@@ -96,7 +96,7 @@ describe("Document chips and checklists in the Mind's Yjs content", () => {
     restarted.close();
   });
 
-  test("a Mind with them is read as text by what reads a Mind: the chip's name, the items as a list", async () => {
+  test("Markdown keeps each chip's name and the checklist's completion state", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, { now: manualClock().now });
     const mind = await core.createMind({ title: "Tides" });
@@ -107,8 +107,8 @@ describe("Document chips and checklists in the Mind's Yjs content", () => {
     const exported = await core.exportMind(mind.id, { format: "markdown" });
     const markdown = new TextDecoder().decode(exported.data);
     expect(markdown).toContain("Compare with Tides 2026.pdf and 潮汐表.docx");
-    expect(markdown).toMatch(/^[-*] +Read the tide table$/m);
-    expect(markdown).toContain("潮汐表");
+    expect(markdown).toContain("- [x] Read the tide table");
+    expect(markdown).toContain("- [ ] 潮汐表");
     core.close();
   });
 });

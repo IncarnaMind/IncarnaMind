@@ -91,12 +91,12 @@ test("Other models: grouped by why, ticked into the model menu, with a wrong tic
     };
     await expect.poll(menuModels).toEqual(["gpt-6.1-sol", "gpt-6-luna", "gpt-9-not-found"]);
 
-    // Closed at first: one row with the count.
+    // On OpenAI's page, closed at first: one row with the count.
     const settings = await openSettings(window, "models");
+    await settings.getByTestId("provider-row").first().click();
     const other = settings.getByTestId("other-models-settings");
     const toggle = other.getByTestId("other-models-toggle");
-    await expect(toggle).toContainText("Other models · 6");
-    await expect(toggle).toContainText("Models OpenAI lists that aren’t in the menu");
+    await expect(toggle).toHaveText("Other models · 6");
     await expect(other.getByTestId("other-model")).toHaveCount(0);
     await screenshot(window, "other-models-collapsed-en");
 
@@ -104,7 +104,6 @@ test("Other models: grouped by why, ticked into the model menu, with a wrong tic
     await toggle.focus();
     await window.keyboard.press("Enter");
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(other).toContainText("Tick a model to add it to the model menu.");
     const rows = other.getByTestId("other-model");
     const ids = () => rows.evaluateAll((all) => all.map((each) => each.getAttribute("data-model")));
     const order = [
@@ -141,6 +140,7 @@ test("Other models: grouped by why, ticked into the model menu, with a wrong tic
 
     // Untick: it leaves the menu again.
     await openSettings(window, "models");
+    await settings.getByTestId("provider-row").first().click();
     await toggle.click();
     await pointAndClick(window, rows.filter({ hasText: "GPT-4 Turbo" }));
     await expect(rows.filter({ hasText: "GPT-4 Turbo" }).getByRole("checkbox")).not.toBeChecked();
@@ -171,10 +171,10 @@ test("Other models: grouped by why, ticked into the model menu, with a wrong tic
     );
     await window.getByRole("button", { name: "设置" }).click();
     const settingsZh = await showSettingsPage(window, "models");
+    await settingsZh.getByTestId("provider-row").first().click();
     const otherZh = settingsZh.getByTestId("other-models-settings");
-    await expect(otherZh.getByTestId("other-models-toggle")).toContainText("其他模型 · 5");
+    await expect(otherZh.getByTestId("other-models-toggle")).toHaveText("其他模型 · 5");
     await otherZh.getByTestId("other-models-toggle").click();
-    await expect(otherZh).toContainText("勾选模型即可加入模型菜单。");
     await expect(otherZh.getByRole("group", { name: "无法在这里回答问题" })).toContainText(
       "仅支持文本补全",
     );

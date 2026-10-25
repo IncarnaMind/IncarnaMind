@@ -2,6 +2,7 @@ import type { AskBlock } from "../answers";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
 import { useT } from "../i18n";
+import { skillTitle } from "../skills";
 
 /**
  * Why a Question couldn't be asked, or an Answer written again: one line,
@@ -43,7 +44,7 @@ export function AskProblem({
           onAskWithoutSkill && { label: t("skills.unavailable.drop"), onClick: onAskWithoutSkill }
         }
       >
-        {t(`skills.unavailable.${problem.state}`, { name: problem.skill })}
+        {t(`skills.unavailable.${problem.state}`, { name: skillTitle(problem.skill, t) })}
       </ProblemLine>
     );
   }

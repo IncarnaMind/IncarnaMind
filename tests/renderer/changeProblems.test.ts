@@ -2,15 +2,15 @@ import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindProblem } from "../../src/core/api";
 import {
   problemText,
-  unbackedClaimKey,
+  unbackedClaimLine,
   waitingProblemOf,
 } from "../../src/renderer/src/changeProblems";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
  * What an Answer says under its reply about changes it couldn't make:
- * the changes waiting that stopped it, a reply that claims a change none of
- * its calls made, and why a call changed nothing, in English and Chinese.
+ * the changes waiting that stopped it, what wasn't done of a change its reply
+ * still claims, and why a call changed nothing, in English and Chinese.
  */
 
 const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
@@ -44,18 +44,41 @@ describe("The changes waiting that kept an Answer from changing a Mind", () => {
   });
 });
 
-describe("A reply that claims a change none of its calls made", () => {
-  // protects=the line names the weightiest unmade change; fails_when=a made-up Mind reads as a change, or none shows; no_claim=none beyond protects.
-  test("the line for the weightiest claim", () => {
-    expect(unbackedClaimKey(undefined)).toBeNull();
-    expect(unbackedClaimKey([])).toBeNull();
-    expect(unbackedClaimKey(["added", "made"])).toBe("answer.unbacked.made");
-    expect(unbackedClaimKey(["removed"])).toBe("answer.unbacked.removed");
-    expect(unbackedClaimKey(["removed", "changed"])).toBe("answer.unbacked.changed");
-    expect(en("answer.unbacked.changed")).toBe(
-      "This reply says it changed a Mind, but no change was made.",
+describe("The line under a reply that still claims a change (#1559)", () => {
+  const claimed = { steps: { unbackedClaims: ["added" as const] } };
+
+  // protects=with no write call, the line says nothing was written as none ran, in English and Chinese; fails_when=the line names no reason, or shows a key; no_claim=how the line is drawn.
+  test("no write call ran", () => {
+    expect(unbackedClaimLine(en, { ...claimed, toolCalls: [] })).toBe(
+      "Nothing was written: the assistant didn’t run the write",
     );
-    expect(zh("answer.unbacked.changed")).toBe("这条回答说修改了 Mind，但实际没有任何改动。");
+    expect(unbackedClaimLine(zh, { ...claimed, toolCalls: [] })).toBe(
+      "未写入任何内容：助手没有执行写入",
+    );
+  });
+
+  // protects=a write call that changed nothing gives its own reason; fails_when=the generic reason hides why; no_claim=none beyond protects.
+  test("a write call that changed nothing gives its reason", () => {
+    const failed = { ...call({ kind: "no-mind" }), tool: "add_to_mind" };
+    expect(unbackedClaimLine(en, { ...claimed, toolCalls: [failed] })).toBe(
+      en("answer.notWritten", { reason: en("mindCall.failed.noMind") }),
+    );
+  });
+
+  // protects=once a Mind changed, whose card says how, the line says not all the reply claims was done, never that nothing was; fails_when="Nothing was written" shows beside a write, or no line shows; no_claim=none beyond protects.
+  test("with a Mind changed, not all of it was done", () => {
+    expect(unbackedClaimLine(en, { ...claimed, toolCalls: [call(null, "a")] })).toBe(
+      "The assistant didn’t make every change this reply describes",
+    );
+    expect(unbackedClaimLine(zh, { ...claimed, toolCalls: [call(null, "a")] })).toBe(
+      "助手没有完成这条回答中说的全部改动",
+    );
+  });
+
+  // protects=no line without a claim; fails_when=a line shows under an honest reply; no_claim=none beyond protects.
+  test("no line without a claim", () => {
+    expect(unbackedClaimLine(en, { steps: null, toolCalls: [] })).toBeNull();
+    expect(unbackedClaimLine(en, { steps: {}, toolCalls: [call(null, "a")] })).toBeNull();
   });
 });
 
@@ -68,6 +91,7 @@ describe("Why a call changed nothing, on its row", () => {
     { kind: "no-mind" },
     { kind: "not-found", name: "Chapter 9" },
     { kind: "several", name: "Notes" },
+    { kind: "not-picked", name: "Q3 plan" },
     { kind: "no-heading", mindId: "a", heading: "Risks" },
     { kind: "no-place", mindId: "a", place: "Risks" },
     { kind: "several-places", mindId: "a", name: "Summary", adding: false },
@@ -79,6 +103,7 @@ describe("Why a call changed nothing, on its row", () => {
     { kind: "stopped", mindId: "a" },
     { kind: "no-table", mindId: "a" },
     { kind: "uncited", mindId: "a" },
+    { kind: "new-mind", mindId: "a" },
     { kind: "local-mode" },
     { kind: "not-ready" },
     { kind: "model", mindId: "a", message: "Overloaded" },
@@ -95,6 +120,13 @@ describe("Why a call changed nothing, on its row", () => {
     }
   });
 
+  // protects=after the User skips the question which Mind (#1865), the row says no note was picked, never that several Minds share the name; fails_when=it reads as "Several Minds are called"; no_claim=none beyond protects.
+  test("a Mind not picked says so", () => {
+    const problem: MindProblem = { kind: "not-picked", name: "Q3 plan" };
+    expect(problemText(en, problem, "Q3 plan")).toBe("Didn’t change “Q3 plan”: no note was picked");
+    expect(problemText(zh, problem, "Q3 plan")).toBe("未修改“Q3 plan”：没有选择笔记");
+  });
+
   // protects=a name that fits several places reads as adding when a Block was to be added, in English and Chinese; fails_when=an add_to_mind row says it couldn't change; no_claim=none beyond protects.
   test("the several-places reason says add to for add_to_mind", () => {
     const place: MindProblem = {
@@ -104,20 +136,20 @@ describe("Why a call changed nothing, on its row", () => {
       adding: true,
     };
     expect(problemText(en, place, "Q3 review")).toBe(
-      "Couldn't add to “Q3 review”: more than one place is called “Summary”",
+      "Couldn’t add to “Q3 review”: more than one place is called “Summary”",
     );
     expect(problemText(zh, place, "Q3 review")).toBe(
       "无法添加到“Q3 review”：有多个位置叫“Summary”",
     );
     expect(problemText(en, { ...place, adding: false }, "Q3 review")).toBe(
-      "Couldn't change “Q3 review”: more than one place is called “Summary”",
+      "Couldn’t change “Q3 review”: more than one place is called “Summary”",
     );
   });
 
   // protects=the waiting reason names the count, and the Chinese reads as Chinese apps say it; fails_when=the count or the Mind is lost; no_claim=none beyond protects.
   test("the waiting reason names the Mind and how many wait", () => {
     expect(problemText(en, waiting, "Q3 review")).toBe(
-      "Couldn't change “Q3 review”: 12 changes are waiting there",
+      "Couldn’t change “Q3 review”: 12 changes are waiting there",
     );
     expect(problemText(zh, waiting, "Q3 review")).toBe(
       "无法修改“Q3 review”：其中有 12 处修订待确认",
@@ -131,7 +163,7 @@ describe("Why a call changed nothing, on its row", () => {
   test("a table that couldn't be made says nothing was added", () => {
     const problem: MindProblem = { kind: "no-table", mindId: "a" };
     expect(problemText(en, problem, "Q3 review")).toBe(
-      "Couldn't make the table, so nothing was added to “Q3 review”",
+      "Couldn’t make the table, so nothing was added to “Q3 review”",
     );
     expect(problemText(zh, problem, "Q3 review")).toBe(
       "未能生成表格，因此没有向“Q3 review”添加内容",

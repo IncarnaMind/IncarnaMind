@@ -60,10 +60,10 @@ async function changeAndReview(window: Page, editor: Locator, line: Locator, ins
   // From its first words to its last, on whichever line they wrap to.
   await slideSelect(window, line, text.slice(0, 3), { line, words: text.slice(-3) });
   await window.keyboard.press("ControlOrMeta+j");
-  await expect(window.getByTestId("composer-input")).toBeFocused();
+  await expect(window.getByTestId("selection-edit-field")).toBeFocused();
   await window.keyboard.type(instruction);
   await window.keyboard.press("Enter");
-  await expect(window.getByTestId("edit-pending")).toHaveCount(0);
+  await expect(window.getByTestId("selection-edit-working")).toHaveCount(0);
   await pointAndClick(window, editor.getByTestId("applied-line").getByTestId("applied-review"));
 }
 
@@ -122,7 +122,7 @@ test("a résumé's summary rewritten by more than half reads whole, with one 原
 
   // The new paragraph whole, its old text one line above it, no old and new words between.
   const rewritten = SUMMARY.replace(OLD_PART, NEW_PART);
-  await expect(summary).toHaveText(rewritten);
+  await expect(summary).toHaveText(`${rewritten}恢复原文`);
   await expect(summary.locator("del")).toHaveCount(0);
   await expect(summary.locator(".applied-new")).toHaveText(rewritten);
   const was = editor.getByTestId("change-was-line");
@@ -261,16 +261,16 @@ for (const language of ["en", "zh-CN"] as const) {
             ],
             "Led quarterly forecasting for a team of twelve analysts",
             "Ran the forecast cycle each quarter",
-            "Changed 2 paragraphs",
-            "2 paragraphs changed by Edit with AI",
+            "Changed 1 paragraph",
+            "1 paragraph changed by Edit with AI",
           ]
         : [
             "教育经历",
             ["2012.09—2016.06 复旦大学 金融学 学士", "2016.09—2018.06 上海财经大学 会计学 硕士"],
             "2016.09—2018.06 上海财经大学 会计学 硕士",
             "2018.10—至今 Deloitte Touche Tohmatsu, Senior Manager",
-            "修改了 2 个段落",
-            "用 AI 编辑修改的 2 个段落",
+            "修改了 1 个段落",
+            "用 AI 编辑修改的 1 个段落",
           ];
     const editor = await listWith(window, heading, items);
 
@@ -317,7 +317,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const applied = editor.getByTestId("applied-line");
     await expect(editor.locator("table")).toHaveCount(1);
     await expect(applied.getByTestId("applied-count")).toHaveText(count);
-    await expect(window.getByTestId("undo-message")).toHaveText(count);
+    // Its Undo is under the paragraph, on the applied line, not at the sidebar's foot.
+    await expect(window.getByTestId("undo-message")).toHaveCount(0);
     await pointAndClick(window, applied.getByTestId("applied-review"));
     await expect(applied.getByTestId("applied-count")).toHaveText(review);
     await app.close();

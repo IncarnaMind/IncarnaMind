@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Document, DocumentTag, Tag } from "../../../core/api";
-import { pressesShortcut, shortcutLabel } from "../commands/keymap";
+import { pressesShortcut } from "../commands/keymap";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { type Box, enterFrom, exitToward } from "../motion";
@@ -495,14 +495,12 @@ export function TagPicker({
           {error}
         </p>
       )}
-      <div className={menuRuleClass} />
-      <p
-        data-testid="tag-picker-keys"
-        className="px-3 pt-1 pb-1.5 text-[12px] leading-4 text-ink-meta"
-      >
-        {t("tags.picker.keys", { undo: shortcutLabel("edit.undo") })}
-      </p>
-      {footer && <div className="flex min-h-8 min-w-0 items-center px-1 pb-1">{footer}</div>}
+      {footer && (
+        <>
+          <div className={menuRuleClass} />
+          <div className="flex min-h-8 min-w-0 items-center px-1 pb-1">{footer}</div>
+        </>
+      )}
     </div>
   );
 }
@@ -526,9 +524,17 @@ function TagOption({
   const t = useT();
   const { tag, coverage } = state;
   const review = single && state.needsReview;
+  const automatic = state.automatic && coverage !== "none" && !review;
+  const markTitle = review
+    ? t("jev.chip.needsReview")
+    : coverage === "all"
+      ? t(single ? "tags.picker.on" : "tags.picker.all", { total: state.total })
+      : coverage === "some"
+        ? t("tags.picker.some", { count: state.count, total: state.total })
+        : undefined;
   const notes = [
     review ? t("jev.chip.needsReview") : null,
-    state.automatic && coverage !== "none" && !review ? t("tags.picker.automatic") : null,
+    automatic ? t("tags.picker.automatic") : null,
     coverage === "some" ? t("tags.picker.some", { count: state.count, total: state.total }) : null,
     tag.description || null,
   ].filter((note): note is string => note !== null);
@@ -546,25 +552,32 @@ function TagOption({
       data-coverage={coverage}
       data-needs-review={review ? "true" : undefined}
       data-active={active ? "true" : undefined}
-      title={tag.description || undefined}
+      title={tag.description ? `${tag.name}: ${tag.description}` : tag.name}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={onHover}
       onClick={onChoose}
       className={`flex h-7 cursor-default items-center gap-2 rounded-md pr-2 pl-2 ${active ? "bg-hover" : ""}`}
     >
-      <span aria-hidden="true" className="flex size-3.5 shrink-0 items-center justify-center">
+      <span
+        aria-hidden="true"
+        title={markTitle}
+        className="flex size-3.5 shrink-0 items-center justify-center"
+      >
         {coverage === "all" && !review && <CheckLineIcon className="size-3.5 text-ink" />}
         {coverage === "some" && <span className="h-0.5 w-2.5 rounded-full bg-ink-secondary" />}
         {review && <ReviewRing />}
       </span>
       <TagDot colour={tag.colour} />
-      <span className="min-w-0 shrink-0 truncate">{tag.name}</span>
-      {state.automatic && coverage !== "none" && !review && (
-        <SparkLineIcon aria-hidden="true" className="size-2.5 shrink-0 text-ink-meta" />
+      <span className="min-w-0 truncate">{tag.name}</span>
+      {automatic && (
+        <span
+          aria-hidden="true"
+          title={t("tags.picker.automatic")}
+          className="flex shrink-0 text-ink-meta"
+        >
+          <SparkLineIcon className="size-2.5" />
+        </span>
       )}
-      <span aria-hidden="true" className="min-w-0 flex-1 truncate text-[12px] text-ink-meta">
-        {review ? t("jev.chip.needsReview") : tag.description}
-      </span>
     </div>
   );
 }

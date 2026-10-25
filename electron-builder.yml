@@ -165,8 +165,14 @@ linux:
     - "!**/node_modules/**/coverage/**"
     - "!**/node_modules/onnxruntime-node/bin/napi-v*/{darwin,win32}{,/**}"
     - "!**/node_modules/onnxruntime-node/bin/napi-v*/linux/!(${arch}){,/**}"
+  # The .deb needs a maintainer with an address; this one reaches no one's inbox.
+  maintainer: IncarnaMind <noreply@users.noreply.github.com>
+  # On Ubuntu 24.04 and later an AppImage runs without Chromium's sandbox: its AppRun script
+  # adds --no-sandbox when AppArmor refuses user namespaces. The .deb installs an AppArmor
+  # profile that allows them (#1178).
   target:
     - AppImage
+    - deb
 
 publish:
   provider: github

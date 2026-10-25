@@ -4,7 +4,6 @@ import { TableLineIcon } from "../components/lineIcons";
 import { useT } from "../i18n";
 import type { Translate } from "../objects";
 
-/** What an Analysis's step says (#447): what it ran on, how it ended, or why it couldn't run. */
 export function analysisCallText(t: Translate, call: AnswerToolCall): string {
   const ran = call.analysis;
   if (call.status === "running" || !ran) return t("analysis.call.running");
@@ -27,7 +26,6 @@ export function analysisCallText(t: Translate, call: AnswerToolCall): string {
   }
 }
 
-/** The row of a `run_analysis` call in an Answer's steps, with how to fix it when the sandbox is off. */
 export function AnalysisCall({ call }: { call: AnswerToolCall }) {
   const t = useT();
   const running = call.status === "running";

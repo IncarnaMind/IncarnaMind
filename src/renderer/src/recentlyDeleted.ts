@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import type { DeletedItem } from "../../core/api";
 import { core } from "./core";
-import { translateNow as t } from "./i18n";
+import { languageNow, translateNow as t } from "./i18n";
+import type { Words, WordsInLine } from "./lineNames";
+import { formatCount } from "./linkedFolders";
 import { useAppStore } from "./store";
-import { useUndo } from "./undo";
+import { sayWhileSlow, useUndo } from "./undo";
 
 /**
  * Recently deleted (CONTEXT.md) as the Library shows it: what the core lists,
@@ -42,41 +44,56 @@ const refsOf = (items: readonly DeletedItem[]) => items.map(({ kind, id }) => ({
 
 /** Deletes again what a restore brought back, as deleting it did. */
 async function deleteAgain(items: readonly DeletedItem[]): Promise<void> {
+  const documents = items.filter((item) => item.kind === "document").map((item) => item.id);
+  if (documents.length > 0) await core.deleteDocuments(documents);
   for (const { kind, id } of items) {
     if (kind === "mind") await core.deleteMind(id);
     else if (kind === "conversation") await core.deleteConversation(id);
-    else if (kind === "document") await core.deleteDocument(id);
     else if (kind === "folder") await core.deleteLibraryGroup(id);
-    else await core.deleteTag(id);
+    else if (kind === "tag") await core.deleteTag(id);
   }
 }
 
 /** What the undo line says a restore did: where one item went back to, if it was in a Folder still there. */
-function restoredMessage(items: readonly DeletedItem[]): string {
+function restoredMessage(items: readonly DeletedItem[]): WordsInLine {
   const [only] = items;
-  if (!only || items.length > 1) return t("object.restored.count", { count: items.length });
-  const name = deletedName(only);
+  if (!only || items.length > 1)
+    return (t) => t("object.restored.count", { count: formatCount(items.length, languageNow()) });
   const folder = useAppStore.getState().library?.groups.find((group) => group.id === only.groupId);
-  return folder
-    ? t("object.restoredTo", { name, folder: folder.name })
-    : t("object.restored", { name });
+  return (t) => {
+    const name = deletedName(only);
+    return folder
+      ? t("object.restoredTo", { name, folder: folder.name })
+      : t("object.restored", { name });
+  };
 }
 
 /** Puts each back where it was, and says so; Undo deletes them again. */
 export async function restoreItems(items: readonly DeletedItem[]): Promise<void> {
   if (items.length === 0) return;
-  const restore = async () => {
-    await core.restore(refsOf(items));
-    await refresh();
-  };
+  const count = () => formatCount(items.length, languageNow());
+  const slow = (said: Words, work: () => Promise<void>) =>
+    items.length > 1 ? sayWhileSlow(said, work) : work();
+  const restore = () =>
+    slow(
+      (t) => t("object.restoring.count", { count: count() }),
+      async () => {
+        await core.restore(refsOf(items));
+        await refresh();
+      },
+    );
   await restore();
   useUndo.getState().push({
-    message: restoredMessage(items),
-    name: t("undo.name.restore"),
-    undo: async () => {
-      await deleteAgain(items);
-      await refresh();
-    },
+    said: restoredMessage(items),
+    name: (t) => t("undo.name.restore"),
+    undo: () =>
+      slow(
+        (t) => t("object.deleting.count", { count: count() }),
+        async () => {
+          await deleteAgain(items);
+          await refresh();
+        },
+      ),
     redo: restore,
   });
 }

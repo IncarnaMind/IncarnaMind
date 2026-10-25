@@ -13,6 +13,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { assistantHandle } from "../commands/handles";
 import { keysHere, pressesShortcut } from "../commands/keymap";
 import { commands, labelOf } from "../commands/registry";
+import { mindInFront } from "../commands/targets";
 import { conversationById, conversationLabel, useConversations } from "../conversations";
 import { core } from "../core";
 import { errorMessage } from "../errors";
@@ -23,6 +24,7 @@ import { prepareName } from "../matcher";
 import { enter, exit } from "../motion";
 import {
   actionGroup,
+  activeOf,
   askGroup,
   conversationTextGroup,
   documentTextGroup,
@@ -48,6 +50,7 @@ import {
 import { Marked } from "./Marked";
 import { ProblemMark } from "./ProblemLine";
 import { errorTextClass } from "./ui";
+import { useBackdropClose } from "./useModal";
 
 /** How long typing pauses before the words inside are searched for. */
 const WORDS_DELAY_MS = 120;
@@ -58,6 +61,7 @@ const OWN_TITLES: Record<string, MessageKey> = {
   notes: "palette.group.notes",
   documentText: "palette.group.documentText",
   conversationText: "palette.group.conversationText",
+  ask: "palette.group.ask",
 };
 
 /** What the core found for one query; `failed` holds why it couldn't search. */
@@ -159,9 +163,12 @@ function Palette() {
   const said = useFound(searching, text, core.searchConversations);
 
   const groups: PaletteGroup[] = useMemo(() => {
-    if (actionsOnly) return actionGroup(words, context, language, found.names);
+    if (actionsOnly) return actionGroup(words, context, language, found.names, true);
     if (words.length === 0) {
-      return [...recentGroup(minds, found), ...actionGroup([], context, language, found.names)];
+      return [
+        ...recentGroup(minds, found, mindInFront()),
+        ...actionGroup([], context, language, found.names),
+      ];
     }
     return [
       ...nameGroups(words, found),
@@ -174,16 +181,15 @@ function Palette() {
 
   const waiting =
     searching && [notes, passages, said].some((each) => each === null || each.query !== text);
-  const nothing = groups.length === 0 && text !== "" && !waiting;
   const asking =
-    nothing && !actionsOnly && assistantHandle.current !== null
+    text !== "" && !actionsOnly && assistantHandle.current !== null
       ? askGroup(text, conversationLabel(openConversation), t)
       : [];
   const failed = searching ? (notes?.failed ?? passages?.failed ?? said?.failed) : undefined;
   const problem = failed ? errorMessage(failed.error, t) : undefined;
 
   const items = [...groups, ...asking].flatMap((group) => group.items);
-  const active = items.find((item) => item.key === activeKey) ?? items[0];
+  const active = activeOf(items, activeKey, waiting);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the option chosen now is when to scroll, not what is read.
   useLayoutEffect(() => {
@@ -200,6 +206,7 @@ function Palette() {
     // Now, not on the dialog's close event a task later: ⌘K pressed meanwhile opens it again.
     usePalette.getState().hide();
   };
+  useBackdropClose(dialog, close);
 
   const choose = (item: PaletteItem, inTab = false) => {
     // Closed first, so the focus is back where it was before what was chosen moves it.
@@ -218,9 +225,10 @@ function Palette() {
       close();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (items.length === 0 || !active) return;
-      const at = items.indexOf(active);
-      const step = event.key === "ArrowDown" ? 1 : -1;
+      if (items.length === 0) return;
+      const down = event.key === "ArrowDown";
+      const at = active ? items.indexOf(active) : down ? -1 : 0;
+      const step = down ? 1 : -1;
       setActiveKey(items[(at + step + items.length) % items.length]?.key ?? null);
     } else if (event.key === "Enter") {
       event.preventDefault();
@@ -278,7 +286,7 @@ function Palette() {
         data-testid="palette-results"
         className="thin-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2"
       >
-        {groups.map((group) => (
+        {[...groups, ...asking].map((group) => (
           <Group
             key={group.id}
             id={`${id}-${group.id}`}
@@ -302,20 +310,15 @@ function Palette() {
               data-testid={waiting ? "palette-searching" : "palette-empty"}
               className="px-2 pt-4 pb-2 text-[13px] leading-5 text-ink-meta"
             >
-              {t(waiting ? "palette.searching" : "palette.empty")}
+              {t(
+                waiting
+                  ? "palette.searching"
+                  : actionsOnly
+                    ? "palette.empty.actions"
+                    : "palette.empty",
+              )}
             </p>
           )
-        )}
-        {asking.length > 0 && (
-          // biome-ignore lint/a11y/useSemanticElements: options in a listbox are grouped by role, which a fieldset can't be.
-          <div
-            role="group"
-            aria-labelledby={`${id}-status`}
-            data-testid="palette-group"
-            data-group="ask"
-          >
-            {asking.flatMap((group) => group.items.map(option))}
-          </div>
         )}
       </div>
       <div className="flex h-9 shrink-0 items-center gap-4 border-t border-rule px-4 text-[12px] whitespace-nowrap text-ink-meta">
@@ -409,6 +412,8 @@ function Option({
 }) {
   const words = item.kind === "note" || item.kind === "passage" || item.kind === "said";
   const ranges = item.kind === "object" || item.kind === "command" ? item.ranges : [];
+  const purpose = item.kind === "command" ? item.purpose : "";
+  const twoLines = words || purpose !== "";
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: the field owns the keys (aria-activedescendant).
     <div
@@ -424,10 +429,10 @@ function Option({
       onMouseMove={onPoint}
       onClick={(event) => onChoose(event.metaKey || event.ctrlKey)}
       className={`flex cursor-default gap-2.5 rounded-md px-2 ${
-        words ? "items-start py-1.5" : "h-9 items-center"
+        twoLines ? "items-start py-1.5" : "h-9 items-center"
       } ${active ? "bg-hover" : ""}`}
     >
-      <span className={`flex shrink-0 ${words ? "pt-0.5" : ""}`}>
+      <span className={`flex shrink-0 ${twoLines ? "pt-0.5" : ""}`}>
         <ItemIcon item={item} />
       </span>
       <span className="min-w-0 flex-1">
@@ -444,6 +449,15 @@ function Option({
         {words && (
           <span className="block truncate text-[13px] leading-5 text-ink-secondary">
             <Marked text={item.excerpt} ranges={item.highlights} />
+          </span>
+        )}
+        {purpose !== "" && (
+          <span
+            data-testid="palette-purpose"
+            className="block truncate text-[12px] leading-4 text-ink-meta"
+            title={purpose}
+          >
+            {purpose}
           </span>
         )}
       </span>

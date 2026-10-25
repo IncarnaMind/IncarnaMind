@@ -5,7 +5,7 @@
  * for each Question (./rewrites). Each search's candidates are built by
  * ./searches.
  */
-import type { ChatSettings } from "./config";
+import { type ChatSettings, chatProviderOf } from "./config";
 import { createCorpus } from "./corpus";
 import type { EvalQuestion } from "./evaluationSet";
 import type { Library } from "./library";
@@ -75,14 +75,7 @@ export async function openOtherSearches(
   const local =
     chat !== null &&
     !options.localQueryModes &&
-    (
-      await core.saveChatProvider({
-        kind: chat.kind,
-        modelId: chat.modelId,
-        ...(chat.apiKey !== null && { apiKey: chat.apiKey }),
-        ...(chat.baseUrl !== null && { baseUrl: chat.baseUrl }),
-      })
-    ).service === null;
+    (await core.saveChatProvider(chatProviderOf(chat))).service === null;
   for (const search of QUERY_MODEL_SEARCHES) {
     if (local && chat) {
       skipped[search] =

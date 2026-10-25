@@ -14,8 +14,8 @@ import {
   type ChatReadiness,
   type EditAction,
   type EditWithAiResult,
+  type ProviderError,
 } from "../../core/api";
-import { mindModelOf } from "../../shared/mindModel";
 import { aiUseOfAccepted, proposalRequestOf } from "../../shared/proposals";
 import { useAnswers } from "./answers";
 import { type Applying, appliedMessage, finishApplying, startApplying } from "./appliedEdits";
@@ -32,8 +32,12 @@ import {
   setEditTarget,
   watchMovedOn,
 } from "./editor/proposalReview";
+import { keepDecisions } from "./editor/theirChanges";
+import { failedEdit } from "./editProblems";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
+import type { Words } from "./lineNames";
+import { modelInUseOf } from "./modelInUse";
 import { useAppStore } from "./store";
 
 /** The languages Translate… offers: each in its own name, and as the model is told it. */
@@ -49,7 +53,7 @@ export const TRANSLATE_LANGUAGES: readonly { id: string; name: string; prompt: s
 ];
 
 /** Why an Edit with AI request gave no Proposals, for the line in the composer. */
-export type EditProblem =
+export type EditProblem = (
   | {
       kind:
         | "unchanged"
@@ -59,10 +63,20 @@ export type EditProblem =
         | "local-mode"
         | "cant-regenerate"
         | "no-table"
-        | "late";
+        | "late"
+        | "busy";
     }
   | { kind: "not-ready"; readiness: Extract<ChatReadiness, { ready: false }> }
-  | { kind: "failed"; message: string; retry: () => void };
+  | { kind: "failed"; message: string; retry: () => void }
+  | { kind: "consent-revoked"; error: ProviderError }
+) & { menu?: MenuEdit };
+
+/** An edit asked in the selection menu: where the first Block of its text is, for the line that reports it once the menu is closed. */
+export interface MenuEdit {
+  blockId: string | null;
+  /** When it was asked (`Date.now()`); nothing shows for its first 300 ms once the menu is closed. */
+  at: number;
+}
 
 interface Pending {
   requestId: string;
@@ -71,6 +85,7 @@ interface Pending {
   language: string | null;
   /** Stopped by the User: it still settles before another edit can start, so its Undo stays its own. */
   stopped?: boolean;
+  menu?: MenuEdit;
 }
 
 interface EditsState {
@@ -80,8 +95,13 @@ interface EditsState {
   problems: Readonly<Record<string, EditProblem>>;
   /** By Mind: the selection the composer is saying what to change in, quoted. */
   editing: Readonly<Record<string, { quote: string }>>;
-  /** By Mind: what a screen reader is told about Proposals, with a count to say it again. */
-  spoken: Readonly<Record<string, { text: string; at: number }>>;
+  /**
+   * By Mind: what a screen reader is told about Proposals, with a count to say it again, and the
+   * Proposal it describes, if it does: that is said only while the cursor is in it.
+   */
+  spoken: Readonly<Record<string, { text: string; at: number; about?: string }>>;
+  /** By Mind: the selection menu is open on the edit asked in it, which then reports itself there and not in the page. */
+  menuShows: Readonly<Record<string, true>>;
 }
 
 export const useEdits = create<EditsState>()(() => ({
@@ -89,6 +109,7 @@ export const useEdits = create<EditsState>()(() => ({
   problems: {},
   editing: {},
   spoken: {},
+  menuShows: {},
 }));
 
 const set = <K extends keyof EditsState>(
@@ -107,12 +128,18 @@ const t = translateNow;
 
 let spokenAt = 0;
 /** Tells a screen reader, through the Mind's live region (see `ProposalBars`). */
-export function speak(mindId: string, text: string): void {
+export function speak(mindId: string, text: string, about?: string): void {
   spokenAt += 1;
-  set("spoken", mindId, { text, at: spokenAt });
+  set("spoken", mindId, { text, at: spokenAt, ...(about !== undefined && { about }) });
 }
 
 export const dismissEditProblem = (mindId: string) => set("problems", mindId, null);
+
+export const setMenuShows = (mindId: string, shown: boolean) =>
+  set("menuShows", mindId, shown ? true : null);
+
+export const noteBusy = (mindId: string, menu?: MenuEdit) =>
+  set("problems", mindId, menu ? { kind: "busy", menu } : { kind: "busy" });
 
 /** A selection shown short, for the composer's chip. */
 function quoteOf(text: string): string {
@@ -157,8 +184,9 @@ const failure = (error: unknown): EditWithAiResult => ({
  * the selection closes at its end, so the User can write on. The change
  * applies at once (#880); one held back waits as Proposals, which take the
  * cursor, if it is still where it was, so their bar shows; anything else is
- * one line in the composer. One edit at a time in a Mind. Says whether the
- * change came back.
+ * one line in the composer. Asked in the selection menu (`from`), it reports in
+ * the menu, then where its Undo line lands (`useMenuEditLine`), never in the
+ * composer. One edit at a time in a Mind. Says whether the change came back.
  */
 export async function requestEdit(
   editor: Editor,
@@ -167,6 +195,7 @@ export async function requestEdit(
   action: EditAction,
   instruction?: string,
   range?: { from: number; to: number },
+  from?: "menu",
 ): Promise<boolean> {
   const selection = selectionForEdit(editor.state, range);
   if (!selection || editor.isDestroyed || useEdits.getState().pending[mindId]) return false;
@@ -177,6 +206,7 @@ export async function requestEdit(
     requestId,
     action,
     language: action === "translate" ? (instruction ?? null) : null,
+    ...(from === "menu" && { menu: { blockId: selection.from.blockId, at: Date.now() } }),
   });
   setEditTarget(editor, selection.range);
   const { selection: now } = editor.state;
@@ -198,7 +228,7 @@ export async function requestEdit(
       text: selection.text,
       action,
       ...(instruction !== undefined && { instruction }),
-      model: mindModelOf(doc),
+      model: modelInUseOf(doc),
     });
   } catch (error) {
     result = failure(error);
@@ -211,7 +241,7 @@ export async function requestEdit(
     watch.movedOn(),
     result,
     async () => {
-      await requestEdit(editor, mindId, doc, action, instruction, range ?? selection.range);
+      await requestEdit(editor, mindId, doc, action, instruction, range ?? selection.range, from);
     },
     applying,
   );
@@ -235,6 +265,7 @@ async function arrived(
   applying: Applying | null = null,
 ): Promise<void> {
   const edits = useEdits.getState();
+  const menu = edits.pending[mindId]?.menu;
   const mine = edits.pending[mindId]?.requestId === requestId;
   const stopped = !mine || edits.pending[mindId]?.stopped === true;
   // Stopped: nothing waits on the text any more, unless another request or the composer does.
@@ -248,8 +279,10 @@ async function arrived(
   } finally {
     if (mine) set("pending", mindId, null);
   }
+  const problem = (found: EditProblem): void =>
+    set("problems", mindId, menu ? { ...found, menu } : found);
   if (outcome === "late") {
-    set("problems", mindId, { kind: "late" });
+    problem({ kind: "late" });
     return;
   }
   if (outcome !== null && outcome !== "held") {
@@ -284,13 +317,7 @@ async function arrived(
     return;
   }
   if (result.kind === "cancelled") return;
-  set(
-    "problems",
-    mindId,
-    result.kind === "failed"
-      ? { kind: "failed", message: result.error.message, retry: () => void retry() }
-      : result,
-  );
+  problem(result.kind === "failed" ? failedEdit(result.error, () => void retry()) : result);
 }
 
 /**
@@ -335,7 +362,7 @@ export async function regenerateChange(
       requestId,
       mindId,
       proposalId: proposal.id,
-      model: mindModelOf(doc),
+      model: modelInUseOf(doc),
     });
   } catch (error) {
     result = failure(error);
@@ -397,7 +424,10 @@ export function editFromComposer(
   doc: Y.Doc,
   instruction: string,
 ): boolean {
-  if (useEdits.getState().pending[mindId]) return false;
+  if (useEdits.getState().pending[mindId]) {
+    noteBusy(mindId);
+    return false;
+  }
   const target = editTarget(editor.state);
   set("editing", mindId, null);
   if (!target || instruction.trim() === "") {
@@ -435,7 +465,15 @@ export function resolveProposalsIn(
   const line = appliedLineIn(editor.state);
   // An edit held back waits for its own Apply or Discard.
   const held = new Set(line?.kind === "held" ? [line.request] : []);
-  const resolved = resolveInEditor(editor, ids === "all" ? ids : new Set(ids), outcome, held);
+  // Read before the decision: once it is made the change's words have gone from the text.
+  const before = editor.state.doc;
+  const resolved = resolveInEditor(
+    editor,
+    ids === "all" ? ids : new Set(ids),
+    outcome,
+    held,
+    (doc, done) => keepDecisions(doc, before, done, outcome),
+  );
   if (resolved.length === 0) {
     // Only changes out of date were picked: they can't be accepted, and the User hears why.
     const theirs = picked.length > 0 && picked.every((each) => each.theirs);
@@ -451,7 +489,7 @@ export function resolveProposalsIn(
     }
   }
   const count = resolved.length;
-  const message =
+  const said: Words = (t) =>
     outcome === "accept"
       ? count === 1
         ? t("proposal.accepted.one")
@@ -459,6 +497,6 @@ export function resolveProposalsIn(
       : count === 1
         ? t("proposal.rejected.one")
         : t("proposal.rejected", { count });
-  speak(mindId, message);
-  offerEditorUndo(editor, message);
+  speak(mindId, said(t));
+  offerEditorUndo(editor, said);
 }

@@ -7,6 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  moveAssistant,
   nameMind,
   newMind,
   removeDataFolder,
@@ -59,8 +60,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await startScriptedTask(app, mind, { folder, files: ["a.txt"] });
     const tray = window.getByTestId("task-tray");
     await expect(tray).toBeVisible();
-    await window.getByTestId("assistant-more").click();
-    await window.getByTestId("assistant-menu-bottom").click();
+    await moveAssistant(window, "bottom");
     await expect(window.getByTestId("assistant")).toHaveAttribute("data-dock", "bottom");
 
     const thread = window.getByTestId("assistant-thread");

@@ -30,6 +30,8 @@ interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
   onDismiss(how: "escape" | "outside"): void;
   /** What gets the focus once the popover shows, e.g. a menu's first item, or a text editor. */
   initialFocus?: RefObject<{ focus(): void } | null>;
+  /** Esc puts the focus back on `anchor`, the control that opened it, when that is a control. */
+  returnFocus?: boolean;
   children: ReactNode;
 }
 
@@ -48,6 +50,7 @@ export function Popover({
   middleware,
   onDismiss,
   initialFocus,
+  returnFocus = false,
   children,
   className = "",
   role = "dialog",
@@ -61,6 +64,12 @@ export function Popover({
   focusFirst.current = initialFocus;
   const placing = useRef(middleware);
   placing.current = middleware;
+  const returning = useRef(returnFocus);
+  returning.current = returnFocus;
+  const dismissByEscape = useRef((from: Element | VirtualElement) => {
+    if (returning.current && from instanceof HTMLElement) from.focus({ preventScroll: true });
+    dismiss.current("escape");
+  });
 
   // First, so it is copied while it still shows: closed, it shrinks back toward its anchor.
   useExitToward(ref, () => (anchor instanceof Element ? anchor : anchor.getBoundingClientRect()));
@@ -75,8 +84,14 @@ export function Popover({
         placement,
         strategy: "fixed",
         middleware: placing.current?.() ?? [offset(4), flip(), shift({ padding: 8 })],
-      }).then(({ x, y }) => {
-        Object.assign(element.style, { left: `${x}px`, top: `${y}px`, visibility: "visible" });
+      }).then(({ x, y, middlewareData }) => {
+        // With `hide()` among its middleware, it goes while its anchor is scrolled out of view.
+        const away = middlewareData.hide?.referenceHidden === true;
+        Object.assign(element.style, {
+          left: `${x}px`,
+          top: `${y}px`,
+          visibility: away ? "hidden" : "visible",
+        });
         if (!shown) {
           // Hidden until placed, so it can only grow from its anchor and take the focus now.
           enterFrom(element, anchor.getBoundingClientRect(), {
@@ -111,9 +126,12 @@ export function Popover({
     // Document viewer's own Esc sees it; inside, `onKeyDown` handles it.
     const dismissOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || inLater(event.target)) return;
+      // Esc in a dialog on top closes that dialog, the innermost thing open, not this popover behind it.
+      const dialog = event.target instanceof Element ? event.target.closest("dialog[open]") : null;
+      if (dialog && !dialog.contains(element)) return;
       if (event.target instanceof Node && element.contains(event.target)) return;
       event.preventDefault();
-      dismiss.current("escape");
+      dismissByEscape.current(anchor);
     };
     document.addEventListener("pointerdown", dismissOnPressOutside, true);
     document.addEventListener("keydown", dismissOnEscape, true);
@@ -138,7 +156,7 @@ export function Popover({
         if (event.key === "Escape" && !event.defaultPrevented) {
           // Handled here, so Esc doesn't also close the Document viewer.
           event.preventDefault();
-          dismiss.current("escape");
+          dismissByEscape.current(anchor);
         }
       }}
       className={`editor-popover ${className}`}

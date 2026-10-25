@@ -66,8 +66,8 @@ describe("The reranking model's download in the sidebar's status row", () => {
     ).toEqual({
       testId: "reranking-model-failed",
       tone: "error",
-      short: "Couldn't get search ready",
-      full: "The model that orders search results couldn't be downloaded: check your internet connection.\nfetch failed",
+      short: "Couldn’t get search ready",
+      full: "The model that orders search results couldn’t be downloaded: check your internet connection.\nfetch failed",
       retry: true,
     });
     expect(
@@ -75,7 +75,7 @@ describe("The reranking model's download in the sidebar's status row", () => {
         settings({}, { state: "failed", error: { kind: "load", message: "bad model" } }),
         en,
       )?.short,
-    ).toBe("Couldn't get search ready");
+    ).toBe("Couldn’t get search ready");
   });
 
   test("says nothing once it is ready, before it is needed, or when it isn't what reranks", () => {

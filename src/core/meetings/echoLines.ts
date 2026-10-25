@@ -7,7 +7,7 @@
  * keeping an echo, so a line is dropped only when it follows theirs word for
  * word, and in order.
  */
-import { SPEAKER_ME, SPEAKER_THEM } from "../../shared/speakers";
+import { isTheirs, SPEAKER_ME } from "../../shared/speakers";
 import type { Cue } from "../documents/formats/vtt";
 
 /** The echo starts or ends when their line does, give or take how the two streams cut speech. */
@@ -76,7 +76,7 @@ function near(mine: Cue, theirs: Cue): boolean {
 export function isEcho(mine: Cue, cues: readonly Cue[]): boolean {
   if (mine.speaker !== SPEAKER_ME) return false;
   const theirs = cues
-    .filter((cue) => cue.speaker === SPEAKER_THEM && near(mine, cue))
+    .filter((cue) => isTheirs(cue.speaker) && near(mine, cue))
     .sort((a, b) => a.startMs - b.startMs);
   return repeats(
     mine.text,

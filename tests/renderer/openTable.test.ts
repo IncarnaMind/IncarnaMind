@@ -3,13 +3,20 @@ import type { ConversationAnswer } from "../../src/core/api";
 import type { NodeJSON } from "../../src/shared/blockJson";
 
 const calls: string[] = [];
+const made: Record<string, unknown>[] = [];
+const minds: { title: string; autoTitle: string }[] = [];
 const fill = { release: () => {}, fails: false, cleanupFails: false };
+
+vi.mock("../../src/renderer/src/conversations", () => ({
+  questionOf: () => ({ id: "q1", text: "Compare these two Documents in a table" }),
+}));
 
 vi.mock("../../src/renderer/src/core", () => ({
   core: {
     on: () => () => undefined,
-    createMind: async () => {
+    createMind: async (input: Record<string, unknown>) => {
       calls.push("createMind");
+      made.push(input);
       return { id: "made", title: "Tides", folderId: null };
     },
     addToNote: () => {
@@ -31,7 +38,7 @@ const changeLayout = vi.fn(async () => {
 });
 const reportError = vi.fn();
 vi.mock("../../src/renderer/src/store", () => ({
-  useAppStore: { getState: () => ({ changeLayout, reportError, minds: [] }) },
+  useAppStore: { getState: () => ({ changeLayout, reportError, minds }) },
 }));
 
 const pushed: unknown[] = [];
@@ -66,6 +73,8 @@ const table: NodeJSON = { type: "table", content: [] };
 
 beforeEach(() => {
   calls.length = 0;
+  made.length = 0;
+  minds.length = 0;
   pushed.length = 0;
   fill.fails = false;
   fill.cleanupFails = false;
@@ -73,6 +82,46 @@ beforeEach(() => {
 });
 
 describe("Open as a table", () => {
+  test("the Mind takes the Question's name, as a table's first cell is no name, with a number once that is taken (#1345)", async () => {
+    const { openTable } = await import("../../src/renderer/src/addToNote");
+    const opening = openTable({ answer, conversation: undefined, blocks: [table] });
+    await vi.waitFor(() => expect(calls).toContain("createMind"));
+    expect(made[0]).toEqual({
+      title: "Compare these two Documents in a table",
+      folderId: null,
+    });
+    await vi.waitFor(() => expect(calls).toContain("addToNote"));
+    fill.release();
+    await opening;
+
+    minds.push({ title: "Compare these two Documents in a table", autoTitle: "" });
+    const again = openTable({ answer, conversation: undefined, blocks: [table] });
+    await vi.waitFor(() => expect(made).toHaveLength(2));
+    expect(made[1]).toEqual({
+      title: "Compare these two Documents in a table 2",
+      folderId: null,
+    });
+    await vi.waitFor(() => expect(calls.filter((call) => call === "addToNote")).toHaveLength(2));
+    fill.release();
+    await again;
+  });
+
+  test("a name the User gave the conversation goes on the Mind whole", async () => {
+    const { openTable } = await import("../../src/renderer/src/addToNote");
+    const title =
+      "A conversation name the User gave, which runs past the sixty characters a title would cut at";
+    const opening = openTable({
+      answer,
+      conversation: { title } as never,
+      blocks: [table],
+    });
+    await vi.waitFor(() => expect(made).toHaveLength(1));
+    expect(made[0]).toMatchObject({ title });
+    await vi.waitFor(() => expect(calls).toContain("addToNote"));
+    fill.release();
+    await opening;
+  });
+
   test("its tab is opened before the table is put in, so the tab shows while a big table is still going in", async () => {
     const { openTable } = await import("../../src/renderer/src/addToNote");
     const opening = openTable({ answer, conversation: undefined, blocks: [table] });
@@ -80,7 +129,8 @@ describe("Open as a table", () => {
     expect(pushed).toHaveLength(0);
     fill.release();
     await opening;
-    expect(pushed).toHaveLength(1);
+    // A Mind made says nothing and leaves no step for ⌘Z: Delete takes it back.
+    expect(pushed).toHaveLength(0);
   });
 
   test("a second click while one is under way makes no second Mind", async () => {
@@ -91,7 +141,6 @@ describe("Open as a table", () => {
     fill.release();
     await first;
     expect(calls.filter((call) => call === "createMind")).toHaveLength(1);
-    expect(pushed).toHaveLength(1);
   });
 
   test("once it is done, the next one opens its own Mind", async () => {

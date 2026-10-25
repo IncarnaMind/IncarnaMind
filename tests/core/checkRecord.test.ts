@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import {
@@ -13,7 +13,7 @@ import {
 import { setTextOrigin } from "../../src/shared/textOrigins";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { parseCsv } from "../helpers/csv";
-import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { addAndProcess, linkAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { fakePrinter } from "../helpers/printer";
@@ -199,9 +199,10 @@ async function saveRecord(
   { core, mind, out }: Pick<Setup, "core" | "mind" | "out">,
   format: CheckRecordFormat,
 ) {
-  const saved = await core.saveCheckRecord(mind.id, format);
+  const saved = await core.saveCheckRecord(mind.id);
   if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
-  return { name: saved.file.name, path: saved.file.path, files: readdirSync(out) };
+  const name = `${saved.file.name.replace(/\.(pdf|csv)$/, "")}.${format}`;
+  return { name, path: join(out, name), files: readdirSync(out).sort(), saved };
 }
 
 const rowsOf = (csv: string): Row[] => {
@@ -225,7 +226,7 @@ describe("The check record as CSV", () => {
 
     const saved = await saveRecord(setup, "csv");
 
-    expect(saved.name).toBe("Harbour notes - check record.csv");
+    expect(saved.name).toBe("Check record – Harbour notes.csv");
     const csv = readFileSync(saved.path, "utf8");
     expect(csv.startsWith("\uFEFF")).toBe(true);
     const rows = rowsOf(csv);
@@ -300,7 +301,7 @@ describe("The check record as CSV", () => {
         Kind: "Sentence",
         Sentence: "Their report says tides follow the Moon.",
         Result: "Contradicted",
-        Text: "Someone else's text",
+        Text: "Someone else’s text",
         ...tidesVersion,
         ...haiku,
         Checked: CHECKED,
@@ -364,10 +365,10 @@ describe("The check record as CSV", () => {
     const { core, out } = await setUp();
     const mind = await core.createMind({ title: "Empty" });
 
-    const saved = await core.saveCheckRecord(mind.id, "csv");
+    const saved = await core.saveCheckRecord(mind.id);
 
     expect(saved.status).toBe("saved");
-    const csv = readFileSync(`${out}/Empty - check record.csv`, "utf8");
+    const csv = readFileSync(`${out}/Check record – Empty.csv`, "utf8");
     expect(summaryOf(csv).get("Documents searched")).toBe("None");
     expect(summaryOf(csv).get("Models")).toBe("None");
     expect(rowsOf(csv)).toEqual([]);
@@ -444,7 +445,7 @@ describe("The check record as CSV", () => {
 
     const saved = await saveRecord(setup, "csv");
 
-    expect(saved.name).toBe("Harbour notes - 核对记录.csv");
+    expect(saved.name).toBe("核对记录 – Harbour notes.csv");
     const csv = readFileSync(saved.path, "utf8");
     expect(parseCsv(csv)[0]).toEqual(["核对记录：Harbour notes"]);
     const summary = summaryOf(csv);
@@ -542,14 +543,26 @@ describe("What the check record can't know", () => {
     expect(rowsOf(zh)[0]?.文件).toBe("文档已删除");
   });
 
-  test("the Documents searched are the ones the checks searched: a Folder, everything, or a Folder since deleted", async () => {
+  test("the Documents searched are the ones the checks searched: a Folder, everything, a Folder since deleted, or the Mind's chosen scope, a Linked folder's included", async () => {
     const setup = await setUp();
     const own = { folderId: setup.folderId, widened: false };
     const gone = await setup.core.createLibraryGroup({ name: "Old harbours", description: "" });
+    const notes = join(await createTempDataFolder(), "Notes");
+    await writeSourceFile(notes, "Holiday.md", "# Holiday\n\nLeave is 25 days.\n");
+    await linkAndProcess(setup.core, notes);
+    const linked = (await setup.core.listFolders()).find((folder) => folder.name === "Notes");
+    if (!linked) throw new Error("The Linked folder has no Folder.");
+    const chosen = (scope: Partial<{ folderIds: string[]; documentIds: string[] }>) => ({
+      folderId: setup.folderId,
+      widened: false,
+      chosen: { folderIds: [], tagIds: [], documentIds: [], ...scope },
+    });
     const checks = [
       ["Spring tides come at new moon.", own],
       ["Neap tides are weaker.", { folderId: null, widened: true }],
       ["Tidal ranges differ between harbours.", { folderId: gone.id, widened: false }],
+      ["High water comes later each day.", chosen({ documentIds: [setup.tides.id] })],
+      ["Leave is 25 days.", chosen({ folderIds: [linked.id] })],
     ] as const;
     writeMind(setup.client, [
       paragraph(
@@ -569,7 +582,7 @@ describe("What the check record can't know", () => {
     const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
 
     expect(summaryOf(csv).get("Documents searched")).toBe(
-      "Harbours; All Documents; A deleted Folder",
+      "Harbours; All Documents; A deleted Folder; Tides; Notes",
     );
   });
 
@@ -595,15 +608,15 @@ describe("The check record as PDF", () => {
 
     const saved = await saveRecord(setup, "pdf");
 
-    expect(saved.name).toBe("Harbour notes - check record.pdf");
+    expect(saved.name).toBe("Check record – Harbour notes.pdf");
     expect(readFileSync(saved.path, "utf8")).toBe("%PDF-stand-in");
     const [document] = printed;
     expect(document).toMatchObject({
       language: "en",
-      title: "Harbour notes - check record",
+      title: "Check record – Harbour notes",
       notes: [],
       footer:
-        "This record lists what IncarnaMind checked and how. “Quote found” means the quoted words are on that page; it doesn't mean they support the sentence.",
+        "This record lists what IncarnaMind checked and how. “Quote found” means the quoted words are on that page; it doesn’t mean they support the sentence.",
     });
     const body = document?.body ?? "";
     const sha256 = createHash("sha256").update(readFileSync(setup.file)).digest("hex");
@@ -633,7 +646,7 @@ describe("The check record as PDF", () => {
       `<code class="record-hash">${sha256.slice(0, 4)}…${sha256.slice(-4)}</code>`,
     );
     expect(body).not.toContain(sha256);
-    expect(body).toContain("Contradicted</b> · Sentence · Someone else&#39;s text");
+    expect(body).toContain("Contradicted</b> · Sentence · Someone else’s text");
     expect(body).toContain("Quote not found</b> · Citation · AI text");
     expect(body.match(/class="record-shape"/g)).toHaveLength(7);
   });
@@ -670,7 +683,7 @@ describe("The check record as PDF", () => {
 
     expect(printed[0]).toMatchObject({
       language: "zh-CN",
-      title: "Harbour notes - 核对记录",
+      title: "核对记录 – Harbour notes",
       footer:
         "本记录列出 IncarnaMind 核对了什么、怎样核对。“找到引文”只说明引文的文字在那一页上，不说明它支持这句话。",
     });
@@ -691,48 +704,79 @@ describe("The check record as PDF", () => {
     const refused = body.slice(body.indexOf("Nobody would say."));
     expect(refused.slice(0, refused.indexOf("</div>"))).not.toContain("Checked by");
   });
+});
 
-  test("a printer that fails says so and saves nothing; a copy with no printer can't make one", async () => {
-    const failing = await setUp({
+describe("Saving a check record", () => {
+  test("writes the PDF and the CSV side by side under one name, and says so in one result", async () => {
+    const { printer } = fakePrinter();
+    const setup = await setUp({ printer });
+    await writeNotes(setup);
+
+    const saved = await setup.core.saveCheckRecord(setup.mind.id);
+
+    expect(saved).toMatchObject({
+      status: "saved",
+      file: { name: "Check record – Harbour notes.pdf", defaulted: false },
+      withCsv: true,
+      failures: [],
+    });
+    expect(readdirSync(setup.out).sort()).toEqual([
+      "Check record – Harbour notes.csv",
+      "Check record – Harbour notes.pdf",
+    ]);
+
+    const second = await setup.core.saveCheckRecord(setup.mind.id);
+    expect(second).toMatchObject({ file: { name: "Check record – Harbour notes 2.pdf" } });
+    expect(readdirSync(setup.out).sort()).toEqual([
+      "Check record – Harbour notes 2.csv",
+      "Check record – Harbour notes 2.pdf",
+      "Check record – Harbour notes.csv",
+      "Check record – Harbour notes.pdf",
+    ]);
+  });
+
+  test("a copy with no printer, or a printer that fails, keeps the CSV and says the PDF wasn't saved and why", async () => {
+    const bare = await setUp();
+
+    const without = await bare.core.saveCheckRecord(bare.mind.id);
+
+    expect(without).toMatchObject({
+      status: "saved",
+      file: { name: "Check record – Harbour notes.csv" },
+      withCsv: false,
+      failures: [
+        {
+          format: "pdf",
+          message: "This copy of IncarnaMind can’t make PDFs.",
+          wording: { key: "error.checkRecord.noPdf" },
+        },
+      ],
+    });
+    expect(readdirSync(bare.out)).toEqual(["Check record – Harbour notes.csv"]);
+
+    const broken = await setUp({
       printer: {
         print: async () => {
           throw new Error("The PDF took too long to lay out.");
         },
       },
     });
-    await expect(failing.core.saveCheckRecord(failing.mind.id, "pdf")).rejects.toThrow(
-      "The PDF took too long to lay out.",
-    );
-    expect(readdirSync(failing.out)).toEqual([]);
-
-    const bare = await setUp();
-    await expect(bare.core.saveCheckRecord(bare.mind.id, "pdf")).rejects.toThrow(
-      "This copy of IncarnaMind can't make PDFs.",
-    );
-  });
-});
-
-describe("Saving a check record", () => {
-  test("refuses a format that isn't one, and a Mind that isn't there", async () => {
-    const { core, mind } = await setUp();
-    await expect(core.saveCheckRecord(mind.id, "docx" as CheckRecordFormat)).rejects.toThrow(
-      "The check record can be saved as PDF or CSV.",
-    );
-    await expect(core.saveCheckRecord(randomUUID(), "csv")).rejects.toThrow();
+    const failed = await broken.core.saveCheckRecord(broken.mind.id);
+    expect(failed).toMatchObject({
+      withCsv: false,
+      failures: [{ format: "pdf", message: "The PDF took too long to lay out.", wording: null }],
+    });
+    expect(readdirSync(broken.out)).toEqual(["Check record – Harbour notes.csv"]);
   });
 
-  test("saves under the next free name, and the Mind it is of is left as it was", async () => {
-    const setup = await setUp();
+  test("a Mind that isn't there is refused, and the Mind it is of is left as it was", async () => {
+    const setup = await setUp({ printer: fakePrinter().printer });
     await writeNotes(setup);
     const before = (await setup.core.openMind(setup.mind.id)).state;
 
-    await saveRecord(setup, "csv");
-    const second = await saveRecord(setup, "csv");
+    await setup.core.saveCheckRecord(setup.mind.id);
+    await expect(setup.core.saveCheckRecord(randomUUID())).rejects.toThrow();
 
-    expect(second.files).toEqual([
-      "Harbour notes - check record 2.csv",
-      "Harbour notes - check record.csv",
-    ]);
     expect((await setup.core.openMind(setup.mind.id)).state).toEqual(before);
   });
 });

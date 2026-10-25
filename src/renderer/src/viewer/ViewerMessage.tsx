@@ -1,7 +1,8 @@
 import { type ReactNode, useContext, useState } from "react";
-import { ProblemLine } from "../components/ProblemLine";
+import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
+import { saidInLine } from "../lineNames";
 import { useAppStore } from "../store";
 import { ViewerFrameContext } from "./ViewerHeader";
 
@@ -13,15 +14,19 @@ export function ViewerMessage({
   children,
   testId,
   tone = "muted",
+  action,
 }: {
   children: ReactNode;
   testId?: string;
   tone?: "muted" | "error";
+  action?: ProblemAction;
 }) {
   if (tone === "error") {
     return (
       <div data-testid={testId} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <ProblemLine testId="viewer-problem">{children}</ProblemLine>
+        <ProblemLine testId="viewer-problem" action={action}>
+          {children}
+        </ProblemLine>
       </div>
     );
   }
@@ -91,6 +96,8 @@ function DocumentGone({ quote, reason }: { quote?: string | undefined; reason: G
   const [located, setLocated] = useState<Located | null>(null);
   const [locating, setLocating] = useState(false);
   const name = document?.name ?? "";
+  const gone = saidInLine(t, (t) => t(GONE_TEXT[reason], { name }));
+  const other = saidInLine(t, (t) => t("viewer.file.notThis", { name }));
 
   const locateFile = async () => {
     if (!document) return;
@@ -122,13 +129,13 @@ function DocumentGone({ quote, reason }: { quote?: string | undefined; reason: G
       data-reason={reason}
       className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
     >
-      <ProblemLine role="status" testId="viewer-problem" action={action}>
-        {t(GONE_TEXT[reason], { name })}
+      <ProblemLine role="status" testId="viewer-problem" action={action} title={gone.fullMessage}>
+        {gone.message}
       </ProblemLine>
       {located && (
-        <ProblemLine testId="viewer-locate-result">
+        <ProblemLine testId="viewer-locate-result" title={other.fullMessage}>
           {located.kind === "other"
-            ? t("viewer.file.notThis", { name })
+            ? other.message
             : t("viewer.file.locateFailed", { reason: located.reason })}
         </ProblemLine>
       )}

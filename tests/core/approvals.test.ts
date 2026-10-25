@@ -529,7 +529,7 @@ describe("Approval policies", { timeout: 30_000 }, () => {
         subject: { kind: "tool", connectorId: "no-such-connector", tool: "book_boat" },
         policy: "always",
       }),
-    ).rejects.toThrow(/Connector doesn't exist/);
+    ).rejects.toThrow(/Connector doesn’t exist/);
     await expect(
       core.setApprovalPolicy({ subject: tool, policy: "sometimes" as never }),
     ).rejects.toThrow(/policy must be/);

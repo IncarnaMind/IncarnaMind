@@ -18,6 +18,8 @@ import {
   useOutputLocation,
 } from "./app";
 
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 let dataDir: string;
 let saved: string;
 test.beforeEach(async () => {
@@ -109,33 +111,33 @@ const FROM_QUESTION = [
     width: 1440,
     question:
       "How many days of paid holiday does a full-time employee get in a year, and how much notice after probation?",
-    name: "How many days of paid holiday does a full-time employee get",
+    name: "This is a scripted Answer to: How many days of paid holiday",
   },
   {
     language: "en",
     width: 1100,
     question:
       "How many days of paid holiday does a full-time employee get in a year, and how much notice after probation?",
-    name: "How many days of paid holiday does a full-time employee get",
+    name: "This is a scripted Answer to: How many days of paid holiday",
   },
   {
     language: "zh-CN",
     width: 1440,
     question:
       "员工每年享有多少天带薪年假，试用期结束后需要提前多久通知公司解除劳动合同，以及需要支付哪些补偿，还有哪些情形下公司可以不提前通知直接解除合同？",
-    name: "员工每年享有多少天带薪年假，试用期结束后需要提前多久通知公司解除劳动合同，以及需要支付哪些补偿",
+    name: "This is a scripted Answer to: 员工每年享有多少天带薪年假",
   },
   {
     language: "zh-CN",
     width: 1100,
     question:
       "员工每年享有多少天带薪年假，试用期结束后需要提前多久通知公司解除劳动合同，以及需要支付哪些补偿，还有哪些情形下公司可以不提前通知直接解除合同？",
-    name: "员工每年享有多少天带薪年假，试用期结束后需要提前多久通知公司解除劳动合同，以及需要支付哪些补偿",
+    name: "This is a scripted Answer to: 员工每年享有多少天带薪年假",
   },
 ] as const;
 
 for (const { language, width, question, name } of FROM_QUESTION) {
-  test(`Add to note into an empty Mind names it by the Question; the tab shows it on one line with the whole name in its tooltip, and the exported file takes it (${language}, ${width}px)`, async () => {
+  test(`Add to note into an empty Mind names it by the Note's first line, never the Question; the tab shows it on one line with the whole name in its tooltip, and the exported file takes it (${language}, ${width}px)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -152,18 +154,23 @@ for (const { language, width, question, name } of FROM_QUESTION) {
     const answerText = (await editor.locator(":scope > p").first().innerText()).trim();
     expect(answerText).not.toBe("");
 
-    // The Mind's name is the Question's, cut cleanly: not the Answer's first line, and not typed.
+    // The Mind's name is the first line of what went in, cut cleanly, not the Question (#1174), and not typed.
+    // The line cuts it in the middle, its tooltip has the whole name.
     const added = answer.getByTestId("answer-added");
-    await expect(added).toContainText(name);
+    const status = added.locator('[role="status"]');
+    const characters = [...name];
+    await expect(added).toContainText(characters.slice(0, 4).join(""));
+    await expect(added).toContainText(characters.slice(-4).join(""));
+    await expect(added).not.toContainText(name);
+    await expect(status).toHaveAttribute("title", new RegExp(escaped(name)));
     // However long the name, the line keeps its words and its Undo on one row.
     const [words, undo] = await Promise.all([
-      added.locator('[role="status"]').boundingBox(),
+      status.boundingBox(),
       added.getByTestId("answer-added-undo").boundingBox(),
     ]);
     expect(Math.abs((undo?.y ?? 0) - (words?.y ?? 100))).toBeLessThan(8);
     const row = window.getByTestId("mind-list-item");
     await expect(row).toContainText(name);
-    await expect(row).not.toContainText(answerText.slice(0, 20));
     // Not typed: Rename's field would be empty.
     const typed = await (await coreOf(window)).evaluate(
       async (core) => (await core.listMinds())[0]?.title,
@@ -186,7 +193,7 @@ for (const { language, width, question, name } of FROM_QUESTION) {
     await exportFromMenu(window);
     const done = window.getByTestId("export-result").getByTestId("export-done");
     await expect(done).toContainText(".docx", { timeout: 30_000 });
-    expect(await done.getAttribute("title")).toContain(`${name}.docx`);
+    expect(await done.getAttribute("title")).toContain(`${name.replace(":", "")}.docx`);
     await app.close();
   });
 }

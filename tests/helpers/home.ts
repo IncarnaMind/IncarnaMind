@@ -16,6 +16,20 @@ export function homeEnv(home: string): Record<string, string> {
   };
 }
 
+/**
+ * Electron switches that keep a launched app out of the User's own keychain. On macOS a locked or
+ * prompting login keychain would also stall the launch, since safeStorage waits on it.
+ */
+export const KEYCHAIN_ARGS: readonly string[] =
+  process.platform === "darwin" ? ["--use-mock-keychain"] : [];
+
+/**
+ * Arguments after the app path: on macOS, an app that quit within a second makes the next launch
+ * wait for the "reopen windows?" prompt, for about ten minutes (#1176).
+ */
+export const APP_ARGS: readonly string[] =
+  process.platform === "darwin" ? ["-ApplePersistenceIgnoreState", "YES"] : [];
+
 export interface HomeGuard {
   /** Throws, naming the path, when it is in the real home folder and in none of the writable ones. */
   check(path: unknown): void;

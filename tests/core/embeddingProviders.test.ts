@@ -15,6 +15,7 @@ import { openDatabase } from "../../src/core/storage";
 import {
   createMemoryKeychain,
   createTempDataFolder,
+  nextEvent,
   queryDatabase,
   startCore,
 } from "../helpers/core";
@@ -575,7 +576,7 @@ describe("Embedding provider errors", { timeout: 30_000 }, () => {
     embeddings.fail({ status: 401, message: "Incorrect API key provided." });
     expect(await core.testEmbeddingConnection(input)).toEqual({
       ok: false,
-      error: { kind: "auth", message: "Incorrect API key provided." },
+      error: { kind: "auth", message: "Incorrect API key provided.", status: 401 },
     });
     embeddings.fail({ status: 404, message: "The model does not exist." });
     expect(await core.testEmbeddingConnection(input)).toMatchObject({
@@ -728,6 +729,23 @@ describe("Local mode", { timeout: 30_000 }, () => {
     // Turning it off changes nothing by itself.
     const off = await core.setLocalOnly(false);
     expect(off).toMatchObject({ localOnly: false, provider: { kind: "built-in" }, rebuild: null });
+  });
+
+  test("turned on while a search waits for consent to send its words: the prompt closes, and nothing is sent, even when the old prompt is answered", async () => {
+    const { core, embeddings } = await withOpenAi();
+    await core.revokeConsent("embeddings", OPENAI.id);
+    const sent = embeddings.calls.length;
+    const asked = nextEvent(core, "consent.requested");
+    const searching = core.searchPassages("chlorophyll", { mode: "hybrid" });
+    const request = await asked;
+    const closed = nextEvent(core, "consent.resolved");
+
+    await core.setLocalOnly(true);
+
+    expect(await closed).toEqual({ requestId: request.requestId, accepted: false });
+    await core.respondToConsent(request.requestId, true);
+    expect(documentNamesOf(await searching)).toEqual(["Plants"]);
+    expect(embeddings.calls).toHaveLength(sent);
   });
 
   test("choosing local models with the box ticked turns it on, switching cloud embeddings back too", async () => {

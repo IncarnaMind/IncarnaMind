@@ -14,7 +14,6 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  showFolders,
   showSourceLocations,
   typeWithInputMethod,
 } from "./app";
@@ -104,9 +103,30 @@ async function seed(window: Page, language: Language): Promise<Names> {
   return names;
 }
 
-/** A row of the tree, by its name (or its start, as a pattern). */
+/** A row of the tree, by its name (or its start, as a pattern), in any of its sections. */
 const row = (window: Page, name: string | RegExp, { exact = false } = {}) =>
-  window.getByRole("tree").getByRole("treeitem", { name, exact });
+  window.getByTestId("sidebar-sections").getByRole("treeitem", { name, exact });
+
+/** Every row of the tree, in its sections' order. */
+const allRows = (window: Page) => window.getByTestId("sidebar-sections").getByRole("treeitem");
+
+/**
+ * Puts a preset Tag on a Document, through the core: the sidebar lists the Tags in use. A preset
+ * is named in the language it was made in, so it goes by any of `tagNames`.
+ */
+async function tagWith(window: Page, documentName: string, tagNames: string[]): Promise<void> {
+  await (await coreOf(window)).evaluate(
+    async (core, wanted) => {
+      const tag = (await core.listTags()).find((each) => wanted.tags.includes(each.name));
+      const document = (await core.listDocuments()).find((each) =>
+        each.name.startsWith(wanted.document),
+      );
+      if (!tag || !document) throw new Error("No such Tag or Document.");
+      await core.addTagToDocuments([document.id], tag.id);
+    },
+    { document: documentName, tags: tagNames },
+  );
+}
 
 /** The field a name is typed in, in the sidebar. */
 const nameField = (window: Page) => window.getByTestId("sidebar").locator("input:not([type=file])");
@@ -114,7 +134,29 @@ const nameField = (window: Page) => window.getByTestId("sidebar").locator("input
 const inTree = (window: Page) =>
   window.evaluate(() => document.activeElement?.closest('[role="tree"]') != null);
 
-/** From the Library row above the tree, Tab until the focus is in it. */
+/**
+ * Notes where the focus is each time rows leave the tree, as soon as the page could take a key
+ * (the app's own watch runs first): `focusAsRowsGo` reads the notes.
+ */
+const watchFocusAsRowsGo = (window: Page) =>
+  window.evaluate(() => {
+    const seen: boolean[] = [];
+    const row = '[role="treeitem"]';
+    new MutationObserver((records) => {
+      const gone = records.some((record) =>
+        Array.from(record.removedNodes).some(
+          (node) => node instanceof Element && (node.matches(row) || node.querySelector(row)),
+        ),
+      );
+      if (gone) seen.push(document.activeElement?.closest('[role="tree"]') != null);
+    }).observe(document.body, { childList: true, subtree: true });
+    (globalThis as unknown as { focusAsRowsGo: boolean[] }).focusAsRowsGo = seen;
+  });
+
+const focusAsRowsGo = (window: Page) =>
+  window.evaluate(() => (globalThis as unknown as { focusAsRowsGo: boolean[] }).focusAsRowsGo);
+
+/** From the Library row above the tree, Tab until the focus is in it, past the Folders heading's +. */
 async function tabIntoTree(window: Page): Promise<void> {
   await window.getByTestId("open-library").focus();
   for (let step = 0; step < 12 && !(await inTree(window)); step++) {
@@ -223,8 +265,14 @@ for (const language of LANGUAGES) {
       await setWindowSize(app, window, 1400, 800);
       await dismissChatSetup(window);
       const names = await seed(window, language);
-      const tree = window.getByRole("tree", { name: translate(language, "sidebar.tree") });
+      const tree = window
+        .getByTestId("folders-section")
+        .getByRole("tree", { name: translate(language, "library.groups") });
+      const loose = window
+        .getByTestId("not-in-a-folder")
+        .getByRole("tree", { name: translate(language, "library.unsorted") });
       await expect(tree).toHaveAttribute("aria-multiselectable", "true");
+      await expect(loose).toHaveAttribute("aria-multiselectable", "true");
 
       // One row is in the Tab order, and none of the buttons that sit beside the rows.
       expect(await tabStops(window)).toEqual({ rows: 1, others: 0 });
@@ -252,7 +300,7 @@ for (const language of LANGUAGES) {
 
       const [boardMinutes, budget] = names.inFolder;
       const documents = `(${boardMinutes}|${budget})`;
-      const loose = `(${names.loose.join("|")})`;
+      const looseNames = `(${names.loose.join("|")})`;
       await expect(tree).toMatchAriaSnapshot(`
         - tree:
           - treeitem /^${names.folders[0]}/ [expanded] [level=1]
@@ -260,9 +308,11 @@ for (const language of LANGUAGES) {
           - treeitem /^${documents}/ [level=2] [selected]
           - treeitem /^${documents}/ [level=2] [selected]
           - treeitem /^${names.folders[1]}/ [level=1]
-          - treeitem /^${translate(language, "library.unsorted")}/ [expanded] [level=1]
-          - treeitem /^${loose}/ [level=2]
-          - treeitem /^${loose}/ [level=2]
+      `);
+      await expect(loose).toMatchAriaSnapshot(`
+        - tree:
+          - treeitem /^${looseNames}/ [level=1]
+          - treeitem /^${looseNames}/ [level=1]
       `);
       await expect(row(window, names.folders[1])).toHaveAttribute("aria-expanded", "false");
       await expect(row(window, names.mind)).toHaveAttribute("aria-selected", "false");
@@ -297,11 +347,8 @@ for (const language of LANGUAGES) {
         await tabBackTo(window, document);
         await expectOneRing(window);
 
-        // A Tag, in the Tags view.
-        await window
-          .getByTestId("browse-views")
-          .getByRole("button", { name: translate(language, "tags.title") })
-          .click();
+        // A Tag, in the Tags section.
+        await tagWith(window, names.loose[0] ?? "", ["Report", "报告"]);
         await tabBackTo(window, row(window, /^Report|^报告/).first());
         await expectOneRing(window);
       } finally {
@@ -320,18 +367,17 @@ test("↑ ↓ Home and End walk the rows, → and ← unfold, fold, step in and 
     const finance = row(window, names.folders[0]);
     const research = row(window, names.folders[1]);
     const shortlist = row(window, names.mind);
-    const notInAFolder = row(window, translate("en", "library.unsorted"));
-    const rows = window.getByRole("tree").getByRole("treeitem");
+    const rows = allRows(window);
 
     await tabIntoTree(window);
     await expect(finance).toBeFocused();
-    await expect(rows).toHaveCount(5);
+    await expect(rows).toHaveCount(4);
 
-    // ↓ and ↑ move one row; End and Home go to the last and the first.
+    // ↓ and ↑ move one row, from section to section; End and Home go to the last and the first.
     await window.keyboard.press("ArrowDown");
     await expect(research).toBeFocused();
     await window.keyboard.press("ArrowDown");
-    await expect(notInAFolder).toBeFocused();
+    await expect(rows.nth(2)).toBeFocused();
     await window.keyboard.press("ArrowUp");
     await expect(research).toBeFocused();
     await window.keyboard.press("End");
@@ -351,7 +397,7 @@ test("↑ ↓ Home and End walk the rows, → and ← unfold, fold, step in and 
     await window.keyboard.press("ArrowRight");
     await expect(finance).toHaveAttribute("aria-expanded", "true");
     await expect(finance).toBeFocused();
-    await expect(rows).toHaveCount(8);
+    await expect(rows).toHaveCount(7);
     await window.keyboard.press("ArrowRight");
     await expect(shortlist).toBeFocused();
     await expect(shortlist).toHaveAttribute("aria-level", "2");
@@ -363,7 +409,7 @@ test("↑ ↓ Home and End walk the rows, → and ← unfold, fold, step in and 
     await expect(finance).toBeFocused();
     await window.keyboard.press("ArrowLeft");
     await expect(finance).toHaveAttribute("aria-expanded", "false");
-    await expect(rows).toHaveCount(5);
+    await expect(rows).toHaveCount(4);
     await window.keyboard.press("ArrowLeft");
     await expect(finance).toBeFocused();
 
@@ -377,37 +423,30 @@ test("↑ ↓ Home and End walk the rows, → and ← unfold, fold, step in and 
     await window.keyboard.press("Enter");
     await expect(research).toHaveAttribute("aria-expanded", "false");
 
-    // The Not in a Folder heading is a row too: ← folds it, → opens it and steps into it, ← steps back out.
+    // Not in a Folder's rows are at the top level, under its heading: ← and → have nowhere to go.
     await window.keyboard.press("ArrowDown");
-    await expect(notInAFolder).toBeFocused();
+    await expect(rows.nth(2)).toBeFocused();
+    await expect(rows.nth(2)).toHaveAttribute("aria-level", "1");
     await window.keyboard.press("ArrowLeft");
-    await expect(notInAFolder).toHaveAttribute("aria-expanded", "false");
-    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(2)).toBeFocused();
     await window.keyboard.press("ArrowRight");
-    await expect(notInAFolder).toHaveAttribute("aria-expanded", "true");
-    await expect(rows).toHaveCount(5);
-    await window.keyboard.press("ArrowRight");
-    await expect(rows.nth(3)).toBeFocused();
-    await expect(rows.nth(3)).toHaveAttribute("aria-level", "2");
-    await window.keyboard.press("ArrowLeft");
-    await expect(notInAFolder).toBeFocused();
+    await expect(rows.nth(2)).toBeFocused();
 
     // Shift+↓ selects from the focused row down, and a plain arrow moves without changing it.
-    await window.keyboard.press("ArrowRight");
     await window.keyboard.press("Shift+ArrowDown");
+    await expect(rows.nth(2)).toHaveAttribute("aria-selected", "true");
     await expect(rows.nth(3)).toHaveAttribute("aria-selected", "true");
-    await expect(rows.nth(4)).toHaveAttribute("aria-selected", "true");
     await window.keyboard.press("ArrowUp");
-    await expect(rows.nth(3)).toBeFocused();
-    await expect(rows.nth(4)).toHaveAttribute("aria-selected", "true");
+    await expect(rows.nth(2)).toBeFocused();
+    await expect(rows.nth(3)).toHaveAttribute("aria-selected", "true");
   } finally {
     await app.close();
   }
 });
 
-test("a Linked folder's subfolders, however deep, are rows of the tree: each a level deeper, folded, unfolded and left by the arrows", async () => {
+test("a Linked folder is one row of the tree, reached by the arrows: → and ← leave it as it is, and Enter opens the Library", async () => {
   const library = join(sources, "Library");
-  for (const file of ["root.txt", "A/top.txt", "A/B/mid.txt", "A/B/C/deep.txt"]) {
+  for (const file of ["root.txt", "A/top.txt", "A/B/mid.txt"]) {
     await mkdir(dirname(join(library, file)), { recursive: true });
     await writeFile(join(library, file), `${file}: spring tides come twice a month.\n`);
   }
@@ -417,68 +456,34 @@ test("a Linked folder's subfolders, however deep, are rows of the tree: each a l
     await dismissChatSetup(window);
     await linkFolderFromSidebar(app, window, library);
     await showSourceLocations(window);
-    const linked = row(window, /^Library/);
-    const a = row(window, "A", { exact: true });
-    const b = row(window, "B", { exact: true });
-    const c = row(window, "C", { exact: true });
-    const deep = row(window, /^deep/);
-    await expect(deep).toBeVisible();
-    await expect(window.getByRole("tree").getByRole("treeitem")).toHaveCount(8);
+    const section = window.getByTestId("linked-folders-section");
+    const linked = section.getByRole("treeitem", { name: /^Library/ });
+    await expect(section.getByRole("treeitem")).toHaveCount(1);
+    await expect(linked).toHaveAttribute("aria-level", "1");
+    await expect(linked).not.toHaveAttribute("aria-expanded");
+    // Its files are rows of Not in a Folder.
+    await expect(
+      window.getByTestId("not-in-a-folder").getByRole("treeitem", { name: /^(root|top|mid)/ }),
+    ).toHaveCount(3);
 
-    // Each is a level below its folder: the Linked folder, A, B, C, and the Document in C.
-    for (const [item, level] of [
-      [linked, "1"],
-      [a, "2"],
-      [b, "3"],
-      [c, "4"],
-      [deep, "5"],
-    ] as const) {
-      await expect(item).toHaveAttribute("aria-level", level);
-    }
-    await expect(window.getByRole("tree")).toMatchAriaSnapshot(`
-      - tree:
-        - treeitem /^Library/ [expanded] [level=1]
-        - treeitem "A" [expanded] [level=2]
-        - treeitem "B" [expanded] [level=3]
-        - treeitem "C" [expanded] [level=4]
-        - treeitem /^deep/ [level=5]
-        - treeitem /^mid/ [level=4]
-        - treeitem /^top/ [level=3]
-        - treeitem /^root/ [level=2]
-    `);
-
+    // From the Documents in Not in a Folder, ↓ goes on into the Linked folders section.
     await tabIntoTree(window);
-    await expect(linked).toBeFocused();
-    // The Linked folder's row has actions, its subfolders' none: each has one ring.
-    await expectOneRing(window);
-    // → steps in, one level at a time, to the first row of each folder.
-    for (const next of [a, b, c, deep]) {
-      await window.keyboard.press("ArrowRight");
-      await expect(next).toBeFocused();
-      await expectOneRing(window);
+    for (
+      let step = 0;
+      step < 8 && !(await linked.evaluate((item) => item === document.activeElement));
+      step++
+    ) {
+      await window.keyboard.press("ArrowDown");
     }
-    // ← steps out of the Document to C, folds C, steps out to B, folds B, and so on.
-    await window.keyboard.press("ArrowLeft");
-    await expect(c).toBeFocused();
-    await window.keyboard.press("ArrowLeft");
-    await expect(c).toHaveAttribute("aria-expanded", "false");
-    await expect(deep).toHaveCount(0);
-    await window.keyboard.press("ArrowLeft");
-    await expect(b).toBeFocused();
-    await window.keyboard.press("ArrowLeft");
-    await expect(b).toHaveAttribute("aria-expanded", "false");
-    await expect(c).toHaveCount(0);
-    await window.keyboard.press("ArrowLeft");
-    await expect(a).toBeFocused();
-    await window.keyboard.press("ArrowLeft");
-    await window.keyboard.press("ArrowLeft");
     await expect(linked).toBeFocused();
-    await expect(linked).toHaveAttribute("aria-expanded", "true");
-    // Type-ahead reaches into the deepest unfolded folder: "t" is top.txt's name.
-    await window.keyboard.press("ArrowRight");
-    await window.keyboard.press("ArrowRight");
-    await window.keyboard.press("ArrowRight");
-    await typeName(window, "t", row(window, /^top/));
+    await expectOneRing(window);
+    for (const key of ["ArrowRight", "ArrowLeft"]) {
+      await window.keyboard.press(key);
+      await expect(linked).toBeFocused();
+      await expect(section.getByRole("treeitem")).toHaveCount(1);
+    }
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("library")).toBeVisible();
   } finally {
     await app.close();
   }
@@ -493,7 +498,6 @@ for (const language of LANGUAGES) {
       const names = await seed(window, language);
       const finance = row(window, names.folders[0]);
       const research = row(window, names.folders[1]);
-      const notInAFolder = row(window, translate(language, "library.unsorted"));
       const [firstLoose, secondLoose] = names.loose;
       const [boardMinutes, budget] = names.inFolder;
       const shortlist = row(window, names.mind);
@@ -506,7 +510,6 @@ for (const language of LANGUAGES) {
       if (language === "en") {
         // One letter goes to the next row that starts with it, whatever its case; it wraps round.
         await typeName(window, "t", row(window, secondLoose));
-        await typeName(window, "N", notInAFolder);
         await typeName(window, "r", research);
         await typeName(window, "s", shortlist);
         // The same letter twice goes on to the next that starts with it.
@@ -579,7 +582,7 @@ test("Enter opens a row, Space peeks at a Document, F2 renames in place and Esc 
     await dismissChatSetup(window);
     const names = await seed(window, "en");
     const finance = row(window, names.folders[0]);
-    const tree = window.getByRole("tree");
+    const tree = window.getByTestId("sidebar-sections");
 
     await tabIntoTree(window);
     // Enter on a Folder opens it in place; the focus stays.
@@ -646,10 +649,10 @@ test("⌘⌫ (Delete on Windows and Linux) moves the row to Recently deleted wit
     const names = await seed(window, "en");
     const [firstLoose, secondLoose] = names.loose;
     const line = window.getByTestId("undo-message");
-    const rows = window.getByRole("tree").getByRole("treeitem");
+    const rows = allRows(window);
     const loose = (name: string) => row(window, name);
 
-    // Five rows: the two Folders, Not in a Folder and its two Documents; End is on the last.
+    // Four rows: the two Folders and the two Documents in none; End is on the last.
     await tabIntoTree(window);
     await window.keyboard.press("End");
     await expect(rows.last()).toBeFocused();
@@ -669,21 +672,29 @@ test("⌘⌫ (Delete on Windows and Linux) moves the row to Recently deleted wit
     await expect(line).toHaveCount(0);
 
     // The platform's own key, twice: each row goes in turn, and each is its own step of Undo.
+    // The focus is on a row the moment each goes, so a key pressed straight after reaches the tree.
     const key = process.platform === "darwin" ? "Meta+Backspace" : "Delete";
+    await watchFocusAsRowsGo(window);
     await window.keyboard.press("End");
     await window.keyboard.press(key);
     await expect(rows).toHaveCount(count - 1);
     await expect.poll(() => inTree(window)).toBe(true);
     await window.keyboard.press(key);
     await expect(rows).toHaveCount(count - 2);
+    const seen = await focusAsRowsGo(window);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen).not.toContain(false);
     await expect(line).toBeVisible();
+    await expect(rows.last()).toBeFocused();
     await window.keyboard.press("ControlOrMeta+z");
     await expect(rows).toHaveCount(count - 1);
     await window.keyboard.press("ControlOrMeta+z");
     await expect(rows).toHaveCount(count);
 
     // A held key deletes one row only: the press does, its repeats don't.
+    await expect(row(window, names.folders[1])).toBeFocused();
     await window.keyboard.press("End");
+    await expect(rows.last()).toBeFocused();
     await window.keyboard.press("ControlOrMeta+Backspace");
     await expect(rows).toHaveCount(count - 1);
     await expect.poll(() => inTree(window)).toBe(true);
@@ -729,8 +740,8 @@ test("⌘⌫ (Delete on Windows and Linux) moves the row to Recently deleted wit
     await window.keyboard.press("ControlOrMeta+z");
     await expect(row(window, names.mind)).toHaveCount(1);
 
-    // A Tag, in the Tags view.
-    await window.getByTestId("browse-views").getByRole("button", { name: "Tags" }).click();
+    // A Tag, in the Tags section, once a Document has it.
+    await tagWith(window, firstLoose ?? "", ["Slides"]);
     const slides = row(window, /^Slides/);
     await slides.focus();
     await window.keyboard.press("ControlOrMeta+Backspace");
@@ -738,7 +749,6 @@ test("⌘⌫ (Delete on Windows and Linux) moves the row to Recently deleted wit
     await expect(line).toHaveText(translate("en", "object.deleted", { name: "Slides" }));
     await window.keyboard.press("ControlOrMeta+z");
     await expect(slides).toHaveCount(1);
-    await showFolders(window);
 
     // In a field it is the field's: ⌘⌫ deletes a word of the name, not the row.
     await loose(firstLoose).focus();
@@ -759,7 +769,7 @@ test("an empty sidebar has no row to stop at, and the keys of the tree do nothin
   try {
     await setWindowSize(app, window, 900, 700);
     await dismissChatSetup(window);
-    await expect(window.getByRole("tree").getByRole("treeitem")).toHaveCount(0);
+    await expect(allRows(window)).toHaveCount(0);
     expect(await tabStops(window)).toEqual({ rows: 0, others: 0 });
     await window.getByTestId("open-library").focus();
     for (const press of ["Tab", "Tab", "Tab", "ArrowDown", "Home", "End", "t", "Delete"]) {

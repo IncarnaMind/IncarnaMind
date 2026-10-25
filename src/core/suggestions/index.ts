@@ -42,7 +42,7 @@ import type {
 } from "../api";
 import type { Consent } from "../consent";
 import { keywordTerms } from "../documents/keywords";
-import { ConsentDeclinedError, InvalidInputError, isRecord } from "../errors";
+import { ConsentDeclinedError, InvalidInputError, isRecord, LocalModeError } from "../errors";
 import type { createEventHub } from "../events";
 import { parseIds, parseMindId } from "../minds";
 import { givesStructuredOutput } from "../providers/capabilities";
@@ -167,6 +167,8 @@ export interface SuggestionsOptions {
   requireMind(mindId: string): void;
   /** The ids of the live Documents a Search scope covers; null for every Document. */
   resolveScope(scope: SearchScope): string[] | null;
+  /** What a suggestion in a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
+  searchedScope(scope: SearchScope, mindId: string): SearchScope | null;
   /** How many of these Documents (null: all) have Passages to search. */
   searchableCount(documentIds: readonly string[] | null): number;
   /** Local mode: only models on this computer. */
@@ -380,7 +382,8 @@ export function createSuggestions(options: SuggestionsOptions) {
       const request = parseRequest(input);
       options.requireMind(request.mindId);
       cancelCurrent();
-      const documentIds = options.resolveScope(request.scope);
+      const searched = options.searchedScope(request.scope, request.mindId);
+      const documentIds = searched && options.resolveScope(searched);
       if (!options.enabled()) {
         return { kind: "off", scopeHasDocuments: options.searchableCount(documentIds) > 0 };
       }
@@ -456,6 +459,7 @@ export function createSuggestions(options: SuggestionsOptions) {
         return true;
       } catch (error) {
         if (error instanceof ConsentDeclinedError) return false;
+        if (error instanceof LocalModeError) return true;
         throw error;
       }
     },

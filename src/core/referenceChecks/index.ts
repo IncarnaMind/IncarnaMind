@@ -11,10 +11,11 @@ import type {
   ReferenceService,
 } from "../api";
 import type { Consent } from "../consent";
-import { ConsentDeclinedError } from "../errors";
+import { ConsentDeclinedError, ConsentRevokedError, LocalModeError } from "../errors";
 import type { MindContent } from "../mindContent";
 import { parseMindId } from "../minds";
-import type { SourceHttp } from "../sources/http";
+import { createSendGate } from "../sendGate";
+import { gatedHttp, type SourceHttp } from "../sources/http";
 import type { Database } from "../storage";
 import { createLookupCache } from "./cache";
 import { type CheckRun, checkReference, ServiceFailure } from "./check";
@@ -40,12 +41,12 @@ export interface ReferenceChecksOptions {
 
 export function createReferenceChecks(options: ReferenceChecksOptions) {
   const { consent } = options;
-  const cache = createLookupCache(
-    createLookups(options.http, options.urls),
-    options.db,
-    options.now,
-  );
   const services = Object.values(REFERENCE_SERVICES);
+  const gate = createSendGate(consent, options.localOnly);
+  const http = gatedHttp(options.http, () => {
+    for (const service of services) gate.check("reference-check", service);
+  });
+  const cache = createLookupCache(createLookups(http, options.urls), options.db, options.now);
   const running = new Map<string, AbortController>();
 
   consent.registry.register({
@@ -96,6 +97,7 @@ export function createReferenceChecks(options: ReferenceChecksOptions) {
           for (const service of services) await consent.ensure("reference-check", service);
         } catch (error) {
           if (error instanceof ConsentDeclinedError) return all("declined");
+          if (error instanceof LocalModeError) return all("local-mode");
           throw error;
         }
         const references: (ReferenceCheck & { blockId: string })[] = [];
@@ -113,6 +115,13 @@ export function createReferenceChecks(options: ReferenceChecksOptions) {
             lookups.settle(result.mark === "found" || result.mark === "mismatch");
           } catch (error) {
             if (signal.aborted) return { kind: "cancelled" };
+            if (error instanceof LocalModeError || error instanceof ConsentRevokedError) {
+              const reason = error instanceof LocalModeError ? "local-mode" : "declined";
+              for (const rest of entries.slice(index)) {
+                references.push({ blockId: rest.blockId, ...notChecked(rest.cited.text, reason) });
+              }
+              return { kind: "checked", references };
+            }
             if (!(error instanceof ServiceFailure)) throw error;
             result = {
               ...notChecked(entry.cited.text, error.reason, error.service),

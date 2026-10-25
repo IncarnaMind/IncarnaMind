@@ -194,6 +194,39 @@ describe("what the log says", () => {
     ]);
   });
 
+  test("an error a panel's boundary caught is named, says so, and keeps the component stack (#1500)", async () => {
+    const { logger, text } = await startLogger();
+
+    logWindowError(logger, {
+      kind: "error",
+      name: "Error",
+      message: `The card failed on "${DOCUMENT_TEXT}"`,
+      stack: `Error: ${DOCUMENT_TEXT}\n    at draw (file://${APP}/out/renderer/assets/editor.js:5:2)`,
+      panel: "card",
+      componentStack: `\n    at Editor (file://${APP}/out/renderer/assets/editor.js:9:4)\n    at PanelBoundary (file://${APP}/out/renderer/assets/index.js:1:1)`,
+    });
+    logWindowError(logger, {
+      kind: "error",
+      name: "Error",
+      message: "x",
+      stack: "",
+      panel: "kitchen",
+    });
+
+    expect(await text()).toBe(
+      [
+        '2026-10-07T09:30:00.000Z ERROR window.panel-failed panel=card caught=boundary error="Error: The card failed on [redacted]"',
+        "    at draw (app:///out/renderer/assets/editor.js:5:2)",
+        "    component stack:",
+        "    at Editor (app:///out/renderer/assets/editor.js:9:4)",
+        "    at PanelBoundary (app:///out/renderer/assets/index.js:1:1)",
+        // A panel name it doesn't know isn't taken: it is an error nothing caught.
+        '2026-10-07T09:30:00.000Z ERROR window.uncaught kind=error error="Error: x"',
+        "",
+      ].join("\n"),
+    );
+  });
+
   test("an error from the window is logged like the main process's own", async () => {
     const { logger, text } = await startLogger();
 

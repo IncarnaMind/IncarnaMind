@@ -1,11 +1,3 @@
-/**
- * What the model reads back from `run_analysis` (#447): the Analysis's
- * title, each input with its shape, the steps with their row counts, the
- * cells that aren't numbers, the numbers written in the code, what it printed
- * and its results, each with the marker the Answer writes for it. An error
- * comes back the same way, with the end of Python's own message.
- */
-
 import type { AnalysisTable } from "../../shared/analysis";
 import type { AnswerAnalysis } from "../api";
 
@@ -13,7 +5,6 @@ const count = (n: number) => n.toLocaleString("en-US");
 
 const rowsOf = (n: number) => `${count(n)} ${n === 1 ? "row" : "rows"}`;
 
-/** "1,239 rows → 1,197 rows (42 left out)", from the step before. */
 function stepLine(rows: number, before: number | null): string {
   if (before === null || before === rows) return rowsOf(rows);
   const change =
@@ -21,7 +12,6 @@ function stepLine(rows: number, before: number | null): string {
   return `${rowsOf(before)} → ${rowsOf(rows)} (${change})`;
 }
 
-/** A table as the model reads it: a Markdown table of its first rows, and its shape. */
 function tableText(table: AnalysisTable, shownRows: number): string {
   const cell = (value: unknown) =>
     value === null ? "" : String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
@@ -35,7 +25,6 @@ function tableText(table: AnalysisTable, shownRows: number): string {
   return lines.join("\n");
 }
 
-/** The most rows of a result table the model reads: the Answer shows the rest. */
 const ROWS_READ = 20;
 
 export function analysisReport(analysis: AnswerAnalysis): string {

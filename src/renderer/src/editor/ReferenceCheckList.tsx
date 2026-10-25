@@ -81,23 +81,26 @@ function RecordLine({
 }
 
 /** What a reference's mark says under it: how it differs, or what a miss can mean. */
-function details(reference: ListedCheck, t: Translate): string[] {
-  if (reference.mark === "not-listed") return [t("references.notListed.detail")];
+function details(reference: ListedCheck, t: Translate): { text: string; title?: string }[] {
+  if (reference.mark === "not-listed") {
+    return [{ text: t("references.notListed.detail"), title: t("references.notListed.why") }];
+  }
   const service = reference.service ? SERVICE_NAMES[reference.service] : "";
-  return reference.differences.map((difference) =>
-    difference.field === "year"
-      ? t("references.difference.year.cited", {
-          cited: difference.cited ?? "",
-          found: difference.found,
-          service,
-        })
-      : t(
-          difference.field === "title"
-            ? "references.difference.title"
-            : "references.difference.authors",
-          { found: difference.found, service },
-        ),
-  );
+  return reference.differences.map((difference) => ({
+    text:
+      difference.field === "year"
+        ? t("references.difference.year.cited", {
+            cited: difference.cited ?? "",
+            found: difference.found,
+            service,
+          })
+        : t(
+            difference.field === "title"
+              ? "references.difference.title"
+              : "references.difference.authors",
+            { found: difference.found, service },
+          ),
+  }));
 }
 
 /** The mark as its line says it: which service found it, or why it wasn't checked. */
@@ -147,8 +150,8 @@ export function ReferenceCheckList({
             </span>
             <span className="mind-reference-text">{reference.reference}</span>
             {details(reference, t).map((detail) => (
-              <span key={detail} className="mind-reference-detail">
-                {detail}
+              <span key={detail.text} title={detail.title} className="mind-reference-detail">
+                {detail.text}
               </span>
             ))}
           </button>

@@ -3,6 +3,8 @@ import { useRef, useState } from "react";
 import type * as Y from "yjs";
 import { mindName } from "../../../shared/naming";
 import type { Verification } from "../../../shared/verification";
+import { offersReview, reviewApplied } from "../appliedEdits";
+import { ExampleChoices } from "../components/ExamplesMenu";
 import { ChevronRightLineIcon } from "../components/lineIcons";
 import { MindStyleChoices, useStyleValue } from "../components/MindStyle";
 import { MoveToPicker } from "../components/MoveToPicker";
@@ -13,15 +15,18 @@ import {
   menuItemClass,
   menuItemUnavailableClass,
   menuRuleClass,
+  menuTitleClass,
 } from "../components/ui";
 import { useSubmenu } from "../components/usePopoverMenu";
 import { files } from "../core";
 import { showFileLabelKey } from "../fileInfo";
 import { useFirstOpen } from "../firstOpen";
+import { moveIntoFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { fileStatusLabel } from "../linkedFolders";
 import { useMindStylePanel } from "../mindStylePanel";
-import { useAppStore } from "../store";
+import { useReviewables, useReviewPanes } from "../reviewPane";
+import { allExamples, useAppStore } from "../store";
 import { openDocumentBeside } from "../verify";
 import { MindCounts } from "./WordCount";
 import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin";
@@ -30,8 +35,10 @@ import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin"
  * The ⋯ button at a Mind's page's top right (#908; the board
  * Page-Clean-Menu): the Mind's menu in the sidebar row's order; Style ›, its
  * choices beside it; "From {file}" with Show in Finder for a Mind imported
- * from Word or made by Verify, which opens the original beside it; and at its
- * foot the counts and the switch that shows the count while writing.
+ * from Word or made by Verify, which opens the original beside it, and
+ * "Review their changes" for one with someone's changes or comments; Review
+ * changes for the last AI edit applied, while it can be restored (#1795); and
+ * at its foot the counts and the switch that shows the count while writing.
  */
 export function PageMenu({
   editor,
@@ -69,6 +76,9 @@ export function PageMenu({
     origin?.documentId ? state.documents.find((each) => each.id === origin.documentId) : undefined,
   );
   const away = original ? fileStatusLabel(original.fileStatus) : null;
+  const otherExamples = useAppStore(
+    (state) => allExamples(state).find((each) => each.mindId === mindId)?.more,
+  );
   return (
     <span ref={holder} className="contents">
       <ObjectMenu
@@ -86,9 +96,10 @@ export function PageMenu({
             }),
           "mind.moveTo": () => requestAnimationFrame(() => setMoving(button())),
         }}
-        without={["mind.style"]}
+        // The Mind is open on this page: nothing to open, and Style is below.
+        without={["mind.style", "mind.open", "mind.openTab"]}
         more={
-          readOnly && !origin
+          readOnly && !origin && !otherExamples
             ? undefined
             : (close) => (
                 <>
@@ -106,9 +117,37 @@ export function PageMenu({
                       <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
                     </button>
                   )}
+                  {!readOnly && offersReview(editor) && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="page-review-changes"
+                      onClick={() => {
+                        close();
+                        requestAnimationFrame(() => reviewApplied(editor, { focus: true }));
+                      }}
+                      className={`${menuItemClass} pl-2`}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{t("edit.applied.review")}</span>
+                    </button>
+                  )}
                   {origin && (
                     <>
                       {!readOnly && <div className={menuRuleClass} />}
+                      {!readOnly && origin.word && useReviewables.getState()[mindId]?.has() && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          data-testid="page-review"
+                          onClick={() => {
+                            close();
+                            useReviewPanes.getState().open(mindId);
+                          }}
+                          className={`${menuItemClass} pl-2`}
+                        >
+                          <span className="min-w-0 flex-1 truncate">{t("review.menuItem")}</span>
+                        </button>
+                      )}
                       {/* Not in the Library, the original can't be opened: what it says of the file is still true. */}
                       <button
                         type="button"
@@ -153,6 +192,13 @@ export function PageMenu({
                           {t(showFileLabelKey(navigator.platform))}
                         </button>
                       )}
+                    </>
+                  )}
+                  {otherExamples && (
+                    <>
+                      {(!readOnly || origin) && <div className={menuRuleClass} />}
+                      <p className={menuTitleClass}>{t("examples.banner.more")}</p>
+                      <ExampleChoices more={otherExamples} close={close} />
                     </>
                   )}
                 </>
@@ -202,9 +248,12 @@ export function PageMenu({
           current={mind?.folderId ?? null}
           onChoose={(folderId) => {
             if (folderId !== mind?.folderId) {
-              void useAppStore.getState().moveToFolder({ mindIds: [mindId] }, folderId);
+              void moveIntoFolder({ mindIds: [mindId] }, folderId);
             }
           }}
+          onCreate={(folderName) =>
+            void useAppStore.getState().createFolder({ mindIds: [mindId] }, folderName)
+          }
           onClose={() => setMoving(null)}
         />
       )}

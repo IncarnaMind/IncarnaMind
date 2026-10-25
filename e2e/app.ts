@@ -14,6 +14,7 @@ import {
 } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import * as Y from "yjs";
+import type { EmbeddingModelSource } from "../src/core/adapters";
 import {
   type AssistantPlace,
   CHOSEN_PROVIDER_FLOWS,
@@ -22,12 +23,23 @@ import {
   type SaveChatProviderInput,
 } from "../src/core/api";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
+import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
+import { translate } from "../src/shared/i18n";
+import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
-import { homeEnv } from "../tests/helpers/home";
+import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 
 const appDir = resolve(__dirname, "..");
+
+// CI runs two workers, each on a virtual display of its own: windows on one display take the
+// keyboard focus from each other and share its clipboard.
+const displays = (process.env.INCARNAMIND_DISPLAYS ?? "").split(",").filter(Boolean);
+const workerIndex = Number(process.env.TEST_PARALLEL_INDEX);
+if (displays.length > 0 && Number.isInteger(workerIndex)) {
+  process.env.DISPLAY = displays[workerIndex % displays.length];
+}
 
 /**
  * The apps this test launched that are still open, by the data folder each
@@ -123,6 +135,15 @@ export interface LaunchOptions {
    * always a fake that makes a tone: no test opens a device.
    */
   computerSound?: "allowed" | "denied" | "silent";
+  /** Whether the Meeting's fake microphone is denied: no tone, and the line that says so. */
+  microphone?: "allowed" | "denied";
+  /**
+   * Where the guide for a permission added by hand opens, whatever the screen: in a window
+   * beside System Settings, or as text in the app's window. Without it, the system decides.
+   */
+  permissionGuide?: "beside" | "inline";
+  /** A copy with no way to record audio: Record says so. */
+  noAudioEngine?: boolean;
   /** What a Meeting's fake speech-to-text engine does: slow, failing to read stretches, failing over. */
   transcriber?: FakeTranscriberOptions;
   /**
@@ -138,6 +159,17 @@ export interface LaunchOptions {
    * a JSON file of a `FakeScanScript`. Without, it reads nothing on them.
    */
   scans?: string;
+  /** How many scans are read at once (#1502), whatever the computer. A test build honours it. */
+  scansAtOnce?: number;
+  /**
+   * The search model's files at a stand-in, and IncarnaMind's copies at others (#1578): a
+   * `{ source, copies }` the core's model downloads take instead. Needs a test build.
+   */
+  modelDownloads?: {
+    source: EmbeddingModelSource;
+    copies: Record<string, { url: string }>;
+    speech?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+  };
   /**
    * The scripted Task that asks for approval and writes files (src/main/scriptedTask.ts),
    * started with `startScriptedTask`. Needs a test build.
@@ -154,6 +186,30 @@ export interface LaunchOptions {
    * CI's Linux runners give Electron's sandbox helper the rights it needs (ci.yml).
    */
   sandboxed?: boolean;
+  /**
+   * The window may say when the app runs without its sandbox (#1179), which a test build keeps
+   * quiet otherwise, as Playwright starts every test on Linux with --no-sandbox. "switch": the
+   * app is started with --no-sandbox; "environment": with ELECTRON_DISABLE_SANDBOX; "on": with
+   * its sandbox, where the line must not show. The sandbox is on in the last two on Linux too.
+   */
+  sandboxNotice?: "switch" | "environment" | "on";
+  /**
+   * The search, text recognition and speech engines are the real ones instead of the fake ones, on
+   * the models already in the data folder (a test build reaches no model host): for a recording
+   * of the app as the User runs it.
+   */
+  realEngines?: boolean;
+  /**
+   * The first Word export asks whether to mark the text IncarnaMind wrote. Without this, a launch
+   * answers it "Mark it" if nobody has, so a test that exports to Word is not stopped by it;
+   * with it, the app is left asking.
+   */
+  askToMarkAiText?: boolean;
+  /**
+   * The first Word or PDF export of a Mind with Citations asks where they go. Without this, a
+   * launch answers it "Footnotes" if nobody has; with it, the app is left asking.
+   */
+  askCitationPlace?: boolean;
 }
 
 /**
@@ -207,13 +263,22 @@ export async function launchApp(
     copilot,
     keepWindow = false,
     computerSound = "allowed",
+    microphone = "allowed",
+    permissionGuide,
+    noAudioEngine = false,
     transcriber,
     scans,
+    scansAtOnce,
+    modelDownloads,
     web,
     lookLimit,
     scriptedTasks = false,
     contradictionWatchDelayMs,
     sandboxed = false,
+    sandboxNotice,
+    realEngines = false,
+    askToMarkAiText = false,
+    askCitationPlace = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const env: Record<string, string> = {};
@@ -243,14 +308,22 @@ export async function launchApp(
   delete env.INCARNAMIND_TEST_COPILOT;
   delete env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS;
   delete env.INCARNAMIND_TEST_SCANS;
+  delete env.INCARNAMIND_TEST_SCANS_AT_ONCE;
+  delete env.INCARNAMIND_TEST_MODEL_DOWNLOADS;
   delete env.INCARNAMIND_TEST_WEB;
   delete env.INCARNAMIND_TEST_LOOK_LIMIT;
   delete env.INCARNAMIND_TEST_TASKS;
   delete env.INCARNAMIND_TEST_CONTRADICTION_DELAY_MS;
+  delete env.INCARNAMIND_TEST_SANDBOX_NOTICE;
+  if (sandboxNotice) env.INCARNAMIND_TEST_SANDBOX_NOTICE = "1";
+  if (sandboxNotice === "environment") env.ELECTRON_DISABLE_SANDBOX = "1";
   // A test never uses the ChatGPT sign-in an agent's shell may point at for checks by hand.
   delete env.INCARNAMIND_CHATGPT_PROFILE;
-  env.INCARNAMIND_TEST_AUDIO = "fake";
+  env.INCARNAMIND_TEST_AUDIO = noAudioEngine ? "none" : "fake";
   env.INCARNAMIND_TEST_AUDIO_SYSTEM = computerSound;
+  env.INCARNAMIND_TEST_AUDIO_MICROPHONE = microphone;
+  delete env.INCARNAMIND_TEST_GUIDE;
+  if (permissionGuide) env.INCARNAMIND_TEST_GUIDE = permissionGuide;
   if (examples) env.INCARNAMIND_TEST_EXAMPLES = "1";
   if (sentryDsn) env.INCARNAMIND_TEST_SENTRY_DSN = sentryDsn;
   if (usageData) {
@@ -270,6 +343,8 @@ export async function launchApp(
   if (claudeSignInMs) env.INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS = String(claudeSignInMs);
   if (copilot) env.INCARNAMIND_TEST_COPILOT = copilot;
   if (scans) env.INCARNAMIND_TEST_SCANS = scans;
+  if (scansAtOnce) env.INCARNAMIND_TEST_SCANS_AT_ONCE = String(scansAtOnce);
+  if (modelDownloads) env.INCARNAMIND_TEST_MODEL_DOWNLOADS = JSON.stringify(modelDownloads);
   if (web) env.INCARNAMIND_TEST_WEB = String(web);
   if (lookLimit) env.INCARNAMIND_TEST_LOOK_LIMIT = String(lookLimit);
   if (scriptedTasks) env.INCARNAMIND_TEST_TASKS = "1";
@@ -279,11 +354,22 @@ export async function launchApp(
   env.INCARNAMIND_DATA_DIR = dataDir;
   env.INCARNAMIND_TEST_HOOKS = "1";
   if (fakeChat) env.INCARNAMIND_FAKE_CHAT = "1";
-  env.INCARNAMIND_TEST_EMBEDDER = "fake";
-  env.INCARNAMIND_TEST_TRANSCRIBER = "fake";
+  if (!realEngines) {
+    env.INCARNAMIND_TEST_EMBEDDER = "fake";
+    env.INCARNAMIND_TEST_TRANSCRIBER = "fake";
+  }
   if (transcriber) env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS = JSON.stringify(transcriber);
 
-  const app = await electron.launch({ args: [appDir], env, chromiumSandbox: sandboxed });
+  const app = await electron.launch({
+    args: [
+      ...KEYCHAIN_ARGS,
+      ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
+      appDir,
+      ...APP_ARGS,
+    ],
+    env,
+    chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
+  });
   openApps.set(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
@@ -297,7 +383,34 @@ export async function launchApp(
       message: `the window is ${WINDOW_SIZE.width} × ${WINDOW_SIZE.height}: is the screen too short for it?`,
     });
   }
+  await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
+}
+
+async function answerExportQuestions(
+  window: Page,
+  markAiText: boolean,
+  citationPlace: boolean,
+): Promise<void> {
+  await window.evaluate(
+    async ([mark, place]) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { exportOptions } = (await bridge.getSettings()).user;
+      const docx =
+        mark && exportOptions.docx.markAiText === null
+          ? { ...exportOptions.docx, markAiText: "mark" as const }
+          : exportOptions.docx;
+      const citations =
+        place && exportOptions.citationPlace === undefined
+          ? { citationPlace: "footnotes" as const }
+          : {};
+      if (docx === exportOptions.docx && Object.keys(citations).length === 0) return;
+      await bridge.updateSettings({
+        user: { exportOptions: { ...exportOptions, docx, ...citations } },
+      });
+    },
+    [markAiText, citationPlace],
+  );
 }
 
 /**
@@ -332,6 +445,114 @@ export const flushUsageData = (app: ElectronApplication) =>
       throw new Error("Launch with `usageData`: only then has the app a usage data sender.");
     await hooks.flush();
   });
+
+export async function panelOf(app: ElectronApplication): Promise<Page> {
+  const find = () => app.windows().find((page) => page.url().includes("meetingPanel.html"));
+  await expect.poll(() => find() !== undefined, { timeout: 15_000 }).toBe(true);
+  const page = find();
+  if (!page) throw new Error("The floating panel didn't open.");
+  await page.getByTestId("meeting-panel").waitFor();
+  return page;
+}
+
+export async function expectBarOneRow(bar: Locator): Promise<void> {
+  await expect
+    .poll(() =>
+      bar.evaluate((element) => {
+        const controls = element.querySelector<HTMLElement>('[data-testid="meeting-controls"]');
+        if (!controls) throw new Error("The bar has no controls.");
+        const shown = (id: string) => {
+          const found = element.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+          return found !== null && found.offsetParent !== null;
+        };
+        const row = parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue("--meeting-bar-row"),
+        );
+        const frame = controls.getBoundingClientRect();
+        const seen = [...controls.children].filter(
+          (each): each is HTMLElement => each instanceof HTMLElement && each.offsetParent !== null,
+        );
+        const middle = (each: Element) => {
+          const box = each.getBoundingClientRect();
+          return box.top + box.height / 2;
+        };
+        const buttons = [...element.querySelectorAll<HTMLElement>(".meeting-button")].filter(
+          (each) => each.offsetParent !== null,
+        );
+        return {
+          rowHeight: Math.abs(frame.height - row) < 1,
+          oneRow: seen.every(
+            (each) =>
+              Math.abs(middle(each) - middle(controls)) < 2 &&
+              each.getBoundingClientRect().right <= frame.right + 1,
+          ),
+          kept:
+            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop"].every(shown) &&
+            (shown("meeting-pause") || shown("meeting-resume")),
+          fits: element.scrollWidth <= element.clientWidth + 1,
+          cut: buttons.some((button) =>
+            [button, ...button.querySelectorAll("span")].some(
+              (each) => each.scrollWidth > each.clientWidth + 1,
+            ),
+          ),
+          foldedHaveMore:
+            [
+              "meeting-mark",
+              "meeting-call-help",
+              "meeting-transcript-toggle",
+              "meeting-details-toggle",
+            ].every(shown) || shown("meeting-more"),
+        };
+      }),
+    )
+    .toEqual({
+      rowHeight: true,
+      oneRow: true,
+      kept: true,
+      fits: true,
+      cut: false,
+      foldedHaveMore: true,
+    });
+}
+
+export const panelOpen = (app: ElectronApplication) =>
+  app.windows().some((page) => !page.isClosed() && page.url().includes("meetingPanel.html"));
+
+export const focusMainWindow = (app: ElectronApplication, focused: boolean) =>
+  app.evaluate((_electron, front) => {
+    (
+      globalThis as unknown as { incarnamindMainFocused(focused: boolean): void }
+    ).incarnamindMainFocused(front);
+  }, focused);
+
+export const heldGlobalKeys = (app: ElectronApplication, keys: string) =>
+  app.evaluate(({ globalShortcut }, asked) => globalShortcut.isRegistered(asked), keys);
+
+/**
+ * Gives Windows and Linux the keys macOS holds by default (⌃⌥1–7, H and M), which they ship
+ * without, and then `chosen` over them on every system: a spec that presses the meeting's
+ * shortcuts sets them first, as Settings › Meetings does. macOS keeps its own where `chosen`
+ * says nothing.
+ */
+export async function setMeetingKeys(window: Page, chosen: HelpKeys = {}): Promise<void> {
+  const keys: HelpKeys = {};
+  if (process.platform !== "darwin") {
+    for (const shortcut of HELP_SHORTCUTS) keys[shortcut] = defaultHelpKeys(shortcut, true) ?? "";
+  }
+  Object.assign(keys, chosen);
+  if (Object.keys(keys).length === 0) return;
+  await window.evaluate(async (all) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.updateSettings({ device: { meetingHelpKeys: all } });
+  }, keys);
+}
+
+export const pressHeldKeys = (app: ElectronApplication, kind: string) =>
+  app.evaluate((_electron, pressed) => {
+    (
+      globalThis as unknown as { incarnamindPressHelpKeys(kind: string): void }
+    ).incarnamindPressHelpKeys(pressed);
+  }, kind);
 
 /**
  * Stands in for the system's notifications: each one shown is recorded
@@ -373,10 +594,15 @@ export async function forceQuit(app: ElectronApplication): Promise<void> {
   await exited;
 }
 
-/** Chooses the Edit menu's Undo or Redo, as the application menu has it now. */
-export const clickEditItem = (app: ElectronApplication, id: "edit.undo" | "edit.redo") =>
+/** Chooses an editing command, as the application menu has it now. */
+export const clickEditItem = (
+  app: ElectronApplication,
+  id: "edit.undo" | "edit.redo" | "edit.selectAll",
+) =>
   app.evaluate(({ Menu }, itemId) => {
-    Menu.getApplicationMenu()?.getMenuItemById(itemId)?.click();
+    const item = Menu.getApplicationMenu()?.getMenuItemById(itemId);
+    if (!item) throw new Error(`No menu item ${itemId}.`);
+    item.click();
   }, id);
 
 /**
@@ -415,6 +641,41 @@ export async function newMind(
   await expect(first).toHaveJSProperty("tagName", "P");
 }
 
+/** Runs a command from ⌘K by its label, as the User types and clicks it. */
+export async function runFromPalette(window: Page, label: string): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(label);
+  const item = window.getByTestId("palette-item").filter({ hasText: label }).first();
+  await expect(item).toBeVisible();
+  await item.click();
+}
+
+/** Runs a command from ⌘K by its id, once ⌘K lists it under its label, as the User types and clicks it. */
+export async function runCommand(window: Page, id: string, label: string): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(label);
+  const item = window.getByTestId("palette").locator(`[data-key="command:${id}"]`);
+  await expect(item).toContainText(label);
+  await pointAndClick(window, item);
+}
+
+/** How many times ⌘K lists the command, once its words are typed (0 or 1); then Esc closes it. */
+export async function paletteOffers(window: Page, id: string, words: string): Promise<number> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(`>${words}`);
+  const palette = window.getByTestId("palette");
+  await expect(
+    palette.locator('[data-testid="palette-item"], [data-testid="palette-empty"]').first(),
+  ).toBeVisible();
+  const count = await palette.locator(`[data-key="command:${id}"]`).count();
+  await window.keyboard.press("Escape");
+  await expect(palette).toBeHidden();
+  return count;
+}
+
 /** A Folder's row in the sidebar's Folders view, with what is listed in it, by its name. */
 export const sidebarFolder = (window: Page, name: string) =>
   window
@@ -448,24 +709,52 @@ export async function editFolderInLibrary(window: Page, name: string): Promise<L
 }
 
 /**
- * Shows the sidebar's Folders on disk view: each Linked folder with its
- * folders as on disk, and "Other Documents".
+ * Waits for the sidebar's Linked folders section and each Linked folder's row. The rows don't
+ * unfold: their files sit in the Folders and Not in a Folder.
  */
 export async function showSourceLocations(window: Page): Promise<void> {
-  const button = window.getByTestId("browse-views").getByRole("button", {
-    name: "Folders on disk",
+  const section = window.getByTestId("linked-folders-section");
+  await expect(section).toBeVisible();
+  await expect(
+    section.locator('[data-testid="folder-item"][data-root="true"]').first(),
+  ).toBeVisible({
+    timeout: 15_000,
   });
-  await button.click();
-  await expect(button).toHaveAttribute("aria-pressed", "true");
 }
 
-/** Shows the sidebar's Folders view: the User's Folders with their Minds and Documents. */
-export async function showFolders(window: Page): Promise<void> {
-  const button = window
-    .getByTestId("browse-views")
-    .getByRole("button", { name: "Folders", exact: true });
-  await button.click();
-  await expect(button).toHaveAttribute("aria-pressed", "true");
+/**
+ * Puts a Tag on a Document through the core, each by its name (a Document's start will do): the
+ * sidebar's Tags section lists the Tags in use.
+ */
+export async function tagDocument(window: Page, documentName: string, tagName: string) {
+  await window.evaluate(
+    async (wanted) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const tag = (await core.listTags()).find((each) => each.name === wanted.tag);
+      const document = (await core.listDocuments()).find((each) =>
+        each.name.startsWith(wanted.document),
+      );
+      if (!tag || !document)
+        throw new Error(`No Tag ${wanted.tag} or Document ${wanted.document}.`);
+      await core.addTagToDocuments([document.id], tag.id);
+    },
+    { document: documentName, tag: tagName },
+  );
+  await expect(
+    window.getByTestId("sidebar-tag").filter({ hasText: tagName }).first(),
+  ).toBeAttached();
+}
+
+/** Manage Tags, from ⌘K, in the interface's language. */
+export async function openManageTags(window: Page, language: "en" | "zh-CN" = "en"): Promise<void> {
+  const label = translate(language, "tags.menu.manage");
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(label.replace(/…$/, ""));
+  const item = window.getByTestId("palette-item").filter({ hasText: label }).first();
+  await pointAt(window, item);
+  await item.click();
+  await expect(window.getByTestId("tags-dialog")).toBeVisible();
 }
 
 /**
@@ -496,6 +785,17 @@ export async function ollamaListing(models: string[], { delayMs = 0 }: { delayMs
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   const { port } = server.address() as AddressInfo;
   return { server, url: `http://127.0.0.1:${port}` };
+}
+
+/**
+ * Continue on the setup card, once a key or sign-in works and the card says what each job uses:
+ * the Question that waited is asked then, and the composer takes the card's place.
+ */
+export async function continueSetup(window: Page): Promise<void> {
+  const next = window.getByTestId("setup-continue");
+  await expect(next).toBeVisible();
+  await pointAndClick(window, next);
+  await expect(window.getByTestId("model-setup")).toBeHidden();
 }
 
 /**
@@ -570,6 +870,36 @@ export async function showSettingsPage(window: Page, page: SettingsPage): Promis
   return settings;
 }
 
+/** In Settings › Models, opens Add a provider and the page that adds `catalogId` (#179). */
+export async function addProviderPage(settings: Locator, catalogId: string): Promise<Locator> {
+  await settings.getByTestId("models-add-provider").click();
+  await settings
+    .getByTestId("provider-directory")
+    .locator(`[data-catalog-id="${catalogId}"]`)
+    .first()
+    .click();
+  const page = settings.getByTestId("provider-add");
+  await expect(page).toHaveAttribute("data-catalog-id", catalogId);
+  return page;
+}
+
+/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+export async function openAdvancedModels(settings: Locator): Promise<Locator> {
+  const advanced = settings.getByTestId("models-advanced");
+  const toggle = advanced.getByTestId("models-advanced-toggle");
+  await expect(toggle).toBeVisible();
+  await expect(advanced).not.toHaveAttribute("open");
+  await toggle.click();
+  await expect(advanced).toHaveAttribute("open", "");
+  const tagging = advanced.getByTestId("tagging-settings");
+  await expect(tagging).toBeVisible();
+  return tagging;
+}
+
+/** As `addProviderPage`, returning that page's key form. */
+export const addProviderForm = async (settings: Locator, catalogId: string): Promise<Locator> =>
+  (await addProviderPage(settings, catalogId)).getByTestId("provider-form");
+
 /** Closes Settings with its close button. */
 export async function closeSettings(window: Page): Promise<void> {
   const settings = window.getByTestId("settings");
@@ -577,26 +907,28 @@ export async function closeSettings(window: Page): Promise<void> {
   await expect(settings).toBeHidden();
 }
 
-/** Settings → Meetings → Record meetings, by its switch; `whileOpen` runs before Settings closes. */
-export async function turnOnMeetings(window: Page, whileOpen?: () => Promise<void>): Promise<void> {
-  const settings = await openSettings(window, "meetings");
-  const recording = settings.getByTestId("meetings-enabled");
-  await recording.hover();
-  await recording.click();
-  await expect(recording).toBeChecked();
-  await whileOpen?.();
-  await closeSettings(window);
-}
-
 /** The + menu's "Record a meeting": a new Mind with the start block. */
 export async function recordMeeting(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
+  await window.getByTestId("plus-more").click();
   await window.getByRole("menuitem", { name: "Record a meeting" }).click();
   const start = window.getByTestId("meeting-start");
   await expect(start).toBeVisible();
   return start;
+}
+
+/** The + menu's "Record a meeting" once the recording notice is read: recording at once, in one action. */
+export async function recordMeetingNow(window: Page): Promise<Locator> {
+  const plus = window.getByTestId("plus-menu");
+  await plus.hover();
+  await plus.click();
+  await window.getByTestId("plus-more").click();
+  await window.getByRole("menuitem", { name: "Record a meeting" }).click();
+  const bar = window.getByTestId("meeting-bar");
+  await expect(bar).toHaveAttribute("data-status", "recording");
+  return bar;
 }
 
 /** Starts recording from the start block; the first time, through the one-time notice. */
@@ -644,18 +976,6 @@ export async function openDocumentTags(item: Locator): Promise<Locator> {
 }
 
 /**
- * Adds a Tag to the sidebar's filter (Documents with any Tag chosen show), or,
- * choosing a Tag already chosen, takes it out.
- */
-export async function filterByTag(window: Page, name: string): Promise<void> {
-  await window.getByTestId("tag-filter-menu").click();
-  await window
-    .getByTestId("tag-filters")
-    .getByRole("menuitemcheckbox", { name, exact: true })
-    .click();
-}
-
-/**
  * Sets where new files go (the Output location) through the core's bridge, as
  * Settings › General would, so the next save goes there without asking.
  */
@@ -673,12 +993,75 @@ export function savedLine(name: string, folder: string, language: "en" | "zh-CN"
     : `Saved “${name}” in ${basename(folder)}`;
 }
 
+/** Opens the assistant's ⋯ and its Move assistant row, whose submenu has the places it docks. */
+export async function openMoveAssistant(window: Page): Promise<void> {
+  await window.getByTestId("assistant-more").click();
+  await window.getByTestId("assistant-menu-move").click();
+  await expect(window.getByTestId("assistant-menu-docks")).toBeVisible();
+}
+
+/** Docks or floats the assistant from its ⋯ › Move assistant. */
+export async function moveAssistant(
+  window: Page,
+  place: "right" | "left" | "bottom" | "float",
+): Promise<void> {
+  await openMoveAssistant(window);
+  await pointAndClick(window, window.getByTestId(`assistant-menu-${place}`));
+}
+
 /** The result line's saved file, once it says it saved one. */
 export async function savedPath(window: Page, name: string): Promise<string> {
   const done = window.getByTestId("export-result").getByTestId("export-done");
   await expect(done).toContainText(`Saved “${name}” in `, { timeout: 30_000 });
   return (await done.getAttribute("title")) ?? "";
 }
+
+export async function examplesMenu(window: Page): Promise<Locator> {
+  const row = window.getByTestId("not-in-a-folder");
+  await pointAndClick(window, row.getByTestId("examples-menu"));
+  const menu = row.getByTestId("examples-actions");
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/**
+ * Opens a saved page in a window of its own, in a session with the network off that records
+ * every request it is asked for (`requestsMade`), as a reader opening the file in a browser would.
+ */
+export async function openSavedPage(app: ElectronApplication, path: string): Promise<Page> {
+  const opened = app.waitForEvent("window");
+  await app.evaluate(async ({ BrowserWindow, session }, file) => {
+    const offline = session.fromPartition("saved-page", { cache: false });
+    offline.enableNetworkEmulation({ offline: true });
+    const requested: string[] = [];
+    (globalThis as { savedPageRequests?: string[] }).savedPageRequests = requested;
+    offline.webRequest.onBeforeRequest((details, callback) => {
+      requested.push(details.url);
+      callback({ cancel: !details.url.startsWith("file:") });
+    });
+    const window = new BrowserWindow({
+      width: 1100,
+      height: 760,
+      useContentSize: true,
+      // macOS keeps a window no taller than the screen otherwise, and CI's Mac has a small one.
+      enableLargerThanScreen: true,
+      webPreferences: {
+        session: offline,
+        sandbox: true,
+        contextIsolation: true,
+        backgroundThrottling: false,
+      },
+    });
+    await window.loadFile(file);
+  }, path);
+  const page = await opened;
+  await page.waitForLoadState("load");
+  return page;
+}
+
+/** Every address the page `openSavedPage` opened has asked for, the ones it was refused included. */
+export const requestsMade = (app: ElectronApplication) =>
+  app.evaluate(() => (globalThis as { savedPageRequests?: string[] }).savedPageRequests ?? []);
 
 /** The menu of the Mind's tab, opened by a right-click on the tab, as a person opens it. */
 export async function tabMenu(window: Page): Promise<Locator> {
@@ -689,9 +1072,16 @@ export async function tabMenu(window: Page): Promise<Locator> {
   return menu;
 }
 
+/** Splits the shown tab to the right from its menu, as a person does: a copy of it in a new group. */
+export async function splitFromTabMenu(window: Page): Promise<void> {
+  const menu = await tabMenu(window);
+  await pointAndClick(window, menu.getByTestId("tab.split"));
+}
+
 /** "Import a Word file…" from the "+" menu; the test answers the system's open dialog first. */
 export async function importWordFromMenu(window: Page): Promise<Locator> {
   await window.getByTestId("plus-menu").click();
+  await window.getByTestId("plus-more").click();
   await window.getByTestId("plus-import-word").click();
   const dialog = window.getByTestId("word-import-dialog");
   await expect(dialog).toBeVisible();
@@ -714,9 +1104,15 @@ export async function importWordFile(
   await expect(dialog).toBeHidden();
 }
 
-/** Export options…, from the tab's menu; resolves once the sheet shows `title`. */
+/** The Export button's menu, then Export options…, which opens the sheet. */
+export async function openExportOptions(window: Page): Promise<void> {
+  await pointAndClick(window, window.getByTestId("export-mind"));
+  await pointAndClick(window, window.getByTestId("export-options"));
+}
+
+/** Export options…, from the Export button's menu; resolves once the sheet shows `title`. */
 export async function openOptions(window: Page, title: string): Promise<void> {
-  await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.exportOptions"));
+  await openExportOptions(window);
   await expect(window.getByTestId("export-dialog").getByRole("heading")).toHaveText(title);
 }
 
@@ -837,6 +1233,7 @@ export async function previewLink(
   if (button) await button.click();
   else {
     await window.getByTestId("plus-menu").click();
+    await window.getByTestId("plus-more").click();
     await window.getByTestId("plus-link-folder").click();
   }
   const dialog = window.getByTestId("link-folder-dialog");
@@ -1070,6 +1467,24 @@ export async function catchCopies(window: Page): Promise<void> {
 export const copied = (window: Page) =>
   window.evaluate(() => (globalThis as unknown as { copied?: string }).copied ?? "");
 
+/** What the Edit menu's Undo would take back now, by its label. */
+export const undoMenuItem = (app: ElectronApplication) =>
+  app.evaluate(({ Menu }) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById("edit.undo");
+    return { label: item?.label ?? "", enabled: item?.enabled ?? false };
+  });
+
+/** Pushes a core event to the window, as the core does when something happens. */
+export const emit = (app: ElectronApplication, name: string, payload: unknown) =>
+  app.evaluate(
+    ({ BrowserWindow }, sent) => {
+      for (const each of BrowserWindow.getAllWindows()) {
+        each.webContents.send(sent.channel, sent.name, sent.payload);
+      }
+    },
+    { channel: EVENT_CHANNEL, name, payload },
+  );
+
 /** Switches the interface's language, as Settings does. */
 export function setLanguage(window: Page, language: "en" | "zh-CN"): Promise<unknown> {
   return window.evaluate(
@@ -1080,6 +1495,9 @@ export function setLanguage(window: Page, language: "en" | "zh-CN"): Promise<unk
     language,
   );
 }
+
+/** The scale a copy's transform says, 1 with none. */
+export const scaleOf = (transform: string) => Number(/^matrix\(([^,]+),/.exec(transform)?.[1] ?? 1);
 
 /** How many animations are running (src/renderer/src/motion.ts), leaving copies included. */
 export function motionRunning(window: Page): Promise<number> {
@@ -1137,6 +1555,26 @@ export async function motionSettled(window: Page): Promise<void> {
       ),
     )
     .toBe(0);
+}
+
+/** A design token (`--color-warning-wash`) as the colour the browser draws it in. */
+export function tokenColor(window: Page, token: string): Promise<string> {
+  return window.evaluate((name) => {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${name})`;
+    document.body.append(probe);
+    const colour = getComputedStyle(probe).color;
+    probe.remove();
+    return colour;
+  }, token);
+}
+
+/** The colours an element is drawn in: its text and its background. */
+export function paintOf(target: Locator): Promise<{ color: string; background: string }> {
+  return target.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { color: style.color, background: style.backgroundColor };
+  });
 }
 
 /**
@@ -1199,15 +1637,31 @@ export async function expectReadyDocuments(window: Page, count: number): Promise
 
 /** Ends the first open (hides its steps), so the shell shows everything, as it does for a returning User. */
 export async function leaveFirstOpen(window: Page): Promise<void> {
-  await window.evaluate(async () => {
+  await markSteps(window, { hidden: true });
+  await expect(window.getByTestId("first-open-steps")).toHaveCount(0);
+}
+
+/** Marks steps of the first open done (or hides it), as the User doing them would. */
+export async function markSteps(window: Page, done: object): Promise<void> {
+  await window.evaluate(async (patch) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     const { device } = await bridge.getSettings();
     await bridge.updateSettings({
-      device: { gettingStarted: { ...device.gettingStarted, hidden: true } },
+      device: { gettingStarted: { ...device.gettingStarted, ...patch } },
     });
-  });
-  await expect(window.getByTestId("first-open-steps")).toHaveCount(0);
+  }, done);
 }
+
+/** One step of the Welcome card. */
+export const welcomeStep = (window: Page, key: "citation" | "question" | "files") =>
+  window.locator(`[data-testid="first-open-step"][data-step="${key}"]`);
+
+/** Which steps of the first open the core holds as done. */
+export const gettingStarted = (window: Page) =>
+  window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await bridge.getSettings()).device.gettingStarted;
+  });
 
 /** The id of the Document listed in the sidebar under `name`. */
 export async function documentIdOf(window: Page, name: string): Promise<string> {
@@ -1235,6 +1689,30 @@ export function darkPixels(canvas: Locator): Promise<number> {
       if ((data[index] as number) < 128 && (data[index + 3] as number) > 0) dark++;
     }
     return dark;
+  });
+}
+
+/** The box of the words in an element, in CSS pixels: not of the element, which may be padded or overlap its neighbour. */
+export function textBoxOf(target: Locator) {
+  return target.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const { x, y, width, height } = range.getBoundingClientRect();
+    return { x, y, width, height };
+  });
+}
+
+/** ⌘K's rows for what it found, not its last row, which asks about the words typed. */
+export const paletteFound = (window: Page): Locator =>
+  window.locator('[data-testid="palette-item"]:not([data-kind="ask"])');
+
+export function lastLineBoxOf(target: Locator) {
+  return target.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const rect = [...range.getClientRects()].at(-1);
+    if (!rect) throw new Error("The element has no text.");
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
   });
 }
 
@@ -1366,7 +1844,10 @@ export async function pointAndClick(
   {
     button = "left",
     modifiers = [],
-  }: { button?: "left" | "right"; modifiers?: readonly ("ControlOrMeta" | "Shift")[] } = {},
+  }: {
+    button?: "left" | "right" | "middle";
+    modifiers?: readonly ("ControlOrMeta" | "Shift")[];
+  } = {},
 ): Promise<void> {
   // A list that redraws as the click begins swaps the element for an equal one: look again.
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
@@ -1503,7 +1984,7 @@ export async function dragBlock(window: Page, block: Locator, target: Locator): 
  * Where `words` are drawn in a line of text: their left and right edges, and
  * their middle line. They may run across marks (AI text and the User's, bold).
  */
-async function wordsBox(line: Locator, words: string) {
+export async function wordsBox(line: Locator, words: string) {
   const box = await line.evaluate((element, wanted) => {
     const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     const texts: Text[] = [];
@@ -1601,6 +2082,17 @@ export async function focusSettled(window: Page, editor: Locator): Promise<void>
   await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 20)));
 }
 
+/** The words of the sentences the User keeps as their own view, in the Mind's order. */
+export const keptWords = (editor: Locator) =>
+  editor.evaluate((dom) => {
+    const kept: string[] = [];
+    (dom as unknown as { editor: Editor }).editor.state.doc.descendants((node) => {
+      const marked = node.marks.some((each) => each.type.name === "claimCheck" && each.attrs.kept);
+      if (node.isText && marked) kept.push(node.text ?? "");
+    });
+    return kept;
+  });
+
 /** The page of the Mind the User is in, in the group they are in. */
 export const frontMind = (window: Page) =>
   window.locator('[data-testid="tab-group"][data-focused] [data-testid="mind-pane"]:visible');
@@ -1668,6 +2160,13 @@ export async function nameMind(window: Page, name: string): Promise<void> {
   await expect(frontMindName(window)).toHaveText(name);
 }
 
+/** Hides or shows the sidebar with its button, as a person does: in the sidebar's header or the tab strip. */
+export async function setSidebarShown(window: Page, shown: boolean): Promise<void> {
+  const toggle = window.getByTestId("sidebar-toggle");
+  await pointAndClick(window, toggle);
+  await expect(toggle).toHaveAttribute("aria-expanded", shown ? "true" : "false");
+}
+
 /** Moves the cursor to the start of the text as the system does: ⌘↑ on macOS, where ⌘Home doesn't. */
 export const pressTextStart = (window: Page) =>
   window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
@@ -1707,6 +2206,28 @@ export async function pointAt(window: Page, target: Locator): Promise<{ x: numbe
   const point = { x: box.x + Math.min(box.width / 2, 40), y: box.y + box.height / 2 };
   await window.mouse.move(point.x, point.y, { steps: 8 });
   return point;
+}
+
+/**
+ * Drags `from` onto `to` as a person does: slides onto it, presses, slides onto `to` and rests
+ * there while `whileOver` looks at what the drag shows, then lets go.
+ */
+export async function dragOnto(
+  window: Page,
+  from: Locator,
+  to: Locator,
+  whileOver?: () => Promise<void>,
+): Promise<void> {
+  await pointAt(window, from);
+  await window.mouse.down();
+  try {
+    const point = await pointAt(window, to);
+    // A hand never rests quite still: during a drag the page hears where it is at the next move.
+    await window.mouse.move(point.x + 2, point.y);
+    await whileOver?.();
+  } finally {
+    await window.mouse.up();
+  }
 }
 
 /** Presses Tab, or Shift+Tab if `target` comes before the focus, until `target` has the focus. */
@@ -1796,6 +2317,62 @@ export async function setSidebarWidth(window: Page, width: number): Promise<void
     .toBeCloseTo(width, 0);
 }
 
+/**
+ * Sizes the assistant as a person does from the keyboard: on its resize line, ← widens and →
+ * narrows, 10px a press and 50px with Shift. It presses them all without waiting, so `width` must
+ * be a whole number of presses away.
+ */
+export async function sizeAssistant(window: Page, width: number): Promise<void> {
+  const assistant = window.getByTestId("assistant");
+  const widthNow = () => assistant.evaluate((el) => Math.round(el.getBoundingClientRect().width));
+  const now = await widthNow();
+  const key = width > now ? "ArrowLeft" : "ArrowRight";
+  const distance = Math.abs(width - now);
+  await window.getByTestId("assistant-resize").focus();
+  for (let press = 0; press < Math.floor(distance / 50); press++) {
+    await window.keyboard.press(`Shift+${key}`);
+  }
+  for (let press = 0; press < (distance % 50) / 10; press++) await window.keyboard.press(key);
+  await expect.poll(widthNow).toBe(width);
+}
+
+export interface TableSample {
+  status: string | null;
+  top: number;
+  button: string | null;
+}
+
+/** From now until `stopSamples`, once a frame, the table and button of the next Answer to be asked. */
+export const startSamples = (window: Page) =>
+  window.evaluate(() => {
+    const holder = globalThis as unknown as { samples: TableSample[]; sampling: boolean };
+    holder.samples = [];
+    holder.sampling = true;
+    const asked = document.querySelectorAll("[data-testid=assistant-answer]").length;
+    const sample = () => {
+      const answer = document.querySelectorAll("[data-testid=assistant-answer]")[asked];
+      const frame = answer?.querySelector(".tableWrapper");
+      const text = answer?.querySelector("[data-testid=assistant-answer-text]");
+      if (answer && frame && text) {
+        const button = answer.querySelector("[data-testid=answer-open-table]");
+        holder.samples.push({
+          status: answer.getAttribute("data-status"),
+          top: frame.getBoundingClientRect().top - text.getBoundingClientRect().top,
+          button: button ? (button.getAttribute("aria-disabled") ?? "false") : null,
+        });
+      }
+      if (holder.sampling) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+
+export const stopSamples = (window: Page) =>
+  window.evaluate(() => {
+    const holder = globalThis as unknown as { samples: TableSample[]; sampling: boolean };
+    holder.sampling = false;
+    return holder.samples;
+  });
+
 /** The assistant's Answers (#201), in the conversation it shows. */
 export const assistantAnswers = (window: Page) =>
   window.getByTestId("assistant").getByTestId("assistant-answer");
@@ -1803,12 +2380,14 @@ export const assistantAnswers = (window: Page) =>
 /**
  * Asks a Question as a person does: ⌘J, the words, Enter. It is asked in the
  * assistant's conversation (#201); resolves with its Answer there once it is
- * written (the scripted model's, with `fakeChat`).
+ * written (the scripted model's, with `fakeChat`). The scripted model streams a word every
+ * 60 ms, so a wide table takes about 7 s on a quiet computer, and a loaded runner took more than
+ * twice the old 15 s ceiling (#1651).
  */
 export async function askInAssistant(
   window: Page,
   question: string,
-  { timeout = 15_000 }: { timeout?: number } = {},
+  { timeout = 45_000 }: { timeout?: number } = {},
 ): Promise<Locator> {
   const answers = assistantAnswers(window);
   const before = await answers.count();
@@ -2150,4 +2729,66 @@ export async function fontsDrawing(window: Page, selector: string) {
   } finally {
     await session.detach();
   }
+}
+
+/**
+ * A local decision server like Ollama's `/v1/systemone` (no model): a Folder chosen by what the
+ * Document says (`folderFor`: Finance for an invoice, Reports otherwise), Invoice in the review
+ * band for an invoice, Report likely for a report, nothing else. `requests` counts what it was asked;
+ * `delayMs` holds each answer back, for a test that does something else while Organize works.
+ */
+export async function decisionServer(
+  folderFor: (text: string) => string = (text) =>
+    text.includes("invoice") ? "Finance" : "Reports",
+  { delayMs = 0 }: { delayMs?: number } = {},
+): Promise<{ server: Server; readonly requests: number }> {
+  let requests = 0;
+  const server = createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    const body = raw ? JSON.parse(raw) : {};
+    response.setHeader("content-type", "application/json");
+    if (request.url !== "/v1/systemone") {
+      response.end(JSON.stringify({ models: [] }));
+      return;
+    }
+    requests++;
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const text = JSON.stringify(body.state).toLowerCase();
+    const answers = Object.fromEntries(
+      Object.entries(
+        body.questions as Record<
+          string,
+          { type: string; instructions: string; criteria?: Record<string, string> }
+        >,
+      ).map(([id, question]) => {
+        if (question.type === "choice") {
+          const wanted = folderFor(text);
+          const choice =
+            Object.entries(question.criteria ?? {}).find(([, value]) =>
+              value.startsWith(wanted),
+            )?.[0] ?? "__unsorted__";
+          return [id, { type: "choice", choice }];
+        }
+        const noul = question.instructions.includes("“Invoice”")
+          ? text.includes("invoice")
+            ? 0.65
+            : 0.01
+          : question.instructions.includes("“Report”")
+            ? text.includes("report")
+              ? 0.95
+              : 0.01
+            : 0.01;
+        return [id, { type: "noul", noul }];
+      }),
+    );
+    response.end(JSON.stringify({ answers }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    server,
+    get requests() {
+      return requests;
+    },
+  };
 }

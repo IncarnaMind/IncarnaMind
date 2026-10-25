@@ -3,7 +3,8 @@ import type { MessageKey } from "../../../shared/i18n";
 import { useT } from "../i18n";
 import { type MotionMode, motionMode, setMotionPreference, subscribeMotion } from "../motion";
 import { useAppStore } from "../store";
-import { hintClass, ruledListClass, sectionNoteClass, sectionTitleClass } from "./ui";
+import { InfoTip } from "./InfoTip";
+import { hintClass, ruledListClass, sectionTitleClass } from "./ui";
 
 const motionOptions: readonly { value: MotionMode; label: MessageKey }[] = [
   { value: "on", label: "settings.motion.on" },
@@ -32,10 +33,12 @@ export function MotionSettings() {
 
   return (
     <section data-testid="motion-settings">
-      <h4 id="motion-title" className={sectionTitleClass}>
-        {t("settings.motion")}
-      </h4>
-      <p className={sectionNoteClass}>{t("settings.motion.body")}</p>
+      <div className="mb-2 flex items-center">
+        <h4 id="motion-title" className={sectionTitleClass}>
+          {t("settings.motion")}
+        </h4>
+        <InfoTip text={t("settings.motion.tip")} />
+      </div>
       <div role="radiogroup" aria-labelledby="motion-title" className={ruledListClass}>
         {motionOptions.map((option) => (
           <label

@@ -30,6 +30,7 @@ import { OVERRIDES } from "../../src/core/providers/catalog/overrides";
 import { PRESETS } from "../../src/core/providers/catalog/presets";
 import {
   catalogProvider,
+  dataUseOf,
   fieldAccepts,
   fieldUrl,
   isPreset,
@@ -393,7 +394,7 @@ describe("The providers of #178", () => {
     }
   });
 
-  test("each says whether it may train on API data: Mistral may, with an opt-out; Kimi's, DeepSeek's and Z.ai's terms don't say", () => {
+  test("each says whether it may train on API data: Mistral and Kimi may, with an opt-out; DeepSeek's, Z.ai's and SiliconFlow's terms don't say", () => {
     const training = Object.fromEntries(
       added.map((id) => [id, catalogProvider(id)?.dataUse.training]),
     );
@@ -403,24 +404,94 @@ describe("The providers of #178", () => {
       xai: "no",
       deepseek: "unknown",
       qwen: "no",
-      kimi: "unknown",
+      kimi: "opt-out",
       glm: "unknown",
-      siliconflow: "no",
+      siliconflow: "unknown",
     });
     expect(catalogProvider("kimi")?.dataUse.url).toBe(
       "https://platform.kimi.ai/docs/agreement/modeluse",
     );
   });
 
-  test("Anthropic's data line names every model that needs 30-day retention, and no link uses an address that has moved", () => {
-    for (const model of ["Fable 5.1", "Fable 5", "Mythos 5.1", "Mythos 5"]) {
-      expect(catalogProvider("anthropic")?.dataUse.summary.en, model).toContain(model);
-      expect(catalogProvider("anthropic")?.dataUse.summary.zh, model).toContain(model);
-    }
+  test("Anthropic's data line says content is kept up to 30 days and longer if flagged, and no link uses an address that has moved", () => {
+    const { summary, sources } = catalogProvider("anthropic")?.dataUse ?? {};
+    expect(summary?.en).toMatch(/30 days.*longer if flagged/);
+    expect(summary?.zh).toMatch(/30 天.*更久/);
+    expect(summary?.en).not.toMatch(/\bonly\b/);
+    expect(sources).toContain(
+      "https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data",
+    );
     const links = CATALOG_PROVIDERS.flatMap((each) => [each.docsUrl, each.dataUse.url]);
     expect(
       links.filter((url) => /docs\.anthropic\.com|platform\.openai\.com\/docs/.test(url ?? "")),
     ).toEqual([]);
+  });
+
+  test("Kimi's data line says it may train on what you send unless agreed otherwise in writing", () => {
+    const { summary, sources } = catalogProvider("kimi")?.dataUse ?? {};
+    expect(summary?.en).toMatch(/train.*unless agreed otherwise in writing/);
+    expect(summary?.zh).toMatch(/训练.*除非另有书面约定/);
+    expect(sources).toEqual(["https://platform.kimi.com/docs/agreement/modeluse"]);
+  });
+
+  test("a claim that rests on another page keeps its address in the catalog", () => {
+    const second = Object.fromEntries(
+      CATALOG_PROVIDERS.filter((each) => each.dataUse.sources || each.dataUse.zhUrl).map((each) => [
+        each.id,
+        [...(each.dataUse.sources ?? []), each.dataUse.zhUrl ?? ""].filter(Boolean),
+      ]),
+    );
+    expect(Object.keys(second).sort()).toEqual([
+      "anthropic",
+      "bedrock",
+      "deepseek",
+      "glm",
+      "kimi",
+      "siliconflow",
+      "together",
+    ]);
+    for (const url of Object.values(second).flat()) expect(url).toMatch(/^https:\/\//);
+    expect(catalogProvider("siliconflow")?.dataUse.url).toContain("docs.siliconflow.com/en/");
+  });
+
+  test("a local app's data line gives way to a server's when its server is on another computer, Ollama's included", () => {
+    const server = catalogProvider("openai-compatible")?.dataUse;
+    expect(server?.summary.en).toMatch(/^Depends on the server/);
+    for (const id of ["lmstudio", "unsloth", "ollama"]) {
+      const provider = catalogProvider(id);
+      expect(provider && dataUseOf(provider, false), id).toBe(provider?.dataUse);
+      expect(provider && dataUseOf(provider, true), id).toBe(server);
+    }
+    for (const id of ["anthropic", "openai-compatible"]) {
+      const provider = catalogProvider(id);
+      expect(provider && dataUseOf(provider, true), id).toBe(provider?.dataUse);
+    }
+  });
+
+  test("every provider's data-use line fits one line at 900px beside its link, states no price or plan, and a hosted provider links its own page", () => {
+    // The narrowest 900px screen is first run's key form, 524px wide, in 12px type: the line,
+    // "Data use ↗" and in Chinese "数据使用：" before it must fit in one line of it.
+    const MOST_ENGLISH_CHARACTERS = 90;
+    const MOST_CHINESE_UNITS = 30;
+    const wide = /[\u2e80-\u9fff\uff00-\uffef]/u;
+    const units = (text: string) =>
+      [...text].reduce((sum, each) => sum + (wide.test(each) ? 1 : each === " " ? 0.25 : 0.5), 0);
+    for (const provider of CATALOG_PROVIDERS) {
+      const { summary, url } = provider.dataUse;
+      expect(summary.en.length, provider.id).toBeLessThanOrEqual(MOST_ENGLISH_CHARACTERS);
+      expect(units(summary.zh), provider.id).toBeLessThanOrEqual(MOST_CHINESE_UNITS);
+      expect(summary.en, provider.id).not.toMatch(
+        /\bplans?\b|\bfees?\b|\bcredits?\b|\bprices?\b|[$¥]\s?\d|\d\s?%/i,
+      );
+      expect(summary.zh, provider.id).not.toMatch(
+        /订阅|套餐|方案|费用|收费|价格|额度|[$¥]\s?\d|\d\s?%/,
+      );
+      if (provider.id === "openai-compatible") {
+        expect(url, provider.id).toBeUndefined();
+      } else {
+        expect(url, provider.id).toMatch(/^https:\/\//);
+      }
+    }
   });
 
   test("a provider with regions has an endpoint for each, the first the default, and a set of model facts for each", () => {
@@ -633,22 +704,15 @@ describe("Support tiers (ADR-0019)", () => {
     ).toEqual([]);
   });
 
-  test("the first-run list holds exactly the first-class providers that take a key", () => {
+  test("the key providers are the first-class ones that take a key, then every other", () => {
     const { main, more } = keyProviderGroups();
     const expected = CATALOG_PROVIDERS.filter(
       (each) => each.support === "first-class" && each.endpoints.length > 0,
     ).map((each) => each.id);
     expect(main).toEqual(expected);
-    // Settings' "More providers" holds the rest, and nothing is lost between the two.
+    // "More…" holds the rest, and nothing is lost between the two.
     expect([...main, ...more].sort()).toEqual([...KEY_PROVIDERS].sort());
     expect(more).toEqual(expect.arrayContaining([...BEST_EFFORT, "openai-compatible"]));
-  });
-
-  test("a provider already set up stays among the User's, whatever its tier", () => {
-    const { main, more } = keyProviderGroups(["mistral"]);
-    expect(main).toContain("mistral");
-    expect(more).not.toContain("mistral");
-    expect(more).toContain("xai");
   });
 
   test("each first-class provider that needs a key has a key guide in both languages, and the rest have none", () => {
@@ -667,20 +731,29 @@ describe("Support tiers (ADR-0019)", () => {
     }
   });
 
-  test("a key guide's steps say what to do; what a plan includes is said once, in the note under them, in both languages", () => {
-    const withNote = CATALOG_PROVIDERS.filter((each) => each.planCredits && each.keyGuide);
-    expect(withNote.map((each) => each.id)).toEqual(
-      expect.arrayContaining(["anthropic", "openai"]),
+  test("a key guide's steps and notes say what to do, and no line states another company's price, fee, credit or plan contents, in both languages", () => {
+    const withLine = CATALOG_PROVIDERS.filter((each) => each.keyLine);
+    expect(withLine.map((each) => each.id)).toEqual(
+      expect.arrayContaining(["anthropic", "openai", "google", "openrouter", "kimi"]),
     );
-    for (const each of withNote) {
-      for (const step of each.keyGuide ?? []) {
-        expect(step.en, each.id).not.toMatch(/include|doesn't/i);
-        expect(step.zh, each.id).not.toMatch(/不含|不包含|附带/);
+    for (const each of CATALOG_PROVIDERS) {
+      const lines = [
+        ...(each.keyGuide ?? []),
+        ...(each.notes ?? []),
+        ...(each.keyLine ? [each.keyLine] : []),
+      ];
+      for (const line of lines) {
+        expect(line.en, each.id).not.toMatch(
+          /include|doesn't|\bfree\b|\bfees?\b|\bdouble\b|[$¥]\s?\d|\d\s?%/i,
+        );
+        expect(line.zh, each.id).not.toMatch(/不含|不包含|附带|免费|手续费|翻倍|[$¥]\s?\d|\d\s?%/);
       }
     }
-    const note = catalogProvider("anthropic")?.planCredits;
-    expect(note?.en).toContain("Anthropic Console");
-    expect(note?.zh).toContain("Anthropic Console");
+    for (const each of withLine) {
+      expect(each.keyLine?.url, each.id).toMatch(/^https:\/\//);
+    }
+    expect(catalogProvider("google")?.keyLine?.link).toBe("pricing");
+    expect(catalogProvider("openrouter")?.keyLine?.link).toBe("pricing");
   });
 
   test("a best-effort provider keeps its link to the provider's key page", () => {

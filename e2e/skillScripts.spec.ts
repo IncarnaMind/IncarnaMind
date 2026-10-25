@@ -191,7 +191,9 @@ test("Always run shows a risk warning first; confirmed, the Skill's scripts run 
   await expect(toggle).toBeChecked();
   await expect(scripts.getByTestId("skill-scripts-timeout")).toHaveValue("60");
   await expect(scripts.getByTestId("skill-scripts-sandbox")).toContainText(
-    sandboxed ? "Scripts run in a sandbox and ask before each run." : "with no sandbox",
+    sandboxed
+      ? "Scripts run in a sandbox and ask before each run."
+      : "No sandbox: scripts run here and ask before each run.",
   );
   await toggle.uncheck();
   await expect(toggle).not.toBeChecked();

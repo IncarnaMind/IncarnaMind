@@ -27,6 +27,7 @@ import type { AnswerSearchTuning } from "./documents/searchTuning";
 import type { WatchFolder } from "./documents/watcher";
 import type { FetchLimits, PageFetch } from "./documents/web/fetch";
 import type { PictureLimits } from "./documents/web/pictures";
+import type { ModelCopies } from "./embedding/modelSources";
 import type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 import type { AnthropicOAuthConfig } from "./providers/claudeAccount/config";
 import type { CopilotProfile } from "./providers/copilot/config";
@@ -100,7 +101,8 @@ export type LogFields = Readonly<Record<string, LogValue | undefined>>;
  *
  * The core logs what happened, never what the User wrote or keeps secret:
  * ids, statuses, kinds and counts. Never Document text or names, Mind
- * content, Questions, Answers, providers' messages, API keys or tokens.
+ * content, Questions, Answers, API keys or tokens, nor providers' messages
+ * but as `redactMessage` (./redact) leaves them.
  */
 export interface Logger {
   /** `event` is a short dotted name, e.g. "document.status". */
@@ -575,14 +577,24 @@ export type CaptureState = "recording" | "denied" | "unavailable" | "ended";
 
 /** Where a capture delivers what it hears. */
 export interface AudioSink {
-  /** Samples from one source, in the order captured: `MEETING_SAMPLE_RATE` mono, signed 16-bit. */
-  audio(source: AudioSource, samples: Int16Array): void;
+  /**
+   * Samples from one source, in the order captured: `MEETING_SAMPLE_RATE` mono, signed 16-bit.
+   * `capturedAt` is when the last of them was captured, in ms since the epoch on the clock `now`
+   * reads; without it they count as captured as they arrive. Microphone samples captured while
+   * the User had it paused are dropped, however late they arrive.
+   */
+  audio(source: AudioSource, samples: Int16Array, capturedAt?: number): void;
   /** A source started, couldn't start, or stopped. */
   state(source: AudioSource, state: CaptureState): void;
 }
 
 /** One recording in progress, from `AudioCapture.start`. */
 export interface CaptureSession {
+  /**
+   * Stops the microphone at its source, or starts it again; the computer's sound goes on. A
+   * microphone that is off isn't open, so no samples come from it.
+   */
+  setMicrophone(on: boolean): void;
   /** Stops capturing. Resolves once the last samples have reached the sink. */
   stop(): Promise<void>;
 }
@@ -647,7 +659,23 @@ export interface SpeechSegment {
   decodeMs: number;
   /** The engine couldn't decode it: a final with no text. */
   failed?: true;
+  /** Who said it, as the engine tells speakers apart within the stream ("1", "2"): Soniox does. */
+  speaker?: string;
 }
+
+/**
+ * A stream's audio sent to a cloud transcription service instead (#141), with the User's key.
+ * OpenAI's live model needs our own voice activity detection: `vad` is Silero's file.
+ */
+export type CloudStream =
+  | { service: "openai"; model: string; apiKey: string; vad: string }
+  | { service: "soniox"; model: string; apiKey: string };
+
+/**
+ * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), or the
+ * service refused the key or the account has no credit left ("refused").
+ */
+export type CloudLoss = "dropped" | "refused";
 
 /**
  * Turns speech into text off the core's thread (#136): the desktop app runs
@@ -669,6 +697,11 @@ export interface Transcriber {
   finish(stream: string): Promise<void>;
   /** Forgets a stream, and its audio not yet decoded. */
   drop(stream: string): void;
+  /**
+   * The stream's audio goes to a cloud service from now on, before any is pushed. If it can't,
+   * or the connection is lost, the listeners hear `lost` and the stream is gone.
+   */
+  open(stream: string, cloud: CloudStream): void;
   /** Hears every segment, and how far each stream is done: all its audio up to `doneMs` has given its final text. */
   listen(listener: TranscriberListener): void;
   /** Stops the engine and frees its memory. Loading again starts it afresh. */
@@ -684,6 +717,13 @@ export interface TranscriberListener {
   stopped(reason: string): void;
   /** The transcriber moved a stream to another engine, for the stream's audio from now on. */
   switched(change: EngineSwitch): void;
+  /** A cloud stream ended before it was finished (see `CloudLoss`): its audio not yet transcribed is lost. */
+  lost(stream: string, loss: CloudLoss): void;
+  /**
+   * A cloud stream's connection is ready for audio. The core holds the stream's audio until
+   * then, so what the User stops before it opens never leaves the core.
+   */
+  opened(stream: string): void;
 }
 
 export interface EngineSwitch {
@@ -691,6 +731,36 @@ export interface EngineSwitch {
   from: TranscriptionEngine;
   to: TranscriptionEngine;
   reason: EngineSwitchReason;
+}
+
+/** The speaker models' downloaded files (#138), absolute paths, as the core hands them to a `SpeakerSeparator`. */
+export interface SpeakerModelFiles {
+  /** Finds where each voice speaks: pyannote's segmentation model. */
+  segmentation: string;
+  /** Tells voices apart: a speaker embedding model. */
+  embedding: string;
+  threads: number;
+}
+
+/** Where one voice speaks, in the Meeting's time. Voices are numbered from 0 in the order first heard. */
+export interface VoiceTurn {
+  startMs: number;
+  endMs: number;
+  voice: number;
+}
+
+/**
+ * Tells the voices in one source's recording apart after the call (#138), off the core's
+ * thread and at low priority: the desktop app runs it in a utility process of its own
+ * (src/main/speakerSeparator.ts); tests pass a fake. `parts` are the source's WAV files
+ * (16-bit PCM, mono, `MEETING_SAMPLE_RATE`), each with where it starts in the Meeting's time.
+ * Rejects if the models can't load or the audio can't be read.
+ */
+export interface SpeakerSeparator {
+  separate(request: {
+    parts: readonly { path: string; offsetMs: number }[];
+    model: SpeakerModelFiles;
+  }): Promise<VoiceTurn[]>;
 }
 
 /**
@@ -831,10 +901,27 @@ export interface CoreAdapters {
    */
   textRecognitionModelSource?: EmbeddingModelSource;
   /**
+   * How many scans are read at once (#1502): what the computer can bear, as the host works it
+   * out with `scansAtOnce` (src/core/documents/processor.ts). Absent: one.
+   */
+  scansAtOnce?: number;
+  /**
    * Where the built-in reranking model's files come from. Defaults to the
    * pinned Hugging Face revision; tests give no files for a fake that needs none.
    */
   rerankingModelSource?: EmbeddingModelSource;
+  /**
+   * How the built-in models' files are fetched from their sources (#1578). The desktop app's
+   * `fetch` follows the system proxy, and `proxy` says what it is for Hugging Face, so a change
+   * runs the sources' probe again. Defaults to Node's `fetch` and the copies the app ships with;
+   * tests give their own copies, a shorter stall, and a `fetch` that reaches no real host.
+   */
+  modelDownloads?: {
+    fetch?: typeof fetch;
+    proxy?(): Promise<string>;
+    copies?: ModelCopies;
+    stallMs?: number;
+  };
   /** Defaults to the system clock. Tests may pass a fake one. */
   now?: () => Date;
   /**
@@ -1001,11 +1088,23 @@ export interface CoreAdapters {
    */
   transcriber?: Transcriber;
   /**
+   * Tells a Meeting's speakers apart after the call (see `SpeakerSeparator`). Absent (tests
+   * that aren't about it): lines keep the labels of where they came from.
+   */
+  speakerSeparator?: SpeakerSeparator;
+  /** Where the speaker models are downloaded from. Defaults to the pinned Hugging Face revisions. */
+  speakerModelSource?: { segmentation: EmbeddingModelSource; embedding: EmbeddingModelSource };
+  /**
    * Where the speech-to-text model and Silero VAD are downloaded from.
    * Defaults to the pinned Hugging Face revisions; tests give no files for a
    * fake that needs none.
    */
   transcriptionModelSource?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+  /**
+   * Asks a cloud transcription service whether it takes a key of its own (#141), before it is
+   * kept. The global `fetch` by default; tests answer without the network.
+   */
+  transcriptionKeyFetch?: typeof fetch;
   /** Where the core logs what happens (see `Logger`). None by default. */
   log?: Logger;
 }

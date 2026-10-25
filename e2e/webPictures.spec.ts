@@ -80,6 +80,7 @@ test.afterEach(async () => {
 
 async function add(window: Page, path: string, title: string) {
   await window.getByTestId("plus-menu").click();
+  await window.getByTestId("plus-more").click();
   await window.getByTestId("plus-add-web-page").click();
   const dialog = window.getByTestId("add-web-page-dialog");
   await dialog.getByTestId("add-web-page-addresses").fill(`http://127.0.0.1:${port}${path}`);
@@ -153,6 +154,6 @@ test("a page with more pictures than a page keeps says while their text is read,
   const leftOut = window.getByTestId("viewer-web-left-out");
   await expect(leftOut).toHaveText("有 1 张图片超出单页上限，未保存");
   await setLanguage(window, "en");
-  await expect(leftOut).toHaveText("1 picture wasn't saved: over the limit for a page");
+  await expect(leftOut).toHaveText("1 picture wasn’t saved: over the limit for a page");
   await app.close();
 });

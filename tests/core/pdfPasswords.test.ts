@@ -120,10 +120,10 @@ describe("A password-protected PDF", () => {
     ]);
     await expect(
       core.unlockDocument({ documentId: open?.id ?? "", password: PASSWORD }),
-    ).rejects.toThrow("This PDF isn't locked: it opens without a password.");
+    ).rejects.toThrow("This PDF isn’t locked: it opens without a password.");
     expect(await core.listDocumentPasswords()).toEqual([]);
     await expect(core.unlockDocument({ documentId: locked.id, password: "" })).rejects.toThrow(
-      "Type the PDF's password to open it.",
+      "Type the PDF’s password to open it.",
     );
   });
 

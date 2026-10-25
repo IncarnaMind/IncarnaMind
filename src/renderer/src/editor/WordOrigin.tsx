@@ -17,6 +17,7 @@ import {
 import { DocumentLineIcon } from "../components/lineIcons";
 import { ProblemLine } from "../components/ProblemLine";
 import { useT } from "../i18n";
+import { saidInLine } from "../lineNames";
 import { openDocumentBeside } from "../verify";
 import { useWordImport } from "../wordImport";
 import { wordAtomName } from "./WordAtomView";
@@ -136,10 +137,14 @@ export function OriginalNotAdded({ mindId }: { mindId: string }) {
   const path = useWordImport((state) => state.notAdded[mindId]);
   const retrying = useWordImport((state) => state.retrying === mindId);
   if (path === undefined) return null;
+  const notAdded = saidInLine(t, (t) =>
+    t("wordImport.notAdded", { name: path.split(/[\\/]/).pop() ?? path }),
+  );
   return (
     <ProblemLine
       testId="mind-word-not-added"
       className="mind-word-problem"
+      title={notAdded.fullMessage}
       action={{
         label: t("wordImport.addToLibrary"),
         testId: "mind-word-add-original",
@@ -147,7 +152,7 @@ export function OriginalNotAdded({ mindId }: { mindId: string }) {
         onClick: () => void useWordImport.getState().retryOriginal(mindId),
       }}
     >
-      {t("wordImport.notAdded", { name: path.split(/[\\/]/).pop() ?? path })}
+      {notAdded.message}
     </ProblemLine>
   );
 }

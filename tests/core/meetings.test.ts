@@ -22,9 +22,9 @@ async function meetingCore(
   clock = manualClock(),
   captureOptions: FakeCaptureOptions = {},
 ) {
-  const capture = createFakeCapture(captureOptions);
+  const capture = createFakeCapture({ now: () => clock.now().getTime(), ...captureOptions });
   const core = startCore(dataDir, { audioCapture: capture, now: clock.now });
-  await core.updateSettings({ device: { meetingsEnabled: true, meetingNoticeAccepted: true } });
+  await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   /** `ms` of audio from every source asked for, as captured, the clock moving with it. */
   const record = (ms: number, sources: ("microphone" | "system")[] = ["microphone", "system"]) => {
     for (let at = 0; at < ms; at += 500) {
@@ -315,6 +315,127 @@ describe("The computer's sound", () => {
   });
 });
 
+describe("Pausing my microphone", () => {
+  test("it stops at its source while the computer's sound is recorded as before, and records again from where it is started", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, capture, record } = await meetingCore(dataDir);
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id });
+    record(12 * SECOND);
+    expect(capture.microphoneOn).toBe(true);
+    expect((await meetingOf(core, id)).microphonePausedAtMs).toBeNull();
+
+    const paused = await core.setMeetingMicrophone({ meetingId: id, paused: true });
+    expect(paused).toMatchObject({ status: "recording", microphonePausedAtMs: 12 * SECOND });
+    expect(capture.microphoneOn).toBe(false);
+    record(10 * SECOND);
+    expect((await meetingOf(core, id)).microphonePausedAtMs).toBe(12 * SECOND);
+
+    const resumed = await core.setMeetingMicrophone({ meetingId: id, paused: false });
+    expect(resumed.microphonePausedAtMs).toBeNull();
+    expect(capture.microphoneOn).toBe(true);
+    expect(resumed.sources).toEqual({ microphone: "recording", system: "recording" });
+    record(8 * SECOND);
+    await core.stopMeeting(id);
+
+    // What waited to fill a part is saved at the pause; nothing is saved for the stretch.
+    expect(partsOf(dataDir, id).filter((part) => part.startsWith("microphone"))).toEqual([
+      "microphone@0+10",
+      "microphone@10+2",
+      "microphone@22+8",
+    ]);
+    expect(partsOf(dataDir, id).filter((part) => part.startsWith("system"))).toEqual([
+      "system@0+10",
+      "system@10+10",
+      "system@20+10",
+    ]);
+    // A stretch left out on purpose isn't lost audio.
+    expect((await meetingOf(core, id)).health.events).toEqual([]);
+  });
+
+  test("a Meeting starts with the microphone on, and Pause recording still stops both sides", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, capture, record } = await meetingCore(dataDir);
+    const first = await core.createMeeting();
+    await core.startMeeting({ meetingId: first.id });
+    await core.setMeetingMicrophone({ meetingId: first.id, paused: true });
+    await core.stopMeeting(first.id);
+    expect((await meetingOf(core, first.id)).microphonePausedAtMs).toBeNull();
+
+    const second = await core.createMeeting();
+    const started = await core.startMeeting({ meetingId: second.id });
+    expect(started.microphonePausedAtMs).toBeNull();
+    expect(capture.microphoneOn).toBe(true);
+
+    record(4 * SECOND);
+    await core.setMeetingMicrophone({ meetingId: second.id, paused: true });
+    record(4 * SECOND);
+    await core.pauseMeeting(second.id);
+    expect(capture.running).toBe(false);
+    // A pause of the call isn't a pause the User undid: the microphone stays off when it goes on.
+    expect((await meetingOf(core, second.id)).microphonePausedAtMs).toBe(4 * SECOND);
+    await core.resumeMeeting(second.id);
+    expect(capture.running).toBe(true);
+    expect(capture.microphoneOn).toBe(false);
+    record(4 * SECOND);
+    await core.setMeetingMicrophone({ meetingId: second.id, paused: false });
+    expect(capture.microphoneOn).toBe(true);
+    record(2 * SECOND);
+    await core.stopMeeting(second.id);
+    expect(partsOf(dataDir, second.id).filter((part) => part.startsWith("microphone"))).toEqual([
+      "microphone@0+4",
+      "microphone@12+2",
+    ]);
+  });
+
+  test("it can be paused while the call is paused, and a Meeting that has stopped can't", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, capture } = await meetingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await expect(
+      core.setMeetingMicrophone({ meetingId: meeting.id, paused: true }),
+    ).rejects.toThrow(/isn’t being recorded/);
+    await core.startMeeting({ meetingId: meeting.id });
+    await core.pauseMeeting(meeting.id);
+    const paused = await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
+    expect(paused).toMatchObject({ status: "paused", microphonePausedAtMs: 0 });
+    await core.resumeMeeting(meeting.id);
+    expect(capture.microphoneOn).toBe(false);
+
+    await expect(
+      core.setMeetingMicrophone({ meetingId: meeting.id, paused: "yes" as unknown as boolean }),
+    ).rejects.toThrow(/can only be paused or resumed/);
+    // Pausing it twice is pausing it once.
+    const again = await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
+    expect(again.microphonePausedAtMs).toBe(0);
+    await core.stopMeeting(meeting.id);
+    await expect(
+      core.setMeetingMicrophone({ meetingId: meeting.id, paused: false }),
+    ).rejects.toThrow(/isn’t being recorded/);
+  });
+
+  test("a Meeting cut off with the microphone paused finds it on when it is resumed", async () => {
+    const dataDir = await createTempDataFolder();
+    const clock = manualClock();
+    const first = await meetingCore(dataDir, clock);
+    const { id } = await first.core.createMeeting();
+    await first.core.startMeeting({ meetingId: id });
+    first.record(12 * SECOND);
+    await first.core.setMeetingMicrophone({ meetingId: id, paused: true });
+    first.record(12 * SECOND);
+    first.core.close();
+
+    const second = await meetingCore(dataDir, clock);
+    expect(await meetingOf(second.core, id)).toMatchObject({
+      status: "paused",
+      pausedBy: "interrupted",
+      microphonePausedAtMs: null,
+    });
+    await second.core.resumeMeeting(id);
+    expect(second.capture.microphoneOn).toBe(true);
+  });
+});
+
 describe("A Meeting's audio is kept for at most a day", () => {
   test("it is deleted a day after the Meeting, while IncarnaMind runs or at its next start", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
@@ -375,13 +496,18 @@ describe("A Meeting's audio is kept for at most a day", () => {
 });
 
 describe("What a Meeting needs", () => {
-  test("Meetings turned on, and the recording notice read, before recording starts", async () => {
+  test("A copy that can record offers a Meeting at once, in a Folder given, and the recording notice is read before it starts", async () => {
     const dataDir = await createTempDataFolder();
+    const nothing = startCore(await createTempDataFolder());
+    await expect(nothing.createMeeting()).rejects.toThrow(/can't record audio/);
+
     const capture = createFakeCapture();
     const core = startCore(dataDir, { audioCapture: capture });
-    await expect(core.createMeeting()).rejects.toThrow(/turned off/);
-
-    await core.updateSettings({ device: { meetingsEnabled: true } });
+    const folder = await core.createLibraryGroup({ name: "Clients", description: "Client calls." });
+    const filed = await core.createMeeting({ folderId: folder.id });
+    expect((await core.listMinds()).find((mind) => mind.id === filed.mindId)?.folderId).toBe(
+      folder.id,
+    );
     const { id } = await core.createMeeting();
     await expect(core.startMeeting({ meetingId: id })).rejects.toThrow(/notice/);
     expect(capture.started).toBe(0);
@@ -417,7 +543,7 @@ describe("What a Meeting needs", () => {
     expect(inMind.mindId).toBe(mind.id);
     await expect(core.createMeeting({ mindId: mind.id })).rejects.toThrow(/already/);
     await core.startMeeting({ meetingId: inMind.id });
-    await expect(core.discardMeeting(inMind.id)).rejects.toThrow(/hasn't started/);
+    await expect(core.discardMeeting(inMind.id)).rejects.toThrow(/hasn’t started/);
   });
 
   test("while a Meeting records, Documents wait to be read, and are read once it pauses", async () => {
@@ -463,7 +589,7 @@ describe("What a Meeting needs", () => {
       audioCapture: createFakeCapture(),
       embedder,
     });
-    await core.updateSettings({ device: { meetingsEnabled: true, meetingNoticeAccepted: true } });
+    await core.updateSettings({ device: { meetingNoticeAccepted: true } });
     await core.saveEmbeddingProvider({ kind: "built-in" });
     const paragraphs = Array.from(
       { length: 40 },

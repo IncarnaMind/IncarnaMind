@@ -107,6 +107,47 @@ describe("The record of an Answer's Tool calls", () => {
     ]);
   });
 
+  // protects=a Word export's line in the record says where the file went (the Output location), how the text IncarnaMind wrote was marked and why, and that the User was asked in the tray and what they answered; fails_when=the line is a bare folder, or loses the marking or the question and answer, so a later reply "corrects" a true one; no_claim=how a model reads it.
+  test("a Word export says its place, its marking and the question the User answered (#1535)", () => {
+    const exported = (marking: object, asked?: AnswerToolCall["asked"]) =>
+      call({
+        tool: "run_command",
+        source: "commands",
+        command: {
+          command: "mind.export",
+          run: "r1",
+          items: [{ kind: "mind", id: "m1", name: "Tides" }],
+          file: {
+            path: "/out/Tides.docx",
+            name: "Tides.docx",
+            folder: "/out",
+            inDefaultFolder: false,
+          },
+          inOutputLocation: true,
+          marking,
+        } as never,
+        ...(asked && { asked }),
+      });
+    const answered = {
+      question: "Mark the text IncarnaMind wrote?",
+      detail: null,
+      options: [],
+      multiple: false,
+      other: false,
+      answer: { skipped: false, chosen: ["Leave it out"], wrote: null },
+    } as const;
+    const lines = (each: AnswerToolCall) => toolRecordLines([each], names, () => null).at(0);
+    expect(lines(exported({ choice: "leave", how: "kept" }, answered as never))).toBe(
+      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is left unmarked: the User was asked in the tray and answered “Leave it out”, a choice now saved for every Word export",
+    );
+    expect(lines(exported({ choice: "mark", how: "earlier" }))).toBe(
+      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is marked with comments, following the choice the User saved earlier for Word exports",
+    );
+    expect(lines(exported({ choice: "mark", how: "this-file" }))).toContain(
+      "as the User's request named it for this file, their saved choice unchanged",
+    );
+  });
+
   // protects=the record says how many Citations a change wrote and how many markers it left out, and how many the reply holds; fails_when=a page whose Citations were lost reads as cited, or the reply's are left out; no_claim=none beyond protects.
   test("the Citations a change wrote, the markers it left out, and the reply's", () => {
     const made = call({
@@ -189,6 +230,7 @@ describe("A record within the context's budget", () => {
       model: null,
       forcedSkill: null,
       analyse: false,
+      quotes: [],
       createdAt: "2026-10-16T00:00:00.000Z",
     },
     reply,
@@ -333,7 +375,7 @@ describe("What became of a change, in its record", () => {
   const line = (proposals: number, state: ChangeState | null) =>
     toolRecordLines([change(proposals)], names, () => state)[0];
 
-  // protects=each fate of a change reads as what the User did: all rejected, all accepted, part accepted with the rest waiting, a mix, and a Mind since deleted; fails_when=a rejected page still reads as waiting; no_claim=none beyond protects.
+  // protects=each fate of a change reads as what the User did: all rejected, all accepted, part accepted with the rest waiting, a mix, a Mind since deleted, and, in its own turn, one that applies at once (#1559); fails_when=a rejected page, or one that applied, still reads as waiting; no_claim=none beyond protects.
   test.each([
     [5, { waiting: 0, accepted: 0, rejected: 5 }, "then the User rejected all 5"],
     [3, { waiting: 0, accepted: 3, rejected: 0 }, "then the User accepted all 3"],
@@ -342,6 +384,11 @@ describe("What became of a change, in its record", () => {
     [3, { waiting: 0, accepted: 2, rejected: 1 }, "then the User accepted 2 and rejected 1"],
     [3, { waiting: 3, accepted: 0, rejected: 0 }, "waiting for the User"],
     [3, { waiting: 0, accepted: 0, rejected: 0, gone: true }, "but the Mind is no longer there"],
+    [
+      2,
+      { waiting: 0, accepted: 0, rejected: 0, applied: true },
+      "applied in the Mind at once, with Undo",
+    ],
   ])("%i changes, %j", (proposals, state, said) => {
     expect(line(proposals, state)).toBe(
       `- add_to_mind “Tide notes”: proposed ${proposals} new Block${proposals === 1 ? "" : "s"}, ${said}`,

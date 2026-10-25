@@ -27,6 +27,7 @@ import {
   nameMind,
   newMind,
   openOptions,
+  openSavedPage,
   pathsOpened,
   pathsShown,
   pointAndClick,
@@ -34,7 +35,6 @@ import {
   savedLine,
   savedPath,
   setWindowSize,
-  tabMenu,
   useOutputLocation,
   WINDOW_SIZE,
 } from "./app";
@@ -135,9 +135,9 @@ async function documentNamed(window: Page, name: string): Promise<Document> {
   return found;
 }
 
-/** Export as PDF, from the tab's menu, while Word is still the last format. */
+/** Export as PDF, from the Export button's menu, while Word is still the last format. */
 async function exportAsPdf(window: Page): Promise<void> {
-  await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.exportAs.pdf"));
+  await exportFromMenu(window, "pdf");
 }
 
 let dataDir: string;
@@ -457,9 +457,9 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   );
   // Word's review choices (#107), on to begin with; a Mind made here has no import to track edits since.
   await expect(sheet.getByTestId("export-pending-note")).toHaveText(
-    "Changes waiting for you go in as tracked changes by IncarnaMind.",
+    "Changes waiting for you go in as IncarnaMind’s tracked changes.",
   );
-  await expect(sheet.getByTestId("export-mark-ai-text")).toBeChecked();
+  await expect(sheet.getByTestId("export-mark-ai-text-mark")).toBeChecked();
   await expect(sheet.getByTestId("export-comment-failed-checks")).toBeChecked();
   await expect(sheet.getByTestId("export-track-changes")).toHaveCount(0);
   await expect(sheet.getByTestId("export-save-to")).toHaveText(
@@ -510,7 +510,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await exportFromMenu(window);
   const problem = result.getByTestId("export-problem");
   await expect(problem).toHaveText(
-    "Couldn't save: the folder isn't there any more · Change output location…",
+    "Couldn’t save: the folder isn’t there any more · Change output location…",
   );
   await interceptOpenDialog(app, out);
   await pointAndClick(window, problem.getByTestId("export-change-location"));
@@ -537,7 +537,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
     "尚未接受的修订会以 IncarnaMind 的修订写入。",
   );
   await expect(sheet.getByTestId("export-mark-ai-text")).toHaveAccessibleName(
-    "为 AI 生成的文字添加批注",
+    "标出 IncarnaMind 写的内容？",
   );
   const [sheetBox, windowWidth] = await Promise.all([
     sheet.boundingBox(),
@@ -563,6 +563,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
 
 test("Export as HTML saves one .html file whose footnotes link both ways, and the sheet offers the format", async () => {
   const { app, window } = await launchApp(dataDir, { home });
+  await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
   await dismissChatSetup(window);
   const mindId = await setUpMind(window, sources, "Tides 潮汐");
   await expect
@@ -573,15 +574,22 @@ test("Export as HTML saves one .html file whose footnotes link both ways, and th
   await bridge(window).write(
     mindId,
     blocksUpdate([
-      paragraph("Spring tides happen at new moon", citation(tides, 1, "found"), "."),
+      paragraph(
+        "Spring tides happen at new moon",
+        citation(tides, 1, "found"),
+        ". 大潮出现在新月前后",
+        citation(chinese, 1, "found"),
+        citation(tides, 1, "found"),
+        "。",
+      ),
       paragraph("大潮出现在新月和满月前后", citation(chinese, 1, "not-found"), "。"),
     ]),
   );
-  await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(2);
+  await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(4);
   const out = await createDataFolder();
   await useOutputLocation(window, out);
 
-  await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.exportAs.html"));
+  await exportFromMenu(window, "html");
   const path = await savedPath(window, "Tides 潮汐.html");
   const html = await readFile(path, "utf8");
   expect(html.startsWith("<!DOCTYPE html>")).toBe(true);
@@ -590,13 +598,37 @@ test("Export as HTML saves one .html file whose footnotes link both ways, and th
   expect(html).toContain('<a class="backref" href="#ref-2"');
   expect(html).not.toMatch(/<script|<link|src="http/);
 
+  const reader = await openSavedPage(app, path);
+  try {
+    for (const width of [1280, 390]) {
+      await setWindowSize(app, reader, width, 844);
+      await expect(reader.locator("main > p").filter({ has: reader.locator("#ref-1") })).toHaveText(
+        "Spring tides happen at new moon1. 大潮出现在新月前后2,3。",
+      );
+      expect(
+        await reader
+          .locator("sup.note-ref")
+          .evaluateAll((markers) =>
+            markers.map((marker) => getComputedStyle(marker, "::before").content),
+          ),
+      ).not.toContain('","');
+      await screenshot(reader, `html-citation-separators-${width}`);
+    }
+    await reader.locator("#ref-2 a").click();
+    await expect(reader).toHaveURL(/#note-2$/);
+    await reader.locator("#note-2 .backref").click();
+    await expect(reader).toHaveURL(/#ref-2$/);
+  } finally {
+    await reader.close();
+  }
+
   // Export now makes HTML, and the sheet offers the format with its note.
   await expect(window.getByTestId("export-mind")).toHaveAttribute("data-format", "html");
   await openOptions(window, "Export options");
   const sheet = window.getByTestId("export-dialog");
   await expect(sheet.getByTestId("export-format")).toHaveValue("html");
   await expect(sheet.getByTestId("export-format-note")).toHaveText(
-    "One file that opens in any browser. Citations become footnotes linked both ways.",
+    "Opens in any browser; Citations become linked footnotes.",
   );
   await app.close();
   await removeDataFolder(out);

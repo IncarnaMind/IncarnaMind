@@ -4,7 +4,8 @@ import type { CitationCheck } from "../../../core/api";
 /**
  * The Mind editor's own glyphs, drawn on a 24px grid with round caps as in
  * the approved mockups (DESIGN.md). Each Citation check state has its own
- * shape (tick, exclamation mark, dash), so colour is never the only signal.
+ * shape (tick, question mark, dash, "≠"), so colour is never the only signal.
+ * The exclamation mark is a sentence's: unsupported.
  */
 type IconProps = SVGProps<SVGSVGElement>;
 
@@ -53,7 +54,7 @@ export const AskArrowIcon = (props: IconProps) => (
   </Stroke>
 );
 
-/** The marks of the Citation checks, small and bold: tick, "!", dash, and a dot while checking. */
+/** The marks of the Citation checks, small and bold: tick, "?" (a quote that isn't there), dash, and a dot while checking. */
 const MARKS: Record<CitationCheck, (props: IconProps) => JSX.Element> = {
   found: (props) => (
     <Stroke weight={3} {...props}>
@@ -62,8 +63,8 @@ const MARKS: Record<CitationCheck, (props: IconProps) => JSX.Element> = {
   ),
   "not-found": (props) => (
     <Stroke weight={3} {...props}>
-      <path d="M12 6v8" />
-      <path d="M12 18.5v.01" />
+      <path d="M9 9a3 3 0 0 1 5.8.9c0 2-2.8 2.4-2.8 4.6" />
+      <path d="M12 19v.01" />
     </Stroke>
   ),
   "cant-check": (props) => (
@@ -104,7 +105,13 @@ export function CheckStateIcon({ check, ...props }: IconProps & { check: Citatio
     <Stroke weight={2} {...props}>
       <circle cx="12" cy="12" r="9" />
       {check === "found" && <path d="m8.5 12 2.5 2.5 4.5-5" />}
-      {(check === "not-found" || check === "unsupported") && (
+      {check === "not-found" && (
+        <>
+          <path d="M9.8 9.9a2.3 2.3 0 0 1 4.4.7c0 1.6-2.2 1.9-2.2 3.4" />
+          <path d="M12 16.6v.01" />
+        </>
+      )}
+      {check === "unsupported" && (
         <>
           <path d="M12 7.5v5" />
           <path d="M12 16.2v.01" />

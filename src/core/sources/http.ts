@@ -69,6 +69,8 @@ export interface SourceRequest {
   headers?: Record<string, string>;
   /** "manual": a redirect isn't followed; its target is the response's `url`, with no body. */
   redirect?: "manual";
+  /** Called as each request is sent, after any wait for its lane; throws to send nothing. */
+  beforeSend?: () => void;
 }
 
 export interface SourceResponse {
@@ -136,6 +138,7 @@ export interface SourceHttp {
 
 export function createSourceHttp(pace: Pace, timers: PaceTimers = realTimers): SourceHttp {
   async function once(url: string, request: SourceRequest): Promise<Response> {
+    request.beforeSend?.();
     const timeout = AbortSignal.timeout(request.timeoutMs ?? 20_000);
     try {
       return await fetch(url, {
@@ -245,5 +248,13 @@ export function createSourceHttp(pace: Pace, timers: PaceTimers = realTimers): S
       const { bytes } = await get(url, request);
       return new TextDecoder("utf-8").decode(bytes);
     },
+  };
+}
+
+/** `http`, whose every request first passes `check` (../sendGate) as it is sent. */
+export function gatedHttp(http: SourceHttp, check: () => void): SourceHttp {
+  return {
+    get: (url, request) => http.get(url, { ...request, beforeSend: check }),
+    text: (url, request) => http.text(url, { ...request, beforeSend: check }),
   };
 }

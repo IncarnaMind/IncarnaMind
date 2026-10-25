@@ -30,6 +30,16 @@ export const mindCalls = (answer: ConversationAnswer): AnswerToolCall[] =>
 export const changesIn = (answer: ConversationAnswer): MindChange[] =>
   mindCalls(answer).flatMap((call) => (call.mindChange ? [call.mindChange] : []));
 
+/** The Answer's own requests to the model: not the check Runs of what it wrote into a Mind (#1111). */
+export const answerRequests = (model: MockLanguageModelV4) =>
+  model.doStreamCalls.filter(
+    (call) =>
+      !call.prompt.some(
+        (message) =>
+          message.role === "system" && message.content.startsWith("You check one sentence"),
+      ),
+  );
+
 /** What the model was told a Tool call came to: the last Tool result it read. */
 export const lastResult = (model: MockLanguageModelV4) => {
   const prompt = model.doStreamCalls.at(-1)?.prompt ?? [];

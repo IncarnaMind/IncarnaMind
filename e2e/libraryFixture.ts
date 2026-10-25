@@ -6,11 +6,12 @@
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import type { CoreBridge, DocumentKind } from "../src/core/api";
 import { docxOf, xlsxOf } from "../tests/helpers/office";
 import { buildPdf } from "../tests/helpers/pdf";
 import { para, pptxOf, sp, txBody } from "../tests/helpers/pptx";
+import { dismissChatSetup } from "./app";
 
 type Format = "pdf" | "docx" | "xlsx" | "pptx" | "csv" | "md" | "txt";
 
@@ -308,4 +309,26 @@ export async function addLibrary(window: Page, dir: string): Promise<void> {
     },
     { folders: FOLDERS, loose: NOT_IN_A_FOLDER },
   );
+}
+
+export const DELETED = ["Holiday rota", "Office floor plan"];
+
+/** Opens a Library of about 100 Documents, two of them deleted since. */
+export async function openFullLibrary(window: Page, sources: string): Promise<Locator> {
+  await dismissChatSetup(window);
+  await addLibrary(window, sources);
+  await window.evaluate(async (names) => {
+    const api = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const documents = await api.listDocuments();
+    for (const name of names) {
+      const doc = documents.find((each) => each.name === name);
+      if (doc) await api.deleteDocument(doc.id);
+    }
+  }, DELETED);
+  await window.getByTestId("open-library").click();
+  const library = window.getByTestId("library");
+  await expect(library.getByTestId("library-count")).toHaveText(
+    String(FIXTURE_COUNT - DELETED.length),
+  );
+  return library;
 }

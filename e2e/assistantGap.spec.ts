@@ -5,6 +5,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  moveAssistant,
   nameMind,
   newMind,
   removeDataFolder,
@@ -44,8 +45,7 @@ const setLanguage = (window: Page, language: "en" | "zh-CN") =>
   );
 
 async function dock(window: Page, item: "right" | "left" | "bottom") {
-  await window.getByTestId("assistant-more").click();
-  await window.getByTestId(`assistant-menu-${item}`).click();
+  await moveAssistant(window, item);
   await expect(window.getByTestId("assistant")).toHaveAttribute("data-chosen-dock", item);
 }
 

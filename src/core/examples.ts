@@ -97,9 +97,13 @@ export interface ExamplesOptions {
   mindTitle(mindId: string): string;
   mindExists(mindId: string): boolean;
   deleteMind(mindId: string): void;
+  /** Brings a Mind back from Recently deleted, as Undo does; throws when it can't. */
+  restoreMind(mindId: string): void;
   editMind<T>(mindId: string, change: (blocks: Y.XmlFragment) => T): T;
   linkFolder(path: string): Promise<LinkedFolder>;
   unlinkFolder(linkedFolderId: string): void;
+  /** Brings back an unlinked Linked folder with the Documents that left the index with it. */
+  restoreFolder(linkedFolderId: string): void;
   linkedFolderExists(linkedFolderId: string): boolean;
   documentsIn(linkedFolderId: string): Document[];
   /** The Folder a Mind is in; null for none: where its checks searched. */
@@ -108,6 +112,11 @@ export interface ExamplesOptions {
   now(): string;
   /** Whether a check result in some Mind relies on one of these Documents (#819). */
   checksRelyOn(documentIds: readonly string[]): boolean;
+  /**
+   * Whether a Citation in a Mind other than `exceptMindId`, or in an Answer of a
+   * Conversation, quotes one of these Documents.
+   */
+  citationsRelyOn(documentIds: readonly string[], exceptMindId: string): boolean;
   recheck(input: RecheckCitationInput): CitationRecheck;
   /** Pushes "examples.changed". */
   changed(examples: Examples): void;
@@ -131,6 +140,26 @@ const hasText = (document: Document) =>
 
 export function createExamples(options: ExamplesOptions) {
   const stored = (group: ExampleGroup): StoredExamples | null => read(valueKey(group));
+
+  /**
+   * The examples removed since the app started, so Undo can bring back the same
+   * Mind and Documents (#1292). The undo stack lives in the window, which goes
+   * with this process, so nothing here is kept on disk. A Mind the User had
+   * deleted, or a folder they had unlinked, before the removal stays as it was:
+   * it wasn't the removal's.
+   */
+  const removed = new Map<
+    ExampleGroup,
+    { legacy: boolean; hadMind: boolean; hadFolder: boolean; stored: StoredExamples }
+  >();
+
+  const everyExample = (): StoredExamples[] =>
+    [...GROUPS.map(stored), read(LEGACY_VALUE)].flatMap((each) => (each ? [each] : []));
+
+  const documentIdsOf = (example: StoredExamples): string[] =>
+    options.linkedFolderExists(example.linkedFolderId)
+      ? options.documentsIn(example.linkedFolderId).map((document) => document.id)
+      : [];
 
   /** The earlier version's tea example, while it is the one shown (no credit paper made yet). */
   const legacy = (): StoredExamples | null => (stored(DEFAULT_GROUP) ? null : read(LEGACY_VALUE));
@@ -298,7 +327,7 @@ export function createExamples(options: ExamplesOptions) {
       const attributes: ClaimCheckAttributes = {
         id: randomUUID(),
         request: randomUUID(),
-        action: "find-support",
+        action: "check-against-documents",
         state: check.verdict,
         reason: null,
         detail: null,
@@ -404,6 +433,12 @@ export function createExamples(options: ExamplesOptions) {
     const old = group === DEFAULT_GROUP ? legacy() : null;
     const examples = old ?? stored(group);
     if (!examples) return;
+    removed.set(group, {
+      legacy: old !== null,
+      hadMind: options.mindExists(examples.mindId),
+      hadFolder: options.linkedFolderExists(examples.linkedFolderId),
+      stored: examples,
+    });
     if (options.mindExists(examples.mindId)) options.deleteMind(examples.mindId);
     await discardFiles(examples);
     options.writeValue(old ? LEGACY_VALUE : valueKey(group), null);
@@ -411,8 +446,49 @@ export function createExamples(options: ExamplesOptions) {
     options.changed(status(group));
   };
 
-  /** Copies an example's Documents (with their licence) into the data folder and links them. */
-  const copyAndLink = async (source: string, set: ExampleSet) => {
+  /**
+   * Brings back an example the User removed, as Undo does: the same Mind, with
+   * what the User wrote in it, and the same Documents, so its Citations still
+   * open them. The tea example's files no longer ship, so only its Mind comes back.
+   * What a failed step undid stays undone, so Undo is all or nothing.
+   */
+  const restore = async (group: ExampleGroup = DEFAULT_GROUP): Promise<Examples> => {
+    const gone = removed.get(group);
+    if (!gone) return status(group);
+    // Made again since: the example that is there is the one.
+    if (stored(group) || (group === DEFAULT_GROUP && legacy())) {
+      removed.delete(group);
+      return status(group);
+    }
+    const examples = gone.stored;
+    if (gone.legacy) {
+      if (gone.hadMind) options.restoreMind(examples.mindId);
+      options.writeValue(LEGACY_VALUE, examples);
+      options.writeValue(OFFERED_VALUE, true);
+    } else {
+      const source = options.source;
+      if (!source) throw new Error("This copy of IncarnaMind has no examples.");
+      if (gone.hadMind) options.restoreMind(examples.mindId);
+      try {
+        await copyFiles(source, EXAMPLE_SETS[group][examples.language]);
+        // A folder the User had unlinked before stays unlinked: the removal didn't take it.
+        if (gone.hadFolder) options.restoreFolder(examples.linkedFolderId);
+        options.writeValue(valueKey(group), examples);
+      } catch (error) {
+        if (gone.hadMind) options.deleteMind(examples.mindId);
+        // A folder that did come back keeps its files; one that didn't takes its copies with it.
+        if (!options.linkedFolderExists(examples.linkedFolderId)) await discardFiles(examples);
+        throw error;
+      }
+    }
+    removed.delete(group);
+    options.changed(status(group));
+    checkWhenRead(group);
+    return status(group);
+  };
+
+  /** Copies an example's Documents (with their licence) into the data folder. */
+  const copyFiles = async (source: string, set: ExampleSet): Promise<string> => {
     // The files, copied into the data folder: the User's own files are never touched.
     // The licence goes with them, so the sources and attribution travel with the files.
     const folder = join(options.dataDir, set.folder);
@@ -426,6 +502,12 @@ export function createExamples(options: ExamplesOptions) {
       force: false,
       errorOnExist: false,
     });
+    return folder;
+  };
+
+  /** Copies an example's Documents (with their licence) into the data folder, and links them. */
+  const copyAndLink = async (source: string, set: ExampleSet) => {
+    const folder = await copyFiles(source, set);
     return { folder, linked: await options.linkFolder(folder) };
   };
 
@@ -569,17 +651,17 @@ export function createExamples(options: ExamplesOptions) {
      * asked from another Mind leaves out of "these documents".
      */
     made(): { mindIds: string[]; documentIds: string[] } {
-      const all = [...GROUPS.map(stored), read(LEGACY_VALUE)].flatMap((each) =>
-        each ? [each] : [],
-      );
+      const all = everyExample();
       return {
         mindIds: all.map((each) => each.mindId).filter((id) => options.mindExists(id)),
-        documentIds: all.flatMap((each) =>
-          options.linkedFolderExists(each.linkedFolderId)
-            ? options.documentsIn(each.linkedFolderId).map((document) => document.id)
-            : [],
-        ),
+        documentIds: all.flatMap(documentIdsOf),
       };
+    },
+
+    /** An example Mind's own Documents, by id; null for a Mind that isn't an example's. */
+    documentsOf(mindId: string): string[] | null {
+      const example = everyExample().find((each) => each.mindId === mindId);
+      return example ? documentIdsOf(example) : null;
     },
 
     create,
@@ -590,7 +672,7 @@ export function createExamples(options: ExamplesOptions) {
      * The interface language changed (#709): each example the User hasn't
      * touched becomes the same example in the new language, in its Mind, with
      * its Documents swapped. One they changed stays as it is, and so does one
-     * whose Documents a check result relies on (#819).
+     * whose Documents a check result (#819) or a Citation elsewhere relies on.
      */
     async followLanguage(): Promise<void> {
       const source = options.source;
@@ -601,10 +683,14 @@ export function createExamples(options: ExamplesOptions) {
         if (!examples || examples.language === language) continue;
         if (!options.mindExists(examples.mindId)) continue;
         if (!untouched(examples, EXAMPLE_SETS[group][examples.language])) continue;
+        const documentIds = options.documentsIn(examples.linkedFolderId).map((each) => each.id);
         // Swapping its Documents would leave the checks that relied on them needing a check
-        // again, for no change the User made: it stays as it is.
+        // again, and a Citation copied out of it without its original page, for no change the
+        // User made: it stays as it is. Its own Answer's Citations don't count: the swap
+        // writes them again.
         if (
-          options.checksRelyOn(options.documentsIn(examples.linkedFolderId).map((each) => each.id))
+          options.checksRelyOn(documentIds) ||
+          options.citationsRelyOn(documentIds, examples.mindId)
         ) {
           continue;
         }
@@ -624,6 +710,8 @@ export function createExamples(options: ExamplesOptions) {
     },
 
     remove,
+
+    restore,
 
     /** A Document's status changed: the examples' Citations may now be checkable. */
     documentChanged() {

@@ -3,6 +3,8 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type { Document } from "../../../core/api";
 import {
   type Cue,
+  type GapReason,
+  listedGaps,
   readVtt,
   type Transcript,
   type TranscriptGap,
@@ -12,7 +14,9 @@ import { clockTime, paddedClockTime } from "../../../shared/clock";
 import type { MessageKey } from "../../../shared/i18n";
 import { speakerName } from "../../../shared/speakers";
 import { transcriptHandle, useHandle } from "../commands/handles";
-import { PlusLineIcon } from "../components/lineIcons";
+import { MicOffLineIcon, PlusLineIcon } from "../components/lineIcons";
+import { MetaLine } from "../components/MetaLine";
+import { LineAction } from "../components/ProblemLine";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useT } from "../i18n";
 import { useMeetings } from "../meetings";
@@ -30,11 +34,13 @@ import { ViewerHeader } from "./ViewerHeader";
 /** Within this of the bottom, the view follows new lines as they come. */
 const FOLLOW_PX = 48;
 
-const GAP_REASONS: Record<TranscriptGap["reason"], MessageKey> = {
+const GAP_REASONS: Record<Exclude<GapReason, "muted">, MessageKey> = {
   restarted: "transcript.gap.restarted",
   sleep: "transcript.gap.sleep",
   interrupted: "transcript.gap.interrupted",
   lost: "transcript.gap.lost",
+  uncaptured: "transcript.gap.uncaptured",
+  cloud: "transcript.gap.cloud",
 };
 
 const read = (bytes: Uint8Array): Transcript => readVtt(new TextDecoder().decode(bytes));
@@ -97,7 +103,10 @@ export function TranscriptView({ document, target }: { document: Document; targe
   );
 }
 
-type Row = { kind: "cue"; cue: Cue } | { kind: "gap"; gap: TranscriptGap };
+type Row =
+  | { kind: "cue"; cue: Cue }
+  | { kind: "gap"; gap: TranscriptGap }
+  | { kind: "microphone"; fromMs: number };
 
 /** How long "Added to the note" shows in the header. */
 const ADDED_SHOWN_MS = 3000;
@@ -146,6 +155,10 @@ function TranscriptContent({
   const activeRef = useRef<Cue | null>(null);
   const [added, setAdded] = useState<LineAdded | null>(null);
 
+  const microphonePausedAtMs = meeting?.microphonePausedAtMs ?? null;
+  const resumeMicrophone = () => {
+    if (meetingId) void useMeetings.getState().setMicrophonePaused(meetingId, false);
+  };
   const rows = useMemo<Row[]>(
     () =>
       [
@@ -154,13 +167,22 @@ function TranscriptContent({
           cue,
           at: cue.startMs,
         })),
-        ...transcript.gaps.map((gap): Row & { at: number } => ({
+        ...listedGaps(transcript.gaps).map((gap): Row & { at: number } => ({
           kind: "gap",
           gap,
           at: gap.fromMs,
         })),
+        ...(microphonePausedAtMs === null
+          ? []
+          : [
+              {
+                kind: "microphone" as const,
+                fromMs: microphonePausedAtMs,
+                at: microphonePausedAtMs,
+              },
+            ]),
       ].sort((a, b) => a.at - b.at),
-    [transcript],
+    [transcript, microphonePausedAtMs],
   );
   const units = useMemo(() => transcriptUnits(transcript), [transcript]);
 
@@ -411,21 +433,58 @@ function TranscriptContent({
                         </button>
                       )}
                     </li>
+                  ) : row.kind === "microphone" ? (
+                    <li
+                      key="microphone-paused"
+                      data-testid="transcript-mic-paused"
+                      data-quote-skip=""
+                      className="transcript-gap"
+                    >
+                      <span className="transcript-time">{paddedClockTime(row.fromMs)}</span>
+                      <MetaLine
+                        as="div"
+                        parts={[
+                          <span key="since">
+                            <MicOffLineIcon className="mr-1.5 inline size-3.5 align-[-2px]" />
+                            {t("meetings.mic.pausedSince", { time: paddedClockTime(row.fromMs) })}
+                          </span>,
+                          <LineAction
+                            key="resume"
+                            action={{
+                              label: t("meetings.mic.resumeLine"),
+                              testId: "transcript-mic-resume",
+                              onClick: resumeMicrophone,
+                            }}
+                          />,
+                        ]}
+                      />
+                    </li>
                   ) : (
                     <li
                       key={`g${row.gap.fromMs}-${row.gap.toMs}`}
                       data-testid="transcript-gap"
+                      data-reason={row.gap.reason}
                       data-quote-skip=""
                       className="transcript-gap"
                     >
                       <span className="transcript-time">{paddedClockTime(row.gap.fromMs)}</span>
                       <span>
-                        {row.gap.toMs > row.gap.fromMs
-                          ? t("transcript.gap", {
-                              duration: durationLabel(row.gap.toMs - row.gap.fromMs, t),
-                              reason: t(GAP_REASONS[row.gap.reason]),
-                            })
-                          : t(GAP_REASONS[row.gap.reason])}
+                        {row.gap.reason === "muted" ? (
+                          <>
+                            <MicOffLineIcon className="mr-1.5 inline size-3.5 align-[-2px]" />
+                            {t("meetings.mic.pausedSpan", {
+                              from: paddedClockTime(row.gap.fromMs),
+                              to: paddedClockTime(row.gap.toMs),
+                            })}
+                          </>
+                        ) : row.gap.toMs > row.gap.fromMs ? (
+                          t("transcript.gap", {
+                            duration: durationLabel(row.gap.toMs - row.gap.fromMs, t),
+                            reason: t(GAP_REASONS[row.gap.reason]),
+                          })
+                        ) : (
+                          t(GAP_REASONS[row.gap.reason])
+                        )}
                       </span>
                     </li>
                   ),

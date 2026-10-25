@@ -19,6 +19,7 @@ import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
 import { useT } from "../i18n";
 import { useModelNames } from "../modelNames";
+import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { ChevronDownSmallIcon, RemoveIcon } from "./icons";
 import { useMindId } from "./mindContext";
@@ -149,7 +150,7 @@ export function QuestionView({ node, editor, updateAttributes }: ReactNodeViewPr
               },
             }}
           >
-            {t(`skills.unavailable.${blocked.state}`, { name: blocked.skill })}
+            {t(`skills.unavailable.${blocked.state}`, { name: skillTitle(blocked.skill, t) })}
           </ProblemLine>
         </div>
       )}
@@ -180,8 +181,11 @@ export function SkillChip({
   testId?: string;
 }) {
   const t = useT();
+  const shown = skillTitle(name, t);
   const title =
-    state === "enabled" ? t("skills.chip.label", { name }) : t(`skills.chip.${state}`, { name });
+    state === "enabled"
+      ? t("skills.chip.label", { name: shown })
+      : t(`skills.chip.${state}`, { name: shown });
   return (
     <span
       contentEditable={false}
@@ -191,12 +195,12 @@ export function SkillChip({
       className={`question-skill ${state === "enabled" ? "" : "question-skill--unavailable"}`}
     >
       <SkillIcon className="question-skill-icon" />
-      <span className="truncate">{name}</span>
+      <span className="truncate">{shown}</span>
       <button
         type="button"
         data-testid={`${testId}-remove`}
-        aria-label={t("skills.chip.remove", { name })}
-        title={t("skills.chip.remove", { name })}
+        aria-label={t("skills.chip.remove", { name: shown })}
+        title={t("skills.chip.remove", { name: shown })}
         // Keep the cursor where it is.
         onMouseDown={(event) => event.preventDefault()}
         onClick={onRemove}

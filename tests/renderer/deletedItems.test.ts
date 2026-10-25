@@ -68,7 +68,7 @@ describe("what a confirmation says is lost", () => {
       "IncarnaMind forgets the text it read from 3 Documents and their Tags.",
     );
     expect(translate("en", "deleted.confirm.foot")).toBe(
-      "This can't be undone. Your files stay where they are.",
+      "This can’t be undone. Your files stay where they are.",
     );
     expect(translate("zh-CN", sentence.key, sentence.params)).toContain("3 个文档");
   });

@@ -1,20 +1,17 @@
-/**
- * The analysis Tool (#447): an Answer's model writes Python over a sheet or
- * CSV it found and numbers quoted from Passages, IncarnaMind runs it in the
- * sandbox, and the figures it gives become the Answer's calculated figures.
- * Through the core's public interface, as the assistant uses it, with a
- * scripted chat model and the fake runtime.
- */
 import { createHash } from "node:crypto";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import type { AnalysisJob } from "../../src/shared/analysis";
+import { answerBlocks } from "../../src/shared/answerBlocks";
 import { answerEnded, type ShownPassage, shownPassages } from "../helpers/citations";
-import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { answerIn, question, readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
+import { xlsxOf } from "../helpers/office";
 
 const SALES_CSV = [
   "Region,Quarter,Revenue",
@@ -27,7 +24,6 @@ const SALES_CSV = [
 /** A Tool call as a scripted model makes it. */
 type Call = { tool: string; input: unknown };
 
-/** A model that searches once, then makes each run's call from the Passages it found, then writes `answer`. */
 function analysingModel(plan: {
   query: string;
   runs: ((passages: ShownPassage[]) => Call)[];
@@ -51,7 +47,6 @@ const passageOf = (passages: readonly ShownPassage[], name: string): string => {
   return found.id;
 };
 
-/** A run over the whole sales sheet, with `code`. */
 const salesRun =
   (code = 'result("total", inputs["sales"]["Revenue"].sum(), "Total revenue", "USD")') =>
   (passages: ShownPassage[]): Call => ({
@@ -63,7 +58,6 @@ const salesRun =
     },
   });
 
-/** What each call of `tool` told the model, oldest first. */
 function told(model: MockLanguageModelV4, tool: string): string[] {
   const last = model.doStreamCalls.at(-1);
   if (!last) throw new Error("The model wasn't asked anything.");
@@ -79,16 +73,16 @@ function told(model: MockLanguageModelV4, tool: string): string[] {
   return texts;
 }
 
-/** A core whose chat model is Claude Haiku 5.5, scripted, with the fake sandbox and these files as Documents. */
 async function setUp(
   model: MockLanguageModelV4,
   answer: (job: AnalysisJob) => FakeAnswer,
-  files: readonly { name: string; contents: string }[] = [
+  files: readonly { name: string; contents: string | Uint8Array }[] = [
     { name: "sales.csv", contents: SALES_CSV },
   ],
 ) {
   const runtime = createFakeAnalysisRuntime({ answer });
-  const core = startCore(await createTempDataFolder(), {
+  const dataDir = await createTempDataFolder();
+  const core = startCore(dataDir, {
     createChatModel: scriptedModels(model).createChatModel,
     analysisRuntime: runtime,
   });
@@ -103,7 +97,7 @@ async function setUp(
     core,
     await Promise.all(files.map((file) => writeSourceFile(sources, file.name, file.contents))),
   );
-  return { core, runtime };
+  return { core, runtime, dataDir, sources };
 }
 
 async function askAndRead(core: Core, text: string, analyse?: boolean) {
@@ -133,7 +127,7 @@ describe("an Analysis an Answer runs", () => {
       runs: [salesRun()],
       answer: "Revenue came to [=1] in total.",
     });
-    const { core, runtime } = await setUp(model, totalOf);
+    const { core, runtime, dataDir, sources } = await setUp(model, totalOf);
 
     const { answer, read } = await askAndRead(core, "What was the total revenue?");
 
@@ -181,6 +175,109 @@ describe("an Analysis an Answer runs", () => {
       analysis: { number: 1, documents: ["sales"], end: "done" },
     });
     expect((await read()).analyses).toEqual(answer.analyses);
+    const before = await core.getConversation(answer.conversationId);
+    const [document] = await core.listDocuments();
+    if (!document) throw new Error("No sales Document.");
+    await writeSourceFile(sources, "sales.csv", SALES_CSV.replace("120", "999"));
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [document.id]);
+    core.close();
+
+    const reopened = startCore(dataDir);
+    expect(await reopened.getConversation(answer.conversationId)).toEqual(before);
+    const old = analysis?.inputs[0];
+    if (old?.kind !== "range") throw new Error("No range input.");
+    const kept = queryDatabase<{ pages: number }>(
+      dataDir,
+      "SELECT count(*) AS pages FROM document_pages WHERE content_hash = ? AND deleted_at IS NULL",
+      [old.citation.contentHash],
+    );
+    expect(kept[0]?.pages).toBeGreaterThan(0);
+  });
+
+  test("Add to note serializes the Analysis figure as text without new persisted Mind attributes", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun()],
+      answer: "Revenue came to [=1] in total.",
+    });
+    const { core } = await setUp(model, totalOf);
+    const { answer } = await askAndRead(core, "What was the total revenue?");
+    const mind = await core.createMind({ title: "Revenue" });
+
+    await core.addToNote({
+      mindId: mind.id,
+      blocks: answerBlocks(answer),
+      model: answer.model,
+      origin: null,
+    });
+    const reader = await connectToMind(core, mind.id);
+    const read = readMind(reader);
+
+    expect(read.textContent).toContain("350.5");
+    const serialized = JSON.stringify(read.toJSON());
+    expect(serialized).not.toContain('"analyses"');
+    expect(serialized).not.toContain('"analysis"');
+    expect(serialized).not.toContain('"code"');
+    expect((await core.getConversation(answer.conversationId)).messages).toContainEqual(answer);
+  });
+
+  test("an Analysis call survives the unchanged Mind editor schema's serialization", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun()],
+      answer: "Revenue came to [=1] in total.",
+    });
+    const { core } = await setUp(model, totalOf);
+    const mind = await core.createMind({ title: "Revenue" });
+    const client = await connectToMind(core, mind.id);
+    const asked = question("What was the total revenue?");
+    writeMind(client, [asked]);
+    await client.settled();
+    const result = await core.askQuestion({ mindId: mind.id, questionId: asked.attrs.id });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, result.answerId);
+    await client.settled();
+    const stored = answerIn(client, result.answerId).attrs.toolCalls;
+    expect(JSON.parse(stored)).toContainEqual(
+      expect.objectContaining({
+        source: "analysis",
+        analysis: expect.objectContaining({ number: 1, end: "done" }),
+      }),
+    );
+
+    writeMind(client, readMind(client).toJSON().content ?? []);
+    await client.settled();
+
+    expect(answerIn(client, result.answerId).attrs.toolCalls).toBe(stored);
+  });
+
+  test("a sparse sheet cites its actual heading row rather than the row before its first value", async () => {
+    const model = analysingModel({
+      query: "Revenue",
+      runs: [salesRun()],
+      answer: "Revenue is [=1].",
+    });
+    const { core } = await setUp(model, totalOf, [
+      {
+        name: "sales.xlsx",
+        contents: xlsxOf([
+          { name: "Sales", rows: [["Region", "Revenue"], [], [], [], ["North", 120]] },
+        ]),
+      },
+    ]);
+
+    const { answer } = await askAndRead(core, "What was the total revenue?");
+
+    expect(answer.analyses[0]?.inputs[0]).toMatchObject({
+      kind: "range",
+      range: "A1:B5",
+      rows: 1,
+      citation: {
+        location: { kind: "rows", sheet: "Sales", from: 1, to: 5 },
+        quote: "Region\tRevenue",
+      },
+    });
   });
 
   test("a result table written as [=table 1] on a line of its own is in the Answer as a table, its numbers as a report shows them", async () => {
@@ -266,6 +363,28 @@ describe("an Analysis an Answer runs", () => {
     expect(answer.analyses).toHaveLength(6);
     expect(told(model, "run_analysis").at(-1)).toContain(
       "You have run 6 analyses for this Question",
+    );
+  });
+
+  test("parallel analysis calls still run at most six times and keep distinct Analysis numbers", async () => {
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!call.results.some((result) => result.tool === "run_analysis")) {
+        const passages = searches.flatMap((result) => shownPassages(result.text));
+        return { calls: Array.from({ length: 7 }, () => salesRun()(passages)) };
+      }
+      return { text: "The calculated revenue is [=1]." };
+    });
+    const { core, runtime } = await setUp(model, totalOf);
+
+    const { answer } = await askAndRead(core, "What was the total revenue?");
+
+    expect(runtime.jobs).toHaveLength(6);
+    expect(answer.analyses.map((analysis) => analysis.number).sort()).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(told(model, "run_analysis")).toContainEqual(
+      expect.stringContaining("You have run 6 analyses for this Question"),
     );
   });
 

@@ -159,12 +159,47 @@ async function setUp() {
     { type: CHART_NODE, attrs: { id: randomUUID(), ...chart } },
   ]);
   await client.settled();
-  return { core, mind, sources, client, dataDir };
+  return { core, mind, sources, client, dataDir, tides };
 }
 
 const decode = (data: Uint8Array) => new TextDecoder().decode(data);
 
 describe("exporting a Mind to HTML", () => {
+  test("only consecutive note markers have a comma, with English, Chinese, spaces and line breaks", async () => {
+    const { core, mind, client, tides } = await setUp();
+    const cite = () => citation(tides, 1, "found");
+    writeMind(client, [
+      paragraph(text("First sentence"), cite(), text(". Another sentence"), cite(), cite()),
+      paragraph(text("第一句"), cite(), text("。下一句"), cite(), cite()),
+      paragraph(cite(), text(" "), cite(), { type: "hardBreak" }, cite()),
+      paragraph(cite(), text("Emphasis", "bold"), cite()),
+    ]);
+    await client.settled();
+    const { document } = parseHTML(
+      decode((await core.exportMind(mind.id, { format: "html" })).data),
+    );
+    expect([...document.querySelectorAll("main > p")].map((p) => p.textContent)).toEqual([
+      "First sentence1. Another sentence2,3",
+      "第一句4。下一句5,6",
+      "7,89",
+      "10Emphasis11",
+    ]);
+    expect(document.querySelector("main > p:nth-child(3) > br")).not.toBeNull();
+    const markers = [...document.querySelectorAll("sup.note-ref")];
+    expect(markers.map((marker) => marker.querySelector("a")?.textContent)).toEqual(
+      Array.from({ length: 11 }, (_, index) => String(index + 1)),
+    );
+    for (const [index, marker] of markers.entries()) {
+      expect(marker.querySelector("a")?.getAttribute("href")).toBe(`#note-${index + 1}`);
+      expect(
+        document
+          .getElementById(`note-${index + 1}`)
+          ?.querySelector(".backref")
+          ?.getAttribute("href"),
+      ).toBe(`#ref-${index + 1}`);
+    }
+  });
+
   test("one self-contained file: the text, notes naming Document and Location, a table, maths, a chart and a web page's address", async () => {
     const { core, mind } = await setUp();
 
@@ -337,7 +372,7 @@ describe("exporting a Mind to HTML", () => {
           docx: {
             includeQuestions: false,
             trackChanges: true,
-            markAiText: true,
+            markAiText: "mark",
             commentFailedChecks: true,
           },
           pdf: { includeQuestions: false },

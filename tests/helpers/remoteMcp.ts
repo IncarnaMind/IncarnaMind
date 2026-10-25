@@ -62,6 +62,8 @@ export interface FakeRemote {
   forgedIss: string | null;
   /** When set, the issuer the metadata names instead of the real one. */
   metadataIssuer: string | null;
+  /** When set, the authorization server the MCP server's metadata names instead of its own, with its endpoints there: an address a test forwards here. */
+  authorizationServer: string | null;
   /** Access-token lifetime in seconds for the next tokens. */
   expiresIn: number;
   /** Milliseconds each refresh takes. */
@@ -285,11 +287,12 @@ export async function startFakeRemote(): Promise<FakeRemote> {
     });
     const run = async () => {
       if (request.method === "GET" && path === "/.well-known/oauth-authorization-server") {
+        const base = fake.authorizationServer ?? issuer;
         sendJson(response, 200, {
-          issuer: fake.metadataIssuer ?? issuer,
-          authorization_endpoint: `${issuer}/authorize`,
-          token_endpoint: `${issuer}/token`,
-          ...(fake.dynamicRegistration ? { registration_endpoint: `${issuer}/register` } : {}),
+          issuer: fake.metadataIssuer ?? base,
+          authorization_endpoint: `${base}/authorize`,
+          token_endpoint: `${base}/token`,
+          ...(fake.dynamicRegistration ? { registration_endpoint: `${base}/register` } : {}),
           response_types_supported: ["code"],
           grant_types_supported: ["authorization_code", "refresh_token"],
           code_challenge_methods_supported: ["S256"],
@@ -316,7 +319,7 @@ export async function startFakeRemote(): Promise<FakeRemote> {
       if (request.method === "GET" && path === "/.well-known/oauth-protected-resource/mcp") {
         sendJson(response, 200, {
           resource: fake.resource,
-          authorization_servers: [issuer],
+          authorization_servers: [fake.authorizationServer ?? issuer],
           scopes_supported: [SCOPE],
           bearer_methods_supported: ["header"],
         });
@@ -363,7 +366,7 @@ export async function startFakeRemote(): Promise<FakeRemote> {
     redirect.searchParams.set("state", query.get("state") ?? "");
     for (const [name, value] of Object.entries(params)) redirect.searchParams.set(name, value);
     if (fake.issParameter || fake.forgedIss) {
-      redirect.searchParams.set("iss", fake.forgedIss ?? issuer);
+      redirect.searchParams.set("iss", fake.forgedIss ?? fake.authorizationServer ?? issuer);
     }
     return redirect.href;
   };
@@ -378,6 +381,7 @@ export async function startFakeRemote(): Promise<FakeRemote> {
     issParameter: true,
     forgedIss: null,
     metadataIssuer: null,
+    authorizationServer: null,
     expiresIn: 3600,
     refreshDelayMs: 0,
     refreshRefusal: null,

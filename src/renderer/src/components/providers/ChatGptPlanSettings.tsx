@@ -6,13 +6,13 @@ import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { ProblemMark } from "../ProblemLine";
 import {
-  buttonClass,
+  buttonStyle,
   errorTextClass,
-  ghostButtonClass,
   noticeClass,
-  primaryButtonClass,
+  rowButtonsClass,
   rowTextClass,
-  sectionTitleClass,
+  rowTitleClass,
+  ruledRowClass,
 } from "../ui";
 import {
   CHATGPT_RECIPIENT,
@@ -28,13 +28,13 @@ import { TestResult } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
 
 /**
- * Settings → Models → ChatGPT plan: "Continue with ChatGPT" (Sign in with
- * ChatGPT), then the account, whether Questions use the plan, a test, and
- * Sign out. The plan's model is chosen in Chat model above, the one place the
- * default model is chosen. Signing in here doesn't change the default model
- * unless there is none yet.
+ * Settings → Models → the first plan row, ChatGPT: "Continue with ChatGPT"
+ * (Sign in with ChatGPT), then the account, whether Questions use the plan, a
+ * test, and Sign out. It is the one place ChatGPT signs in. The plan's model
+ * is chosen in Chat model above, the one place the default model is chosen.
+ * Signing in here doesn't change the default model unless there is none yet.
  */
-export function ChatGptPlanSettings() {
+export function ChatGptPlanRow() {
   const t = useT();
   const [status, setStatus] = useChatGptPlan();
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -91,47 +91,69 @@ export function ChatGptPlanSettings() {
     });
 
   return (
-    <section data-testid="chatgpt-settings" className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <h4 className={sectionTitleClass}>{t("chatgpt.title")}</h4>
-        <p className={rowTextClass}>{t("chatgpt.description")}</p>
-        <SendsLine provider={CHATGPT_RECIPIENT} />
+    <li data-testid="chatgpt-settings" className={ruledRowClass}>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className={rowTitleClass}>{t("plans.chatgpt.title")}</span>
+        {signedIn ? (
+          <p data-testid="chatgpt-account" className={rowTextClass}>
+            <AccountLine account={status.account} />
+          </p>
+        ) : (
+          <>
+            <p className={rowTextClass}>{t("chatgpt.description")}</p>
+            <SendsLine provider={CHATGPT_RECIPIENT} />
+            {status && status.account.state === "expired" && (
+              <p data-testid="chatgpt-account" className={rowTextClass}>
+                <AccountLine account={status.account} />
+              </p>
+            )}
+          </>
+        )}
+        {signedIn && inUse && (
+          <p data-testid="chatgpt-in-use" className={rowTextClass}>
+            {t("chatgpt.inUse")}
+            <span aria-hidden="true"> · </span>
+            <ManageUsageLink />
+          </p>
+        )}
+        {!signedIn && !waiting && <ChatGptStorageNotice storage={storage} />}
+        {(waiting || sign.failure) && (
+          <div className="mt-2">
+            <ChatGptSignInState sign={sign} />
+          </div>
+        )}
+        {unconfirmed && !signedIn && (
+          <p role="note" data-testid="chatgpt-sign-out-unconfirmed" className={noticeClass}>
+            {t("chatgpt.signedOut.unconfirmed")} <ManageUsageLink />
+          </p>
+        )}
+        {test && <TestResult result={test} />}
+        {error && (
+          <p role="alert" data-testid="chatgpt-settings-error" className={errorTextClass}>
+            <ProblemMark />
+            {error}
+          </p>
+        )}
       </div>
-
-      {status && (
-        <p data-testid="chatgpt-account" className="text-ui text-ink-secondary">
-          <AccountLine account={status.account} />
-        </p>
-      )}
-
-      {waiting ? (
-        <ChatGptSignInState sign={sign} />
-      ) : !signedIn ? (
-        <div className="flex flex-col items-start gap-2">
-          <ChatGptStorageNotice storage={storage} />
-          <ContinueWithChatGptButton
-            onClick={signIn}
-            disabled={status === null || !storage.canSave}
-          />
-          <ChatGptSignInState sign={sign} />
-        </div>
-      ) : (
-        <>
-          {inUse && (
-            <p data-testid="chatgpt-in-use" className="text-[13px] leading-5 text-ink-secondary">
-              {t("chatgpt.inUse")}
-              <span aria-hidden="true"> · </span>
-              <ManageUsageLink />
-            </p>
-          )}
-          <div className="flex flex-wrap gap-2">
+      <div className={rowButtonsClass}>
+        {!signedIn ? (
+          !waiting && (
+            <ContinueWithChatGptButton
+              onClick={signIn}
+              disabled={status === null || !storage.canSave}
+              size="sm"
+              variant="secondary"
+            />
+          )
+        ) : (
+          <>
             {!inUse && (
               <button
                 type="button"
                 data-testid="chatgpt-use"
                 disabled={busy !== null || planModel === ""}
                 onClick={() => void use()}
-                className={primaryButtonClass}
+                className={buttonStyle("primary", "sm")}
               >
                 {t("chatgpt.use")}
               </button>
@@ -141,7 +163,7 @@ export function ChatGptPlanSettings() {
               data-testid="chatgpt-test"
               disabled={busy !== null || planModel === ""}
               onClick={() => void testConnection()}
-              className={buttonClass}
+              className={buttonStyle("secondary", "sm")}
             >
               {busy === "testing" ? t("providers.form.testing") : t("providers.form.test")}
             </button>
@@ -150,27 +172,14 @@ export function ChatGptPlanSettings() {
               data-testid="chatgpt-sign-out"
               disabled={busy !== null}
               onClick={() => void signOut()}
-              className={ghostButtonClass}
+              className={buttonStyle("ghost", "sm")}
             >
               {t("chatgpt.signOut")}
             </button>
-          </div>
-        </>
-      )}
-
-      {unconfirmed && !signedIn && (
-        <p role="note" data-testid="chatgpt-sign-out-unconfirmed" className={noticeClass}>
-          {t("chatgpt.signedOut.unconfirmed")} <ManageUsageLink />
-        </p>
-      )}
-      {test && <TestResult result={test} />}
-      {error && (
-        <p role="alert" data-testid="chatgpt-settings-error" className={errorTextClass}>
-          <ProblemMark />
-          {error}
-        </p>
-      )}
-    </section>
+          </>
+        )}
+      </div>
+    </li>
   );
 }
 

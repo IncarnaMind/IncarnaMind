@@ -1,21 +1,21 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import type { CoreBridge } from "../src/core/api";
 import type { TestHooks } from "../src/shared/testHooks";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
   clickNow,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
-  filterByTag,
   interceptOpenDialog,
   launchApp,
   linkedFolderRow,
   linkFolderFromSidebar,
   openDocumentMenu,
   removeDataFolder,
+  setWindowSize,
   showSourceLocations,
 } from "./app";
 
@@ -101,10 +101,11 @@ test("dropping folders offers each for linking in turn; what's there already is 
   // The linked folder picked again: the dialog says it's linked already, and only closes.
   await interceptOpenDialog(app, papers);
   await window.getByTestId("plus-menu").click();
+  await window.getByTestId("plus-more").click();
   await window.getByTestId("plus-link-folder").click();
   await expect(dialog.getByRole("heading")).toHaveText("Already in IncarnaMind");
   await expect(dialog.getByTestId("link-folder-inside")).toHaveText(
-    "“Papers” is linked already, so its files are in IncarnaMind. Linking it again changes nothing.",
+    "“Papers” is already linked, so its files are in IncarnaMind.",
   );
   await screenshot(window, "link-dialog-already-linked");
   await dialog.getByRole("button", { name: "Close" }).click();
@@ -132,41 +133,6 @@ test("a Document that failed offers Retry, which processes it again", async () =
   // A ready Document has nothing to retry.
   await openDocumentMenu(item);
   await expect(item.getByTestId("document.retry")).toHaveCount(0);
-  await app.close();
-});
-
-test("folding while filtering by a Tag folds the filtered view, and leaves the rest as it was", async () => {
-  const library = join(sources, "Library");
-  await writeTree(library, ["Reports/Q1.txt", "Reports/Q2.txt", "Notes/Idea.txt"]);
-  const { app, window } = await launchApp(dataDir);
-  await dismissChatSetup(window);
-  await linkFolderFromSidebar(app, window, library);
-  await showSourceLocations(window);
-  const items = window.getByTestId("document-list-item");
-  await expect(items).toHaveCount(3);
-  // Tag the two reports, through the core's bridge, as the Tags menu would.
-  await window.evaluate(async () => {
-    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const report = (await bridge.listTags()).find((tag) => tag.name === "Report");
-    if (!report) throw new Error("No preset Tag named Report.");
-    for (const item of await bridge.listDocuments()) {
-      if (item.name.startsWith("Q")) await bridge.addDocumentTag(item.id, report.id);
-    }
-  });
-
-  await filterByTag(window, "Report");
-  await expect(items).toHaveCount(2);
-  const reports = window.getByTestId("folder-item").filter({ hasText: "Reports" });
-  const toggle = reports.getByTestId("folder-toggle");
-  await toggle.click();
-  // Folded, visibly, in the filtered view.
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(items).toHaveCount(0);
-
-  // Without the filter, the tree is as the User left it: unfolded.
-  await window.getByTestId("tag-filter-clear").click();
-  await expect(items).toHaveCount(3);
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await app.close();
 });
 
@@ -208,9 +174,9 @@ test("a right-click on a row opens its menu, without selecting its name; a selec
   await linkFolderFromSidebar(app, window, library);
   await showSourceLocations(window);
   const item = window.getByTestId("document-list-item").filter({ hasText: "Field notes" });
-  // Settled: the file added on its own has moved under "Other Documents", so its row stays put.
+  // Settled: the file added on its own is in Not in a Folder, at the top level.
   await expect(linkedFolderRow(window, "Library")).toHaveAttribute("data-state", "idle");
-  await expect(item).toHaveAttribute("data-depth", "1");
+  await expect(item).toHaveAttribute("data-depth", "0");
 
   await item.getByTestId("row-text").click({ button: "right" });
   await expect(item.getByTestId("document-file-actions")).toBeVisible();
@@ -285,8 +251,7 @@ test("Add Documents opens a sheet on the window in a folder on this computer, th
         ).openDialogsAsked ?? [],
     );
 
-  // From the "+" menu; the empty sidebar offers the same.
-  await expect(window.getByTestId("documents-empty-add-files")).toHaveText("Add files…");
+  // From the "+" menu.
   await window.getByTestId("plus-menu").click();
   await window.getByTestId("plus-add-documents").click();
   const items = window.getByTestId("document-list-item");
@@ -302,5 +267,41 @@ test("Add Documents opens a sheet on the window in a folder on this computer, th
   await window.getByTestId("plus-add-documents").click();
   await expect.poll(async () => (await asked()).length).toBe(2);
   expect((await asked())[1]?.options.defaultPath).toBe(sources);
+  await app.close();
+});
+
+test("the Library's count keeps its place and width as Documents are added", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  const count = window.getByTestId("library-row-count");
+  const placeOf = async () => {
+    const box = await count.boundingBox();
+    if (!box) throw new Error("The Library's count isn't showing.");
+    return { left: box.x, width: box.width };
+  };
+
+  let added = 0;
+  const addUpTo = async (total: number) => {
+    const files = Array.from({ length: total - added }, (_, index) =>
+      join(sources, `Report ${String(added + index + 1).padStart(4, "0")}.txt`),
+    );
+    await Promise.all(files.map((file) => writeFile(file, `${file}.\n`)));
+    await (await coreOf(window)).evaluate((core, paths) => core.addDocuments(paths), files);
+    added = total;
+  };
+
+  await addUpTo(1);
+  await expect(count).toHaveText("1");
+  const first = await placeOf();
+  for (const [total, shown] of [
+    [12, "12"],
+    [123, "123"],
+    [1234, "1,234"],
+  ] as const) {
+    await addUpTo(total);
+    await expect(count).toHaveText(shown);
+    expect(await placeOf()).toEqual(first);
+  }
   await app.close();
 });

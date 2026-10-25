@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { open, rename, rm, writeFile } from "node:fs/promises";
+import { link, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { cutAtWord } from "../shared/naming";
 
@@ -31,40 +31,104 @@ export function safeFileName(title: string, fallback: string): string {
   return WINDOWS_DEVICE.test(name) ? `${name}_` : name;
 }
 
+/** A temporary file's name: dot, a random id and "partial", or, from older versions, the file's name before the id. */
+const PARTIAL =
+  /^\.(?:.*\.)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.partial$/;
+
+/** When this run began: a temporary file older than it was left by a run that ended before its file was named. */
+const STARTED = Date.now();
+
+const swept = new Set<string>();
+
+/**
+ * Takes out the temporary files an earlier run left in `folder` (a force-quit or a crash between
+ * writing and naming a file), once per folder per run. Only those older than this run: a file
+ * this run is writing is newer. A folder that can't be read is left.
+ */
+export async function removeStalePartials(folder: string): Promise<void> {
+  if (swept.has(folder)) return;
+  swept.add(folder);
+  let names: string[];
+  try {
+    names = await readdir(folder);
+  } catch {
+    return;
+  }
+  await Promise.all(
+    names
+      .filter((each) => PARTIAL.test(each))
+      .map(async (each) => {
+        const path = join(folder, each);
+        const info = await stat(path).catch(() => null);
+        // One that can't be removed now is tried again at the next run.
+        if (info?.isFile() && info.mtimeMs < STARTED)
+          await rm(path, { force: true }).catch(() => {});
+      }),
+  );
+}
+
 /**
  * Writes a new file in `folder` under `name` ("Tides.docx"), or under the
  * next free name, as Finder does ("Tides 2.docx", "Tides 3.docx"), and
- * returns the name used. Each name is created exclusively, so nothing already
- * there, a file or a link, is ever replaced or followed. The bytes go to a
- * temporary file beside it first, which then takes the name at once, so the
- * file is never seen half written; if writing fails, neither is left.
+ * returns the name used. The bytes are written and flushed to a temporary
+ * file first, and only then does a hard link give it its name, which fails if
+ * anything is there already, a file or a link: nothing is ever replaced or
+ * followed, and a name is never seen empty or half written, whenever the
+ * program stops. The temporary file goes in the end; one a stop leaves is taken
+ * out the next run (`removeStalePartials`). Where the file system has no hard
+ * links, the name is made first and the finished file renamed onto it.
  */
 export async function writeNewFile(
   folder: string,
   name: string,
   data: Uint8Array,
 ): Promise<string> {
+  await removeStalePartials(folder);
   const extension = extname(name);
   const stem = name.slice(0, name.length - extension.length);
-  for (let n = 1; n <= MAX_TRIES; n++) {
-    const candidate = n === 1 ? name : `${stem} ${n}${extension}`;
-    const path = join(folder, candidate);
+  const temporary = join(folder, `.${randomUUID()}.partial`);
+  try {
+    const file = await open(temporary, "wx");
     try {
-      await (await open(path, "wx")).close();
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
-      throw error;
+      await file.writeFile(data);
+      await file.sync();
+    } finally {
+      await file.close();
     }
-    const temporary = join(folder, `.${candidate}.${randomUUID()}.partial`);
-    try {
-      await writeFile(temporary, data, { flag: "wx" });
-      await rename(temporary, path);
-    } catch (error) {
-      await rm(temporary, { force: true });
-      await rm(path, { force: true });
-      throw error;
+    let linking = true;
+    for (let n = 1; n <= MAX_TRIES; n++) {
+      const candidate = n === 1 ? name : `${stem} ${n}${extension}`;
+      const path = join(folder, candidate);
+      if (linking) {
+        try {
+          await link(temporary, path);
+          return candidate;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "EEXIST") continue;
+          // Node reports a FAT or exFAT drive on Windows as EISDIR or EINVAL, a network share by
+          // other codes: any refusal of the link falls back, and a real problem (EACCES, ENOSPC)
+          // is raised again by the file made below.
+          if (code === undefined) throw error;
+          linking = false;
+        }
+      }
+      try {
+        await (await open(path, "wx")).close();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+        throw error;
+      }
+      try {
+        await rename(temporary, path);
+      } catch (error) {
+        await rm(path, { force: true });
+        throw error;
+      }
+      return candidate;
     }
-    return candidate;
+    throw new Error(`Every name like "${name}" is taken in that folder.`);
+  } finally {
+    await rm(temporary, { force: true });
   }
-  throw new Error(`Every name like "${name}" is taken in that folder.`);
 }

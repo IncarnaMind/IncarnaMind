@@ -86,12 +86,10 @@ describe("A Meeting's recording details", () => {
   test("a slow computer says it can't keep up; nothing measured or lost says so", () => {
     const slow = meetingWith({ realTimeFactor: 2, measuredMs: 30_000, keepsUp: false });
     expect(captureLines(slow, en).map((line) => line.text)).toEqual([
-      "Transcribed on this computer at 0.5× real time, too slow to keep up live",
+      "Transcribed here at 0.5× real time, too slow to keep up",
       "No audio was lost",
     ]);
-    expect(captureLines(slow, zh)[0]?.text).toBe(
-      "在这台电脑上转写，速度是实时的 0.5 倍，跟不上实时转写",
-    );
+    expect(captureLines(slow, zh)[0]?.text).toBe("在这台电脑上转写，速度是实时的 0.5 倍，跟不上");
     expect(captureLines(meetingWith({}), zh).map((line) => line.text)).toEqual([
       "尚未测出转写速度",
       "没有丢失音频",
@@ -108,7 +106,7 @@ describe("A Meeting's recording details", () => {
     expect(unsavedAudioMs(meeting)).toBe(20_000);
     expect(unsavedAudioMs(meetingWith({ events: EVENTS }, { saveError: "No space left" }))).toBe(0);
     expect(en("meetings.health.unsaved", { duration: "20 s" })).toBe(
-      "20 s of audio couldn’t be saved, so it isn’t in the transcript.",
+      "20 s of audio couldn’t be saved, so it’s not transcribed.",
     );
     expect(zh("meetings.health.unsaved", { duration: "20 秒" })).toBe(
       "有 20 秒的音频无法保存，转写稿中缺少这部分。",

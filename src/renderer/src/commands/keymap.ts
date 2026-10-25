@@ -1,9 +1,10 @@
 import { useEffect } from "react";
 import type { CommandId, ShortcutKeys } from "../../../shared/commands";
+import { topModalNow } from "../components/useModal";
 import { files } from "../core";
 import type { ObjectRef } from "../objects";
 import { useAppStore } from "../store";
-import { typesText } from "../undo";
+import { nextToRedo, nextToUndo, typesText, useUndo } from "../undo";
 import { keysLabel, keysOn, pressed } from "./keys";
 import { menuKinds } from "./menus";
 import {
@@ -60,11 +61,38 @@ const contextAt = (target: EventTarget | null): CommandContext => ({
 
 const dialogOpen = () => document.querySelector("dialog[open]") !== null;
 
+/** The places whose undo lines are on screen in a modal: not those on a hidden page of it. */
+const linesShownIn = (modal: HTMLElement | null): string[] =>
+  modal
+    ? [...modal.querySelectorAll<HTMLElement>("[data-undo-place]")]
+        .filter((each) => each.checkVisibility())
+        .flatMap((each) => each.dataset.undoPlace ?? [])
+    : [];
+
+/**
+ * Whether an open modal keeps a command's keys from the page behind it. ⌘Z and ⇧⌘Z get past only
+ * to a step whose line is drawn on screen in the modal on top (`shown`), as Settings draws its
+ * own: a modal on top of that one (a consent question) holds them, and so does another page of
+ * Settings, so no key but a dialog's own buttons answers it or changes what the User can't see.
+ */
+export function holdsKey(
+  id: CommandId,
+  shown: readonly string[],
+  state: Parameters<typeof nextToUndo>[0] & Parameters<typeof nextToRedo>[0],
+): boolean {
+  if (id !== "edit.undo" && id !== "edit.redo") return true;
+  const step = id === "edit.undo" ? nextToUndo(state) : nextToRedo(state);
+  return !(step?.shownAt !== undefined && shown.includes(step.shownAt));
+}
+
+const dialogHolds = (id: CommandId) =>
+  dialogOpen() && holdsKey(id, linesShownIn(topModalNow()), useUndo.getState());
+
 const report = (error: unknown) => useAppStore.getState().reportError(error);
 
 /**
  * Runs the command this key is the shortcut of, if it is offered and enabled
- * here: true if it ran. Nothing while a dialog is open. With `objectsOnly`,
+ * here: true if it took the key. Nothing while a dialog is open. With `objectsOnly`,
  * only commands that act on objects are considered.
  */
 export function runShortcut(
@@ -81,12 +109,18 @@ export function runShortcut(
     const keys = [
       keysOn(shortcut.keys, isMac),
       ...(!isMac && shortcut.alsoOther ? [shortcut.alsoOther] : []),
+      ...(shortcut.also ? [shortcut.also] : []),
     ];
     if (!keys.some((each) => pressed(each, event, isMac))) continue;
     if (shortcut.list && !inList(event.target)) continue;
     if (shortcut.outsideText && typesText(event.target)) continue;
+    if (shortcut.notInText && typesText(event.target)) {
+      // On macOS the menu takes a key the page leaves alone, and would run the command from the text.
+      event.preventDefault();
+      return true;
+    }
     // Only now, for keys that are a shortcut: the search goes through the whole page.
-    if (dialogOpen()) return false;
+    if (dialogHolds(command.id)) return false;
     // A list's own keys act on the row the focus is in.
     const here = shortcut.list ? { ...ctx, focus: ctx.focus ?? objectAt(event.target) } : ctx;
     if (!offered(command, here) || !isEnabled(command, here)) continue;
@@ -109,9 +143,11 @@ export function useKeymap(): void {
     window.addEventListener("keydown", onKey);
     const stopMenu = files.onMenuCommand((id) => {
       const focus = document.activeElement;
-      // In text, Undo and Redo are the text's own, as their keys are, in a dialog too.
-      const textsOwn = commands.get(id)?.shortcut?.outsideText === true && typesText(focus);
-      if (textsOwn || !dialogOpen()) commands.run(id, contextAt(focus)).catch(report);
+      // macOS sends text commands through the menu even when a dialog holds focus (#1351).
+      const textsOwn =
+        typesText(focus) &&
+        (id === "edit.selectAll" || commands.get(id)?.shortcut?.outsideText === true);
+      if (textsOwn || !dialogHolds(id)) commands.run(id, contextAt(focus)).catch(report);
     });
     return () => {
       window.removeEventListener("keydown", onKey);

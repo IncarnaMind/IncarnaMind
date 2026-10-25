@@ -1,15 +1,24 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { gunzipSync } from "node:zlib";
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { startSourceServices } from "../tests/helpers/sourceServices";
 import {
+  acceptPlainTextKeys,
+  assistantAnswers,
+  closeSettings,
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  newMind,
   openPrivacySettings,
+  pointAndClick,
   removeDataFolder,
+  saveProviderUnasked,
   setLanguage,
+  setWindowSize,
+  showSettingsPage,
 } from "./app";
 
 let dataDir: string;
@@ -31,43 +40,80 @@ test("the Privacy page lists the data flows and the update check, and offers no 
       baseUrl: "https://llm.example.com/v1",
       modelId: "example-model",
     });
+    // Tagging and sorting by themselves start off for it; turning them on is the consent too.
+    await bridge.saveLibrarySettings({ ...(await bridge.getLibrary()).settings, automatic: true });
   });
 
   const privacy = await openPrivacySettings(window);
   await expect(privacy).toContainText("collects no usage data");
-  await expect(privacy).toContainText("Choosing a service allows its flow.");
+  const statement = privacy.getByTestId("privacy-flows-intro");
+  await expect(statement).toContainText("Only these services receive anything");
   await privacy.getByTestId("privacy-flows-intro-details").click();
   await expect(privacy).toContainText("asks it not to store your requests");
 
-  // Every registered flow, with what it sends and where.
-  const chat = privacy.locator('[data-testid="data-flow"][data-flow-id="chat"]');
+  // The statement, then the services, then the switch, then the other traffic.
+  const service = privacy.getByTestId("data-service");
+  await expect(service).toHaveCount(1);
+  await expect(service).toContainText("llm.example.com");
+  await expect(service).toHaveAttribute("data-consent", "accepted");
+  const top = async (locator: Locator) => (await locator.boundingBox())?.y ?? Number.NaN;
+  const order = [
+    await top(statement),
+    await top(service),
+    await top(privacy.getByTestId("local-only-setting")),
+    await top(privacy.getByTestId("network-traffic")),
+  ];
+  expect(order).toEqual(order.toSorted((a, b) => a - b));
+
+  // The decision is said once for the service, with what each use sends behind Details.
+  const decision = service.getByTestId("data-service-decision");
+  await expect(decision).toContainText("Allowed when you chose llm.example.com, ");
+  await decision.getByTestId("data-service-decision-details").click();
+  await expect(privacy.getByText(/Allowed when you chose/)).toHaveCount(1);
+  const chat = service.locator('[data-testid="data-flow"][data-flow-id="chat"]');
   await expect(chat).toContainText("Chat");
   await expect(chat).toContainText(
-    "This Mind's text, Notes and earlier Answers, minus excluded Notes",
+    "This Mind’s text, Notes and earlier Answers, minus excluded Notes",
   );
   await expect(chat).toContainText("passages from your Documents");
-  await expect(privacy.locator('[data-flow-id="tagging"]')).toContainText("Automatic Tags");
-  const service = chat.getByTestId("data-flow-service");
-  await expect(service).toContainText("to llm.example.com");
-  await expect(service).toHaveAttribute("data-consent", "accepted");
-  await expect(service.getByTestId("data-flow-decision")).toContainText(
-    "Allowed when you chose llm.example.com, ",
-  );
+  await expect(service.locator('[data-flow-id="tagging"]')).toContainText("Automatic Tags");
 
-  // Stop allowing it, and it asks again next time; allowed from here, with the date.
+  // Stop allowing it, and it asks again next time; the line to take it back is under the list.
   // Not "Revoke", which is 撤销 in Chinese, the same word as Undo (#763).
-  const revoke = service.getByTestId("data-flow-revoke");
+  const revoke = service.getByTestId("data-service-revoke");
   await expect(revoke).toHaveText("Stop allowing");
   await setLanguage(window, "zh-CN");
   await expect(revoke).toHaveText("停止允许");
   await setLanguage(window, "en");
   await revoke.click();
   await expect(service).toHaveAttribute("data-consent", "not-asked");
-  await service.getByTestId("data-flow-allow").click();
+  const allow = service.getByTestId("data-service-allow");
+  await expect(allow).toBeFocused();
+  const undoLine = privacy.getByTestId("consent-settings").getByTestId("undo-line-here");
+  await expect(undoLine).toContainText("Stopped allowing llm.example.com");
+  await undoLine.getByTestId("undo-action").click();
   await expect(service).toHaveAttribute("data-consent", "accepted");
-  await expect(service.getByTestId("data-flow-decision")).toContainText(
-    /Allowed on \d{1,2} [A-Z][a-z]+ \d{4}/,
-  );
+  // Back as it was, chosen, not allowed anew (#1463).
+  await expect(decision).toContainText("Allowed when you chose llm.example.com, ");
+
+  // Allowed again from here, with the date.
+  await revoke.click();
+  await expect(service).toHaveAttribute("data-consent", "not-asked");
+  await allow.click();
+  await expect(service).toHaveAttribute("data-consent", "accepted");
+  await expect(decision).toContainText(/Allowed on \d{1,2} [A-Z][a-z]+ \d{4}/);
+
+  // One use can be stopped on its own, with the rest left allowed, and taken back.
+  const tagging = service.locator('[data-testid="data-flow"][data-flow-id="tagging"]');
+  await tagging.getByTestId("data-flow-revoke").click();
+  await expect(service).toHaveAttribute("data-consent", "partly");
+  await expect(chat).toHaveAttribute("data-consent", "accepted");
+  await expect(tagging).toHaveAttribute("data-consent", "not-asked");
+  await expect(tagging.getByTestId("data-flow-allow")).toBeFocused();
+  await expect(undoLine).toContainText("Stopped allowing Automatic Tags for llm.example.com");
+  await undoLine.getByTestId("undo-action").click();
+  await expect(tagging).toHaveAttribute("data-consent", "accepted");
+  await expect(service).toHaveAttribute("data-consent", "accepted");
 
   // Traffic without the User's content: the update check, on by default, can be turned off.
   const updates = privacy.locator(
@@ -82,7 +128,9 @@ test("the Privacy page lists the data flows and the update check, and offers no 
   await expect(privacy.locator('[data-traffic-id="ollama-pull"]')).toContainText("Ollama");
 
   // Skill scripts are their own matter.
-  await expect(privacy.getByTestId("skill-scripts-note")).toContainText("each run asks first");
+  await expect(privacy.getByTestId("skill-scripts-note")).toContainText(
+    "unless you set it to Always allow",
+  );
 
   // A copy built without a crash-report address doesn't offer crash reports.
   await expect(privacy.getByTestId("crash-reports")).toHaveCount(0);
@@ -127,6 +175,213 @@ test("the Privacy page lists the data flows and the update check, and offers no 
   await second.app.close();
 });
 
+/** Searches arXiv through the bridge, as Find sources does. Resolves once the search has ended. */
+const searchArxiv = (window: Page, query: string) =>
+  window.evaluate(async (words) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.findSources({ query: words, providers: ["arxiv"] });
+  }, query);
+
+/** Whether arXiv has a decision of the User's, whatever it is, from the core. */
+const arxivDecided = (window: Page) =>
+  window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await bridge.listDataFlows()).some((each) => each.flow.service.name === "arXiv");
+  });
+
+test("stopping the only service, one allowed in an earlier search, leaves its Undo line, and Undo and ⌘Z bring it back as it was, twice", async () => {
+  const sources = await startSourceServices();
+  try {
+    const { app, window } = await launchApp(dataDir, { sources: sources.url });
+    await setWindowSize(app, window, 1280, 800);
+    await dismissChatSetup(window);
+    // The search ends, and arXiv is no part of any flow now: only the User's decision is left.
+    const searched = searchArxiv(window, "CRISPR off-target detection");
+    await pointAndClick(window, window.getByTestId("consent-allow"));
+    await searched;
+
+    const privacy = await openPrivacySettings(window);
+    const arxiv = privacy.getByTestId("data-service").filter({ hasText: "arXiv" });
+    await expect(arxiv).toHaveAttribute("data-consent", "accepted");
+    const decision = arxiv.getByTestId("data-service-decision");
+    await expect(decision).toContainText(/Allowed on \d{1,2} [A-Z][a-z]+ \d{4}/);
+    const allowedOn = await decision.innerText();
+
+    await pointAndClick(window, arxiv.getByTestId("data-service-revoke"));
+    await expect(privacy.getByTestId("data-service")).toHaveCount(0);
+    const undoLine = privacy.getByTestId("consent-settings").getByTestId("undo-line-here");
+    await expect(undoLine).toContainText("Stopped allowing arXiv");
+
+    // The line's Undo puts it back as it was: allowed in a dialog, on the same day.
+    await pointAndClick(window, undoLine.getByTestId("undo-action"));
+    await expect(arxiv).toHaveAttribute("data-consent", "accepted");
+    await expect(decision).toHaveText(allowedOn);
+
+    // Stopped again, ⌘Z does the same, Redo stops again, and Undo brings it back once more.
+    await pointAndClick(window, arxiv.getByTestId("data-service-revoke"));
+    await expect(privacy.getByTestId("data-service")).toHaveCount(0);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(arxiv).toHaveAttribute("data-consent", "accepted");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(privacy.getByTestId("data-service")).toHaveCount(0);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(arxiv).toHaveAttribute("data-consent", "accepted");
+    await expect(decision).toHaveText(allowedOn);
+
+    // In Chinese, the line names what was stopped.
+    await setLanguage(window, "zh-CN");
+    await pointAndClick(window, arxiv.getByTestId("data-service-revoke"));
+    await expect(undoLine).toContainText("已停止允许 arXiv");
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(arxiv).toHaveAttribute("data-consent", "accepted");
+    await setLanguage(window, "en");
+
+    // Back as it was, it needs no question: the next search goes straight to arXiv.
+    await closeSettings(window);
+    const before = sources.requests.filter((request) => request.path.startsWith("/arxiv")).length;
+    await searchArxiv(window, "base editing");
+    await expect(window.getByTestId("consent-dialog")).toBeHidden();
+    expect(
+      sources.requests.filter((request) => request.path.startsWith("/arxiv")).length,
+    ).toBeGreaterThan(before);
+    await app.close();
+  } finally {
+    await sources.close();
+  }
+});
+
+test("⌘Z in Settings takes back only a step whose line is on a page in view: not one from a page the User has left", async () => {
+  const sources = await startSourceServices();
+  try {
+    const { app, window } = await launchApp(dataDir, { sources: sources.url });
+    await setWindowSize(app, window, 1280, 800);
+    await dismissChatSetup(window);
+    const searched = searchArxiv(window, "CRISPR off-target detection");
+    await pointAndClick(window, window.getByTestId("consent-allow"));
+    await searched;
+
+    const privacy = await openPrivacySettings(window);
+    const arxiv = privacy.getByTestId("data-service").filter({ hasText: "arXiv" });
+    await pointAndClick(window, arxiv.getByTestId("data-service-revoke"));
+    await expect(privacy.getByTestId("data-service")).toHaveCount(0);
+    await expect(
+      privacy.getByTestId("consent-settings").getByTestId("undo-line-here"),
+    ).toContainText("Stopped allowing arXiv");
+
+    // On another page the Privacy page stays mounted, hidden: its line isn't in view, so ⌘Z does
+    // nothing to a decision the User can't see.
+    await showSettingsPage(window, "general");
+    await window.keyboard.press("ControlOrMeta+z");
+    expect(await arxivDecided(window)).toBe(false);
+
+    // Back on its page, ⌘Z reaches the step, and ⇧⌘Z is held the same way from another page.
+    await showSettingsPage(window, "privacy");
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(arxiv).toHaveAttribute("data-consent", "accepted");
+    await showSettingsPage(window, "general");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    expect(await arxivDecided(window)).toBe(true);
+    await showSettingsPage(window, "privacy");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(privacy.getByTestId("data-service")).toHaveCount(0);
+    await app.close();
+  } finally {
+    await sources.close();
+  }
+});
+
+test("a consent question over Settings is answered only by its own buttons: ⌘Z, ⇧⌘Z and Return on Decline never allow", async () => {
+  const sources = await startSourceServices();
+  try {
+    const { app, window } = await launchApp(dataDir, { sources: sources.url });
+    await setWindowSize(app, window, 1280, 800);
+    await dismissChatSetup(window);
+    const allowed = searchArxiv(window, "CRISPR off-target detection");
+    await pointAndClick(window, window.getByTestId("consent-allow"));
+    await allowed;
+    const requestsToArxiv = () =>
+      sources.requests.filter((request) => request.path.startsWith("/arxiv")).length;
+
+    // Stopped in Settings, with its Undo line in view: a search then asks again, over Settings.
+    const privacy = await openPrivacySettings(window);
+    const arxiv = privacy.getByTestId("data-service").filter({ hasText: "arXiv" });
+    await pointAndClick(window, arxiv.getByTestId("data-service-revoke"));
+    await expect(privacy.getByTestId("data-service")).toHaveCount(0);
+    const before = requestsToArxiv();
+    const searching = searchArxiv(window, "base editing");
+    const consent = window.getByTestId("consent-dialog");
+    await expect(consent).toBeVisible();
+    await expect(consent).toContainText("arXiv");
+    await expect(consent.getByTestId("consent-decline")).toBeFocused();
+
+    // No key answers it as Allow: the Undo line behind it can't be reached.
+    await window.keyboard.press("ControlOrMeta+z");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    expect(await arxivDecided(window)).toBe(false);
+    await expect(consent).toBeVisible();
+    expect(requestsToArxiv()).toBe(before);
+
+    // Return, on the focused Decline, declines: nothing is sent.
+    await window.keyboard.press("Enter");
+    await expect(consent).toBeHidden();
+    await searching;
+    expect(requestsToArxiv()).toBe(before);
+    await expect(arxiv).toHaveAttribute("data-consent", "declined");
+    await app.close();
+  } finally {
+    await sources.close();
+  }
+});
+
+test("a Question refused because the User declined: after allowing the service in Settings, the Answer's line offers Try again and the Question is answered", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+  await saveProviderUnasked(window, {
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-haiku-5-5",
+  });
+  await newMind(window);
+  await window.getByTestId("mind-editor").click();
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect(window.getByTestId("composer-input")).toBeFocused();
+  await window.keyboard.type("What is due?");
+  await window.keyboard.press("Enter");
+
+  // Nothing is sent: the User says no to the question.
+  await pointAndClick(window, window.getByTestId("consent-decline"));
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "failed", { timeout: 15_000 });
+  const error = answer.getByTestId("answer-error");
+  await expect(error).toContainText("Nothing was sent: you chose not to send data to this service");
+  const action = error.getByTestId("answer-error-action");
+  await expect(action).toHaveText("Allow it");
+
+  // "Allow it" leads to the service on the Privacy page, where it is allowed.
+  await pointAndClick(window, action);
+  const settings = window.getByTestId("settings");
+  await expect(settings).toHaveAttribute("data-page", "privacy");
+  const anthropic = settings.getByTestId("data-service").filter({ hasText: "Anthropic" });
+  await expect(anthropic).toHaveAttribute("data-consent", "declined");
+  await pointAndClick(window, anthropic.getByTestId("data-service-allow"));
+  await expect(anthropic).toHaveAttribute("data-consent", "accepted");
+  await closeSettings(window);
+
+  // Back on the Answer, the line no longer sends the User to Settings again: it offers Try again.
+  await expect(action).toHaveText("Try again");
+  await setLanguage(window, "zh-CN");
+  await expect(action).toHaveText("重试");
+  await setLanguage(window, "en");
+  await expect(action).toHaveText("Try again");
+  await pointAndClick(window, action);
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await expect(error).toBeHidden();
+  await expect(window.getByTestId("consent-dialog")).toBeHidden();
+  await app.close();
+});
+
 /** A stand-in for Sentry on this computer: it keeps every event it is sent. */
 async function startFakeSentry(): Promise<{ server: Server; dsn: string; events: string[] }> {
   const events: string[] = [];
@@ -149,6 +404,48 @@ async function startFakeSentry(): Promise<{ server: Server; dsn: string; events:
   const { port } = server.address() as AddressInfo;
   return { server, dsn: `http://public@127.0.0.1:${port}/1`, events };
 }
+
+test("each use of a service has a button named for it, a service with one use has only its own, and focus stays on the last button", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveChatProvider({
+      kind: "openai-compatible",
+      baseUrl: "https://llm.example.com/v1",
+      modelId: "example-model",
+    });
+    await bridge.saveRerankSettings({ kind: "cohere", apiKey: "not-a-real-key" });
+  });
+  const privacy = await openPrivacySettings(window);
+  const services = privacy.getByTestId("data-service");
+  await expect(services).toHaveCount(2);
+  const cohere = services.filter({ hasText: "Cohere" });
+  await cohere.getByTestId("data-service-decision-details").click();
+  await expect(cohere.getByTestId("data-flow")).toHaveCount(1);
+  await expect(cohere.getByTestId("data-flow-revoke")).toHaveCount(0);
+  await expect(cohere.getByTestId("data-service-revoke")).toHaveCount(1);
+
+  const llm = services.filter({ hasText: "llm.example.com" });
+  await llm.getByTestId("data-service-decision-details").click();
+  await expect(llm.getByRole("button", { name: "Stop allowing Chat", exact: true })).toHaveCount(1);
+  const count = await llm.getByTestId("data-flow").count();
+  expect(count).toBeGreaterThan(1);
+  const allowed = await llm.getByTestId("data-flow-revoke").count();
+  for (let stopped = 1; stopped <= allowed; stopped++) {
+    await llm.getByTestId("data-flow-revoke").first().click();
+    await expect(llm.getByTestId("data-flow-revoke")).toHaveCount(allowed - stopped);
+  }
+  await expect(llm).toHaveAttribute("data-consent", "not-asked");
+  // Every use left can be allowed again, and the focus is on a button of the service, not the page.
+  await expect(llm.getByTestId("data-flow-revoke")).toHaveCount(0);
+  await expect(llm.getByTestId("data-flow-allow")).toHaveCount(
+    await llm.getByTestId("data-flow").count(),
+  );
+  await expect(llm.locator("button:focus")).toHaveCount(1);
+  await app.close();
+});
 
 test("with a crash-report address, crash reports are off until opted in, scrubbed, and stop on opting out", async () => {
   const sentry = await startFakeSentry();

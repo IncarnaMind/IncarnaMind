@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ApprovalPolicy } from "../../../core/api";
 import { core } from "../core";
 import { useT } from "../i18n";
+import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import {
   buttonStyle,
@@ -48,7 +49,7 @@ export function ApprovalsSettings() {
             const name =
               subject.kind === "tool"
                 ? `${policy.ownerName} · ${subject.tool}`
-                : t("approvals.settings.skillScripts", { skill: policy.ownerName });
+                : t("approvals.settings.skillScripts", { skill: skillTitle(policy.ownerName, t) });
             const value =
               subject.kind === "skill-script"
                 ? t("approvals.policy.alwaysRun")

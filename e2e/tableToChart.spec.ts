@@ -33,6 +33,14 @@ const WORDS = {
         ["Net margin", "41.2 ÷ 377.9", "10.9%"],
       ],
     },
+    quantities: {
+      head: ["Product", "Units sold"],
+      rows: [
+        ["A", "1899"],
+        ["B", "2000"],
+        ["C", "2100"],
+      ],
+    },
     firstMetric: "Revenue",
     metrics: ["Revenue", "Net income"],
     years2: ["2023", "2024", "2025"],
@@ -54,6 +62,14 @@ const WORDS = {
       rows: [
         ["营业收入同比", "(377.9 − 330.6) ÷ 330.6", "14.3%"],
         ["净利率", "41.2 ÷ 377.9", "10.9%"],
+      ],
+    },
+    quantities: {
+      head: ["产品", "销量"],
+      rows: [
+        ["甲", "1899"],
+        ["乙", "2000"],
+        ["丙", "2100"],
       ],
     },
     firstMetric: "营业收入",
@@ -215,6 +231,25 @@ for (const [language, width] of [
     expect(copied.text).toContain(words.lead);
     expect(copied.html).toContain("<table");
     expect(copied.html).toContain('data-type="chart"');
+    await app.close();
+  });
+
+  test(`a column of quantities draws every value, 2000 among them, and says no cell is left out (${language}, ${width}px)`, async () => {
+    const words = WORDS[language];
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, width, 660);
+    const { editor, grid } = await mindWithTable(window, words.lead, words.quantities);
+
+    await pointAndClick(window, grid.locator("td").first());
+    await pointAndClick(window, window.getByTestId("table-menu"));
+    await pointAndClick(window, window.getByTestId("table-chart"));
+    const chart = editor.getByTestId("chart");
+    await expect(chart.getByTestId("chart-point")).toHaveCount(3);
+    await expect(point(chart, 1, 0)).toHaveAttribute("aria-label", /2,?000/);
+    await expect(chart.getByTestId("chart-source")).not.toContainText(/isn’t drawn|未绘制/);
+    await screenshot(window, `table-chart-quantities-${language}-${width}`);
     await app.close();
   });
 

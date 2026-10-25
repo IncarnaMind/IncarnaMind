@@ -8,10 +8,12 @@
  */
 
 import { markdownToBlocks } from "../core/answers/markdown";
-import { CITATION_NODE, type ConversationAnswer } from "../core/api";
+import { forPage } from "../core/answers/pointersBack";
+import { CITATION_NODE, type ConversationAnswer, type MarkedCitation } from "../core/api";
 import { asGenerated } from "./aiText";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
 import { withFigures } from "./figureMarkers";
+import { withoutFraming } from "./noteBlocks";
 
 /**
  * While it is written, what would still change how it looks is held back, and
@@ -39,6 +41,60 @@ export function answerBlocks(
       ),
     ),
   );
+}
+
+/**
+ * A whole Answer as Add to note puts it in a page, for someone who never saw
+ * the conversation: without the model's framing, nor what points to an
+ * earlier Answer unless `question` asked about one. The Answer in the panel
+ * keeps both.
+ */
+export const pageBlocks = (
+  answer: Pick<ConversationAnswer, "text" | "citations" | "figures">,
+  question: string,
+): NodeJSON[] =>
+  withoutFraming(answerBlocks({ ...answer, text: forPage(answer.text, question), status: "done" }));
+
+/** The Citation markers an Answer's text shows, in order, one for each place: a marker used twice is two. */
+export function markersIn(text: string): number[] {
+  const markers: number[] = [];
+  withCitations(markdownToBlocks(text), (marker) => {
+    markers.push(marker);
+    return null;
+  });
+  return markers;
+}
+
+/** The markers an Answer's text shows that no Citation of it has, each once. */
+export function markersWithoutCitation(answer: {
+  text: string;
+  citations: readonly Pick<MarkedCitation, "marker">[];
+}): number[] {
+  const cited = new Set(answer.citations.map(({ marker }) => marker));
+  return [...new Set(markersIn(answer.text))].filter((marker) => !cited.has(marker));
+}
+
+/** Where the stand-ins of `shownRanges` count from: higher than any marker an Answer writes. */
+const STAND_IN = 9000;
+
+/**
+ * Which of the `ranges` of `text` (in order, apart) the Answer shows as text
+ * rather than inside code or maths, read as `answerBlocks` reads it: each is
+ * swapped for a marker, and the markers that come out are the shown ones.
+ */
+export function shownRanges(
+  text: string,
+  ranges: readonly { start: number; end: number }[],
+): boolean[] {
+  if (ranges.length === 0 || ranges.length > 999) return ranges.map(() => false);
+  let swapped = "";
+  let at = 0;
+  ranges.forEach(({ start, end }, index) => {
+    swapped += `${text.slice(at, start)}[^${STAND_IN + index}]`;
+    at = end;
+  });
+  const shown = new Set(markersIn(swapped + text.slice(at)));
+  return ranges.map((_, index) => shown.has(STAND_IN + index));
 }
 
 /** A space between two Citations, or between a Citation and the punctuation after it, is not kept (#612). */

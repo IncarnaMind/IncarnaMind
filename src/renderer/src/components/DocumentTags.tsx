@@ -1,15 +1,12 @@
 import type { ReactNode } from "react";
-import type { Document } from "../../../core/api";
-import { organizes } from "../../../shared/libraryModels";
+import type { Document, Tag } from "../../../core/api";
+import { organizeHeld, organizesNewDocuments } from "../../../shared/libraryModels";
 import { useT } from "../i18n";
-import { NEEDS_REVIEW } from "../libraryFilters";
 import { useAppStore } from "../store";
-import { CheckLineIcon, CloseLineIcon, TagLineIcon } from "./lineIcons";
-import { rowActionButtonClass, rowClass } from "./sidebarRows";
-import { ReviewRing, TagDot } from "./TagColour";
+import { taggingProblem } from "../taggingProblem";
+import { placeOf, resumeTagging } from "../taggingStop";
+import { TagLineIcon } from "./lineIcons";
 import { pickerLabel, TagPicker, tagPopoverClass, useTagPopover } from "./TagPicker";
-import { menuClass, menuItemClass, menuRuleClass, menuTitleClass } from "./ui";
-import { usePopoverMenu } from "./usePopoverMenu";
 
 /**
  * A Document's Tags button and the Tag picker it opens (see `TagPicker`):
@@ -64,17 +61,45 @@ export function DocumentTagMenu({
   );
 }
 
+type NoTagsWhy = "stopped" | "noTags" | "noFit";
+
+const whyKeys = {
+  stopped: "status.taggingStopped",
+  noTags: "tags.state.noTags",
+  noFit: "tags.state.noFit",
+} as const;
+
+function whyNoTags(item: Document, tags: readonly Tag[]): NoTagsWhy | null {
+  if (item.status !== "ready") return null;
+  if (item.tagging === "stopped") return "stopped";
+  if (item.tags.length > 0 || (item.tagging !== "tagged" && item.tagging !== "no-tags"))
+    return null;
+  if (tags.length === 0) return "noTags";
+  // Tagged before any Tag existed (before "no-tags" was kept), it was never checked against one.
+  const firstTag = tags.reduce(
+    (first, tag) => (tag.createdAt < first ? tag.createdAt : first),
+    "~",
+  );
+  return item.tagging === "tagged" && item.updatedAt >= firstTag ? "noFit" : null;
+}
+
+const footerButton =
+  "h-7 shrink-0 rounded-md px-2 text-[12px] font-semibold text-ink-secondary hover:bg-hover hover:text-ink";
+
 /**
- * Under a Document's Tag picker: where automatic tagging is (waiting,
- * working, failed), "Re-tag automatically" (Organize, once Folders are in
- * use) and "Manage Tags…".
+ * Under a Document's Tag picker: why it has no Tags (Tagging stopped, no Tag
+ * fits, no Tags yet), where automatic tagging is (waiting, working, failed)
+ * for those Organize doesn't hold, "Re-tag automatically" (Organize for those
+ * it holds) and "Manage Tags…".
  */
 export function DocumentTagFooter({ item, close }: { item: Document; close(): void }) {
   const t = useT();
   const library = useAppStore((state) => state.library);
-  const organizing = organizes(library);
+  const tags = useAppStore((state) => state.tags);
+  const why = whyNoTags(item, tags);
+  const held = organizeHeld(library).has(item.id);
   const taggingLine =
-    item.status !== "ready" || organizing
+    item.status !== "ready" || held
       ? null
       : item.tagging === "pending"
         ? t("tags.state.pending")
@@ -83,185 +108,90 @@ export function DocumentTagFooter({ item, close }: { item: Document; close(): vo
           : item.tagging === "failed"
             ? t("tags.state.failed")
             : null;
-  const footerButton =
-    "h-7 shrink-0 rounded-md px-2 text-[12px] font-semibold text-ink-secondary hover:bg-hover hover:text-ink";
   return (
-    <>
-      {taggingLine && (
-        <span
-          data-testid="document-tagging"
-          title={item.taggingError?.message}
-          className="flex max-w-28 items-center gap-1.5 px-1 text-[12px] text-ink-meta"
+    <div className="flex min-w-0 flex-1 flex-col">
+      {why && (
+        <div
+          data-testid="document-tagging-why"
+          data-why={why}
+          className="flex min-h-7 min-w-0 items-center gap-1.5 px-1 text-[12px] text-ink-meta"
         >
-          {item.tagging === "failed" && (
+          {why !== "noFit" && (
             <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-attention" />
           )}
-          <span className="truncate">{taggingLine}</span>
-        </span>
+          <span className="min-w-0 truncate">{t(whyKeys[why])}</span>
+          {why === "stopped" && (
+            <>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                data-testid="document-tagging-resume"
+                onClick={() => {
+                  close();
+                  void resumeTagging([placeOf(library, item.id)]).catch((error: unknown) =>
+                    useAppStore.getState().reportError(error),
+                  );
+                }}
+                className={footerButton}
+              >
+                {t("tagging.resume")}
+              </button>
+            </>
+          )}
+          {why === "noTags" && (
+            <>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                data-testid="document-tagging-add-tag"
+                onClick={() => {
+                  close();
+                  useAppStore.getState().openTagsDialog();
+                }}
+                className={footerButton}
+              >
+                {t("tags.state.addTag")}
+              </button>
+            </>
+          )}
+        </div>
       )}
-      {item.status === "ready" && (
+      <div className="flex min-h-8 min-w-0 items-center">
+        {taggingLine && (
+          <span
+            data-testid="document-tagging"
+            title={item.taggingError ? taggingProblem(item.taggingError, t) : undefined}
+            className="flex max-w-28 items-center gap-1.5 px-1 text-[12px] text-ink-meta"
+          >
+            {item.tagging === "failed" && (
+              <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-attention" />
+            )}
+            <span className="truncate">{taggingLine}</span>
+          </span>
+        )}
+        {item.status === "ready" && (
+          <button
+            type="button"
+            data-testid="retag-document"
+            onClick={() => {
+              close();
+              void useAppStore.getState().retagDocuments([item.id]);
+            }}
+            className={footerButton}
+          >
+            {t(held && organizesNewDocuments(library) ? "library.classify" : "tags.menu.retag")}
+          </button>
+        )}
         <button
           type="button"
-          data-testid="retag-document"
+          data-testid="open-tags-dialog"
           onClick={() => {
             close();
-            void useAppStore.getState().retagDocuments([item.id]);
+            useAppStore.getState().openTagsDialog();
           }}
           className={footerButton}
         >
-          {t(organizing ? "library.classify" : "tags.menu.retag")}
-        </button>
-      )}
-      <button
-        type="button"
-        data-testid="open-tags-dialog"
-        onClick={() => {
-          close();
-          useAppStore.getState().openTagsDialog();
-        }}
-        className={footerButton}
-      >
-        {t("tags.menu.manage")}
-      </button>
-    </>
-  );
-}
-
-/** A Tag filter value in words: a Tag's name, or "Needs review". */
-function useFilterName(): (value: string) => string {
-  const t = useT();
-  const tags = useAppStore((state) => state.tags);
-  return (value) =>
-    value === NEEDS_REVIEW
-      ? t("tags.filter.review")
-      : (tags.find((tag) => tag.id === value)?.name ?? value);
-}
-
-/** Each list of Documents looked at, and whether any of them has a Tag awaiting review. */
-const reviewingIn = new WeakMap<readonly Document[], boolean>();
-
-/**
- * Whether any Document has a Tag awaiting review: worked out once per list,
- * not at every change to the store (#156).
- */
-function anyAwaitsReview(documents: readonly Document[]): boolean {
-  let reviewing = reviewingIn.get(documents);
-  if (reviewing === undefined) {
-    reviewing = documents.some((item) => item.tags.some((link) => link.needsReview));
-    reviewingIn.set(documents, reviewing);
-  }
-  return reviewing;
-}
-
-/**
- * The Documents label's Tags button: a menu to show only the Documents with
- * any of the Tags chosen (choosing one again takes it out), and "Manage
- * Tags…". The Library's Tags filter is the same filter.
- */
-export function TagFilterMenu() {
-  const t = useT();
-  const tags = useAppStore((state) => state.tags);
-  const tagFilter = useAppStore((state) => state.tagFilter);
-  const reviewing = useAppStore((state) => anyAwaitsReview(state.documents));
-  const menu = usePopoverMenu();
-  const values = [...(reviewing || tagFilter.includes(NEEDS_REVIEW) ? [NEEDS_REVIEW] : [])];
-  const name = useFilterName();
-
-  return (
-    <>
-      <button
-        {...menu.buttonProps}
-        type="button"
-        data-testid="tag-filter-menu"
-        aria-label={t("tags.title")}
-        title={t("tags.filter.label")}
-        className={rowActionButtonClass}
-      >
-        <TagLineIcon className="size-4" />
-      </button>
-      <div
-        {...menu.menuProps}
-        role="menu"
-        aria-label={t("tags.title")}
-        data-testid="tag-filters"
-        className={menuClass}
-      >
-        {menu.open && (
-          <>
-            <p className={menuTitleClass}>{t("tags.filter.title")}</p>
-            {tags.length === 0 && <p className="px-2 py-1 text-ink-meta">{t("tags.menu.none")}</p>}
-            {[...values, ...tags.map((tag) => tag.id)].map((value) => {
-              const selected = tagFilter.includes(value);
-              const tag = tags.find((each) => each.id === value);
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  role="menuitemcheckbox"
-                  aria-checked={selected}
-                  data-testid="tag-filter"
-                  data-tag-id={value}
-                  title={tag?.description || undefined}
-                  onClick={() => {
-                    menu.close();
-                    useAppStore.getState().toggleTagFilter(value);
-                  }}
-                  className={`${menuItemClass} pl-2`}
-                >
-                  <CheckLineIcon
-                    className={`size-3.5 shrink-0 ${selected ? "text-ink" : "invisible"}`}
-                  />
-                  {tag ? <TagDot colour={tag.colour} /> : value === NEEDS_REVIEW && <ReviewRing />}
-                  <span className="truncate">{name(value)}</span>
-                </button>
-              );
-            })}
-            <div className={menuRuleClass} />
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="manage-tags"
-              onClick={() => {
-                menu.close();
-                useAppStore.getState().openTagsDialog();
-              }}
-              className={`${menuItemClass} pl-[30px]`}
-            >
-              {t("tags.menu.manage")}
-            </button>
-          </>
-        )}
-      </div>
-    </>
-  );
-}
-
-/** While the Documents are filtered by Tags: a row that says which, to clear it. */
-export function ActiveTagFilter() {
-  const t = useT();
-  const tagFilter = useAppStore((state) => state.tagFilter);
-  const name = useFilterName();
-  if (tagFilter.length === 0) return null;
-  return (
-    <div
-      data-testid="tag-filter-active"
-      data-tag-id={tagFilter.join(" ")}
-      className={rowClass(false)}
-    >
-      <div className="flex h-full w-full min-w-0 items-center gap-2 pr-1 pl-2">
-        <TagLineIcon className="size-4 shrink-0 text-ink-meta" />
-        <span className="min-w-0 flex-1 truncate">
-          {t("tags.filter.active", { tag: tagFilter.map(name).join(", ") })}
-        </span>
-        <button
-          type="button"
-          data-testid="tag-filter-clear"
-          aria-label={t("tags.filter.clear")}
-          title={t("tags.filter.clear")}
-          onClick={() => useAppStore.getState().setTagFilter([])}
-          className={rowActionButtonClass}
-        >
-          <CloseLineIcon className="size-3.5" />
+          {t("tags.menu.manage")}
         </button>
       </div>
     </div>

@@ -73,6 +73,7 @@ function playingCapture() {
       sink = given;
       given.state("microphone", "recording");
       return {
+        setMicrophone: () => {},
         stop: async () => {
           sink = null;
         },
@@ -115,7 +116,7 @@ describe.runIf(process.env.INCARNAMIND_LIVE_TRANSCRIPTS === "1")(
       });
       core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
       await core.updateSettings({
-        device: { meetingsEnabled: true, meetingNoticeAccepted: true, meetingSystemAudio: false },
+        device: { meetingNoticeAccepted: true, meetingSystemAudio: false },
       });
       await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
       const meeting = await core.createMeeting();

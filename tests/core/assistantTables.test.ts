@@ -6,6 +6,7 @@ import type { Document } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
+import { checkReply, isCheckRun } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { part, unzip } from "../helpers/docx";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
@@ -177,7 +178,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
     expect(changesIn(answer)).toEqual([
       { mindId: mind.id, created: false, request: expect.any(String), proposals: 1, tables: 1 },
     ]);
-    expect(lastResult(model)).toContain("Proposed 1 change in “Tides”");
+    expect(lastResult(model)).toContain("Changed 1 place in “Tides”");
     expect(lastResult(model)).toContain("One of them adds a table.");
     await resolveChanges(client, "accept");
     expect(tablesIn(readMind(client))).toEqual([EXPECTED_ROWS]);
@@ -187,18 +188,20 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
   test("an added table's cells hold checked Citations, and Word writes a table with footnotes", async () => {
     const model = scriptedModel(
       (call): ScriptedReply =>
-        citingFirst(call, () =>
-          called(call, "add_to_mind")
-            ? { text: "Done." }
-            : {
-                calls: [
-                  {
-                    tool: "add_to_mind",
-                    input: { after: "Summary", content: `## Key terms\n\n${TABLE}` },
+        isCheckRun(call)
+          ? checkReply(call, {})
+          : citingFirst(call, () =>
+              called(call, "add_to_mind")
+                ? { text: "Done." }
+                : {
+                    calls: [
+                      {
+                        tool: "add_to_mind",
+                        input: { after: "Summary", content: `## Key terms\n\n${TABLE}` },
+                      },
+                    ],
                   },
-                ],
-              },
-        ),
+            ),
     );
     const { core, mind, client } = await setUp(model);
 
@@ -214,6 +217,16 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         proposals: 2,
         tables: 1,
         cited: 1,
+        // The one cited claim was checked before it landed; the two with none are left to Check the rest (#1111, #1909).
+        selfCheck: {
+          request: expect.any(String),
+          blocks: expect.any(Array),
+          checkable: 3,
+          cited: 1,
+          sent: 1,
+          checked: 1,
+          failed: 0,
+        },
       },
     ]);
     expect(lastResult(model)).toContain("One of them adds a table.");

@@ -4,17 +4,25 @@ import { isHelpKeys } from "../shared/meetingHelp";
 import { DEFAULT_MIND_STYLE, isMindStyle } from "../shared/mindStyle";
 import {
   type ChatModelChoice,
+  CITATION_PLACES,
   type DeviceSettings,
   EXPORT_FORMATS,
   type ExportPreferences,
   type GettingStarted,
+  MARK_AI_TEXT_CHOICES,
+  MAX_MONTHLY_CAP,
+  type MarkAiTextChoice,
+  MODEL_SOURCE_CHOICES,
   MOTION_PREFERENCES,
+  type ModelSourceChoice,
   type MonthlyCap,
   type MotionPreference,
   type SandboxLevel,
   type Settings,
   type SharePagePreferences,
   SKILL_SCRIPT_LIMITS,
+  TRANSCRIPTION_ROUTES,
+  type TranscriptionRoute,
   type UserSettings,
   type WordExportPreferences,
 } from "./api";
@@ -38,6 +46,12 @@ const isPaneWidth = (value: unknown): value is number =>
 
 const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
 
+const isTipCounts = (value: unknown): value is Record<string, number> =>
+  isRecord(value) &&
+  Object.values(value).every(
+    (count) => typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= 100,
+  );
+
 const isNonBlankText = (value: unknown): value is string =>
   typeof value === "string" && value.trim() !== "" && value.length <= 500;
 
@@ -59,14 +73,27 @@ const hasOnly = (value: unknown, keys: readonly string[]): value is Record<strin
 const isQuestionsOption = (value: unknown) =>
   hasOnly(value, ["includeQuestions"]) && isBoolean(value.includeQuestions);
 
-const WORD_CHOICES = ["trackChanges", "markAiText", "commentFailedChecks"] as const;
+const WORD_SWITCHES = ["trackChanges", "commentFailedChecks"] as const;
 
-/** Word's choices of #107 came later: choices saved before them have none, and read as the defaults. */
+const isMarkAiTextAnswer = (value: unknown): value is MarkAiTextChoice | null =>
+  value === null || MARK_AI_TEXT_CHOICES.some((choice) => choice === value);
+
+/**
+ * Word's choices of #107 came later: choices saved before them have none, and read as the
+ * defaults. A boolean is still read for marking AI text, as `markAiTextRead` says.
+ */
 const isWordOption = (value: unknown) =>
   isQuestionsOption(value) ||
-  (hasOnly(value, ["includeQuestions", ...WORD_CHOICES]) &&
+  (hasOnly(value, ["includeQuestions", "markAiText", ...WORD_SWITCHES]) &&
     isBoolean(value.includeQuestions) &&
-    WORD_CHOICES.every((choice) => isBoolean(value[choice])));
+    WORD_SWITCHES.every((choice) => isBoolean(value[choice])) &&
+    (isBoolean(value.markAiText) || isMarkAiTextAnswer(value.markAiText)));
+
+function markAiTextRead(saved: unknown): MarkAiTextChoice | null {
+  // The switch was on by default, so a saved "on" was never an answer; "off" was a choice.
+  if (isMarkAiTextAnswer(saved)) return saved;
+  return saved === false ? "leave" : null;
+}
 
 const SHARE_PAGE_CHOICES = ["includeQuestions", "citationCards", "checkedLine"] as const;
 
@@ -85,7 +112,9 @@ const SHARE_PAGE_DEFAULTS: SharePagePreferences = {
  */
 const isExportPreferences = (value: unknown): value is ExportPreferences => {
   if (!isRecord(value)) return false;
-  const later = ["html", "share-page", "theirChanges"].filter((key) => Object.hasOwn(value, key));
+  const later = ["html", "share-page", "theirChanges", "citationPlace"].filter((key) =>
+    Object.hasOwn(value, key),
+  );
   return (
     hasOnly(value, ["format", "docx", "pdf", ...later]) &&
     EXPORT_FORMATS.some((format) => format === value.format) &&
@@ -95,16 +124,19 @@ const isExportPreferences = (value: unknown): value is ExportPreferences => {
     (!Object.hasOwn(value, "share-page") || isSharePageOption(value["share-page"])) &&
     (!Object.hasOwn(value, "theirChanges") ||
       value.theirChanges === "shown" ||
-      value.theirChanges === "accepted")
+      value.theirChanges === "accepted") &&
+    (!Object.hasOwn(value, "citationPlace") ||
+      CITATION_PLACES.some((place) => place === value.citationPlace))
   );
 };
 
-/** The Word choices on by default (#107), so a file says what IncarnaMind changed and wrote. */
+/** The Word switches on by default (#107), so a file says what IncarnaMind changed and checked. */
 const WORD_DEFAULTS: Omit<WordExportPreferences, "includeQuestions"> = {
   trackChanges: true,
-  markAiText: true,
+  markAiText: null,
   commentFailedChecks: true,
 };
+
 /** A cap of up to a million a month, in dollars or yuan. */
 const isMonthlyCap = (value: unknown): value is MonthlyCap =>
   isRecord(value) &&
@@ -112,7 +144,7 @@ const isMonthlyCap = (value: unknown): value is MonthlyCap =>
   typeof value.amount === "number" &&
   Number.isFinite(value.amount) &&
   value.amount >= 0 &&
-  value.amount <= 1_000_000 &&
+  value.amount <= MAX_MONTHLY_CAP &&
   (value.currency === "USD" || value.currency === "CNY");
 
 const userScope: Scope<UserSettings> = {
@@ -160,6 +192,7 @@ const userScope: Scope<UserSettings> = {
 const GETTING_STARTED_STEPS = [
   "started",
   "citationChecked",
+  "mistakeSeen",
   "indexed",
   "askedOwn",
   "askedReady",
@@ -167,11 +200,14 @@ const GETTING_STARTED_STEPS = [
 ];
 
 // Progress kept before the ready Question (#123) has no `askedReady`; `get` reads it as not asked.
+// Progress kept before the mistake had its own step has no `mistakeSeen`; `get` takes it from
+// `citationChecked`, so a first open already finished stays finished.
+const ADDED_LATER = ["askedReady", "mistakeSeen"];
 const isGettingStarted = (value: unknown): value is GettingStarted =>
   isRecord(value) &&
   Object.keys(value).every((key) => GETTING_STARTED_STEPS.includes(key)) &&
   GETTING_STARTED_STEPS.every(
-    (key) => isBoolean(value[key]) || (key === "askedReady" && value[key] === undefined),
+    (key) => isBoolean(value[key]) || (ADDED_LATER.includes(key) && value[key] === undefined),
   );
 
 const isScriptTimeout = (value: unknown): value is number =>
@@ -188,9 +224,12 @@ const deviceScope: Scope<DeviceSettings> = {
     sidebarWidth: 248,
     sidebarHidden: false,
     chatSetupDismissed: false,
+    sandboxNoticeDismissed: false,
+    openedBefore: false,
     gettingStarted: {
       started: false,
       citationChecked: false,
+      mistakeSeen: false,
       indexed: false,
       askedOwn: false,
       askedReady: false,
@@ -199,31 +238,41 @@ const deviceScope: Scope<DeviceSettings> = {
     skillScriptsEnabled: true,
     skillScriptTimeoutSeconds: SKILL_SCRIPT_LIMITS.defaultTimeoutSeconds,
     suggestionOffers: 0,
-    meetingsEnabled: false,
+    tips: {},
     meetingSystemAudio: true,
+    transcriptionRoute: null,
+    modelSource: "auto",
     meetingNoticeAccepted: false,
     meetingPanel: true,
     meetingPanelHidden: true,
     meetingHelpKeys: {},
     motion: "system",
+    lastChatModel: null,
   },
   validators: {
     sidebarWidth: isPaneWidth,
     sidebarHidden: isBoolean,
     chatSetupDismissed: isBoolean,
+    sandboxNoticeDismissed: isBoolean,
+    openedBefore: isBoolean,
     gettingStarted: isGettingStarted,
     skillScriptsEnabled: isBoolean,
     skillScriptTimeoutSeconds: isScriptTimeout,
     suggestionOffers: (value): value is number =>
       typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100,
-    meetingsEnabled: isBoolean,
+    tips: isTipCounts,
     meetingSystemAudio: isBoolean,
+    transcriptionRoute: (value): value is TranscriptionRoute | null =>
+      value === null || TRANSCRIPTION_ROUTES.some((route) => route === value),
+    modelSource: (value): value is ModelSourceChoice =>
+      MODEL_SOURCE_CHOICES.some((choice) => choice === value),
     meetingNoticeAccepted: isBoolean,
     meetingPanel: isBoolean,
     meetingPanelHidden: isBoolean,
     meetingHelpKeys: isHelpKeys,
     motion: (value): value is MotionPreference =>
       MOTION_PREFERENCES.some((preference) => preference === value),
+    lastChatModel: isModelSetting,
   },
 };
 
@@ -308,12 +357,21 @@ export function createSettings(
     const stored: Partial<ExportPreferences> = user.exportOptions;
     user.exportOptions = {
       ...user.exportOptions,
-      docx: { ...WORD_DEFAULTS, ...user.exportOptions.docx },
+      docx: {
+        ...WORD_DEFAULTS,
+        ...user.exportOptions.docx,
+        markAiText: markAiTextRead(user.exportOptions.docx.markAiText),
+      },
       html: stored.html ?? { includeQuestions: false },
       "share-page": stored["share-page"] ?? SHARE_PAGE_DEFAULTS,
     };
     const device = read(db, deviceScope);
-    device.gettingStarted = { ...deviceScope.defaults.gettingStarted, ...device.gettingStarted };
+    const progress: Partial<GettingStarted> = device.gettingStarted;
+    device.gettingStarted = {
+      ...deviceScope.defaults.gettingStarted,
+      ...progress,
+      mistakeSeen: progress.mistakeSeen ?? progress.citationChecked ?? false,
+    };
     const language = resolveLanguage(user.language, systemLanguages());
     const author = user.authorName ?? systemUserName().trim();
     return { user, device, language, scriptSandbox, meetingAudio, author };

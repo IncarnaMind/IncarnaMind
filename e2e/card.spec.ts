@@ -16,7 +16,6 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  showSourceLocations,
   widthOf,
 } from "./app";
 
@@ -90,6 +89,8 @@ test("the Mind sits in a card 8px from the sidebar and the window's edges, with 
     const band = await boxOf(window.getByTestId("tab-strip"));
     expect(band).toMatchObject({ x: card.x, y: 8, width: card.width, height: 36 });
     expect(header.y + header.height).toBe(band.y + band.height);
+    // Tabs that don't all fit rest on whole tabs, the shown one in view: back to the first.
+    await window.getByTestId("tab-list").evaluate((list) => list.scrollTo({ left: 0 }));
     await expectFirstTabAtCardStart(window, window.getByTestId("mind-tab").first());
 
     if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, `shell-${width}.png`) });
@@ -194,11 +195,12 @@ test("the divider in the gap before the card is grabbed with the mouse and moved
   await app.close();
 });
 
-test("the + menu in the sidebar header offers New Mind, Import a Word file…, Compare Documents…, Verify a document…, New Folder, From starter folders…, Add Documents…, Add a web page…, Find sources… and Link a folder…, by mouse and by keyboard", async () => {
+test("the + menu in the sidebar header offers New Mind, Add Documents…, New Folder and More, with the rest under More, by mouse and by keyboard", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const plus = window.getByTestId("plus-menu");
   const menu = window.getByRole("menu", { name: "New or add" });
+  const more = window.getByRole("menu", { name: "More" });
 
   // It sits at the header's right end, 28px, with a name for a screen reader.
   const header = await boxOf(window.getByTestId("sidebar-header"));
@@ -208,34 +210,47 @@ test("the + menu in the sidebar header offers New Mind, Import a Word file…, C
   await expect(plus).toHaveAccessibleName("New or add");
   await expect(plus).toHaveAttribute("aria-haspopup", "menu");
 
-  // Opened by the mouse, its ten actions are menu items, and the first has the focus.
+  // Opened by the mouse, its four rows are menu items, each with its keys, and the first has the focus.
   await window.mouse.move(button.x - 40, button.y + 14);
   await window.mouse.move(button.x + 14, button.y + 14, { steps: 6 });
   await window.mouse.down();
   await window.mouse.up();
   await expect(menu).toBeVisible();
   const items = menu.getByRole("menuitem");
-  await expect(items).toHaveText([
-    /New Mind/,
-    /Import a Word file…/,
-    /Compare Documents…/,
-    /Verify a document…/,
-    /New Folder/,
-    /From starter folders…/,
-    /Add Documents…/,
-    /Add a web page…/,
-    /Find sources…/,
-    /Link a folder…/,
-  ]);
+  await expect(items).toHaveText([/New Mind/, /Add Documents…/, /New Folder/, /More/]);
+  const mod = process.platform === "darwin" ? "⌘" : "Ctrl+";
+  await expect(items.nth(0)).toContainText(`${mod}T`);
+  await expect(items.nth(1)).toContainText(`${mod}O`);
   await expect(items.first()).toBeFocused();
   await expect(plus).toHaveAttribute("aria-expanded", "true");
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "shell-menu-en.png") });
 
-  // The arrow keys, Home and End move between them; Esc closes the menu and returns to "+".
+  // More opens beside it as the pointer comes onto it, with the rest.
+  await items.nth(3).hover();
+  await expect(more).toBeVisible();
+  await expect(more.getByRole("menuitem")).toHaveText([
+    /Import a Word file…/,
+    /Record a meeting/,
+    /Compare Documents…/,
+    /Verify a document…/,
+    /From starter Folders…/,
+    /Add a web page…/,
+    /Find sources…/,
+    /Link a folder…/,
+  ]);
+
+  // The arrow keys, Home and End move between the rows; → opens More, ← closes it; Esc closes the
+  // menu and returns to "+".
+  await items.first().focus();
   await window.keyboard.press("ArrowDown");
   await expect(items.nth(1)).toBeFocused();
   await window.keyboard.press("End");
-  await expect(items.nth(9)).toBeFocused();
+  await expect(items.nth(3)).toBeFocused();
+  await window.keyboard.press("ArrowRight");
+  await expect(more.getByRole("menuitem").first()).toBeFocused();
+  await window.keyboard.press("ArrowLeft");
+  await expect(more).toBeHidden();
+  await expect(items.nth(3)).toBeFocused();
   await window.keyboard.press("ArrowDown");
   await expect(items.first()).toBeFocused();
   await window.keyboard.press("Escape");
@@ -260,20 +275,24 @@ test("the + menu in the sidebar header offers New Mind, Import a Word file…, C
   await plus.focus();
   await window.keyboard.press("Enter");
   await expect(items.first()).toBeFocused();
-  for (let step = 0; step < 6; step++) await window.keyboard.press("ArrowDown");
+  await window.keyboard.press("ArrowDown");
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("document-list-item")).toHaveCount(1);
 
-  // Link a folder… asks first, as "Add folder…" does.
+  // More › Link a folder… asks first, as "Add folder…" does.
   const folder = join(sources, "Library");
   await mkdir(folder);
   await writeFile(join(folder, "Brew.txt"), "Water at eighty degrees.\n");
   await plus.focus();
   await window.keyboard.press("Enter");
   await expect(items.first()).toBeFocused();
-  const dialog = await previewLink(app, window, folder, items.nth(9));
+  await window.keyboard.press("End");
+  await window.keyboard.press("Enter");
+  await expect(more.getByRole("menuitem").first()).toBeFocused();
+  await window.keyboard.press("End");
+  await expect(more.getByRole("menuitem").last()).toBeFocused();
+  const dialog = await previewLink(app, window, folder, more.getByRole("menuitem").last());
   await confirmLink(dialog);
-  await showSourceLocations(window);
   await expect(linkedFolderRow(window, "Library")).toHaveCount(1);
   await app.close();
 });
@@ -290,12 +309,17 @@ test("the + menu and the shell speak Chinese too", async () => {
   await plus.click();
   await expect(window.getByRole("menuitem")).toHaveText([
     /新建 Mind/,
+    /添加文档…/,
+    /新建文件夹/,
+    /更多/,
+  ]);
+  await window.getByTestId("plus-more").hover();
+  await expect(window.getByRole("menu", { name: "更多" }).getByRole("menuitem")).toHaveText([
     /导入 Word 文件…/,
+    /录制会议/,
     /对比文档…/,
     /核对文档…/,
-    /新建文件夹/,
     /从预设文件夹新建…/,
-    /添加文档…/,
     /添加网页…/,
     /查找资料…/,
     /添加同步文件夹…/,
