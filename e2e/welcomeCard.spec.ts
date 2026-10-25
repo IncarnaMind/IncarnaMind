@@ -919,7 +919,7 @@ test("a red ≠ opened in a Mind of the User's own still records it (#1489)", as
   await slideSelect(window, line, "Harbours", { line, words: "months." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   const own = window.getByTestId("claim-mark");
   await expect(own).toHaveAttribute("data-check", "contradicted");

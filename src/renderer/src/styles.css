@@ -4304,9 +4304,12 @@
     text-decoration: line-through 1px var(--color-ink-meta);
     user-select: none;
   }
-  .mind-editor .applied-old--block {
-    display: block;
+  .mind-editor div.applied-old--block {
     margin-block: 4px;
+  }
+  /* A Block taken out reads as it was, a list or table too, every line of it struck. */
+  .mind-editor .applied-old--block :is(p, h1, h2, h3, h4, h5, h6, li, td, th) {
+    text-decoration: line-through 1px var(--color-ink-meta);
   }
   /*
    * How a change reads (#1028; DESIGN.md, AI edits): a struck run and its
