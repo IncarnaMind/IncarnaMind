@@ -309,7 +309,7 @@ function ResultBody({
           <ExportAsks result={result} />
         ) : result.state === "not-laid-out" ? (
           <ProblemLine testId="export-problem" action={fix()} className="py-1">
-            {t("error.pdf.notLaidOut")}
+            {t("export.notLaidOut")}
           </ProblemLine>
         ) : (
           <ProblemLine testId="export-problem" action={fix()} className="py-1">

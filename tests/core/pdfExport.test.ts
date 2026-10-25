@@ -271,10 +271,9 @@ describe("exporting a Mind to PDF", () => {
     });
     const other = await failing.createMind({ title: "Tides" });
     await failing.setOutputLocation(sources);
-    // The PDF wasn't laid out: the window offers to try again, not another folder (#1455).
     await expect(failing.saveMindExport(other.id, { format: "pdf" })).rejects.toMatchObject({
       name: "PdfLayoutError",
-      message: "Couldn’t lay out the PDF, so nothing was saved.",
+      message: "Couldn’t lay out the PDF.",
       wording: { key: "error.pdf.notLaidOut" },
       cause: new Error("The PDF took too long to lay out."),
     });

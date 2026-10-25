@@ -767,7 +767,7 @@ describe("Saving a check record", () => {
       failures: [
         {
           format: "pdf",
-          message: "Couldn’t lay out the PDF, so nothing was saved.",
+          message: "Couldn’t lay out the PDF.",
           wording: { key: "error.pdf.notLaidOut" },
         },
       ],

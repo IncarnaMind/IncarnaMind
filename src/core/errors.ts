@@ -114,7 +114,7 @@ export class FileWriteCancelledError extends TranslatableError {
   }
 }
 
-/** Thrown when a PDF couldn't be laid out or printed: nothing was saved, and the Output location is fine. */
+/** Thrown when a PDF couldn't be laid out or printed: no PDF was saved, and the Output location is fine. */
 export class PdfLayoutError extends TranslatableError {
   override name = "PdfLayoutError";
   constructor(options?: ErrorOptions) {

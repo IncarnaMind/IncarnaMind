@@ -476,7 +476,7 @@ describe("the source pack: after the file is gone, and without the page", () => 
 
     await expect(core.saveMindExport(mind.id, { format: "source-pack" })).rejects.toMatchObject({
       name: "PdfLayoutError",
-      message: "Couldn’t lay out the PDF, so nothing was saved.",
+      message: "Couldn’t lay out the PDF.",
       wording: { key: "error.pdf.notLaidOut" },
       cause: new Error("The PDF took too long to lay out."),
     });
