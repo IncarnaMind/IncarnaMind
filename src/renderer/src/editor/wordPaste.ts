@@ -1,6 +1,6 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { drawnMarker, groupWordLists, type WordListPlace } from "../../../shared/wordLists";
+import { drawnMarkers, groupWordLists, type WordListPlace } from "../../../shared/wordLists";
 import { headingLevelOfStyleName, mindHeadingLevel } from "../../../shared/wordStyles";
 
 const FROM_WORD = /urn:schemas-microsoft-com:office:word|class=["']?Mso|mso-list:/i;
@@ -38,8 +38,9 @@ function listParagraphOf(node: Node): ListParagraph | null {
 }
 
 /**
- * Each run of list paragraphs as the editor's lists when it can draw every marker in the run; a
- * run with any other numbering style stays paragraphs, each with its number typed before its words.
+ * Each run of list paragraphs as the editor's lists, each Word list in the scheme its markers are
+ * written in (#1419); a list in any other numbering style stays paragraphs, each with its number
+ * typed before its words.
  */
 function listBlocks(children: readonly Node[], document: Document) {
   const found = children.map(listParagraphOf);
@@ -54,15 +55,32 @@ function listBlocks(children: readonly Node[], document: Document) {
       at++;
       continue;
     }
-    const markers = run.map((each) => drawnMarker(each.shown));
-    const drawn = markers.every((marker) => marker !== null);
-    for (const [index, each] of run.entries()) {
-      const marker = drawn ? markers[index] : null;
+    const drawn = new Map<ListParagraph, NonNullable<ReturnType<typeof drawnMarkers>>[number]>();
+    for (const listId of new Set(run.map((each) => each.listId))) {
+      const ofList = run.filter((each) => each.listId === listId);
+      const markers = drawnMarkers(
+        ofList.map((each) => ({ marker: each.shown, level: each.level })),
+      );
+      for (const [index, each] of ofList.entries()) {
+        const marker = markers?.[index];
+        if (marker) drawn.set(each, marker);
+      }
+    }
+    for (const each of run) {
+      const marker = drawn.get(each) ?? null;
       if (marker) each.marker?.remove();
       else each.marker?.replaceWith(`${each.shown} `);
       blocks.push({
         node: paragraphOf(each.element, document),
-        list: marker ? { listId: each.listId, level: each.level, ...marker } : null,
+        list: marker
+          ? {
+              listId: each.listId,
+              level: each.level,
+              ...(marker.ordered
+                ? { ordered: true, number: marker.number, scheme: marker.scheme }
+                : { ordered: false, number: 1 }),
+            }
+          : null,
       });
     }
     at = end;
@@ -138,9 +156,15 @@ export function fromWord(html: string): string {
     if (!children.some((child) => listParagraphOf(child))) return;
     container.replaceChildren(
       ...groupWordLists<Node>(listBlocks(children, document), {
-        list: (place) => {
+        list: (place, startLevel) => {
           const list = document.createElement(place.ordered ? "ol" : "ul");
           if (place.ordered && place.number !== 1) list.setAttribute("start", String(place.number));
+          if (place.ordered && place.scheme && place.scheme !== "default") {
+            list.setAttribute("data-numbering", place.scheme);
+          }
+          if (place.ordered && startLevel > 0) {
+            list.setAttribute("data-start-level", String(startLevel));
+          }
           return list;
         },
         item: (list, block) => {

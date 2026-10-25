@@ -282,7 +282,7 @@ describe("exporting a Mind", () => {
     // The .docx's compressed bytes depend on zlib's build, so they are checked against this
     // Node's deflate, and the rest is pinned (see `zipFingerprint`).
     expect(zipFingerprint(await exported("docx"))).toBe(
-      "6a5db33f9993e45e655fb7aa840e136279ac02117a6e9cde73338b08466f80a5",
+      "37d4b4388f05af92b219559087aa58c649ba0aedaf510b6a91e8dc27040ea5ea",
     );
   });
 
@@ -291,19 +291,19 @@ describe("exporting a Mind", () => {
       "the sample, with its Question",
       "sample",
       { includeQuestions: true },
-      "3753007f9f9eabf272117b41067bdd6708cfb17a2bae63e7d07b3ba17ba529b0",
+      "7e49fd33d0aca4c4efb1098a9aac24363c8470f3ec084f64dea769ba81be5e03",
     ],
     [
       "the sample, in Chinese, on a computer in China (A4)",
       "sample",
       { language: "zh-CN", region: "CN" },
-      "d89a258688b8dbbb130669a52526768680538aa43c6b8e61390055f299a9bac2",
+      "6a5ddfe6b09d64eb8a168bba49091bd06fcbefb0e712d314baa2b83d24ef8d47",
     ],
     [
       "quotes, rules, links, marks, breaks, tables, images and Locations",
       "rest",
       {},
-      "86a0b1422bc404bb4a8d796c8ba495d60aca2d3257be3ae11f070052360e3fa0",
+      "b79bca0bfcb3d2983a19c3b5c3b5d89ca8115571ffc23d49e08d6287edbfcd6a",
     ],
   ] as const)(
     "the bytes of a .docx export don't change either: %s",
@@ -964,7 +964,7 @@ describe("exporting a Mind", () => {
       "2": "Tides, p. 2 [unverified]",
     });
     expect(zipFingerprint(exported.data)).toBe(
-      "088a3a76cc8283ce7a9a3c60e8d2bf313311821ec8cb460c9619fb922bf5cde4",
+      "e2dc23dd2b96504fb3e5b08d515996adac6dc879a22e209592093f9edefe08ea",
     );
   });
 

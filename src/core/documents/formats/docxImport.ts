@@ -25,6 +25,7 @@
  * the XML parser's refusal of a DOCTYPE apply (./zip, ./xml).
  */
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
+import { type NumberingScheme, schemeOfWordLevels } from "../../../shared/numbering";
 import { NODE_CHARACTER, targetHash } from "../../../shared/proposals";
 import { groupWordLists } from "../../../shared/wordLists";
 import { runLookOf } from "../../../shared/wordLook";
@@ -211,6 +212,8 @@ function styleChain(styles: Styles, id: string | null): ParagraphStyle[] {
 interface ListLevel {
   format: string;
   start: number;
+  /** Its number's text, "%1." or "(%2)": the scheme it is written in (#1419). */
+  text: string;
 }
 
 interface Numbering {
@@ -223,8 +226,10 @@ interface Numbering {
 function readLevel(lvl: XmlElement): Partial<ListLevel> {
   const format = child(lvl, "w:numFmt")?.attrs["w:val"];
   const start = child(lvl, "w:start")?.attrs["w:val"];
+  const text = child(lvl, "w:lvlText")?.attrs["w:val"];
   return {
     ...(format !== undefined && { format }),
+    ...(text !== undefined && { text }),
     ...(start !== undefined && Number.isFinite(Number(start)) && { start: Number(start) }),
   };
 }
@@ -243,6 +248,7 @@ function readNumbering(xml: string | undefined, styles: Styles): Numbering {
         levels.set(Number(lvl.attrs["w:ilvl"] ?? 0), {
           format: level.format ?? "decimal",
           start: level.start ?? 1,
+          text: level.text ?? "",
         });
       }
       abstracts.set(id, levels);
@@ -963,7 +969,23 @@ class Reader {
   private blocks(container: XmlElement, into: NodeJSON[], inCell: boolean): void {
     const items: Item[] = [];
     this.collect(container, items, inCell);
-    into.push(...groupLists(items));
+    into.push(...groupLists(items, (numId, used) => this.schemeOf(numId, used)));
+  }
+
+  /** The scheme a numbered list is written in at the levels its items use; null, another numbering. */
+  private schemeOf(numId: string, used: readonly number[]): NumberingScheme | null {
+    const num = this.numbering.nums.get(numId);
+    const base = num ? this.numbering.abstracts.get(num.abstract) : undefined;
+    const levels = new Map<number, { format: string; text: string }>();
+    for (const level of used) {
+      const override = num?.overrides.get(level);
+      const own = base?.get(level);
+      levels.set(level, {
+        format: override?.format ?? own?.format ?? "decimal",
+        text: override?.text ?? own?.text ?? "",
+      });
+    }
+    return schemeOfWordLevels(levels, used);
   }
 
   private collect(container: XmlElement, items: Item[], inCell: boolean): void {
@@ -1870,8 +1892,21 @@ function rowsOf(
   return rows;
 }
 
-const groupLists = (items: readonly Item[]): NodeJSON[] =>
-  groupWordLists(
+function groupLists(
+  items: readonly Item[],
+  schemeOf: (numId: string, used: readonly number[]) => NumberingScheme | null,
+): NodeJSON[] {
+  const used = new Map<string, Set<number>>();
+  for (const { list } of items) {
+    if (!list?.ordered) continue;
+    const levels = used.get(list.numId) ?? new Set();
+    levels.add(list.level);
+    used.set(list.numId, levels);
+  }
+  const schemes = new Map(
+    [...used].map(([numId, levels]) => [numId, schemeOf(numId, [...levels])]),
+  );
+  return groupWordLists(
     items.map(({ node, list }) => ({
       node,
       list: list && {
@@ -1879,14 +1914,20 @@ const groupLists = (items: readonly Item[]): NodeJSON[] =>
         level: list.level,
         ordered: list.ordered,
         number: list.number,
+        ...(list.ordered && { scheme: schemes.get(list.numId) ?? undefined }),
       },
     })),
     {
-      list: (place) =>
+      list: (place, startLevel) =>
         place.ordered
           ? {
               type: "orderedList",
-              attrs: { [BLOCK_ID_ATTRIBUTE]: newId(), start: place.number },
+              attrs: {
+                [BLOCK_ID_ATTRIBUTE]: newId(),
+                start: place.number,
+                ...(place.scheme && place.scheme !== "default" && { numbering: place.scheme }),
+                ...(startLevel > 0 && { startLevel }),
+              },
               content: [],
             }
           : { type: "bulletList", attrs: { [BLOCK_ID_ATTRIBUTE]: newId() }, content: [] },
@@ -1898,3 +1939,4 @@ const groupLists = (items: readonly Item[]): NodeJSON[] =>
       },
     },
   );
+}

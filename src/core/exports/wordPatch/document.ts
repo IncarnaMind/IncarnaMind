@@ -918,11 +918,14 @@ export class DocumentPatch {
     const numId = this.numIdOf(list);
     properties.set(
       "w:numPr",
-      `<w:numPr><w:ilvl w:val="${Math.min(list.depth, 8)}"/><w:numId w:val="${numId}"/></w:numPr>`,
+      `<w:numPr><w:ilvl w:val="${list.level}"/><w:numId w:val="${numId}"/></w:numPr>`,
     );
   }
 
-  /** The numbering a list of the Mind is written with: that of its imported items, else a new one. */
+  /**
+   * The numbering a list of the Mind is written with: that of its imported items, else a new one,
+   * shared by a numbered list and the numbered lists nested in it.
+   */
   private numIdOf(list: ListPlace): number {
     const known = this.lists.get(list.list);
     if (known !== undefined) return known;
@@ -935,9 +938,15 @@ export class DocumentPatch {
         return Number(numId);
       }
     }
+    const outer = list.numbered ? this.lists.get(list.numbered.outer) : undefined;
+    if (outer !== undefined) {
+      this.lists.set(list.list, outer);
+      return outer;
+    }
     const start = Math.max(Math.trunc(Number(list.list.attrs?.start)) || 1, 0);
-    const numId = this.input.target.list(list.ordered, Math.min(list.depth, 8), start);
+    const numId = this.input.target.list(list.numbered?.scheme ?? "bullet", list.level, start);
     this.lists.set(list.list, numId);
+    if (list.numbered) this.lists.set(list.numbered.outer, numId);
     return numId;
   }
 

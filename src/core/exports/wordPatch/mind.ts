@@ -8,6 +8,7 @@
  */
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
+import { isNumberingScheme, itemLevel, type NumberingScheme } from "../../../shared/numbering";
 import { readTextColor, readTextFont, readTextSize } from "../../../shared/paragraphFormat";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { readWordAtom } from "../../../shared/wordFiles";
@@ -216,6 +217,10 @@ export interface ListPlace {
   list: NodeJSON;
   ordered: boolean;
   depth: number;
+  /** Its items' level in Word's numbering: how deep, plus the level its outermost list starts at. */
+  level: number;
+  /** A numbered list's scheme, and the outermost numbered list it is in, whose numbering it shares. */
+  numbered: { scheme: NumberingScheme; outer: NodeJSON } | null;
 }
 
 /** What a counterpart is, as the export writes it. */
@@ -278,14 +283,25 @@ function collect(
       pending: { ...within.pending, ...nodePendings(node, within.review) },
     };
     if (LISTS.has(node.type)) {
-      const place = (depth: number): ListPlace => ({
-        list: node,
-        ordered: node.type === "orderedList",
-        depth,
-      });
+      const ordered = node.type === "orderedList";
       const depth = list ? list.depth + 1 : 0;
+      const outer = ordered && list?.numbered ? list.numbered : null;
+      const scheme = node.attrs?.numbering;
+      const place: ListPlace = {
+        list: node,
+        ordered,
+        depth,
+        level: list
+          ? Math.min(list.level + 1, 8)
+          : itemLevel(0, Number(node.attrs?.startLevel) || 0),
+        numbered:
+          outer ??
+          (ordered
+            ? { scheme: isNumberingScheme(scheme) ? scheme : "default", outer: node }
+            : null),
+      };
       for (const item of node.content ?? []) {
-        collect(item.content ?? [], keyOf, place(depth), into, {
+        collect(item.content ?? [], keyOf, place, into, {
           ...inner,
           pending: { ...inner.pending, ...nodePendings(item, within.review) },
         });
