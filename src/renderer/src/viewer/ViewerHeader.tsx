@@ -54,6 +54,7 @@ export function ViewerHeader({
   leading,
   children,
   openable = true,
+  onRetry,
 }: {
   leading?: ReactNode;
   children?: ReactNode;
@@ -62,6 +63,7 @@ export function ViewerHeader({
    * open. Nor is there while the Document says its file is missing or out of reach.
    */
   openable?: boolean;
+  onRetry?: () => void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -214,6 +216,7 @@ ${sourceOf(document)}`
             target={{ kind: "document", id: document.id }}
             label={t("documents.more", { name: displayName(document) })}
             here={{
+              ...(onRetry && { "document.retry": onRetry }),
               "document.rename": rename.start,
               "document.moveTo": () => moveDocumentsBeside(header.current, [document.id]),
             }}

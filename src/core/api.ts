@@ -185,8 +185,13 @@ export interface CreateMindInput {
  *   `chosen` in the `claimCheck` mark's `scope`. An older version would read
  *   it as made in the Mind's Folder or in every Document, and say so on its
  *   card. Older content is version 26 content as it is.
+ * - 27: a numbered list's scheme, start level and continuation (#1419): the
+ *   `numbering`, `startLevel` and `continues` attributes on an ordered list,
+ *   which an older version's editor would strip, so it would draw the list as
+ *   a "1. a. i." list from level 0 that starts again. Older content is
+ *   version 27 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 26;
+export const CONTENT_SCHEMA_VERSION = 27;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1018,6 +1023,8 @@ export type MindProblem =
   | { kind: "no-mind" }
   | { kind: "not-found"; name: string }
   | { kind: "several"; name: string }
+  /** Minds of close titles, and the User didn't pick which one was meant (#1865). */
+  | { kind: "not-picked"; name: string }
   | { kind: "no-heading"; mindId: string; heading: string }
   | { kind: "no-place"; mindId: string; place: string }
   | { kind: "several-places"; mindId: string; name: string; adding: boolean }
@@ -1095,6 +1102,12 @@ export interface MindChange {
    * are gone, and its request holds the new text and the rest of them.
    */
   revised?: true;
+  /**
+   * Of the text it revised, what earlier calls of the same Answer had written: their counts
+   * already hold it, so the Answer's card counts it once. Absent: none, or the text was an
+   * earlier Answer's.
+   */
+  replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
@@ -1105,15 +1118,21 @@ export interface MindChange {
    */
   checking?: number;
   /**
-   * The check of the sentences with Citations it wrote, once over: how many there were
-   * (`cited`), how many it sent to be checked (`sent`), how many got a verdict
-   * (`checked`) and how many couldn't be checked (`failed`), and what stopped it, if
-   * anything did. Those it couldn't check, or didn't, are marked not checked, under
-   * `request`; `blocked` says how many of them the User's own choice kept from being sent
-   * (the flow turned off, or Local mode), which checking again can't change. Absent: none was checked.
+   * The check of the sentences it wrote that a check reads (#1909: every claim,
+   * cited or not), once over: how many there were (`checkable`), how many have a
+   * Citation (`cited`), how many it sent to be checked (`sent`), how many got a
+   * verdict (`checked`) and how many couldn't be checked (`failed`), and what
+   * stopped it, if anything did. Those it couldn't check, or didn't, are marked
+   * not checked, under `request`; `blocked` says how many of them the User's own
+   * choice kept from being sent (the flow turned off, or Local mode), which
+   * checking again can't change. Absent: none was checked.
    */
   selfCheck?: {
     request: string;
+    /** The write's top-level Blocks; absent on a check recorded before #1909. */
+    blocks?: string[];
+    /** Absent on a check recorded before #1909: `cited` was what it checked then. */
+    checkable?: number;
     cited: number;
     sent: number;
     checked: number;
@@ -2079,8 +2098,8 @@ export interface UserSettings {
 
 /**
  * The "Get started" checklist of a first run, at the bottom of the sidebar:
- * check a Citation in the example Mind, add Documents or connect an app, and
- * ask a Question of one's own. Each step ticks itself as the User does it.
+ * add Documents or connect an app, ask a Question of one's own, and check a
+ * Citation. Each step ticks itself as the User does it.
  */
 export interface GettingStarted {
   /** Shown: the examples were made on this device's first run. */
