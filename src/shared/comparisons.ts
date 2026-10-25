@@ -82,15 +82,20 @@ export function cellToFill(cell: Pick<ComparisonCellAttributes, "status" | "prob
 /**
  * What a cell without an Answer says, as a message: "not found", "not
  * checked: cost cap"… The editor shows it in the cell, after a "!", and the
- * exports write it in its place.
+ * exports write it in its place. `message` is the cell's own (see `ComparisonProblem`).
  */
-export function cellProblemMessage(problem: ComparisonProblem): {
+export function cellProblemMessage(
+  problem: ComparisonProblem,
+  message: string | null = null,
+): {
   key: MessageKey;
   params?: MessageParams;
 } {
   switch (problem) {
     case "not-found":
       return { key: "comparison.cell.notFound" };
+    case "scale-changed":
+      return { key: "comparison.cell.scaleChanged", params: { amount: message ?? "" } };
     case "nothing-to-search":
       return { key: "comparison.cell.nothingToSearch" };
     case "source-removed":
@@ -109,6 +114,10 @@ export function cellProblemMessage(problem: ComparisonProblem): {
       return { key: "comparison.cell.rateLimit" };
     case "network":
       return { key: "comparison.cell.network" };
+    case "out-of-credit":
+      return { key: "comparison.cell.outOfCredit" };
+    case "region":
+      return { key: "comparison.cell.region" };
     case "consent-declined":
       return { key: "comparison.cell.consentDeclined" };
     case "local-mode":

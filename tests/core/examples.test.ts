@@ -2,6 +2,7 @@ import { access, readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test, vi } from "vitest";
+import * as Y from "yjs";
 import {
   ANSWER_BLOCK,
   CITATION_NODE,
@@ -46,6 +47,26 @@ function citationsOf(doc: ProseMirrorNode): Record<string, unknown>[] {
     if (node.type.name === CITATION_NODE) found.push(node.attrs);
   });
   return found;
+}
+
+/** Puts a copy of each Citation of the example's Answer into a Mind, as Add to note does. */
+async function copyCitations(core: Core, fromMindId: string, toMindId: string): Promise<number> {
+  const from = await connectToMind(core, fromMindId);
+  const to = await connectToMind(core, toMindId);
+  const copies: Y.XmlElement[] = [];
+  const collect = (parent: Y.XmlFragment | Y.XmlElement) => {
+    for (const child of parent.toArray()) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      if (child.nodeName === CITATION_NODE) copies.push(child.clone());
+      else collect(child);
+    }
+  };
+  collect(from.blocks);
+  const paragraph = new Y.XmlElement("paragraph");
+  paragraph.insert(0, copies);
+  to.blocks.push([paragraph]);
+  await to.settled();
+  return copies.length;
 }
 
 /** Each check's mark, once, with the text it marks. */
@@ -448,6 +469,173 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
         EXAMPLE_SETS.credit["zh-CN"].title,
       ]);
     });
+  });
+
+  // protects=an example whose Documents a Conversation Citation quotes keeps its language and Documents when the interface language changes (#1794), so the Citation still opens its page; fails_when=the Documents are swapped and the Citation says its Linked folder was removed; no_claim=what the viewer draws.
+  test("an example whose Documents a Conversation Citation uses keeps its language and Documents", async () => {
+    const { core } = await startWithExamples("en");
+    const made = await core.createExamples();
+    await foundIn(core, made.mindId as string, "Net debt to EBITDA");
+
+    const { conversationId } = await core.askReadyQuestion();
+    const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
+    expect(cited).toHaveLength(2);
+
+    // updateSettings returns once the examples have followed the language, or not.
+    await core.updateSettings({ user: { language: "zh-CN" } });
+
+    expect((await core.listMinds()).map((mind) => mind.title)).toEqual([
+      "Draft: credit committee paper",
+    ]);
+    const stillThere = (await core.listDocuments()).map((each) => each.id);
+    for (const document of cited) expect(stillThere).toContain(document.id);
+    const messages = (await core.getConversation(conversationId)).messages;
+    const answer = messages.find((message) => message.kind === "answer");
+    if (answer?.kind !== "answer") throw new Error("The ready Question's Answer is gone.");
+    expect(new Set(answer.citations.map((each) => each.documentId))).toEqual(
+      new Set(cited.map((each) => each.id)),
+    );
+
+    // Once the Citation is gone, the next change of language swaps the example as usual.
+    await core.deleteConversation(conversationId);
+    await core.deletePermanently([{ kind: "conversation", id: conversationId }]);
+    await core.updateSettings({ user: { language: "en" } });
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await vi.waitFor(async () => {
+      expect((await core.listMinds()).map((mind) => mind.title)).toEqual([
+        EXAMPLE_SETS.credit["zh-CN"].title,
+      ]);
+    });
+  });
+
+  // protects=a Chinese example a Conversation cites keeps its Documents and files when the interface language becomes English, and after a restart; fails_when=the Chinese example is swapped for the English one, or a restart loses it; no_claim=none beyond protects.
+  test("a Chinese example a Conversation cites keeps its Documents when the language becomes English, and after a restart", async () => {
+    const set = EXAMPLE_SETS.credit["zh-CN"];
+    const { core, dataDir } = await startWithExamples("zh-CN");
+    const made = await core.createExamples();
+    await foundIn(core, made.mindId as string, set.quotes[0]?.quote.slice(0, 6) ?? "");
+    await core.askReadyQuestion();
+    const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
+    expect(cited).toHaveLength(2);
+
+    const expectKept = async (current: Core) => {
+      expect((await current.listMinds()).map((mind) => mind.title)).toEqual([set.title]);
+      expect(await current.getExamples()).toMatchObject({
+        linkedFolderId: made.linkedFolderId,
+        ready: set.ready?.question,
+      });
+      const stillThere = (await current.listDocuments()).map((each) => each.id);
+      for (const document of cited) expect(stillThere).toContain(document.id);
+      await expect(access(join(dataDir, set.folder))).resolves.toBeUndefined();
+    };
+
+    await core.updateSettings({ user: { language: "en" } });
+    await expectKept(core);
+
+    core.close();
+    await expectKept(startOn(dataDir, "en"));
+  });
+
+  // protects=a Conversation in Recently deleted can come back with Citations that open, so the example it cites stays as it is meanwhile; fails_when=the example is swapped while only a deleted Conversation cites it; no_claim=none beyond protects.
+  test("an example stays as it is while the Conversation citing it waits in Recently deleted", async () => {
+    const { core } = await startWithExamples("en");
+    const made = await core.createExamples();
+    await foundIn(core, made.mindId as string, "Net debt to EBITDA");
+    const { conversationId } = await core.askReadyQuestion();
+    const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
+    await core.deleteConversation(conversationId);
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+
+    expect((await core.listMinds()).map((mind) => mind.title)).toEqual([
+      "Draft: credit committee paper",
+    ]);
+    const stillThere = (await core.listDocuments()).map((each) => each.id);
+    for (const document of cited) expect(stillThere).toContain(document.id);
+  });
+
+  const DIRECTIONS = [
+    { from: "en", to: "zh-CN" },
+    { from: "zh-CN", to: "en" },
+  ] as const satisfies { from: Language; to: Language }[];
+
+  const exampleCitedInAnotherMind = async (language: Language) => {
+    const set = EXAMPLE_SETS.credit[language];
+    const started = await startWithExamples(language);
+    const made = await started.core.createExamples();
+    await foundIn(started.core, made.mindId as string, set.quotes[0]?.quote.slice(0, 6) ?? "");
+    const documents = await started.core.listDocuments({
+      linkedFolderId: made.linkedFolderId as string,
+    });
+    expect(documents).toHaveLength(2);
+    const mine = await started.core.createMind({ title: "Mine" });
+    expect(await copyCitations(started.core, made.mindId as string, mine.id)).toBe(2);
+    return { ...started, made, mine, documents, set };
+  };
+
+  const titles = async (core: Core) => (await core.listMinds()).map((mind) => mind.title).sort();
+
+  for (const { from, to } of DIRECTIONS) {
+    // protects=an example whose Documents a Citation copied into another Mind quotes keeps its language and Documents when the interface language changes, so that Citation still opens its original page, and the example follows the language again once no Mind or Conversation quotes them; fails_when=the Documents are swapped and the copied Citation says its Linked folder was removed, or the example's own Answer keeps it from ever following the language; no_claim=what the viewer draws.
+    test(`an example whose Documents a Citation in another Mind quotes keeps its language and Documents (${from} to ${to})`, async () => {
+      const { core, made, mine, documents, set } = await exampleCitedInAnotherMind(from);
+      const swapped = EXAMPLE_SETS.credit[to].title;
+
+      // updateSettings returns once the examples have followed the language, or not.
+      await core.updateSettings({ user: { language: to } });
+
+      expect(await titles(core)).toEqual([set.title, "Mine"].sort());
+      const stillThere = (await core.listDocuments()).map((each) => each.id);
+      for (const document of documents) expect(stillThere).toContain(document.id);
+      const copied = citationsOf(await exampleMind(core, mine.id));
+      expect(copied.map((each) => each.documentId).sort()).toEqual(
+        documents.map((each) => each.id).sort(),
+      );
+      for (const citation of copied) expect(stillThere).toContain(citation.documentId);
+      expect(await core.getExamples()).toMatchObject({ linkedFolderId: made.linkedFolderId });
+
+      // The example's own Answer quotes them too, and does not keep it: only the copy does.
+      await core.deleteMind(mine.id);
+      await core.deletePermanently([{ kind: "mind", id: mine.id }]);
+      await core.updateSettings({ user: { language: from } });
+      await core.updateSettings({ user: { language: to } });
+      await vi.waitFor(async () => expect(await titles(core)).toEqual([swapped]));
+    });
+  }
+
+  // protects=a Mind that waits in Recently deleted can come back with Citations that open, so the example it quotes stays as it is meanwhile, and goes on following the language once that Mind is deleted permanently; fails_when=the example is swapped while only a deleted Mind quotes it, or a Mind deleted permanently still keeps it; no_claim=none beyond protects.
+  test("an example stays as it is while the Mind quoting it waits in Recently deleted", async () => {
+    const { core, mine, documents, set } = await exampleCitedInAnotherMind("en");
+    await core.deleteMind(mine.id);
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+
+    expect(await titles(core)).toEqual([set.title]);
+    const stillThere = (await core.listDocuments()).map((each) => each.id);
+    for (const document of documents) expect(stillThere).toContain(document.id);
+
+    await core.deletePermanently([{ kind: "mind", id: mine.id }]);
+    await core.updateSettings({ user: { language: "en" } });
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await vi.waitFor(async () =>
+      expect(await titles(core)).toEqual([EXAMPLE_SETS.credit["zh-CN"].title]),
+    );
+  });
+
+  // protects=an example a Mind quotes still stays as it is when a language change comes after the app restarts; fails_when=the rule is held in memory, so a restart lets the next change of language swap the Documents; no_claim=none beyond protects.
+  test("an example a Mind quotes stays as it is on a language change after a restart", async () => {
+    const { core, dataDir, documents, set } = await exampleCitedInAnotherMind("en");
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    expect(await titles(core)).toEqual([set.title, "Mine"].sort());
+    core.close();
+
+    const again = startOn(dataDir, "zh-CN");
+    await again.updateSettings({ user: { language: "en" } });
+    await again.updateSettings({ user: { language: "zh-CN" } });
+
+    expect(await titles(again)).toEqual([set.title, "Mine"].sort());
+    const stillThere = (await again.listDocuments()).map((each) => each.id);
+    for (const document of documents) expect(stillThere).toContain(document.id);
   });
 });
 

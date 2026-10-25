@@ -471,7 +471,7 @@ describe("changes the User can take back", () => {
     expect(named(top())).toBe("移动 2 个文档");
     await useAppStore.getState().deleteMind("m");
     expect(said(top())).toBe("已将“Plan”移到回收站");
-    expect(named(top())).toBe("删除“Plan”");
+    expect(named(top())).toBe("删除‘Plan’");
   });
 });
 
@@ -615,8 +615,11 @@ describe("making a Mind", () => {
 });
 
 describe("Get started's Add your Documents", () => {
-  const inFolder = (id: string, linkedFolderId: string | null) =>
-    ({ ...doc(id), linkedFolderId }) as Document;
+  const inFolder = (
+    id: string,
+    linkedFolderId: string | null,
+    status: Document["status"] = "ready",
+  ) => ({ ...doc(id), linkedFolderId, status }) as Document;
   const example = (linkedFolderId: string) =>
     ({
       group: "credit",
@@ -639,6 +642,7 @@ describe("Get started's Add your Documents", () => {
             started: true,
             hidden: false,
             citationChecked: false,
+            mistakeSeen: false,
             indexed: false,
             askedOwn: false,
             askedReady: false,
@@ -654,6 +658,25 @@ describe("Get started's Add your Documents", () => {
     expect(ticked()).toBe(false);
 
     emit("document.status", inFolder("mine", "theirs"));
+    expect(ticked()).toBe(true);
+  });
+
+  test("a Document the User adds ticks it once it has been read, not while it is read or when it can't be (#1457)", () => {
+    for (const status of ["queued", "extracting", "failed", "no-text"] as const) {
+      emit("document.status", inFolder("mine", null, status));
+      expect(ticked()).toBe(false);
+    }
+    emit("document.status", inFolder("mine", null, "waiting-for-model"));
+    expect(ticked()).toBe(true);
+  });
+
+  test("the Documents already there tick it only when one of the User's own has been read (#1457)", () => {
+    useAppStore.setState({ documents: [inFolder("a", "old"), inFolder("mine", null, "failed")] });
+    emit("connectors.changed", []);
+    expect(ticked()).toBe(false);
+
+    useAppStore.setState({ documents: [inFolder("a", "old"), inFolder("mine", null)] });
+    emit("connectors.changed", []);
     expect(ticked()).toBe(true);
   });
 });
@@ -1204,5 +1227,55 @@ describe("an undo line keeps only what it shows", () => {
     const change = await stopTagging();
     await freedOnceReplaced(held);
     expect(said(change)).toBe("Stopped Tagging Documents in “Research” and not in a Folder");
+  });
+});
+
+describe("Get started's Ask a question", () => {
+  const finished = (answerId: string, status: "done" | "stopped") =>
+    emit("answer.finished", { answerId, status } as CoreEvents["answer.finished"]);
+  const asked = () => useAppStore.getState().settings?.device.gettingStarted.askedOwn;
+
+  beforeEach(() => {
+    useAppStore.setState({
+      examples: {
+        group: "credit",
+        available: true,
+        mindId: "m",
+        linkedFolderId: "f",
+        answerId: "example",
+        more: [],
+        ready: null,
+      } satisfies CoreEvents["examples.changed"],
+      otherExamples: [],
+      settings: {
+        device: {
+          gettingStarted: {
+            started: true,
+            hidden: false,
+            citationChecked: false,
+            mistakeSeen: false,
+            indexed: false,
+            askedOwn: false,
+            askedReady: false,
+          },
+        },
+      } as unknown as NonNullable<ReturnType<typeof useAppStore.getState>["settings"]>,
+    });
+  });
+
+  test("it ticks once an Answer to the User's own Question arrives, not when it fails, is stopped or is the example's", () => {
+    emit("answer.failed", { answerId: "own" } as CoreEvents["answer.failed"]);
+    finished("own", "stopped");
+    finished("example", "done");
+    expect(asked()).toBe(false);
+
+    finished("own", "done");
+    expect(asked()).toBe(true);
+  });
+
+  test("a later failed Answer doesn't take the tick back", () => {
+    finished("own", "done");
+    emit("answer.failed", { answerId: "again" } as CoreEvents["answer.failed"]);
+    expect(asked()).toBe(true);
   });
 });

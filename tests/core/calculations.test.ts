@@ -6,6 +6,7 @@
  * assistant uses it, with a scripted chat model (and, for structured output, a
  * stub of a small local model).
  */
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
@@ -1845,6 +1846,87 @@ function reservesBook(): Buffer {
   });
 }
 
+describe("A ratio among a figure's inputs leaves it shown as its amounts are written (#1784)", {
+  timeout: 60_000,
+}, () => {
+  const REPORTS = {
+    en: {
+      name: "Northwind Annual Report.pdf",
+      lines: [
+        "EBITDA was £44 million in 2025, and net debt to EBITDA is 3.5:1.",
+        "Revenue was £352 million at a margin of 12.5%.",
+        "Cash at the year end was £12,400 thousand.",
+        "Product revenue was $1.2 billion and services $350 million.",
+      ],
+      asked: "What does it come to?",
+      answer: "It comes to [=1].",
+    },
+    "zh-CN": {
+      name: "北风年度报告.pdf",
+      lines: [
+        "息税折旧摊销前利润为1.2亿元，净负债与其之比为3.5:1。",
+        "营业收入2.4亿元，利润率为25.0%。",
+        "期末现金为12,400万元，服务收入为3,500万元。",
+      ],
+      asked: "合计是多少？",
+      answer: "合计为[=1]。",
+    },
+  };
+
+  test.each([
+    ["en", "ebitda * ratio", ["£44 million", "3.5"], null, "£154 million"],
+    ["en", "ebitda * ratio", ["£44 million", "3.5"], "million", "£154 million"],
+    ["en", "revenue * margin * ratio", ["£352 million", "12.5%", "3.5"], null, "£154 million"],
+    ["en", "cash * ratio", ["£12,400 thousand", "3.5"], null, "£43,400 thousand"],
+    [
+      "en",
+      "(product + services) * ratio",
+      ["$1.2 billion", "$350 million", "3.5"],
+      null,
+      "$5,425 million",
+    ],
+    [
+      "en",
+      "(product + services) * ratio",
+      ["$1.2 billion", "$350 million", "3.5"],
+      "billion",
+      "$5.425 billion",
+    ],
+    ["zh-CN", "ebitda * ratio", ["1.2亿元", "3.5"], null, "4.2亿元"],
+    ["zh-CN", "ebitda * ratio", ["1.2亿元", "3.5"], "亿", "4.2亿元"],
+    ["zh-CN", "revenue * margin * ratio", ["2.4亿元", "25.0%", "3.5"], null, "2.1亿元"],
+    ["zh-CN", "cash * ratio", ["12,400万元", "3.5"], null, "43,400万元"],
+    ["zh-CN", "(ebitda + services) * ratio", ["1.2亿元", "3,500万元", "3.5"], null, "54,250万元"],
+  ] as const)("%s: %s over %j in %s shows %s", async (language, formula, numbers, scale, shown) => {
+    const report = REPORTS[language];
+    const names = formula.match(/[a-z]+/g) ?? [];
+    const model = calculatingModel({
+      queries: [language === "en" ? "EBITDA" : "息税折旧摊销前利润"],
+      steps: [
+        (passages) => {
+          const passage = passageOf(passages, report.name.slice(0, 2));
+          const inputs = numbers.map((number, at) => ({
+            name: names[at],
+            label: names[at],
+            passage,
+            location: "p. 1",
+            quote: report.lines.find((line) => line.includes(number)),
+            number,
+          }));
+          const figure = { marker: 1, label: "Figure", formula, inputs, ...(scale && { scale }) };
+          return [{ tool: "calculate", input: { figures: [figure] } }];
+        },
+      ],
+      answer: report.answer,
+    });
+    const contents = buildPdf([
+      language === "en" ? { lines: report.lines } : { chineseLines: report.lines },
+    ]);
+    const { core } = await setUpCalculating(model, [{ name: report.name, contents }]);
+    expect((await askAndRead(core, report.asked)).answer.figures[0]?.shown).toBe(shown);
+  });
+});
+
 describe("The difference of two cited cells is calculated, not given up on (#1444)", {
   timeout: 60_000,
 }, () => {
@@ -1922,5 +2004,64 @@ describe("The difference of two cited cells is calculated, not given up on (#144
     expect(first).toContain("scale must be one of");
     expect(first).not.toContain("can't be shown as a number");
     expect(answer.figures).toMatchObject([{ value: 1_173_000_000, shown: "$1.17 billion" }]);
+  });
+});
+
+describe("A number takes the unit its row gives it in a cell of its own (#1798)", {
+  timeout: 60_000,
+}, () => {
+  const ROW = "净负债\t2026年三季度实际\t31000\t万元\t实际，非预测";
+
+  // protects=31000 quoted alone from a row whose next cell says 万元 is never read as 31,000 元: the model is asked for the row as unitQuote, and the row gives 3.1亿元; fails_when=the figure comes out 0.00031亿 or the row is refused as stating no unit; no_claim=a unit stated on another row, which still needs its own line.
+  test("31000 beside a 万元 cell asks for its row, and the row gives 3.1000亿元", async () => {
+    const figure = (unitQuote?: string) => ({
+      marker: 1,
+      label: "净负债（亿元）",
+      formula: "nd",
+      scale: "亿",
+      inputs: [{ name: "nd", label: "净负债", citation: 1, number: "31000", unitQuote }],
+    });
+    const model = calculatingModel({
+      queries: ["净负债"],
+      steps: [
+        (passages) => [
+          {
+            tool: "cite",
+            input: {
+              citations: [
+                {
+                  marker: 1,
+                  passage: passageOf(passages, "雪松控股"),
+                  location: "2026年三季度, row 6",
+                  quote: "31000",
+                },
+              ],
+            },
+          },
+          { tool: "calculate", input: { figures: [figure()] } },
+        ],
+        () => [{ tool: "calculate", input: { figures: [figure(ROW)] } }],
+      ],
+      answer: "净负债为[=1][^1]。",
+    });
+    const name = "雪松控股2026年三季度终稿.xlsx";
+    const { core } = await setUpCalculating(model, [
+      {
+        name,
+        contents: await readFile(join(import.meta.dirname, "../fixtures/comparisons", name)),
+      },
+    ]);
+    const { answer } = await askAndRead(core, "2026年三季度的净负债是多少亿元？");
+    const [asked, recorded] = told(model, "calculate");
+    expect(asked).toContain(`31000 has no unit, and 2026年三季度, row 6 says "${ROW}"`);
+    expect(recorded).toContain("Recorded [=1] = 3.1000亿元");
+    expect(answer.figures).toMatchObject([
+      {
+        value: 310_000_000,
+        inputs: [
+          { number: { chars: "31000", value: 310_000_000 }, unitStatement: { scale: 10_000 } },
+        ],
+      },
+    ]);
   });
 });

@@ -25,6 +25,7 @@ import {
   readsIn,
   type Translate,
 } from "./locations";
+import { findQuote } from "./quoteMatch";
 
 const CITATION_CHECKS: readonly CitationCheck[] = [
   "checking",
@@ -328,4 +329,16 @@ export function parseQuotedWords(value: unknown): QuotedWords | null {
   const { answer, closest } = value as Record<string, unknown>;
   if (!isPieces(answer) || answer.length === 0) return null;
   return { answer, closest: isPieces(closest) && closest.length > 0 ? closest : null };
+}
+
+/**
+ * Whether the words the Answer put in quotation marks are in `text` too, as the
+ * Citation check looks for them: the pieces joined as the sentence wrote them,
+ * not each anywhere on its own. A Citation that asked for none counts as
+ * found, so only a Citation with such words can fail this.
+ */
+export function quotedWordsFoundIn(text: string, value: unknown): boolean {
+  const quoted = parseQuotedWords(value);
+  if (quoted === null) return true;
+  return findQuote(text, quoted.answer.map((piece) => piece.text).join("")) !== null;
 }

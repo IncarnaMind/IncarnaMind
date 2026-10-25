@@ -74,9 +74,10 @@ import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
 import {
   DOCUMENT_EXTENSIONS,
-  isInside,
+  isLegacyCopy,
   openFile,
   openImageBeside,
+  pathIn,
   relativePath,
   type StatIdentity,
 } from "./files";
@@ -1319,15 +1320,21 @@ export function createDocuments(options: DocumentsOptions) {
 
   // Startup: Documents copied into the data folder by the old layout (before
   // ADR-0010) are files kept there, until the User links their originals.
-  // Each copy gets its kind's extension, so another app can open it.
-  for (const row of db.all<{ id: string; content_hash: string; kind: string }>(
-    "SELECT id, content_hash, kind FROM documents WHERE deleted_at IS NULL AND path IS NULL",
+  // Each copy gets its kind's extension, so another app can open it. One
+  // deleted then can still be restored, so it gets its path too, after the live
+  // ones and without renaming: its copy went with the delete, unless a live one
+  // with the same content, maybe of another kind, still has it.
+  for (const row of db.all<{ id: string; content_hash: string; kind: string; deleted: number }>(
+    `SELECT id, content_hash, kind, deleted_at IS NOT NULL AS deleted FROM documents
+     WHERE path IS NULL AND purged_at IS NULL ORDER BY deleted`,
   )) {
     const bare = join(legacyFolder, row.content_hash);
     const extension = DOCUMENT_EXTENSIONS[row.kind as DocumentKind]?.[0];
     const named = extension ? `${bare}.${extension}` : bare;
     try {
-      if (named !== bare && !existsSync(named) && existsSync(bare)) renameSync(bare, named);
+      if (!row.deleted && named !== bare && !existsSync(named) && existsSync(bare)) {
+        renameSync(bare, named);
+      }
     } catch (error) {
       reportError(error);
     }
@@ -1348,6 +1355,9 @@ export function createDocuments(options: DocumentsOptions) {
     detectDataless: options.linkedFolders.detectDataless,
     hooks: {
       process,
+      stillQueued: (id) => {
+        if (find(id)?.status === "queued" && !processor.has(id)) process(id);
+      },
       announce,
       added: (id) => options.onFound?.(id),
       moved: (ids) => {
@@ -2427,11 +2437,11 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     /**
-     * Removes Documents from the index, all in one step, or none when one isn't found. The
-     * User's files aren't touched; only copies the old layout made in the data folder go with
-     * them.
+     * Removes Documents from the index, all in one step, or none when one isn't found. No file
+     * is touched: a copy the old layout made in the data folder goes once its Document is
+     * deleted permanently (`dropPurged`).
      */
-    async delete(idsInput: unknown): Promise<string[]> {
+    delete(idsInput: unknown): string[] {
       const ids = [...new Set((Array.isArray(idsInput) ? idsInput : [idsInput]).map(parseId))];
       const rows = ids.map((id) => {
         const row = find(id);
@@ -2439,11 +2449,6 @@ export function createDocuments(options: DocumentsOptions) {
         return row;
       });
       removeFromIndex(ids, now());
-      for (const row of rows) {
-        if (row.path !== legacyFolder && isInside(legacyFolder, row.path)) {
-          await rm(row.path, { force: true }).catch(reportError);
-        }
-      }
       // Once a Linked folder, not once a Document: 1,700 Documents took 90 s one by one (#1349).
       for (const linkedFolderId of new Set(rows.map((row) => row.linked_folder_id))) {
         library.documentsChanged(linkedFolderId);
@@ -2528,6 +2533,38 @@ export function createDocuments(options: DocumentsOptions) {
         if (row.status === "waiting-for-model") model.ensure();
       }
       for (const linkedFolderId of linkedFolders) library.documentsChanged(linkedFolderId);
+      const copies = db
+        .all<{ path: string; relative_path: string }>(
+          `SELECT path, relative_path FROM documents
+           WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL
+             AND source_kind = 'data-folder' AND relative_path IS NOT NULL`,
+          [JSON.stringify(ids)],
+        )
+        .filter((row) => isLegacyCopy(dataDir, pathIn(dataDir, row.relative_path)))
+        .map((row) => row.path);
+      // Builds before #1432 removed the copy at delete: one gone shows missing now, not when opened.
+      if (copies.length > 0) library.check(copies).catch(reportError);
+    },
+
+    /**
+     * Removes the old layout's copies of Documents deleted permanently, each once no Document
+     * that can still come back is at its place. Again at each start, for a quit that cut it short.
+     */
+    async dropPurged(): Promise<void> {
+      // By place, not by path: a Document added from a data folder reached through a link has
+      // the path with links resolved, an old one the path as the app was given it.
+      const copies = db
+        .all<{ relative_path: string }>(
+          `SELECT DISTINCT d.relative_path FROM documents d
+           WHERE d.purged_at IS NOT NULL AND d.source_kind = 'data-folder'
+             AND d.linked_folder_id IS NULL AND d.relative_path IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM documents o WHERE o.purged_at IS NULL
+               AND (o.path = d.path
+                    OR (o.source_kind = 'data-folder' AND o.relative_path = d.relative_path)))`,
+        )
+        .map((row) => pathIn(dataDir, row.relative_path))
+        .filter((path) => isLegacyCopy(dataDir, path));
+      await Promise.all(copies.map((path) => rm(path, { force: true }).catch(reportError)));
     },
 
     /**

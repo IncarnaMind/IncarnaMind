@@ -15,11 +15,11 @@ import { originOf } from "../../shared/blockOrigins";
 import { readChart } from "../../shared/charts";
 import {
   keepRevised,
-  pendingProposals,
   proposalRequestOf,
   readProposalAttribute,
   readProposalRef,
   resolveProposals,
+  waitingChanges,
 } from "../../shared/proposals";
 import { type NodeJSON, topLevelBlocks } from "../answers/blocks";
 import {
@@ -175,7 +175,7 @@ const fingerprintOf = (elements: readonly Y.XmlElement[]) =>
 export function waitingIn(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): WaitingIn {
   const range = rangeOf(blocks, from, to);
   if (!holdsProposal(range)) return { kind: "none" };
-  const count = pendingProposals(blocks).length;
+  const count = waitingChanges(blocks);
   const own = range.filter(isOwn);
   if (own.length === range.length) {
     return { kind: "own", blockIds: range.map(idOf), fingerprint: fingerprintOf(range) };

@@ -277,7 +277,7 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   await window.keyboard.press("Enter");
   await expect(assistantAnswers(window)).toHaveCount(1);
 
-  // ▾ → New Mind: named as the conversation, in a new tab, its content as changes to accept.
+  // ▾ → New Mind: named by its first line, in a new tab, its content in at once (#1559).
   const shown = assistantAnswers(window).first();
   await pointAt(window, shown.getByTestId("assistant-answer-text"));
   // "Added to …" under it goes after a few seconds, and its actions come back.
@@ -289,8 +289,9 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   const tab = window.getByTestId("mind-tab").filter({ hasText: "Your Documents answer this" });
   await expect(tab).toHaveAttribute("aria-selected", "true");
   const made = window.getByTestId("mind-editor");
-  await expect(made.locator('[data-proposal="insert"]')).toHaveCount(2);
-  await expect(window.getByTestId("proposals-bar")).toBeVisible();
+  await expect(made).toContainText("Your Documents answer this");
+  await expect(made.locator('[data-proposal="insert"]')).toHaveCount(0);
+  await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
   await screenshot(window, "assistant-new-mind");
   // Delete removes it, and its tab.
   await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.delete"));
@@ -493,8 +494,10 @@ test("the ⋯ menu adds the last Answer to a new Mind and clears the conversatio
   await pointAndClick(window, window.getByTestId("assistant-menu-last-to-new-mind"));
   const tab = window.getByTestId("mind-tab").filter({ hasText: "Your Documents answer this" });
   await expect(tab).toHaveAttribute("aria-selected", "true");
+  // In at once, as New Mind under the Answer puts it (#1559).
+  await expect(window.getByTestId("mind-editor")).toContainText("Your Documents answer this");
   await expect(window.getByTestId("mind-editor").locator('[data-proposal="insert"]')).toHaveCount(
-    2,
+    0,
   );
 
   await pointAndClick(window, more);

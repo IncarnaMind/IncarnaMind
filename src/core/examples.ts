@@ -108,6 +108,11 @@ export interface ExamplesOptions {
   now(): string;
   /** Whether a check result in some Mind relies on one of these Documents (#819). */
   checksRelyOn(documentIds: readonly string[]): boolean;
+  /**
+   * Whether a Citation in a Mind other than `exceptMindId`, or in an Answer of a
+   * Conversation, quotes one of these Documents.
+   */
+  citationsRelyOn(documentIds: readonly string[], exceptMindId: string): boolean;
   recheck(input: RecheckCitationInput): CitationRecheck;
   /** Pushes "examples.changed". */
   changed(examples: Examples): void;
@@ -598,7 +603,7 @@ export function createExamples(options: ExamplesOptions) {
      * The interface language changed (#709): each example the User hasn't
      * touched becomes the same example in the new language, in its Mind, with
      * its Documents swapped. One they changed stays as it is, and so does one
-     * whose Documents a check result relies on (#819).
+     * whose Documents a check result (#819) or a Citation elsewhere relies on.
      */
     async followLanguage(): Promise<void> {
       const source = options.source;
@@ -609,10 +614,14 @@ export function createExamples(options: ExamplesOptions) {
         if (!examples || examples.language === language) continue;
         if (!options.mindExists(examples.mindId)) continue;
         if (!untouched(examples, EXAMPLE_SETS[group][examples.language])) continue;
+        const documentIds = options.documentsIn(examples.linkedFolderId).map((each) => each.id);
         // Swapping its Documents would leave the checks that relied on them needing a check
-        // again, for no change the User made: it stays as it is.
+        // again, and a Citation copied out of it without its original page, for no change the
+        // User made: it stays as it is. Its own Answer's Citations don't count: the swap
+        // writes them again.
         if (
-          options.checksRelyOn(options.documentsIn(examples.linkedFolderId).map((each) => each.id))
+          options.checksRelyOn(documentIds) ||
+          options.citationsRelyOn(documentIds, examples.mindId)
         ) {
           continue;
         }

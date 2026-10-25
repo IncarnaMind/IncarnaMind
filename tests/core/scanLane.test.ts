@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { Core, Document, TextRecognizer } from "../../src/core";
+import { type ReadingChannel, runJob } from "../../src/core/documents/processing";
 import { scansAtOnce } from "../../src/core/documents/processor";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { createTempDataFolder, NO_MODEL_FILES, startCore } from "../helpers/core";
@@ -163,6 +164,63 @@ describe("A text file is never held behind a scan (#1502)", { timeout: 180_000 }
     },
   );
 
+  // protects=a scan waiting its turn keeps its place when its unchanged file is looked at again (opening it does, as does each retry once a folder's watcher has failed), so scans are still read in the order they were added (#1664); fails_when=the look sends it back through the queue, behind a scan added after it; no_claim=a new version of the file, which goes to the back of the queue as new work.
+  test("a scan waiting its turn keeps its place when the User opens it", async () => {
+    const dataDir = await createTempDataFolder();
+    const slow = slowRecognizer();
+    const core = startCore(dataDir, {
+      textRecognizer: slow.recognizer,
+      textRecognitionModelSource: NO_MODEL_FILES,
+      scansAtOnce: 1,
+    });
+    const order: string[] = [];
+    core.on("document.status", (document) => {
+      if (document.status === "ready" && !order.includes(document.name)) order.push(document.name);
+    });
+    try {
+      const first = await addFiles(core, [
+        ["Scan A.pdf", scanPdf()],
+        ["Scan B.pdf", scanPdf()],
+      ]);
+      await waitForDocuments(
+        core,
+        (each) => {
+          expect(byName(each, "Scan A.pdf").status).toBe("extracting");
+          expect(byName(each, "Scan B.pdf")).toMatchObject({
+            status: "queued",
+            scan: { pages: 2, read: 0 },
+          });
+        },
+        WAIT_MS,
+      );
+      // B is opened while it waits for the lane and C, added after it, is read from the queue.
+      const later = await addFiles(core, [["Scan C.pdf", scanPdf()]]);
+      const opened = await core.openDocumentFile(byName(first, "Scan B.pdf").id);
+      await opened.stream.cancel();
+
+      await waitForDocuments(
+        core,
+        (each) => {
+          const scans = ["Scan A.pdf", "Scan B.pdf", "Scan C.pdf"].map((name) =>
+            byName(each, name),
+          );
+          expect(scans.map((scan) => scan.status)).toEqual(["extracting", "queued", "queued"]);
+          for (const scan of scans) expect(scan.scan).toMatchObject({ pages: 2, read: 0 });
+        },
+        WAIT_MS,
+      );
+      slow.release();
+      await waitForProcessing(
+        core,
+        [...first, ...later].map((document) => document.id),
+        WAIT_MS,
+      );
+      expect(order).toEqual(["Scan A", "Scan B", "Scan C"]);
+    } finally {
+      core.close();
+    }
+  });
+
   // protects=a waiting scan that is deleted leaves nothing behind and the lane goes on; fails_when=it is read anyway, or the next scan never starts; no_claim=none beyond protects.
   test("a waiting scan that is deleted is never read, and the next one is", async () => {
     const dataDir = await createTempDataFolder();
@@ -237,6 +295,43 @@ describe("A text file is never held behind a scan (#1502)", { timeout: 180_000 }
     } finally {
       restarted.close();
     }
+  });
+});
+
+describe("A scan told to stop (#1502)", () => {
+  // protects=a scan stopped while its page is being drawn stops, instead of asking for a read nobody answers; fails_when=it asks once stopped and the job never ends, which leaves the scan lane waiting for it; no_claim=the lane, which the tests above cover.
+  test("one stopped while its page is drawn ends as stopped, and asks for no read", async () => {
+    const sources = await createSourceFolder();
+    const file = await writeSourceFile(sources, "Scan.pdf", scanPdf());
+    const stop = new AbortController();
+    const asked: number[] = [];
+    const channel: ReadingChannel = {
+      signal: stop.signal,
+      // The stop lands as the page is drawn, a moment after the first progress.
+      progress: (_hash, read) => {
+        if (read === 0) queueMicrotask(() => stop.abort());
+      },
+      log: () => undefined,
+      read: (page) => {
+        asked.push(page);
+        return new Promise(() => undefined);
+      },
+      readFile: () => new Promise(() => undefined),
+    };
+
+    const result = await runJob(
+      {
+        task: "process",
+        documentId: "scan",
+        kind: "pdf",
+        file,
+        scan: { reader: "fake", keep: null },
+      },
+      channel,
+    );
+
+    expect(result.outcome).toBe("stopped");
+    expect(asked).toEqual([]);
   });
 });
 

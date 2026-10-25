@@ -43,6 +43,20 @@ export interface EverydayCase {
   summary?: true;
   /** What the model's first reply is, in place of its own, so the app must ask again (./reasks). */
   firstReply?: string;
+  /** The Documents open on screen, by name, the focused group's first, as the composer sends them (#1334). */
+  onScreen?: readonly string[];
+  /**
+   * Asked first in a conversation of its own, its Answer put into the Mind with Add to note and
+   * selected: the request is then asked in a new conversation, with that selection (#1334).
+   */
+  selectNote?: string;
+  /** When the assistant asks the User which (ask_user), they choose the option that names this; without it, the Answer stops at its question. */
+  answerAsk?: string;
+  /**
+   * Words selected on a page of a Document to ask about ("Ask about this", #101), cited as the
+   * viewer cites them: the Answer's first Citation must be them, found there.
+   */
+  quote?: { document: string; page: number; words: string };
 }
 
 /** The share of its runs a request must pass: two in three, one in three for a hard one. */
@@ -141,6 +155,330 @@ const SUPPLY_AGREEMENT_ZH = {
   ],
 };
 const OWNER = ["write a summary page", "make the summary section longer", "no citations?"];
+
+const CONTRACT = "Employment contract";
+const CONTRACT_ZH = "劳动合同";
+const NDA = "Mutual NDA";
+const NDA_ZH = "保密协议";
+// A short piece written into the empty Mind it is asked from (#1334).
+const SHORT_HERE = { ...WRITE, into: "asked-from", atMostLines: 5 } as const;
+const ASKS_WHICH = { ...NOTHING, asks: "must" } as const;
+const CALL_NOTES = {
+  title: "Call notes",
+  blocks: ["Notes for Friday's call with Harbour Logistics."],
+};
+const CALL_NOTES_ZH = { title: "通话笔记", blocks: ["周五和海港物流通话前的笔记。"] };
+const HANDOVER = {
+  title: "Handover",
+  blocks: [
+    "From April the new warehouse supervisor takes over the night shift rota, the weekly stock checks and the Friday report to the operations manager, who will go through the first month of reports with them before they run on their own.",
+  ],
+};
+const HANDOVER_ZH = {
+  title: "交接",
+  blocks: [
+    "从四月起，新的仓库主管接手夜班排班、每周盘点和每周五给运营经理的报告，运营经理会和他一起看第一个月的报告，之后再由他独立负责。",
+  ],
+};
+
+/**
+ * What "this" means (#1334) and adding the last Answer to notes (#1734), over the contracts, the
+ * agreements and the minutes: the requests of the re-walk on #1334, with the Documents on screen
+ * the composer now sends.
+ */
+const THIS_DOCUMENT: readonly EverydayCase[] = [
+  {
+    id: "this-contract-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: EMPTY,
+    onScreen: [CONTRACT_ZH],
+    request: "请为这份劳动合同写一个简短的摘要。",
+    expected: { ...SHORT_HERE, documents: [CONTRACT_ZH] },
+  },
+  {
+    id: "this-contract-zh-nothing-open",
+    language: "zh-CN",
+    library: "dated",
+    mind: EMPTY,
+    request: "请为这份劳动合同写一个简短的摘要。",
+    expected: { ...SHORT_HERE, documents: [CONTRACT_ZH], asks: "may" },
+  },
+  {
+    id: "this-contract-en",
+    language: "en",
+    library: "dated",
+    mind: EMPTY,
+    onScreen: [CONTRACT],
+    request: "Write a short summary of this employment contract.",
+    expected: { ...SHORT_HERE, documents: [CONTRACT] },
+  },
+  {
+    id: "this-agreement-en",
+    language: "en",
+    library: "dated",
+    mind: EMPTY,
+    onScreen: [NDA],
+    request: "Write a short summary of this agreement.",
+    expected: { ...SHORT_HERE, documents: [NDA] },
+  },
+  {
+    id: "this-document-en",
+    language: "en",
+    library: "dated",
+    mind: EMPTY,
+    onScreen: [NDA],
+    request: "Write a short summary of this document.",
+    expected: { ...SHORT_HERE, documents: [NDA] },
+  },
+  {
+    id: "this-document-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: EMPTY,
+    onScreen: [NDA_ZH],
+    request: "请为这份文件写一个简短的摘要。",
+    expected: { ...SHORT_HERE, documents: [NDA_ZH] },
+  },
+  {
+    id: "two-open-en",
+    language: "en",
+    library: "dated",
+    mind: EMPTY,
+    onScreen: [CONTRACT, NDA],
+    request: "Write a short summary of this document.",
+    expected: ASKS_WHICH,
+  },
+  {
+    id: "two-open-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: EMPTY,
+    onScreen: [CONTRACT_ZH, NDA_ZH],
+    request: "请为这份文件写一个简短的摘要。",
+    expected: ASKS_WHICH,
+  },
+  {
+    id: "two-open-answered-en",
+    language: "en",
+    library: "dated",
+    mind: EMPTY,
+    onScreen: [CONTRACT, NDA],
+    answerAsk: "NDA",
+    request: "Write a short summary of this document.",
+    expected: { ...SHORT_HERE, documents: [NDA], asks: "may" },
+  },
+  {
+    id: "selection-nda-en",
+    language: "en",
+    library: "dated",
+    mind: { title: "Vendor notes", blocks: [] },
+    selectNote: "What does the mutual NDA say about confidentiality?",
+    request: "Summarise this document.",
+    expected: { ...EITHER, documents: [NDA] },
+  },
+  {
+    id: "selection-nda-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: { title: "供应商笔记", blocks: [] },
+    selectNote: "保密协议对保密义务是怎么规定的？",
+    request: "总结一下这份文件。",
+    expected: { ...EITHER, documents: [NDA_ZH] },
+  },
+  {
+    id: "add-to-notes-en",
+    language: "en",
+    library: "dated",
+    mind: CALL_NOTES,
+    before: ["How much notice does the employment contract require?"],
+    request: "Add this to my notes.",
+    expected: { ...EDIT, into: "asked-from", addsAnswer: true },
+  },
+  {
+    id: "add-to-notes-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: CALL_NOTES_ZH,
+    before: ["劳动合同的解除通知期是多久？"],
+    request: "把这个加到我的笔记里。",
+    expected: { ...EDIT, into: "asked-from", addsAnswer: true },
+  },
+  {
+    id: "notes-on-documents-en",
+    language: "en",
+    library: "dated",
+    mind: CALL_NOTES,
+    before: ["How much notice does the employment contract require?"],
+    request: "Write notes on these documents.",
+    expected: { ...WRITE, addsAnswer: false },
+  },
+  {
+    id: "notes-on-documents-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: CALL_NOTES_ZH,
+    before: ["劳动合同的解除通知期是多久？"],
+    request: "为这些文档写笔记。",
+    expected: { ...WRITE, addsAnswer: false },
+  },
+  {
+    id: "shorter-this-en",
+    language: "en",
+    library: "dated",
+    mind: HANDOVER,
+    selectAll: true,
+    onScreen: [CONTRACT],
+    request: "Make this shorter.",
+    expected: { ...EDIT, only: 0, into: "asked-from", documents: [] },
+  },
+  {
+    id: "shorter-this-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: HANDOVER_ZH,
+    selectAll: true,
+    onScreen: [CONTRACT_ZH],
+    request: "把这段改短一点。",
+    expected: { ...EDIT, only: 0, into: "asked-from", documents: [] },
+  },
+  {
+    id: "this-contract-question-en",
+    language: "en",
+    library: "dated",
+    mind: null,
+    request: "How much notice does this contract require?",
+    expected: { ...ANSWER, asks: "may" },
+  },
+];
+
+const ATTENTION = "Attention Is All You Need";
+const GPT3 = "Language Models are Few-Shot Learners";
+const GPT2 = "Language Models are Unsupervised Multitask Learners";
+const HYPER = "Gradient Descent The Ultimate Optimizer";
+const ABPI = "ABPI Code of Practice for the Pharmaceutical Industry 2021";
+const MASKING =
+  "This masking, combined with fact that the output embeddings are offset by one position, ensures that the predictions for position i can depend only on the known outputs at positions less than i.";
+const NO_GRADIENTS =
+  "We emphasize that these “learning” curves involve no gradient updates or fine-tuning, just increasing numbers of demonstrations given as conditioning.";
+
+/**
+ * "Ask about this" (#101): words selected in a Document go with the Question, and its first
+ * Citation is them, where they were selected. The same Questions with nothing selected must
+ * neither guess nor change anything.
+ */
+const SELECTED: readonly EverydayCase[] = [
+  ...(
+    [
+      [ATTENTION, 3, MASKING, "What does this mean?"],
+      [
+        ATTENTION,
+        3,
+        "We employ a residual connection [11] around each of the two sub-layers, followed by layer normalization [1].",
+        "Explain this in plain words.",
+      ],
+      [
+        ATTENTION,
+        3,
+        "The Transformer follows this overall architecture using stacked self-attention and point-wise, fully connected layers for both the encoder and decoder",
+        "What does this mean?",
+      ],
+      [GPT3, 5, NO_GRADIENTS, "What does this mean?"],
+      [
+        GPT3,
+        5,
+        "For example, GPT-3 achieves 81.5 F1 on CoQA in the zero-shot setting, 84.0 F1 on CoQA in the one-shot setting, 85.0 F1 in the few-shot setting.",
+        "Is this a big improvement?",
+      ],
+      [
+        GPT3,
+        5,
+        "At the same time, we also find some tasks on which few-shot performance struggles, even at the scale of GPT-3.",
+        "Which tasks does this mean?",
+      ],
+      [
+        GPT2,
+        2,
+        "We demonstrate language models can perform down-stream tasks in a zero-shot setting – without any parameter or architecture modification.",
+        "What does this mean?",
+      ],
+      [
+        HYPER,
+        2,
+        "We find that across a variety of architectures (MLPs, CNNs, and RNNs) our hyperoptimizers are robust to suboptimal choices of initial hyperparameters, and that this robustness increases as we grow the stacks of optimizers taller.",
+        "Explain this in simpler terms.",
+      ],
+      [
+        ABPI,
+        12,
+        "Companies are responsible under the Code for the acts and omissions of their third parties which come within the scope of the Code, even if they act contrary to the instructions which they have been given.",
+        "What does this mean for a company?",
+      ],
+      [
+        ABPI,
+        12,
+        "'Support' in this context is the provision of a financial contribution, in whole or in part, whether paid directly or indirectly to individual health professionals or other relevant decision makers to attend events/meetings.",
+        "Summarise this in one sentence.",
+      ],
+    ] as const
+  ).map(
+    ([document, page, words, request], index): EverydayCase => ({
+      id: `selected-en-${index + 1}`,
+      language: "en",
+      library: "reports",
+      mind: null,
+      quote: { document, page, words },
+      request,
+      expected: { ...ANSWER, language: "en" },
+    }),
+  ),
+  ...(
+    [
+      ["reports", ATTENTION, 3, MASKING, "这句话是什么意思？"],
+      ["reports", GPT3, 5, NO_GRADIENTS, "用简单的话解释一下这段。"],
+      [
+        "dated",
+        CONTRACT_ZH,
+        1,
+        "第六条　解除：任何一方提前三十日书面通知对方，可以解除本合同。",
+        "这一条是什么意思？",
+      ],
+      [
+        "dated",
+        CONTRACT_ZH,
+        1,
+        "第二条　合同期限：三年，自乙方入职之日起计算，其中试用期三个月。",
+        "用简单的话解释一下这段。",
+      ],
+    ] as const
+  ).map(
+    ([library, document, page, words, request], index): EverydayCase => ({
+      id: `selected-zh-${index + 1}`,
+      language: "zh-CN",
+      library,
+      mind: null,
+      quote: { document, page, words },
+      request,
+      expected: { ...ANSWER, language: "zh-CN" },
+    }),
+  ),
+  {
+    id: "selected-none-en",
+    language: "en",
+    library: "reports",
+    mind: null,
+    request: "What does this mean?",
+    expected: { ...NOTHING, asks: "may" },
+  },
+  {
+    id: "selected-none-zh",
+    language: "zh-CN",
+    library: "reports",
+    mind: null,
+    request: "这句话是什么意思？",
+    expected: { ...NOTHING, asks: "may" },
+  },
+];
 
 export const CASES: readonly EverydayCase[] = [
   // The owner's own conversation, 2026-10-15.
@@ -402,7 +740,7 @@ export const CASES: readonly EverydayCase[] = [
     library: "papers",
     mind: TYPOS,
     request: "Translate my notes into Chinese",
-    expected: EDIT,
+    expected: { ...EDIT, terms: [{ want: "大潮", not: ["春潮"] }] },
   },
   {
     id: "edit-formal",
@@ -1293,4 +1631,6 @@ export const CASES: readonly EverydayCase[] = [
       "What were China's foreign exchange reserves at the end of September 2026, and how much did they change since the end of January?",
     expected: { ...ANSWER, figure: /1\.17\d* billion|1,17\d(?:\.\d+)? million/ },
   },
+  ...THIS_DOCUMENT,
+  ...SELECTED,
 ];

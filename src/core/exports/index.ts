@@ -15,10 +15,12 @@ import type { DrawnPage } from "../../shared/citedPage";
 import { titleWithoutSite } from "../../shared/documentNames";
 import { translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
+import { mindScopeOf } from "../../shared/mindScope";
 import { mindName } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
 import { pendingProposals } from "../../shared/proposals";
 import { readableQuoteText } from "../../shared/readableQuote";
+import type { ScopeKind } from "../../shared/searchScope";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
@@ -94,7 +96,8 @@ export interface ExportsDependencies {
   readableQuote(attributes: Partial<CitationAttributes>): string | null;
   /** The interface language, which the export's own words are in. */
   language(): Language;
-  folderName(folderId: string): string | null;
+  /** A Folder's, Tag's or Document's name; null for one that isn't there. */
+  scopeItemName(kind: ScopeKind, id: string): string | null;
   /** The Mind's citation style (#289), and the language its text is in, which a style may take. */
   citationStyle(mindId: string): { style: ResolvedCitationStyle; textLanguage: Language };
   /** The family the Mind's font is written as in Word and HTML; null: the default. */
@@ -227,7 +230,8 @@ export function createExports(deps: ExportsDependencies) {
         readOptions.sentenceChecks = failedSentences(fragment, {
           versions: new Map(documents.map((document) => [document.id, document.contentHash])),
           folderId: mind.folderId,
-          folderName: deps.folderName,
+          scope: doc ? mindScopeOf(doc) : null,
+          scopeItemName: deps.scopeItemName,
           sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
         });
         const { review } = readOptions;
@@ -556,7 +560,7 @@ export function createExports(deps: ExportsDependencies) {
           title,
           labels,
           language: language === "zh-CN" ? "zh-CN" : "en-US",
-          paper: language === "en" ? "letter" : "a4",
+          paper: deps.paper(),
           created: deps.now(),
           review: reviewChoices(prepared, false),
           font: prepared.font,

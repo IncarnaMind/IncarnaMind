@@ -10,6 +10,9 @@ import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
 import { translate } from "../../../shared/i18n";
+import { setMindScope } from "../../../shared/mindScope";
+import { chosenScope } from "../../../shared/searchScope";
+import { askedInThisWindow } from "../askedChanges";
 import { checkSentences } from "../checks";
 import {
   citationForm,
@@ -22,7 +25,7 @@ import {
 import { noteHandle, readMindHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { startCompareDocuments, useComparisons } from "../comparisons";
-import { chosenScope, useComposer } from "../composer";
+import { useComposer } from "../composer";
 import { core } from "../core";
 import { AnswerView } from "../editor/AnswerView";
 import { holdsAiText } from "../editor/aiText";
@@ -78,12 +81,14 @@ import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
 import { PageMenu } from "../editor/PageMenu";
 import { ProposalBars } from "../editor/ProposalBars";
-import { ProposalReview } from "../editor/proposalReview";
+import { editorDoc, ProposalReview } from "../editor/proposalReview";
 import { ProposalRewrites } from "../editor/proposalRewrites";
 import { QuestionView } from "../editor/QuestionView";
 import { askInEditor, QuestionCommands } from "../editor/questionCommands";
 import { QuestionFold } from "../editor/questionFold";
 import { ReferencesBlock } from "../editor/ReferencesBlock";
+import { ReviewFold, ReviewPane } from "../editor/ReviewPane";
+import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
@@ -91,6 +96,7 @@ import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/sla
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
 import { TableKeys } from "../editor/tableCommands";
+import { reviewItemsIn } from "../editor/theirChanges";
 import { TitleLine } from "../editor/titleLine";
 import { SmartTypography } from "../editor/typography";
 import type { EditWithAiField } from "../editor/useEditField";
@@ -106,6 +112,7 @@ import { setWritingPlace, WritingPlace } from "../editor/writingPlace";
 import { requestEdit, startEditing, TRANSLATE_LANGUAGES, useEdits } from "../editWithAi";
 import { useFirstOpen } from "../firstOpen";
 import { translateNow, useT } from "../i18n";
+import { useKeptScope, useMindScope } from "../keptScope";
 import { markSelectionAsMine } from "../markAsMine";
 import { useMeetingOf, useMeetings } from "../meetings";
 import { type OpenedCopy, openMindCopy } from "../mindCopies";
@@ -114,11 +121,13 @@ import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPlaceOf } from "../mindWriting";
 import { firstOpenOf } from "../nudges";
+import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
 import { skillDescription, skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { askForSuggestion, describeSuggestion } from "../suggestions";
 import { resumeTabCloseFocus } from "../tabFocus";
+import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
 import { CompareSheet } from "./CompareSheet";
 import { StartGuide, useIsExample } from "./GettingStarted";
 import { CheckLineIcon, MineLineIcon, SearchLineIcon } from "./lineIcons";
@@ -281,6 +290,7 @@ function MindEditorView({
    * Answers, its menus) has had it. Otherwise an Answer goes at the end of the Mind.
    */
   const cursorInMind = useRef(false);
+  const cursorPlaced = useRef(false);
   const placeholder = useRef({ body: "", title: "" });
   placeholder.current = { body: t("editor.placeholder"), title: t("editor.title") };
   // A Meeting's empty Mind waits for the agenda (as in Granola), with no Question to ask yet.
@@ -402,7 +412,8 @@ function MindEditorView({
           onAsk: (current, questionId) => void askInEditor(current, mindId, questionId),
         }),
         QuestionFold.configure({ mindId }),
-        ProposalReview.configure({ translate: translateNow }),
+        ProposalReview.configure({ translate: translateNow, asked: askedInThisWindow }),
+        ReviewPick,
         ProposalRewrites.configure({ translate: translateNow }),
         AppliedEditLine.configure({
           translate: translateNow,
@@ -430,7 +441,8 @@ function MindEditorView({
     if (!editor.isDestroyed) editor.setEditable(!readOnly && !importing);
   }, [editor, readOnly, importing]);
 
-  // A sentence's check needs a re-check once a Document it read changes, or the Mind moves (#96).
+  // A sentence's check needs a re-check once a Document it read changes, or the Mind moves (#96)
+  // or its scope changes (#1623).
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -441,9 +453,10 @@ function MindEditorView({
     () => (documents ? new Map(documents.map((each) => [each.id, each.contentHash])) : null),
     [documents],
   );
+  const scope = useMindScope(doc);
   useEffect(() => {
-    if (!editor.isDestroyed) setClaimContext(editor.view, { versions, folderId });
-  }, [editor, versions, folderId]);
+    if (!editor.isDestroyed) setClaimContext(editor.view, { versions, folderId, scope });
+  }, [editor, versions, folderId, scope]);
 
   // The Citations and References in the Mind's citation style (#289), formatted off the
   // window's thread, and the footnotes numbered again when the style counts Citations otherwise.
@@ -489,6 +502,7 @@ function MindEditorView({
       mindId,
       doc,
       cursorInMind: () => cursorInMind.current,
+      cursorPlaced: () => cursorPlaced.current,
       returnToNote() {
         if (editor.isDestroyed) return;
         // Where the cursor was, or at the end, at once: what is typed next goes there.
@@ -600,8 +614,10 @@ function MindEditorView({
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (editor.view.dom.contains(target)) cursorInMind.current = true;
-      else if (
+      if (editor.view.dom.contains(target)) {
+        cursorInMind.current = true;
+        cursorPlaced.current = true;
+      } else if (
         !assistant?.contains(target) &&
         !(target instanceof Element && target.closest("dialog"))
       ) {
@@ -612,6 +628,7 @@ function MindEditorView({
     return () => document.removeEventListener("focusin", onFocusIn);
   }, [editor, dock]);
 
+  useKeptScope(mindId, doc);
   // The assistant's one composer asks in this Mind while it reads it (`Assistant`).
   const asksHere = dock !== null && !readOnly;
   useEffect(() => {
@@ -652,17 +669,20 @@ function MindEditorView({
     if (scope) {
       const folderId =
         useAppStore.getState().minds.find((each) => each.id === mindId)?.folderId ?? null;
-      useComposer.getState().update(mindId, { scope: chosenScope(scope, folderId) });
+      const kept = chosenScope(scope, folderId);
+      useComposer.getState().update(mindId, { scope: kept });
+      if (!readOnly) setMindScope(doc, kept);
     }
     useComposer.getState().requestFocus();
     useAppStore.getState().questionStarted();
-  }, [questionHere, composerShown, mindId]);
+  }, [questionHere, composerShown, mindId, readOnly, doc]);
 
   /** The hint's "press ⌘J…": the composer takes the focus, the Question to go on the hint's line. */
   const askOnLine = (pos: number) => {
     if (editor.isDestroyed) return;
     editor.commands.setTextSelection(pos + 1);
     cursorInMind.current = true;
+    cursorPlaced.current = true;
     useComposer.getState().requestFocus();
   };
 
@@ -671,6 +691,10 @@ function MindEditorView({
     editor,
     selector: ({ editor: current }) => isEmptyMind(current.state.doc),
   });
+  useEffect(() => {
+    if (reads) publishReadMindEmpty(mindId, empty);
+  }, [reads, mindId, empty]);
+  useEffect(() => (reads ? () => forgetReadMind(mindId) : undefined), [reads, mindId]);
   // The first empty Mind says what a Mind is until something is written in it, and never again (#721).
   const wasEmpty = useRef(empty);
   useEffect(() => {
@@ -692,6 +716,19 @@ function MindEditorView({
   const wordLook = useWordLookStyle(doc, mindId, editor);
   // A read-only copy sends nothing to the core, so a switch there wouldn't be remembered.
   useEffect(() => (readOnly ? undefined : holdShownPage(mindId, doc)), [mindId, doc, readOnly]);
+  useEffect(
+    () =>
+      readOnly
+        ? undefined
+        : holdReviewable(mindId, {
+            editor,
+            has: () =>
+              !editor.isDestroyed && reviewItemsIn(editor.state.doc, editorDoc(editor)).length > 0,
+            open: () => useReviewPanes.getState().open(mindId),
+          }),
+    [editor, mindId, readOnly],
+  );
+  const reviewing = !readOnly && slots.reviewShown !== "closed";
   useEffect(() => followMindStyle(mindId, doc), [mindId, doc]);
 
   return (
@@ -706,14 +743,26 @@ function MindEditorView({
         )}
       {slots.menu &&
         createPortal(
-          <PageMenu
-            editor={editor}
-            doc={doc}
-            mindId={mindId}
-            verification={verification}
-            readOnly={readOnly}
-          />,
+          <>
+            {reviewing && slots.reviewShown !== "beside" && (
+              <ReviewFold editor={editor} mindId={mindId} />
+            )}
+            <PageMenu
+              editor={editor}
+              doc={doc}
+              mindId={mindId}
+              verification={verification}
+              readOnly={readOnly}
+            />
+          </>,
           slots.menu,
+        )}
+      {slots.review &&
+        reviewing &&
+        (slots.reviewShown === "beside" || slots.reviewShown === "over") &&
+        createPortal(
+          <ReviewPane editor={editor} mindId={mindId} over={slots.reviewShown === "over"} />,
+          slots.review,
         )}
       {/* The quiet first open shows the example's text alone (#856). */}
       {slots.count &&

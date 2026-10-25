@@ -37,22 +37,30 @@ import { DEFAULT_SORT, sorted } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
 import { documentFields, folderFields } from "../sortFields";
 import { useAppStore } from "../store";
+import { waitingIds } from "../suggestionReview";
+import { reviewIds, toReviewOf } from "../toReview";
 import { moveThroughRows } from "../treeKeys";
 import { useUnreadFiles } from "../unreadFiles";
 import { FindSourcesPanel } from "./FindSourcesPanel";
 import { LibrarySelectionBar } from "./LibrarySelection";
+import { AutomaticOffNotice } from "./library/AutomaticOffNotice";
 import { DeletedSection } from "./library/DeletedSection";
 import { StarterFolders } from "./library/FolderForm";
 import { LibraryBar } from "./library/LibraryBar";
 import { LibraryEmpty } from "./library/LibraryEmpty";
 import { LibraryHeader } from "./library/LibraryHeader";
 import { LibrarySection } from "./library/LibrarySection";
+import { ToReview } from "./library/ToReview";
 import { useFittingColumns } from "./library/useFittingColumns";
+import { useReviewFocus } from "./library/useReviewFocus";
 import { ProblemLine } from "./ProblemLine";
 import { ReferenceImportPanel } from "./ReferenceImportPanel";
 import { UnreadFilesLine } from "./UnreadFilesLine";
 
 const NO_GROUPS: readonly LibraryGroup[] = [];
+
+const inReviewList = (target: EventTarget) =>
+  target instanceof Element && target.closest("[data-review]") !== null;
 
 /** The Library's one order for every section, remembered on this computer. */
 const SORT_SCOPE = "library:all" as const;
@@ -139,6 +147,20 @@ export function LibraryPane() {
     [folders, ordered, folderOf, narrowing],
   );
   const folded = useLibraryFolds((state) => state.folded);
+  const reviewOpen = useLibraryFolds((state) => state.reviewOpen);
+  const review = useMemo(
+    () => toReviewOf(ordered, folders, snapshot?.assignments ?? []),
+    [ordered, folders, snapshot?.assignments],
+  );
+  const reviewing = !narrowing && review.count > 0;
+  useEffect(() => {
+    useLibraryFolds.getState().setReviewShown(reviewing);
+    return () => useLibraryFolds.getState().setReviewShown(false);
+  }, [reviewing]);
+  const reviewList = useMemo(
+    () => (reviewing && reviewOpen ? reviewIds(review) : []),
+    [review, reviewing, reviewOpen],
+  );
   const shownIds = useMemo(
     () =>
       sections.flatMap((section) =>
@@ -146,15 +168,22 @@ export function LibraryPane() {
       ),
     [sections, folded],
   );
-  // ⌘A and Shift-click reach every row in an open section, drawn or not.
-  useSelectionOrder("library", () => shownIds.map((id) => ({ kind: "document", id })));
+  // ⌘A and Shift-click reach every row in an open section, drawn or not; in To review, its own.
+  const inReview = useRef(false);
+  useSelectionOrder("library", () =>
+    (inReview.current && reviewList.length > 0 ? reviewList : shownIds).map((id) => ({
+      kind: "document",
+      id,
+    })),
+  );
   // What is selected stays in view: a search, a filter or a fold that hides it, or a deletion, drops it.
   useEffect(() => {
     const held = useSelection.getState();
     if (held.surface !== "library") return;
-    const visible = new Set(shownIds);
+    const visible = new Set([...shownIds, ...reviewList]);
     held.keepOnly((ref) => visible.has(ref.id));
-  }, [shownIds]);
+  }, [shownIds, reviewList]);
+  useReviewFocus(grid, reviewList.join());
   const selectingMany = useSelection(
     (state) => state.surface === "library" && state.items.length > 1,
   );
@@ -181,6 +210,14 @@ export function LibraryPane() {
 
   // A Folder, Not in a Folder or Recently deleted asked for (from the sidebar, a menu or ⌘K): its section opens and comes into view.
   useEffect(() => {
+    if (request === "review") {
+      setSearch("");
+      setFacetFilter({});
+      useAppStore.getState().setTagFilter([]);
+      if (waitingIds().length > 0) useLibraryFolds.getState().showReview();
+      useAppStore.setState({ libraryFilter: "all" });
+      return;
+    }
     if (FORMS.includes(request)) return;
     const key =
       request === LIBRARY_DELETED
@@ -285,6 +322,7 @@ export function LibraryPane() {
                   onFoldAll={() => useLibraryFolds.getState().setAll(sectionKeys, allFolded)}
                 />
               )}
+              <AutomaticOffNotice />
               {problem && (
                 <ProblemLine
                   role="status"
@@ -311,6 +349,13 @@ export function LibraryPane() {
                 role="grid"
                 aria-multiselectable="true"
                 aria-label={t("library.sections")}
+                // Where the pointer or the focus went last says which list a Shift-click ranges over.
+                onPointerDownCapture={(event) => {
+                  inReview.current = inReviewList(event.target);
+                }}
+                onFocusCapture={(event) => {
+                  inReview.current = inReviewList(event.target);
+                }}
                 onKeyDown={(event) => {
                   if (moveThroughRows(event) || extendThroughRows(event, "library")) return;
                   // ↑ on the first row goes back to the search, as ↓ came from it.
@@ -326,6 +371,7 @@ export function LibraryPane() {
                   }
                 }}
               >
+                {reviewing && <ToReview review={review} suggestedIn={suggestedOf} />}
                 {sections.map((section) => (
                   <LibrarySection
                     key={section.key}

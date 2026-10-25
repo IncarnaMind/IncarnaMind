@@ -63,6 +63,7 @@ import { speak } from "./editWithAi";
 import { translateNow as t } from "./i18n";
 import { EDIT_FROM_CORE, takeEditUpdates } from "./mindCopies";
 import { useAppStore } from "./store";
+import { pageUndoPlace } from "./undo";
 
 // An origin the editor's Undo tracks, and its copy sends to the core.
 class AcceptingEdit {}
@@ -348,7 +349,7 @@ function apply(edit: Applying, request: string): ChangedBlocks {
     changes,
     kept: keptLineOf(edit.leftOut.filter((part) => blockAt(doc, part.blockId) !== null)),
   });
-  offerEditorUndo(editor, (t) => appliedText(t, changed));
+  offerEditorUndo(editor, (t) => appliedText(t, changed), pageUndoPlace);
   return changed;
 }
 
@@ -427,7 +428,7 @@ export function applyArrived(
     changes,
     kept: null,
   });
-  offerEditorUndo(editor, (t) => changeFact(t, facts, null));
+  offerEditorUndo(editor, (t) => changeFact(t, facts, null), pageUndoPlace);
   return "applied";
 }
 

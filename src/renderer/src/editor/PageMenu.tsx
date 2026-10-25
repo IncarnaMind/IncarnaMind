@@ -24,6 +24,7 @@ import { moveIntoFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { fileStatusLabel } from "../linkedFolders";
 import { useMindStylePanel } from "../mindStylePanel";
+import { useReviewables, useReviewPanes } from "../reviewPane";
 import { allExamples, useAppStore } from "../store";
 import { openDocumentBeside } from "../verify";
 import { MindCounts } from "./WordCount";
@@ -33,7 +34,8 @@ import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin"
  * The ⋯ button at a Mind's page's top right (#908; the board
  * Page-Clean-Menu): the Mind's menu in the sidebar row's order; Style ›, its
  * choices beside it; "From {file}" with Show in Finder for a Mind imported
- * from Word or made by Verify, which opens the original beside it; and at its
+ * from Word or made by Verify, which opens the original beside it, and
+ * "Review their changes" for one with someone's changes or comments; and at its
  * foot the counts and the switch that shows the count while writing.
  */
 export function PageMenu({
@@ -116,6 +118,20 @@ export function PageMenu({
                   {origin && (
                     <>
                       {!readOnly && <div className={menuRuleClass} />}
+                      {!readOnly && origin.word && useReviewables.getState()[mindId]?.has() && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          data-testid="page-review"
+                          onClick={() => {
+                            close();
+                            useReviewPanes.getState().open(mindId);
+                          }}
+                          className={`${menuItemClass} pl-2`}
+                        >
+                          <span className="min-w-0 flex-1 truncate">{t("review.menuItem")}</span>
+                        </button>
+                      )}
                       {/* Not in the Library, the original can't be opened: what it says of the file is still true. */}
                       <button
                         type="button"
@@ -219,6 +235,9 @@ export function PageMenu({
               void moveIntoFolder({ mindIds: [mindId] }, folderId);
             }
           }}
+          onCreate={(folderName) =>
+            void useAppStore.getState().createFolder({ mindIds: [mindId] }, folderName)
+          }
           onClose={() => setMoving(null)}
         />
       )}

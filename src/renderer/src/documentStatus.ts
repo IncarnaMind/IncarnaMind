@@ -32,6 +32,10 @@ export const isProcessing = (status: DocumentStatus) =>
   status === "waiting-for-model" ||
   status === "embedding";
 
+/** Its text has been read: search finds it, though its embeddings may still be on their way. */
+export const isSearchable = (status: DocumentStatus) =>
+  status === "ready" || status === "waiting-for-model" || status === "embedding";
+
 /**
  * Where a Document's reading is, in full words, with the reason if it
  * failed. `scanning` is what says so while its scanned pages are read.

@@ -35,6 +35,17 @@ export function blockAt(
   return found;
 }
 
+// The label is drawn in the page's margin, so it sits at the top level: a Block in a table or a list has its top-level Block's edge.
+function topBlockStart(doc: ProseMirrorNode, pos: number): number {
+  const $pos = doc.resolve(pos);
+  return $pos.depth === 0 ? pos : $pos.before(1);
+}
+
+function topBlockEnd(doc: ProseMirrorNode, pos: number, size: number): number {
+  const $pos = doc.resolve(pos);
+  return $pos.depth === 0 ? pos + size : $pos.after(1);
+}
+
 function decorations(doc: ProseMirrorNode, place: Place, label: string): Decoration[] {
   const widget = () => {
     const line = document.createElement("div");
@@ -51,7 +62,10 @@ function decorations(doc: ProseMirrorNode, place: Place, label: string): Decorat
     const block = blockAt(doc, place.over);
     if (!block) return [];
     return [
-      Decoration.widget(block.pos, widget, { side: -1, key: `writing:over:${place.over}` }),
+      Decoration.widget(topBlockStart(doc, block.pos), widget, {
+        side: -1,
+        key: `writing:over:${place.over}`,
+      }),
       Decoration.node(block.pos, block.pos + block.node.nodeSize, {
         class: "mind-rewriting",
         "data-testid": "mind-rewriting",
@@ -59,7 +73,7 @@ function decorations(doc: ProseMirrorNode, place: Place, label: string): Decorat
     ];
   }
   const block = place.after === null ? null : blockAt(doc, place.after);
-  const at = block ? block.pos + block.node.nodeSize : doc.content.size;
+  const at = block ? topBlockEnd(doc, block.pos, block.node.nodeSize) : doc.content.size;
   return [Decoration.widget(at, widget, { side: 1, key: `writing:${place.after ?? "end"}` })];
 }
 

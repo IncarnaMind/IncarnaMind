@@ -18,6 +18,7 @@ import {
   type SearchMatch,
   type LibrarySection as Section,
 } from "../../libraryPage";
+import { formatCount } from "../../linkedFolders";
 import { sayWhenOrganized, useOrganizeAsk } from "../../organizeRun";
 import { useRequests } from "../../requests";
 import { useAppStore } from "../../store";
@@ -60,6 +61,7 @@ export function LibrarySection({
   notSortedOf(documentId: string): string | null;
 }) {
   const t = useT();
+  const language = useLanguage();
   const open = useLibraryFolds((state) => !state.folded.has(section.key));
   const showingAll = useLibraryFolds((state) => state.showingAll.has(section.key));
   const element = useRevealed<HTMLDivElement>(section.key);
@@ -100,7 +102,7 @@ export function LibrarySection({
             onClick={() => useLibraryFolds.getState().showAll(section.key)}
             className={quietButtonClass}
           >
-            {t("library.showAll", { count: documents.length })}
+            {t("library.showAll", { count: formatCount(documents.length, language) })}
           </button>
         </div>
       )}

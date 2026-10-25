@@ -9,6 +9,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, test } from "vitest";
 import { dataFlowIds, networkTrafficIds } from "../../src/core/api";
+import { CATALOG_PROVIDERS } from "../../src/core/providers/catalog/providers";
 
 const root = join(__dirname, "../..");
 const page = readFileSync(join(root, "docs/privacy.md"), "utf8");
@@ -48,6 +49,15 @@ const reaches = (source: string) =>
 describe("docs/privacy.md", () => {
   test.each([...dataFlowIds, ...networkTrafficIds])("has a row for `%s`", (id) => {
     expect(flows).toContain(`\`${id}\``);
+  });
+
+  // protects=the page names both hosts of every provider with a China and an International region, so a User sees where a key can go; fails_when=a provider gains or changes a region host and the page doesn't say it; no_claim=how the page words it.
+  test.each(
+    CATALOG_PROVIDERS.filter((each) => each.endpoints.some((endpoint) => endpoint.id === "intl")),
+  )("names each region's host of $id", (provider) => {
+    for (const endpoint of provider.endpoints) {
+      expect(flows).toContain(new URL(endpoint.baseUrl).host);
+    }
   });
 
   const listed = [...codeTable.matchAll(/`(src\/[^`]+)`/g)].map((match) => match[1] as string);

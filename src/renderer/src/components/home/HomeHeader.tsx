@@ -67,8 +67,11 @@ export function HomeHeader({ now }: { now: Date }) {
                   <button
                     type="button"
                     data-testid={`home-need-${need.id}`}
-                    // Both are seen to in the Library.
-                    onClick={() => useAppStore.getState().openLibrary()}
+                    onClick={() =>
+                      useAppStore
+                        .getState()
+                        .openLibrary(need.id === "suggestions" ? "review" : "all")
+                    }
                     className={linkClass}
                   >
                     {need.label}

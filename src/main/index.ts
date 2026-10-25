@@ -72,11 +72,18 @@ const instanceLock = app.requestSingleInstanceLock()
 const ownsDataFolder = instanceLock?.held ?? false;
 if (instanceLock?.timedOut) {
   logger.error("app.dataFolderBusy", { folder: app.getPath("userData") });
-  const language = resolveLanguage("system", app.getPreferredSystemLanguages());
-  const { title, detail } = busyDialog(language);
-  dialog.showErrorBox(title, detail);
-}
-if (!ownsDataFolder) {
+  // Before `ready`, Linux writes an error box to stderr and shows nothing (#1493).
+  app.whenReady().then(() => {
+    const language = resolveLanguage("system", app.getPreferredSystemLanguages());
+    const { title, detail } = busyDialog(language);
+    // A copy left running would keep Electron's lock, and every later launch would quit unseen.
+    try {
+      dialog.showErrorBox(title, detail);
+    } finally {
+      app.exit(0);
+    }
+  });
+} else if (!ownsDataFolder) {
   logger.info("app.anotherCopyRunning");
   // Not `quit`: its `app.quit` line in the log would read as the running copy's.
   app.exit(0);
@@ -85,7 +92,7 @@ const releaseDataFolder = () => instanceLock?.release();
 app.on("quit", releaseDataFolder);
 
 // Whether Skill scripts run in the OS sandbox, found out while Electron starts.
-const scriptExecutor = chooseExecutor(logger);
+const scriptExecutor = ownsDataFolder ? chooseExecutor(logger) : Promise.resolve(undefined);
 
 /** Set by electron-vite in development; absent in a built app. */
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
@@ -264,7 +271,7 @@ function installMenuInLanguage(core: Core): void {
   const install = (language: Language) => {
     if (language === shown) return;
     shown = language;
-    installAppMenu(language, { developer });
+    installAppMenu(language, { developer, windows: appWindows });
   };
   install(resolveLanguage("system", app.getPreferredSystemLanguages()));
   core.getSettings().then(

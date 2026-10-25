@@ -5,12 +5,14 @@ import {
   createDataFolder,
   dismissChatSetup,
   enterContent,
+  focusSettled,
   launchApp,
   motionSettled,
   newMind,
   openPageMenu,
   pageMenuButton,
   pointAndClick,
+  pointAt,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -123,6 +125,7 @@ test("the page starts with its text; the ⋯ at its top right opens by click and
 
   // The selection's count of the whole.
   await window.getByTestId("mind-editor").locator("p").first().click();
+  await focusSettled(window, window.getByTestId("mind-editor"));
   await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowLeft" : "Home");
   await window.keyboard.press(`Shift+${WORD_KEY}+ArrowRight`);
   await window.keyboard.press(`Shift+${WORD_KEY}+ArrowRight`);
@@ -191,7 +194,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // Style, with its value, opens its choices beside the menu, inside the window.
       const style = menu.getByTestId("page-style");
       await expect(style).toContainText(language === "en" ? "StyleDefault" : "样式默认");
-      await style.hover();
+      await pointAt(window, style);
       const choices = window.getByTestId("page-style-menu");
       await expect(choices).toBeVisible();
       await motionSettled(window);
@@ -222,7 +225,7 @@ test("Style › in the page's ⋯ opens its choices beside it by pointer and by 
   // By pointer: Serif changes the page at once, and the item says so; the menu stays for the next choice.
   const menu = await openPageMenu(window);
   const style = menu.getByTestId("page-style");
-  await style.hover();
+  await pointAt(window, style);
   const choices = window.getByTestId("page-style-menu");
   await expect(choices).toBeVisible();
   await pointAndClick(window, choices.getByTestId("mind-style-font-serif"));
@@ -245,6 +248,8 @@ test("Style › in the page's ⋯ opens its choices beside it by pointer and by 
   await pageMenuButton(window).focus();
   await window.keyboard.press("Enter");
   await expect(menu).toBeVisible();
+  // Its counts come a moment later, and until a key or the pointer touches the menu it moves the focus back to its first item.
+  await expect(menu.getByTestId("page-counts")).toBeVisible();
   await style.focus();
   await window.keyboard.press("ArrowRight");
   await expect(choices).toBeVisible();
@@ -254,7 +259,7 @@ test("Style › in the page's ⋯ opens its choices beside it by pointer and by 
   await expect(style).toBeFocused();
 
   // Other fonts… closes the menu and opens the list of fonts beside the ⋯.
-  await style.hover();
+  await pointAt(window, style);
   await expect(choices).toBeVisible();
   await pointAndClick(window, choices.getByTestId("mind-style-other-fonts"));
   const picker = window.getByTestId("mind-style-font-picker");

@@ -1,14 +1,20 @@
+import type { Editor } from "@tiptap/core";
 import type { ClaimCheckAction } from "../../../core/api";
+import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import { checkSentences, useChecks } from "../checks";
+import type { ShownClaim } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { startMindCheck } from "../mindCheck";
 import {
+  contradictedAt,
+  cutSentence,
   cutUnsupported,
   fixesFree,
   keepAsView,
+  notFoundAt,
   searchAllDocuments,
-  searchedFolder,
+  searchedLess,
   uncoveredOf,
   unsupportedAt,
 } from "../unsupportedFixes";
@@ -46,11 +52,23 @@ function withAdded(): string | null {
   return documentsAdded(added).length > 0 ? note.mindId : null;
 }
 
-function withUnsupported() {
+function withClaim(find: (editor: Editor) => ShownClaim | null) {
   const note = noteHandle.current;
   if (!note || note.editor.isDestroyed || !fixesFree(note.mindId)) return null;
-  const claim = unsupportedAt(note.editor);
+  const claim = find(note.editor);
   return claim ? { ...note, claim } : null;
+}
+
+const withUnsupported = () => withClaim(unsupportedAt);
+const withNotFound = () => withClaim(notFoundAt);
+const withContradicted = () => withClaim(contradictedAt);
+const withNothingBacking = () => withUnsupported() ?? withNotFound();
+const withKeepable = () => withNothingBacking() ?? withContradicted();
+
+// A Mind made to verify someone else's document keeps their words.
+function withCuttable() {
+  const at = withNotFound();
+  return at && verificationOf(at.doc) === null ? at : null;
 }
 
 export const checkCommands: readonly Command[] = [
@@ -89,12 +107,24 @@ export const checkCommands: readonly Command[] = [
     // It changes no words, as Check against Documents.
     reversible: true,
     when: () => {
-      const at = withUnsupported();
-      return at !== null && searchedFolder(at.claim);
+      const at = withNothingBacking();
+      return at !== null && searchedLess(at.claim);
     },
     run() {
-      const at = withUnsupported();
+      const at = withNothingBacking();
       if (at) void searchAllDocuments(at.editor, at.mindId, at.doc, at.claim);
+    },
+  },
+  {
+    id: "check.cutSentence",
+    label: "claim.cutSentence",
+    keywords: ["claim.cutSentence.keywords"],
+    group: "main",
+    reversible: true,
+    when: () => withCuttable() !== null,
+    run() {
+      const at = withCuttable();
+      if (at) cutSentence(at.editor, at.claim);
     },
   },
   {
@@ -102,9 +132,9 @@ export const checkCommands: readonly Command[] = [
     label: "claim.keepAsView",
     group: "main",
     reversible: true,
-    when: () => withUnsupported() !== null,
+    when: () => withKeepable() !== null,
     run() {
-      const at = withUnsupported();
+      const at = withKeepable();
       if (at) keepAsView(at.editor, at.claim);
     },
   },

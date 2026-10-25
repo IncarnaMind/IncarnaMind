@@ -1,9 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
+  clickEditItem,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -195,6 +196,94 @@ test("a selection is one per place: moving to the other clears it", async () => 
     await expectSelected(inLibrary, [4]);
     await expectSelected(inSidebar, []);
     await expect(window.getByTestId("sidebar-selection")).toHaveText("");
+  } finally {
+    await app.close();
+  }
+});
+
+test("Esc in the Library clears what the sidebar holds, its footer with its rows", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1400, 800);
+    await dismissChatSetup(window);
+    await addFiveDocuments(window);
+    const [sidebar, library] = PLACES;
+    if (!sidebar || !library) throw new Error("The places are missing.");
+    const inSidebar = sidebar.rows(window);
+    await pointAndClick(window, sidebar.target(inSidebar.nth(0)));
+    await pointAndClick(window, sidebar.target(inSidebar.nth(2)), withKey);
+    await pointAndClick(window, sidebar.target(inSidebar.nth(3)), withKey);
+    const footer = window.getByTestId("sidebar-selection");
+    await expect(footer).toHaveText("3 selected · Esc clears");
+
+    await window.getByTestId("open-library").click();
+    const inLibrary = library.rows(window);
+    await expect(inLibrary).toHaveCount(NAMES.length);
+    await library.main(inLibrary.nth(1)).focus();
+    await window.keyboard.press("Escape");
+    await expectSelected(inSidebar, []);
+    await expect(footer).toHaveText("");
+    await expectSelected(inLibrary, []);
+  } finally {
+    await app.close();
+  }
+});
+
+/** Holds the system's open dialog open, as the User would, until `answerDialog` picks `path`. */
+const holdOpenDialog = (app: ElectronApplication, path: string) =>
+  app.evaluate(({ dialog }, picked) => {
+    const held: { asked: number; answer: () => void } = { asked: 0, answer: () => undefined };
+    (globalThis as { heldDialog?: typeof held }).heldDialog = held;
+    dialog.showOpenDialog = (() =>
+      new Promise((resolve) => {
+        held.asked += 1;
+        held.answer = () => resolve({ canceled: false, filePaths: [picked] });
+      })) as unknown as typeof dialog.showOpenDialog;
+  }, path);
+
+const dialogsAsked = (app: ElectronApplication) =>
+  app.evaluate(() => (globalThis as { heldDialog?: { asked: number } }).heldDialog?.asked ?? 0);
+
+const answerDialog = (app: ElectronApplication) =>
+  app.evaluate(() => (globalThis as { heldDialog?: { answer(): void } }).heldDialog?.answer());
+
+// The system keeps a key from the window behind its dialog (Playwright's keys go round it), but
+// macOS still runs the menu's items: there ⌘A is the Edit menu's Select All (#1515).
+test("while a system file dialog is open, the menu's Select All doesn't reach the window behind it", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1400, 800);
+    await dismissChatSetup(window);
+    await addFiveDocuments(window);
+    const [sidebar] = PLACES;
+    if (!sidebar) throw new Error("The sidebar is missing.");
+    const rows = sidebar.rows(window);
+    const chosen = rows.nth(1);
+    await pointAndClick(window, sidebar.target(chosen));
+    const name = (await chosen.getByTestId("row-text").textContent()) ?? "";
+    const selected = window
+      .getByTestId("sidebar")
+      .getByRole("treeitem", { selected: true })
+      .getByTestId("row-text");
+    await expect(selected).toHaveText([name]);
+    const picked = join(sources, "Lagoons.txt");
+    await writeFile(picked, "Lagoons are a part of the sea.\n");
+    await holdOpenDialog(app, picked);
+
+    await window.keyboard.press("ControlOrMeta+o");
+    await expect.poll(() => dialogsAsked(app)).toBe(1);
+    await clickEditItem(app, "edit.selectAll");
+    // Answered after the menu, so the Document it adds shows once the window would have had it.
+    await answerDialog(app);
+    await expect(window.getByTestId("library-row-count")).toHaveText(String(NAMES.length + 1));
+    await expect(selected).toHaveText([name]);
+    const footer = window.getByTestId("sidebar-selection");
+    await expect(footer).toHaveText("");
+
+    // Once the dialog has closed, the menu reaches the window again.
+    await clickEditItem(app, "edit.selectAll");
+    await expect(selected).toHaveCount(await rows.count());
+    await expect(footer).toHaveText(`${await rows.count()} selected · Esc clears`);
   } finally {
     await app.close();
   }

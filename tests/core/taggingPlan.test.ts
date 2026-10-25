@@ -16,6 +16,7 @@ import {
   manualClock,
   nextTurn,
   startCore,
+  turnOnAutomaticTagging,
 } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import {
@@ -89,6 +90,7 @@ async function onPlan() {
   expect((await core.signInToChatGpt()).ok).toBe(true);
   core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
   await core.saveChatProvider({ kind: "chatgpt", modelId: "gpt-6.1-sol" });
+  await turnOnAutomaticTagging(core);
   fake.reply = { kind: "answer", text: JSON.stringify({ tags: [] }) };
   return { core, fake, pacing };
 }
@@ -200,6 +202,7 @@ async function onClaudePlan() {
   expect(await signIn).toMatchObject({ ok: true });
   core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
   await core.saveChatProvider({ kind: "claude-account", modelId: "claude-sonnet-5-5" });
+  await turnOnAutomaticTagging(core);
   fake.answer = JSON.stringify({ tags: [] });
   return { core, fake, pacing };
 }
@@ -270,6 +273,7 @@ describe("Tagging on a Copilot plan", () => {
     expect(await signIn).toMatchObject({ ok: true });
     core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
     await core.saveChatProvider({ kind: "copilot", modelId: "gpt-5.5" });
+    await turnOnAutomaticTagging(core);
     fake.replies.push({
       kind: "error",
       status: 402,

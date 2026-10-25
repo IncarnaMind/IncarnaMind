@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import type {
+  AskedQuote,
   AskInConversationInput,
   Conversation,
   ConversationAnswer,
+  ConversationAskResult,
   ConversationMessage,
   ConversationQuestion,
 } from "../../core/api";
@@ -14,7 +16,9 @@ import { watchMindsMadeBy } from "./assistantMinds";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
 import { translateNow } from "./i18n";
+import { documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { useModelSetup, waitForModel } from "./modelSetup";
+import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -35,6 +39,8 @@ interface ConversationsState {
   asking: string | null;
   /** What that Question is about in its Mind (#565); "" when it is about nothing. */
   askingQuote: string;
+  /** The words selected in Documents that Question is about. */
+  askingQuotes: readonly AskedQuote[];
   /** Stop was pressed while that Question was on its way: its Answer stops as it starts. */
   stopWanted: boolean;
   /** An Answer to bring into view and flash once it shows: a link back from a Note leads there. */
@@ -47,6 +53,7 @@ export const useConversations = create<ConversationsState>()(() => ({
   messages: [],
   asking: null,
   askingQuote: "",
+  askingQuotes: [],
   stopWanted: false,
   sought: null,
 }));
@@ -155,6 +162,20 @@ export async function askReadyQuestion(): Promise<void> {
   }
 }
 
+function sayLeftOut(result: ConversationAskResult): void {
+  if (!result.asked) return;
+  const { documents } = useAppStore.getState();
+  for (const quote of result.leftOut ?? []) {
+    const here = documents.some((each) => each.id === quote.documentId);
+    const said = here ? "assistant.quote.leftOut" : "assistant.quote.leftOut.deleted";
+    useNotices
+      .getState()
+      .showError(new Error(translateNow(said, { document: quote.documentName })));
+  }
+}
+
+const documentsOnScreen = () => documentsOnScreenOf(useAppStore.getState().layout, groupsMerged());
+
 /**
  * Asks a Question from the composer in the assistant's conversation (a
  * new one for a new chat): it shows at once, and its Answer streams in there.
@@ -168,6 +189,7 @@ export async function askInAssistant(
   useConversations.setState({
     asking: input.text,
     askingQuote: input.mindId ? (input.focus?.selection ?? "") : "",
+    askingQuotes: input.quotes ?? [],
     stopWanted: false,
     sought: null,
   });
@@ -175,6 +197,7 @@ export async function askInAssistant(
     const result = await core.askInConversation({
       ...input,
       conversationId: useConversations.getState().openId,
+      onScreen: documentsOnScreen(),
     });
     if (
       !result.asked &&
@@ -187,6 +210,7 @@ export async function askInAssistant(
       return true;
     }
     settleAsk(key, result);
+    sayLeftOut(result);
     if (!result.asked) return false;
     watchMindsMadeBy(result.answerId);
     applyWhatWasAsked(result.answerId);
@@ -260,14 +284,14 @@ export async function regenerateAnswer(
     watchMindsMadeBy(answerId);
     applyWhatWasAsked(answerId, { keepWritten: clearScope });
     watchCommands(answerId);
-    settleAsk(
+    const result = await core.regenerateConversationAnswer({
+      conversationId,
       answerId,
-      await core.regenerateConversationAnswer({
-        conversationId,
-        answerId,
-        ...(clearScope && { clearScope }),
-      }),
-    );
+      ...(clearScope && { clearScope }),
+      onScreen: documentsOnScreen(),
+    });
+    settleAsk(answerId, result);
+    sayLeftOut(result);
   } catch (error) {
     settleAsk(answerId, null, error);
   }

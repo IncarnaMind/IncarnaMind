@@ -823,6 +823,10 @@
 .docx-view.docx-view--notes .docx-wrapper {
   padding-right: calc(24px + 16px + 220px);
 }
+/* Text selected in a viewer and still acted on while the focus is elsewhere (SelectionMenu). */
+::highlight(viewer-held-selection) {
+  background-color: var(--color-selection-inactive);
+}
 /* The commented text, washed as Word marks it. */
 ::highlight(docx-comments) {
   background-color: rgb(246 214 150 / 0.55);

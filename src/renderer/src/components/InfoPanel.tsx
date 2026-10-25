@@ -1,9 +1,9 @@
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { type ReactNode, type Ref, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { Document, LibraryGroup, LinkedFolder } from "../../../core/api";
 import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
 import { copyText } from "../copied";
-import { files } from "../core";
+import { core, files } from "../core";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
 import { documentStatusText } from "../documentStatus";
 import { providerErrorText } from "../errors";
@@ -27,6 +27,7 @@ import { chipsOf } from "../tagEditing";
 import { DocumentLineIcon, FolderLineIcon } from "./lineIcons";
 import { TagDot } from "./TagColour";
 import { buttonClass } from "./ui";
+import { useTaggingService } from "./useTaggingService";
 
 const WIDTH_PX = 340;
 const EDGE_PX = 8;
@@ -174,11 +175,26 @@ function Rows({ children }: { children: ReactNode }) {
   );
 }
 
-function Row({ label, testId, children }: { label: string; testId: string; children: ReactNode }) {
+function Row({
+  label,
+  testId,
+  focusRef,
+  children,
+}: {
+  label: string;
+  testId: string;
+  focusRef?: Ref<HTMLElement>;
+  children: ReactNode;
+}) {
   return (
     <>
       <dt className="text-ink-meta">{label}</dt>
-      <dd data-testid={testId} className="min-w-0 break-words text-ink [overflow-wrap:anywhere]">
+      <dd
+        ref={focusRef}
+        tabIndex={focusRef ? -1 : undefined}
+        data-testid={testId}
+        className="min-w-0 break-words text-ink [overflow-wrap:anywhere]"
+      >
         {children}
       </dd>
     </>
@@ -229,6 +245,11 @@ function DocumentInfo({ document }: { document: Document }) {
   const assignment = useAppStore((state) =>
     state.library?.assignments.find((each) => each.documentId === document.id),
   );
+  const scanImages = useTaggingService(
+    "scan-images",
+    assignment?.error?.wording?.key === "error.library.scanImagesOff",
+  );
+  const organizeRow = useRef<HTMLElement>(null);
   const folder = useDocumentFolder(document.id);
   const linkedName = useAppStore((state) => {
     const linked = state.linkedFolders.find((each) => each.id === document.linkedFolderId);
@@ -315,13 +336,28 @@ function DocumentInfo({ document }: { document: Document }) {
             <span className="block text-ink-meta">{document.failure.message}</span>
           )}
         </Row>
-        <Row label={t("info.organize")} testId="info-organize">
+        <Row label={t("info.organize")} testId="info-organize" focusRef={organizeRow}>
           {t(organizeState(assignment))}
           {assignment?.model && (
             <span className="block text-ink-meta">{organizeModel(assignment.model, t)}</span>
           )}
           {assignment?.error && (
             <span className="block text-ink-meta">{providerErrorText(assignment.error, t)}</span>
+          )}
+          {scanImages && !scanImages.allowed && (
+            <button
+              type="button"
+              data-testid="info-allow-page-images"
+              onClick={() =>
+                void core
+                  .allowDataFlow("scan-images", scanImages.service.id)
+                  .then(() => organizeRow.current?.focus())
+                  .catch((error: unknown) => useAppStore.getState().reportError(error))
+              }
+              className={`${buttonClass} mt-1.5`}
+            >
+              {t("scan.images.allow")}
+            </button>
           )}
         </Row>
       </Rows>

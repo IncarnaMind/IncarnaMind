@@ -319,13 +319,20 @@ test("a link: added with the button or ⌘K on a selection, edited, opened and r
   const bubble = window.getByTestId("link-bubble-address");
   await expect(bubble).toHaveText("https://example.com/moon");
   // The address and the three buttons sit in one row.
-  const rows = await Promise.all(
-    ["link-bubble-address", "link-open", "link-edit", "link-remove"].map(async (id) => {
-      const box = await window.getByTestId(id).boundingBox();
-      return Math.round(((box?.y ?? -100) + (box?.height ?? 0) / 2) / 8);
-    }),
-  );
-  expect(new Set(rows).size).toBe(1);
+  await expect
+    .poll(() =>
+      window.evaluate(
+        (ids) => {
+          const middles = ids.map((id) => {
+            const box = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
+            return box ? box.y + box.height / 2 : Number.NaN;
+          });
+          return Math.max(...middles) - Math.min(...middles);
+        },
+        ["link-bubble-address", "link-open", "link-edit", "link-remove"],
+      ),
+    )
+    .toBeLessThan(8);
   await window.getByTestId("link-open").hover();
   await window.getByTestId("link-open").click();
   await expect.poll(() => urlsOpened(app)).toEqual(["https://example.com/moon"]);
@@ -434,6 +441,7 @@ for (const [language, titles] of [
     await expect(items).toHaveCount(0);
     await expect(editor).toBeFocused();
     await window.keyboard.press("ControlOrMeta+Alt+L");
+    await expect(items.first()).toBeFocused();
     await window.keyboard.press("ArrowDown");
     await expect(items.nth(1)).toBeFocused();
     await window.keyboard.press("Enter");

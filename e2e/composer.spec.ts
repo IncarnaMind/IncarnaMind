@@ -261,7 +261,7 @@ test("typing in the composer and pressing Enter shows the Question in the assist
   await window.mouse.move(10, 10);
   const actions = answer.getByTestId("answer-actions");
   await expect.poll(() => opacityOf(actions)).toBe(1);
-  await expect(actions).toHaveText("CopyAdd to note");
+  await expect(actions).toHaveText("CopyAdd to noteNew Mind");
   await expect(answer.getByTestId("answer-steps")).toHaveText("Searched All Documents · 1 source");
   await expect(answer.getByTestId("answer-regenerate")).toHaveCount(0);
   await screenshot(window, "composer-answered-en");

@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import type { MockLanguageModelV4 } from "ai/test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import { pendingProposals } from "../../src/shared/proposals";
 import {
@@ -94,6 +94,84 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
     expect(mindCalls(answer)[0]?.status).toBe("done");
     expect(answer.text).toBe("Shortened the summary in “Q3 review”: dropped two fillers.");
     expect(lastResult(model)).toMatch(/^Changed 2 places in “Q3 review” \(from 11 to 9 words\)/);
+  });
+
+  // protects=edit_mind's rewrite is asked of the Answer's model with thinking off, as its quick calls are: a rewrite as asked needs no reasoning first, and Kimi K2.6 thought for a minute on one (#1635); fails_when=the rewrite goes to the Answer's thinking model; no_claim=how well a real model rewrites without thinking, which the everyday evaluation measures.
+  test("edit_mind's rewrite is asked of the Answer's model with thinking off", async () => {
+    const answering = toolModel(
+      { tool: "edit_mind", input: { instruction: "Shorten it" } },
+      "Shortened the summary.",
+    );
+    const quick = scriptedModel(
+      (call: ModelCall): ScriptedReply => shortened(call) ?? { text: "" },
+    );
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: (spec) => (spec.thinking === "off" ? quick : answering),
+    });
+    // A model on a service: Ollama's thinking is its own settings', not the request's.
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+      apiKey: "sk-ant-test",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const mind = await core.createMind({ title: "Q3 review" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [note("The quarter was very good, and sales were really strong.")]);
+    await client.settled();
+
+    await ask(core, { text: "Shorten the summary", mindId: mind.id });
+
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([
+      "The quarter was [-very -]good, and sales were [-really -]strong.",
+    ]);
+    const rewrites = (model: MockLanguageModelV4) =>
+      model.doStreamCalls.filter((call) => JSON.stringify(call.prompt).includes("<passage>"));
+    expect(rewrites(quick)).toHaveLength(1);
+    expect(rewrites(answering)).toHaveLength(0);
+  });
+
+  // protects=when the Answer's model can't be asked to skip thinking, edit_mind's rewrite goes to it as it thinks, the edit is still proposed, and the log names the model (#1635); fails_when=the edit fails, or the fallback is silent; no_claim=which models can't skip thinking.
+  test("a rewrite whose model can't skip thinking is made as it thinks, and the log says so", async () => {
+    const answering = toolModel(
+      { tool: "edit_mind", input: { instruction: "Shorten it" } },
+      "Shortened the summary.",
+    );
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const core = startCore(await createTempDataFolder(), {
+        createChatModel: (spec) => {
+          if (spec.thinking === "off") throw new Error("This model always thinks.");
+          return answering;
+        },
+      });
+      const saved = await core.saveChatProvider({
+        kind: "anthropic",
+        modelId: "claude-haiku-5-5",
+        apiKey: "sk-ant-test",
+      });
+      if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+      const mind = await core.createMind({ title: "Q3 review" });
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [note("The quarter was very good, and sales were really strong.")]);
+      await client.settled();
+
+      await ask(core, { text: "Shorten the summary", mindId: mind.id });
+
+      await client.settled();
+      expect(shownWithChanges(client)).toEqual([
+        "The quarter was [-very -]good, and sales were [-really -]strong.",
+      ]);
+      expect(
+        answering.doStreamCalls.filter((call) => JSON.stringify(call.prompt).includes("<passage>")),
+      ).toHaveLength(1);
+      expect(
+        warned.mock.calls.some((call) => String(call[0]).includes("anthropic/claude-haiku-5-5")),
+      ).toBe(true);
+    } finally {
+      warned.mockRestore();
+    }
   });
 
   // protects=a Question is answered and changes nothing, though the Minds' Tools are offered; fails_when=the Mind or its Checkpoints change; no_claim=that a real model never edits on a Question.

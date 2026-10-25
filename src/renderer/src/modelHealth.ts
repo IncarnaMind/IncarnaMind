@@ -23,6 +23,8 @@ const UNHEALTHY: ReadonlySet<ProviderErrorKind> = new Set([
   "model",
   "network",
   "provider",
+  "out-of-credit",
+  "region",
   "not-signed-in",
   "plan-limit",
   "blocked",

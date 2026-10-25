@@ -6,14 +6,7 @@
  * name is.
  */
 import { passagesIn, recordFor } from "./passages";
-import {
-  lastQuestion,
-  lastUserText,
-  type Prompt,
-  type Reply,
-  systemOf,
-  toolResults,
-} from "./prompt";
+import { lastUserText, type Prompt, type Reply, toolResults } from "./prompt";
 
 const HELP = /pressed a button for help/;
 
@@ -57,17 +50,18 @@ const LINES = {
 };
 
 export function helpReply(prompt: Prompt, tools: readonly string[]): Reply | null {
-  const system = systemOf(prompt);
-  if (!HELP.test(system)) return null;
-  const question = lastQuestion(prompt);
   const asked = lastUserText(prompt);
+  // The button's instructions follow its Question, in its message.
+  const help = block(asked, "help");
+  if (!HELP.test(help)) return null;
+  const question = asked.slice(0, asked.indexOf("\n\n<help>")).split("\n\n").at(-1) ?? "";
   const found = passagesIn(block(asked, "found-in-documents"));
   const heard = passagesIn(block(asked, "live-transcript"));
   const newest = heard.at(-1)?.text ?? question;
   const language = /\p{Script=Han}/u.test(newest) ? "zh" : "en";
-  const shape = /One or two readings/.test(system)
+  const shape = /One or two readings/.test(help)
     ? "readings"
-    : /At most three short lines/.test(system)
+    : /At most three short lines/.test(help)
       ? "lines"
       : "options";
   const source = shape === "options" ? found[0] : heard.at(-1);

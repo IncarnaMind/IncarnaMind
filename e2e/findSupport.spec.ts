@@ -450,7 +450,7 @@ test("A check reads the text as it stands and says which sentences with changes 
   await window.keyboard.press("ControlOrMeta+z");
   await expect(line.locator("ins.proposal-insert")).toHaveText(["a", "a"]);
   await expect(line.locator("del.proposal-delete")).toHaveText(["the", "the"]);
-  await expect(bar.getByTestId("their-changes-count")).toHaveText("Dana Kim 的 2 处修订");
+  await expect(bar.getByTestId("their-changes-count")).toHaveText("来自 Dana Kim 的 2 处修订");
 });
 
 /**

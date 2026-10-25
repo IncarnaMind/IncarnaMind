@@ -1,8 +1,8 @@
 /**
- * Tagging beside Organize: with Organize allowed and Folders in place, automatic
- * tagging tags new Documents unless Organize files them by itself, and only the
- * moves into Folders wait for Organize. Through the core's public interface,
- * with a scripted model: no network.
+ * Tagging beside Organize: with Folders in place and a model on this computer, one switch
+ * decides whether new Documents are tagged and filed by themselves (#1617). Off, nothing is
+ * sent for them, and Organize and a re-tag the User asks for still go. Through the core's
+ * public interface, with a scripted model: no network.
  */
 import { join } from "node:path";
 import { APICallError } from "ai";
@@ -65,8 +65,8 @@ const filed = (core: Core, ids: readonly string[], folderId: string) =>
     }
   });
 
-describe("with Organize not moving new Documents by itself", () => {
-  test("a PDF, a Word file and a sheet get Tags and none moves into a Folder", async () => {
+describe("with tagging and sorting by themselves off", () => {
+  test("a PDF, a Word file and a sheet get nothing by themselves: no request, no Tags, no Folder", async () => {
     const { core, chat } = await start(false);
 
     const added = await add(core, {
@@ -84,25 +84,23 @@ describe("with Organize not moving new Documents by itself", () => {
         },
       ]),
     });
-    const ids = added.map((each) => each.id);
-    await waitForTagging(core, ids);
 
-    const report = await tagNamed(core, "Report");
     for (const document of await core.listDocuments()) {
-      expect(document.tags.map((link) => link.tagId)).toEqual([report.id]);
+      expect(document.tags).toEqual([]);
+      expect(document.tagging).toBe("off");
     }
-    expect(chat.calls.map((call) => call.purpose)).toEqual(["tags", "tags", "tags"]);
+    expect(added).toHaveLength(3);
+    expect(chat.calls).toEqual([]);
     expect(await assignmentsOf(core)).toEqual([]);
   });
 
-  test("Organize, run afterwards, moves them and keeps a Tag the User added by hand", async () => {
+  test("Organize, run by hand, tags and files them, and keeps a Tag the User added", async () => {
     const { core, chat, reports } = await start(false);
     const [first, second] = await add(core, {
       "One.txt": "The first report, about revenue.",
       "Two.txt": "The second report, about costs.",
     });
     if (!first || !second) throw new Error("Nothing was added.");
-    await waitForTagging(core, [first.id, second.id]);
     const book = await tagNamed(core, "Book");
     const report = await tagNamed(core, "Report");
     await core.addDocumentTag(first.id, book.id);
@@ -113,13 +111,13 @@ describe("with Organize not moving new Documents by itself", () => {
 
     expect((await tagNamesOf(core, first.id)).sort()).toEqual(["Book", "Report"]);
     expect(await tagNamesOf(core, second.id)).toEqual(["Report"]);
+    expect(chat.calls.map((call) => call.purpose)).toEqual(["organize", "organize"]);
   });
 
   test("Undo of that Organize run leaves the Tags", async () => {
     const { core, chat, reports } = await start(false);
     const [document] = await add(core, { "One.txt": "The first report, about revenue." });
     if (!document) throw new Error("Nothing was added.");
-    await waitForTagging(core, [document.id]);
     chat.organizeTags([(await tagNamed(core, "Contract")).id]);
     await core.classifyDocuments([document.id]);
     await filed(core, [document.id], reports.id);
@@ -131,43 +129,24 @@ describe("with Organize not moving new Documents by itself", () => {
     expect(await tagNamesOf(core, document.id)).toEqual(["Contract"]);
   });
 
-  test("Re-tag works the Tags out again and doesn't move the Document", async () => {
+  test("Re-tag, asked for by hand, works the Tags out and doesn't move the Document", async () => {
     const { core, chat } = await start(false);
     const [document] = await add(core, { "One.txt": "The first report, about revenue." });
     if (!document) throw new Error("Nothing was added.");
-    await waitForTagging(core, [document.id]);
+    expect(chat.calls).toEqual([]);
 
     await core.retagDocuments([document.id]);
-    await vi.waitFor(() => expect(chat.calls).toHaveLength(2));
     await waitForTagging(core, [document.id]);
 
-    expect(chat.calls.map((call) => call.purpose)).toEqual(["tags", "tags"]);
+    expect(chat.calls.map((call) => call.purpose)).toEqual(["tags"]);
+    expect(await tagNamesOf(core, document.id)).toEqual(["Report"]);
     expect(await assignmentsOf(core)).toEqual([]);
   });
 
-  test("a Document Organize was asked to organize isn't tagged a second time by automatic tagging", async () => {
-    const { core, chat, reports } = await start(false);
-    chat.hold();
-    const [first, second] = await add(core, {
-      "One.txt": "The first report, about revenue.",
-      "Two.txt": "The second report, about costs.",
-    });
-    if (!first || !second) throw new Error("Nothing was added.");
-    await vi.waitFor(() => expect(chat.purposesFor("first report")).toEqual(["tags"]));
-
-    await core.classifyDocuments([second.id]);
-    chat.release();
-    await filed(core, [second.id], reports.id);
-    await waitForTagging(core, [first.id, second.id]);
-
-    expect(chat.purposesFor("second report")).toEqual(["organize"]);
-  });
-
-  test("Documents the old behaviour left pending are tagged at the next start", async () => {
+  test("Documents left pending, as an older version did, wait for nothing at the next start", async () => {
     const first = await start(false);
     const [document] = await add(first.core, { "One.txt": "The first report, about revenue." });
     if (!document) throw new Error("Nothing was added.");
-    await waitForTagging(first.core, [document.id]);
     first.core.close();
     const db = openDatabase(join(first.dataDir, DATABASE_FILE));
     try {
@@ -179,25 +158,35 @@ describe("with Organize not moving new Documents by itself", () => {
     const chat = scriptedChat();
     const second = startOn(first.dataDir, chat);
 
-    await waitForTagging(second, [document.id]);
-    expect(chat.purposesFor("first report")).toEqual(["tags"]);
+    await vi.waitFor(async () =>
+      expect((await second.listDocuments()).map((each) => each.tagging)).toEqual(["off"]),
+    );
+    expect(chat.calls).toEqual([]);
     expect(await assignmentsOf(second)).toEqual([]);
   });
 
-  test("quitting halfway through tagging picks up at the next start", async () => {
-    const first = await start(false);
-    first.chat.hold();
-    const [document] = await add(first.core, { "One.txt": "The first report, about revenue." });
-    if (!document) throw new Error("Nothing was added.");
-    await vi.waitFor(() => expect(first.chat.calls).toHaveLength(1));
-    first.core.close();
-    first.chat.release();
+  test("a failed re-tag shows why, and Retry tags it without filing it", async () => {
+    const { core, chat } = await start(false);
+    const [held] = await add(core, { "One.txt": "The first report, about revenue." });
+    if (!held) throw new Error("Nothing was added.");
+    chat.fail(
+      new APICallError({
+        message: "The model does not exist",
+        url: "https://api.example.com/v1/messages",
+        requestBodyValues: {},
+        statusCode: 404,
+        isRetryable: false,
+      }),
+    );
+    await core.retagDocuments([held.id]);
+    const [failed] = await waitForTagging(core, [held.id], (each) => each.tagging === "failed");
+    expect(failed?.taggingError).toMatchObject({ kind: "model" });
 
-    const chat = scriptedChat();
-    const second = startOn(first.dataDir, chat);
-
-    await waitForTagging(second, [document.id]);
-    expect(await tagNamesOf(second, document.id)).toEqual(["Report"]);
+    chat.fail(null);
+    await core.retagDocuments([held.id]);
+    await waitForTagging(core, [held.id]);
+    expect(chat.calls.at(-1)?.purpose).toBe("tags");
+    expect(await assignmentsOf(core)).toEqual([]);
   });
 });
 
@@ -237,78 +226,42 @@ describe("with Organize moving new Documents by itself", () => {
   });
 });
 
-describe("turning on Organize filing new Documents by itself", () => {
-  test("Documents automatic tagging holds are still tagged, and stay where they are", async () => {
-    const { core, chat, save } = await start(false);
-    chat.hold();
-    const added = await add(core, {
-      "One.txt": "The first report, about revenue.",
-      "Two.txt": "The second report, about costs.",
-      "Three.txt": "The third report, about staff.",
-    });
-    await vi.waitFor(() => expect(chat.calls).toHaveLength(1));
-
-    await save(true);
-    chat.release();
-
-    await waitForTagging(
-      core,
-      added.map((each) => each.id),
-    );
-    expect(chat.calls.map((call) => call.purpose)).toEqual(["tags", "tags", "tags"]);
-    expect(await assignmentsOf(core)).toEqual([]);
-  });
-
-  test("so are those still waiting after a restart", async () => {
-    const first = await start(false);
+describe("with the switch on, the work a quit or a hand interrupts", () => {
+  test("quitting halfway picks up at the next start", async () => {
+    const first = await start(true);
+    first.chat.hold();
     const [document] = await add(first.core, { "One.txt": "The first report, about revenue." });
     if (!document) throw new Error("Nothing was added.");
-    await waitForTagging(first.core, [document.id]);
-    await first.save(true);
+    await vi.waitFor(() => expect(first.chat.calls).toHaveLength(1));
     first.core.close();
-    const db = openDatabase(join(first.dataDir, DATABASE_FILE));
-    try {
-      db.run("UPDATE documents SET tagging_status = 'pending'");
-    } finally {
-      db.close();
-    }
+    first.chat.release();
 
     const chat = scriptedChat();
     const second = startOn(first.dataDir, chat);
 
-    await waitForTagging(second, [document.id]);
-    expect(chat.purposesFor("first report")).toEqual(["tags"]);
+    await filed(second, [document.id], first.reports.id);
+    expect(chat.purposesFor("first report")).toEqual(["organize"]);
+  });
+
+  test("a Document Organize was asked to organize isn't worked on a second time by itself", async () => {
+    const { core, chat, reports } = await start(true);
+    chat.hold();
+    const [first, second] = await add(core, {
+      "One.txt": "The first report, about revenue.",
+      "Two.txt": "The second report, about costs.",
+    });
+    if (!first || !second) throw new Error("Nothing was added.");
+    await vi.waitFor(() => expect(chat.purposesFor("first report")).toEqual(["organize"]));
+
+    await core.classifyDocuments([second.id]);
+    chat.release();
+    await filed(core, [first.id, second.id], reports.id);
+
+    expect(chat.purposesFor("second report")).toEqual(["organize"]);
   });
 });
 
-describe("with Organize filing new Documents by itself, a Document the tagger holds", () => {
-  const unknownModel = () =>
-    new APICallError({
-      message: "The model does not exist",
-      url: "https://api.example.com/v1/messages",
-      requestBodyValues: {},
-      statusCode: 404,
-      isRetryable: false,
-    });
-
-  test("shows its failure, and Retry tags it without filing it", async () => {
-    const { core, chat, save } = await start(false);
-    chat.fail(unknownModel());
-    const [held] = await add(core, { "One.txt": "The first report, about revenue." });
-    if (!held) throw new Error("Nothing was added.");
-    await waitForTagging(core, [held.id], (each) => each.tagging === "failed");
-
-    await save(true);
-    const [failed] = await waitForTagging(core, [held.id], (each) => each.tagging === "failed");
-    expect(failed?.taggingError).toMatchObject({ kind: "model" });
-
-    chat.fail(null);
-    await core.retagDocuments([held.id]);
-    await waitForTagging(core, [held.id]);
-    expect(chat.calls.at(-1)?.purpose).toBe("tags");
-    expect(await assignmentsOf(core)).toEqual([]);
-  });
-
+describe("with Organize filing new Documents by itself, a Document it holds", () => {
   test("a Document Organize holds is re-tagged and filed by Organize", async () => {
     const { core, chat, reports } = await start(true);
     const [document] = await add(core, { "One.txt": "The first report, about revenue." });

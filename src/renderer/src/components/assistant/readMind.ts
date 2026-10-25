@@ -1,3 +1,4 @@
+import { create } from "zustand";
 import { assistantTabOf } from "../../layoutSlice";
 import { useAppStore } from "../../store";
 import { useGroupsMerged } from "../../useWindowWidth";
@@ -13,3 +14,21 @@ export function useReadMindId(): string | null {
     return item?.kind === "mind" ? item.mindId : null;
   });
 }
+
+// The editor is the one place that knows the page is empty as the User sees it.
+const useReadMindState = create<{ mindId: string | null; empty: boolean }>(() => ({
+  mindId: null,
+  empty: false,
+}));
+
+export const publishReadMindEmpty = (mindId: string, empty: boolean) =>
+  useReadMindState.setState({ mindId, empty });
+
+export const forgetReadMind = (mindId: string) => {
+  if (useReadMindState.getState().mindId === mindId) {
+    useReadMindState.setState({ mindId: null, empty: false });
+  }
+};
+
+export const useReadMindEmpty = (mindId: string | null): boolean =>
+  useReadMindState((state) => mindId !== null && state.mindId === mindId && state.empty);

@@ -5,6 +5,7 @@ import type {
   ExportFormat,
   ExportPreferences,
   MarkAiTextChoice,
+  SavedCheckRecord,
   SavedComparisonExport,
   SavedExport,
   SavedMindExport,
@@ -29,11 +30,6 @@ export const FORMAT_LABELS: Readonly<Record<ExportFormat, MessageKey>> = {
   markdown: "export.format.markdown",
 };
 
-export const RECORD_FORMAT_LABELS: Readonly<Record<CheckRecordFormat, MessageKey>> = {
-  pdf: "export.format.pdf",
-  csv: "checkRecord.format.csv",
-};
-
 /** Until settings load, as the core's defaults have it. */
 const DEFAULT_PREFERENCES: ExportPreferences = {
   format: "docx",
@@ -53,16 +49,9 @@ export const exportPreferences = (): ExportPreferences =>
 
 export const COMPARISON_EXCEL = "comparison-xlsx";
 
-export type ExportKind =
-  | ExportFormat
-  | `check-record-${CheckRecordFormat}`
-  | typeof COMPARISON_EXCEL;
+export type ExportKind = ExportFormat | "check-record" | typeof COMPARISON_EXCEL;
 
-export const isCheckRecord = (kind: ExportKind): kind is `check-record-${CheckRecordFormat}` =>
-  kind.startsWith("check-record-");
-
-export const checkRecordKind = (format: CheckRecordFormat): `check-record-${CheckRecordFormat}` =>
-  `check-record-${format}`;
+export const isCheckRecord = (kind: ExportKind): kind is "check-record" => kind === "check-record";
 
 /**
  * How the last export went, said in the Mind it exported (`ExportResultLine`); `tableId` names
@@ -76,6 +65,10 @@ export type ExportResult = { tableId?: string } & (
       format: ExportKind;
       path: string;
       name: string;
+      /** The check record's CSV, saved beside the PDF named. */
+      withCsv: boolean;
+      /** The check record's files that couldn't be saved, each with why: the other was kept. */
+      failures: { format: CheckRecordFormat; reason: string }[];
       /** The folder it is in, which the line names. */
       folder: string;
       inDefaultFolder: boolean;
@@ -211,7 +204,11 @@ const NO_CHECKS: SentenceChecksExported = {
 function savedResult(
   mindId: string,
   format: ExportKind,
-  saved: Exclude<SavedMindExport, { status: "review" }> | SavedExport | SavedComparisonExport,
+  saved:
+    | Exclude<SavedMindExport, { status: "review" }>
+    | SavedExport
+    | SavedCheckRecord
+    | SavedComparisonExport,
 ): ExportResult | null {
   if (saved.status === "saved") {
     return {
@@ -220,6 +217,14 @@ function savedResult(
       format,
       path: saved.file.path,
       name: saved.file.name,
+      withCsv: "withCsv" in saved && saved.withCsv,
+      failures:
+        "failures" in saved
+          ? saved.failures.map(({ format, message, wording }) => ({
+              format,
+              reason: wording ? translateNow(wording.key, wording.values) : message,
+            }))
+          : [],
       folder: saved.file.folder,
       inDefaultFolder: saved.file.inDefaultFolder,
       at: Date.now(),
@@ -331,20 +336,23 @@ export async function exportMind(
 
 export async function exportCheckRecord(
   mindId: string,
-  format: CheckRecordFormat,
   first?: () => Promise<boolean>,
 ): Promise<void> {
-  const kind = checkRecordKind(format);
-  const settle = begin(mindId, kind);
+  const settle = begin(mindId, "check-record");
   if (!settle) return;
   try {
     if (first && !(await first())) {
       settle(null);
       return;
     }
-    settle(savedResult(mindId, kind, await core.saveCheckRecord(mindId, format)));
+    settle(savedResult(mindId, "check-record", await core.saveCheckRecord(mindId)));
   } catch (failure) {
-    settle({ mindId, state: "failed", format: kind, message: errorMessage(failure, translateNow) });
+    settle({
+      mindId,
+      state: "failed",
+      format: "check-record",
+      message: errorMessage(failure, translateNow),
+    });
   }
 }
 
@@ -388,7 +396,7 @@ export function exportAgain(
   const { mindId, format: kind } = result;
   if (kind === COMPARISON_EXCEL) return exportComparison(mindId, result.tableId ?? "", first);
   if (!isCheckRecord(kind)) return exportMind(mindId, kind, first);
-  return exportCheckRecord(mindId, kind === "check-record-pdf" ? "pdf" : "csv", first);
+  return exportCheckRecord(mindId, first);
 }
 
 /**

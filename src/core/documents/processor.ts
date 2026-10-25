@@ -66,6 +66,8 @@ export interface ProcessorHandlers {
 export interface Processor {
   /** Queues a job, after those already waiting. */
   enqueue(job: WorkerJob): void;
+  /** Whether a Document's processing job is queued, waiting its turn in the scan lane, or under way. */
+  has(documentId: string): boolean;
   /**
    * Drops a Document's processing job if it hasn't started. A started one
    * that is reading scanned pages stops before its next page, reporting
@@ -340,6 +342,14 @@ export function createProcessor(
       if (closed) return;
       queue.push(job);
       schedulePump();
+    },
+    has(documentId) {
+      const its = (job: WorkerJob) => job.task === "process" && job.documentId === documentId;
+      return (
+        queue.some(its) ||
+        scansWaiting.some((each) => its(each.job)) ||
+        [...running.values()].some((run) => its(run.job) && !run.cancelled)
+      );
     },
     cancel(documentId) {
       const index = queue.findIndex(

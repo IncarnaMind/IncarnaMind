@@ -118,7 +118,7 @@ test("first run: the row is first under Other ways, says the usage limits first 
     await details.focus();
     await window.keyboard.press("Space");
     await expect(details).toHaveAttribute("aria-expanded", "true");
-    await expect(sends.getByRole("listitem")).toHaveCount(5);
+    await expect(sends.getByRole("listitem")).toHaveCount(4);
     await expect(sends).toContainText("each sentence you check");
     expect(await urlsOpened(app)).toHaveLength(0);
     expect(fake.tokenRequests).toHaveLength(0);

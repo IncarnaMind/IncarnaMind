@@ -169,7 +169,7 @@ export function DocumentsSection() {
             <span className="min-w-0 flex-1 truncate">{t("library.title")}</span>
             <span
               data-testid="library-row-count"
-              className="text-[12px] tabular-nums text-ink-meta"
+              className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
             >
               {formatCount(documentCount, language)}
             </span>

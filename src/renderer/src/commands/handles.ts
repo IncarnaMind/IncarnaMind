@@ -34,6 +34,11 @@ export const readMindHandle: Handle<{
   doc: Y.Doc;
   /** Whether the Mind's cursor is where an Answer goes: else, at the Mind's end. */
   cursorInMind(): boolean;
+  /**
+   * Whether the User has put the cursor in the Mind since it opened: a quote from a Document
+   * beside it goes there, however the focus went to the Document (#101).
+   */
+  cursorPlaced(): boolean;
   /** Puts the focus back in the note, where its cursor was, or at its end. */
   returnToNote(): void;
 }> = { current: null };
@@ -47,6 +52,16 @@ export function useHandle<T>(handle: Handle<T>, value: T): void {
     };
   }, [handle, value]);
 }
+
+/** The words selected in a Document's viewer (#101), while they are: what its selection menu does with them. */
+export const viewerSelectionHandle: Handle<{
+  /** Not offered while a Question waits for a model (#1789). */
+  ask?: () => void;
+  addToNote(): void;
+  copy(): void;
+}> = {
+  current: null,
+};
 
 /** The Transcript in view (#139): the line the User is on, which "Add transcript line to note" adds. */
 export const transcriptHandle: Handle<{ hasLine(): boolean; addLine(): Promise<void> }> = {

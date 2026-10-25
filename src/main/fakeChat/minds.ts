@@ -27,9 +27,12 @@
  * chart (#1091); "Make a bar chart of rent by lease" does the same with each unit's
  * monthly rent, so Use all can draw it again from every lease.
  * "Write a short summary of this agreement" (为这份协议写一份简短摘要) calls
- * add_to_mind with it, for the Mind in focus.
+ * add_to_mind with it, for the Mind in focus. "Write a short summary of this document"
+ * (为这份文件写一份简短摘要) does too, "Written from" the first Document on screen (#1334).
  * "Write a brief summary" (写一份简要总结) adds one to the Mind in <mind>, but
  * answers that no Mind is open when that Mind has no name, as models did (#1212).
+ * "Retell the summary" (重述总结) gives edit_mind the whole new text of the summary page, three
+ * paragraphs for the two, as a model does to make it longer (#1335).
  * "Say you added the risks" (说你加了风险部分) claims a write and makes none.
  */
 
@@ -92,6 +95,13 @@ export function mindRead(prompt: Prompt): string | null {
 const SUMMARY_PAGE =
   /\bwrite a summary page\b|写一个总结页面|\bwrite a summary of my documents\b|根据我现有的文件帮我写一份summary/i;
 const LONGER = /\blonger\b|长一点|更长/i;
+const RETELL = /\bretell the summary\b|重述总结/i;
+const RETOLD = [
+  "## Summary",
+  "Spring tides come at new and full moon, when the Sun and the Moon line up.",
+  "Neap tides come in between, at the quarter moons, when they pull apart.",
+  "Both follow the Moon's cycle.",
+].join("\n\n");
 const REVENUE_CHART = /\bchart of revenue by quarter\b|各季度收入的(?:柱状图|折线图)/i;
 const QUARTER_REVENUE = /Revenue in (Q\d) was (€\d+ million)/g;
 const RENT_CHART = /\bchart of rent by lease\b/i;
@@ -108,6 +118,9 @@ const SUMMARY = [
 
 /** The newcomer's first request (#1174): a short summary of "this agreement", written into the Mind in focus. */
 const SUMMARY_HERE = /\bwrite a short summary of this agreement\b|为这份协议写一份简短摘要/i;
+
+const SUMMARY_OF_THIS = /\bwrite a short summary of this document\b|为这份文件写一份简短摘要/i;
+const ON_SCREEN = /^On screen now: "([^"]+)"/m;
 
 /** A request to change the Mind so it has a table: "…, with a table" (加上表格). */
 const WITH_A_TABLE = /\bwith a table\b|加上?表格/i;
@@ -211,10 +224,23 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
       return { tool: "create_mind", input: { title: "Summary", content: SUMMARY } };
     return { text: firstSentence(made) };
   }
+  if (SUMMARY_OF_THIS.test(question)) {
+    const added = lastResult(prompt, "add_to_mind");
+    if (added !== undefined) return { text: firstSentence(added) };
+    const shown = ON_SCREEN.exec(lastUserText(prompt))?.[1];
+    return shown
+      ? { tool: "add_to_mind", input: { content: `Written from ${shown}.` } }
+      : { text: "Which Document do you mean?" };
+  }
   if (SUMMARY_HERE.test(question)) {
     const added = lastResult(prompt, "add_to_mind");
     if (added === undefined) return { tool: "add_to_mind", input: { content: SUMMARY } };
     return { text: firstSentence(added) };
+  }
+  if (RETELL.test(question)) {
+    const result = lastResult(prompt, "edit_mind");
+    if (result === undefined) return { tool: "edit_mind", input: { content: RETOLD } };
+    return { text: firstSentence(result) };
   }
   if (
     SHORTEN.test(question) ||

@@ -13,9 +13,10 @@ import { AiUseSettings } from "./AiUseSettings";
 import { ApprovalsSettings } from "./ApprovalsSettings";
 import { DetailsLine } from "./DetailsLine";
 import { InfoTip } from "./InfoTip";
-import { PrivacyServices } from "./PrivacyServices";
+import { PrivacyServices, SERVICES_UNDO_PLACE } from "./PrivacyServices";
 import { ProblemLine } from "./ProblemLine";
 import { LocalOnlySetting } from "./providers/LocalOnlySetting";
+import { UndoLineAt } from "./UndoLine";
 import { USAGE_DATA_DETAILS_URL } from "./UsageDataCard";
 import {
   buttonStyle,
@@ -120,18 +121,7 @@ export function PrivacySettings() {
           {t("privacy.flows.intro")}
         </DetailsLine>
         {inUse.length > 0 ? (
-          <>
-            <PrivacyServices flows={inUse} />
-            {inUse.some((flow) => flow.id === "chat") && (
-              <DetailsLine
-                testId="privacy-chat-more"
-                className={`mt-2 ${rowStatusClass}`}
-                details={t("privacy.flows.chatMore.details")}
-              >
-                {t("privacy.flows.chatMore")}
-              </DetailsLine>
-            )}
-          </>
+          <PrivacyServices flows={inUse} />
         ) : (
           flows && (
             <p
@@ -142,6 +132,8 @@ export function PrivacySettings() {
             </p>
           )
         )}
+        {/* Here, not in the list: stopping the last service empties the list, and its Undo stays. */}
+        <UndoLineAt place={SERVICES_UNDO_PLACE} />
       </section>
 
       <LocalOnlySetting />

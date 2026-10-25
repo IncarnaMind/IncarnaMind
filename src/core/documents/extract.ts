@@ -480,6 +480,8 @@ async function readScannedPages(
       const page = await document.getPage(number);
       try {
         const picture = await pagePicture(page, factory);
+        // The core answers no read for a job it has told to stop, so a read asked for now would wait for ever.
+        reading.signal.throwIfAborted();
         unit = scannedUnit(number, await reading.read(number, picture), picture, reading.reader);
       } catch (error) {
         reading.signal.throwIfAborted();

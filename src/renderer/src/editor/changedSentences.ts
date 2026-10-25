@@ -1,29 +1,36 @@
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
-import { core } from "../core";
+import type { MindCheckPlan } from "../../../core/api";
+import { type Planned, planCheckThisMind } from "../mindCheck";
 import type { Translate } from "../objects";
+import { useAppStore } from "../store";
 
 const IDLE_MS = 300;
 
 /**
- * How many sentences "Check this Mind" would check now, the ones changed since
- * the last check, as the Mind is edited; 0 when nothing changed (it then checks
- * every sentence), null until known. Not counted while a check runs.
+ * What "Check this Mind" would run now, as the Mind, its Documents, the Library and its Folder
+ * change; null until known. Not planned while a check runs.
  */
-export function useChangedSentences(doc: Y.Doc, mindId: string, paused: boolean): number | null {
-  const [count, setCount] = useState<number | null>(null);
+export function useCheckThisMindPlan(doc: Y.Doc, mindId: string, paused: boolean): Planned | null {
+  const [planned, setPlanned] = useState<Planned | null>(null);
+  const documents = useAppStore((state) =>
+    state.status.kind === "ready" ? state.documents : null,
+  );
+  const library = useAppStore((state) => state.library);
+  const minds = useAppStore((state) => state.minds);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a change to the Documents, the Library or the Minds is a reason to plan again.
   useEffect(() => {
     if (paused) return;
     let current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => {
       timer = undefined;
-      core.planMindCheck(mindId, "changed", false).then(
-        (plan) => {
-          if (current) setCount(plan.kind === "ready" ? plan.sentences : 0);
+      planCheckThisMind(mindId).then(
+        (next) => {
+          if (current) setPlanned(next);
         },
         (failure: unknown) => {
-          console.warn(`Couldn't count what changed in Mind ${mindId}.`, failure);
+          console.warn(`Couldn't plan Check this Mind for Mind ${mindId}.`, failure);
         },
       );
     };
@@ -38,12 +45,15 @@ export function useChangedSentences(doc: Y.Doc, mindId: string, paused: boolean)
       clearTimeout(timer);
       doc.off("update", later);
     };
-  }, [doc, mindId, paused]);
-  return count;
+  }, [doc, mindId, paused, documents, library, minds]);
+  return planned;
 }
 
-/** What "Check this Mind" would check: the changed sentences, or every one when nothing changed. */
-export function changedTitle(t: Translate, changed: number): string {
-  if (changed === 0) return t("mindCheck.changed.none");
-  return t(changed === 1 ? "mindCheck.changed.one" : "mindCheck.changed", { count: changed });
+/** What "Check this Mind" would check, for its button's tooltip: the sentences to check, or nothing changed. */
+export function checkTitle(t: Translate, plan: MindCheckPlan): string | undefined {
+  if (plan.kind === "unchanged") return t("mindCheck.changed.none");
+  if (plan.kind !== "ready") return undefined;
+  return t(plan.sentences === 1 ? "mindCheck.changed.one" : "mindCheck.changed", {
+    count: plan.sentences,
+  });
 }

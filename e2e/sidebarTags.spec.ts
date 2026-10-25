@@ -1,5 +1,4 @@
 import { writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
@@ -7,11 +6,13 @@ import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
   createDataFolder,
+  decisionServer,
   dismissChatSetup,
   focusRingShows,
   launchApp,
   removeDataFolder,
   setSidebarWidth,
+  setWindowSize,
   sidebarFolder,
   tabTo,
 } from "./app";
@@ -115,51 +116,6 @@ const setLanguage = (window: Page, language: "en" | "zh-CN") =>
     language,
   );
 
-/**
- * A local decision server like Ollama's `/v1/systemone` (no model): the
- * Finance Folder for an invoice, Reports otherwise; Invoice in the review
- * band for an invoice, Report likely for a report, nothing else.
- */
-async function decisionServer(): Promise<Server> {
-  const server = createServer(async (request, response) => {
-    let raw = "";
-    for await (const chunk of request) raw += chunk;
-    response.setHeader("content-type", "application/json");
-    if (request.url !== "/v1/systemone") {
-      response.end(JSON.stringify({ models: [] }));
-      return;
-    }
-    const body = JSON.parse(raw);
-    const text = JSON.stringify(body.state).toLowerCase();
-    const questions = body.questions as Record<
-      string,
-      { type: string; instructions: string; criteria?: Record<string, string> }
-    >;
-    const answers = Object.fromEntries(
-      Object.entries(questions).map(([id, question]) => {
-        if (question.type === "choice") {
-          const wanted = text.includes("invoice") ? "Finance" : "Reports";
-          const choice =
-            Object.entries(question.criteria ?? {}).find(([, value]) =>
-              value.startsWith(wanted),
-            )?.[0] ?? "__unsorted__";
-          return [id, { type: "choice", choice }];
-        }
-        const noul =
-          question.instructions.includes("“Invoice”") && text.includes("invoice")
-            ? 0.65
-            : question.instructions.includes("“Report”") && text.includes("report")
-              ? 0.95
-              : 0.01;
-        return [id, { type: "noul", noul }];
-      }),
-    );
-    response.end(JSON.stringify({ answers }));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return server;
-}
-
 /** Each Tag row's name, count and dot's colour (null for "Needs review", which has the review ring). */
 const tagRowsListed = (rows: Locator) =>
   rows.evaluateAll((all) =>
@@ -186,7 +142,7 @@ const marksOf = (row: Locator) =>
   });
 
 test("the Tags section lists each Tag a Document carries with its colour and count, and filters the Library by it, with the mouse and the keyboard", async () => {
-  const server = await decisionServer();
+  const { server } = await decisionServer();
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -497,6 +453,109 @@ test("a Document row shows up to three Tag colours and +N after its name, names 
     await tabIntoRow(window, attention);
     await expect(tip).toBeVisible();
     await screenshot(window, "row-marks-zh");
+  } finally {
+    await app.close();
+  }
+});
+
+test("the Tag names shown for the keyboard go as soon as the arrow keys move on, and never cover the name of the row the focus is on, with the pointer resting under them", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1100, 760);
+    await addTextDocuments(window, {
+      "Ops standup notes.txt": "Stand-up: the pilot boards at dawn.",
+      "Supplier review notes.txt": "Aldermoor Freight delivered on time.",
+      "Board minutes.txt": "The board met in March.",
+      "Q1 report.txt": "Quarterly report: sales grew.",
+      "Field notes.txt": "Observations of tides.",
+    });
+    const items = window.getByTestId("document-list-item");
+    const names = await items.getByTestId("row-text").allTextContents();
+    // Two rows with Tags, one after the other, after one without.
+    const [first, tagged, alsoTagged] = names;
+    if (!first || !tagged || !alsoTagged) throw new Error("The sidebar lists too few Documents.");
+    const wanted: Record<string, string[]> = {
+      [tagged]: ["Notes", "Report"],
+      [alsoTagged]: ["Report"],
+    };
+    await tagDocuments(window, wanted);
+    const row = (name: string) => items.filter({ hasText: name });
+    await expect(row(tagged).getByTestId("tag-dot")).toHaveCount(2);
+    await expect(row(alsoTagged).getByTestId("tag-dot")).toHaveCount(1);
+    expect(await items.getByTestId("row-text").allTextContents()).toEqual(names);
+
+    // The pointer rests on the third row's name, where the second row's Tag names show.
+    const under = await row(alsoTagged).getByTestId("row-text").boundingBox();
+    if (!under) throw new Error("The third row isn't visible.");
+    const pointer = { x: under.x + 10, y: under.y + under.height / 2 };
+    await window.mouse.move(pointer.x, pointer.y, { steps: 6 });
+    await tabIntoRow(window, row(first).getByTestId("open-document"));
+
+    /** The row the focus is on, the Tag names shown, and whether they cover that row's name or the pointer. */
+    const seen = () =>
+      window.evaluate((at) => {
+        const focused = document.activeElement?.closest('[data-testid="document-list-item"]');
+        const name = focused?.querySelector('[data-testid="row-text"]');
+        const tip = document.querySelector('[data-testid="tag-names-tip"]');
+        const open = tip?.matches(":popover-open") === true;
+        const nameBox = name?.getBoundingClientRect();
+        const tipBox = tip?.getBoundingClientRect();
+        const overlap = (a: DOMRect, b: DOMRect) =>
+          a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        return {
+          focused: name?.textContent ?? null,
+          tags: open
+            ? Array.from(tip?.querySelectorAll('[data-testid="tag-names-tip-tag"]') ?? []).map(
+                (each) => each.textContent,
+              )
+            : null,
+          coversName: open && nameBox && tipBox ? overlap(nameBox, tipBox) : false,
+          underPointer:
+            open && tipBox
+              ? at.x > tipBox.left &&
+                at.x < tipBox.right &&
+                at.y > tipBox.top &&
+                at.y < tipBox.bottom
+              : false,
+        };
+      }, pointer);
+    /** Once the focus is on `name`'s row, at that moment, what shows. */
+    const onRow = async (name: string) => {
+      let now = await seen();
+      await expect
+        .poll(async () => {
+          now = await seen();
+          return now.focused;
+        })
+        .toBe(name);
+      return now;
+    };
+
+    expect(await onRow(first)).toMatchObject({ tags: null });
+    await window.keyboard.press("ArrowDown");
+    // Under the row, over the next rows' names and the resting pointer, never its own name.
+    expect(await onRow(tagged)).toEqual({
+      focused: tagged,
+      tags: ["Notes", "Report"],
+      coversName: false,
+      underPointer: true,
+    });
+    await window.keyboard.press("ArrowDown");
+    // The focus has moved onto a name they covered: they've gone from it, to the new row's own.
+    expect(await onRow(alsoTagged)).toMatchObject({ tags: ["Report"], coversName: false });
+    for (const name of names.slice(3)) {
+      await window.keyboard.press("ArrowDown");
+      expect(await onRow(name)).toMatchObject({ tags: null });
+    }
+    for (const name of names.slice(0, -1).reverse()) {
+      await window.keyboard.press("ArrowUp");
+      expect(await onRow(name)).toMatchObject({
+        tags: wanted[name] ?? null,
+        coversName: false,
+      });
+    }
+    await expect(window.getByTestId("tag-names-tip")).toBeHidden();
   } finally {
     await app.close();
   }

@@ -27,6 +27,7 @@ const useKey = (window: Page, apiKey: string) => {
   return window.evaluate(async (provider) => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await core.saveChatProvider(provider);
+    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
   }, input);
 };
 

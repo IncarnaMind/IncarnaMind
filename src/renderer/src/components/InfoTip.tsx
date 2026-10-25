@@ -36,7 +36,10 @@ export function InfoTip({ text, id, testId }: { text: string; id?: string; testI
       if (!pointing.current && document.activeElement !== button.current) setShown(false);
     }, 100);
   };
-  const enter = () => {
+  // Pointing is a move, not an enter: a tip that opens for the keyboard under a resting pointer
+  // hears it enter, and would stay once the focus moves on (#1519).
+  const point = () => {
+    if (pointing.current) return;
     pointing.current = true;
     show();
   };
@@ -65,7 +68,7 @@ export function InfoTip({ text, id, testId }: { text: string; id?: string; testI
         onFocus={show}
         onBlur={blur}
         onClick={show}
-        onPointerEnter={enter}
+        onPointerMove={point}
         onPointerLeave={leave}
         className="ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-sm align-middle text-ink-meta hover:bg-hover hover:text-ink-secondary"
       >
@@ -84,7 +87,7 @@ export function InfoTip({ text, id, testId }: { text: string; id?: string; testI
             role="tooltip"
             id={descriptionId}
             onDismiss={close}
-            onPointerEnter={enter}
+            onPointerMove={point}
             onPointerLeave={leave}
           >
             <div className="w-max max-w-[min(20rem,calc(100vw-32px))] rounded-md bg-sheet px-3 py-2 text-[12px] leading-5 font-normal text-ink shadow-popover">

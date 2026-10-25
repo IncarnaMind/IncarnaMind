@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { type CitedPlace, overlapsCitation } from "../../src/shared/citationOverlap";
+import {
+  type CitedPlace,
+  continuesCitation,
+  overlapsCitation,
+} from "../../src/shared/citationOverlap";
 
 const place = (quote: string | null, over: Partial<CitedPlace> = {}): CitedPlace => ({
   documentId: "lease",
@@ -83,6 +87,52 @@ describe("a Citation and the Passage a check found overlap", () => {
   test("not when they are in different Documents, or the Citation has none", () => {
     expect(overlapsCitation(place(CLAUSE, { documentId: "other" }), place(CLAUSE))).toBe(false);
     expect(overlapsCitation(place(CLAUSE, { documentId: null }), place(CLAUSE))).toBe(false);
+  });
+});
+
+describe("the Passage a check found says more than the Citation's quote", () => {
+  const continues = (cited: string, found: string, sentence: string) =>
+    continuesCitation(place(cited), place(found), sentence);
+
+  test("when the sentence says the rest of the clause too", () => {
+    expect(continues("two days a week", CLAUSE, CLAUSE)).toBe(true);
+    expect(
+      continues(
+        "may work from the premises two days a week",
+        CLAUSE,
+        "The Tenant may work from the premises two days a week, agreed in advance with the Landlord.",
+      ),
+    ).toBe(true);
+  });
+
+  test("not when the sentence doesn't say the rest, or the Citation quotes the whole of it", () => {
+    expect(continues("two days a week", CLAUSE, "The Tenant may work two days a week.")).toBe(
+      false,
+    );
+    expect(continues(CLAUSE, CLAUSE, CLAUSE)).toBe(false);
+    expect(continues("may work from the premises two days a week", "two days a week", CLAUSE)).toBe(
+      false,
+    );
+  });
+
+  test("not for another clause, another Document, or a Place that doesn't meet", () => {
+    expect(continues("two days a week", "The notice period is three months.", CLAUSE)).toBe(false);
+    expect(
+      continuesCitation(place("two days a week"), place(CLAUSE, { documentId: "other" }), CLAUSE),
+    ).toBe(false);
+    expect(
+      continuesCitation(
+        place("two days a week", { pageFrom: 3, pageTo: 3 }),
+        place(CLAUSE, { pageFrom: 9, pageTo: 9 }),
+        CLAUSE,
+      ),
+    ).toBe(false);
+  });
+
+  test("in Chinese, whatever the punctuation and width", () => {
+    const part = "每周最多可远程办公两天";
+    expect(continues(part, CLAUSE_ZH, CLAUSE_ZH)).toBe(true);
+    expect(continues(part, CLAUSE_ZH, "员工每周最多可远程办公两天。")).toBe(false);
   });
 });
 

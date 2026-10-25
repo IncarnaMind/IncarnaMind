@@ -161,7 +161,9 @@ describe("“Make it a document” after an Answer (#1109)", { timeout: 60_000 }
       });
 
       expect(withMindTools(systems)).toContain(AS_A_DOCUMENT);
-      expect(withMindTools(systems)).toContain("give answer: true to create_mind");
+      expect(withMindTools(systems)).toContain(
+        "give answer: true to add_to_mind for the Mind in <mind>, or to create_mind",
+      );
       expect(second.flatMap((call) => call.results.map((each) => each.tool))).not.toContain(
         "search_documents",
       );

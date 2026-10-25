@@ -1,19 +1,23 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
+import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
 import { type CommandContext, commands, offered } from "../commands/registry";
 import { askReadyQuestion } from "../conversations";
-import { CheckMarkIcon } from "../editor/icons";
+import { CheckMarkIcon, ClaimMarkIcon } from "../editor/icons";
+import { goToMistake } from "../editor/mistakeMark";
 import { useT } from "../i18n";
 import { openModelSetup } from "../modelSetup";
 import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
 import { useAppStore } from "../store";
+import { useUnreadFiles } from "../unreadFiles";
 import { ExampleBanner } from "./GettingStarted";
-import { CloseLineIcon } from "./lineIcons";
+import { ChatLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
 import { SLOT, Slotted } from "./Slotted";
+import { UnreadFilesLine } from "./UnreadFilesLine";
 import { buttonStyle } from "./ui";
 
 type StepKey = "citation" | "question" | "files";
@@ -41,6 +45,16 @@ const stateAt = (current: StepKey | undefined, key: StepKey): StepState => {
   if (current === undefined) return "done";
   const after = STEPS.indexOf(key) - STEPS.indexOf(current);
   return after < 0 ? "done" : after === 0 ? "open" : "later";
+};
+
+const MistakeIcon: typeof PlusLineIcon = (props) => (
+  <ClaimMarkIcon state="contradicted" {...props} />
+);
+
+const DO_ICONS: Record<StepKey, typeof PlusLineIcon> = {
+  citation: MistakeIcon,
+  question: ChatLineIcon,
+  files: PlusLineIcon,
 };
 
 const CARD_PADDING = "px-3.5 pt-3.5 pb-2.5";
@@ -75,29 +89,51 @@ function Step({
   number,
   state,
   live,
+  onDo,
+  offered = false,
   children,
 }: {
   step: StepKey;
   number: number;
   state: StepState;
   live: boolean;
+  onDo: () => void;
+  /** Its buttons show before its turn too: a newcomer's own files may come first. */
+  offered?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
+  const DoIcon = DO_ICONS[step];
+  const action = t(`firstOpen.step.${step}.title`);
   const tone = state === "open" ? "font-semibold text-ink" : "text-ink-meta";
   const marks = live
     ? { "data-testid": "first-open-step", "data-step": step, "data-state": state }
     : {};
   return (
     <li {...marks} className="flex flex-col gap-1">
-      <div className="flex items-center gap-2.5 text-[14px] leading-5">
-        <Mark number={number} state={state} />
-        <span className={tone}>
-          {state === "done" && <span className="sr-only">{t("gettingStarted.done")}</span>}
-          {t(`firstOpen.step.${step}.${state === "done" ? "done" : "title"}`)}
-        </span>
+      <div className="flex items-center text-[14px] leading-5">
+        {state === "done" && <span className="sr-only">{t("gettingStarted.done")}</span>}
+        <button
+          type="button"
+          data-testid={live ? "first-open-step-do" : undefined}
+          aria-label={action}
+          title={action}
+          onClick={onDo}
+          className="group -mx-1.5 -my-0.5 flex items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left hover:bg-chip"
+        >
+          <Mark number={number} state={state} />
+          <span className={`${tone} group-hover:text-ink`}>
+            {t(`firstOpen.step.${step}.${state === "done" ? "done" : "title"}`)}
+          </span>
+          <DoIcon
+            data-testid={live ? "first-open-step-icon" : undefined}
+            className="size-3.5 shrink-0 text-ink-meta group-hover:text-ink"
+          />
+        </button>
       </div>
-      {state === "open" && <div className="flex flex-col gap-2 pl-7">{children}</div>}
+      {(state === "open" || (offered && state === "later")) && (
+        <div className="flex flex-col gap-2 pl-7">{children}</div>
+      )}
     </li>
   );
 }
@@ -112,14 +148,13 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
   const placeAssistant = useAppStore((state) => state.placeAssistant);
   const skipped = useAppStore((state) => state.skippedFiles);
+  const unread = useUnreadFiles(null);
   const addFiles = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLElement>(null);
   // The ready Question's button goes once it is asked: the focus moves on to the next step.
   const focusNext = useRef(false);
   const filesOpen =
-    progress !== undefined &&
-    progress.citationChecked &&
-    (progress.askedOwn || progress.askedReady) &&
-    !progress.indexed;
+    progress?.mistakeSeen && (progress.askedOwn || progress.askedReady) && !progress.indexed;
   useEffect(() => {
     if (!filesOpen || !focusNext.current) return;
     focusNext.current = false;
@@ -128,7 +163,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   if (!progress) return null;
 
   const done: Record<StepKey, boolean> = {
-    citation: progress.citationChecked,
+    citation: progress.mistakeSeen,
     question: progress.askedOwn || progress.askedReady,
     files: progress.indexed,
   };
@@ -167,12 +202,24 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
           </button>
         </div>
         <ol className={`flex flex-col gap-3 ${allDone ? "pt-2" : ""}`}>
-          <Step step="citation" number={1} state={stateOf("citation")} live={live}>
+          <Step
+            step="citation"
+            number={1}
+            state={stateOf("citation")}
+            live={live}
+            onDo={() => card.current && goToMistake(card.current)}
+          >
             <p className="text-[13px] leading-5 text-ink-secondary">
               {t("firstOpen.step.citation.body")}
             </p>
           </Step>
-          <Step step="question" number={2} state={stateOf("question")} live={live}>
+          <Step
+            step="question"
+            number={2}
+            state={stateOf("question")}
+            live={live}
+            onDo={focusComposer}
+          >
             {ready ? (
               <>
                 <p className="text-[13px] leading-5 text-ink-secondary">
@@ -201,17 +248,28 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
               </p>
             )}
           </Step>
-          <Step step="files" number={3} state={stateOf("files")} live={live}>
-            <p className="text-[13px] leading-5 text-ink-secondary">
-              {t("firstOpen.step.files.body")}
-            </p>
+          <Step
+            step="files"
+            number={3}
+            state={stateOf("files")}
+            live={live}
+            offered
+            onDo={() => void pickDocuments()}
+          >
+            {live && unread.length > 0 ? (
+              <UnreadFilesLine files={unread} testId="first-open-unread" />
+            ) : (
+              <p className="text-[13px] leading-5 text-ink-secondary">
+                {t("firstOpen.step.files.body")}
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               <button
                 ref={live ? addFiles : undefined}
                 type="button"
                 data-testid={only("first-open-add-files")}
                 onClick={() => void pickDocuments()}
-                className={buttonStyle("primary", "sm")}
+                className={buttonStyle(stateOf("files") === "open" ? "primary" : "secondary", "sm")}
               >
                 {t("startGuide.documents.addFiles")}
               </button>
@@ -273,6 +331,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   return (
     <div className="mb-6 grid grid-cols-1 font-sans">
       <section
+        ref={card}
         aria-labelledby={`first-open-${mindId}`}
         data-testid="first-open-steps"
         className={`col-start-1 row-start-1 ${CARD_PADDING} rounded-[10px] bg-sheet shadow-[inset_0_0_0_1px_var(--color-rule)]`}

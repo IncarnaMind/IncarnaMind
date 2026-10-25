@@ -1,5 +1,5 @@
 import { dialogOrMenuOpen } from "../escapeDismiss";
-import { type SelectSurface, selectedOn, useSelection } from "../selection";
+import { type SelectSurface, useSelection } from "../selection";
 import { typesText } from "../undo";
 import { type Command, type CommandContext, fromMenu } from "./registry";
 
@@ -15,16 +15,17 @@ const surfaceOf = (ctx: CommandContext): SelectSurface | null =>
 export const selectionCommands: readonly Command[] = [
   {
     ...fromMenu("edit.selectAll"),
-    // Only while the focus is in a list: in the note, the composer or a field, ⌘A selects text.
-    shortcut: { keys: "CmdOrCtrl+A", list: true },
+    // In a field, the note or the composer, ⌘A selects their text, as it always does.
+    shortcut: { keys: "CmdOrCtrl+A", outsideText: true },
     palette: false,
     group: "edit",
     reversible: true,
     run(ctx) {
       const surface = surfaceOf(ctx);
-      const focus = document.activeElement;
-      // The Edit menu's Select All comes here too, from wherever the focus is.
-      if (surface && !typesText(focus) && focus?.closest("[aria-multiselectable]")) {
+      // The Edit menu's Select All comes here too, from wherever the focus is. In a list, ⌘A is
+      // the rows' even while the focus is on its bar: the page's own Select All would highlight
+      // every label (#1350).
+      if (surface && !typesText(document.activeElement)) {
         useSelection.getState().all(surface);
       } else {
         document.execCommand("selectAll");
@@ -38,13 +39,12 @@ export const selectionCommands: readonly Command[] = [
     palette: false,
     group: "edit",
     reversible: true,
+    // The window's one selection, wherever it is held: the sidebar's says "Esc clears" in the Library too.
     // Not while a picker or menu is open, even one drawn from a selected row: Esc closes that first.
-    when: (ctx) => {
-      const surface = surfaceOf(ctx);
-      return surface !== null && selectedOn(surface).length > 0 && !dialogOrMenuOpen();
-    },
-    run(ctx) {
-      useSelection.getState().clear(surfaceOf(ctx) ?? undefined);
+    when: (ctx) =>
+      surfaceOf(ctx) !== null && useSelection.getState().items.length > 0 && !dialogOrMenuOpen(),
+    run() {
+      useSelection.getState().clear();
     },
   },
 ];

@@ -662,6 +662,33 @@ test("help during the call on Windows and Linux: no shortcut is held until the U
   await app.close();
 });
 
+test("help during the call: a model that can't answer says why in the panel, in English and Chinese, with Try again, instead of the provider's own words", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await setMeetingKeys(window);
+  await useLocalChatModel(window, "fake-not-found");
+  const bar = await recordingMeeting(window);
+  const panel = await panelOf(app);
+  await pointAndClick(panel, panel.getByTestId("help-button").filter({ hasText: "Sum up so far" }));
+  const failed = panel.getByTestId("help-failed");
+  await expect(failed).toHaveText(
+    "No help this time: Ollama doesn’t know fake-not-found · Try again",
+    {
+      timeout: 20_000,
+    },
+  );
+  await setLanguage(window, "zh-CN");
+  await expect(failed).toHaveText("这次没能给出建议：Ollama 找不到 fake-not-found · 重试");
+  await setLanguage(window, "en");
+  await expect(failed.getByRole("button")).toHaveText("Try again");
+  await bar.getByTestId("meeting-stop").click();
+  await app.close();
+});
+
 async function expectRowsFit(settings: Locator, rows: Locator): Promise<void> {
   const page = await settings.getByTestId("help-settings").boundingBox();
   if (!page) throw new Error("Settings › Meetings isn't drawn.");

@@ -5,11 +5,13 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import type { CheckMindInput, Core } from "../../src/core";
 import { updateCheck } from "../../src/core/answers/checks/sentences";
+import { MIND_SETTINGS_FIELD } from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
-import { mindCheckOf } from "../../src/shared/mindCheck";
+import { mindCheckOf, writeMindCheck } from "../../src/shared/mindCheck";
 import { setMindModel } from "../../src/shared/mindModel";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -64,7 +66,7 @@ const runsIn = (calls: readonly ModelCall[]) =>
  * `billed`, one billed per token, each request reporting its tokens), and
  * every call to it kept.
  */
-async function setUp(billed?: { usage: ReportedUsage }) {
+async function setUp(billed?: { usage: ReportedUsage; judged?: ReportedUsage }) {
   const checks: ModelCall[] = [];
   const finds: GenerateCall[] = [];
   const model = scriptedModel(
@@ -75,16 +77,18 @@ async function setUp(billed?: { usage: ReportedUsage }) {
     {
       generate: (call) => {
         if (call.system.startsWith("You sort the sentences")) finds.push(call);
-        return checkGenerate(PLANS)(call);
+        const reply = checkGenerate(PLANS)(call);
+        return billed?.judged && "text" in reply && call.system.startsWith("Compare a sentence")
+          ? { ...reply, usage: billed.judged }
+          : reply;
       },
       ...(billed && { usage: billed.usage }),
     },
   );
   const dataDir = await createTempDataFolder();
-  const core = startCore(dataDir, {
-    createChatModel: scriptedModels(model).createChatModel,
-    now: manualClock("2026-10-02T14:20:00.000Z").now,
-  });
+  const clock = manualClock("2026-10-02T14:20:00.000Z");
+  const adapters = { createChatModel: scriptedModels(model).createChatModel, now: clock.now };
+  const core = startCore(dataDir, adapters);
   if (billed) {
     core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
     const provider = await core.saveChatProvider({
@@ -109,7 +113,23 @@ async function setUp(billed?: { usage: ReportedUsage }) {
     { type: "paragraph", attrs: { id: "two" }, content: [text(`${OPINION} ${PENGUINS}`)] },
   ]);
   await client.settled();
-  return { core, client, dataDir, mindId: mind.id, folderId: folder.id, checks, finds };
+  /** Quits the app and starts it again on the same data: what the model named is forgotten. */
+  const restart = async () => {
+    core.close();
+    const restarted = startCore(dataDir, adapters);
+    return { core: restarted, client: await connectToMind(restarted, mind.id) };
+  };
+  return {
+    core,
+    client,
+    dataDir,
+    mindId: mind.id,
+    folderId: folder.id,
+    checks,
+    finds,
+    clock,
+    restart,
+  };
 }
 
 const request = (mindId: string, mode: CheckMindInput["mode"], id = "run"): CheckMindInput => ({
@@ -124,7 +144,12 @@ async function shownChecks(core: Core, client: MindClient, folderId: string | nu
   const versions = new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash]));
   return claimSpans(readMind(client)).map((span) => ({
     sentence: span.sentence.text.trim(),
-    shown: claimCheckShown(span.check, { text: span.sentence.text, versions, folderId }),
+    shown: claimCheckShown(span.check, {
+      text: span.sentence.text,
+      versions,
+      folderId,
+      scope: null,
+    }),
   }));
 }
 
@@ -265,8 +290,11 @@ describe("Check this Mind", () => {
     });
     expect(mindCheckOf(client.doc)?.skipped).toHaveLength(2);
 
-    // Nothing has changed since: nothing to check.
-    expect(await core.planMindCheck(mindId, "changed")).toEqual({ kind: "nothing" });
+    // Nothing has changed since: nothing to send, and the plan says since when.
+    expect(await core.planMindCheck(mindId, "changed")).toEqual({
+      kind: "unchanged",
+      since: "2026-10-02T14:20:00.000Z",
+    });
   });
 
   test("Check again after two claims are edited checks those two only, without naming the claims again", async () => {
@@ -320,8 +348,12 @@ describe("Check this Mind", () => {
       "kept",
     ]);
 
-    expect(await core.planMindCheck(mindId, "all")).toMatchObject({ kind: "ready", sentences: 4 });
-    expect(await core.planMindCheck(mindId, "changed")).toEqual({ kind: "nothing" });
+    expect(await core.planMindCheck(mindId, "all")).toMatchObject({
+      kind: "ready",
+      sentences: 2,
+      findsClaims: false,
+    });
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
 
     typeInto(client, 2, OPINION.length + 1, "Some ");
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ sentences: 1 });
@@ -392,6 +424,12 @@ describe("Check this Mind", () => {
     );
     expect(runsIn(checks)).toEqual([]);
     expect(mindCheckOf(client.doc)?.stop).toEqual({ reason: "cost-cap" });
+    // The claims not checked are what is left to check, so nothing counts as unchanged.
+    expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({
+      kind: "ready",
+      sentences: 3,
+      findsClaims: false,
+    });
   });
 
   // protects=the ask counts exactly the claims a run checks, and the model sorts each sentence once (#973); fails_when=the ask counts sentences the model leaves out, Check sorts again, or declining spends more; no_claim=what a real model names.
@@ -428,7 +466,7 @@ describe("Check this Mind", () => {
     });
     expect(finds).toHaveLength(1);
     expect(mindCheckOf(client.doc)?.skipped).toHaveLength(3);
-    expect(await core.planMindCheck(mindId, "changed")).toEqual({ kind: "nothing" });
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
 
   // protects=on a model billed per token, the estimate for the claims named comes within 1.5 times the run's tokens; fails_when=it prices a check as an Answer, or counts sentences the model leaves out; no_claim=a real model's tokens (tests/core/cost.test.ts has those).
@@ -438,7 +476,12 @@ describe("Check this Mind", () => {
       inputTokens: { total: 8_260, noCache: 995, cacheRead: 2_903, cacheWrite: 4_362 },
       outputTokens: { total: 129, text: 129, reasoning: undefined },
     };
-    const { core, mindId, dataDir } = await setUp({ usage });
+    // A judgement of a sentence beside its quote is a short request of its own, as the recorded run's was.
+    const judged: ReportedUsage = {
+      inputTokens: { total: 867, noCache: 867, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 5, text: 5, reasoning: undefined },
+    };
+    const { core, mindId, dataDir } = await setUp({ usage, judged });
     const found = await core.findMindClaims(request(mindId, "changed", "sort"));
     if (found.kind !== "found") throw new Error(`No claims: ${found.kind}.`);
 
@@ -453,6 +496,143 @@ describe("Check this Mind", () => {
     );
     expect(estimate.tokens / (run?.tokens ?? 0)).toBeGreaterThan(1 / 1.5);
     expect(estimate.tokens / (run?.tokens ?? 0)).toBeLessThan(1.5);
+  });
+
+  // protects=Check this Mind with nothing changed sends nothing and says since when (#1669); fails_when=it plans a check of every sentence again, dates itself by the newest check, or an edit taken back still counts as a change; no_claim=the card's words.
+  test("when nothing changed the plan says since the oldest check that holds; an edit taken back holds the checks again", async () => {
+    const { core, client, mindId, checks, finds, clock } = await setUp();
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+      kind: "ready",
+      sentences: 5,
+      findsClaims: true,
+    });
+    await core.checkMind(request(mindId, "all"));
+
+    // A later check of one sentence doesn't make the others newer.
+    clock.advance(60 * 60 * 1000);
+    typeInto(client, 2, OPINION.length + 1, "Some ");
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ sentences: 1 });
+    await core.checkMind(request(mindId, "changed"));
+    expect(await core.planMindCheck(mindId, "changed")).toEqual({
+      kind: "unchanged",
+      since: "2026-10-02T14:20:00.000Z",
+    });
+
+    // The same words again: the check holds, and nothing changed.
+    const sent = { finds: finds.length, runs: runsIn(checks).length };
+    typeInto(client, 1, 0, "Big ");
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "ready" });
+    const moon = client.blocks.get(1);
+    const words = moon instanceof Y.XmlElement ? moon.get(0) : undefined;
+    if (!(words instanceof Y.XmlText)) throw new Error("Block 1 isn't a paragraph.");
+    words.delete(0, "Big ".length);
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
+    expect({ finds: finds.length, runs: runsIn(checks).length }).toEqual(sent);
+  });
+
+  // protects=a check holds only while the Documents it rests on are in its scope, and while no Document has joined it (#1669); fails_when=a Document moved out of the Folder, a Mind moved to another Folder, or a Document filed in since still reads as nothing changed; no_claim=the card's words.
+  test("a source Document moved out of the Folder, or the Mind moved to another, changes the checks; a Document filed in since is the added ones' to check, not nothing changed", async () => {
+    const { core, mindId, folderId, clock } = await setUp();
+    await core.checkMind(request(mindId, "all"));
+    const unchanged = { kind: "unchanged", since: "2026-10-02T14:20:00.000Z" };
+    expect(await core.planMindCheck(mindId, "changed")).toEqual(unchanged);
+
+    const [tides] = (await core.listDocuments()).filter((each) => each.name === "Tides");
+    if (!tides) throw new Error("The Tides Document isn't there.");
+    await core.moveToFolder({ documentIds: [tides.id], folderId: null });
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+      kind: "ready",
+      sentences: 1,
+      findsClaims: false,
+    });
+    await core.moveToFolder({ documentIds: [tides.id], folderId });
+    expect(await core.planMindCheck(mindId, "changed")).toEqual(unchanged);
+
+    const elsewhere = await core.createLibraryGroup({ name: "Elsewhere", description: "" });
+    await core.moveToFolder({ mindIds: [mindId], folderId: elsewhere.id });
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+      kind: "ready",
+      sentences: 3,
+    });
+    await core.moveToFolder({ mindIds: [mindId], folderId });
+    expect(await core.planMindCheck(mindId, "changed")).toEqual(unchanged);
+
+    clock.advance(60_000);
+    const sources = await createTempDataFolder();
+    const [seabirds] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Seabirds.md", `# Seabirds\n\n${PENGUINS}\n`),
+    ]);
+    await core.moveToFolder({ documentIds: [seabirds?.id ?? ""], folderId });
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
+    expect(await core.planMindCheck(mindId, "added")).toMatchObject({
+      kind: "ready",
+      sentences: 1,
+    });
+  });
+
+  test("with no check dated, the last whole-Mind check stands in for the date; a Mind with no check says nothing to check", async () => {
+    const { core, client, mindId } = await setUp();
+    await core.checkMind(request(mindId, "all"));
+    const run = mindCheckOf(client.doc);
+    if (!run) throw new Error("The run wasn't recorded.");
+    client.doc.transact(() => {
+      for (const span of claimSpans(readMind(client))) {
+        updateCheck(client.blocks, span.check.id, (check) => ({ ...check, checkedAt: "" }));
+      }
+      writeMindCheck(client.doc.getMap(MIND_SETTINGS_FIELD), {
+        ...run,
+        at: "2026-10-03T08:00:00.000Z",
+      });
+    }, "editor");
+    await client.settled();
+    expect(await core.planMindCheck(mindId, "changed")).toEqual({
+      kind: "unchanged",
+      since: "2026-10-03T08:00:00.000Z",
+    });
+
+    const empty = await core.createMind({ title: "Empty", folderId: null });
+    expect(await core.planMindCheck(empty.id, "changed")).toEqual({ kind: "nothing" });
+  });
+
+  // protects=Check every sentence again doesn't ask the model to name the claims it already named, even after a restart (#1669); fails_when=a marked or skipped sentence is sent to be sorted again; no_claim=what a real model names.
+  test("after a restart, Check every sentence again checks the marked sentences without naming the claims again, and the skipped stay skipped", async () => {
+    const { core, mindId, checks, finds, restart } = await setUp();
+    await core.checkMind(request(mindId, "all"));
+    expect(finds).toHaveLength(1);
+    const runsBefore = runsIn(checks).length;
+
+    const restarted = await restart();
+    expect(await restarted.core.planMindCheck(mindId, "all")).toMatchObject({
+      kind: "ready",
+      sentences: 3,
+      findsClaims: false,
+    });
+    expect(await restarted.core.findMindClaims(request(mindId, "all", "again"))).toEqual({
+      kind: "found",
+      claims: 3,
+    });
+    expect(await restarted.core.checkMind(request(mindId, "all", "again"))).toMatchObject({
+      kind: "checked",
+      sentences: 3,
+    });
+    expect(finds).toHaveLength(1);
+    expect(runsIn(checks).length - runsBefore).toBe(3);
+    expect(mindCheckOf(restarted.client.doc)?.skipped).toHaveLength(2);
+
+    // A sentence written since is the one the model is asked about.
+    const added = "The harbour master retired in 2025.";
+    editMind(restarted.client, (blocks) => [
+      ...blocks,
+      { type: "paragraph", attrs: { id: "three" }, content: [text(added)] },
+    ]);
+    await restarted.client.settled();
+    expect(await restarted.core.planMindCheck(mindId, "all")).toMatchObject({
+      sentences: 4,
+      findsClaims: true,
+    });
+    await restarted.core.checkMind(request(mindId, "all", "third"));
+    expect(finds).toHaveLength(2);
+    expect(finds[1]?.prompt).toBe(`[1] ${added}`);
   });
 
   test("says why there is nothing to check: no sentences; a Mind in a Folder with no Documents checks every Document (#1359)", async () => {

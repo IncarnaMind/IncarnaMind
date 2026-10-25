@@ -61,6 +61,48 @@ export const holdsText = (document: Pick<Document, "status" | "fileStatus">): bo
   document.status !== "failed" &&
   document.status !== "no-text";
 
+/** A Search scope as it is kept outside a Question's Block (JSON { folderIds, tagIds, documentIds }); null for anything else. */
+export function storedSearchScope(value: unknown): SearchScope | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const { folderIds, tagIds, documentIds } = value as Record<string, unknown>;
+  return { folderIds: idsOf(folderIds), tagIds: idsOf(tagIds), documentIds: idsOf(documentIds) };
+}
+
+export const NO_SCOPE: SearchScope = { folderIds: [], tagIds: [], documentIds: [] };
+
+export const folderScope = (folderId: string | null): SearchScope =>
+  folderId === null ? NO_SCOPE : { folderIds: [folderId], tagIds: [], documentIds: [] };
+
+const sameIds = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((id, index) => id === b[index]);
+
+export const sameScope = (a: SearchScope, b: SearchScope): boolean =>
+  SCOPE_KINDS.every((kind) => sameIds(scopeIds(a, kind), scopeIds(b, kind)));
+
+/**
+ * The scope to keep for a Mind once the User changes it: null (the Mind's
+ * own again) when it is the Mind's own, so it follows the Mind to another Folder.
+ */
+export function chosenScope(scope: SearchScope, folderId: string | null): SearchScope | null {
+  // A Folder's Mind with no scope left searches everything, by the User's choice: kept.
+  return sameScope(scope, folderScope(folderId)) ? null : hasSearchScope(scope) ? scope : NO_SCOPE;
+}
+
+/**
+ * How a Search scope is named where one name is shown: its first Folder, else Tag, else
+ * Document (`name` null: deleted since), and how many more it names. Null for no scope.
+ */
+export function scopeName(
+  scope: SearchScope,
+  nameOf: (kind: ScopeKind, id: string) => string | null,
+): { kind: ScopeKind; name: string | null; more: number } | null {
+  const kind = SCOPE_KINDS.find((each) => scopeIds(scope, each).length > 0);
+  const first = kind && scopeIds(scope, kind)[0];
+  if (!kind || first === undefined) return null;
+  const count = SCOPE_KINDS.reduce((total, each) => total + scopeIds(scope, each).length, 0);
+  return { kind, name: nameOf(kind, first), more: count - 1 };
+}
+
 /** The Folder a Search scope is, when it is one Folder alone; null otherwise. */
 export const oneFolderOf = (scope: SearchScope | null): string | null =>
   scope && scope.folderIds.length === 1 && scope.tagIds.length + scope.documentIds.length === 0

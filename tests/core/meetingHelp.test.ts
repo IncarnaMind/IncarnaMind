@@ -87,8 +87,8 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     const { result, answer, messages, latest } = await press(core, meeting, "no");
 
     const [first] = calls;
-    expect(first?.system).toContain("pressed a button for help");
-    expect(first?.system).toContain('starting with "★ "');
+    expect(first?.prompt).toContain("pressed a button for help");
+    expect(first?.prompt).toContain('starting with "★ "');
     expect(first?.prompt).toContain("<live-transcript>");
     expect(first?.tools).toEqual(expect.arrayContaining(["search_documents", "cite"]));
     expect(first?.tools).not.toContain("add_to_mind");
@@ -100,6 +100,18 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       answerId: result.asked && result.answerId,
       heard: { text: expect.any(String), speaker: "Them" },
     });
+  });
+
+  // protects=every button sends the same instructions, its own going with its Question, so a call's presses share them in the provider's cache (#1634: about 3k tokens written again each press before); fails_when=a button's words, its shape or the call's language are in the instructions; no_claim=the provider's cache itself.
+  test("every button sends the same instructions, its own with its Question", async () => {
+    const { core, meeting, calls } = await setUp();
+    await press(core, meeting, "no");
+    const second = calls.length;
+    await press(core, meeting, "want");
+
+    expect(calls[second]?.system).toBe(calls[0]?.system);
+    expect(calls[0]?.prompt).toContain("Decline what was just asked of the User");
+    expect(calls[second]?.prompt).toContain("What does the other side want?");
   });
 
   test("Answer their question finds the User's Documents ahead for the newest lines, not the transcript, and cites them", async () => {
@@ -189,11 +201,10 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     });
     for (const kind of ["sum", "ask", "check"] as const) {
       await press(core, meeting, kind);
-      const system = calls.at(-1)?.system ?? "";
-      expect(system).toContain(
+      expect(calls.at(-1)?.prompt).toContain(
         '- The call is in Chinese: write all of it in Chinese, the "→" lines too',
       );
-      expect(system).not.toContain("The Question is written in English");
+      expect(calls.at(-1)?.system).not.toContain("The Question is written in English");
       expect(calls.at(-1)?.prompt).toContain("企业版");
     }
     await core.updateSettings({ user: { language: "zh-CN" } });

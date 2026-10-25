@@ -34,6 +34,7 @@ import { useQuestionRoom } from "../../questionRoom";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useAppStore } from "../../store";
 import { useWindowSize } from "../../useWindowWidth";
+import { PanelBoundary } from "../PanelBoundary";
 import { ResizeRod } from "../ResizeRod";
 import { TabGroups } from "../tabs/TabGroups";
 import { AskPill } from "./AskPill";
@@ -160,7 +161,9 @@ export function Workbench({
         data-assistant-right={dock === "right" || undefined}
         className="app-card"
       >
-        <ComposerDockContext.Provider value={slot}>{groups}</ComposerDockContext.Provider>
+        <ComposerDockContext.Provider value={slot}>
+          <PanelBoundary name="card">{groups}</PanelBoundary>
+        </ComposerDockContext.Provider>
         {cardOverlay}
         {quiet && <AskPill />}
       </div>
@@ -182,27 +185,43 @@ export function Workbench({
           onReset={restore}
         />
       )}
-      <Assistant
-        dock={dock}
-        folded={folded}
-        style={quiet ? { display: "none" } : style}
-        attributes={{
-          "data-chosen-dock": place.dock,
-          "data-at-window-left": atWindowLeft ? "" : undefined,
+      <PanelBoundary
+        name="assistant"
+        frame={{
+          tag: "aside",
+          className: "assistant",
+          style: quiet ? { display: "none" } : style,
+          attributes: {
+            "data-assistant": "",
+            "data-testid": "assistant",
+            "data-dock": dock,
+            "data-chosen-dock": place.dock,
+            "data-at-window-left": atWindowLeft ? "" : undefined,
+          },
         }}
-        onComposerSlot={setSlot}
-        onHandlePointerDown={drag.onPointerDown}
-        justMoved={drag.justDragged}
       >
-        {dock === "float" && !folded && (
-          <FloatResize
-            rect={float}
-            onPreview={(next) => resize({ float: next })}
-            onCommit={(next) => keep({ float: next })}
-            onReset={restore}
-          />
-        )}
-      </Assistant>
+        <Assistant
+          dock={dock}
+          folded={folded}
+          style={quiet ? { display: "none" } : style}
+          attributes={{
+            "data-chosen-dock": place.dock,
+            "data-at-window-left": atWindowLeft ? "" : undefined,
+          }}
+          onComposerSlot={setSlot}
+          onHandlePointerDown={drag.onPointerDown}
+          justMoved={drag.justDragged}
+        >
+          {dock === "float" && !folded && (
+            <FloatResize
+              rect={float}
+              onPreview={(next) => resize({ float: next })}
+              onCommit={(next) => keep({ float: next })}
+              onReset={restore}
+            />
+          )}
+        </Assistant>
+      </PanelBoundary>
       <SnapZones dragging={drag.dragging} standIn={drag.standIn} />
     </div>
   );

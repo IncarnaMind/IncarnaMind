@@ -31,7 +31,6 @@ import { PRESETS } from "../../src/core/providers/catalog/presets";
 import {
   catalogProvider,
   dataUseOf,
-  FIRST_RUN_BEST_EFFORT,
   fieldAccepts,
   fieldUrl,
   isPreset,
@@ -705,30 +704,15 @@ describe("Support tiers (ADR-0019)", () => {
     ).toEqual([]);
   });
 
-  test("the first-run list holds exactly the first-class providers that take a key", () => {
+  test("the key providers are the first-class ones that take a key, then every other", () => {
     const { main, more } = keyProviderGroups();
     const expected = CATALOG_PROVIDERS.filter(
       (each) => each.support === "first-class" && each.endpoints.length > 0,
     ).map((each) => each.id);
     expect(main).toEqual(expected);
-    // Settings' "More providers" holds the rest, and nothing is lost between the two.
+    // "More…" holds the rest, and nothing is lost between the two.
     expect([...main, ...more].sort()).toEqual([...KEY_PROVIDERS].sort());
     expect(more).toEqual(expect.arrayContaining([...BEST_EFFORT, "openai-compatible"]));
-  });
-
-  test("the first-run key form also offers Kimi and GLM, the best-effort providers the catalog marks for it", () => {
-    expect([...FIRST_RUN_BEST_EFFORT].sort()).toEqual(["glm", "kimi"]);
-    for (const id of FIRST_RUN_BEST_EFFORT) {
-      expect(catalogProvider(id)?.support).toBe("best-effort");
-      expect(keyProviderGroups().more).toContain(id);
-    }
-  });
-
-  test("a provider already set up stays among the User's, whatever its tier", () => {
-    const { main, more } = keyProviderGroups(["mistral"]);
-    expect(main).toContain("mistral");
-    expect(more).not.toContain("mistral");
-    expect(more).toContain("xai");
   });
 
   test("each first-class provider that needs a key has a key guide in both languages, and the rest have none", () => {

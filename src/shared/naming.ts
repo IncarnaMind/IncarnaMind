@@ -176,3 +176,13 @@ export const SHORT_TITLE_INSTRUCTION =
 /** The model's short title, cleaned: its first line, without quotes or trailing punctuation. Empty if it gave none. */
 export const cleanShortTitle = (reply: string): string =>
   cutTitle(reply.trim().replace(quotes, "")).replace(quotes, "");
+
+/** The first of "{name} 2", "{name} 3"… that none of `taken` is; null when none of `taken` is `name`. */
+export function numberedName(name: string, taken: readonly string[]): string | null {
+  const names = new Set(taken.map((each) => each.trim().toLocaleLowerCase()));
+  if (name.trim() === "" || !names.has(name.trim().toLocaleLowerCase())) return null;
+  for (let next = 2; ; next++) {
+    const numbered = `${name} ${next}`;
+    if (!names.has(numbered.toLocaleLowerCase())) return numbered;
+  }
+}

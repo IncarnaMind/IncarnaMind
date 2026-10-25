@@ -18,6 +18,7 @@ import { firstChildOf, jumpTo, parentOf, type TreeRow, typedAfter } from "./tree
  */
 
 const ROW = '[role="treeitem"]';
+const OBJECT_ROW = "[data-object-row]";
 
 /** What the key moves to Recently deleted, by kind. A Linked folder is unlinked after a question, so not by a key. */
 const DELETES: Partial<Record<ObjectKind, CommandId>> = {
@@ -36,6 +37,12 @@ const modelOf = (row: HTMLElement): TreeRow => ({
     : undefined,
   name: row.textContent ?? "",
 });
+
+// The focus in a row's ⋯ button or menu is the row's: a Delete from the menu hands it on from there.
+const rowOf = (element: Element): HTMLElement | null =>
+  element instanceof HTMLElement && element.matches(ROW)
+    ? element
+    : (element.closest(OBJECT_ROW)?.querySelector<HTMLElement>(ROW) ?? null);
 
 /** What a row stands for, to find it again once the list has drawn it anew or moved it. */
 const thingOf = (row: HTMLElement): string | null => {
@@ -87,6 +94,11 @@ function useOneTabStop(tree: RefObject<HTMLElement | null>): void {
       (lastThing && rows.find((row) => thingOf(row) === lastThing)) ||
       rows[Math.min(lastAt, rows.length - 1)] ||
       null;
+    // With no row left in the tree, the focus goes to the one above it, such as the Library's.
+    const rowAbove = () =>
+      Array.from(root.parentElement?.querySelectorAll<HTMLElement>("[data-tree-row]") ?? [])
+        .filter((row) => root.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_PRECEDING)
+        .at(-1) ?? null;
     const remember = (row: HTMLElement) => {
       last = row;
       lastAt = Math.max(rowsIn(root).indexOf(row), 0);
@@ -110,7 +122,7 @@ function useOneTabStop(tree: RefObject<HTMLElement | null>): void {
       // A row that's gone hands the focus on at once, not a frame or two later: on a slow
       // machine a key pressed straight after a Delete went to the page and did nothing.
       if (!rows.some((row) => thingOf(row) === lastThing)) {
-        if (document.activeElement === document.body) remembered(rows)?.focus();
+        if (document.activeElement === document.body) (remembered(rows) ?? rowAbove())?.focus();
         return;
       }
       // After a renamed row has taken the focus back itself (`useRename`), if it will.
@@ -135,18 +147,19 @@ function useOneTabStop(tree: RefObject<HTMLElement | null>): void {
     observer.observe(root, { childList: true, subtree: true });
 
     const onFocusIn = (event: FocusEvent) => {
-      const row = event.target;
-      if (!(row instanceof HTMLElement) || !row.matches(ROW)) return;
+      const target = event.target;
+      const row = target instanceof Element ? rowOf(target) : null;
+      if (!row) return;
       remember(row);
       holdsFocus = true;
-      if (stop === row) return;
+      if (target !== row || stop === row) return;
       stop?.setAttribute("tabindex", "-1");
       row.setAttribute("tabindex", "0");
       stop = row;
     };
     // A row still there with the focus gone elsewhere is not one to put the focus back on.
     const onFocusOut = (event: FocusEvent) => {
-      const left = event.target;
+      const left = event.target instanceof Element ? rowOf(event.target) : null;
       requestAnimationFrame(() => {
         if (last === left && last?.isConnected && !root.contains(document.activeElement)) {
           holdsFocus = false;

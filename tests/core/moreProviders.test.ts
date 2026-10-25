@@ -11,7 +11,7 @@ import { catalogModel } from "../../src/core/providers/catalog";
 import { catalogProvider, endpointOf } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { askAndFinish, citationsIn, setUpWithDocuments } from "../helpers/citations";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, startCore, turnOnAutomaticTagging } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { fakeProvider, type Loose, type RecordedRequest } from "../helpers/fakeProvider";
 import { replyingModel, scriptedModels } from "../helpers/models";
@@ -369,7 +369,7 @@ describe("Small calls skip thinking", () => {
       createChatModel: models.createChatModel,
     });
     await core.saveChatProvider({ kind: "deepseek", apiKey: "key", modelId: "deepseek-flash" });
-    await core.allowDataFlow("tagging", "https://api.deepseek.com");
+    await turnOnAutomaticTagging(core);
     await core.allowDataFlow("chat", "https://api.deepseek.com");
 
     const sources = await createTempDataFolder();

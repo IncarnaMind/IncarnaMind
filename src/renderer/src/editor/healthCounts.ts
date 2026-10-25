@@ -22,8 +22,8 @@ import {
 } from "../../../core/api";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
-import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
-import type { ShownClaim } from "./claimChecks";
+import { isClaim, sentenceSpans } from "../../../shared/sentences";
+import { paragraphPlaces, type ShownClaim } from "./claimChecks";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
 export const HEALTH_PARTS = [
@@ -90,32 +90,15 @@ export function noteHealth(
     if (!node.isTextblock) return true;
     if (node.type.name !== "paragraph") return false;
     const answered = writtenByAnswer(doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE]);
-    let text = "";
-    /** Where each character of `text` is in the document. */
-    const places: number[] = [];
-    const citations: { at: number; pos: number; attributes: CitationAttributes }[] = [];
-    node.forEach((child, offset) => {
-      const start = pos + 1 + offset;
-      if (proposed(child)) return;
-      if (child.isText) {
-        const words = child.text ?? "";
-        for (let index = 0; index < words.length; index++) places.push(start + index);
-        text += words;
-        return;
-      }
-      if (child.type.name === CITATION_NODE) {
-        citations.push({
-          at: text.length,
-          pos: start,
-          attributes: child.attrs as CitationAttributes,
-        });
-      }
-      places.push(start);
-      text += child.type.name === "hardBreak" ? "\n" : INLINE_NODE;
-    });
+    const { text, starts, ends, inline } = paragraphPlaces(node, pos, proposed);
+    const citations = inline.flatMap(({ node: child, at, pos: place }) =>
+      child.type.name === CITATION_NODE
+        ? [{ at, pos: place, attributes: child.attrs as CitationAttributes }]
+        : [],
+    );
     for (const span of sentenceSpans(text)) {
-      const from = places[span.from] ?? pos;
-      const to = (places[span.to - 1] ?? from) + 1;
+      const from = starts[span.from] ?? pos;
+      const to = ends[span.to - 1] ?? from;
       const claim = claims.find((each) => each.from < to && each.to > from);
       const words = text.slice(span.from, span.to);
       const problem = claim && PROBLEM[claim.shown.state];

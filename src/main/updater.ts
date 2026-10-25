@@ -17,11 +17,12 @@
  */
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow } from "electron";
 import type { Core, CoreApi, ExternalService, Language } from "../core";
 import { translate } from "../shared/i18n";
 import { systemBrowser } from "./platform";
 import { RELEASES_PAGE } from "./startupError";
+import { showMessageBox } from "./systemDialogs";
 import { restartToInstall } from "./updateRestart";
 
 /** Where update checks go. */
@@ -119,8 +120,6 @@ async function ask(
     cancelId: 1,
   };
   const window = BrowserWindow.getAllWindows().find((it) => it.isVisible());
-  const { response } = window
-    ? await dialog.showMessageBox(window, options)
-    : await dialog.showMessageBox(options);
+  const { response } = await showMessageBox(window ?? null, options);
   return response === 0;
 }

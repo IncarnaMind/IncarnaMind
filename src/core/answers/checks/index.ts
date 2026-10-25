@@ -28,7 +28,8 @@ import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
-import { oneFolderOf } from "../../../shared/searchScope";
+import { mindScopeIn } from "../../../shared/mindScope";
+import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import { recordCheckUnread } from "../../../shared/unreadFiles";
 import {
@@ -74,7 +75,7 @@ import type { AnswerEngine } from "../engine";
 import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { markedSentences, markSentence, selectedSentences, updateCheck } from "./sentences";
-import { createVerify, type VerifyOptions } from "./verify";
+import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
 
@@ -375,28 +376,39 @@ export function createChecks(options: ChecksOptions) {
   }
 
   /**
-   * Where a Mind's sentences are checked: its Folder, or every Document, never the file the
-   * Mind was imported from. The contradiction watch leaves out the same, so a sentence finds
-   * the same evidence alone or in a whole check.
+   * Where a Mind's sentences are checked: the scope the User set for it, else its Folder, or
+   * every Document, never the file the Mind was imported from. The contradiction watch leaves
+   * out the same, so a sentence finds the same evidence alone or in a whole check.
    */
   function scopeOf(mindId: string, allDocuments: boolean, checked: CheckedDocument = {}) {
     const own = options.mindFolder(mindId);
-    const wanted = allDocuments
-      ? null
-      : options.searchedScope(
-          own === null ? null : { folderIds: [own], tagIds: [], documentIds: [] },
-          mindId,
-        );
+    const chosen = content.readSettings(mindId, mindScopeIn);
+    const wanted = allDocuments ? null : options.searchedScope(chosen ?? folderScope(own), mindId);
     const folderId = oneFolderOf(wanted);
+    const inChosen = chosen !== null && wanted !== null && (own === null || folderId !== own);
     // An own Folder that holds no Document searches everything, as "Search all Documents" does.
-    const marked: ClaimCheckScope = { folderId: own, widened: allDocuments || own !== folderId };
-    const scope = options.evidence.scope(
-      wanted && options.resolveScope(wanted),
-      leftOutOf(mindId, checked),
-    );
+    const marked: ClaimCheckScope = inChosen
+      ? { folderId: own, widened: false, chosen: wanted }
+      : { folderId: own, widened: allDocuments || own !== folderId };
+    const leftOut = leftOutOf(mindId, checked);
+    const resolved = wanted && options.resolveScope(wanted);
+    const scope = options.evidence.scope(resolved, leftOut);
+    const searchable = options.documents.searchableCount(scope.documentIds);
+    const empty = (): NoDocuments => {
+      const none: NoDocuments = { kind: "no-documents", folderId };
+      if (!inChosen || !wanted) return none;
+      if (
+        options.documents.searchableCount(options.evidence.scope(null, leftOut).documentIds) === 0
+      )
+        return none;
+      const onlyLeftOut =
+        options.documents.searchableCount(options.evidence.scope(resolved).documentIds) > 0;
+      return { ...none, chosen: { scope: wanted, onlyLeftOut } };
+    };
     return {
-      searchable: options.documents.searchableCount(scope.documentIds),
+      searchable,
       folderId,
+      empty: searchable === 0 ? empty() : null,
       check: { scope, marked, wanted },
     };
   }
@@ -410,8 +422,8 @@ export function createChecks(options: ChecksOptions) {
     const read = content.read(mindId, (blocks) => selectedSentences(blocks, stretches));
     if (!read.ok) return { kind: read.reason };
 
-    const { searchable, folderId, check } = scopeOf(mindId, input.allDocuments);
-    if (searchable === 0) return { kind: "no-documents", folderId };
+    const { empty, check } = scopeOf(mindId, input.allDocuments);
+    if (empty) return empty;
     const { scope: evidenceScope, marked: scope } = check;
 
     const ready = await prepare(input.model ?? options.defaultModel());

@@ -10,7 +10,12 @@ import type { ChatModelFactory, ChatModelSpec, Core, CoreAdapters } from "../../
 import { type AnswerRequest, createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import { installedOllamaModels } from "../../src/core/providers/ollama";
 import { answerEnded } from "../helpers/citations";
-import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import {
+  createTempDataFolder,
+  queryDatabase,
+  startCore,
+  turnOnAutomaticTagging,
+} from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
 import { connectToMind } from "../helpers/mindClient";
@@ -19,7 +24,6 @@ import { scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 import { waitForTagging } from "../helpers/tags";
 
-const OPENAI = "https://api.openai.com";
 const ANTHROPIC = "https://api.anthropic.com";
 const OPENROUTER = "https://openrouter.ai";
 
@@ -421,8 +425,7 @@ describe("Which model each quick call uses", () => {
   test("Tag suggestions go to the provider's tagging model, and Organize too once the User lets it", async () => {
     const { core, calls } = await start();
     await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6.1-sol" });
-    await core.allowDataFlow("tagging", OPENAI);
-    await core.allowDataFlow("classification", OPENAI);
+    await turnOnAutomaticTagging(core);
     const first = await addText(core, "Report.md", "Quarterly report on sales.");
     await waitForTagging(core, [first.id]);
     expect(calls.filter((each) => each.purpose === "tags")).toEqual([
@@ -456,7 +459,7 @@ describe("Which model each quick call uses", () => {
     await core.updateSettings({
       user: { quickTasksModel: { providerId: provider.id, modelId: "gpt-5.4-nano" } },
     });
-    await core.allowDataFlow("tagging", OPENAI);
+    await turnOnAutomaticTagging(core);
     const document = await addText(core, "Report.md", "Quarterly report on sales.");
     await waitForTagging(core, [document.id]);
     expect(calls.map((each) => each.modelId)).toEqual(["gpt-5.4-nano"]);
@@ -471,7 +474,7 @@ describe("Which model each quick call uses", () => {
       apiKey: "key",
       modelId: "house-model",
     });
-    await core.allowDataFlow("tagging", "https://llm.example.com");
+    await turnOnAutomaticTagging(core);
     const document = await addText(core, "Report.md", "Quarterly report on sales.");
     await waitForTagging(core, [document.id]);
     expect(calls.map((each) => each.modelId)).toEqual(["house-model"]);
@@ -636,13 +639,14 @@ describe("The image model reads scans the model that tags can't", () => {
         imageModel: { providerId: anthropic.id, modelId: "claude-haiku-5-5" },
       },
     });
-    await core.allowDataFlow("classification", ANTHROPIC);
     // Organize uses the local model, as "Use Ollama" in the Library sets it.
     await core.saveLibrarySettings({
       classifier: { kind: "automatic" },
       automatic: true,
       organizeWith: { kind: "chat", choice: { providerId: ollama.id, modelId: "local-model" } },
     });
+    await core.allowDataFlow("classification", ANTHROPIC);
+    await core.allowDataFlow("scan-images", ANTHROPIC);
     await core.createLibraryGroup({ name: "Scans", description: "Scanned papers" });
     const [scan] = await addAndProcess(core, [
       await writeSourceFile(await createTempDataFolder(), "scan.pdf", SCAN),
@@ -689,6 +693,7 @@ describe("Until Organize has a model", () => {
       apiKey: "sk-ant-test",
       modelId: "claude-sonnet-5-5",
     });
+    await turnOnAutomaticTagging(core);
     const { documents } = await core.addDocuments(
       [
         await writeSourceFile(

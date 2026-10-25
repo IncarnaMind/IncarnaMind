@@ -139,7 +139,12 @@ async function shownChecks(core: Core, client: MindClient, folderId: string) {
   return claimSpans(readMind(client)).map((span) => ({
     sentence: span.sentence.text.replace(/￼/gu, "").trim(),
     check: span.check,
-    shown: claimCheckShown(span.check, { text: span.sentence.text, versions, folderId }),
+    shown: claimCheckShown(span.check, {
+      text: span.sentence.text,
+      versions,
+      folderId,
+      scope: null,
+    }),
   }));
 }
 

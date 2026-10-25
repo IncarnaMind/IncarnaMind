@@ -229,8 +229,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^Outline(⌥⌘L|Ctrl\+Alt\+L)$/,
       /^Export…$/,
       /^Export AI use statement$/,
-      /^Export check record as PDF$/,
-      /^Export check record as CSV$/,
+      /^Export check record…$/,
       /^History$/,
       /^Check this Mind$/,
       /^Check for contradictions$/,
@@ -275,7 +274,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(shortlist.getByTestId("mind-list-item")).toBeFocused();
     await window.keyboard.press("Shift+F10");
     await expect(actions.getByTestId("mind.open")).toBeFocused();
-    for (let step = 0; step < 13; step++) await window.keyboard.press("ArrowDown");
+    for (let step = 0; step < 12; step++) await window.keyboard.press("ArrowDown");
     await expect(actions.getByTestId("mind.moveTo")).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(picker.getByTestId("move-to-search")).toBeFocused();

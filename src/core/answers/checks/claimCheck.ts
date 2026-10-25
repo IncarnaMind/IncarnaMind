@@ -71,11 +71,14 @@ import {
   EVIDENCE_INSTRUCTIONS,
   evidencePrompt,
   NEAREST_INSTRUCTIONS,
+  partInstructions,
   type ReadVerdict,
   readEvidence,
   readJudgement,
+  readPart,
   readsAsRefusal,
   readVerdict,
+  STRICT_INSTRUCTIONS,
 } from "./prompt";
 import { unitNotStated } from "./units";
 
@@ -113,6 +116,8 @@ function failureOf(error: ProviderError): { reason: ClaimCheckFailure; detail: s
       return { reason: "cost-cap", detail: null };
     case "plan-limit":
       return { reason: "plan-limit", detail: null };
+    case "out-of-credit":
+      return { reason: "out-of-credit", detail: null };
     case "consent-revoked":
       return { reason: "consent-revoked", detail: null };
     case "local-mode":
@@ -265,7 +270,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       versions: [...read].map(
         ([documentId, contentHash]): CheckedVersion => ({ documentId, contentHash }),
       ),
-      excluded: [...excluded.values()].filter((each) => each.reason === "own-file"),
+      excluded: [...excluded.values()].filter(
+        (each) => each.reason === "own-file" || each.reason === "checked-document",
+      ),
     });
     const workingsSayingIt = (): LeftOutDocument[] =>
       [...workings].flatMap(([documentId, passages]) => {
@@ -286,9 +293,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       detail,
       ...facts(),
     });
-
-    const failedAfterVerdict = ({ failed }: Failed) => {
-      const { reason, detail } = failureOf(failed);
+    const failedCheck = (error: ProviderError): ClaimCheckResult => {
+      const { reason, detail } = failureOf(error);
       return notChecked(reason, detail);
     };
 
@@ -343,10 +349,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       else if (event.type === "finished") finished = true;
     }
     if (signal.aborted) return notChecked("stopped");
-    if (failed) {
-      const { reason, detail } = failureOf(failed);
-      return notChecked(reason, detail);
-    }
+    if (failed) return failedCheck(failed);
     const worked = calculated(request.claim, figures, stated, (citation) =>
       documentFigureContext(
         scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
@@ -385,8 +388,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const unsupported = async (
       why: UnsupportedReason = { reason: null, covered: null, uncovered: null },
       found: Citation | null = null,
+      judgedNearest?: Citation | null,
     ): Promise<ClaimCheckResult> => {
-      const nearest = await nearestDifferent(request, session, signal);
+      const nearest =
+        judgedNearest === undefined
+          ? await nearestDifferent(request, session, signal)
+          : judgedNearest;
       if (signal.aborted) return notChecked("stopped");
       // A card that quotes the Passage covering part of the sentence never says it found nothing.
       // A sentence's own Citations, a court decision no Document holds, or only the User's own
@@ -431,47 +438,68 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       decidingCitation(session.finalCitation) ??
       (await askForEvidence(request, verdict, session, signal));
     if (signal.aborted) return notChecked("stopped");
-    if (isFailed(evidence)) return failedAfterVerdict(evidence);
+    if (isFailed(evidence)) return failedCheck(evidence.failed);
     if (!evidence) return byCalculation ?? notChecked("no-evidence");
     const unit = byCalculation
       ? null
       : unstatedUnit([evidence, ...foundCitations(session.finalCitation, evidence)]);
     if (unit && verdict.verdict !== "contradicted") return unsupported(unit, evidence);
+    // The reply's own parts, else the model is asked for them once: a part too long to be a
+    // phrase left Claude Sonnet 5.5's "Employees…" Supported (#1647).
+    const parts = async (quoted: Citation) =>
+      verdict.covered && verdict.uncovered
+        ? { covered: verdict.covered, uncovered: verdict.uncovered }
+        : await partOf(request, quoted, session, signal, deps.language());
     // A general word for the Passage's own party is backed for that party only: the wider group
-    // is the part the Documents don't cover (DESIGN.md › Checks). The reply says so in a field of
-    // its own, so the verdict doesn't rest on the model weighing it.
+    // is the part the Documents don't cover (DESIGN.md › Checks). Another party, the parties the
+    // other way round, or must for may is no support at all: Claude Haiku 5.5 called "must pay"
+    // Supported against "may pay", then named the difference (#1668). The reply says each in a
+    // field of its own, so the verdict doesn't rest on the model weighing it.
+    const differs = verdict.roles === "differs";
     if (
       verdict.verdict === "supported" &&
-      verdict.scope === "wider" &&
-      verdict.covered &&
-      verdict.uncovered &&
+      (verdict.scope === "wider" || differs) &&
       !byCalculation
     ) {
-      return unsupported(
-        { reason: verdict.says, covered: verdict.covered, uncovered: verdict.uncovered },
-        evidence,
-      );
+      const part = await parts(evidence);
+      if (signal.aborted) return notChecked("stopped");
+      // The Passage the check cited states the term's own value, so no nearest line is asked about.
+      const nearest = differs ? undefined : null;
+      if (part.covered && part.uncovered)
+        return unsupported({ reason: verdict.says, ...part }, evidence, nearest);
+      if (differs) return unsupported();
     }
     if (verdict.verdict === "contradicted") {
-      const judged = await confirmContradiction(request, evidence, session, signal);
+      // The judgements disagree with the check: the card shows the part the quote states
+      // (DESIGN.md › Checks).
+      const inDoubt = async (): Promise<ClaimCheckResult> => {
+        if (byCalculation) return byCalculation;
+        if (unit) return unsupported(unit, evidence);
+        if (verdict.topic === "not found") return unsupported();
+        const part = await parts(evidence);
+        if (signal.aborted) return notChecked("stopped");
+        if (!part.covered || !part.uncovered) return unsupported();
+        // A judgement has just compared this very quote with the sentence: no nearest line.
+        return unsupported({ reason: verdict.says, ...part }, evidence, null);
+      };
+      const first = await compare(request, evidence, session, signal, CONFIRM_INSTRUCTIONS);
       if (signal.aborted) return notChecked("stopped");
-      if (isFailed(judged)) return failedAfterVerdict(judged);
+      if ("failed" in first) return failedCheck(first.failed);
+      const judged = readJudgement(first.reply);
       // The Passage is about something else: what is nearest may still say something different.
       if (judged === "neither") return byCalculation ?? unsupported();
-      if (judged === "same") {
-        if (unit) return unsupported(unit, evidence);
-        return (
-          byCalculation ?? {
-            verdict: "supported",
-            evidence,
-            says: null,
-            unsupported: null,
-            calculation: null,
-            ...citedCase(evidence),
-            ...facts(),
-          }
-        );
-      }
+      // Never Supported: in one word it called the parties the other way round the same (#1668).
+      if (judged === "same") return inDoubt();
+      // A false contradiction is the worst verdict a check gives, and one judgement upheld near
+      // misses (#1647): the strict one finds the quote doesn't state the sentence's detail, and
+      // then the card shows the part the quote states (DESIGN.md › Checks). Its "same" doesn't
+      // count: writing a Chinese sentence in English, it read a reversed reporting line backwards.
+      const strict = await compare(request, evidence, session, signal, STRICT_INSTRUCTIONS);
+      if (signal.aborted) return notChecked("stopped");
+      if ("failed" in strict) return failedCheck(strict.failed);
+      const strictly = readJudgement(strict.reply);
+      if (strictly === null) return notChecked("malformed");
+      if (strictly === "neither") return inDoubt();
     }
     return {
       verdict: verdict.verdict,
@@ -554,21 +582,16 @@ async function askForEvidence(
   return citation?.check === "found" ? citation : null;
 }
 
-/**
- * A contradiction counts only once the sentence and the quote it rests on,
- * judged alone, conflict. In a whole check a model leant to "contradicted"
- * for near misses: a figure for a related thing, another site in a parallel
- * Document (#97). A reply that can't be read leaves the verdict as it was; a failed request
- * leaves the claim not checked, so it is never Contradicted unconfirmed.
- */
-async function confirmContradiction(
+// In a whole check a model leant to "contradicted" for near misses: a figure for a related thing,
+// another site in a parallel Document (#97). Judged alone, the sentence beside its quote, it didn't.
+async function compare(
   request: ClaimCheckRequest,
-  evidence: Citation,
+  quoted: Citation,
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
-  instructions = CONFIRM_INSTRUCTIONS,
-): Promise<"conflict" | "same" | "neither" | null | Failed> {
-  const passage = session.shownPassages().find((each) => each.passageId === evidence.passageId);
+  instructions: string,
+): Promise<{ reply: string } | { failed: ProviderError }> {
+  const passage = session.shownPassages().find((each) => each.passageId === quoted.passageId);
   const { model } = request;
   try {
     const { text } = await generateText({
@@ -576,18 +599,16 @@ async function confirmContradiction(
       instructions,
       prompt: confirmPrompt({
         claim: request.claim,
-        quote: evidence.quote,
-        passage: passage?.text ?? evidence.quote,
+        quote: quoted.quote,
+        passage: passage?.text ?? quoted.quote,
       }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 200,
+      maxOutputTokens: 300,
       maxRetries: 1,
       abortSignal: signal,
     });
-    return readJudgement(text);
+    return { reply: text };
   } catch (error) {
-    if (!signal.aborted)
-      console.error(`A contradiction couldn't be confirmed: ${messageOf(error)}`);
     return { failed: classifyProviderError(error) };
   }
 }
@@ -601,6 +622,20 @@ const isFailed = (value: unknown): value is Failed =>
   typeof value === "object" && value !== null && "failed" in value;
 
 const notFailed = <T>(value: T | Failed): T | null => (isFailed(value) ? null : value);
+
+async function partOf(
+  request: ClaimCheckRequest,
+  quoted: Citation,
+  session: ReturnType<typeof createCitationSession>,
+  signal: AbortSignal,
+  language: Language,
+): Promise<ReturnType<typeof readPart>> {
+  const asked = await compare(request, quoted, session, signal, partInstructions(language));
+  if ("reply" in asked) return readPart(asked.reply);
+  if (!signal.aborted)
+    console.error(`A sentence's parts couldn't be asked for: ${asked.failed.message}`);
+  return { covered: null, uncovered: null };
+}
 
 interface Opinions {
   documentIds: ReadonlySet<string>;
@@ -662,14 +697,13 @@ async function nearestDifferent(
   session.check();
   const citation = session.finalCitation(NEAREST_MARKER);
   if (citation?.check !== "found") return null;
-  const judged = await confirmContradiction(
-    request,
-    citation,
-    session,
-    signal,
-    NEAREST_INSTRUCTIONS,
-  );
-  return judged === "conflict" ? citation : null;
+  const judged = await compare(request, citation, session, signal, NEAREST_INSTRUCTIONS);
+  if ("failed" in judged) {
+    if (!signal.aborted)
+      console.error(`A nearest line couldn't be judged: ${judged.failed.message}`);
+    return null;
+  }
+  return readJudgement(judged.reply) === "conflict" ? citation : null;
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));

@@ -1,9 +1,11 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "@playwright/test";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 import { coreOf, createDataFolder, dismissChatSetup, launchApp, removeDataFolder } from "./app";
@@ -111,6 +113,76 @@ test("lock files that aren't databases are emptied, and the folder is locked all
   await app.close();
 });
 
+/** Starts a copy on `dataDir` outside Playwright, with what `launchApp` gives one; `args` go before the app's folder. */
+function startCopy(
+  home: string,
+  args: string[],
+  extraEnv: Record<string, string> = {},
+): ChildProcess {
+  const env = {
+    ...Object.fromEntries(
+      Object.entries(process.env).flatMap(([name, value]) => (value ? [[name, value]] : [])),
+    ),
+    ...homeEnv(home),
+    INCARNAMIND_DATA_DIR: dataDir,
+    INCARNAMIND_TEST_HOOKS: "1",
+    INCARNAMIND_TEST_EMBEDDER: "fake",
+    INCARNAMIND_TEST_TRANSCRIBER: "fake",
+    INCARNAMIND_TEST_AUDIO: "fake",
+    INCARNAMIND_TEST_CONNECTOR_REGISTRY: "http://127.0.0.1:9",
+    ...extraEnv,
+  };
+  delete (env as Record<string, string | undefined>).ELECTRON_RUN_AS_NODE;
+  const electronPath = require("electron") as unknown as string;
+  return spawn(
+    electronPath,
+    [...KEYCHAIN_ARGS, "--no-sandbox", ...args, resolve(__dirname, ".."), ...APP_ARGS],
+    { env, stdio: "ignore" },
+  );
+}
+
+// protects=a data folder another copy keeps busy starts nothing and says so, in a box the User
+// sees on Linux too (#1493); fails_when=the box is asked for before `ready`, when Linux only
+// writes it to stderr, or isn't asked for, or the core starts.
+test("a data folder kept busy by a stuck copy starts nothing, and says so once the app is ready", async () => {
+  test.setTimeout(90_000);
+  const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
+  const boxes = join(home, "error-boxes.jsonl");
+  // A copy stopped between its two locks: it holds instance.lock and not instance.owner.
+  const stuck = new DatabaseSync(join(dataDir, "instance.lock"));
+  stuck.exec("PRAGMA locking_mode = EXCLUSIVE");
+  stuck.exec("BEGIN EXCLUSIVE");
+  const copy = startCopy(home, ["-r", join(__dirname, "errorBoxes.cjs")], {
+    INCARNAMIND_TEST_ERROR_BOXES: boxes,
+  });
+  try {
+    const [code] = await exited(copy);
+    expect(code).toBe(0);
+    const shown = (await readFile(boxes, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(shown).toEqual([
+      {
+        title: "IncarnaMind couldn’t start",
+        content:
+          "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+        ready: true,
+      },
+    ]);
+    expect(await logOf(dataDir)).toContain("app.dataFolderBusy");
+    expect(existsSync(join(dataDir, "incarnamind.db"))).toBe(false);
+  } finally {
+    stuck.close();
+    if (copy.exitCode === null && copy.signalCode === null) {
+      const gone = once(copy, "exit");
+      copy.kill("SIGKILL");
+      await gone;
+    }
+    await rm(home, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
 const freePort = () =>
   new Promise<number>((done, fail) => {
     const server = createServer();
@@ -140,32 +212,7 @@ for (const gap of [0, 20, 40, 60, 80]) {
   test(`two starts ${gap} ms apart leave one copy with one window`, async () => {
     test.setTimeout(120_000);
     const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
-    const env = {
-      ...Object.fromEntries(
-        Object.entries(process.env).flatMap(([name, value]) => (value ? [[name, value]] : [])),
-      ),
-      ...homeEnv(home),
-      INCARNAMIND_DATA_DIR: dataDir,
-      INCARNAMIND_TEST_HOOKS: "1",
-      INCARNAMIND_TEST_EMBEDDER: "fake",
-      INCARNAMIND_TEST_TRANSCRIBER: "fake",
-      INCARNAMIND_TEST_AUDIO: "fake",
-      INCARNAMIND_TEST_CONNECTOR_REGISTRY: "http://127.0.0.1:9",
-    };
-    delete (env as Record<string, string | undefined>).ELECTRON_RUN_AS_NODE;
-    const electronPath = require("electron") as unknown as string;
-    const start = (port: number) =>
-      spawn(
-        electronPath,
-        [
-          ...KEYCHAIN_ARGS,
-          "--no-sandbox",
-          `--remote-debugging-port=${port}`,
-          resolve(__dirname, ".."),
-          ...APP_ARGS,
-        ],
-        { env, stdio: "ignore" },
-      );
+    const start = (port: number) => startCopy(home, [`--remote-debugging-port=${port}`]);
     const ports = [await freePort(), await freePort()];
     const [a, b] = ports as [number, number];
     const first = start(a);

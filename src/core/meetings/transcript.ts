@@ -250,6 +250,7 @@ export interface TranscriptsOptions {
   health: CaptureHealthRecords;
   /** Tells speakers apart after the call (#138). Absent: lines keep the labels of where they came from. */
   speakers?: SpeakerPass;
+  decoded?(modelId: string, decodeMs: number, audioSeconds: number): void;
   /**
    * The Meeting's Transcript is finished (#142): saved, its Document in its place and its
    * speakers told apart (#138), or with no lines.
@@ -594,6 +595,11 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   /** The speed probe: how long decoding takes for the audio it decodes, kept for the next Meeting's choice of model. */
   function probe(state: State, segment: SpeechSegment): void {
+    options.decoded?.(
+      model.definition.id,
+      segment.decodeMs,
+      (segment.endMs - segment.startMs) / 1000,
+    );
     state.probe.audioMs += segment.endMs - segment.startMs;
     state.probe.decodeMs += segment.decodeMs;
     health.decoded(state.meetingId, segment.endMs - segment.startMs, segment.decodeMs);

@@ -170,6 +170,27 @@ describe("The everyday request guards", () => {
     expect(failures([3])).toEqual([]);
   });
 
+  // protects=a translation written into a Mind must use the field's term for a thing, here 大潮 for "spring tides", and fails on the near one, 春潮 (#1635); fails_when=either passes unnoticed; no_claim=other terms.
+  test("a translation that doesn't use the term asked for fails, naming the one it used", () => {
+    const failures = (writtenInMinds: string[]) =>
+      requestFailures(
+        outcome({
+          expected: {
+            write: true,
+            cite: false,
+            coverAll: false,
+            terms: [{ want: "大潮", not: ["春潮"] }],
+          },
+          answer: { text: "", citations: [], toolCalls: [created], steps: null },
+          writtenInMinds,
+        }),
+      );
+    expect(failures(["导游说每月有两次大潮。"])).toEqual([]);
+    expect(failures(["导游说每月有两次春潮。"])).toEqual([
+      { kind: "term", want: "大潮", found: ["春潮"] },
+    ]);
+  });
+
   // protects=a Mind written with a source as text fails, naming it, and one with none passes (#1075); fails_when=bracketed sources in a Mind go unnoticed; no_claim=how the sources are found (tests/shared/namedSources.test.ts).
   test("a Mind holding a source written as text fails", () => {
     const kinds = (sourcesAsText: string[]) =>
@@ -594,6 +615,145 @@ describe("A figure the numbers give is calculated (#1444)", () => {
         .sort(),
     ).toEqual(["gave-up", "no-figure"]);
     expect(asked("增加了11.73亿美元。", ["11.73亿美元"])).toEqual([]);
+  });
+});
+
+describe('What "this" means and adding the last Answer (#1334, #1734)', () => {
+  const DATED = [
+    { id: "contract", name: "Employment contract" },
+    { id: "nda", name: "Mutual NDA" },
+  ];
+  const added = (input: Record<string, unknown>): AnswerToolCall => ({
+    ...created,
+    tool: "add_to_mind",
+    input,
+    mindChange: { mindId: "m0", created: false, request: "r2", proposals: 2 },
+  });
+  const kinds = (fields: Partial<RequestOutcome>, expected: RequestOutcome["expected"]) =>
+    requestFailures(outcome({ scoped: DATED, citedInMinds: [], ...fields, expected })).map(
+      (failure) => failure.kind,
+    );
+  const earlier = { text: "One month's written notice [^1].", question: "How much notice?" };
+
+  // protects=a short piece about the one Document on screen passes, and one that cites or names the other, or runs past five lines, fails; fails_when=either slips through; no_claim=none beyond protects.
+  test("only the Document meant, and short", () => {
+    const call = added({ content: "# NDA\n\nFive years of confidentiality [^1]." });
+    const expected = {
+      write: true,
+      cite: true,
+      coverAll: false,
+      documents: ["Mutual NDA"],
+      atMostLines: 5,
+    };
+    const given = givenToMindsOf([call], null);
+    expect(
+      kinds(
+        {
+          answer: { text: "Done.", citations: [], toolCalls: [call], steps: null },
+          citedInMinds: ["nda"],
+          givenToMinds: given,
+        },
+        expected,
+      ),
+    ).toEqual([]);
+    const long = added({ content: ["# NDA", "a", "b", "c", "d", "e"].join("\n\n") });
+    expect(
+      kinds(
+        {
+          answer: { text: "Done.", citations: [], toolCalls: [long], steps: null },
+          citedInMinds: ["nda", "contract"],
+          writtenInMinds: ["The Employment contract is separate."],
+          givenToMinds: givenToMindsOf([long], null),
+        },
+        expected,
+      ),
+    ).toEqual(["other-documents", "too-long"]);
+  });
+
+  // protects=with two on screen, an Answer that asked which and stopped there passes, one that didn't ask fails, and asking unasked fails; fails_when=any of them is read the other way; no_claim=none beyond protects.
+  test("asks which, or doesn't", () => {
+    const asking: AnswerToolCall = {
+      ...created,
+      tool: "ask_user",
+      input: {},
+      mindChange: undefined,
+    };
+    const must = { write: false, cite: false, coverAll: false, asks: "must" } as const;
+    const answer = (toolCalls: AnswerToolCall[]) => ({
+      text: "",
+      citations: [],
+      toolCalls,
+      steps: null,
+    });
+    expect(kinds({ answer: answer([asking]), stoppedAtAsk: true }, must)).toEqual([]);
+    expect(kinds({ answer: answer([]) }, must)).toEqual(["no-ask"]);
+    expect(
+      kinds(
+        { answer: answer([asking]), stoppedAtAsk: true },
+        { write: true, cite: true, coverAll: false },
+      ),
+    ).toEqual(["asked"]);
+  });
+
+  // protects="add this to my notes" passes only as a copy of the last Answer, and "write notes on these" fails as only a copy; fails_when=new notes pass as the Answer, or a copy as new notes; no_claim=none beyond protects.
+  test("adds the last Answer, or writes new notes", () => {
+    const copy = added({ answer: true });
+    const fresh = added({ content: "## Notes\n\nThe NDA lasts five years [^1]." });
+    const adds = { write: true, cite: false, coverAll: false, addsAnswer: true } as const;
+    const writes = { write: true, cite: false, coverAll: false, addsAnswer: false } as const;
+    const run = (calls: AnswerToolCall[], expected: RequestOutcome["expected"]) =>
+      kinds(
+        {
+          answer: { text: "Added it.", citations: [], toolCalls: calls, steps: null },
+          givenToMinds: givenToMindsOf(calls, earlier),
+        },
+        expected,
+      );
+    expect(run([copy], adds)).toEqual([]);
+    expect(run([fresh], adds)).toEqual(["not-the-answer"]);
+    expect(run([copy], writes)).toEqual(["only-a-copy"]);
+    expect(run([fresh], writes)).toEqual([]);
+  });
+});
+
+describe("Asking about selected words (#101)", () => {
+  const quoted = {
+    documentId: "tutorial",
+    documentName: PAPERS[0]?.name ?? "",
+    quote: "Random neural networks learn in one pass.",
+    pageFrom: 3,
+    pageTo: 3,
+    location: { kind: "page", from: 3, to: 3 } as const,
+  };
+  const cited = (pageFrom: number, check: "found" | "not-found" = "found") => ({
+    documentId: "tutorial",
+    documentName: quoted.documentName,
+    marker: 1,
+    pageFrom,
+    pageTo: pageFrom,
+    check,
+  });
+  const failuresOf = (citations: ReturnType<typeof cited>[]) =>
+    requestFailures(
+      outcome({
+        expected: { write: false, cite: true, coverAll: false },
+        answer: {
+          text: citations.length > 0 ? "It means this.[^1]" : "It means this.",
+          citations,
+          toolCalls: [],
+          steps: null,
+        },
+        citedInMinds: [],
+        quoted,
+      }),
+    ).map((failure) => failure.kind);
+
+  // protects=the first Citation must be the selected words where they were selected, found; fails_when=another page, a Citation not found, or none passes; no_claim=how often a real model cites them, which the run measures.
+  test("its first Citation is the words selected, found where they were selected", () => {
+    expect(failuresOf([cited(3), cited(7)])).toEqual([]);
+    expect(failuresOf([cited(7), cited(3)])).toEqual(["not-quoted"]);
+    expect(failuresOf([cited(3, "not-found")])).toEqual(["not-quoted"]);
+    expect(failuresOf([])).toEqual(["no-citations", "not-quoted"]);
   });
 });
 

@@ -10,6 +10,7 @@ import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
 import { useRequests } from "../requests";
 import { useSelectable, useSeveralSelected } from "../selection";
+import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
 import { sorted } from "../sort";
 import { type SortScope, sortOf, useSort } from "../sortChoices";
 import { documentFields, mindFields } from "../sortFields";
@@ -37,11 +38,6 @@ import {
   rowIconClass,
   rowPadding,
 } from "./sidebarRows";
-
-/** How many Documents a Folder lists at first; "Show N more Documents" lists more, in place. */
-export const FIRST_DOCUMENTS = 5;
-/** How many more each "Show more" lists. */
-const MORE_DOCUMENTS = 50;
 
 /** Not in a Folder's key among the lists that show more. */
 const NOT_IN_A_FOLDER = "not-in-a-folder";
@@ -246,7 +242,7 @@ function Contents({
       ...sorted(documents, sort, documentFields(t), language),
     ];
   }, [minds, documents, sort, language, t]);
-  const more = Math.min(MORE_DOCUMENTS, documents.length - listed);
+  const more = moreDocumentsToShow(extra, documents.length - listed);
   const showMoreItem = useTreeItem({ depth });
   if (minds.length === 0 && documents.length === 0) return null;
   let documentsListed = 0;
@@ -263,7 +259,7 @@ function Contents({
             type="button"
             {...showMoreItem}
             data-testid="show-more-documents"
-            onClick={() => useFolds.getState().showMore(listKey, MORE_DOCUMENTS)}
+            onClick={() => useFolds.getState().showMore(listKey, more)}
             // Its text on the rows' text edge at this depth.
             style={{ marginLeft: rowPadding(depth).paddingLeft + 24 }}
             className="rounded-sm text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"

@@ -379,12 +379,55 @@ export function pendingProposals(blocks: Y.XmlFragment): ProposalRef[] {
   return [...found.values()];
 }
 
+/**
+ * How many changes wait, or wait of those `belongs` takes: the Proposals Accept all and Reject
+ * all act on, which the Mind's bar, the assistant's lines and its change card all count.
+ */
+export function waitingChanges(
+  blocks: Y.XmlFragment,
+  belongs: (ref: ProposalRef) => boolean = () => true,
+): number {
+  return pendingProposals(blocks).filter(belongs).length;
+}
+
 const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
 /**
- * How many paragraphs and headings the Proposals that `belongs` takes change: those whose
- * words they change, and those they add or remove whole, but for the cells of
- * a table they add or remove. What a change's count counts (DESIGN.md, AI edits).
+ * What a paragraph or heading came to in a change: its words changed where they stand; the whole
+ * Block added or removed (a heading that way is a section's title, not a paragraph written, as
+ * "Wrote 3 paragraphs" counts it); or not touched.
+ */
+export type ChangeKind = "edited" | "added" | "removed" | "title-added" | "title-removed" | "kept";
+
+/**
+ * How many paragraphs changed, each counted once (#1335), from what happened to each paragraph in
+ * the order they stand. A paragraph with words changed is one. Paragraphs added or removed whole
+ * and side by side are one for each that pairs: a paragraph written anew is the old one removed and
+ * the new one added, so of the two sides the larger counts. Titles count only where a stretch holds
+ * nothing else.
+ */
+export function countChanged(kinds: Iterable<ChangeKind>): number {
+  let count = 0;
+  const run = { added: 0, removed: 0, "title-added": 0, "title-removed": 0 };
+  const close = () => {
+    const paragraphs = Math.max(run.added, run.removed);
+    count += paragraphs > 0 ? paragraphs : Math.max(run["title-added"], run["title-removed"]);
+    run.added = run.removed = run["title-added"] = run["title-removed"] = 0;
+  };
+  for (const kind of kinds) {
+    if (kind === "edited" || kind === "kept") {
+      close();
+      if (kind === "edited") count++;
+    } else run[kind]++;
+  }
+  close();
+  return count;
+}
+
+/**
+ * How many paragraphs the Proposals that `belongs` takes change (`countChanged`): those whose
+ * words they change, and those they add or remove whole, but for the cells of a table they add
+ * or remove. What a change's count counts.
  */
 export function changedParagraphs(
   blocks: Y.XmlFragment,
@@ -404,20 +447,23 @@ export function changedParagraphs(
           : child instanceof Y.XmlElement &&
             ours(readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE))),
       );
-  let count = 0;
-  const visit = (parent: Y.XmlFragment | Y.XmlElement, whole: boolean) => {
+  const kinds: ChangeKind[] = [];
+  const visit = (parent: Y.XmlFragment | Y.XmlElement, whole: "added" | "removed" | null) => {
     for (const child of parent.toArray()) {
       if (!(child instanceof Y.XmlElement)) continue;
-      const own = whole || ours(readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE)));
+      const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
+      const own =
+        whole ?? (ours(proposal) ? (proposal?.kind === "insert" ? "added" : "removed") : null);
       // A table added or removed whole counts as a table, not by its cells.
       if (child.nodeName === "table" && own) continue;
       if (TEXT_BLOCKS.has(child.nodeName)) {
-        if (own || wordsChanged(child)) count++;
+        if (own) kinds.push(child.nodeName === "heading" ? `title-${own}` : own);
+        else kinds.push(wordsChanged(child) ? "edited" : "kept");
       } else visit(child, own);
     }
   };
-  visit(blocks, false);
-  return count;
+  visit(blocks, null);
+  return countChanged(kinds);
 }
 
 const requestsOf = (doc: Y.Doc) => doc.getMap<unknown>(MIND_PROPOSAL_REQUESTS_FIELD);
