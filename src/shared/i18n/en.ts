@@ -3451,7 +3451,7 @@ export const en = {
   "export.commentFailedChecks.hint": "Quote not found, Contradicted, Unsupported or Needs re-check",
   "export.unreadNames": "Name the files",
   "export.unreadNames.hint":
-    "The note about what couldn’t be read lists the files by name. Off, it says how many.",
+    "The section about what couldn’t be read lists the files by name. Off, it says how many.",
   "aiStatement.command": "Export AI use statement",
   "aiStatement.keywords": "AI use disclosure declaration thesis dissertation paper record",
   "aiStatement.title": "AI use statement: {name}",
