@@ -177,6 +177,12 @@ export interface LibrarySnapshot {
   assignments: DocumentGroupAssignment[];
   settings: LibrarySettings;
   /**
+   * What `settings.automatic` would be if the User hadn't set the switch: on for a model
+   * on this computer, off for a cloud model (#1617). Settings › Models compares the two, so
+   * a switch that only follows the model never counts as a choice of the User's own.
+   */
+  automaticDefault: boolean;
+  /**
    * Automatic tagging and sorting was turned off for a cloud model once (#1617), since it sent
    * each Document's name and an excerpt: the Library says so once, until the User closes the line.
    */

@@ -2593,6 +2593,7 @@ export const zhCN = {
   "meetings.key.add": "添加密钥",
   "meetings.key.replace": "更换密钥",
   "meetings.key.remove": "移除",
+  "models.advanced": "高级",
   "models.removed": "已移除{provider}。",
   "models.removed.answers": "已移除{provider}。回答现在使用 {model}。",
   "models.removed.noAnswers": "已移除{provider}。请为回答选择一个模型。",

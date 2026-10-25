@@ -755,7 +755,7 @@ function useStatuses(): Status[] {
       action: {
         label: t("status.choose"),
         testId: "tagging-waiting-setup",
-        run: () => openSettings("models"),
+        run: () => openSettings("models", "tagging"),
       },
     });
   }

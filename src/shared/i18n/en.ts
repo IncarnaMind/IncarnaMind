@@ -2714,6 +2714,7 @@ export const en = {
   "meetings.key.add": "Add a key",
   "meetings.key.replace": "Change key",
   "meetings.key.remove": "Remove",
+  "models.advanced": "Advanced",
   "models.removed": "Removed {provider}.",
   "models.removed.answers": "Removed {provider}. Answers now use {model}.",
   "models.removed.noAnswers": "Removed {provider}. Choose a model for Answers.",
