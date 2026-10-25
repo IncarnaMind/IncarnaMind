@@ -75,6 +75,7 @@ export const en = {
   "library.problem.show": "Show",
   "unread.count.one": "1 file couldn’t be read",
   "unread.count": "{count} files couldn’t be read",
+  "unread.heading": "What couldn’t be read",
   "unread.show": "Show",
   "unread.file.reason": ": {reason}",
   "unread.ocr": "Read with OCR",

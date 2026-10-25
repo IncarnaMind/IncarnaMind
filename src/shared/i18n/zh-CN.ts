@@ -72,6 +72,7 @@ export const zhCN = {
   "library.problem.show": "显示",
   "unread.count.one": "1 个文件未能读取",
   "unread.count": "{count} 个文件未能读取",
+  "unread.heading": "未能读取的文件",
   "unread.show": "显示",
   "unread.file.reason": "：{reason}",
   "unread.ocr": "识别文字",

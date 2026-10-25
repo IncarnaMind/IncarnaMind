@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, MIND_CHECK_UNREAD_FIELD, type UnreadFile } from "../../src/core";
@@ -6,23 +8,26 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkUnreadOf } from "../../src/shared/unreadFiles";
 import { checkingModel, type Plan } from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { parseCsv } from "../helpers/csv";
 import {
   createSourceFolder,
   linkAndProcess,
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { paragraphsOf, unzip } from "../helpers/docx";
 import { lockedPdf } from "../helpers/lockedPdf";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { scriptedModels } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
+import { fakePrinter } from "../helpers/printer";
 
 /*
  * Checks say which files in their scope couldn't be read, and why (#740):
  * Find support, Check against Documents, Check this Mind and Verify keep, with the request
  * that made their marks, the files their scope couldn't read as it started,
- * which the line beside them and the AI use statement read back.
+ * which the line beside them, the AI use statement and an export read back.
  */
 
 const SUPPORTED = "Spring tides come at new and full moon.";
@@ -49,13 +54,17 @@ const UNREAD = [
  * A core with a Folder, Harbour, into which a Linked folder is filed that
  * holds Tides, which reads, and the files given; the Folder's id.
  */
-async function linkedFolderWith(files: Record<string, string | Uint8Array>) {
+async function linkedFolderWith(
+  files: Record<string, string | Uint8Array>,
+  options: Parameters<typeof startCore>[1] = {},
+) {
   const library = await createSourceFolder();
   await writeSourceFile(library, "Tides.md", TIDES);
   for (const [name, contents] of Object.entries(files)) {
     await writeSourceFile(library, name, contents);
   }
   const core = startCore(await createTempDataFolder(), {
+    ...options,
     createChatModel: scriptedModels(checkingModel(PLANS)).createChatModel,
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -64,12 +73,15 @@ async function linkedFolderWith(files: Record<string, string | Uint8Array>) {
   return { core, folderId: harbour.id, library };
 }
 
-const withUnreadFiles = () =>
-  linkedFolderWith({
-    "Old/Contract.doc": "binary",
-    "Locked.pdf": lockedPdf(["Harbour fees rise in May."], "harbour"),
-    "Scan.pdf": buildPdf([{ image: true }]),
-  });
+const withUnreadFiles = (options: Parameters<typeof startCore>[1] = {}) =>
+  linkedFolderWith(
+    {
+      "Old/Contract.doc": "binary",
+      "Locked.pdf": lockedPdf(["Harbour fees rise in May."], "harbour"),
+      "Scan.pdf": buildPdf([{ image: true }]),
+    },
+    options,
+  );
 
 async function mindOf(core: Core, folderId: string | null, sentences: readonly string[]) {
   const mind = await core.createMind({ title: "Harbour", folderId });
@@ -272,5 +284,133 @@ describe("The AI use statement", () => {
       if (node.type.name === "bulletList") lists++;
     });
     expect(lists).toBe(0);
+  });
+});
+
+const markdownOf = async (core: Core, mindId: string): Promise<string> =>
+  new TextDecoder().decode((await core.exportMind(mindId, { format: "markdown" })).data);
+
+describe("An export", () => {
+  test.each([
+    [
+      "en",
+      {
+        heading: "## What couldn’t be read",
+        count: "3 files couldn’t be read",
+        files: [
+          "- Contract.doc: Format not read yet (.doc). Convert it to PDF, Word, PowerPoint or Excel.",
+          "- Locked.pdf: Password-protected. Remove the password and add it again.",
+          "- Scan.pdf: A scan with no text that could be recognized (handwriting or a picture, say).",
+        ],
+      },
+    ],
+    [
+      "zh-CN",
+      {
+        heading: "## 未能读取的文件",
+        count: "3 个文件未能读取",
+        files: [
+          "- Contract.doc：暂不支持此格式（.doc）。请转换为 PDF、Word、PowerPoint 或 Excel。",
+          "- Locked.pdf：已设置密码。请去掉密码后重新添加。",
+          "- Scan.pdf：扫描件，未识别出文字（可能是手写内容或图片）。",
+        ],
+      },
+    ],
+  ] as const)(
+    "says in the file which files in the Mind's Search scope couldn't be read, with why (%s)",
+    async (language, words) => {
+      const { core, folderId } = await withUnreadFiles();
+      await core.updateSettings({ user: { language } });
+      const { mind } = await mindOf(core, folderId, [SUPPORTED]);
+
+      const markdown = await markdownOf(core, mind.id);
+
+      expect(markdown).toContain(words.heading);
+      expect(markdown).toContain(words.count);
+      for (const line of words.files) expect(markdown).toContain(line);
+
+      const heading = words.heading.replace("## ", "");
+      const html = new TextDecoder().decode(
+        (await core.exportMind(mind.id, { format: "html" })).data,
+      );
+      expect(html).toContain(`<h3>${heading}</h3>`);
+      for (const line of words.files) expect(html).toContain(line.slice(2));
+
+      const docx = await core.exportMind(mind.id, { format: "docx" });
+      const paragraphs = paragraphsOf(
+        unzip(docx.data).get("word/document.xml")?.toString("utf8") ?? "",
+      ).map((each) => each.text);
+      expect(paragraphs).toContain(heading);
+      expect(paragraphs).toContain(words.count);
+      for (const line of words.files) expect(paragraphs).toContain(line.slice(2));
+    },
+  );
+
+  test("a PDF export prints the same list", async () => {
+    const { printed, printer } = fakePrinter();
+    const { core, folderId } = await withUnreadFiles({ printer });
+    const { mind } = await mindOf(core, folderId, [SUPPORTED]);
+
+    await core.exportMind(mind.id, { format: "pdf" });
+
+    const body = printed[0]?.body ?? "";
+    expect(body).toContain("What couldn’t be read");
+    expect(body).toContain("3 files couldn’t be read");
+    expect(body).toContain("Contract.doc: Format not read yet (.doc)");
+    expect(body).toContain("Locked.pdf: Password-protected");
+    expect(body).toContain("Scan.pdf: A scan with no text");
+  });
+
+  test("says nothing when everything in the Mind's Search scope was read", async () => {
+    const { core, folderId } = await linkedFolderWith({});
+    const { mind } = await mindOf(core, folderId, [SUPPORTED]);
+
+    const markdown = await markdownOf(core, mind.id);
+
+    expect(markdown).not.toContain("couldn’t be read");
+    expect(markdown).not.toContain("未能读取");
+  });
+});
+
+describe("The check record", () => {
+  test("lists what the checks couldn't read, in its PDF and its CSV", async () => {
+    const { printed, printer } = fakePrinter();
+    const out = await createTempDataFolder();
+    const { core, folderId } = await withUnreadFiles({ printer });
+    await core.setOutputLocation(out);
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+
+    const saved = await core.saveCheckRecord(mind.id);
+
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const pdf = printed[0]?.body ?? "";
+    expect(pdf).toContain("What couldn’t be read");
+    expect(pdf).toContain("3 files couldn’t be read");
+    expect(pdf).toContain("Contract.doc: Format not read yet (.doc)");
+    expect(pdf).toContain("Locked.pdf: Password-protected");
+    expect(pdf).toContain("Scan.pdf: A scan with no text");
+    const csvName = readdirSync(out).find((name) => name.endsWith(".csv"));
+    const rows = parseCsv(readFileSync(join(out, csvName ?? ""), "utf8"));
+    expect(rows.find((each) => each[0] === "What couldn’t be read")?.[1]).toEqual(
+      "3 files couldn’t be read; Contract.doc: Format not read yet (.doc). Convert it to PDF, Word, PowerPoint or Excel.; Locked.pdf: Password-protected. Remove the password and add it again.; Scan.pdf: A scan with no text that could be recognized (handwriting or a picture, say).",
+    );
+  });
+
+  test("says nothing when the checks read everything", async () => {
+    const { printed, printer } = fakePrinter();
+    const out = await createTempDataFolder();
+    const { core, folderId } = await linkedFolderWith({}, { printer });
+    await core.setOutputLocation(out);
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+
+    const saved = await core.saveCheckRecord(mind.id);
+
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    expect(printed[0]?.body ?? "").not.toContain("What couldn’t be read");
+    const csvName = readdirSync(out).find((name) => name.endsWith(".csv"));
+    const rows = parseCsv(readFileSync(join(out, csvName ?? ""), "utf8"));
+    expect(rows.some((each) => each[0] === "What couldn’t be read")).toBe(false);
   });
 });

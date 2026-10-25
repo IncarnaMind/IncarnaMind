@@ -13,7 +13,7 @@ import type { ResolvedCitationStyle } from "../../shared/citationStyles";
 import { citationState, citedLocation, shownDocumentName } from "../../shared/citations";
 import type { DrawnPage } from "../../shared/citedPage";
 import { titleWithoutSite } from "../../shared/documentNames";
-import { translate } from "../../shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
 import { mindName } from "../../shared/naming";
@@ -23,6 +23,7 @@ import { readableQuoteText } from "../../shared/readableQuote";
 import type { ScopeKind } from "../../shared/searchScope";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
+import { unreadCountText, unreadFileText } from "../../shared/unreadFiles";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
 import {
@@ -38,8 +39,10 @@ import {
   type Mind,
   type MindExport,
   type MindExportPreview,
+  type SearchScope,
   type SharedDocument,
   type SharePagePreview,
+  type UnreadFile,
   WORD_CHANGE_ID,
 } from "../api";
 import { citedPageKey } from "../citedPages";
@@ -53,6 +56,7 @@ import {
   type FailedSentence,
   type Footnote,
   footnotesIn,
+  NO_MARKS,
   type ReadOptions,
   readBlocks,
   reviewReading,
@@ -98,6 +102,11 @@ export interface ExportsDependencies {
   language(): Language;
   /** A Folder's, Tag's or Document's name; null for one that isn't there. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
+  /**
+   * The files in a Mind's Search scope that couldn't be read, and why (#740), so the file
+   * says what it was made without. None: everything in scope was read.
+   */
+  unread(mindId: string, scope: SearchScope | null): UnreadFile[];
   /** The Mind's citation style (#289), and the language its text is in, which a style may take. */
   citationStyle(mindId: string): { style: ResolvedCitationStyle; textLanguage: Language };
   /** The family the Mind's font is written as in Word and HTML; null: the default. */
@@ -151,6 +160,28 @@ function withoutEmptyTitle(blocks: Block[]): Block[] {
     first?.kind === "heading" &&
     first.content.every((inline) => inline.kind === "text" && inline.text.trim() === "");
   return empty ? blocks.slice(1) : blocks;
+}
+
+/**
+ * What an export says it was made without (#740): the count, then each file in the Mind's
+ * Search scope with why, as the line beside an Answer says it. Nothing when all was read.
+ */
+function unreadBlocks(unread: readonly UnreadFile[], language: Language): Block[] {
+  if (unread.length === 0) return [];
+  const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+  const line = (text: string) => ({ kind: "text" as const, text, marks: NO_MARKS });
+  return [
+    { kind: "heading", level: 2, content: [line(t("unread.heading"))] },
+    { kind: "paragraph", content: [line(unreadCountText(unread, t))] },
+    {
+      kind: "list",
+      ordered: false,
+      start: 1,
+      items: unread.map((file) => [
+        { kind: "paragraph", content: [line(unreadFileText(file, t))] },
+      ]),
+    },
+  ];
 }
 
 /** What an export holds, read once for both its preview and its file. */
@@ -217,7 +248,7 @@ export function createExports(deps: ExportsDependencies) {
       comparisonText: (key, params) => translate(language, key, params),
       documentRemoved: (documentId) => !live.has(documentId),
     };
-    const { read, questions, word, theirChanges, trackedChanges } = deps.read(
+    const { read, unread, questions, word, theirChanges, trackedChanges } = deps.read(
       mind.id,
       (fragment) => {
         const { doc } = fragment;
@@ -238,6 +269,7 @@ export function createExports(deps: ExportsDependencies) {
         const waiting = pendingProposals(fragment);
         return {
           read: readBlocks(fragment, readOptions),
+          unread: deps.unread(mind.id, doc ? mindScopeOf(doc) : null),
           questions: countQuestions(fragment),
           word: doc && fromWord ? { importing: wordImportProgressOf(doc) !== null } : null,
           theirChanges: fromWord
@@ -251,8 +283,11 @@ export function createExports(deps: ExportsDependencies) {
       },
     );
     const shown = withoutEmptyTitle(read);
+    const withUnread = [...shown, ...unreadBlocks(unread, language)];
     const blocks =
-      format !== "docx" && options.theirChanges === "accepted" ? withChangesAccepted(shown) : shown;
+      format !== "docx" && options.theirChanges === "accepted"
+        ? withChangesAccepted(withUnread)
+        : withUnread;
     // A source pack holds the Citations the Mind numbers; the others, every footnote.
     const footnotes =
       format === "source-pack"

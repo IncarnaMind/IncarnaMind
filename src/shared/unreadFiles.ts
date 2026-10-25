@@ -7,7 +7,9 @@
 import type * as Y from "yjs";
 import { MIND_CHECK_UNREAD_FIELD, type UnreadFile, type UnreadReason } from "../core/api";
 import { isRecord } from "../core/errors";
-import type { MessageKey } from "./i18n";
+import type { MessageKey, MessageParams } from "./i18n";
+
+type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 export const UNREAD_REASON_KEYS: Record<UnreadReason, MessageKey> = {
   format: "unread.reason.format",
@@ -19,6 +21,21 @@ export const UNREAD_REASON_KEYS: Record<UnreadReason, MessageKey> = {
 };
 
 const REASONS = Object.keys(UNREAD_REASON_KEYS) as UnreadReason[];
+
+/** "3 files couldn't be read": the line beside an Answer, a check, and in what an export keeps. */
+export function unreadCountText(files: readonly UnreadFile[], t: Translate): string {
+  return t(files.length === 1 ? "unread.count.one" : "unread.count", { count: files.length });
+}
+
+/** "Contract.doc: Format not read yet (.doc)…", as the list and an export's own text say it. */
+export function unreadFileText(
+  file: Pick<UnreadFile, "name" | "reason" | "extension">,
+  t: Translate,
+): string {
+  return `${file.name}${t("unread.file.reason", {
+    reason: t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" }),
+  })}`;
+}
 
 const unreadOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_CHECK_UNREAD_FIELD);
 
