@@ -380,7 +380,7 @@ export function ExportDialog({ mind, onClose }: { mind: Mind | null; onClose(): 
       data-testid="export-dialog"
       aria-labelledby="export-title"
       // A sheet hanging from the tab strip, as the design has it, rather than a dialog in the middle.
-      className={`${dialogFrameClass} mt-11 mb-auto max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] overflow-y-auto rounded-t-none`}
+      className={`${dialogFrameClass} mt-11 mb-auto flex max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] flex-col overflow-hidden rounded-t-none`}
     >
       {/* Mounted only while open, so each opening starts from the options last saved. */}
       {mind && <ExportOptionsForm mind={mind} onDone={onClose} />}
@@ -486,8 +486,8 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
   const emptyPack = format === "source-pack" && counts?.packCitations === 0;
 
   return (
-    <form onSubmit={(event) => void save(event)} className="flex flex-col">
-      <header className="flex items-center justify-between gap-3 pt-4 pr-4 pb-2.5 pl-6">
+    <form onSubmit={(event) => void save(event)} className="flex min-h-0 flex-col">
+      <header className="flex shrink-0 items-center justify-between gap-3 pt-4 pr-4 pb-2.5 pl-6">
         <h2 id="export-title" className={dialogTitleClass}>
           {t("export.options.title")}
         </h2>
@@ -503,7 +503,10 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
         </button>
       </header>
 
-      <div className={`mx-6 ${ruledListClass}`}>
+      <div
+        data-testid="export-options-body"
+        className={`mx-6 min-h-0 overflow-y-auto ${ruledListClass}`}
+      >
         <div className={rowClass}>
           <label htmlFor={formatId} className="text-ui text-ink">
             {t("export.format")}
@@ -617,12 +620,12 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
       </div>
 
       {problem && (
-        <ProblemLine testId="export-problem" className="mx-6 mt-3">
+        <ProblemLine testId="export-problem" className="mx-6 mt-3 shrink-0">
           {t("export.failed.options", { reason: problem })}
         </ProblemLine>
       )}
 
-      <div className={`${dialogActionsClass} px-6 pt-5 pb-6`}>
+      <div className={`${dialogActionsClass} shrink-0 px-6 pt-5 pb-6`}>
         <button type="button" onClick={onDone} className={buttonClass}>
           {t("export.cancel")}
         </button>

@@ -3657,6 +3657,7 @@ export const en = {
   "share.page.found.none.other":
     "Checked on {date}: none of the {total} quotes was found on its page. Each Citation’s card says why.",
   "share.page.checkedLine": "Citations checked with IncarnaMind",
+  "share.page.notes": "Notes",
   "share.card.label": "Citation {number}: {source}",
   "share.card.page": "page {range}",
   "share.card.pages": "pages {range}",
