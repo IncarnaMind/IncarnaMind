@@ -10,6 +10,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   focusSettled,
+  keptWords,
   launchApp,
   motionSettled,
   newMind,
@@ -96,17 +97,6 @@ const wordsOf = (line: Locator) => line.evaluate((element) => (element.textConte
 /** The Mind's cursor, as a position in its document. */
 const cursorOf = (editor: Locator) =>
   editor.evaluate((dom) => (dom as unknown as { editor: Editor }).editor.state.selection.from);
-
-/** The words of the sentences the User keeps as their own view. */
-const keptWords = (editor: Locator) =>
-  editor.evaluate((dom) => {
-    const kept: string[] = [];
-    (dom as unknown as { editor: Editor }).editor.state.doc.descendants((node) => {
-      const marked = node.marks.some((each) => each.type.name === "claimCheck" && each.attrs.kept);
-      if (node.isText && marked) kept.push(node.text ?? "");
-    });
-    return kept;
-  });
 
 /** Puts the cursor inside some of the Mind's words, as a click there would. */
 const cursorIn = (editor: Locator, words: string) =>
