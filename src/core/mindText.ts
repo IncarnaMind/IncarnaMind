@@ -65,6 +65,7 @@ import {
   CITATION_NODE,
   type CitedWork,
   CLAIM_CHECK_MARK,
+  type ClaimCalculation,
   COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   type ComparisonQuestion,
@@ -130,7 +131,11 @@ export interface FailedCheck {
 
 /** A sentence whose check isn't good, with what a Word file's comment on it says. */
 export type FailedSentence = { id: string } & (
-  | { check: "contradicted"; says: string | null; worked: { shown: string; stated: string } | null }
+  | {
+      check: "contradicted";
+      says: string | null;
+      worked: (Pick<ClaimCalculation, "stated" | "relation"> & { shown: string }) | null;
+    }
   | {
       check: "unsupported";
       /** Where it looked, as `scopeName` names it; null for every Document. */

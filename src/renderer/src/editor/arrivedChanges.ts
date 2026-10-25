@@ -22,6 +22,7 @@ import {
   PROPOSAL_INSERT_MARK,
   type ProposalRef,
 } from "../../../core/api";
+import { copyOrigins } from "../../../shared/blockOrigins";
 import {
   type ResolvedProposal,
   readProposalAttribute,
@@ -328,7 +329,12 @@ export function writeAccepted(
     doc.transact(() => {
       resolveProposals(blocks, picked, "reject");
     }, aside);
-    doc.transact(() => writeAs(doc, blocks, accepted, schema), tracked);
+    // Setting the changes aside gave the Blocks they were written over their earlier origins back;
+    // accepted, those Blocks keep the change's.
+    doc.transact(() => {
+      writeAs(doc, blocks, accepted, schema);
+      copyOrigins(scratch, doc);
+    }, tracked);
     return resolved;
   } finally {
     scratch.destroy();
