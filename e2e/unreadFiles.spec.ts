@@ -444,7 +444,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await slideSelect(window, line, "Spring tides", { line, words: "full moon." });
       await pointAndClick(
         window,
-        window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+        window
+          .getByTestId("selection-menu")
+          .getByTestId("selection-action-check-against-documents"),
       );
       await expect(window.getByTestId("claim-mark")).not.toHaveAttribute("data-check", "checking");
       await expect(window.getByTestId("badge-stop")).toHaveCount(0);
