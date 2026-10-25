@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { decideAll } from "../../eval/minds/state";
 import type { ConversationAnswer, Core } from "../../src/core";
+import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -306,10 +307,29 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
     "## Risks\n\nThe legal review may take two weeks longer than planned.",
   ];
 
-  /** An earlier Answer's waiting risks in the Project plan, which a second Answer revises `times` times. */
-  async function revised(times: 1 | 2) {
+  const LONGER_RISK = "It may take two weeks.";
+
+  /**
+   * An earlier Answer's waiting risks in the Project plan, which a second Answer revises `times`
+   * times, with new text as `content` or with an `instruction` for Edit with AI to carry out.
+   */
+  async function revised(times: 1 | 2, how: "content" | "instruction" = "content") {
     let revising = false;
     const core = await setUp((call) => {
+      if (call.system === EDIT_INSTRUCTIONS) {
+        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
+        return { text: `${passage} ${LONGER_RISK}\n<why>Longer.</why>` };
+      }
+      if (how === "instruction" && revising) {
+        const instruction = "Make the risks longer";
+        return ran(call, "edit_mind") === 0
+          ? {
+              calls: [
+                { tool: "edit_mind", input: { mind: "Project plan", part: "Risks", instruction } },
+              ],
+            }
+          : { text: "Made the risks longer." };
+      }
       if (!revising) {
         const content = "## Risks\n\nLegal review may take longer.";
         return ran(call, "add_to_mind") === 0
@@ -332,8 +352,9 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
       text: "Say more about the legal review",
       conversationId: first.conversationId,
     });
-    const last = RISKS[times - 1]?.split("\n\n")[1] ?? "";
-    expect(await shown(core, planId)).toContain(`+ ${last}`);
+    const last = how === "content" ? (RISKS[times - 1]?.split("\n\n")[1] ?? "") : LONGER_RISK;
+    const now = await shown(core, planId);
+    expect(now?.some((line) => line.startsWith("+") && line.includes(last))).toBe(true);
     return { core, planId, before, second };
   }
 
@@ -347,18 +368,37 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
   });
 
   // protects=Reject all on the Mind's bar, as ⌘K's, takes back the later Answer's revisions and leaves the earlier Answer's text waiting, as it was; fails_when=the earlier Answer's text is thrown away too, or a revision in between comes back; no_claim=none beyond protects.
+  test("revised twice, Reject all on the Mind's bar brings back the earlier Answer's text, still waiting", async () => {
+    const { core, planId, before } = await revised(2);
+    const client = await connectToMind(core, planId);
+
+    resolveInEditor(boundEditor(client), "all", "reject");
+
+    expect(shownWithChanges(client)).toEqual(before);
+  });
+
+  // protects=an earlier Answer's waiting text that a later Answer revised, with new text or with an instruction, comes back waiting with each Reject all (the card, the Mind's bar as ⌘K's, the review pane); fails_when=it is thrown away with the revision, or the revision stays; no_claim=what the rewrite says.
   test.each([
-    ["once", 1],
-    ["twice", 2],
+    ["content", "the card"],
+    ["content", "the Mind's bar"],
+    ["content", "the review pane"],
+    ["instruction", "the card"],
+    ["instruction", "the Mind's bar"],
+    ["instruction", "the review pane"],
   ] as const)(
-    "revised %s, Reject all on the Mind's bar brings back the earlier Answer's text, still waiting",
-    async (_, times) => {
-      const { core, planId, before } = await revised(times);
+    "revised with %s, Reject all on %s brings back the earlier Answer's text, still waiting",
+    async (how, where) => {
+      const { core, planId, before, second } = await revised(1, how);
       const client = await connectToMind(core, planId);
 
-      resolveInEditor(boundEditor(client), "all", "reject");
+      if (where === "the card") await decideAll(core, changedMinds(second), "reject");
+      else {
+        const listed = new Set(pendingProposals(client.blocks).map((each) => each.id));
+        resolveInEditor(boundEditor(client), where === "the Mind's bar" ? "all" : listed, "reject");
+        await client.settled();
+      }
 
-      expect(shownWithChanges(client)).toEqual(before);
+      expect(await shown(core, planId)).toEqual(before);
     },
   );
 });

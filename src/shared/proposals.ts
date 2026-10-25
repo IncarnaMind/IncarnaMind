@@ -279,11 +279,11 @@ export function resolveProposals(
   // revised the text it had just written is taken back whole, while an earlier Answer's text
   // comes back waiting. It never waited for the User, so it isn't in what this returns.
   const sameAnswer = new Set<string>();
-  for (const [request, elements] of restored) {
+  for (const [request, kept] of restored) {
     const answer = removedFrom.get(request);
-    for (const element of elements) {
+    for (const { element, from } of kept) {
       const ref = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
-      if (ref && answer && answerOf(element) === answer) sameAnswer.add(ref.id);
+      if (ref && answer && from === answer) sameAnswer.add(ref.id);
     }
   }
   if (sameAnswer.size > 0) resolveProposals(blocks, (ref) => sameAnswer.has(ref.id), "reject");
@@ -299,6 +299,7 @@ function answerOf(element: Y.XmlElement): string | null {
 
 const REVISED_BLOCKS = "blocks";
 const REVISED_AFTER = "after";
+const REVISED_FROM = "from";
 
 const revisionsOf = (blocks: Y.XmlFragment) =>
   blocks.doc?.getMap<Y.Map<unknown>>(MIND_REVISIONS_FIELD) ?? null;
@@ -325,19 +326,22 @@ export function keepRevised(
   const revision = new Y.Map<unknown>();
   revision.set(REVISED_BLOCKS, kept);
   revision.set(REVISED_AFTER, before instanceof Y.XmlElement ? idOf(before) : null);
+  // Read now: a revision that rewrites Blocks in place keeps their ids, which then take its origin.
+  revision.set(REVISED_FROM, replaced.map(answerOf));
   revisions.set(request, revision);
 }
 
 /**
  * Puts back what a revision by `request` replaced, after the Block that was
  * before it, unless a change of it still waits or they are back already: a
- * reject undone and done again puts them back once. Returns what it put back.
+ * reject undone and done again puts them back once. Returns what it put back,
+ * each with the Answer it came from when it was replaced.
  */
 export function restoreRevised(
   blocks: Y.XmlFragment,
   request: string,
   fallback?: number,
-): Y.XmlElement[] {
+): { element: Y.XmlElement; from: string | null }[] {
   const revision = revisionsOf(blocks)?.get(request);
   const kept = revision?.get(REVISED_BLOCKS);
   if (!revision || !(kept instanceof Y.Array)) return [];
@@ -365,7 +369,11 @@ export function restoreRevised(
     at,
     elements.map((element) => element.clone()),
   );
-  return elements;
+  const from = revision.get(REVISED_FROM);
+  return elements.map((element, index) => {
+    const answer = Array.isArray(from) ? from[index] : null;
+    return { element, from: typeof answer === "string" ? answer : null };
+  });
 }
 
 /**
@@ -377,8 +385,8 @@ function settleRevisions(
   requests: ReadonlySet<string>,
   outcome: "accept" | "reject",
   removedAt: ReadonlyMap<string, number>,
-): Map<string, Y.XmlElement[]> {
-  const restored = new Map<string, Y.XmlElement[]>();
+): Map<string, ReturnType<typeof restoreRevised>> {
+  const restored = new Map<string, ReturnType<typeof restoreRevised>>();
   const revisions = revisionsOf(blocks);
   if (!revisions || revisions.size === 0) return restored;
   for (const request of requests) {
