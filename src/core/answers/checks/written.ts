@@ -278,19 +278,45 @@ function wordsWithMarks(words: string, letters: ReturnType<typeof lettersOf>): N
 const PIECE =
   /\[\d{1,3}\]|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[\p{L}\p{N}]+|[^\s]/gu;
 
+const CITATION_PIECE = /^\[\d{1,3}\]$/;
+
 const capitalised = (word: string) => `${word.charAt(0).toLocaleUpperCase()}${word.slice(1)}`;
+
+/**
+ * Whether each Citation kept still follows some of the words it was written
+ * after, those since the Citation before it, so it never comes to back
+ * another part's words. Citations side by side share the words before them.
+ */
+function citationsKeepTheirWords(pieces: readonly string[], kept: ReadonlySet<number>): boolean {
+  let ownKept = false;
+  let afterCitation = false;
+  for (const [at, piece] of pieces.entries()) {
+    if (CITATION_PIECE.test(piece)) {
+      if (kept.has(at) && !ownKept) return false;
+      afterCitation = true;
+      continue;
+    }
+    if (afterCitation) {
+      ownKept = false;
+      afterCitation = false;
+    }
+    if (kept.has(at) && /[\p{L}\p{N}]/u.test(piece)) ownKept = true;
+  }
+  return true;
+}
 
 /**
  * The passage with only what the cut left out taken out (#1397): each word,
  * mark and marker it keeps, and the spaces between them, as the passage has
  * them; where words went, a space if the cut has one there. Null when the cut
- * rewords, reorders or adds anything, or takes nothing out.
+ * rewords, reorders or adds anything, keeps a Citation but none of its words,
+ * or takes nothing out.
  */
 function takenOut(passage: string, cut: string): string | null {
   const pieces = [...passage.matchAll(PIECE)];
+  const keptAt = new Set<number>();
   let kept = "";
   let last = -1;
-  let count = 0;
   let cutAt = 0;
   for (const wanted of cut.matchAll(PIECE)) {
     const [text] = wanted;
@@ -306,10 +332,16 @@ function takenOut(passage: string, cut: string): string | null {
     } else if (before && /\s/u.test(cut.slice(cutAt, wanted.index))) kept += " ";
     kept += text;
     last = at;
-    count++;
+    keptAt.add(at);
     cutAt = wanted.index + text.length;
   }
-  return count > 0 && count < pieces.length ? kept : null;
+  if (keptAt.size === 0 || keptAt.size === pieces.length) return null;
+  return citationsKeepTheirWords(
+    pieces.map(([piece]) => piece),
+    keptAt,
+  )
+    ? kept
+    : null;
 }
 
 /** Null when the cut keeps no Citation, adds or repeats one, or leaves no claim of its own (a label, as in "Crime:"). */

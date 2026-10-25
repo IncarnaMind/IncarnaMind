@@ -509,11 +509,15 @@ describe("Standing on its own, and the example unasked", () => {
           content: "It wins across every category (e.g., Theft, Assault) and every metric[^7].",
           landed: true,
         },
+        { content: "It wins in each city (e.g. Chicago) and on every task[^3].", landed: true },
+        { content: "The data clearly supports this, but not every claim[^4].", landed: true },
       ],
       writtenInMinds: [
         "Crime forecasting: best results in all cases.",
         "大潮出现在新月和满月时。",
         "It wins across every category.",
+        "It wins in each city.",
+        "The data clearly supports this?",
       ],
     });
     expect(rewrittenLater(reworded)).toEqual([
@@ -531,6 +535,16 @@ describe("Standing on its own, and the example unasked", () => {
         given: "It wins across every category (e.g., Theft, Assault) and every metric[^7].",
         now: "It wins across every category.",
         cut: true,
+      },
+      {
+        given: "It wins in each city (e.g. Chicago) and on every task[^3].",
+        now: "It wins in each city.",
+        cut: true,
+      },
+      {
+        given: "The data clearly supports this, but not every claim[^4].",
+        now: "The data clearly supports this?",
+        cut: false,
       },
     ]);
   });

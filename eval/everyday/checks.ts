@@ -232,8 +232,10 @@ function proseSentences(text: string): string[] {
     return (
       line
         .replace(/^\s*(?:[-*+]|\d{1,3}[.)]|#{1,6}|>)\s+/, "")
-        // A sentence never starts with a digit, a small letter or a comma: "1.5", "e.g., Theft".
-        .split(/(?<=[.!?。！？]["”’)」』]*(?:\[\^\d{1,4}\])*)(?![\d\p{Ll},;:])\s*/u)
+        // A sentence never starts after "e.g." or "i.e.", nor with a digit, a small letter or a comma: "1.5", "e.g., Theft".
+        .split(
+          /(?<!\b[eEiI]\.[gGeE]\.)(?<=[.!?。！？]["”’)」』]*(?:\[\^\d{1,4}\])*)(?![\d\p{Ll},;:])\s*/u,
+        )
         .map((sentence) => sentence.trim())
         .filter((sentence) => /[\p{L}\p{N}]/u.test(sentence))
     );
@@ -436,22 +438,23 @@ export function takenOut(outcome: RequestOutcome): { removed: string[]; lost: st
 const wordsOf = (text: string) =>
   new Set(text.toLocaleLowerCase().match(/[\p{L}\p{N}]{3,}|\p{Script=Han}/gu) ?? []);
 
-const wordList = (text: string): string[] =>
+const piecesOf = (text: string): string[] =>
   text
     .replace(/\[[\^=]?\d{1,4}\]/g, "")
     .toLocaleLowerCase()
-    .match(/\p{Script=Han}|[\p{L}\p{N}]+/gu) ?? [];
+    .match(/\p{Script=Han}|[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu) ?? [];
 
-/** Whether `now` is `given` with some of its words taken out and none changed, as the check's cut leaves a sentence (#1397). */
+/** Whether `now` is `given` with some of its words and marks taken out and nothing changed or added, as the check's cut leaves a sentence (#1397). */
 function onlyTakenOut(given: string, now: string): boolean {
-  const words = wordList(given);
-  const left = wordList(now);
+  const pieces = piecesOf(given);
+  const left = piecesOf(now);
   let at = 0;
-  for (const word of left) {
-    at = words.indexOf(word, at) + 1;
+  for (const piece of left) {
+    at = pieces.indexOf(piece, at) + 1;
     if (at === 0) return false;
   }
-  return left.length >= 3 && left.length < words.length;
+  const words = left.filter((piece) => /[\p{L}\p{N}]/u.test(piece)).length;
+  return words >= 3 && left.length < pieces.length;
 }
 
 /**

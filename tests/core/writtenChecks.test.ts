@@ -35,6 +35,8 @@ const UNBACKED = "Neap tides are twice as strong";
 const FAILING = "The harbour floods at every spring tide";
 const YEARLY = "Every year the harbour floods, and spring tides come at new and full moon";
 const OVERSTATED_ZH = "大潮出现在新月和满月时，并且每年都会淹没港口";
+const TWO_CITED =
+  "Spring tides come at new and full moon [^1], and they flood the harbour every year [^1].";
 
 /** A sentence as a check reads it: the Citation after its words as U+FFFC. */
 const asChecked = (words: string) => `${words} ${INLINE_NODE}.`;
@@ -51,6 +53,11 @@ const PLANS: Record<string, Plan> = {
   },
   [asChecked(FAILING)]: { reply: { error: { status: 500, message: "The service broke." } } },
   [asChecked(YEARLY)]: {
+    reply: {
+      text: "Verdict: unsupported\nNo Passage says the harbour floods every year.\nCovered: when spring tides come\nNot covered: the yearly floods",
+    },
+  },
+  [TWO_CITED.replaceAll(" [^1]", ` ${INLINE_NODE}`)]: {
     reply: {
       text: "Verdict: unsupported\nNo Passage says the harbour floods every year.\nCovered: when spring tides come\nNot covered: the yearly floods",
     },
@@ -265,7 +272,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(runs.map((run) => run.text).join("")).toBe("Spring tides come at new and full moon .");
   });
 
-  // protects=a cut that rewords the sentence, as Kimi K2.6's did ("across all tested crime categories" became "in all cases", #1397), moves its Citation, or leaves no claim, isn't used: the sentence lands as the assistant wrote it, marked unsupported, in English and Chinese; fails_when=the cut's words land, or the model is told a part was taken out; no_claim=how often a real model rewords.
+  // protects=a cut that rewords the sentence, as Kimi K2.6's did ("across all tested crime categories" became "in all cases", #1397), moves its Citation or keeps one on words it didn't follow, or leaves no claim, isn't used: the sentence lands as the assistant wrote it, marked unsupported, in English and Chinese; fails_when=the cut's words land, or the model is told a part was taken out; no_claim=how often a real model rewords.
   test.each([
     {
       language: "en",
@@ -278,6 +285,12 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       content: `## Tides\n\n${OVERSTATED} [^1].`,
       cut: "Spring tides [1].",
       written: asChecked(OVERSTATED),
+    },
+    {
+      language: "en, a Citation kept on words it didn't follow",
+      content: `## Tides\n\n${TWO_CITED}`,
+      cut: "Spring tides come at new and full moon [2].",
+      written: TWO_CITED.replaceAll(" [^1]", ` ${INLINE_NODE}`),
     },
     {
       language: "en, its Citation moved",
