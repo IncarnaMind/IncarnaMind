@@ -7,6 +7,7 @@ import {
   duplicateColumn,
   saveColumnEdit,
   saveColumnInsert,
+  useComparisonColumns,
 } from "../../src/renderer/src/comparisonColumns";
 import {
   duplicateComparisonColumn,
@@ -353,6 +354,10 @@ describe("A comparison table's columns", () => {
     expect(fills.calls.at(-1)?.questionIds).toEqual([questionsOf(editor)[0]?.id]);
     const [edited] = questionsOf(editor);
     if (!edited) throw new Error("The column is gone.");
+    expect(useComparisonColumns.getState().focus).toEqual({
+      tableId: "table-1",
+      questionId: edited.id,
+    });
 
     const count = fills.calls.length;
     saveColumnEdit(handle, edited.id, { text: edited.text, label: "Terms" });
@@ -361,5 +366,24 @@ describe("A comparison table's columns", () => {
     saveColumnInsert(handle, edited.id, "right", "Governing law");
     const inserted = questionsOf(editor).find((question) => question.text === "Governing law");
     expect(fills.calls.at(-1)?.questionIds).toEqual([inserted?.id]);
+  });
+
+  test("a save that is refused or changes nothing leaves the heading focused, as Esc does", async () => {
+    const { editor } = await boundTable();
+    const handle = { editor, mindId: "mind-1", tableId: "table-1" };
+    const [column] = questionsOf(editor);
+    if (!column) throw new Error("The column is gone.");
+    const focus = () => useComparisonColumns.getState().focus;
+    const heading = { tableId: "table-1", questionId: column.id };
+
+    // An empty Question is refused: the field closes and the heading takes the focus back.
+    saveColumnEdit(handle, column.id, { text: "   ", label: "Notice" });
+    expect(focus()).toEqual(heading);
+    useComparisonColumns.getState().clearFocus("table-1", column.id);
+
+    // The same Question and label change nothing, and the heading takes the focus back too.
+    saveColumnEdit(handle, column.id, { text: column.text, label: column.label ?? "" });
+    expect(focus()).toEqual(heading);
+    expect(questionsOf(editor)[0]).toEqual(column);
   });
 });

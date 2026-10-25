@@ -962,6 +962,22 @@ test("a label alone refills nothing; F2 edits in place and Esc cancels; its undo
   // Esc leaves the heading focused, so F2 or Delete act on the column again at once.
   await expect(heading).toBeFocused();
 
+  // An empty Question is refused, and a save that changes nothing, each leaving the heading focused.
+  const empty = await editColumn(window, heading);
+  await empty.question.fill("");
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("comparison-edit-question")).toHaveCount(0);
+  await expect(heading).toBeFocused();
+  await expect(heading).toHaveText("Termination notice");
+
+  await heading.focus();
+  await window.keyboard.press("F2");
+  await expect(window.getByTestId("comparison-edit-label")).toBeFocused();
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("comparison-edit-label")).toHaveCount(0);
+  await expect(heading).toBeFocused();
+  await expect(heading).toHaveText("Termination notice");
+
   const fields = await editColumn(window, headingAt(table, 0));
   await fields.label.fill("Notice");
   await window.keyboard.press("Enter");

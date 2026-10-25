@@ -58,7 +58,11 @@ export function saveColumnEdit(
 ): void {
   const done = editComparisonColumn(handle.editor, handle.tableId, questionId, { text, label });
   closeColumnField();
-  if (!done?.changed) return;
+  if (!done?.changed) {
+    // Saved nothing, or nothing changed: the field closes and the heading takes the focus back.
+    useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
+    return;
+  }
   offerEditorUndo(handle.editor, (t) => t("comparison.column.edited", { label: done.label }));
   useComparisonColumns.getState().focusColumn(handle.tableId, done.questionId);
   if (done.refilled) fill(handle, [done.questionId]);
@@ -73,7 +77,11 @@ export function saveColumnInsert(
 ): void {
   const id = insertComparisonColumnBeside(handle.editor, handle.tableId, questionId, side, text);
   closeColumnField();
-  if (!id) return;
+  if (!id) {
+    // No column was added: the heading the field was opened on takes the focus back.
+    useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
+    return;
+  }
   const label = comparisonLabelOf({ text: questionLine(text) });
   offerEditorUndo(handle.editor, (t) => t("comparison.column.inserted", { label }));
   useComparisonColumns.getState().focusColumn(handle.tableId, id);

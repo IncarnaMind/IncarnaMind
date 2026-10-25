@@ -8,6 +8,7 @@ import {
   InvalidInputError,
   MIND_CONTENT_FIELD,
 } from "../../src/core";
+import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
 import { CLOUD_CELLS_AT_ONCE } from "../../src/core/comparisons";
 import { readBlocks } from "../../src/core/mindText";
 import { comparisonQuestionsOf } from "../../src/shared/comparisons";
@@ -690,6 +691,67 @@ describe("Compare Documents", () => {
     ]);
     expect(tableIn(client).rows.map((row) => row.cells[0]?.text)).toEqual(written);
     expect(tableIn(client).rows.map((row) => row.cells[0]?.citations.length)).toEqual([1, 1, 1]);
+  });
+
+  test("a column asked for while one fills is filled after it, when that column's cells are released", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    /** Each cell asked, once per try: the Question's text. */
+    const asked: string[] = [];
+    const model = cellModel((call, question) => {
+      if (call.results.length === 0) asked.push(question.question);
+      return null;
+    }, held);
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const questions = [
+      { id: "q-notice", text: "Termination notice" },
+      { id: "q-liability", text: "Liability cap" },
+    ];
+    const waiting = (questionId: string): NodeJSON => ({
+      type: "comparisonCell",
+      attrs: { questionId, status: "waiting" },
+      content: [{ type: "paragraph", attrs: { id: crypto.randomUUID() } }],
+    });
+    client.doc.transact(() =>
+      client.doc.getXmlFragment(MIND_CONTENT_FIELD).push([
+        createElement({
+          type: "comparisonTable",
+          attrs: { id: "held-table", questions },
+          content: documents.map((document) => ({
+            type: "comparisonRow",
+            attrs: { documentId: document.id, documentName: document.name },
+            content: questions.map((question) => waiting(question.id)),
+          })),
+        }),
+      ]),
+    );
+    await client.settled();
+    const tableId = "held-table";
+    const statuses = () => tableIn(client).rows.map((row) => row.cells.map((cell) => cell.status));
+
+    // The first column's cells are held mid-answer; the second column is asked for meanwhile.
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: ["q-notice"] }),
+    ).toEqual({ started: true, tableId });
+    await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0));
+    expect(new Set(asked)).toEqual(new Set(["Termination notice"]));
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: ["q-liability"] }),
+    ).toEqual({ started: true, tableId });
+    release();
+    await fillEnded(core, tableId);
+    await client.settled();
+
+    // Lumeric has no Liability cap line: its cell was asked, and says why it has no Answer.
+    expect(statuses()).toEqual([
+      ["done", "done"],
+      ["done", "done"],
+      ["done", "failed"],
+    ]);
+    expect(tableIn(client).rows[2]?.cells[1]?.problem).toBe("not-found");
+    expect(new Set(asked)).toEqual(new Set(["Termination notice", "Liability cap"]));
   });
 
   test("a plan's limit mid-run stops the fill: the cells left say they weren't checked", async () => {
