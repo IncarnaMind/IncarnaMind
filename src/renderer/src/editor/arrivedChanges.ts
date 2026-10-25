@@ -27,7 +27,7 @@ import {
   readProposalAttribute,
   resolveProposals,
 } from "../../../shared/proposals";
-import type { AppliedChange } from "./appliedEditLine";
+import type { ChangePlace } from "./appliedEditLine";
 import {
   type BlockPlace,
   type PendingProposal,
@@ -100,7 +100,7 @@ function textPlaceAt(
   return block.isTextblock && blockId !== null ? { blockId, offset: $pos.parentOffset } : null;
 }
 
-function anchorOf(node: ProseMirrorNode | null): BlockAnchor | null {
+export function anchorOf(node: ProseMirrorNode | null): BlockAnchor | null {
   let up = 0;
   for (let at = node; at; at = at.firstChild, up++) {
     const blockId = idOf(at);
@@ -219,13 +219,13 @@ export function planChanges(state: EditorState, requests: ReadonlySet<string>): 
 }
 
 /** The planned changes as `appliedEditLine` keeps them, once applied, for Review changes. */
-export function anchorChanges(state: EditorState, planned: readonly Planned[]): AppliedChange[] {
+export function anchorChanges(state: EditorState, planned: readonly Planned[]): ChangePlace[] {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return [];
   const relative = (pos: number): unknown =>
     absolutePositionToRelativePosition(pos, binding.type, binding.mapping);
   const { doc } = state;
-  return planned.flatMap((change): AppliedChange[] => {
+  return planned.flatMap((change): ChangePlace[] => {
     if (change.kind === "added") {
       const found = blockOf(doc, change.block);
       if (!found) return [];

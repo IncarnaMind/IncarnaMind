@@ -177,8 +177,8 @@ describe("an Answer that writes a Markdown table", { timeout: 30_000 }, () => {
       [
         "| Tide | When | Range |",
         "| --- | --- | --- |",
-        "| Spring | At new and full moon [Tides, p. 2] | **Largest** |",
-        "| Neap | At the quarters [Tides, p. 2] | Smallest<br>of the month |",
+        "| Spring | At new and full moon [Tides, p. 2 · C1] | **Largest** |",
+        "| Neap | At the quarters [Tides, p. 2 · C2] | Smallest<br>of the month |",
       ].join("\n"),
     );
   });

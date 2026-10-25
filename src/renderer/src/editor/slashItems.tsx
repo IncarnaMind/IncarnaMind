@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { QUESTION_BLOCK, type Skill } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { SkillIcon } from "../components/icons";
+import { matchName, queryWords } from "../matcher";
 import { showBibliography } from "./bibliographyCommands";
 import { insertFootnote } from "./footnoteSchema";
 import { TableIcon } from "./icons";
@@ -262,22 +263,18 @@ export function skillSlashItems(
 
 /**
  * The items `query` finds, in their order: those with a word of their label,
- * ID or keywords starting with it. A query in Chinese (or any non-Latin script)
- * finds the labels that contain it, as Chinese doesn't separate words.
+ * ID or keywords starting with it, as a Chinese label is found by its pinyin
+ * ("biaoge" for 表格) or initials ("bg") through the one matcher ⌘K uses.
  */
 export function matchSlashItems(
   items: readonly SlashItem[],
   query: string,
   labelOf: (item: SlashItem) => string,
 ): SlashItem[] {
-  const wanted = query.trim().toLowerCase();
-  if (!wanted) return [...items];
-  const nonLatin = /[\u0080-￿]/.test(wanted);
+  const words = queryWords(query);
+  if (words.length === 0) return [...items];
   return items.filter((item) => {
-    const label = labelOf(item).toLowerCase();
-    if (nonLatin) return label.includes(wanted);
-    return [label, item.id, ...(item.keywords ?? [])]
-      .flatMap((text) => text.toLowerCase().split(/[\s-]+/))
-      .some((word) => word.startsWith(wanted));
+    const text = [labelOf(item), item.id, ...(item.keywords ?? [])].join(" ");
+    return matchName(words, text)?.atWordStart === true;
   });
 }

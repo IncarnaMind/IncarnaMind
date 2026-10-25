@@ -29,7 +29,7 @@ import {
   sectionNoteClass,
   sectionTitleClass,
 } from "./ui";
-import { useModal } from "./useModal";
+import { useBackdropClose, useModal } from "./useModal";
 import { WebSearchSettings } from "./WebSearchSettings";
 
 const languageOptions: readonly { value: LanguagePreference; label: MessageKey }[] = [
@@ -51,6 +51,7 @@ export function SettingsDialog() {
   const showPage = useAppStore((state) => state.showSettingsPage);
   const close = useAppStore((state) => state.closeSettings);
   const dialog = useModal(open);
+  useBackdropClose(dialog, close);
   /** The pages shown since Settings opened. Closing forgets them. */
   const [visited, setVisited] = useState<readonly SettingsPage[]>([]);
   if (open && !visited.includes(page)) setVisited([...visited, page]);

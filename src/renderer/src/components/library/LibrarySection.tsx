@@ -386,16 +386,17 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
   const use = () => {
     const settings = useAppStore.getState().library?.settings;
     if (!automatic || !settings) return;
+    // Saving the model sets the waiting Documents going, so what Undo goes back to is read first.
+    const before = new Map(
+      (useAppStore.getState().library?.assignments ?? [])
+        .filter((item) => ids.includes(item.documentId))
+        .map((item) => [item.documentId, item]),
+    );
     core
       .saveLibrarySettings({ ...settings, organizeWith: automatic.classifier })
       .then(() => useAppStore.getState().refreshLibrary())
       .then(() => {
         close();
-        const before = new Map(
-          (useAppStore.getState().library?.assignments ?? [])
-            .filter((item) => ids.includes(item.documentId))
-            .map((item) => [item.documentId, item]),
-        );
         return core
           .classifyDocuments([...ids])
           .then(() => useAppStore.getState().refreshLibrary())
@@ -434,7 +435,7 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
           data-testid="library-organize-set-up"
           onClick={() => {
             close();
-            useAppStore.getState().openSettings("models");
+            useAppStore.getState().openSettings("models", "tagging");
           }}
           className={quietButtonClass}
         >

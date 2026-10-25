@@ -1360,3 +1360,19 @@ export function showResult(
     shown = translate(language, "figure.about", { value: shown });
   return { ok: true, shown };
 }
+
+/**
+ * A shown figure's number alone: an approximate result is wrapped in
+ * "figure.about" ("about 1.31x", "约1.31倍"), and a sentence that already
+ * says so keeps its own word when its number is replaced (#1247).
+ */
+export function figureNumber(shown: string, language: Language): string {
+  const [before = "", after = ""] = translate(language, "figure.about", {
+    value: "\u0000",
+  }).split("\u0000");
+  return shown.length > before.length + after.length &&
+    shown.startsWith(before) &&
+    shown.endsWith(after)
+    ? shown.slice(before.length, shown.length - after.length)
+    : shown;
+}
