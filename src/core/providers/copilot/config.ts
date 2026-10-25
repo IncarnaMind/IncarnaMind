@@ -27,8 +27,6 @@ export interface CopilotProfile {
   experimental?: boolean;
 }
 
-// IncarnaMind's own GitHub OAuth App, under the IncarnaMind organization: a public client ID,
-// the device flow and no client secret. Its tokens don't expire.
 const OWN_CLIENT_ID = "Ov23liF4c8fKcl0K4ziJ";
 
 const OWN: Readonly<CopilotProfile> = {
