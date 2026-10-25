@@ -1639,6 +1639,30 @@
     border-radius: 3px;
     background: var(--color-accent);
   }
+  /*
+   * The undo line with the sidebar out of sight (#1776): the card's bottom left corner, 16px in
+   * from the window's edges, since the sidebar's foot is gone. Inside the card it stays above the
+   * assistant's composer and right of one docked on the left, and its width leaves the check badge
+   * at the foot's other end alone. Raised over the first open's Ask pill, which sits centred there.
+   */
+  .undo-pill-place {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    z-index: 20;
+    max-width: min(360px, calc(100% - 16px));
+
+    &[data-quiet] {
+      bottom: 68px;
+    }
+  }
+  .undo-pill {
+    box-sizing: border-box;
+    padding: 4px 8px 4px 12px;
+    border-radius: 16px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+  }
   .mind-health-note {
     margin: 0;
     color: var(--color-ink-meta);
@@ -5278,6 +5302,11 @@
     flex-shrink: 0;
     margin: 0;
     vertical-align: baseline;
+  }
+  .citation-card-changed {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .citation-card-note {
     padding-left: 22px;
