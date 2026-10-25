@@ -26,11 +26,12 @@ const clamp = (value: number, low: number, high: number) =>
 /**
  * Where a change's card goes (#1358, #1826): beside the change in the page
  * view's right margin when about 300px are free there and the card fits the
- * change's lines; otherwise docked at the page view's foot. The card is never
- * at the window's corner or over the sidebar, being kept inside `page`, and
- * never over text: beside, it starts past `textRight`, where the text on the
- * change's lines ends, so a change partway along a line leaves its card past
- * the line; docked, the Mind scrolls the change above it.
+ * change's lines within the page; otherwise docked at the page view's foot,
+ * even when the change is too near that foot for the card beside it. The card
+ * is never at the window's corner or over the sidebar, being kept inside
+ * `page`, and never over text: beside, it starts past `textRight`, where the
+ * text on the change's lines ends, so a change partway along a line leaves its
+ * card past the line; docked, the Mind scrolls the change above it.
  *
  * `change` is what the change shows, `page` the page view (its `top` under the
  * Mind's bar of changes), `card` the card as it is drawn, and `lineHeight` the
@@ -46,13 +47,15 @@ export function changeBarPlace(
   const height = change.bottom - change.top;
   const lines = Math.max(1, Math.ceil(height / Math.max(1, lineHeight)));
   const room = page.right - textRight - GAP_PX;
-  if (room >= BESIDE_ROOM_PX && card.height <= lines * lineHeight) {
-    // The first line's own box, so the card starts level with the line rather than the ink.
-    const leading = Math.max(0, (lineHeight - (height - (lines - 1) * lineHeight)) / 2);
+  // The first line's own box, so the card starts level with the line rather than the ink.
+  const leading = Math.max(0, (lineHeight - (height - (lines - 1) * lineHeight)) / 2);
+  const top = change.top - leading;
+  const highest = page.bottom - GAP_PX - card.height;
+  if (room >= BESIDE_ROOM_PX && card.height <= lines * lineHeight && top <= highest) {
     return {
       kind: "beside",
       x: textRight + GAP_PX,
-      y: clamp(change.top - leading, page.top + GAP_PX, page.bottom - GAP_PX - card.height),
+      y: clamp(top, page.top + GAP_PX, highest),
       maxWidth: Math.min(WIDEST_PX, room),
     };
   }

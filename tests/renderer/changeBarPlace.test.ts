@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   BESIDE_ROOM_PX,
-  changeBarPlace,
   type ChangeBarBox,
+  changeBarPlace,
 } from "../../src/renderer/src/editor/changeBarPlace";
 
 const page: ChangeBarBox = { left: 0, top: 0, right: 1100, bottom: 800 };
@@ -51,6 +51,11 @@ describe("Where a change's card goes", () => {
     expect(changeBarPlace(change, change.right, page, tall, line).kind).toBe("dock");
     const threeLines = { ...change, bottom: 200 + 71 };
     expect(changeBarPlace(threeLines, change.right, page, tall, line).kind).toBe("beside");
+  });
+
+  test("docked when the change is too near the page's foot for the card beside it", () => {
+    const short: ChangeBarBox = { left: 0, top: 0, right: 1100, bottom: 220 };
+    expect(changeBarPlace(oneLine(700), 700, short, card, line).kind).toBe("dock");
   });
 
   test("never at the window's corner or over the page's edge, however narrow the page", () => {
