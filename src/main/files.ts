@@ -21,6 +21,7 @@ import {
   shell,
 } from "electron";
 import type { Core } from "../core";
+import { addFilesTitleByPlatform } from "../shared/addFilesAction";
 import { FILES_CHANNELS } from "../shared/bridge";
 import { type MessageKey, translate } from "../shared/i18n";
 import { sandboxOff } from "./analysisPaths";
@@ -212,13 +213,13 @@ export function serveFileActions(
   };
 
   handle(FILES_CHANNELS.pickDocumentsOrFolder, async (event) => {
+    const mac = process.platform === "darwin";
     const picked = await pickDocumentsSheet(
       event,
-      "documents.pick.titleOrFolder",
+      // The sheet's own title says what this platform's sheet takes, as its button does.
+      addFilesTitleByPlatform(mac),
       // Windows and Linux show a folder chooser when both are asked for, so only files are offered there.
-      process.platform === "darwin"
-        ? ["openFile", "openDirectory", "multiSelections"]
-        : ["openFile", "multiSelections"],
+      mac ? ["openFile", "openDirectory", "multiSelections"] : ["openFile", "multiSelections"],
     );
     const folders: string[] = [];
     const files: string[] = [];

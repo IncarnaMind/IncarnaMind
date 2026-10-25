@@ -1321,6 +1321,7 @@ export const en = {
   "documents.pick.title": "Add Documents",
   "documents.pick.titleOrFolder": "Add files or a folder",
   "documents.pick.filter": "Documents",
+  "documents.pick.titleFiles": "Add files",
   "documents.retryAction": "Retry",
   "documents.unlockAction": "Unlock…",
   "documents.forgetPasswordAction": "Forget password",
@@ -1427,6 +1428,9 @@ export const en = {
   "linkedFolders.readOnly": "read-only",
   "linkedFolders.readOnly.full":
     "IncarnaMind reads this folder where it is and never changes, moves or deletes anything in it.",
+  "linkedFolders.readOnly.unchecked": "not checked",
+  "linkedFolders.readOnly.unchecked.title":
+    "IncarnaMind couldn't read which folders it may add files to. Open the Output location to answer it there.",
   "linkedFolders.preview.readOnly":
     "IncarnaMind only reads this folder. It never changes, moves or deletes anything.",
   "linkedFolders.preview.merge.one":

@@ -74,11 +74,15 @@ async function start() {
   return { app, window, paths };
 }
 
+// macOS is the platform whose one sheet takes a folder too; Windows and Linux offer files only.
+const mac = process.platform === "darwin";
+
 test("the + menu offers one way in, and a folder picked there is read where it is", async () => {
   test.setTimeout(180_000);
   const folder = join(sources, "Contracts");
   await mkdir(folder);
   await writeFile(join(folder, "Lease.txt"), "The lease term is five years.\n");
+  test.skip(!mac, "Only macOS's one sheet takes a folder with the files.");
   const { app, window } = await start();
   try {
     await window.getByTestId("plus-menu").click();
@@ -151,11 +155,35 @@ test("the + menu offers one way in, and a folder picked there is read where it i
   }
 });
 
-test("⌘K finds the one way in, and running it opens the one sheet, at 1,600 px too", async () => {
+test("a folder linked outside the one sheet is read where it is, where that sheet takes no folder", async () => {
   test.setTimeout(180_000);
+  test.skip(mac, "macOS adds a folder through the one sheet instead.");
   const folder = join(sources, "Contracts");
   await mkdir(folder);
   await writeFile(join(folder, "Lease.txt"), "The lease term is five years.\n");
+  const { app, window } = await start();
+  try {
+    await window.evaluate(async (path) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.addLinkedFolder(path);
+    }, folder);
+    const row = linkedFolderRow(window, "Contracts");
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId("linked-folder-read-only")).toHaveText(READ_ONLY);
+  } finally {
+    await app.close();
+  }
+});
+
+test("⌘K finds the one way in, and running it opens the one sheet, at 1,600 px too", async () => {
+  test.setTimeout(180_000);
+  const picked = join(sources, mac ? "Contracts" : "Rates.txt");
+  if (mac) {
+    await mkdir(picked);
+    await writeFile(join(picked, "Lease.txt"), "The lease term is five years.\n");
+  } else {
+    await writeFile(picked, "The rates are agreed.\n");
+  }
   const { app, window } = await start();
   try {
     await setWindowSize(app, window, 1600, 1000);
@@ -165,7 +193,7 @@ test("⌘K finds the one way in, and running it opens the one sheet, at 1,600 px
     await window.keyboard.type(ADD.replace(/…$/, ""));
     const found = paletteFound(window).filter({ hasText: ADD });
     await expect(found).toHaveCount(1);
-    await interceptOpenDialog(app, folder);
+    await interceptOpenDialog(app, picked);
     await window.keyboard.press("Enter");
     const dialog = window.getByTestId("link-folder-dialog");
     await expect(dialog).toBeVisible();

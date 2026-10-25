@@ -1275,6 +1275,7 @@ export const zhCN = {
   "documents.pick.title": "添加文档",
   "documents.pick.titleOrFolder": "添加文件或文件夹",
   "documents.pick.filter": "文档",
+  "documents.pick.titleFiles": "添加文件",
   "documents.retryAction": "重试",
   "documents.unlockAction": "解锁…",
   "documents.forgetPasswordAction": "忘记密码",
@@ -1380,6 +1381,9 @@ export const zhCN = {
   "linkedFolders.readOnly": "只读",
   "linkedFolders.readOnly.full":
     "IncarnaMind 只读取这个文件夹，不会更改、移动或删除其中的任何内容。",
+  "linkedFolders.readOnly.unchecked": "未确认",
+  "linkedFolders.readOnly.unchecked.title":
+    "无法读取哪些文件夹可以添加文件。打开保存位置，在那里回答。",
   "linkedFolders.preview.readOnly":
     "IncarnaMind 只读取这个文件夹，不会更改、移动或删除其中的任何内容。",
   "linkedFolders.preview.merge.one":
