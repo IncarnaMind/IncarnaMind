@@ -52,6 +52,7 @@ const LOOK_FAILURES = new Set<string>([
   "unreachable",
   "too-large",
   "stopped",
+  "local-mode",
   "failed",
 ]);
 const isLookFailure = (value: string | null): value is WebPageLookFailure =>

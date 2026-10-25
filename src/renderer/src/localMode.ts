@@ -9,14 +9,16 @@ async function setLocalMode(enabled: boolean): Promise<void> {
 
 /**
  * Turns local mode off where a Question was refused, and offers Undo, which
- * turns it on again (and so keeps a cloud model from receiving anything).
+ * turns it on again (and so keeps a cloud model from receiving anything): at
+ * the sidebar's foot, or at `shownAt` where Settings holds the choice.
  */
-export async function turnOffLocalMode(): Promise<void> {
+export async function turnOffLocalMode(shownAt?: string): Promise<void> {
   await setLocalMode(false);
   useUndo.getState().push({
     said: (t) => t("localMode.turnedOff"),
     undo: () => setLocalMode(true),
     redo: () => setLocalMode(false),
+    ...(shownAt && { shownAt }),
   });
 }
 

@@ -6,6 +6,7 @@ import { core } from "../../core";
 import { joinMeta } from "../../cost";
 import { useLanguage, useT } from "../../i18n";
 import { useKeyRefusals } from "../../keyRefusals";
+import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
@@ -20,19 +21,19 @@ import {
   ruledListClass,
   sectionTitleClass,
 } from "../ui";
-import { AddProvider, MODELS_UNDO_PLACE } from "./AddProvider";
+import { AddProvider } from "./AddProvider";
 import { ReadinessExplanation } from "./ChatReadinessNotice";
 import { ModelDefaults } from "./ModelDefaults";
 import { PlansSettings } from "./PlansSettings";
 import { ProviderDirectory } from "./ProviderDirectory";
 import { logoIdOf, ProviderLogo } from "./ProviderLogo";
 import { ProviderPage, providerName, type RemovedProvider } from "./ProviderPage";
-import { catalogIdOf, regionFor, savedProviderFor } from "./shared";
+import { catalogIdOf, MODELS_UNDO_PLACE, regionFor, savedProviderFor } from "./shared";
 
 type View =
   | { page: "list" }
   | { page: "directory" }
-  | { page: "provider"; providerId: string }
+  | { page: "provider"; providerId: string; keyNotChecked?: boolean }
   | { page: "add"; catalogId: string; endpoint: string | null };
 
 const ANSWERS_TARGET = ["chat-model"] as const;
@@ -118,10 +119,11 @@ export function ModelsSettings() {
       : { page: "add", catalogId, endpoint: regionFor(catalogId, endpoint, language) };
   };
 
-  const added = (provider: ChatProvider) => {
+  const added = (provider: ChatProvider, keyNotChecked = false) => {
     useKeyRefusals.getState().saved(provider);
+    clearModelFailure(provider.id);
     refresh();
-    setView({ page: "provider", providerId: provider.id });
+    setView({ page: "provider", providerId: provider.id, keyNotChecked });
   };
 
   let body: React.ReactNode;
@@ -151,6 +153,7 @@ export function ModelsSettings() {
       <ProviderPage
         key={provider.id}
         provider={provider}
+        keyNotChecked={view.keyNotChecked === true}
         group={groupOf(provider.id)}
         refused={refused && refused.catalogId === catalogIdOf(provider) ? refused : null}
         onBack={back}

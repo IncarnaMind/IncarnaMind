@@ -20,7 +20,7 @@ New issues are triaged with five labels:
 | `needs-owner` | Needs the owner or another person: an account, signing, a decision or hand-checked data |
 | `wontfix` | Won't be actioned |
 
-Anyone is welcome to take an issue labelled `ready-to-build`. A `needs-owner` issue needs an account, a decision or hand-checked data, so ask on it first. [`AGENTS.md`](AGENTS.md) holds the rules for working on the code, for people and coding agents alike, and `docs/agents/` holds the detail: the issue tracker and its `gh` commands ([`issue-tracker.md`](docs/agents/issue-tracker.md)), the labels ([`triage-labels.md`](docs/agents/triage-labels.md)), how to use the domain docs ([`domain.md`](docs/agents/domain.md)), the rules every UI change follows ([`interaction.md`](docs/agents/interaction.md)), and how to test so CI passes ([`testing.md`](docs/agents/testing.md)).
+Every triaged issue also has a priority label, `priority:P0` (do first) to `priority:P3` (after the alpha); [`triage-labels.md`](docs/agents/triage-labels.md) says what each means. Anyone is welcome to take an issue labelled `ready-to-build`. A `needs-owner` issue needs an account, a decision or hand-checked data, so ask on it first. [`AGENTS.md`](AGENTS.md) holds the rules for working on the code, for people and coding agents alike, and `docs/agents/` holds the detail: the issue tracker and its `gh` commands ([`issue-tracker.md`](docs/agents/issue-tracker.md)), the labels ([`triage-labels.md`](docs/agents/triage-labels.md)), how to use the domain docs ([`domain.md`](docs/agents/domain.md)), the rules every UI change follows ([`interaction.md`](docs/agents/interaction.md)), and how to test so CI passes ([`testing.md`](docs/agents/testing.md)).
 
 ## Setting up
 
@@ -32,9 +32,9 @@ You need Node.js 24 or newer. Clone the repository, then run `npm install` and `
 - Use the words defined in [`CONTEXT.md`](CONTEXT.md) (a Passage, not a chunk; a Connector, not a plugin), and say so when a change goes against an ADR in [`docs/adr/`](docs/adr/).
 - Test through the core's public interface, as the UI uses it, and assert what a User would see. The core tests need no API keys and no network.
 - Keep `src/core` free of Electron imports; Biome enforces it.
-- Run `npm run typecheck`, `npm run lint`, `npm test` and the smoke tests your change touches before opening a pull request. CI runs all of them on every pull request, and a pull request merges through GitHub's merge queue once its checks are green; the queue tests it together with `main`, so you don't need to keep your branch up to date. The [tests and CI rules](docs/agents/testing.md) say how to write tests that pass on any machine.
+- Run `npm run typecheck`, `npm run lint`, `npm test` and the smoke tests your change touches before opening a pull request. CI runs all of them on every pull request as feedback, and the whole suite runs on `main` every night. A pull request merges once its sign-off check passes; merge `main` into your branch to resolve a conflict or to pick up something you need. The [tests and CI rules](docs/agents/testing.md) say how to write tests that pass on any machine.
 - The interface is in English and Simplified Chinese: a new string goes into both dictionaries in `src/shared/i18n/`.
-- Keep pull requests small and say what they change and why.
+- Keep each pull request to one theme, under about 600 changed lines, and say what it changes and why.
 
 ## Licence and sign-off
 
@@ -46,4 +46,4 @@ Each commit in a pull request carries a sign-off line, which says you wrote the 
 Signed-off-by: Your Name <you@example.com>
 ```
 
-To add it to commits you've already made, run `git rebase --signoff main` and push again. A check on every pull request looks for it. There's no contributor licence agreement to sign.
+Commits carry your own name and sign-off, so the author line and the `Signed-off-by:` line name you. To add it to commits you've already made, run `git rebase --signoff main` and push again. A check on every pull request looks for it. There's no contributor licence agreement to sign.

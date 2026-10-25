@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { EditMenuState } from "../../../shared/bridge";
 import {
   type CommandId,
   type Keys,
@@ -30,8 +31,8 @@ export type CommandGroup = (typeof COMMAND_GROUPS)[number];
 export interface Shortcut {
   keys: ShortcutKeys;
   /**
-   * A list's own keys (⌘A, ⌘⌫, Enter, F2, Space): they act only while the
-   * focus is in a list, and never while the User types. Other shortcuts act
+   * A list's own keys (⌘⌫, Enter, F2, Space): they act only while the focus
+   * is in a list, and never while the User types. Other shortcuts act
    * anywhere in the window.
    */
   list?: true;
@@ -65,6 +66,12 @@ export interface CommandContext {
   selection: readonly ObjectRef[];
   focus: ObjectRef | null;
   surface: Surface;
+  /**
+   * Where ⌘Z would act when ⌘K opened: the note's own history, a field's, or
+   * the app's changes (null). ⌘K holds the focus in its field, so Undo reads
+   * where the User was rather than where the palette is.
+   */
+  place?: EditMenuState["text"];
   /**
    * What only the place that shows the object can do, by command: renaming
    * in the row's own field, or opening a Citation's card. A command that needs

@@ -34,10 +34,10 @@
  * checks' (see ./turnChecks): `mayAsk`.
  */
 import { jsonSchema, Output, streamText } from "ai";
+import { answerSentences } from "../../shared/answerSentences";
 import { sentenceSpans } from "../../shared/sentences";
 import type { AnswerEngineEvent, AnswerRequest } from "./engine";
 import {
-  answerSentences,
   answerTableUnits,
   likeness,
   type MarkerRecord,

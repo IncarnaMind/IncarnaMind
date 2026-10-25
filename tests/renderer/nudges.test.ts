@@ -5,11 +5,12 @@ const OPEN = {
   started: true,
   hidden: false,
   citationChecked: false,
+  mistakeSeen: false,
   indexed: false,
   askedOwn: false,
   askedReady: false,
 };
-const DONE = { ...OPEN, citationChecked: true, indexed: true, askedOwn: true };
+const DONE = { ...OPEN, mistakeSeen: true, indexed: true, askedOwn: true };
 const CLOSED = { ...OPEN, hidden: true };
 
 const state = (
@@ -50,7 +51,7 @@ describe("the sidebar's one nudge (#123)", () => {
   });
 
   test("steps done with the ready Question still wait for an Answer of the User's own", () => {
-    const done = { ...OPEN, citationChecked: true, indexed: true, askedReady: true };
+    const done = { ...OPEN, mistakeSeen: true, indexed: true, askedReady: true };
     expect(chooseNudge(state({ steps: done }))).toBeNull();
     expect(chooseNudge(state({ steps: done, ownAnswerArrived: true }))).toBe("usage-data");
   });

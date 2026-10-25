@@ -4,6 +4,7 @@ import { isHelpKeys } from "../shared/meetingHelp";
 import { DEFAULT_MIND_STYLE, isMindStyle } from "../shared/mindStyle";
 import {
   type ChatModelChoice,
+  CITATION_PLACES,
   type DeviceSettings,
   EXPORT_FORMATS,
   type ExportPreferences,
@@ -11,7 +12,9 @@ import {
   MARK_AI_TEXT_CHOICES,
   MAX_MONTHLY_CAP,
   type MarkAiTextChoice,
+  MODEL_SOURCE_CHOICES,
   MOTION_PREFERENCES,
+  type ModelSourceChoice,
   type MonthlyCap,
   type MotionPreference,
   type SandboxLevel,
@@ -43,6 +46,12 @@ const isPaneWidth = (value: unknown): value is number =>
 
 const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
 
+const isTipCounts = (value: unknown): value is Record<string, number> =>
+  isRecord(value) &&
+  Object.values(value).every(
+    (count) => typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= 100,
+  );
+
 const isNonBlankText = (value: unknown): value is string =>
   typeof value === "string" && value.trim() !== "" && value.length <= 500;
 
@@ -71,8 +80,7 @@ const isMarkAiTextAnswer = (value: unknown): value is MarkAiTextChoice | null =>
 
 /**
  * Word's choices of #107 came later: choices saved before them have none, and read as the
- * defaults. Marking AI text was a switch before it became a question (#1380), so a boolean is
- * still read, as `markAiTextRead` says.
+ * defaults. A boolean is still read for marking AI text, as `markAiTextRead` says.
  */
 const isWordOption = (value: unknown) =>
   isQuestionsOption(value) ||
@@ -81,11 +89,8 @@ const isWordOption = (value: unknown) =>
     WORD_SWITCHES.every((choice) => isBoolean(value[choice])) &&
     (isBoolean(value.markAiText) || isMarkAiTextAnswer(value.markAiText)));
 
-/**
- * The switch was on by default, so a saved "on" was never an answer: the question is still to be
- * asked. A saved "off" was a choice not to mark.
- */
 function markAiTextRead(saved: unknown): MarkAiTextChoice | null {
+  // The switch was on by default, so a saved "on" was never an answer; "off" was a choice.
   if (isMarkAiTextAnswer(saved)) return saved;
   return saved === false ? "leave" : null;
 }
@@ -107,7 +112,9 @@ const SHARE_PAGE_DEFAULTS: SharePagePreferences = {
  */
 const isExportPreferences = (value: unknown): value is ExportPreferences => {
   if (!isRecord(value)) return false;
-  const later = ["html", "share-page", "theirChanges"].filter((key) => Object.hasOwn(value, key));
+  const later = ["html", "share-page", "theirChanges", "citationPlace"].filter((key) =>
+    Object.hasOwn(value, key),
+  );
   return (
     hasOnly(value, ["format", "docx", "pdf", ...later]) &&
     EXPORT_FORMATS.some((format) => format === value.format) &&
@@ -117,7 +124,9 @@ const isExportPreferences = (value: unknown): value is ExportPreferences => {
     (!Object.hasOwn(value, "share-page") || isSharePageOption(value["share-page"])) &&
     (!Object.hasOwn(value, "theirChanges") ||
       value.theirChanges === "shown" ||
-      value.theirChanges === "accepted")
+      value.theirChanges === "accepted") &&
+    (!Object.hasOwn(value, "citationPlace") ||
+      CITATION_PLACES.some((place) => place === value.citationPlace))
   );
 };
 
@@ -183,6 +192,7 @@ const userScope: Scope<UserSettings> = {
 const GETTING_STARTED_STEPS = [
   "started",
   "citationChecked",
+  "mistakeSeen",
   "indexed",
   "askedOwn",
   "askedReady",
@@ -190,11 +200,14 @@ const GETTING_STARTED_STEPS = [
 ];
 
 // Progress kept before the ready Question (#123) has no `askedReady`; `get` reads it as not asked.
+// Progress kept before the mistake had its own step has no `mistakeSeen`; `get` takes it from
+// `citationChecked`, so a first open already finished stays finished.
+const ADDED_LATER = ["askedReady", "mistakeSeen"];
 const isGettingStarted = (value: unknown): value is GettingStarted =>
   isRecord(value) &&
   Object.keys(value).every((key) => GETTING_STARTED_STEPS.includes(key)) &&
   GETTING_STARTED_STEPS.every(
-    (key) => isBoolean(value[key]) || (key === "askedReady" && value[key] === undefined),
+    (key) => isBoolean(value[key]) || (ADDED_LATER.includes(key) && value[key] === undefined),
   );
 
 const isScriptTimeout = (value: unknown): value is number =>
@@ -216,6 +229,7 @@ const deviceScope: Scope<DeviceSettings> = {
     gettingStarted: {
       started: false,
       citationChecked: false,
+      mistakeSeen: false,
       indexed: false,
       askedOwn: false,
       askedReady: false,
@@ -224,8 +238,10 @@ const deviceScope: Scope<DeviceSettings> = {
     skillScriptsEnabled: true,
     skillScriptTimeoutSeconds: SKILL_SCRIPT_LIMITS.defaultTimeoutSeconds,
     suggestionOffers: 0,
+    tips: {},
     meetingSystemAudio: true,
     transcriptionRoute: null,
+    modelSource: "auto",
     meetingNoticeAccepted: false,
     meetingPanel: true,
     meetingPanelHidden: true,
@@ -244,9 +260,12 @@ const deviceScope: Scope<DeviceSettings> = {
     skillScriptTimeoutSeconds: isScriptTimeout,
     suggestionOffers: (value): value is number =>
       typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100,
+    tips: isTipCounts,
     meetingSystemAudio: isBoolean,
     transcriptionRoute: (value): value is TranscriptionRoute | null =>
       value === null || TRANSCRIPTION_ROUTES.some((route) => route === value),
+    modelSource: (value): value is ModelSourceChoice =>
+      MODEL_SOURCE_CHOICES.some((choice) => choice === value),
     meetingNoticeAccepted: isBoolean,
     meetingPanel: isBoolean,
     meetingPanelHidden: isBoolean,
@@ -347,7 +366,12 @@ export function createSettings(
       "share-page": stored["share-page"] ?? SHARE_PAGE_DEFAULTS,
     };
     const device = read(db, deviceScope);
-    device.gettingStarted = { ...deviceScope.defaults.gettingStarted, ...device.gettingStarted };
+    const progress: Partial<GettingStarted> = device.gettingStarted;
+    device.gettingStarted = {
+      ...deviceScope.defaults.gettingStarted,
+      ...progress,
+      mistakeSeen: progress.mistakeSeen ?? progress.citationChecked ?? false,
+    };
     const language = resolveLanguage(user.language, systemLanguages());
     const author = user.authorName ?? systemUserName().trim();
     return { user, device, language, scriptSandbox, meetingAudio, author };

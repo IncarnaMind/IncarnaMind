@@ -22,20 +22,20 @@ export function registerMindEditor(mindId: string, editor: Editor): () => void {
 export const mindEditor = (mindId: string): Editor | null =>
   open.get(mindId)?.find((each) => !each.isDestroyed) ?? null;
 
-/** The Mind's editor once one is open, or null after `timeoutMs`. */
-export function whenMindEditor(mindId: string, timeoutMs: number): Promise<Editor | null> {
+/** The Mind's editor once one is open, or null after `timeoutMs`; null `timeoutMs`: however long that takes. */
+export function whenMindEditor(mindId: string, timeoutMs: number | null): Promise<Editor | null> {
   const found = mindEditor(mindId);
   if (found) return Promise.resolve(found);
   return new Promise((resolve) => {
     const done = (editor: Editor | null) => {
-      clearTimeout(timer);
+      if (timer !== null) clearTimeout(timer);
       waiting.set(
         mindId,
         (waiting.get(mindId) ?? []).filter((each) => each !== done),
       );
       resolve(editor);
     };
-    const timer = setTimeout(() => done(null), timeoutMs);
+    const timer = timeoutMs === null ? null : setTimeout(() => done(null), timeoutMs);
     waiting.set(mindId, [...(waiting.get(mindId) ?? []), done]);
   });
 }

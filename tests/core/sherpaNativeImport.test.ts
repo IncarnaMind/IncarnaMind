@@ -8,14 +8,18 @@ const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 // bundler's interop gives a CommonJS package's exports their names, so they must be found on `default`.
 const LOAD = `
   const { loadSherpa } = await import("./src/core/transcription/sherpa.ts");
+  const { createSherpaSeparator } = await import("./src/core/transcription/diarization.ts");
   const sherpa = await loadSherpa();
   console.log(JSON.stringify({
     createAsync: typeof sherpa.OfflineRecognizer?.createAsync,
     vad: typeof sherpa.Vad,
+    diarization: typeof sherpa.OfflineSpeakerDiarization?.prototype.process,
+    voiceprint: typeof sherpa.SpeakerEmbeddingExtractor?.prototype.compute,
+    separator: typeof (await createSherpaSeparator()),
   }));
 `;
 
-test("the engine module finds sherpa-onnx-node's recognizer and voice detector when Node imports it", {
+test("the engine modules find sherpa-onnx-node's recognizer, voice detector and speaker diarization when Node imports them", {
   timeout: 60_000,
 }, () => {
   const output = execFileSync(
@@ -33,5 +37,8 @@ test("the engine module finds sherpa-onnx-node's recognizer and voice detector w
   expect(JSON.parse(output.trim().split("\n").at(-1) ?? "{}")).toEqual({
     createAsync: "function",
     vad: "function",
+    diarization: "function",
+    voiceprint: "function",
+    separator: "function",
   });
 });

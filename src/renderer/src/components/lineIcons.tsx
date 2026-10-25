@@ -402,6 +402,24 @@ export function RecordingLineIcon(props: IconProps) {
   );
 }
 
+export function MicLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="9" y="3.5" width="6" height="11" rx="3" />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5" />
+    </LineIcon>
+  );
+}
+
+export function MicOffLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M15 10V6.5a3 3 0 0 0-5.6-1.5M9 9v2.5a3 3 0 0 0 5 2.2" />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 10.6 5M18.4 13.5a6.4 6.4 0 0 0 .1-2M12 18v2.5M4 4l16 16" />
+    </LineIcon>
+  );
+}
+
 /** How a recording went, its recording details: a pulse, as a call's health is in Teams. */
 export function PulseLineIcon(props: IconProps) {
   return (

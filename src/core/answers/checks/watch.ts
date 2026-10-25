@@ -89,8 +89,15 @@ export interface WatchOptions {
   minds(): { id: string; folderId: string | null }[];
   /** The live Documents in a Folder. */
   folderDocuments(folderId: string): string[];
-  /** The evidence a check of a sentence may use among `documentIds`: the cited ones left out. */
-  evidenceScope(documentIds: readonly string[], citedIds: readonly string[]): EvidenceScope;
+  /**
+   * The evidence a check of a Mind's sentence may use among `documentIds`:
+   * the cited ones, and the file the Mind was imported from, left out.
+   */
+  evidenceScope(
+    mindId: string,
+    documentIds: readonly string[],
+    citedIds: readonly string[],
+  ): EvidenceScope;
   searchableCount(documentIds: readonly string[] | null): number;
   /** Every live Document's current version, for telling a new one when it arrives. */
   documentVersions(): ReadonlyMap<string, string>;
@@ -157,11 +164,11 @@ export function createContradictionWatch(options: WatchOptions) {
     if (cited.length === 0) return { kind: "nothing" };
     if (folderId === null) return { kind: "no-folder" };
     const inFolder = options.folderDocuments(folderId);
-    if (options.searchableCount(options.evidenceScope(inFolder, []).documentIds) === 0) {
+    if (options.searchableCount(options.evidenceScope(mindId, inFolder, []).documentIds) === 0) {
       return { kind: "no-documents", folderId };
     }
     const claims = cited.flatMap((sentence): Claim[] => {
-      const scope = options.evidenceScope(inFolder, citedIdsOf(sentence));
+      const scope = options.evidenceScope(mindId, inFolder, citedIdsOf(sentence));
       if (options.searchableCount(scope.documentIds) === 0) return [];
       return [
         {

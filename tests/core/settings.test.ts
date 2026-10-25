@@ -85,6 +85,7 @@ describe("Settings", () => {
         gettingStarted: {
           started: false,
           citationChecked: false,
+          mistakeSeen: false,
           indexed: false,
           askedOwn: false,
           askedReady: false,
@@ -93,8 +94,10 @@ describe("Settings", () => {
         skillScriptsEnabled: true,
         skillScriptTimeoutSeconds: 60,
         suggestionOffers: 0,
+        tips: {},
         meetingSystemAudio: true,
         transcriptionRoute: null,
+        modelSource: "auto",
         meetingNoticeAccepted: false,
         meetingPanel: true,
         meetingPanelHidden: true,
@@ -191,6 +194,7 @@ describe("Settings", () => {
       gettingStarted: {
         started: false,
         citationChecked: false,
+        mistakeSeen: false,
         indexed: false,
         askedOwn: false,
         askedReady: false,
@@ -199,8 +203,10 @@ describe("Settings", () => {
       skillScriptsEnabled: true,
       skillScriptTimeoutSeconds: 60,
       suggestionOffers: 0,
+      tips: {},
       meetingSystemAudio: true,
       transcriptionRoute: null,
+      modelSource: "auto",
       meetingNoticeAccepted: false,
       meetingPanel: true,
       meetingPanelHidden: true,
@@ -244,6 +250,24 @@ describe("Settings", () => {
 
     const after = startCore(dataDir);
     expect((await after.getSettings()).user.exportOptions.docx.markAiText).toBe("leave");
+    after.close();
+  });
+
+  test("where Word and PDF put the Citations is not answered until the User answers, and each answer is kept (#1600)", async () => {
+    const dataDir = await createTempDataFolder();
+    const before = startCore(dataDir);
+    expect((await before.getSettings()).user.exportOptions.citationPlace).toBeUndefined();
+
+    for (const answer of ["list", "footnotes"] as const) {
+      const saved = await before.updateSettings({
+        user: { exportOptions: { ...DEFAULT_EXPORT, citationPlace: answer } },
+      });
+      expect(saved.user.exportOptions.citationPlace).toBe(answer);
+    }
+    before.close();
+
+    const after = startCore(dataDir);
+    expect((await after.getSettings()).user.exportOptions.citationPlace).toBe("footnotes");
     after.close();
   });
 
@@ -313,7 +337,8 @@ describe("Settings", () => {
     const before = startCore(dataDir);
     const kept = {
       started: true,
-      citationChecked: true,
+      citationChecked: false,
+      mistakeSeen: false,
       indexed: false,
       askedOwn: true,
       hidden: false,
@@ -328,6 +353,49 @@ describe("Settings", () => {
       ...kept,
       askedReady: false,
     });
+  });
+
+  test("Get started's progress kept before the mistake had its own step takes it from the Citation step, and an absent flag is not a false one", async () => {
+    const older = {
+      started: true,
+      indexed: true,
+      askedOwn: true,
+      askedReady: false,
+      hidden: false,
+    };
+    for (const { citationChecked, mistakeSeen } of [
+      { citationChecked: true, mistakeSeen: true },
+      { citationChecked: false, mistakeSeen: false },
+    ]) {
+      const dataDir = await createTempDataFolder();
+      const before = startCore(dataDir);
+      await before.updateSettings({
+        device: { gettingStarted: { ...older, citationChecked } as unknown as GettingStarted },
+      });
+      before.close();
+
+      const after = startCore(dataDir);
+      expect((await after.getSettings()).device.gettingStarted).toEqual({
+        ...older,
+        citationChecked,
+        mistakeSeen,
+      });
+      after.close();
+    }
+  });
+
+  test("a mistake not seen stays unseen when a Citation was checked, once the flag is saved", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const { gettingStarted } = (await core.getSettings()).device;
+    await core.updateSettings({
+      device: { gettingStarted: { ...gettingStarted, started: true, citationChecked: true } },
+    });
+    expect((await core.getSettings()).device.gettingStarted).toMatchObject({
+      citationChecked: true,
+      mistakeSeen: false,
+    });
+    core.close();
   });
 
   test("a width must be a number", async () => {
@@ -350,6 +418,7 @@ describe("Settings", () => {
       gettingStarted: {
         started: true,
         citationChecked: true,
+        mistakeSeen: true,
         indexed: false,
         askedOwn: false,
         askedReady: true,
@@ -358,8 +427,10 @@ describe("Settings", () => {
       skillScriptsEnabled: false,
       skillScriptTimeoutSeconds: 15,
       suggestionOffers: 1,
+      tips: { "add-answer": 2 },
       meetingSystemAudio: false,
       transcriptionRoute: "local" as const,
+      modelSource: "modelscope" as const,
       meetingNoticeAccepted: true,
       meetingPanel: false,
       meetingPanelHidden: false,
@@ -443,6 +514,8 @@ describe("Settings", () => {
       patch: { device: { skillScriptTimeoutSeconds: 1.5 } },
     },
     { name: "an unknown motion choice", patch: { device: { motion: "slow" } } },
+    { name: "a tip shown a negative number of times", patch: { device: { tips: { a: -1 } } } },
+    { name: "a tip count that isn't a number", patch: { device: { tips: { a: "twice" } } } },
     {
       name: "an export format the app can't write",
       patch: { user: { exportOptions: { ...DEFAULT_EXPORT, format: "odt" } } },
@@ -473,6 +546,10 @@ describe("Settings", () => {
           },
         },
       },
+    },
+    {
+      name: "a place for Citations that isn't one",
+      patch: { user: { exportOptions: { ...DEFAULT_EXPORT, citationPlace: "margin" } } },
     },
     {
       name: "a way to show someone's changes that isn't one",

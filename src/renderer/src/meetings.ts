@@ -16,6 +16,8 @@ interface MeetingsState {
   /** The Meeting whose Start waits for the User to read the one-time recording notice. */
   noticeFor: { meetingId: string; systemAudio: boolean } | null;
   starting: Readonly<Record<string, true>>;
+  /** The Meeting whose start block Record just made: its Start recording takes the focus once it shows. */
+  startToFocus: string | null;
   /** Record was chosen where this copy can't record audio: the sidebar's footer says so until it is dismissed. */
   cantRecord: boolean;
   /** The gaps the User has dismissed, by Meeting: how many of its gaps they have seen. */
@@ -38,6 +40,7 @@ interface MeetingsState {
   cancelNotice(): void;
   pause(meetingId: string): Promise<void>;
   resume(meetingId: string): Promise<void>;
+  setMicrophonePaused(meetingId: string, paused: boolean): Promise<void>;
   stop(meetingId: string): Promise<void>;
   discard(meetingId: string): Promise<void>;
   deleteAudio(meetingId: string): Promise<void>;
@@ -73,6 +76,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     noticeFor: null,
     cantRecord: false,
     starting: {},
+    startToFocus: null,
     gapsSeen: {},
     detailsShown: {},
 
@@ -105,7 +109,9 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         const starts = settings.device.meetingNoticeAccepted;
         if (starts) set((state) => ({ starting: { ...state.starting, [meeting.id]: true } }));
         // The notes come first in a meeting: the text has the cursor, as in a Mind made with ⌘T.
-        useAppStore.setState({ bodyToFocus: meeting.mindId });
+        // Under the start block it is the block's, so that Enter starts and Esc keeps the Mind as a note.
+        if (starts) useAppStore.setState({ bodyToFocus: meeting.mindId });
+        else set({ startToFocus: meeting.id });
         // A tab of its own, as New Mind opens one: never in place of the Mind the User is in.
         await useAppStore.getState().changeLayout({
           type: "open",
@@ -118,7 +124,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         if (meeting.id in get().problems) set(stopStarting(meeting.id));
       } catch (error) {
         useAppStore.getState().reportError(error);
-        if (created) set(stopStarting(created));
+        if (created) set({ ...stopStarting(created)(get()), startToFocus: null });
       }
     },
 
@@ -145,8 +151,37 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     cancelNotice: () => set({ noticeFor: null }),
     pause: (meetingId) => attempt(meetingId, () => core.pauseMeeting(meetingId)),
     resume: (meetingId) => attempt(meetingId, () => core.resumeMeeting(meetingId)),
+    async setMicrophonePaused(meetingId, paused) {
+      const before = get().meetings.find((each) => each.id === meetingId);
+      const show = (meeting: Meeting) =>
+        set((state) => ({
+          meetings: state.meetings.map((each) => (each.id === meetingId ? meeting : each)),
+        }));
+      // The button answers at once; the core's own answer replaces this one a moment later.
+      if (before) {
+        show({
+          ...before,
+          microphonePausedAtMs: paused
+            ? (before.microphonePausedAtMs ?? meetingTimeAt(before, Date.now()))
+            : null,
+        });
+      }
+      await attempt(meetingId, async () => {
+        try {
+          await core.setMeetingMicrophone({ meetingId, paused });
+        } catch (error) {
+          if (before) show(before);
+          throw error;
+        }
+      });
+    },
     stop: (meetingId) => attempt(meetingId, () => core.stopMeeting(meetingId)),
-    discard: (meetingId) => attempt(meetingId, () => core.discardMeeting(meetingId)),
+    async discard(meetingId) {
+      const mindId = get().meetings.find((each) => each.id === meetingId)?.mindId;
+      await attempt(meetingId, () => core.discardMeeting(meetingId));
+      // The block it leaves had the focus: the Mind stays as a note, and its text takes the cursor.
+      if (mindId && !(meetingId in get().problems)) useAppStore.setState({ bodyToFocus: mindId });
+    },
     deleteAudio: (meetingId) => attempt(meetingId, () => core.deleteMeetingAudio(meetingId)),
     retryTranscript: (meetingId) => attempt(meetingId, () => core.retryTranscript(meetingId)),
     fillNotes: (meetingId) => attempt(meetingId, () => core.fillMeetingNotes(meetingId)),

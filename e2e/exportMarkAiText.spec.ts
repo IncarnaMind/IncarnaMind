@@ -114,7 +114,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // Export's menu, Word: one line asks, with the first answer in reach, and saves nothing.
     await exportFromMenu(window, "docx");
-    await expect(result).toHaveAttribute("data-state", "ask-mark");
+    await expect(result).toHaveAttribute("data-state", "ask");
     await expect(result.getByTestId("export-mark-question")).toHaveText(words.question);
     await expect(mark).toHaveText(words.mark);
     await expect(leave).toHaveText(words.leave);
@@ -127,7 +127,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // The narrowest window: the line and its buttons stay inside the Mind.
     await setWindowSize(app, window, 900, WINDOW_SIZE.height);
     await exportFromMenu(window, "docx");
-    await expect(result).toHaveAttribute("data-state", "ask-mark");
+    await expect(result).toHaveAttribute("data-state", "ask");
     const [pane, shown] = await Promise.all([
       window.getByTestId("mind-pane").boundingBox(),
       result.boundingBox(),
@@ -154,7 +154,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await setAnswer(window, null);
     await focusMind(editor);
     await window.keyboard.press("ControlOrMeta+Shift+E");
-    await expect(result).toHaveAttribute("data-state", "ask-mark");
+    await expect(result).toHaveAttribute("data-state", "ask");
     await expect(mark).toBeFocused();
     await window.keyboard.press("Tab");
     await expect(leave).toBeFocused();
@@ -167,7 +167,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // Esc leaves the question unanswered and saves nothing.
     await setAnswer(window, null);
     await window.keyboard.press("ControlOrMeta+Shift+E");
-    await expect(result).toHaveAttribute("data-state", "ask-mark");
+    await expect(result).toHaveAttribute("data-state", "ask");
     await window.keyboard.press("Escape");
     await expect(result).toHaveCount(0);
     await expect(editor).toBeFocused();
@@ -176,7 +176,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // Twice: a held ⇧⌘E shows one question, and a double click on an answer makes one file.
     await window.keyboard.press("ControlOrMeta+Shift+E");
     await window.keyboard.press("ControlOrMeta+Shift+E");
-    await expect(result).toHaveAttribute("data-state", "ask-mark");
+    await expect(result).toHaveAttribute("data-state", "ask");
     await expect(mark).toHaveCount(1);
     await mark.dblclick();
     await expect(done).toHaveText(savedLine("Tides 5.docx", out, language));
@@ -214,7 +214,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(sheet).toBeHidden();
     await focusMind(editor);
     await window.keyboard.press("ControlOrMeta+Shift+E");
-    await expect(result).toHaveAttribute("data-state", "ask-mark");
+    await expect(result).toHaveAttribute("data-state", "ask");
     await window.keyboard.press("Escape");
 
     // Answered in the sheet and saved, the export doesn't ask, and the file is as answered.
@@ -252,7 +252,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await setAnswer(window, null);
     await exportFromMenu(window, "pdf");
     await expect(done).toHaveText(savedLine("Tides.pdf", out, language));
-    await expect(result).not.toHaveAttribute("data-state", "ask-mark");
+    await expect(result).not.toHaveAttribute("data-state", "ask");
     await app.close();
   });
 }
@@ -277,7 +277,7 @@ test("Export as Word from ⌘K asks too, when the last format was PDF, and Word 
   await window.keyboard.type("Export as Word");
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("palette")).toBeHidden();
-  await expect(result).toHaveAttribute("data-state", "ask-mark");
+  await expect(result).toHaveAttribute("data-state", "ask");
   await motionSettled(window);
   // Asking doesn't make Word the format Export uses: that waits for the export itself.
   await expect(window.getByTestId("export-mind")).toHaveAttribute("data-format", "pdf");

@@ -19,6 +19,7 @@ import { MarkdownBlocks, MarkdownDocumentContext, Slice } from "./MarkdownBlocks
 import { parseMarkdown } from "./markdown";
 import { looksLikeCode } from "./plainText";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
+import { sourceSelection, useSelectionReader } from "./selectedText";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { ViewerHeader } from "./ViewerHeader";
 import { FileGone, ViewerMessage } from "./ViewerMessage";
@@ -172,6 +173,13 @@ function TextContent({
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
+  useSelectionReader(
+    useCallback(
+      (range) =>
+        column.current ? sourceSelection(range, column.current, text, units) : { parts: [] },
+      [text, units],
+    ),
+  );
   const appliedRequest = useRef<number | null>(null);
   const appliedMode = useRef(source);
   const [current, setCurrent] = useState<number | null>(null);

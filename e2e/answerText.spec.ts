@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -17,6 +17,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  sizeAssistant,
   stubClipboard,
 } from "./app";
 
@@ -65,18 +66,6 @@ async function start(language: "en" | "zh-CN") {
   return window;
 }
 
-/** Makes the assistant `width`px wide, 50px at a time with Shift+←, from where it is. */
-async function widenTo(window: Page, width: number): Promise<number> {
-  const assistant = window.getByTestId("assistant");
-  const widthNow = () => assistant.evaluate((el) => Math.round(el.getBoundingClientRect().width));
-  const rod = window.getByTestId("assistant-resize");
-  await rod.focus();
-  const steps = (width - (await widthNow())) / 50;
-  for (let step = 0; step < steps; step++) await window.keyboard.press("Shift+ArrowLeft");
-  await expect.poll(widthNow).toBe(width);
-  return width;
-}
-
 async function shoot(target: Locator, name: string) {
   if (SCREENSHOTS) await target.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 }
@@ -105,7 +94,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(scrolled).toHaveAttribute("data-more-after", "");
 
     for (const wanted of WIDTHS) {
-      const width = await widenTo(window, wanted);
+      await sizeAssistant(window, wanted);
+      const width = wanted;
 
       // A list: its text starts 20px in from the Answer's edge, the bullet inside those 20px.
       const list = await plain.getByTestId("assistant-answer-text").evaluate((text) => {

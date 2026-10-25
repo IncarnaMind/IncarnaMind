@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useId } from "react";
 import { MARK_AI_TEXT_CHOICES, type MarkAiTextChoice } from "../../../core/api";
 import { answerMarkAiText } from "../exports";
 import { useT } from "../i18n";
@@ -11,23 +11,10 @@ const CHOICE_LABELS = {
 
 const choiceButtonClass = buttonStyle("secondary", "sm");
 
-/**
- * The question of the first Word export, as one line in the Mind's export line. Focus goes to
- * the first answer so the keys reach it, and back to where the User was when the line goes.
- */
-export function MarkAiTextLine({ mindId }: { mindId: string }) {
+/** The question of the first Word export, as one line in the Mind's export line (see `ExportAsks`). */
+export function MarkAiTextLine({ mindId, format }: { mindId: string; format: "docx" | "pdf" }) {
   const t = useT();
   const id = useId();
-  const first = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const before = document.activeElement;
-    first.current?.focus();
-    return () => {
-      if (before instanceof HTMLElement && document.activeElement === document.body) {
-        before.focus();
-      }
-    };
-  }, []);
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
       <p
@@ -42,11 +29,10 @@ export function MarkAiTextLine({ mindId }: { mindId: string }) {
         {MARK_AI_TEXT_CHOICES.map((each) => (
           <button
             key={each}
-            ref={each === "mark" ? first : undefined}
             type="button"
             data-testid={`export-mark-ask-${each}`}
             aria-describedby={`${id}-question`}
-            onClick={() => void answerMarkAiText(mindId, each)}
+            onClick={() => void answerMarkAiText(mindId, format, each)}
             className={choiceButtonClass}
           >
             {t(CHOICE_LABELS[each])}

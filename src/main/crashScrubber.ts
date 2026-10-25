@@ -31,14 +31,12 @@ import type {
   Stacktrace,
   Thread,
 } from "@sentry/electron/main";
+import { redactMessage } from "../core/redact";
 
+export { MAX_MESSAGE_LENGTH, REDACTED } from "../core/redact";
 export const PATH = "[path]";
-export const REDACTED = "[redacted]";
 export const EMAIL = "[email]";
 export const IP_ADDRESS = "[ip]";
-
-/** The most of a message that is kept, after scrubbing. */
-export const MAX_MESSAGE_LENGTH = 300;
 
 export interface ScrubPaths {
   /** The User's home folder, e.g. /Users/alice: paths in it name the User. */
@@ -83,23 +81,6 @@ const IPV6 = new RegExp(
   String.raw`(?<![\w:])(?:(?:${HEX_GROUP}:){7}${HEX_GROUP}|(?:${HEX_GROUP}(?::${HEX_GROUP})*)?::(?:${HEX_GROUP}(?::${HEX_GROUP})*)?)(?![\w:])`,
   "g",
 );
-
-/** Quoted text, in the quote marks of English and Chinese. Single quotes only when not an apostrophe. */
-const QUOTED = [
-  /"(?:[^"\\\n]|\\.)*"/gu,
-  /`[^`\n]*`/gu,
-  /(?<![\p{L}\p{N}])'[^'\n]*'(?![\p{L}\p{N}])/gu,
-  /“[^”\n]*”/gu,
-  /‘[^’\n]*’/gu,
-  /„[^“”\n]*[“”]/gu,
-  /「[^」\n]*」/gu,
-  /『[^』\n]*』/gu,
-  /《[^》\n]*》/gu,
-  /«[^»\n]*»/gu,
-];
-/** Keys, tokens and hashes: long runs of letters and digits with both in them. */
-const SECRET_LIKE =
-  /(?<![\p{L}\p{N}_-])(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{24,}(?![\p{L}\p{N}_-])/gu;
 
 /** Sentry's message for a child process that exited abnormally: the process type and reason are Electron's. */
 const PROCESS_EXITED = /^'([^'\n]{1,40})' process exited with '([a-z-]{1,40})'$/;
@@ -207,12 +188,7 @@ export function createScrubber(paths: ScrubPaths): Scrubber {
   const message = (value: string): string => {
     const exited = PROCESS_EXITED.exec(value);
     if (exited) return `'${text(exited[1] ?? "")}' process exited with '${exited[2]}'`;
-    let result = text(value.split(/\r?\n/, 1)[0] ?? "");
-    result = result.replace(SECRET_LIKE, REDACTED);
-    for (const quoted of QUOTED) result = result.replace(quoted, REDACTED);
-    return result.length > MAX_MESSAGE_LENGTH
-      ? `${result.slice(0, MAX_MESSAGE_LENGTH - 1)}…`
-      : result;
+    return redactMessage(text(value.split(/\r?\n/, 1)[0] ?? ""));
   };
 
   /** A short structured value: scrubbed text, a number or a boolean. Anything else goes. */

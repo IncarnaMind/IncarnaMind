@@ -4,9 +4,9 @@
  */
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
-import { homedir, tmpdir } from "node:os";
+import { availableParallelism, homedir, tmpdir, totalmem } from "node:os";
 import { join, resolve } from "node:path";
-import { app, safeStorage, shell } from "electron";
+import { app, net, safeStorage, session, shell } from "electron";
 import { Agent, fetch as undiciFetch } from "undici";
 import {
   type AnalysisRuntime,
@@ -17,15 +17,19 @@ import {
   type CoreAdapters,
   type CrashReporter,
   createOllamaModels,
+  type EmbeddingModelSource,
   type Executor,
   type FileShell,
   type Keychain,
   type Logger,
   type OllamaApp,
+  type Transcriber,
   type UsageDataSender,
 } from "../core";
 import { runAnalysis } from "../core/analysis";
+import { scansAtOnce } from "../core/documents/processor";
 import type { PageFetch } from "../core/documents/web/fetch";
+import type { ModelCopies } from "../core/embedding/modelSources";
 import { createFakeCapture, type FakeCapture, wavSamples } from "../core/meetings/fakeCapture";
 import { type LocalServers, scriptedLocalServers } from "../core/providers/localServers";
 import { type Resolve, systemResolve } from "../core/tools/web/addresses";
@@ -46,6 +50,7 @@ import { createUtilityProcessCrossEncoder } from "./reranker";
 import { loadOsSandbox } from "./sandbox";
 import { createUtilityProcessTextRecognizer } from "./scanReader";
 import { createFileKeychain, SECRETS_FILE, type SecretCipher } from "./secretsFile";
+import { createUtilityProcessSeparator } from "./speakerSeparator";
 import { createUtilityProcessTranscriber } from "./transcriber";
 import { createPostHogSender } from "./usageData";
 import { systemUserName } from "./userName";
@@ -202,6 +207,85 @@ const fakeEmbedder =
 
 /** With the fake models, what the fake text recognition model reads on each scanned page (#397). */
 const fakeScans = fakeEmbedder ? (process.env.INCARNAMIND_TEST_SCANS ?? null) : null;
+/** With the fake models, how many scans are read at once (#1502), whatever the computer. */
+const testScansAtOnce = fakeEmbedder ? Number(process.env.INCARNAMIND_TEST_SCANS_AT_ONCE ?? 0) : 0;
+/**
+ * With the fake models, the search model's (and the speech model's) files at a stand-in and
+ * IncarnaMind's copies at others (#1578), as JSON, so a smoke test can fail a download at every source.
+ */
+const testModelDownloads: {
+  source: EmbeddingModelSource;
+  copies: ModelCopies;
+  speech?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+} | null =
+  fakeEmbedder && process.env.INCARNAMIND_TEST_MODEL_DOWNLOADS
+    ? JSON.parse(process.env.INCARNAMIND_TEST_MODEL_DOWNLOADS)
+    : null;
+
+// A test build reaches no model source but the stand-ins on this computer: not even the probe's.
+const modelFetch: typeof fetch = (input, init) => {
+  const url = input instanceof Request ? input.url : String(input);
+  if (import.meta.env.MODE === "test" && new URL(url).hostname !== "127.0.0.1") {
+    return Promise.reject(new TypeError(`A test build reaches no ${new URL(url).host}.`));
+  }
+  if (init?.redirect === "manual") return unfollowed(url, init);
+  return net.fetch(input instanceof URL ? input.href : input, { ...init, credentials: "omit" });
+};
+
+// A Response with a body throws for these statuses.
+const NULL_BODY = new Set([204, 205, 304]);
+
+// The core follows a model download's redirects itself, to keep it to the source's own hosts,
+// but net.fetch cancels a redirect it is told not to follow: net.request hands it back.
+function unfollowed(url: string, init: RequestInit): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const request = net.request({
+      url,
+      method: init.method ?? "GET",
+      redirect: "manual",
+      credentials: "omit",
+    });
+    for (const [name, value] of new Headers(init.headers)) request.setHeader(name, value);
+    const { signal } = init;
+    const abort = () => {
+      request.abort();
+      reject(signal?.reason);
+    };
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+    request.on("redirect", (status, _method, location) => {
+      request.abort();
+      resolve(new Response(null, { status, headers: { location } }));
+    });
+    request.on("response", (message) => {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(message.headers)) {
+        for (const each of Array.isArray(value) ? value : [value]) headers.append(name, each);
+      }
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          message.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+          message.on("end", () => {
+            signal?.removeEventListener("abort", abort);
+            controller.close();
+          });
+          message.on("aborted", () => controller.error(signal?.reason ?? new Error("Aborted")));
+          message.on("error", (error: Error) => controller.error(error));
+        },
+        cancel() {
+          request.abort();
+        },
+      });
+      const status = message.statusCode;
+      resolve(new Response(NULL_BODY.has(status) ? null : body, { status, headers }));
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
 
 /**
  * Test-only launch flags: the smoke tests transcribe Meetings with a fake
@@ -576,6 +660,20 @@ function copilotStandIn(): CoreAdapters["copilotProfiles"] {
   };
 }
 
+// The smoke tests read when each stream's audio went to the fake transcriber, to check that none
+// goes for a microphone the User paused.
+function recordingSent(transcriber: Transcriber): Transcriber {
+  const sent: { stream: string; at: number }[] = [];
+  (globalThis as { incarnamindTranscribed?: typeof sent }).incarnamindTranscribed = sent;
+  return {
+    ...transcriber,
+    push(stream, samples) {
+      sent.push({ stream, at: Date.now() });
+      transcriber.push(stream, samples);
+    },
+  };
+}
+
 /**
  * What records Meetings: the hidden capture window (ADR-0015). Test-only
  * launch flags: the smoke tests record a fake that makes a tone in real time,
@@ -692,6 +790,13 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     },
     systemLanguages: () => app.getPreferredSystemLanguages(),
     systemRegion: () => app.getLocaleCountryCode(),
+    // Chromium's network stack follows the system proxy, which is how many Users reach
+    // Hugging Face at all (#1578); Node's own fetch doesn't.
+    modelDownloads: {
+      fetch: modelFetch,
+      proxy: () => session.defaultSession.resolveProxy("https://huggingface.co/"),
+      ...(testModelDownloads && { copies: testModelDownloads.copies }),
+    },
     systemUserName: () => systemUserName(log),
     keychain: createSafeStorageKeychain(dataDir),
     browser: systemBrowser,
@@ -726,9 +831,13 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
       openLink: openAgentLink,
     },
     embedder: createUtilityProcessEmbedder({ fake: fakeEmbedder }),
-    transcriber: createUtilityProcessTranscriber(fakeTranscriber ? { fake: fakeTranscriber } : {}),
+    transcriber: fakeTranscriber
+      ? recordingSent(createUtilityProcessTranscriber({ fake: fakeTranscriber }))
+      : createUtilityProcessTranscriber(),
+    // The fake engine's audio is tones: there are no voices to tell apart.
+    ...(!fakeTranscriber && { speakerSeparator: createUtilityProcessSeparator() }),
     ...(fakeTranscriber && {
-      transcriptionModelSource: {
+      transcriptionModelSource: testModelDownloads?.speech ?? {
         model: { baseUrl: "http://localhost/", files: [] },
         vad: { baseUrl: "http://localhost/", files: [] },
       },
@@ -742,9 +851,14 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     textRecognizer: createUtilityProcessTextRecognizer(
       fakeEmbedder ? { fake: { script: fakeScans } } : {},
     ),
+    scansAtOnce:
+      testScansAtOnce > 0 ? testScansAtOnce : scansAtOnce(availableParallelism(), totalmem()),
     // The fake models have no files to download.
     ...(fakeEmbedder && {
-      embeddingModelSource: { baseUrl: "http://localhost/", files: [] },
+      embeddingModelSource: testModelDownloads?.source ?? {
+        baseUrl: "http://localhost/",
+        files: [],
+      },
       rerankingModelSource: { baseUrl: "http://localhost/", files: [] },
       textRecognitionModelSource: { baseUrl: "http://localhost/", files: [] },
     }),

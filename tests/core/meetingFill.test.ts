@@ -5,7 +5,7 @@
  * model fails, a quit cuts it short, or Local mode keeps it off the cloud.
  */
 import { describe, expect, test, vi } from "vitest";
-import type { Core, Meeting, MeetingFill } from "../../src/core";
+import type { Core, Meeting, MeetingFill, SpeakerSeparator } from "../../src/core";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
 import { setMindModel } from "../../src/shared/mindModel";
@@ -17,7 +17,7 @@ import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/d
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, readMind, shownWithAiText, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
-import { transcribingCore } from "../helpers/transcription";
+import { fakeSeparator, transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
 const MY_LINES = [
@@ -41,9 +41,14 @@ function fillingModel(
   reply: string,
   quotes: Record<number, string>,
   plans: Record<string, Plan> = {},
-  { failing = () => false, held }: { failing?: () => boolean; held?: Promise<void> } = {},
+  {
+    failing = () => false,
+    held,
+    seen,
+  }: { failing?: () => boolean; held?: Promise<void>; seen?: (call: ModelCall) => void } = {},
 ) {
   return scriptedModel((call) => {
+    seen?.(call);
     if (isCheckRun(call)) return checkReply(call, plans);
     if (!isFill(call)) return { text: "OK" };
     if (failing()) return { error: { status: 500, message: "The model is overloaded." } };
@@ -66,11 +71,13 @@ async function recorded(
   notes: Parameters<typeof writeMind>[1] | null,
   before?: (core: Core) => Promise<void>,
   inMind?: (client: MindClient) => void,
+  speakerSeparator?: SpeakerSeparator,
 ) {
   const dataDir = await createTempDataFolder();
   const { core, record } = await transcribingCore(dataDir, {
     model,
     engine: { lines: MY_LINES, theirLines: THEIR_LINES },
+    ...(speakerSeparator && { speakerSeparator }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   await before?.(core);
@@ -130,6 +137,54 @@ const NOTES = [
 describe("After Stop, the notes are filled in from the Transcript (#142)", {
   timeout: 60_000,
 }, () => {
+  // protects=with the speaker pass (#138) running after the save, the notes wait for it, so their Citations name the final speakers, and are filled in once it ends; fails_when=the fill starts while the pass runs, or never starts after it; no_claim=the pass's labels, which tests/core/speakerPass.test.ts covers.
+  test("the notes wait for the speakers to be told apart, then are filled in", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let passing = true;
+    const whilePassing: boolean[] = [];
+    const model = fillingModel(
+      "### L1\nThe enterprise price is 45 dollars a seat [^1].",
+      { 1: MY_LINES[0] as string },
+      {},
+      {
+        seen: (call) => {
+          if (isFill(call)) whilePassing.push(passing);
+        },
+      },
+    );
+    const { separator, requests } = fakeSeparator({ holds });
+    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, separator);
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "saved" && transcript.separating,
+    );
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect((await fillOf(core, meeting.id))?.state).toBe("waiting");
+    passing = false;
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    expect(whilePassing.length).toBeGreaterThan(0);
+    expect(whilePassing.filter(Boolean)).toEqual([]);
+    core.close();
+  });
+
+  // protects=a speaker pass that fails releases the notes: they are filled in with the labels the Transcript has, and the Transcript says its speakers couldn't be told apart; fails_when=the fill waits for the rest of the session, or the failure says nothing; no_claim=why the pass failed, which only the log says.
+  test("a speaker pass that fails doesn't hold up the notes", async () => {
+    const model = fillingModel("### L1\nThe enterprise price is 45 dollars a seat [^1].", {
+      1: MY_LINES[0] as string,
+    });
+    const { separator } = fakeSeparator({ fails: "The speaker process stopped." });
+    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, separator);
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    const transcript = await until(core, meeting.id, (each) => !each.separating);
+    expect(transcript.problem?.kind).toBe("speakers");
+    core.close();
+  });
+
   // protects=each of the User's lines gets what the call said about it right under it, as AI text citing the Transcript, in their order and under their headings, the User's own text unchanged, with no Proposal and a Checkpoint before; Undo leaves the notes as the User left them; fails_when=a line moves or changes, an addition isn't AI text or uncited, a Proposal is made, or Undo leaves anything; no_claim=a real model's wording.
   test("under each of the User's lines, in place, cited, with one Undo", async () => {
     const model = fillingModel(

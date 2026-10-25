@@ -8,8 +8,10 @@ import {
   offered,
 } from "../../src/renderer/src/commands/registry";
 import type { ObjectRef } from "../../src/renderer/src/objects";
+import { windowKeyForms } from "../../src/renderer/src/windowKeys";
 import { MENU_COMMANDS, type MenuCommandId } from "../../src/shared/commands";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { defaultHelpKeys, HELP_SHORTCUTS } from "../../src/shared/meetingHelp";
 
 /*
  * Every command the app has: no key bound twice where both commands could act,
@@ -181,6 +183,25 @@ describe("shortcuts", () => {
       }
     }
   });
+
+  test.each(SYSTEMS)(
+    "no default meeting key is one of the window's own (commands, menu and note editor), and Windows and Linux have none, on $name",
+    ({ mac }) => {
+      const own = windowKeyForms(mac);
+      expect(own.has(keysForm("CmdOrCtrl+Shift+P", mac)), "a command's keys").toBe(true);
+      expect(own.has(keysForm("CmdOrCtrl+Shift+E", mac)), "the menu's keys").toBe(true);
+      expect(own.has(keysForm("CmdOrCtrl+B", mac)), "the editor's keys").toBe(true);
+      expect(own.has("ctrl+shift+Digit9") || mac, "the editor's checklist key").toBe(true);
+      for (const shortcut of HELP_SHORTCUTS) {
+        const keys = defaultHelpKeys(shortcut, mac);
+        if (keys === null) {
+          expect(mac, `${shortcut} has no default on Windows and Linux only`).toBe(false);
+          continue;
+        }
+        expect(own.has(keysForm(keys, mac)), `${shortcut}: ${keys}`).toBe(false);
+      }
+    },
+  );
 
   test.each(SYSTEMS)(
     "that act while the User types keep the keys of text to it, on $name",

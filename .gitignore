@@ -16,8 +16,9 @@ resources/python/
 # Evaluation reports (npm run eval)
 eval/results/
 
-# Claude Code agent worktrees
+# Claude Code agent worktrees and personal settings
 .claude/worktrees/
+.claude/settings.local.json
 
 # Local environment files never belong in the repository
 .env

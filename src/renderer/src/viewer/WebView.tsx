@@ -13,6 +13,7 @@ import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import { PdfView } from "./PdfView";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
+import { domSelection, useSelectionReader } from "./selectedText";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
@@ -245,6 +246,9 @@ function WebPageContent({
   const scroller = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
+  useSelectionReader(
+    useCallback((range) => (host.current ? domSelection(range, host.current) : { parts: [] }), []),
+  );
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [current, setCurrent] = useState<number | null>(null);
   // Counts the highlights made, none while 0: the mark is placed again for each.

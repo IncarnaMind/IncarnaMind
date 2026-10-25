@@ -81,7 +81,10 @@ export function deleted(
 export function documentsAdded(count: number, take: () => Promise<RestoreRef[]>): Undoable {
   let taken: RestoreRef[] = [];
   return {
-    said: (t) => t(count === 1 ? "undo.documentAdded.one" : "undo.documentsAdded", { count }),
+    said: (t) =>
+      t(count === 1 ? "undo.documentAdded.one" : "undo.documentsAdded", {
+        count: formatCount(count, languageNow()),
+      }),
     name: (t) => t("undo.name.addDocuments"),
     undo: async () => {
       taken = await take();
@@ -166,7 +169,10 @@ export function retagged(
     said: (t) =>
       only !== undefined && count === 1
         ? t(added ? "undo.tagAdded.one" : "undo.tagRemoved.one", { name: only, tag })
-        : t(added ? "undo.tagAdded" : "undo.tagRemoved", { count, tag }),
+        : t(added ? "undo.tagAdded" : "undo.tagRemoved", {
+            count: formatCount(count, languageNow()),
+            tag,
+          }),
     name: (t) => t(added ? "undo.name.tagAdded" : "undo.name.tagRemoved"),
     undo: async () => {
       await core.revertDocumentTags(before);

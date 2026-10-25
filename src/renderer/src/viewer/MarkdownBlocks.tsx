@@ -29,7 +29,8 @@ export function Slice({
   highlight: readonly TextRange[];
 }) {
   const inside = highlight.filter((range) => range.end > start && range.start < end);
-  if (inside.length === 0) return source.slice(start, end);
+  // Where it starts in the file, so a selection reads the file's own characters (`sourceSelection`).
+  if (inside.length === 0) return <span data-at={start}>{source.slice(start, end)}</span>;
   const parts: ReactNode[] = [];
   let at = start;
   for (const range of inside) {
@@ -49,7 +50,7 @@ export function Slice({
     at = to;
   }
   parts.push(source.slice(at, end));
-  return <>{parts}</>;
+  return <span data-at={start}>{parts}</span>;
 }
 
 function renderInlines(inlines: readonly Inline[], rendering: Rendering): ReactNode[] {
