@@ -47,6 +47,7 @@
   "checkStays.spec.ts": 19,
   "checklistExport.spec.ts": 12,
   "choosingConsent.spec.ts": 15,
+  "citationChanged.spec.ts": 25,
   "citationName.spec.ts": 26,
   "citationQuotes.spec.ts": 5,
   "citationRoom.spec.ts": 105,
