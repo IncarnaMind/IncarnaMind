@@ -111,15 +111,21 @@ describe("the log the core writes", { timeout: 30_000 }, () => {
       expect(events).toContain("answer.failed");
       expect(events).toContain("tagging.failed");
     });
+    // The provider's status and its words, without what they quote or the key.
     expect(entries).toContainEqual({
       level: "warn",
       event: "answer.failed",
-      fields: { answerId: result.answerId, errorKind: "provider" },
+      fields: {
+        answerId: result.answerId,
+        errorKind: "refused",
+        status: 400,
+        message: "Bad request [redacted] about [redacted] with key [redacted]",
+      },
     });
     expect(entries).toContainEqual({
       level: "warn",
       event: "tagging.failed",
-      fields: { documentId: document.id, errorKind: "provider" },
+      fields: { documentId: document.id, errorKind: "refused" },
     });
     const logged = JSON.stringify(entries);
     for (const secret of [...CONTENT, DOCUMENT_TEXT, MIND_TITLE, NOTE, QUESTION]) {

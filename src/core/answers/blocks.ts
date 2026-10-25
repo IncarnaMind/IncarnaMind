@@ -41,14 +41,6 @@ export function topLevelBlocks(blocks: Y.XmlFragment): Y.XmlElement[] {
   return blocks.toArray().filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
 }
 
-/** A Mind holds nothing yet: no Block but empty paragraphs, and a title heading at most. */
-export const holdsNothing = (blocks: Y.XmlFragment): boolean =>
-  topLevelBlocks(blocks).every((block, index) =>
-    block.nodeName === "paragraph"
-      ? block.length === 0
-      : index === 0 && block.nodeName === "heading",
-  );
-
 /** The top-level Block of this type with this ID, and its index among the Mind's children. */
 export function findBlock(
   blocks: Y.XmlFragment,

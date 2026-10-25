@@ -753,7 +753,7 @@ describe("Failures", () => {
     });
   });
 
-  test("a prompt that is too long stays an ordinary request error", async () => {
+  test("a prompt that is too long is an ordinary request error, not the route's", async () => {
     const { core, fake } = await signedIn();
     fake.replies.push({
       kind: "error",
@@ -766,7 +766,7 @@ describe("Failures", () => {
 
     const error = await failure(core);
 
-    expect(error.kind).toBe("provider");
+    expect(error.kind).toBe("too-long");
     expect(error.signInRoute).toBeUndefined();
   });
 

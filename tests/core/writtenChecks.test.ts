@@ -183,6 +183,7 @@ async function marksIn(core: Core, client: MindClient) {
       text: span.sentence.text,
       versions,
       folderId: span.check.scope.folderId,
+      scope: null,
     }),
   }));
 }
@@ -257,7 +258,9 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     );
     await resolveChanges(client, "accept");
     expect(claimSpans(readMind(client))).toHaveLength(1);
-    expect(await core.planMindCheck(change?.mindId ?? "", "changed")).toEqual({ kind: "nothing" });
+    expect(await core.planMindCheck(change?.mindId ?? "", "changed")).toMatchObject({
+      kind: "unchanged",
+    });
   });
 
   // protects=a check that fails lands its sentence marked not checked, with why, and the reply and the card's line say so; fails_when=it lands unmarked, which reads as supported; no_claim=the words of the line.

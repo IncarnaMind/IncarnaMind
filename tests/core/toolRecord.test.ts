@@ -228,6 +228,7 @@ describe("A record within the context's budget", () => {
       scope: null,
       model: null,
       forcedSkill: null,
+      quotes: [],
       createdAt: "2026-10-16T00:00:00.000Z",
     },
     reply,

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
 import { RECENTLY_DELETED } from "./libraryPage";
+import { TO_REVIEW } from "./toReview";
 
 const KEY = "incarnamind.library.folded";
 
@@ -28,6 +29,13 @@ interface LibraryFolds {
   folded: ReadonlySet<string>;
   /** The sections listing all their Documents past the first few. Forgotten at a restart. */
   showingAll: ReadonlySet<string>;
+  /** Forgotten at a restart. */
+  reviewOpen: boolean;
+  setReviewOpen(open: boolean): void;
+  showReview(): void;
+  /** To review's head is on the page now: Accept all, by key or from ⌘K, acts only on what is in view. */
+  reviewShown: boolean;
+  setReviewShown(shown: boolean): void;
   /** The section the page was asked to show (a Folder opened from the sidebar), until it has. */
   revealing: string | null;
   /** Opens a section, and asks the page to bring it into view. */
@@ -50,6 +58,11 @@ export const useLibraryFolds = create<LibraryFolds>()((set, get) => {
   return {
     folded: read(),
     showingAll: new Set(),
+    reviewOpen: false,
+    setReviewOpen: (reviewOpen) => set({ reviewOpen }),
+    showReview: () => set({ reviewOpen: true, revealing: TO_REVIEW }),
+    reviewShown: false,
+    setReviewShown: (reviewShown) => set({ reviewShown }),
     revealing: null,
     reveal(key) {
       get().setOpen(key, true);

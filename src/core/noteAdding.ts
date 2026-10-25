@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { asGenerated } from "../shared/aiText";
 import { parseOrigin, removeOrigins, setOrigins } from "../shared/blockOrigins";
+import { carryAnswerScope, uncarryAnswerScope } from "../shared/mindScope";
 import {
   citedTables,
   parseNoteBlocks,
@@ -25,6 +26,7 @@ import { createElement, type NodeJSON, textAttribute, topLevelBlocks } from "./a
 import {
   type AddedToNote,
   BLOCK_ID_ATTRIBUTE,
+  type BlockOrigin,
   type ChatModelChoice,
   type CitationRecheck,
   PROPOSAL_ATTRIBUTE,
@@ -32,6 +34,7 @@ import {
   type ProposalRequest,
   type RecheckCitationInput,
   type RecordAiUseInput,
+  type SearchScope,
 } from "./api";
 import { InvalidInputError, isRecord } from "./errors";
 import type { MindContent } from "./mindContent";
@@ -42,6 +45,9 @@ export interface NoteAddingOptions {
   /** Throws unless the Mind exists and can be written to; returns its id. */
   requireMind(mindId: unknown): string;
   recheck(input: RecheckCitationInput): CitationRecheck;
+  /** The Search scope the Question of the Answer Blocks came from was asked with; null for none. */
+  askedScope(origin: BlockOrigin): SearchScope | null;
+  mindFolder(mindId: string): string | null;
   /** Keeps what the AI put into a Mind in the record of AI use. */
   recordAiUse(inputs: RecordAiUseInput[]): void;
   now(): Date;
@@ -111,6 +117,8 @@ function proposalsOf(note: Y.XmlFragment, request: string) {
 
 export function createNoteAdding(options: NoteAddingOptions) {
   const { content } = options;
+  // Undo is offered only while the app runs: what an add brought, by its first Block, stays here.
+  const carried = new Map<string, SearchScope>();
 
   return {
     async add(input: unknown): Promise<AddedToNote> {
@@ -129,6 +137,8 @@ export function createNoteAdding(options: NoteAddingOptions) {
         await recheckCitations(citedTables(withoutIds(parsed)), options.recheck),
       );
       const request = randomUUID();
+      const asked = origin ? options.askedScope(origin) : null;
+      const folderId = options.mindFolder(mindId);
 
       const blockIds = content.edit(mindId, (note) => {
         const ids = insertBlocks(note, blocks, {
@@ -136,6 +146,8 @@ export function createNoteAdding(options: NoteAddingOptions) {
         });
         const doc = note.doc;
         if (doc && origin) setOrigins(doc, ids, origin);
+        const brought = doc && carryAnswerScope(doc, asked, folderId);
+        if (brought && ids[0]) carried.set(ids[0], brought);
         if (doc && proposed && model && !proposalRequestOf(doc, request)) {
           recordProposalRequest(doc, request, {
             source: "answer-added",
@@ -207,6 +219,12 @@ export function createNoteAdding(options: NoteAddingOptions) {
           }
         }
         if (note.doc) removeOrigins(note.doc, [...blockIds]);
+        for (const id of blockIds) {
+          const brought = carried.get(id);
+          if (!brought) continue;
+          carried.delete(id);
+          if (note.doc) uncarryAnswerScope(note.doc, brought);
+        }
       });
     },
   };

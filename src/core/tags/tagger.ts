@@ -65,7 +65,8 @@ export type StoredTaggingState =
   | "tagged"
   | "no-tags"
   | "failed"
-  | "stopped";
+  | "stopped"
+  | "off";
 
 /** How many Passages, from the start, are read to build an excerpt. */
 const EXCERPT_ROWS = 6;
@@ -74,6 +75,11 @@ export interface TaggerOptions {
   db: Database;
   /** Organize tags new Documents itself while it files them by itself; those it has no hold of yet stay with this tagger. */
   enabled?(): boolean;
+  /**
+   * Whether new Documents are tagged by themselves (#1617). Off, they are "off": nothing is
+   * sent for them unless the User asks (a re-tag).
+   */
+  automatic?(): boolean;
   organizing?(id: string): boolean;
   stopped(id: string): boolean;
   now: () => string;
@@ -115,6 +121,7 @@ interface DocumentRow {
 }
 
 export function createTagger(options: TaggerOptions) {
+  const automatic = () => options.automatic?.() !== false;
   const { db, now, tags, announce, background } = options;
   const lifetime = new AbortController();
   const queue: string[] = [];
@@ -313,8 +320,8 @@ export function createTagger(options: TaggerOptions) {
       }
       const id = queue.shift();
       if (id === undefined || organized(id)) return;
-      if (options.stopped(id) && !asked.has(id)) {
-        if (setState(id, "stopped")) announce([id]);
+      if ((options.stopped(id) || !automatic()) && !asked.has(id)) {
+        if (setState(id, automatic() ? "stopped" : "off")) announce([id]);
         return;
       }
       current = id;
@@ -384,7 +391,7 @@ export function createTagger(options: TaggerOptions) {
     const statuses = only
       ? [only]
       : ["pending", "waiting-for-provider", "failed", "stopped", ...(checkable ? ["no-tags"] : [])];
-    const rows = db
+    const found = db
       .all<{ id: string; tagging_status: string; tagging_error_kind: string | null }>(
         `SELECT id, tagging_status, tagging_error_kind FROM documents
          WHERE deleted_at IS NULL AND status = 'ready'
@@ -393,6 +400,19 @@ export function createTagger(options: TaggerOptions) {
         statuses,
       )
       .filter((row) => !organized(row.id));
+    // Off, nothing goes by itself: only what the User asked for is tagged. A Document that
+    // failed or was stopped keeps its line and its Retry; only one waiting to go by itself is off.
+    const held = automatic() ? [] : found.filter((row) => !asked.has(row.id));
+    setStates(
+      held
+        .filter(
+          (row) =>
+            row.tagging_status === "pending" || row.tagging_status === "waiting-for-provider",
+        )
+        .map((row) => row.id),
+      "off",
+    );
+    const rows = found.filter((row) => !held.includes(row));
     const stopped = rows.filter((row) => options.stopped(row.id) && !asked.has(row.id));
     setStates(
       stopped.map((row) => row.id),
@@ -448,6 +468,10 @@ export function createTagger(options: TaggerOptions) {
       const row = rowOf(id);
       // Processed again (e.g. by a newer pipeline): the same file keeps its Tags.
       if (!row || row.tagging_status === "tagged") return;
+      if (!automatic()) {
+        setState(id, "off");
+        return;
+      }
       if (options.stopped(id)) {
         setState(id, "stopped");
         return;

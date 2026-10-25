@@ -32,6 +32,7 @@ import {
   setEditTarget,
   watchMovedOn,
 } from "./editor/proposalReview";
+import { keepDecisions } from "./editor/theirChanges";
 import { failedEdit } from "./editProblems";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
@@ -464,7 +465,15 @@ export function resolveProposalsIn(
   const line = appliedLineIn(editor.state);
   // An edit held back waits for its own Apply or Discard.
   const held = new Set(line?.kind === "held" ? [line.request] : []);
-  const resolved = resolveInEditor(editor, ids === "all" ? ids : new Set(ids), outcome, held);
+  // Read before the decision: once it is made the change's words have gone from the text.
+  const before = editor.state.doc;
+  const resolved = resolveInEditor(
+    editor,
+    ids === "all" ? ids : new Set(ids),
+    outcome,
+    held,
+    (doc, done) => keepDecisions(doc, before, done, outcome),
+  );
   if (resolved.length === 0) {
     // Only changes out of date were picked: they can't be accepted, and the User hears why.
     const theirs = picked.length > 0 && picked.every((each) => each.theirs);

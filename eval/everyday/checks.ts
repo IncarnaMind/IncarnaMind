@@ -38,12 +38,22 @@
  * - **A figure the numbers give is calculated**: asked for a difference of
  *   figures it cites, the Answer has a Calculated figure with the result, and
  *   never says it couldn't calculate it (#1444).
+ * - **"This" is the one Document meant** (#1334): only the Documents a request
+ *   points at are cited or named, a short piece is short, and with two on
+ *   screen and nothing to tell which, it asks.
+ * - **"Add this to my notes" adds the last Answer** (#1734), as it is, while a
+ *   request for notes on the Documents writes new ones.
  */
 import { changeLogOf } from "../../src/core/answers/claimedChanges";
 import { forPage, withoutPointersBack } from "../../src/core/answers/pointersBack";
 import { withoutSearchTalk } from "../../src/core/answers/searchTalk";
 import { toolTextIn } from "../../src/core/answers/toolText";
-import type { ConversationAnswer, MarkedCitation, MarkedFigure } from "../../src/core/api";
+import type {
+  AskedQuote,
+  ConversationAnswer,
+  MarkedCitation,
+  MarkedFigure,
+} from "../../src/core/api";
 import { markersWithoutCitation } from "../../src/shared/answerBlocks";
 import { datesNotInText } from "./dates";
 import type { ClaimVerdict } from "./judge";
@@ -83,12 +93,29 @@ export interface Expected {
   language?: "en" | "zh-CN";
   /** It asks for a figure the Documents' numbers give: a Calculated figure shows a result matching this, and the reply never says it couldn't calculate (#1444). */
   figure?: RegExp;
+  /**
+   * The words what it writes into a Mind must use for a thing, and must not: a translation's own
+   * term ("spring tides" is 大潮, never 春潮), which Kimi K2.6 lost with thinking off (#1635).
+   */
+  terms?: readonly { want: string; not: readonly string[] }[];
+  /** The only Documents, by name, it may cite, or name in what it writes; empty: none (#1334). */
+  documents?: readonly string[];
+  /** What it writes into a Mind, else its reply, holds at most this many lines (`linesOf`, #1334). */
+  atMostLines?: number;
+  /** It must ask the User which (ask_user) before changing anything, or it may; absent: asking fails. */
+  asks?: "must" | "may";
+  /**
+   * True: it puts the last Answer into a Mind as it is (`answer: true`) and writes nothing new;
+   * false: it writes new text, not only a copy of the last Answer (#1734).
+   */
+  addsAnswer?: boolean;
 }
 
 export interface RequestOutcome {
   expected: Expected;
   answer: Pick<ConversationAnswer, "text" | "toolCalls" | "steps"> & {
-    citations: readonly Pick<MarkedCitation, "documentId" | "marker">[];
+    citations: readonly (Pick<MarkedCitation, "documentId" | "marker"> &
+      Partial<Pick<MarkedCitation, "documentName" | "pageFrom" | "pageTo" | "check">>)[];
     figures?: readonly Pick<MarkedFigure, "shown">[];
   };
   verdict: ClaimVerdict;
@@ -113,6 +140,10 @@ export interface RequestOutcome {
   scoped: readonly { id: string; name: string }[];
   /** The text of the Documents in scope, for `textDates`. */
   texts?: readonly string[];
+  /** It asked the User which (ask_user), and the Answer stopped there, waiting for them. */
+  stoppedAtAsk?: boolean;
+  /** The words it was asked about (#101): its first Citation must be them, found where they were selected. */
+  quoted?: AskedQuote;
 }
 
 export type RequestFailure =
@@ -138,7 +169,16 @@ export type RequestFailure =
   | { kind: "date-not-in-text"; dates: string[] }
   | { kind: "wrong-language"; wanted: "en" | "zh-CN"; share: number }
   | { kind: "no-figure"; wanted: string; shown: string[] }
-  | { kind: "gave-up"; said: string };
+  | { kind: "gave-up"; said: string }
+  | { kind: "term"; want: string; found: string[] }
+  | { kind: "other-documents"; documents: string[] }
+  | { kind: "too-long"; lines: number; most: number }
+  | { kind: "no-ask" }
+  | { kind: "asked" }
+  | { kind: "not-the-answer" }
+  | { kind: "only-a-copy" }
+  /** Its first Citation, as "document, pages, check", or null for none. */
+  | { kind: "not-quoted"; first: string | null };
 
 const QUOTED = /“[^”]*”|"[^"]*"|「[^」]*」|『[^』]*』/g;
 const CITATION_MARKER = /\[\^\d+\]/g;
@@ -422,6 +462,13 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   const failures: RequestFailure[] = [];
   const log = changeLogOf(answer.toolCalls);
   const changedAny = log.changed.size > 0 || log.made.size > 0;
+  // An Answer waiting on its question has nothing else to hold to yet, but must not have written first.
+  if (outcome.stoppedAtAsk) {
+    return [
+      ...(expected.asks === undefined ? [{ kind: "asked" } as const] : []),
+      ...(changedAny ? [{ kind: "changed-unasked" } as const] : []),
+    ];
+  }
   if (expected.write && !changedAny) failures.push({ kind: "no-change" });
   if (!expected.write && !expected.either && changedAny) {
     failures.push({ kind: "changed-unasked" });
@@ -508,6 +555,80 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
     const gaveUp = givesUpOnCalculating(answer.text);
     if (gaveUp) failures.push({ kind: "gave-up", said: gaveUp });
   }
+  for (const term of expected.terms ?? []) {
+    const text = inMinds.join("\n\n");
+    const found = term.not.filter((word) => text.includes(word));
+    if (!text.includes(term.want) || found.length > 0) {
+      failures.push({ kind: "term", want: term.want, found });
+    }
+  }
+  failures.push(...thisFailures(outcome));
+  return failures;
+}
+
+/** How many lines a reader sees in Markdown: a heading, a paragraph, a list item or a table row each one. */
+export function linesOf(markdown: string): number {
+  return markdown
+    .split("\n")
+    .filter((line) => line.trim() !== "" && !/^\s*\|?\s*:?-{3,}/.test(line)).length;
+}
+
+function otherDocuments(outcome: RequestOutcome, allowed: readonly string[]): string[] {
+  const cited = new Set([
+    ...outcome.answer.citations.map((citation) => citation.documentId),
+    ...outcome.citedInMinds,
+  ]);
+  const written = [outcome.answer.text, ...(outcome.writtenInMinds ?? [])]
+    .join("\n")
+    .toLocaleLowerCase();
+  return outcome.scoped
+    .filter(
+      (document) =>
+        !allowed.includes(document.name) &&
+        (cited.has(document.id) || written.includes(document.name.toLocaleLowerCase())),
+    )
+    .map((document) => document.name);
+}
+
+function thisFailures(outcome: RequestOutcome): RequestFailure[] {
+  const { expected, answer } = outcome;
+  const failures: RequestFailure[] = [];
+  if (expected.documents) {
+    const others = otherDocuments(outcome, expected.documents);
+    if (others.length > 0) failures.push({ kind: "other-documents", documents: others });
+  }
+  const given = (outcome.givenToMinds ?? []).filter((each) => each.landed);
+  if (expected.atMostLines !== undefined) {
+    const written = given.map((each) => each.content).join("\n");
+    const lines = linesOf(written || answer.text);
+    if (lines > expected.atMostLines) {
+      failures.push({ kind: "too-long", lines, most: expected.atMostLines });
+    }
+  }
+  const asked = answer.toolCalls.some((call) => call.tool === "ask_user");
+  if (expected.asks === "must" && !asked) failures.push({ kind: "no-ask" });
+  const copies = given.filter((each) => each.question !== undefined).length;
+  const fresh = given.length - copies;
+  if (expected.addsAnswer === true && (copies === 0 || fresh > 0)) {
+    failures.push({ kind: "not-the-answer" });
+  }
+  if (expected.addsAnswer === false && copies > 0 && fresh === 0) {
+    failures.push({ kind: "only-a-copy" });
+  }
+  const quoted = outcome.quoted;
+  const [first] = answer.citations;
+  if (
+    quoted &&
+    (first?.documentId !== quoted.documentId ||
+      first.pageFrom !== quoted.pageFrom ||
+      first.pageTo !== quoted.pageTo ||
+      first.check !== "found")
+  ) {
+    const said = first
+      ? `${first.documentName}, pp. ${first.pageFrom}–${first.pageTo}, ${first.check}`
+      : null;
+    failures.push({ kind: "not-quoted", first: said });
+  }
   return failures;
 }
 
@@ -554,7 +675,23 @@ export function failureLine(failure: RequestFailure): string {
       return `has no Calculated figure matching /${failure.wanted}/ (figures: ${failure.shown.length > 0 ? failure.shown.join(", ") : "none"})`;
     case "gave-up":
       return `says it couldn't calculate what its Citations give: “${failure.said}”`;
+    case "term":
+      return `doesn't write “${failure.want}” for it${failure.found.length > 0 ? `, but ${failure.found.map((word) => `“${word}”`).join(", ")}` : ""}`;
     case "wrong-language":
       return `is not written in ${failure.wanted === "en" ? "English" : "Chinese"}, the Question's language (${Math.round(failure.share * 100)}% of its letters are Chinese characters)`;
+    case "other-documents":
+      return `cites or names Documents it wasn't asked about: ${failure.documents.map((name) => `“${name}”`).join(", ")}`;
+    case "too-long":
+      return `asked for it short, wrote ${failure.lines} lines (at most ${failure.most})`;
+    case "no-ask":
+      return "didn't ask which Document was meant";
+    case "asked":
+      return "asked the User which, unasked";
+    case "not-the-answer":
+      return "didn't add the last Answer as it is, or wrote new text beside it";
+    case "only-a-copy":
+      return "asked for new notes, it only copied the last Answer";
+    case "not-quoted":
+      return `its first Citation isn't the selected words where they were selected (${failure.first ?? "no Citation"})`;
   }
 }

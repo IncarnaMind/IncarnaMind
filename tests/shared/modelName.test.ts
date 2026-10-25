@@ -10,6 +10,11 @@ describe("modelName", () => {
     expect(modelName("claude-haiku-4-5-20251001", { kind: "anthropic" })).toMatch(/^Claude Haiku/);
   });
 
+  test("a model's own provider names it before one that only resells it", () => {
+    expect(modelName("kimi-k2.6")).toBe("Kimi K2.6");
+    expect(modelName("kimi-k2.6", { kind: "kimi", endpoint: "intl" })).toBe("Kimi K2.6");
+  });
+
   test("leaves out models.dev's “(latest)”", () => {
     expect(modelName("claude-opus-4-5", { kind: "anthropic" })).toBe("Claude Opus 4.5");
   });

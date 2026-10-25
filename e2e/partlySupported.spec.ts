@@ -86,6 +86,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     await pointAndClick(window, marks.first());
     await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "unsupported");
+    await expect(card.getByTestId("claim-sentence")).toHaveText(`“${STAFF}”`);
     await expect(card.getByTestId("claim-covers")).toHaveText(words.covers);
     await expect(card.getByTestId("claim-quote")).toHaveText(CLAUSE);
     await expect(card.getByTestId("claim-nothing")).toHaveCount(0);
@@ -95,6 +96,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("viewer")).toBeVisible();
 
     await pointAndClick(window, marks.nth(1));
+    await expect(card.getByTestId("claim-sentence")).toHaveText(`“${UNRELATED}”`);
     await expect(card.getByTestId("claim-nothing")).toHaveText(words.nothing);
     await expect(card.getByTestId("claim-covers")).toHaveCount(0);
     await expect(card.getByTestId("claim-quote")).toHaveCount(0);

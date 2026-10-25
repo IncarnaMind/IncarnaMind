@@ -11,14 +11,14 @@ jobs:
   dco:
     name: Every commit is signed off (DCO)
     runs-on: ubuntu-latest
+    env:
+      BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Check each commit for a Signed-off-by line
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
           missing=0
           for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
@@ -28,3 +28,29 @@ jobs:
             fi
           done
           exit $missing
+      - name: Check that no commit is by, signed off by or credited to a tool
+        run: |
+          # Claude Code's own forms only: a person who happens to be named Claude is not refused.
+          tool_address='@anthropic\.com>?[[:space:]]*$'
+          tool_name='Claude([[:space:]]+(Opus|Sonnet|Haiku|Fable|Code|Agent)([^[:alnum:]]|$)|[[:space:]]+[0-9]|[[:space:]]*<)'
+          fix='Author the commit as yourself: set user.name and user.email, then run git commit --amend --reset-author -s (for several commits: git rebase --exec "git commit --amend --reset-author --no-edit -s" origin/main). See CONTRIBUTING.md.'
+          bad=0
+          for c in $(git rev-list "$BASE..$HEAD"); do
+            commit=$(git log -1 --format='%h %s' "$c")
+            message=$(git log -1 --format=%B "$c")
+            for who in "author $(git log -1 --format=%ae "$c")" "committer $(git log -1 --format=%ce "$c")"; do
+              if echo "${who#* }" | grep -qiE "$tool_address"; then
+                echo "::error::Commit $commit has the ${who%% *} address ${who#* }. Commits carry the contributor's own name and address, not an anthropic.com one. $fix"
+                bad=1
+              fi
+            done
+            if echo "$message" | grep -iE '^Signed-off-by:' | grep -qiE "$tool_address"; then
+              echo "::error::Commit $commit is signed off with an anthropic.com address. Sign it off with your own name and address. $fix"
+              bad=1
+            fi
+            if echo "$message" | grep -qiE "^Co-authored-by:[[:space:]]*($tool_name|.*$tool_address)"; then
+              echo "::error::Commit $commit has a Co-Authored-By trailer naming Claude (or an anthropic.com address). Delete that line from the commit message (git commit --amend, or reword for an older commit)."
+              bad=1
+            fi
+          done
+          exit $bad
