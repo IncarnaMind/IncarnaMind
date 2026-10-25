@@ -58,5 +58,12 @@ describe("a version from before numbered lists' schemes", () => {
     const [update] = sent;
     if (!update) throw new Error("Nothing sent.");
     await expect(core.applyMindUpdate(mind.id, update)).rejects.toThrow(MindReadOnlyError);
+    const after = new Y.Doc();
+    Y.applyUpdate(after, (await core.openMind(mind.id)).state);
+    const kept = after.getXmlFragment(MIND_CONTENT_FIELD).get(0);
+    if (!(kept instanceof Y.XmlElement)) throw new Error("No list.");
+    expect(kept.getAttribute(NUMBERING)).toBe("clauses");
+    expect(kept.getAttribute(START_LEVEL)).toBe(2);
+    expect(kept.getAttribute(CONTINUES)).toBe(true);
   });
 });
