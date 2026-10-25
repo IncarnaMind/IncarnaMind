@@ -117,15 +117,20 @@ export function whereShown(documents: readonly NamedDocument[]): Map<string, str
   const byName = new Map<string, NamedDocument[]>();
   for (const document of documents) {
     const key = sameName(displayName(document));
-    byName.set(key, [...(byName.get(key) ?? []), document]);
+    const group = byName.get(key);
+    if (group) group.push(document);
+    else byName.set(key, [document]);
   }
   const where = new Map<string, string>();
-  for (const group of byName.values()) {
-    if (group.length < 2) continue;
+  for (const named of byName.values()) {
+    if (named.length < 2) continue;
+    // By id, so twins at one path take their "(2)" in an order that doesn't change.
+    const group = [...named].sort((a, b) => a.id.localeCompare(b.id));
     const places = group.map((document) =>
       document.web ? [hostOf(document.web.address)] : foldersOf(document.path),
     );
-    const deepest = Math.max(...places.map((place) => place.length));
+    let deepest = 0;
+    for (const place of places) deepest = Math.max(deepest, place.length);
     const label = (place: string[], upTo: number) => place.slice(-upTo).join(" / ");
     const distinct = (upTo: number) => new Set(places.map((place) => label(place, upTo))).size;
     // As few folders as tell apart all that their whole paths can.
@@ -134,7 +139,7 @@ export function whereShown(documents: readonly NamedDocument[]): Map<string, str
     while (depth < deepest && distinct(depth) < most) depth++;
     const seen = new Map<string, number>();
     group.forEach((document, index) => {
-      const place = label(places[index] as string[], depth);
+      const place = label(places[index] ?? [], depth);
       const count = (seen.get(place) ?? 0) + 1;
       seen.set(place, count);
       const twins = places.filter((other) => label(other, depth) === place).length;

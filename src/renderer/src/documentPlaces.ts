@@ -16,8 +16,12 @@ let cached: {
 } | null = null;
 
 function foldersWithin(root: string, path: string): string | null {
-  const inside = path.slice(root.length).split(/[\\/]/).filter(Boolean).slice(0, -1);
-  return path.startsWith(root) && inside.length > 0 ? inside.join(" / ") : null;
+  if (!path.startsWith(root)) return null;
+  const after = path.slice(root.length);
+  // A sibling whose name starts with the root's ("/a/bc" for "/a/b") isn't inside it.
+  if (after !== "" && !/^[\\/]/.test(after)) return null;
+  const inside = after.split(/[\\/]/).filter(Boolean).slice(0, -1);
+  return inside.length > 0 ? inside.join(" / ") : null;
 }
 
 export function placesOf(

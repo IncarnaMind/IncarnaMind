@@ -69,6 +69,9 @@ const SORT_SCOPE = "library:all" as const;
 /** What `openLibrary` asked for that is not a section to show. */
 const FORMS = ["all", "starters"];
 
+/** What a Linked folder's row asks for: its Documents, by Source location (#1507). */
+const SOURCE_REQUEST = /^source:(.+)$/;
+
 /**
  * The Library tab (#240): one page of every Document, grouped by Folder, as a
  * Notion page of toggles or Finder's list view. Its head holds the title,
@@ -78,8 +81,6 @@ const FORMS = ["all", "starters"];
  * Recently deleted folded at the foot. A Folder opened from the sidebar brings
  * its section into view; the page still shows every Folder.
  */
-const SOURCE_REQUEST = /^source:(.+)$/;
-
 export function LibraryPane() {
   const t = useT();
   const language = useLanguage();
@@ -230,11 +231,10 @@ export function LibraryPane() {
       return;
     }
     if (FORMS.includes(request)) return;
-    // A Linked folder's row asked for its Documents: the Source location filter shows them.
-    const source = SOURCE_REQUEST.exec(request)?.[1];
-    if (source) {
+    const linkedFolderId = SOURCE_REQUEST.exec(request)?.[1];
+    if (linkedFolderId) {
       setSearch("");
-      setFacetFilter({ source: [source] });
+      setFacetFilter({ source: [linkedFolderId] });
       useAppStore.getState().setTagFilter([]);
       useAppStore.setState({ libraryFilter: "all" });
       return;

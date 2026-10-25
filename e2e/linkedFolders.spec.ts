@@ -22,6 +22,7 @@ import {
   openLinkedFolderMenu,
   pathsOpened,
   pathsShown,
+  pointAndClick,
   previewLink,
   removeDataFolder,
   setWindowSize,
@@ -340,16 +341,45 @@ test("two files with one name show where each is, and a Linked folder's row open
     .toEqual(["2025", "2026"]);
   await screenshot(window, "same-name-library");
 
-  // ⌘K names each with its folder.
+  const twins = await window.evaluate(async () => {
+    const api = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const documents = await api.listDocuments();
+    const idAt = (place: string) =>
+      documents.find((document) => document.path.endsWith(place))?.id ?? "";
+    return {
+      report2025: idAt("same-name/2025/Annual-Report.md"),
+      report2026: idAt("same-name/2026/Annual-Report.md"),
+    };
+  });
+
+  // The 2026 row opens the 2026 Document, not the twin its name matches.
+  await pointAndClick(
+    window,
+    window.locator(
+      `[data-testid="library-document"][data-document-id="${twins.report2026}"] [data-row-main]`,
+    ),
+  );
+  await expect(
+    window.locator(`[data-testid="document-tab"][data-document-id="${twins.report2026}"]`),
+  ).toHaveCount(1);
+
+  // ⌘K names each with its folder, and the row opens the Document it names.
   await window.keyboard.press("ControlOrMeta+k");
   await window.getByTestId("palette-search").fill("Annual-Report");
   const found = window.getByTestId("palette").getByTestId("palette-item");
   await expect(found.filter({ hasText: "Annual-Report · 2025" })).toHaveCount(1);
   await expect(found.filter({ hasText: "Annual-Report · 2026" })).toHaveCount(1);
+  await pointAndClick(
+    window,
+    window.locator(`[data-testid="palette"] [data-key="document:${twins.report2026}"]`),
+  );
+  await expect(
+    window.locator(`[data-testid="document-tab"][data-document-id="${twins.report2026}"]`),
+  ).toHaveCount(1);
   await app.close();
 });
 
-// protects=at 1,100 px a short name in a folder with a long name stays whole, in the sidebar and the Library, and the place is cut instead, with the place in the Library row's tooltip (#1507); fails_when=the name shows "会…" while its place keeps the room, or the tooltip leaves the place out; no_claim=names longer than the row, which are cut as before.
+// protects=at 900, 1,100 and 1,600 px a short name in a folder with a long name stays whole, in the sidebar and the Library, and the place is cut instead, with the place in the Library row's tooltip (#1507); fails_when=the name shows "会…" while its place keeps the room, or the tooltip leaves the place out; no_claim=names longer than the row, which are cut as before.
 test("a long place gives way before the name, in the sidebar and the Library", async () => {
   const minutes = join(sources, "纪要");
   await writeTree(minutes, [
@@ -367,18 +397,26 @@ test("a long place gives way before the name, in the sidebar and the Library", a
     name.evaluateAll((all) => all.map((each) => each.scrollWidth <= each.clientWidth));
   const cut = (place: Locator) =>
     place.evaluateAll((all) => all.map((each) => each.scrollWidth > each.clientWidth));
-  expect(await whole(rows.getByTestId("row-text"))).toEqual([true, true]);
-  expect(await cut(rows.getByTestId("row-place"))).toEqual([true, true]);
+  for (const width of [900, 1100, 1600]) {
+    await setWindowSize(app, window, width, 760);
+    expect(await whole(rows.getByTestId("row-text"))).toEqual([true, true]);
+    expect(await cut(rows.getByTestId("row-place"))).toEqual([true, true]);
+  }
+  await setWindowSize(app, window, 1100, 760);
   await screenshot(window.getByTestId("sidebar"), "long-place-rows");
 
   await linkedFolderRow(window, "纪要").getByTestId("linked-folder-open").click();
   const library = window.getByTestId("library-document");
   await expect(library).toHaveCount(2);
-  expect(await whole(library.getByTestId("library-document-name"))).toEqual([true, true]);
-  await expect(library.first().locator("[data-row-main]")).toHaveAttribute(
-    "title",
-    /^会议纪要 · 二〇二\S+汇编\n/,
-  );
+  for (const width of [900, 1100, 1600]) {
+    await setWindowSize(app, window, width, 760);
+    expect(await whole(library.getByTestId("library-document-name"))).toEqual([true, true]);
+    await expect(library.first().locator("[data-row-main]")).toHaveAttribute(
+      "title",
+      /^会议纪要 · 二〇二\S+汇编\n/,
+    );
+  }
+  await setWindowSize(app, window, 1100, 760);
   await screenshot(window, "long-place-library");
   await app.close();
 });

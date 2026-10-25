@@ -11,7 +11,7 @@ export const zhCN = {
   "library.search.hint": "按 / 搜索",
   "library.filter.add": "筛选",
   "library.filter.addLabel": "添加筛选条件",
-  "library.filter.source": "来源位置",
+  "library.filter.source": "文件位置",
   "library.filter.folder": "文件夹",
   "library.filter.remove": "移除“{filter}”筛选",
   "library.collapseAll": "全部收起",
