@@ -7,7 +7,12 @@
  * `data-applied-restore`. They go once the User edits.
  */
 import { type Editor, Extension, isMacOS } from "@tiptap/core";
-import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
+import {
+  DOMSerializer,
+  type Fragment,
+  type Node as ProseMirrorNode,
+  type Schema,
+} from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { relativePositionToAbsolutePosition, ySyncPluginKey } from "@tiptap/y-tiptap";
@@ -238,7 +243,7 @@ export function placeOfChange(
   const from = at(change.from);
   const inside = at(change.to);
   const end = inside === null ? null : state.doc.resolve(inside);
-  const to = change.block !== "added" ? inside : end && end.depth > 0 ? end.after(1) : null;
+  const to = change.block !== "added" ? inside : end && end.depth > 0 ? end.after() : null;
   return from === null || to === null || to < from ? null : { from, to };
 }
 
@@ -494,6 +499,21 @@ function changedBlockOf(
     : { key, pos, how: "words" };
 }
 
+/** Blocks an edit removed, as they were, struck: a list item one of its list's, a table a table. */
+function removedBlocks(schema: Schema, removed: Fragment): HTMLElement {
+  const drawn = DOMSerializer.fromSchema(schema).serializeFragment(removed);
+  const item = drawn.firstElementChild;
+  const ownItem =
+    removed.childCount === 1 &&
+    removed.firstChild?.type.name === "listItem" &&
+    item instanceof HTMLElement;
+  const element = ownItem ? item : document.createElement("div");
+  if (!ownItem) element.append(drawn);
+  element.classList.add("applied-old--block");
+  element.contentEditable = "false";
+  return element;
+}
+
 interface PlacedChange {
   change: AppliedChange;
   index: number;
@@ -605,10 +625,12 @@ function changeMarks(
     const oldDrawn = change.removed.size > 0 && oldShows;
     if (oldDrawn) {
       const old = () => {
-        const element = document.createElement(change.block ? "div" : "del");
-        element.className = change.block ? "applied-old applied-old--block" : "applied-old";
+        const element = change.block
+          ? removedBlocks(state.schema, change.removed)
+          : document.createElement("del");
+        element.classList.add("applied-old");
         element.dataset.appliedChange = String(index);
-        element.textContent = textOf(change.removed);
+        if (!change.block) element.textContent = textOf(change.removed);
         return element;
       };
       marks.push(

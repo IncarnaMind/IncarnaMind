@@ -21,7 +21,7 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
-import { type NodeJSON, topLevelBlocks } from "../answers/blocks";
+import { createElement, type NodeJSON, topLevelBlocks } from "../answers/blocks";
 import {
   BLOCK_ID_ATTRIBUTE,
   CHART_NODE,
@@ -32,7 +32,7 @@ import {
   PROPOSAL_INSERT_MARK,
   type TextPlace,
 } from "../api";
-import { citationsIn, setProposal, textBlocks } from "./write";
+import { citationsIn, proposeOver, setProposal, textBlocks } from "./write";
 
 /** The assistant's own waiting Blocks a stretch is in, from the first's top-level Block to the last's. */
 export interface OwnWaiting {
@@ -305,25 +305,28 @@ export function writtenByAnswer(
 }
 
 /**
- * Proposes `revised` in place of `applied`'s Blocks: each old one to remove and each new one to
- * add after them, as Proposals of `request`, so rejecting them leaves the text as it was.
- * Returns the new Blocks' ids; null, changing nothing, when the old ones changed since they
- * were read. Call it in a Yjs transaction.
+ * Proposes `revised` in place of `applied`'s Blocks, as Proposals of `request`, so rejecting
+ * them leaves the text as it was: only the paragraphs that differ change (`proposeOver`), or
+ * with `whole`, each old Block is removed and each new one added after them. Returns the ids of
+ * the Blocks `revised` is written as; null, changing nothing, when the old ones changed since
+ * they were read. Call it in a Yjs transaction.
  */
 export function replaceApplied(
   blocks: Y.XmlFragment,
   applied: OwnApplied,
-  revised: readonly Y.XmlElement[],
+  revised: readonly NodeJSON[],
   request: string,
+  { whole }: { whole: boolean },
 ): string[] | null {
   const old = blocksOf(blocks, applied);
   const last = old?.at(-1);
   if (!old || !last) return null;
+  if (!whole) return proposeOver(blocks, old, revised, request, randomUUID);
+  const added = revised.map(createElement);
   for (const element of old) setProposal(element, { id: randomUUID(), request, kind: "delete" });
-  blocks.insert(blocks.toArray().indexOf(last) + 1, [...revised]);
-  for (const element of revised)
-    setProposal(element, { id: randomUUID(), request, kind: "insert" });
-  return revised.map(idOf);
+  blocks.insert(blocks.toArray().indexOf(last) + 1, added);
+  for (const element of added) setProposal(element, { id: randomUUID(), request, kind: "insert" });
+  return added.map(idOf);
 }
 
 /** How many of the Citations in `over`'s Blocks `revised` leaves out; 0 once they have changed. */
