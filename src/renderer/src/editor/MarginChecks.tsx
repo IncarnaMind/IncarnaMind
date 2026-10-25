@@ -228,8 +228,7 @@ export function MarginChecks({
     <div ref={layer} className="margin-checks" data-testid="margin-checks">
       {marks.map((mark) => (
         <ClaimMark
-          // Keyed by the state too, so a mark whose check just came in is new, and enters.
-          key={`${mark.key}:${mark.state}`}
+          key={mark.key}
           claim={mark.claim}
           editor={editor}
           mindId={mind.id}

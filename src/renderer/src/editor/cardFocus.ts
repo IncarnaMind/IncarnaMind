@@ -1,4 +1,3 @@
-/** What Tab moves through in a card: its actions, in reading order. */
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -20,12 +19,21 @@ export function wrappedFocus(index: number, count: number, backward: boolean): n
   return index < 0 || index >= count - 1 ? 0 : null;
 }
 
-/** Keeps Tab and Shift+Tab within a card, wrapping at its ends (#1762). */
-export function keepFocusInside(
-  event: { key: string; shiftKey: boolean; preventDefault(): void },
-  container: HTMLElement,
-): void {
-  if (event.key !== "Tab") return;
+/** What a card's Tab key handler needs from a key press. */
+export interface TabPress {
+  key: string;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  target: EventTarget | null;
+  preventDefault(): void;
+}
+
+export function keepFocusInside(event: TabPress, container: HTMLElement): void {
+  // Ctrl+Tab and Ctrl+Shift+Tab switch tabs (commands/tabs.ts): a modified Tab is never the card's.
+  if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (!(event.target instanceof Node) || !container.contains(event.target)) return;
   const focusables = focusablesIn(container);
   const active = document.activeElement;
   const index = active instanceof HTMLElement ? focusables.indexOf(active) : -1;
@@ -35,8 +43,9 @@ export function keepFocusInside(
   focusables[next]?.focus();
 }
 
-/** The first of a card's actions takes the focus, or the card itself when it has none yet. */
-export function focusFirstAction(container: HTMLElement | null): void {
-  if (!container) return;
-  (focusablesIn(container)[0] ?? container).focus();
+export function focusFirstAction(
+  container: HTMLElement | null,
+  fallback: HTMLElement | null,
+): void {
+  (focusablesIn(container)[0] ?? fallback)?.focus();
 }

@@ -40,6 +40,7 @@ import { CitationView } from "../editor/CitationView";
 import { CodeBlockView } from "../editor/CodeBlockView";
 import { ComparisonTableView } from "../editor/ComparisonTableView";
 import { checklistLabel } from "../editor/checklistLabel";
+import { useCardPlace } from "../editor/checkPlace";
 import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
 import { ClaimChecks, setClaimContext } from "../editor/claimChecks";
@@ -132,7 +133,6 @@ import { CompareSheet } from "./CompareSheet";
 import { StartGuide, useIsExample } from "./GettingStarted";
 import { CheckLineIcon, MineLineIcon, SearchLineIcon } from "./lineIcons";
 import { MindNotice } from "./MindNotice";
-import { useTabPlace } from "./tabs/tabItems";
 
 /** Stands in for the hint's button in its translated words, which are split around it. */
 const ASK = "\uE000";
@@ -281,7 +281,7 @@ function MindEditorView({
 }) {
   const t = useT();
   const isExample = useIsExample(mindId);
-  const place = useTabPlace()?.tabId ?? mindId;
+  const place = useCardPlace(mindId);
   const dock = useContext(ComposerDockContext);
   const slots = useContext(PageSlotsContext);
   const sheetSlot = useContext(CompareSheetSlotContext);

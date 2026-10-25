@@ -102,10 +102,8 @@ function searchTheWeb(mindId: string, sentence: string): void {
  * instead), an amber "!", an outlined red "≠", a grey ring when it wasn't
  * checked, ↻ when it needs a re-check. Hovering or focusing it shows its card,
  * and clicking keeps the card until it is dismissed; Esc closes it and puts
- * the caret back in the sentence. Enter or Space on the focused mark, and the
- * "Show the check for this sentence" command, open the card with the focus on
- * its first action, where Tab and Shift+Tab wrap (#1762). While the card is
- * open, its sentence is outlined.
+ * the caret back in the sentence. While the card is open, its sentence is
+ * outlined.
  */
 export function ClaimMark({
   claim,
@@ -161,11 +159,10 @@ export function ClaimMark({
   }, [place, id]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
-  /** The first action of a card opened from the keyboard takes the focus (#1762). */
   const takeFirstAction = useCallback(() => {
-    focusFirstAction(card.current);
+    focusFirstAction(card.current, button);
     setClaimFocus(place, null);
-  }, [place]);
+  }, [place, button]);
   useEffect(() => {
     if (requestedFocus) openedByKeyboard.current = true;
   }, [requestedFocus]);
@@ -173,6 +170,12 @@ export function ClaimMark({
   useEffect(() => {
     if (!open) openedByKeyboard.current = false;
   }, [open]);
+  // A new verdict can take the focused action away: the focus would fall to the page, not the Mind.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the verdict is when the action can go.
+  useEffect(() => {
+    if (!open || document.activeElement !== document.body) return;
+    focusFirstAction(card.current, button);
+  }, [open, state, button]);
   // A card already open under the mouse: the popover only takes the focus as it first shows.
   useEffect(() => {
     if (!requestedFocus || !open) return;
@@ -184,7 +187,6 @@ export function ClaimMark({
     [requestedFocus, takeFirstAction],
   );
 
-  /** Esc gives the caret back where it was, in the text the card is about (#1762). */
   const returnToNote = () => {
     if (editor.isDestroyed || !editor.view.dom.checkVisibility()) return;
     editor.view.focus();
@@ -235,10 +237,11 @@ export function ClaimMark({
           if (!isQuietFocus(event.currentTarget)) hold("focus", true);
         }}
         onBlur={() => hold("focus", false)}
-        onClick={(event) => {
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") setClaimFocus(place, id);
+        }}
+        onClick={() => {
           setOpenClaim(place, id);
-          // Enter or Space on the focused mark: the card takes the focus, as the command's does.
-          if (event.detail === 0) setClaimFocus(place, id);
           // Step 1 of the first open's steps, "See a mistake it caught".
           if (state === "contradicted") {
             useAppStore.getState().updateGettingStarted({ mistakeSeen: true });
@@ -542,7 +545,6 @@ function ClaimCard({
   return (
     <div
       ref={rootRef}
-      tabIndex={-1}
       className={`citation-card citation-card--${TONE[state]}`}
       contentEditable={false}
     >
