@@ -582,6 +582,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const at760 = await gutters();
     expectNear(at760.left, 40, 1, "the left margin at 760px");
     expectNear(at760.right, 40, 1, "the right margin at 760px");
+    await expect(marks.first()).toBeVisible();
     const mark = await box(marks.first());
     const text = await textColumn(editor);
     expect.soft(mark.x).toBeGreaterThanOrEqual(text.x + text.width);
@@ -589,6 +590,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // Folded under 760px: the mark keeps to the gutter, both gutters stay 40px, and the text edge doesn't move.
     await sizeMind(app, window, 650);
+    await expect(marks.first()).toBeVisible();
     const foldedMark = await box(marks.first());
     const foldedText = await textColumn(editor);
     expect.soft(foldedMark.x).toBeGreaterThanOrEqual(foldedText.x + foldedText.width);
