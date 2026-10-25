@@ -1657,7 +1657,8 @@
    * The undo line with the sidebar out of sight (#1776): the card's bottom left corner, 16px in
    * from the window's edges, since the sidebar's foot is gone. Inside the card it stays above the
    * assistant's composer and right of one docked on the left, and its width leaves the check badge
-   * at the foot's other end alone. Raised over the first open's Ask pill, which sits centred there.
+   * at the foot's other end alone. It sits in the gutter left of the page's text, or in a band
+   * under the shortened page (UndoPill.tsx), so it covers none of that text (#1914).
    */
   .undo-pill-place {
     position: absolute;
@@ -1665,17 +1666,19 @@
     left: 8px;
     z-index: 20;
     max-width: min(360px, calc(100% - 16px));
-
-    &[data-quiet] {
-      bottom: 68px;
-    }
+    pointer-events: none;
   }
+  /* Text under the pill stays pressable: the shell and its words let presses through. */
   .undo-pill {
     box-sizing: border-box;
     padding: 4px 8px 4px 12px;
     border-radius: 16px;
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
+    pointer-events: none;
+  }
+  .undo-pill button {
+    pointer-events: auto;
   }
   .mind-health-note {
     margin: 0;
