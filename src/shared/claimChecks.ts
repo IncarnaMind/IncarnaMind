@@ -92,6 +92,9 @@ function calculationOf(value: unknown): ClaimCalculation | null {
     figure: figure as unknown as CalculatedFigure,
     stated,
     agrees: value.agrees === true,
+    ...((value.relation === "at most" || value.relation === "at least") && {
+      relation: value.relation,
+    }),
   };
 }
 

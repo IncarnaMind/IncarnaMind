@@ -172,7 +172,9 @@ describe("A Tool that may change something asks first", { timeout: 30_000 }, () 
     });
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
     const request = await requested;
-    const decidedAfter = 1_000;
+    // Long enough that a machine under load still produces its first word well inside it,
+    // while an Answer that counted the wait would pass the bound.
+    const decidedAfter = 3_000;
     await new Promise((resolve) => setTimeout(resolve, decidedAfter));
     await core.respondToApproval(request.requestId, "allow-once");
     const answerId = await ended;

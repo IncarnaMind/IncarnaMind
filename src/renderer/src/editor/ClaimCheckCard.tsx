@@ -387,7 +387,12 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
       </p>
       {!calculation.agrees && (
         <p data-testid="claim-stated" className="claim-card-says">
-          {t("claim.calculated.stated", { stated: calculation.stated })}
+          {t(
+            calculation.relation
+              ? `claim.calculated.stated.${calculation.relation}`
+              : "claim.calculated.stated",
+            { stated: calculation.stated },
+          )}
         </p>
       )}
       <ul aria-label={t("claim.calculated.inputs")} className="claim-card-inputs">

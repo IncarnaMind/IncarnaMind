@@ -129,6 +129,7 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
             formula: "n1 / n2",
             as: "times",
             stated: multiple,
+            relation: "equals",
           },
         ],
       },

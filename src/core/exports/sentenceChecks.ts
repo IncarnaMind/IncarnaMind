@@ -39,7 +39,11 @@ export function failedSentences(
         says: check.says,
         worked:
           calculation && !calculation.agrees
-            ? { shown: calculation.figure.shown, stated: calculation.stated }
+            ? {
+                shown: calculation.figure.shown,
+                stated: calculation.stated,
+                ...(calculation.relation && { relation: calculation.relation }),
+              }
             : null,
       });
     } else if (shown.state === "unsupported" && check.citedCaseUnchecked) {

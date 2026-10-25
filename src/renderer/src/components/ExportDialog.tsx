@@ -400,7 +400,10 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     packCitations: number;
     fromWord: boolean;
     theirChanges: number;
+    unreadFiles: number;
+    unreadFileNames: boolean;
   } | null>(null);
+  const [nameUnreadFiles, setNameUnreadFiles] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const { format } = draft;
@@ -441,13 +444,16 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     let current = true;
     core.previewMindExport(mind.id, { format: "source-pack" }).then(
       (preview) => {
-        if (current)
-          setCounts({
-            questions: preview.questions,
-            packCitations: preview.citations,
-            fromWord: preview.fromWord,
-            theirChanges: preview.theirChanges,
-          });
+        if (!current) return;
+        setCounts({
+          questions: preview.questions,
+          packCitations: preview.citations,
+          fromWord: preview.fromWord,
+          theirChanges: preview.theirChanges,
+          unreadFiles: preview.unreadFiles,
+          unreadFileNames: preview.unreadFileNames,
+        });
+        setNameUnreadFiles((chosen) => chosen ?? preview.unreadFileNames);
       },
       (error: unknown) => useAppStore.getState().reportError(error),
     );
@@ -463,6 +469,13 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     try {
       const settings = await core.updateSettings({ user: { exportOptions: draft } });
       useAppStore.setState({ settings });
+      if (
+        nameUnreadFiles !== null &&
+        counts !== null &&
+        nameUnreadFiles !== counts.unreadFileNames
+      ) {
+        await core.setMindUnreadFileNames(mind.id, nameUnreadFiles);
+      }
       const before = shared?.documents
         .filter((each) => each.textOnly)
         .map((each) => each.documentId);
@@ -602,6 +615,17 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
             draft={draft.docx}
             fromWord={counts?.fromWord ?? false}
             onChange={(docx) => setDraft({ ...draft, docx })}
+          />
+        )}
+
+        {/* A Word round trip writes back into the imported file, which gets no unread section. */}
+        {!(format === "docx" && counts?.fromWord) && (counts?.unreadFiles ?? 0) > 0 && (
+          <SwitchRow
+            label={t("export.unreadNames")}
+            hint={t("export.unreadNames.hint")}
+            checked={nameUnreadFiles ?? false}
+            onChange={setNameUnreadFiles}
+            testId="export-unread-names"
           />
         )}
 
