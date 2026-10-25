@@ -4,7 +4,11 @@
  * the engine with scripted models, in the Tool loop and with structured output.
  */
 import { describe, expect, test } from "vitest";
-import { placeMissingMarkers, withMissingMarkers } from "../../src/core/answers/markerPlacement";
+import {
+  placeMissingMarkers,
+  withFigureCitations,
+  withMissingMarkers,
+} from "../../src/core/answers/markerPlacement";
 import {
   askAndFinish,
   citationsIn,
@@ -137,6 +141,55 @@ describe("Placing a missing marker", () => {
         placed: [],
       });
     }
+  });
+});
+
+describe("A figure's Citations, where it has none (#1831)", () => {
+  // "[^1]" cites the Passage the figures' inputs quote; "[^2]", another claim's.
+  const citations = (figure: number, cited: readonly number[]) =>
+    figure === 2 || cited.includes(1) ? [] : [figure + 4];
+  const million = { value: 310e6, shown: "£310 million", show: { language: "en" as const } };
+  const figureOf = (figure: number) =>
+    figure === 4
+      ? { ...million, show: { ...million.show, as: null, decimals: null, scale: "million" } }
+      : null;
+  const cite = (text: string, of = citations) => withFigureCitations(text, of, figureOf);
+
+  // protects=a figure's Citations go right after it, in English and Chinese, a cell's at its end, never where its Passage is already cited, and also where only another claim is; fails_when=net debt's marker lands on the EBITDA number, a figure already cited gets a second one, or a figure looks cited by its neighbour's Citation; no_claim=which quotes a figure has, which calculate keeps.
+  test("go right after each figure, and nowhere its Passage is already cited", () => {
+    expect(cite("Net debt was [=1] at Q3. EBITDA was [=3].")).toBe(
+      "Net debt was [=1][^5] at Q3. EBITDA was [=3][^7].",
+    );
+    expect(cite("Net debt was [=1], against EBITDA of £95 million.")).toBe(
+      "Net debt was [=1][^5], against EBITDA of £95 million.",
+    );
+    expect(cite("净负债为[=1]；调整后EBITDA为[=3]。")).toBe(
+      "净负债为[=1][^5]；调整后EBITDA为[=3][^7]。",
+    );
+    expect(cite("[=1]")).toBe("[=1][^5]");
+    const table = "| Metric | Q3 |\n|---|---|\n| Net debt | [=1] (draft) |\n| EBITDA | [=3] [^2] |";
+    expect(cite(table)).toBe(
+      "| Metric | Q3 |\n|---|---|\n| Net debt | [=1] (draft)[^5] |\n| EBITDA | [=3] [^2][^7] |",
+    );
+    expect(cite("Net debt was [=1] at Q3[^1].")).toBe("Net debt was [=1] at Q3[^1].");
+    expect(cite("Net debt was [=1] and EBITDA 95,000 [^2].")).toBe(
+      "Net debt was [=1][^5] and EBITDA 95,000 [^2].",
+    );
+    expect(cite("Net debt was [=1]. [^1]")).toBe("Net debt was [=1]. [^1]");
+    expect(cite("净负债为[=1]。 [^1]")).toBe("净负债为[=1]。 [^1]");
+    expect(cite("A margin of [=2].")).toBe("A margin of [=2].");
+    expect(cite("```\n[=1]\n```")).toBe("```\n[=1]\n```");
+    expect(cite("Net debt was [=1], and `[=1]` is how it is written.")).toBe(
+      "Net debt was [=1][^5], and `[=1]` is how it is written.",
+    );
+  });
+
+  // protects=a scale written after a figure's marker is the figure's, so its Citation goes after the scale; one shared by two figures goes after the last; fails_when="[=4][^8] million" splits the figure from its scale, or a shared marker is written twice; no_claim=none beyond protects.
+  test("go past the scale written after a figure, and once for figures that share them", () => {
+    expect(cite("Net debt was [=4] million at Q3.")).toBe("Net debt was [=4] million[^8] at Q3.");
+    expect(cite("Net debt [=1] and EBITDA [=3] at Q3.", () => [5])).toBe(
+      "Net debt [=1] and EBITDA [=3][^5] at Q3.",
+    );
   });
 });
 

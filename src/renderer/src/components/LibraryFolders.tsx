@@ -132,11 +132,14 @@ export function LibraryFolders({
   documents,
   renderDocument,
   quiet = false,
+  hideExamples = false,
 }: {
   /** The Documents to show, already filtered by Tag. */
   documents: readonly Document[];
   renderDocument(document: Document, depth: number): ReactNode;
   quiet?: boolean;
+  /** Leaves the example Minds out, once the examples are folded to one row (#1944). */
+  hideExamples?: boolean;
 }) {
   const t = useT();
   const openMindFolder = useAppStore(
@@ -151,7 +154,9 @@ export function LibraryFolders({
     if (openMindFolder) useFolds.getState().reveal(openMindFolder);
   }, [openMindId, openMindFolder]);
 
-  const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents);
+  const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents, {
+    hideExamples,
+  });
 
   const draggingOut = useDraggedOutOfFolder();
   const looseMinds = mindsByFolder.get(null) ?? NO_MINDS;

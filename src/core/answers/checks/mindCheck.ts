@@ -22,7 +22,12 @@
  *    next run doesn't send them again.
  */
 import { randomUUID } from "node:crypto";
-import { addedCouldChange, claimCheckShown, restsOn } from "../../../shared/claimChecks";
+import {
+  addedCouldChange,
+  checkedSentence,
+  claimCheckShown,
+  restsOn,
+} from "../../../shared/claimChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -231,8 +236,13 @@ export function createMindCheck(options: MindCheckOptions) {
     const scope = content.readSettings(mindId, mindScopeIn);
     const added = mode === "added" ? addedSince(mindId) : null;
     return content.read(mindId, (blocks) => {
-      const sentences = everySentence(blocks).filter((sentence) => isClaim(sentence.text));
-      const keys = new Set(sentences.map((sentence) => sentenceKey(sentence.text)));
+      // Every sentence is read; the one count decides which have a check to make, whatever makes a claim (#1909).
+      const sentences = everySentence(blocks);
+      const keys = new Set(
+        sentences
+          .filter((sentence) => isClaim(sentence.text))
+          .map((sentence) => sentenceKey(sentence.text)),
+      );
       const widened = new Set<SelectedSentence>();
       const marks = markedSentences(blocks);
       const markOf = (sentence: SelectedSentence) =>
@@ -244,9 +254,20 @@ export function createMindCheck(options: MindCheckOptions) {
         const fresh: SelectedSentence[] = [];
         const again: SelectedSentence[] = [];
         for (const sentence of sentences) {
-          if (keptAsView(marks, sentence)) continue;
-          if (markOf(sentence)) again.push(sentence);
-          else if (!skipped.has(sentenceKey(sentence.text))) fresh.push(sentence);
+          const mark = markOf(sentence);
+          const state = checkedSentence({
+            text: sentence.text,
+            check: mark
+              ? claimCheckShown(mark.check, { text: sentence.text, versions, folderId, scope })
+              : null,
+            skipped: skipped.has(sentenceKey(sentence.text)),
+            kept: keptAsView(marks, sentence),
+          });
+          if (state.kind === "kept" || state.kind === "checking" || state.kind === "not-claim") {
+            continue;
+          }
+          if (mark) again.push(sentence);
+          else fresh.push(sentence);
         }
         return { fresh, again, keys, skipped, widened, held: [] };
       }
@@ -274,19 +295,21 @@ export function createMindCheck(options: MindCheckOptions) {
           if (mark.check.scope.widened) widened.add(sentence);
           continue;
         }
-        if (!mark) {
-          if (!skipped.has(sentenceKey(sentence.text))) fresh.push(sentence);
+        const state = checkedSentence({
+          text: sentence.text,
+          check: mark
+            ? claimCheckShown(mark.check, { text: sentence.text, versions, folderId, scope })
+            : null,
+          skipped: skipped.has(sentenceKey(sentence.text)),
+          kept: keptAsView(marks, sentence),
+        });
+        if (state.kind === "to-check") {
+          if (state.fresh) fresh.push(sentence);
+          else again.push(sentence);
           continue;
         }
-        const shown = claimCheckShown(mark.check, {
-          text: sentence.text,
-          versions,
-          folderId,
-          scope,
-        });
-        if (shown.state === "needs-recheck") again.push(sentence);
-        else if (shown.state === "kept" || shown.state === "checking") continue;
-        else if (shown.state === "not-checked" || leftScope(mark.check)) again.push(sentence);
+        if (state.kind !== "covered" || !mark) continue;
+        if (leftScope(mark.check)) again.push(sentence);
         else held.push(mark.check.checkedAt);
       }
       return { fresh, again, keys, skipped, widened, held };

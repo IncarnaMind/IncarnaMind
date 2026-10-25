@@ -37,9 +37,6 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
 
 const keyOf = (target: ObjectRef) => `${target.kind}:${target.id}`;
 
-const opensMenu = (event: KeyboardEvent) =>
-  event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
-
 const ROW = "[data-object-row]";
 
 function focusRow(from: HTMLElement | null): void {
@@ -55,24 +52,32 @@ function focusRow(from: HTMLElement | null): void {
 }
 
 /**
- * What a row needs for its object's menu: `buttonProps` for the ⋯ button (so
- * the row finds it), and `rowProps` for the row, so a right-click, the
- * context-menu key or Shift+F10 on it opens the menu the ⋯ button opens.
+ * What a row needs for its menu: `buttonProps` for the ⋯ button (so the row
+ * finds it), and `rowProps` for the row, so a right-click, the context-menu
+ * key or Shift+F10 on it opens the menu the ⋯ button opens. A row without an
+ * object, the examples' (#1944), passes null and the button that finds its own.
  */
-export function useObjectMenu(target: ObjectRef) {
-  const key = keyOf(target);
+export function useObjectMenu(
+  target: ObjectRef | null,
+  buttonOf?: (row: HTMLElement) => HTMLButtonElement | null,
+) {
+  const key = target ? keyOf(target) : null;
+  const findButton = (row: HTMLElement): HTMLButtonElement | null =>
+    key !== null
+      ? row.querySelector<HTMLButtonElement>(`[data-object-menu="${CSS.escape(key)}"]`)
+      : (buttonOf?.(row) ?? null);
   const open = (
     row: HTMLElement,
     buttons: number,
     at: { x: number; y: number; above?: number },
   ): boolean => {
-    const button = row.querySelector<HTMLButtonElement>(`[data-object-menu="${CSS.escape(key)}"]`);
+    const button = findButton(row);
     if (!button) return false;
     openMenuFromRightClick(button, buttons, at);
     return true;
   };
   return {
-    buttonProps: { "data-object-menu": key },
+    buttonProps: key !== null ? { "data-object-menu": key } : {},
     rowProps: {
       "data-object-row": "",
       onContextMenu(event: MouseEvent<HTMLElement>) {
@@ -87,7 +92,8 @@ export function useObjectMenu(target: ObjectRef) {
         }
       },
       onKeyDown(event: KeyboardEvent<HTMLElement>) {
-        if (!opensMenu(event) || event.defaultPrevented) return;
+        const opensMenu = event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
+        if (!opensMenu || event.defaultPrevented) return;
         const field = event.target;
         if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return;
         const box = event.currentTarget.getBoundingClientRect();
