@@ -38,7 +38,7 @@ const HOSTED_URL = "https://api.typesafe.ai";
 const toPercent = (probability: number) => Math.round(probability * 100);
 
 /**
- * Settings → Models → Tagging, at its foot: TypeSafe Jev with a key (and, for
+ * Settings → Models → Advanced → Tagging, at its foot: TypeSafe Jev with a key (and, for
  * Jev-compatible models, another server), plus the band of probabilities
  * whose Tags are marked for review. Once set up, Automatic tags with it.
  */

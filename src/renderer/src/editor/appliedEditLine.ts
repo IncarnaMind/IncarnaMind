@@ -7,10 +7,16 @@
  * `data-applied-restore`. They go once the User edits.
  */
 import { type Editor, Extension, isMacOS } from "@tiptap/core";
-import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { relativePositionToAbsolutePosition, ySyncPluginKey } from "@tiptap/y-tiptap";
+import {
+  absolutePositionToRelativePosition,
+  relativePositionToAbsolutePosition,
+  ySyncPluginKey,
+} from "@tiptap/y-tiptap";
+import * as Y from "yjs";
+import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { type ChangeKind, countChanged } from "../../../shared/proposals";
@@ -52,8 +58,8 @@ export interface KeptLine {
   mixed: boolean;
 }
 
-/** One change an applied edit made: where its new words are, as Yjs positions that hold through edits, and the old ones it took out. */
-export interface AppliedChange {
+/** Where one change an applied edit made is: its new words, as Yjs positions that hold through edits, and the old ones it took out. */
+export interface ChangePlace {
   from: unknown;
   to: unknown;
   removed: Fragment;
@@ -64,6 +70,17 @@ export interface AppliedChange {
    * paragraph's text, as the positions before its old words went with them.
    */
   paragraph?: string;
+}
+
+/** One change an applied edit made, and what it wrote: Restore original puts the old words back only over those, as they were (#1795). */
+export interface AppliedChange extends ChangePlace {
+  written: Fragment;
+  /** The Block its new words are in, where they are found again (`changeNow`). */
+  blockId: string | null;
+  /** Its first new word's or Block's own Yjs item; null for one that only took words out. */
+  start: unknown;
+  /** Words it only took out: the text either side of where they were, up to the next change in its Block. */
+  around?: { before: string; after: string };
 }
 
 export type AppliedLine = (
@@ -87,6 +104,8 @@ export type AppliedLine = (
       undo?: { available(): boolean; mind: string };
       /** Changes, and sections, whose old text shows, struck (`changeOriginals`). */
       shown?: readonly string[];
+      /** Still shown: not restored since, and the edit not undone. */
+      shows?(change: AppliedChange): boolean;
     }
   | {
       kind: "held";
@@ -156,7 +175,7 @@ function restoreButton(index: number, count: number, t: Translate): HTMLButtonEl
   return each;
 }
 
-function restoreHolder(button: HTMLButtonElement, ownLine: boolean): HTMLElement {
+function restoreHolder(button: HTMLElement, ownLine: boolean): HTMLElement {
   const holder = document.createElement(ownLine ? "div" : "span");
   holder.contentEditable = "false";
   holder.className = ownLine
@@ -222,11 +241,12 @@ function text(className: string, words: string, testId?: string): HTMLSpanElemen
 const waitingOf = (doc: ProseMirrorNode, request: string) =>
   proposalsIn(doc).filter((each) => each.request === request).length;
 
-/** Where a change is in the editor now; null once its words are gone. */
-export function placeOfChange(
-  state: EditorState,
-  change: AppliedChange,
-): { from: number; to: number } | null {
+interface Place {
+  from: number;
+  to: number;
+}
+
+function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
   if (change.paragraph) {
     const found = blockAt(state.doc, change.paragraph);
     return found ? { from: found.pos + 1, to: found.pos + found.node.nodeSize - 1 } : null;
@@ -237,12 +257,151 @@ export function placeOfChange(
     relativePositionToAbsolutePosition(binding.doc, binding.type, relative, binding.mapping);
   const from = at(change.from);
   const inside = at(change.to);
-  const end = inside === null ? null : state.doc.resolve(inside);
+  const end = inside === null || inside > state.doc.content.size ? null : state.doc.resolve(inside);
   const to = change.block !== "added" ? inside : end && end.depth > 0 ? end.after(1) : null;
-  return from === null || to === null || to < from ? null : { from, to };
+  return from === null || to === null || to < from || to > state.doc.content.size
+    ? null
+    : { from, to };
 }
 
 const textOf = (removed: Fragment) => removed.textBetween(0, removed.size, "\n", "￼");
+
+function contentAt(doc: ProseMirrorNode, place: Place): Fragment {
+  const $from = doc.resolve(place.from);
+  const $to = doc.resolve(place.to);
+  return $from.sameParent($to)
+    ? $from.parent.content.cut($from.parentOffset, $to.parentOffset)
+    : doc.slice(place.from, place.to).content;
+}
+
+const asWritten = (doc: ProseMirrorNode, change: AppliedChange, place: Place) =>
+  contentAt(doc, place).eq(change.written);
+
+// Whether the Yjs item a position holds to is still there, through Undo and Redo: a change's own
+// first word or Block, never the same words pasted where it was.
+function holds(state: EditorState, relative: unknown): boolean {
+  const store = ySyncPluginKey.getState(state)?.binding?.doc.store;
+  if (!store || !(relative instanceof Y.RelativePosition) || relative.item === null) return true;
+  let item = Y.getItem(store, relative.item);
+  while (item instanceof Y.Item && item.redone) item = Y.getItem(store, item.redone);
+  return item instanceof Y.Item && !item.deleted;
+}
+
+// Its place can take in words typed just after it, as its end holds to what follows, and a
+// paragraph written anew is all that paragraph: its own words still start where they did.
+function foundAgain(state: EditorState, change: AppliedChange): Place | null {
+  const { doc } = state;
+  if (change.block === "added") {
+    const block = change.blockId === null ? null : blockAt(doc, change.blockId);
+    const place = block && { from: block.pos, to: block.pos + change.written.size };
+    return place && place.to <= doc.content.size && asWritten(doc, change, place) ? place : null;
+  }
+  const binding = ySyncPluginKey.getState(state)?.binding;
+  const from = binding
+    ? relativePositionToAbsolutePosition(binding.doc, binding.type, change.start, binding.mapping)
+    : null;
+  const place = from === null ? null : { from, to: from + change.written.size };
+  return place && place.to <= doc.content.size && asWritten(doc, change, place) ? place : null;
+}
+
+const textAt = (doc: ProseMirrorNode, from: number, to: number) =>
+  doc.textBetween(from, to, "\n", "\uFFFC");
+
+// Putting back words it only took out is safe while the text either side is as the edit left it.
+function removalNow(
+  state: EditorState,
+  change: AppliedChange,
+  anchored: Place | null,
+): { place: Place; written: boolean } | null {
+  if (!anchored) return null;
+  if (change.block === "removed") return { place: anchored, written: true };
+  const block = change.blockId === null ? null : blockAt(state.doc, change.blockId);
+  if (!block) return null;
+  const start = block.pos + 1;
+  const end = block.pos + block.node.nodeSize - 1;
+  const at = anchored.from;
+  const { before = "", after = "" } = change.around ?? {};
+  const written =
+    start <= at &&
+    at <= end &&
+    textAt(state.doc, start, at).endsWith(before) &&
+    textAt(state.doc, at, end).startsWith(after);
+  return { place: anchored, written };
+}
+
+/**
+ * Where a change is in the editor now, and whether it holds what it wrote,
+ * the same words, AI text as they were: the User hasn't touched them since.
+ * Null once its words are gone.
+ */
+export function changeNow(
+  state: EditorState,
+  change: AppliedChange,
+): { place: Place; written: boolean } | null {
+  const anchored = anchoredPlace(state, change);
+  if (change.written.size === 0) return removalNow(state, change, anchored);
+  if (holds(state, change.start)) {
+    if (anchored && asWritten(state.doc, change, anchored)) {
+      return { place: anchored, written: true };
+    }
+    const again = foundAgain(state, change);
+    if (again) return { place: again, written: true };
+  }
+  return anchored && { place: anchored, written: false };
+}
+
+export const placeOfChange = (state: EditorState, change: AppliedChange): Place | null =>
+  changeNow(state, change)?.place ?? null;
+
+const blockIdOf = (node: ProseMirrorNode | null | undefined): string | null => {
+  const id: unknown = node?.attrs[BLOCK_ID_ATTRIBUTE];
+  return typeof id === "string" ? id : null;
+};
+
+// A ProseMirror place's Yjs position holds to the item before it; this one holds to the item at it.
+function itemAt(state: EditorState, pos: number): Y.RelativePosition | null {
+  const binding = ySyncPluginKey.getState(state)?.binding;
+  if (!binding) return null;
+  const before = absolutePositionToRelativePosition(pos, binding.type, binding.mapping);
+  const at = Y.createAbsolutePositionFromRelativePosition(before, binding.doc);
+  return at && Y.createRelativePositionFromTypeIndex(at.type, at.index, 0);
+}
+
+/** The changes as they are once applied: what each wrote, and the Block it is in. */
+export function appliedChanges(
+  state: EditorState,
+  places: readonly ChangePlace[],
+): AppliedChange[] {
+  const { doc } = state;
+  const placed = places.map((change) => anchoredPlace(state, change));
+  return places.map((change, index) => {
+    const place = placed[index];
+    if (!place) return { ...change, written: Fragment.empty, blockId: null, start: null };
+    const $from = doc.resolve(place.from);
+    const blockId =
+      change.block === "removed"
+        ? null
+        : change.block === "added"
+          ? blockIdOf(doc.nodeAt(place.from))
+          : $from.parent.isTextblock
+            ? blockIdOf($from.parent)
+            : null;
+    const written = contentAt(doc, place);
+    if (written.size > 0) return { ...change, written, blockId, start: itemAt(state, place.from) };
+    if (change.block !== null || !$from.parent.isTextblock) {
+      return { ...change, written, blockId, start: null };
+    }
+    let from = $from.start();
+    let to = $from.end();
+    for (const other of placed) {
+      if (!other || other === place) continue;
+      if (other.to <= place.from && other.to > from) from = other.to;
+      if (other.from >= place.from && other.from < to) to = other.from;
+    }
+    const around = { before: textAt(doc, from, place.from), after: textAt(doc, place.from, to) };
+    return { ...change, written, blockId, start: null, around };
+  });
+}
 
 const COUNTED: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
@@ -423,7 +582,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
     const undo = button("undo-all", t("edit.review.undoAll"));
     if (line.undo && !line.undo.available()) {
       undo.setAttribute("aria-disabled", "true");
-      undo.title = t("mindChanges.undo.changedSince", { mind: line.undo.mind });
+      undo.title = t("mindChanges.undo.changedSince.noReview", { mind: line.undo.mind });
     }
     return lineElement("applied-line", "applied-line", [
       sparkle(),
@@ -498,6 +657,7 @@ interface PlacedChange {
   change: AppliedChange;
   index: number;
   place: { from: number; to: number };
+  written: boolean;
   block: ChangedBlock;
 }
 
@@ -508,6 +668,8 @@ export interface ChangeGroup {
   last: PlacedChange;
   from: number;
   to: number;
+  /** None of it changed since: restoring it takes none of the User's words. */
+  restorable: boolean;
 }
 
 function groupsOf(
@@ -528,16 +690,17 @@ function groupsOf(
       ),
       from: Math.min(...members.map(({ place }) => place.from)),
       to: Math.max(...members.map(({ place }) => place.to)),
+      restorable: members.every(({ written }) => written),
     };
   });
 }
 
 function reviewedBlocks(state: EditorState, changes: readonly AppliedChange[]) {
   const placed = changes.flatMap((change, index): PlacedChange[] => {
-    const place = placeOfChange(state, change);
-    return place
-      ? [{ change, index, place, block: changedBlockOf(state, change, index, place) }]
-      : [];
+    const now = changeNow(state, change);
+    if (!now) return [];
+    const { place, written } = now;
+    return [{ change, index, place, written, block: changedBlockOf(state, change, index, place) }];
   });
   const sections = rewrittenSections(
     state.doc,
@@ -551,6 +714,9 @@ function reviewedBlocks(state: EditorState, changes: readonly AppliedChange[]) {
 export const changeGroupsOf = (state: EditorState, changes: readonly AppliedChange[]) =>
   reviewedBlocks(state, changes).groups;
 
+export const changesLeft = (line: Extract<AppliedLine, { kind: "review" }>) =>
+  line.shows ? line.changes.filter((change) => line.shows?.(change)) : line.changes;
+
 /**
  * What shows the old text of the change shown again that the cursor is in,
  * its section's when it is in one, and whether it shows; null for one not
@@ -559,7 +725,7 @@ export const changeGroupsOf = (state: EditorState, changes: readonly AppliedChan
 export function appliedOriginalAt(state: EditorState): { key: string; shown: boolean } | null {
   const line = appliedLineIn(state);
   if (line?.kind !== "review") return null;
-  const { placed, sections } = reviewedBlocks(state, line.changes);
+  const { placed, sections } = reviewedBlocks(state, changesLeft(line));
   const { from } = state.selection;
   const here = placed.find(({ place }) => place.from <= from && from <= place.to);
   if (!here) return null;
@@ -636,13 +802,19 @@ function changeMarks(
   });
   const restores = groups.flatMap((group, at) => {
     if (!group.members.some(({ index }) => drawn.has(index))) return [];
-    const { last } = group;
+    const { last, restorable } = group;
     const ownLine = last.change.block !== null;
-    const label = t("edit.review.restore");
+    const label = t(restorable ? "edit.review.restore" : "edit.review.changedSince");
     return [
       Decoration.widget(
         last.place.to,
-        () => restoreHolder(restoreButton(at, groups.length, t), ownLine),
+        () =>
+          restoreHolder(
+            restorable
+              ? restoreButton(at, groups.length, t)
+              : text("applied-changed", label, "change-changed-since"),
+            ownLine,
+          ),
         {
           // Widgets at one position draw in order of side: after the group's new words but
           // before the next change's old ones (-1), or, with no new words, after its own old ones.
@@ -661,7 +833,7 @@ function decorations(state: EditorState, line: AppliedLine, options: Options): D
   const { doc } = state;
   const marks: Decoration[] =
     line.kind === "review"
-      ? changeMarks(state, line.changes, new Set(line.shown), options.translate)
+      ? changeMarks(state, changesLeft(line), new Set(line.shown), options.translate)
       : [];
   const at = placeOf(doc, line.blockId);
   const shared = { side: -1, ignoreSelection: true, stopEvent: () => true };
@@ -670,7 +842,7 @@ function decorations(state: EditorState, line: AppliedLine, options: Options): D
       line.kind === "applied"
         ? line.blocks
         : line.kind === "review"
-          ? changedBlocksOf(state, line.changes)
+          ? changedBlocksOf(state, changesLeft(line))
           : { paragraphs: 0, tables: 0 };
     const words = line.kind === "failed" ? line.text : "";
     const count = `${blocks.paragraphs}/${blocks.tables}`;
@@ -729,7 +901,7 @@ export const AppliedEditLine = Extension.create<Options>({
                   (shown.asked?.requests ?? [shown.request]).every(
                     (request) => waitingOf(state.doc, request) === 0,
                   )
-                : shown.kind === "review" && shown.changes.length === 0);
+                : shown.kind === "review" && changesLeft(shown).length === 0);
             const line = gone ? null : shown;
             if (!line) return { line: null, marks: DecorationSet.empty };
             if (line !== value.line || (tr.docChanged && fromDocument(tr))) {
@@ -748,7 +920,7 @@ export const AppliedEditLine = Extension.create<Options>({
                 target?.closest("[data-applied-change]")?.getAttribute("data-applied-change"),
               );
               const line = appliedLineKey.getState(view.state)?.line;
-              const change = line?.kind === "review" ? line.changes[index] : undefined;
+              const change = line?.kind === "review" ? changesLeft(line)[index] : undefined;
               const place = change ? placeOfChange(view.state, change) : null;
               if (!place) return false;
               event.preventDefault();

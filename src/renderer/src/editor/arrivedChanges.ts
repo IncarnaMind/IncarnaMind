@@ -27,7 +27,7 @@ import {
   readProposalAttribute,
   resolveProposals,
 } from "../../../shared/proposals";
-import type { AppliedChange } from "./appliedEditLine";
+import type { ChangePlace } from "./appliedEditLine";
 import {
   type BlockPlace,
   type PendingProposal,
@@ -165,13 +165,13 @@ function blockStart(doc: ProseMirrorNode, blockId: string): number | null {
 }
 
 /** The planned changes as `appliedEditLine` keeps them, once applied, for Review changes. */
-export function anchorChanges(state: EditorState, planned: readonly Planned[]): AppliedChange[] {
+export function anchorChanges(state: EditorState, planned: readonly Planned[]): ChangePlace[] {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return [];
   const relative = (pos: number): unknown =>
     absolutePositionToRelativePosition(pos, binding.type, binding.mapping);
   const { doc } = state;
-  return planned.flatMap((change): AppliedChange[] => {
+  return planned.flatMap((change): ChangePlace[] => {
     if (change.kind === "added") {
       const at = blockStart(doc, change.blockId);
       const node = at === null ? null : doc.nodeAt(at);
