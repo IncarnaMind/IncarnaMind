@@ -4112,6 +4112,7 @@ export const en = {
   "error.comparison.instructionTooLong":
     "What else the table should show can’t be longer than {max} characters.",
   "error.comparison.notFound": "That comparison table isn’t in this Mind.",
+  "error.comparison.columnIds": "The columns to fill must be given as a list of their ids.",
   "error.edit.noInstruction": "Say what to change, or the language to translate into.",
   "error.edit.instructionTooLong": "What to change can’t be longer than {max} characters.",
   "error.reference.tooLong": "A reference’s field can’t be longer than {max} characters.",

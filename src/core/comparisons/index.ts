@@ -228,7 +228,7 @@ function parseFillRef(input: unknown): ComparisonTableRef & { questionIds: strin
   const value = isRecord(input) ? input.questionIds : undefined;
   if (value === undefined || value === null) return { ...ref, questionIds: null };
   if (!Array.isArray(value) || !value.every((each) => typeof each === "string" && each !== "")) {
-    throw new InvalidInputError("questionIds must be a list of columns' ids.");
+    throw new InvalidInputError({ key: "error.comparison.columnIds" });
   }
   return { ...ref, questionIds: value.length > 0 ? [...new Set(value)] : null };
 }

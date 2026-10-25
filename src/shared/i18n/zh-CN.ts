@@ -3934,6 +3934,7 @@ export const zhCN = {
   "error.comparison.questionTooLong": "问题不能超过 {max} 个字符。",
   "error.comparison.instructionTooLong": "“表格还应显示什么”不能超过 {max} 个字符。",
   "error.comparison.notFound": "这个对比表不在此 Mind 中。",
+  "error.comparison.columnIds": "要补全的列必须以列 ID 列表的形式给出。",
   "error.edit.noInstruction": "说明要修改什么，或要翻译成哪种语言。",
   "error.edit.instructionTooLong": "修改说明不能超过 {max} 个字符。",
   "error.reference.tooLong": "引用信息中的每一项不能超过 {max} 个字符。",
