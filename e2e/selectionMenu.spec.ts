@@ -172,7 +172,10 @@ test("after Esc puts the menu away, a right-click or a shift-click on the same w
   await expect(menu).toHaveCount(0);
   await window.clock.resume();
 
-  // Selecting the same words again is the User's own selection: the menu opens.
+  // Selecting the same words again is the User's own selection: the menu opens. A person starts
+  // the drag beside them: a press inside words that are still selected drags them, so the
+  // selection doesn't move.
+  await window.mouse.click(box.left - 6, box.y);
   await slideSelect(window, line, "strongest");
   await expect(menu).toBeVisible();
   await app.close();

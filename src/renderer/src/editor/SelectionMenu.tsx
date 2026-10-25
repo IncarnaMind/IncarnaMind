@@ -279,9 +279,7 @@ export function SelectionMenu({
     const press = () => {
       pressed.current = true;
     };
-    // Only a press that changes the selection starts a new one (#1355). Forgetting the mark on the
-    // press itself reopens the menu over the old words for a right-click, a shift-click, or a click
-    // whose selection reaches ProseMirror after the button is up.
+    // A press changes nothing by itself: only a selection change under it is the User's own (#1355).
     const selectionMoved = () => {
       if (pressed.current) forgetMenuClosed(editor);
     };
