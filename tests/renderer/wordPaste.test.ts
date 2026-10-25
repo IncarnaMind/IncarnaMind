@@ -35,6 +35,9 @@ const listParagraph = (list: string, level: number, marker: string, words: strin
 const word = (body: string) =>
   `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><body><!--StartFragment-->${body}<!--EndFragment--></body></html>`;
 
+const emptyParagraph = "<p class=MsoNormal><span lang=EN-US><o:p>&nbsp;</o:p></span></p>";
+const pageBreak = `<span lang=EN-US><br clear=all style='mso-special-character:line-break;page-break-before:always'></span>`;
+
 describe("pasting what Word copies", () => {
   test("the Field Report keeps its Title, headings, lists and table, and leaves its comment out", () => {
     const doc = pasted(fieldReport);
@@ -181,6 +184,42 @@ describe("pasting what Word copies", () => {
     expect(cell?.firstChild?.type.name).toBe("orderedList");
     expect(items(cell?.firstChild)).toEqual(["First", "Second"]);
     expect(doc.textContent).not.toContain("1.");
+  });
+
+  test("the Field Report's page break leaves no empty paragraph between its caption and Discussion", () => {
+    const shown = blocks(pasted(fieldReport));
+    const caption = shown.findIndex((block) => block.text === "Figure 1: the surveyed sites.");
+    expect(caption).toBeGreaterThan(-1);
+    expect(shown.slice(caption + 1, caption + 2)).toEqual([
+      { type: "heading", text: "3 Discussion" },
+    ]);
+  });
+
+  test("the User's own empty lines beside the Field Report's page break are kept", () => {
+    expect(fieldReport.split(emptyParagraph)).toHaveLength(2);
+    const breakAt = fieldReport.lastIndexOf("<span", fieldReport.indexOf("page-break-before"));
+    expect(breakAt).toBeGreaterThan(-1);
+    const withOwnLines =
+      fieldReport.slice(0, breakAt) +
+      emptyParagraph +
+      fieldReport.slice(breakAt).replace(emptyParagraph, emptyParagraph.repeat(2));
+    const shown = blocks(pasted(withOwnLines));
+    const caption = shown.findIndex((block) => block.text === "Figure 1: the surveyed sites.");
+    expect(shown.slice(caption + 1, caption + 4)).toEqual([
+      { type: "paragraph", text: "\u00a0" },
+      { type: "paragraph", text: "\u00a0" },
+      { type: "heading", text: "3 Discussion" },
+    ]);
+  });
+
+  test("a page break between words leaves them as two paragraphs with nothing between", () => {
+    const doc = pasted(
+      word(`<p class=MsoNormal>Before the break</p>${pageBreak}<p class=MsoNormal>After it</p>`),
+    );
+    expect(blocks(doc)).toEqual([
+      { type: "paragraph", text: "Before the break" },
+      { type: "paragraph", text: "After it" },
+    ]);
   });
 
   test("a Subtitle is a plain line, and HTML from anywhere else is left as it is", () => {
