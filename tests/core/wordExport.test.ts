@@ -949,6 +949,31 @@ describe("Blocks added, deleted and moved", () => {
     expect(files.has("word/footnotes.xml")).toBe(false);
   });
 
+  test("a reused Citation's bookmark takes a name the file doesn't already have (#1552)", async () => {
+    const footnoteMark =
+      '<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="1"/></w:r>';
+    const ownBookmark =
+      '<w:bookmarkStart w:id="7" w:name="_Ref900000002"/><w:bookmarkEnd w:id="7"/>';
+    const { core, mindId, client } = await setUp({
+      body: paragraph(`${ownBookmark}${run("Noted")}${footnoteMark}${run(".")}`),
+      footnotes: `<w:footnote w:id="1"><w:p><w:r><w:footnoteRef/></w:r>${run(" A note.")}</w:p></w:footnote>`,
+    });
+    const tides = await tidesDocument(core);
+    editMind(client, (blocks) => [
+      ...blocks,
+      { type: "paragraph", content: [text("Tides rise. "), citation(tides)] },
+      { type: "paragraph", content: [text("Again. "), citation(tides)] },
+    ]);
+    await client.settled();
+    const { document } = await exported(core, mindId);
+    const names = [...document.matchAll(/<w:bookmarkStart\b[^>]*w:name="([^"]+)"/g)].map(
+      (found) => found[1],
+    );
+    expect(names.filter((name) => name === "_Ref900000002")).toHaveLength(1);
+    expect(names).toContain("_Ref900000002_2");
+    expect(/NOTEREF (_Ref\S+) \\f \\h /.exec(document)?.[1]).toBe("_Ref900000002_2");
+  });
+
   test("with the list at the end, a new Citation is [1] in the text and the file's own footnote stays", async () => {
     const footnoteMark =
       '<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="1"/></w:r>';

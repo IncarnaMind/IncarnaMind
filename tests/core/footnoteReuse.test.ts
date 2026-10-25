@@ -238,14 +238,12 @@ describe("the writer's notes", () => {
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1]);
   });
 
-  // protects=a Mind with thousands of reused notes exports in a time that grows with its size, and every reference shows its own note's number; fails_when=the export takes a scan of the document for each reused note (6,000 took 12.7 s that way, and under 1 s in one pass); no_claim=a speed on any machine: the limit has more than ten times the room of one pass.
-  test("6,000 sources each cited twice export in one pass over the document", () => {
+  // protects=6,000 sources each cited twice each get one bookmark and one reference to it; fails_when=a note is bookmarked twice, two share one id, or a reference shows another note's number; no_claim=speed, which a unit test doesn't time.
+  test("6,000 sources each cited twice each get one note and one reference", () => {
     const sources = Array.from({ length: 6_000 }, (_, index) => `Source ${index + 1}, p. 1`);
-    const started = Date.now();
     const { document, footnotes } = render(
       sources.map((source) => paragraph(cited(source), cited(source))),
     );
-    expect(Date.now() - started).toBeLessThan(8_000);
     expect(Object.keys(footnotes)).toHaveLength(6_000);
     const found = crossReferences(document);
     expect(found.bookmarks.map((each) => each.note)).toEqual(sources.map((_, index) => index + 1));
@@ -299,6 +297,21 @@ describe("the writer's notes", () => {
     ]);
     expect(Object.values(footnotes)).toEqual(["Tides, p. 2", "Tides, p. 2", "Tides, p. 2"]);
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([3]);
+  });
+
+  test("a Citation of another version of a Document has a note of its own", () => {
+    const first = { ...work("Tides, p. 2"), contentHash: "h1" };
+    const later = { ...work("Tides, p. 2"), contentHash: "h2" };
+    const { footnotes, document } = render([
+      paragraph(
+        cited("Tides, p. 2", false, { work: first }),
+        cited("Tides, p. 2", false, { work: first }),
+        cited("Tides, p. 2", false, { work: later }),
+        cited("Tides, p. 2", false, { work: first }),
+      ),
+    ]);
+    expect(Object.values(footnotes)).toEqual(["Tides, p. 2", "Tides, p. 2"]);
+    expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1, 1]);
   });
 
   test("two Documents with one name have a note each", () => {

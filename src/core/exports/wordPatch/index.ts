@@ -195,7 +195,9 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     numbering,
   );
   footnotes.reserveIds(target.ids);
-  await reserveIds(writer, target.ids);
+  const bookmarks = new Set<string>();
+  await reserveIds(writer, target.ids, bookmarks);
+  target.reserveBookmarks(bookmarks);
   const review = new Review(input.review, target.ids, input.labels, () => target.styles.comment);
   const docxWriter = new DocxWriter(input.labels, textWidthOf(base.root), target, review);
 

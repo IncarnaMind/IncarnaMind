@@ -71,6 +71,25 @@ describe("copying Citations as text", () => {
     expect(copied).toBe("Spring[1]\n\nSpring too[2]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 2");
   });
 
+  test("two deleted Documents with one name, and two versions of one, take a number each", () => {
+    const version = (contentHash: string): JSONContent => ({
+      ...cite(2),
+      attrs: { ...cite(2).attrs, contentHash },
+    });
+    const copied = copiedText(
+      fragmentOf(
+        paragraph(text("First"), cite(2, "gone-1")),
+        paragraph(text("Second"), cite(2, "gone-2")),
+        paragraph(text("Third"), version("h3")),
+      ),
+      schema,
+      context,
+    );
+    expect(copied).toBe(
+      "First[1]\n\nSecond[2]\n\nThird[3]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 2\n[3] Tides, p. 2",
+    );
+  });
+
   test("in Chinese", () => {
     expect(
       copiedText(fragmentOf(paragraph(text("大潮"), cite(2))), schema, {

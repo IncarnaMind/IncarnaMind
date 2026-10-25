@@ -42,7 +42,7 @@ export function noteNumbers(citations: readonly Cited[], context: SourceContext)
   const numbered = new Map<string, number>();
   return citations.map((citation) => {
     const { text, link } = sourceText(citation, context);
-    const key = `${sourceKeyOf(citation, context)}\n${text}\n${link ?? ""}`;
+    const key = `${sourceKeyOf(citation, context)}\n${citation.documentId ?? ""}\n${citation.contentHash ?? ""}\n${text}\n${link ?? ""}`;
     const known = numbered.get(key);
     if (known !== undefined) return known;
     numbered.set(key, numbered.size + 1);

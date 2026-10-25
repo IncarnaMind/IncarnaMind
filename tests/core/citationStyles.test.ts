@@ -570,6 +570,31 @@ describe("exporting a Mind in its citation style", () => {
     }
   });
 
+  test("two Documents with one name, and another version of one, have a note each in a note style (#1552)", async () => {
+    const { core, mind, client, lease } = await setUp();
+    await core.setMindCitationStyle(mind.id, "chicago-notes");
+    const sources = await createTempDataFolder();
+    const path = await writeSourceFile(sources, "lease-copy.txt", "The tenant pays rent monthly.");
+    const [copy] = await addAndProcess(core, [path]);
+    if (!copy) throw new Error("The copy wasn't added.");
+    const twin = await core.renameDocument(copy.id, "Lease agreement");
+    const laterVersion = citation(lease, page(2));
+    writeMind(client, [
+      paragraph(text("A "), citation(lease, page(2)), text(".")),
+      paragraph(text("B "), citation(twin, page(2)), text(".")),
+      paragraph(
+        text("C "),
+        { ...laterVersion, attrs: { ...laterVersion.attrs, contentHash: "h2" } },
+        text("."),
+      ),
+    ]);
+    await client.settled();
+    const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+    const notes = Object.values(footnotesOf(part(files, "word/footnotes.xml")));
+    expect(notes).toHaveLength(3);
+    expect(part(files, "word/document.xml")).not.toContain("NOTEREF");
+  });
+
   test("a Document with no details is in the Bibliography of Markdown and Word, in every style", async () => {
     const { core, mind, client, lease } = await setUp();
     writeMind(client, [paragraph(text("Rent is monthly "), citation(lease, page(2)), text("."))]);

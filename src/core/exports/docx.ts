@@ -259,6 +259,8 @@ export interface DocxTarget {
   picture(picture: NewPicture): { id: string; name: string };
   /** A numbering instance for a list at `level` that starts at `start`: its numId. */
   list(ordered: boolean, level: number, start: number): number;
+  /** The bookmark around a note's mark that later Citations refer to: a name the file doesn't have. */
+  noteBookmark(note: number): string;
 }
 
 /** A new document: links, pictures and lists numbered from 1, in the order they are written. */
@@ -303,6 +305,10 @@ class NewDocxTarget implements DocxTarget {
   list(ordered: boolean, level: number, start: number): number {
     this.lists.push({ ordered, level, start });
     return this.lists.length;
+  }
+
+  noteBookmark(note: number): string {
+    return noteBookmark(note);
   }
 }
 
@@ -746,6 +752,7 @@ export class DocxWriter {
               item.footnote,
               !item.inserted && !item.deleted && !context.pending,
               item.work.documentId,
+              item.work.contentHash ?? null,
             );
             xml += this.review ? this.review.failed(reference, [item.footnote]) : reference;
           }
@@ -768,9 +775,14 @@ export class DocxWriter {
     return xml;
   }
 
-  private footnote(citation: Footnote, shared: boolean, documentId: string | null): string {
+  private footnote(
+    citation: Footnote,
+    shared: boolean,
+    documentId: string | null,
+    version: string | null,
+  ): string {
     const key = shared
-      ? `numbered\n${documentId ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}`
+      ? `numbered\n${documentId ?? ""}\n${version ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}`
       : null;
     const first = key === null ? undefined : this.notes.get(key);
     if (first) {
@@ -785,7 +797,7 @@ export class DocxWriter {
 
   private noteNumber(id: number): string {
     return noteNumber(
-      noteBookmark(id),
+      this.target.noteBookmark(id),
       `${NUMBER_OPEN}${id}${NUMBER_CLOSE}`,
       this.styles.footnote.reference,
     );
@@ -806,7 +818,7 @@ export class DocxWriter {
       const note = Number(id);
       if (!reused.has(note) || bookmarkedNotes.has(note)) return found;
       bookmarkedNotes.add(note);
-      return bookmarked(this.target.ids.take("annotation"), noteBookmark(note), found);
+      return bookmarked(this.target.ids.take("annotation"), this.target.noteBookmark(note), found);
     });
     for (const id of reused) {
       if (!bookmarkedNotes.has(id)) {
