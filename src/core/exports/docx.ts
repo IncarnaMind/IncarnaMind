@@ -658,15 +658,38 @@ export class DocxWriter {
     block.items.forEach((item, at) => {
       const [first, ...rest] = item;
       if (first?.kind === "paragraph")
-        xml += this.tracked(written(this.inline(first.content, context), at), first, true);
+        xml += this.tracked(
+          written(this.inline(first.content, pendingContext(first, context)), at),
+          first,
+          true,
+        );
       else xml += written("", at);
       for (const child of first?.kind === "paragraph" ? rest : item) {
         xml += this.tracked(
           child.kind === "list" && child.checked
-            ? this.todos(child, child.checked, { ...context, todo: depth + 1 })
+            ? this.todos(
+                child,
+                child.checked,
+                pendingContext(child, { ...context, todo: depth + 1 }),
+              )
             : child.kind === "list"
-              ? this.list(child, { ...context, indent: textAt, listDepth: 0, todo: undefined })
-              : this.block(child, { ...context, indent: textAt, style: this.styles.listParagraph }),
+              ? this.list(
+                  child,
+                  pendingContext(child, {
+                    ...context,
+                    indent: textAt,
+                    listDepth: 0,
+                    todo: undefined,
+                  }),
+                )
+              : this.block(
+                  child,
+                  pendingContext(child, {
+                    ...context,
+                    indent: textAt,
+                    style: this.styles.listParagraph,
+                  }),
+                ),
           child,
           true,
         );
