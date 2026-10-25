@@ -41,11 +41,14 @@ const screenshot = async (window: Page, name: string) => {
 };
 
 let dataDir: string;
+let sources: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
+  sources = await createDataFolder();
 });
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
+  await removeDataFolder(sources);
 });
 
 const SPRING = "Spring tides come at new and full moon, when the Sun and the Moon pull together.";
@@ -480,37 +483,30 @@ test("a reply that claims a write no call made is asked for once more, then stay
 });
 
 test("a summary written with no Citation after a search is refused once, and written again as it was, the line under the Answer says it has none, with Try again, in English and Chinese (#1415)", async () => {
-  const sources = await createDataFolder();
-  try {
-    const lease = join(sources, "Lease Harbour Street.md");
-    await writeFile(lease, "# Harbour Street\n\nThe monthly rent for unit 1 is €900.\n");
-    const { app, window } = await launchApp(dataDir, { fakeChat: true });
-    await dismissChatSetup(window);
-    await useLocalChatModel(window);
-    await setWindowSize(app, window, 1100, 860);
-    await addDocuments(window, [lease]);
+  const lease = join(sources, "Lease Harbour Street.md");
+  await writeFile(lease, "# Harbour Street\n\nThe monthly rent for unit 1 is €900.\n");
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1100, 860);
+  await addDocuments(window, [lease]);
 
-    const answer = await askInAssistant(window, "Summarise my leases without citing");
-    const line = answer.getByTestId("answer-uncited-write");
-    await expect(line).toHaveText(
-      "What was written in “Lease summary” has no Citations, so none of it was checked against your Documents · Try again",
-    );
-    await screenshot(window, "uncited-write-en");
-    await setLanguage(window, "zh-CN");
-    await expect(line).toHaveText("“Lease summary”中写入的内容没有引用，未与文档核对 · 重试");
-    await screenshot(window, "uncited-write-zh");
-    await setLanguage(window, "en");
-    await setWindowSize(app, window, 900, 760);
-    await expect(line.getByTestId("answer-uncited-retry")).toBeInViewport();
-    await screenshot(window, "uncited-write-narrow");
+  const answer = await askInAssistant(window, "Summarise my leases without citing");
+  const line = answer.getByTestId("answer-uncited-write");
+  await expect(line).toHaveText(
+    "What was written in “Lease summary” has no Citations, so none of it was checked against your Documents · Try again",
+  );
+  await screenshot(window, "uncited-write-en");
+  await setLanguage(window, "zh-CN");
+  await expect(line).toHaveText("“Lease summary”中写入的内容没有引用，未与文档核对 · 重试");
+  await screenshot(window, "uncited-write-zh");
+  await setLanguage(window, "en");
+  await setWindowSize(app, window, 900, 760);
+  await expect(line.getByTestId("answer-uncited-retry")).toBeInViewport();
+  await screenshot(window, "uncited-write-narrow");
 
-    await pointAndClick(window, line.getByTestId("answer-uncited-retry"));
-    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-    await expect(line).toBeVisible();
-    await expect(window.getByTestId("mind-tab").filter({ hasText: "Lease summary" })).toHaveCount(
-      1,
-    );
-  } finally {
-    await removeDataFolder(sources);
-  }
+  await pointAndClick(window, line.getByTestId("answer-uncited-retry"));
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await expect(line).toBeVisible();
+  await expect(window.getByTestId("mind-tab").filter({ hasText: "Lease summary" })).toHaveCount(1);
 });
