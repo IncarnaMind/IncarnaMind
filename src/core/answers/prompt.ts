@@ -259,10 +259,10 @@ export function mindInstructions(
     "",
     "The write command is create_mind for a new Mind, or add_to_mind for the empty Mind in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Mind the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
     `- A line "${YOUR_MINDS} …" before the Question names their Minds, the most recently changed first. A name the User gives that one of their Minds has is that Mind, also when they don't call it a Mind ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. Only a name that no Mind has can be a Document's. A name that is neither on the line nor a Document's may still be a Mind's, as read_mind finds any Mind by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Mind in front or a new Mind, even when a Mind on the line has the same or a similar title. Change or add to a Mind on the line only when the User names it.`,
-    "- A <tool-record> is IncarnaMind's record of what an earlier Answer's Tools really did, and what the User did with the changes since: trust it over that Answer's words, and never write one. A change the User undid or rejected is gone: don't bring it back or say it is still there. In <mind>, earlier Answers and read_mind, a Citation reads as its source in brackets, like [Tides, p. 3].",
+    "- A <tool-record> is IncarnaMind's record of what an earlier Answer's Tools really did, and what the User did with the changes since: trust it over that Answer's words, and never write one. A change the User undid or rejected is gone: don't bring it back or say it is still there. In <mind>, earlier Answers and read_mind, a Citation reads as its source and its id in brackets, like [Tides, p. 3 · C2].",
     "- The Mind to change is the one in <mind>, unless the User names another, or means a page your <tool-record> says you made or changed earlier in this conversation: then give that Mind's name in mind. If they ask to change their text but none is in <mind> and they name none, change nothing: say so, and that they can open one or ask for a new Mind.",
     "- In <mind> and read_mind, [waiting change, adds: …] and [waiting change, removes: …] mark changes still waiting for the User, often your own. To change text that waits (make it longer or shorter, reword it, remove part of it), call edit_mind on it, naming its heading in part: that revises the waiting text itself. Never add a second copy. To add more from the Documents, search and cite first, then give edit_mind the section's whole new text as content.",
-    "- edit_mind's rewrite reads only the text it changes: it can't search or cite. To add facts from the Documents to the User's text, a table of them too, search and cite first, then add them with add_to_mind, cited in each table cell as in a paragraph. To make text you wrote longer from the Documents, a summary added from an Answer among it, search and cite first, then give edit_mind its whole new text as content: it replaces that text, so the Mind never holds two versions. Never write a source into a Mind as text, like [Tides, p. 3]: record it with cite before the call and write its marker, like [^3]. Text with a source written out is refused.",
+    "- edit_mind's rewrite reads only the text it changes: it can't search or cite. To add facts from the Documents to the User's text, a table of them too, search and cite first, then add them with add_to_mind, cited in each table cell as in a paragraph. To make text you wrote longer from the Documents, a summary added from an Answer among it, search and cite first, then give edit_mind its whole new text as content: it replaces that text, so the Mind never holds two versions. Never write a source or an id into a Mind as text, like [Tides, p. 3 · C2]: record it with cite before the call (an id as the passage keeps that Citation) and write its marker, like [^3]. Text with a source written out is refused.",
     '- A chart ("make a bar chart of revenue by quarter", "画一个各季度收入的柱状图"): search and cite the figures, then write them as a table into a Mind, each cell cited, and give chart with the kind the User named and a short title from their words: IncarnaMind draws it from that table, right after it. For a table already in the Mind, call add_to_mind with chart and content empty. Chart only figures the Documents state: for a series they don\'t state, say you can chart only the figures the Documents state.',
     ...(lastAnswer
       ? [
@@ -437,6 +437,20 @@ const CALCULATE = [
 const CALCULATIONS =
   '- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel\'s syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number\'s unit or scale is only in a table\'s heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it.';
 
+/**
+ * A Citation the Question context shows keeps its record when the Answer keeps its claim
+ * (#1800): models copied "[Tides, p. 3]" as text, which opens nothing.
+ */
+const KEEP_CITATIONS = (record: string) =>
+  `- A Citation shown with an id, like [Tides, p. 3 · C2], stays with its claim: ${record} with that id as the passage (no quote), and its marker after the claim. Keep each one this way, every one the Answer keeps, rather than citing a Passage for its claim again. Never write a source or an id in brackets as text.`;
+
+/**
+ * Asked again when a reply's markers have no record while its Question context shows Citation
+ * ids (#1800): a model writing a long report sometimes wrote every marker and never called cite.
+ */
+export const unrecordedMarkersNote = (markers: readonly number[]) =>
+  `Your reply has markers that no cite record backs: ${markers.map((marker) => `[^${marker}]`).join(", ")}. Call cite for them first, giving the id of a claim's Citation, like C2, as the passage, then write your whole reply again. The User will not read your earlier reply: don't mention it.`;
+
 /** The Citation check finds a quote with an ellipsis only part by part (see ../../shared/quoteMatch): best avoided. */
 const UNBROKEN_QUOTE =
   "- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.";
@@ -544,7 +558,8 @@ function documentNames({ total, names }: ListedDocuments): string {
  * the one search found, for a model that can't call Tools. `scoped`: the User
  * limited the Question to some of their Documents (its Search scope), and
  * `listed` covers only those. `calculate`: the model is offered the
- * `calculate` Tool (or `calculations` in its JSON), and steered to it.
+ * `calculate` Tool (or `calculations` in its JSON), and steered to it. `keeps`: the
+ * Question context shows Citations with ids, or a Mind read may.
  */
 export function documentInstructions(
   mode: CitationSupport | "no-documents",
@@ -552,6 +567,7 @@ export function documentInstructions(
   passages = "",
   scoped = false,
   calculate = false,
+  keeps = false,
 ): string {
   const documents = `${listed.total} Document${listed.total === 1 ? "" : "s"}`;
   const dated = datedDocumentsNote(passages);
@@ -575,6 +591,7 @@ export function documentInstructions(
         UNBROKEN_QUOTE,
         QUOTATION_MARKS,
         "- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.",
+        ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
         "- Write nothing before your Tool calls: only the Answer, after them.",
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
@@ -597,6 +614,7 @@ export function documentInstructions(
           : 'Reply with one JSON object: {"answer": "…", "citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}]}.',
         "- answer: the Answer, in Markdown. Cite every claim you draw from a Passage by putting a marker such as [^1] right after it, in a table's cell too. Add no list of sources.",
         `- citations: one record for each marker: ${RECORD}.`,
+        ...(keeps ? [KEEP_CITATIONS("give a record in citations")] : []),
         UNBROKEN_QUOTE,
         QUOTATION_MARKS,
         ...(calculate ? [CALCULATIONS] : []),

@@ -55,6 +55,7 @@ const documentOf = (id: string): Document => ({
   scan: null,
   failure: null,
   unreadParts: null,
+  unreadPartsUnknown: false,
   folderId: null,
   tags: [],
   tagging: "off",

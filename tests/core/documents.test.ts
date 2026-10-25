@@ -99,6 +99,7 @@ describe("Documents", { timeout: 30_000 }, () => {
         scan: null,
         failure: null,
         unreadParts: null,
+        unreadPartsUnknown: false,
         folderId: null,
         tags: [],
         tagging: "pending",

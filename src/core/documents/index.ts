@@ -528,7 +528,16 @@ export function createDocuments(options: DocumentsOptions) {
       [documentId],
     )?.mind_id ?? null;
 
+  // A damaged `unread_parts` is said once for each Document: a list reads every Document again
+  // and again, and the log would fill with the same line.
+  const loggedUnreadParts = new Set<string>();
   const toDocument = (row: DocumentRow): Document => {
+    const unreadParts = parseUnreadParts(row.unread_parts);
+    const unreadPartsUnknown = row.unread_parts !== null && unreadParts === null;
+    if (unreadPartsUnknown && !loggedUnreadParts.has(row.id)) {
+      loggedUnreadParts.add(row.id);
+      log.warn("documents.unreadPartsUnreadable", { documentId: row.id });
+    }
     const tagging = taggingOf(row.status, row.tagging_status);
     const status = statusOf(row);
     const failed = status === "failed";
@@ -553,7 +562,8 @@ export function createDocuments(options: DocumentsOptions) {
             ...(row.failure_reason === "pages-unread" && { pages: unreadPages(row) }),
           }
         : null,
-      unreadParts: parseUnreadParts(row.unread_parts),
+      unreadParts,
+      unreadPartsUnknown,
       folderId: row.folder_id,
       tags: tagsOfDocument(db, row.id),
       tagging,

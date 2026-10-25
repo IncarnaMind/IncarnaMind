@@ -24,17 +24,19 @@ import type { ScopeKind } from "../../shared/searchScope";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
 import {
-  unreadCountText,
+  checkUnreadOf,
   unreadFileNamesOf,
-  unreadFileText,
   unreadPartsCounts,
+  unreadSection,
 } from "../../shared/unreadFiles";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
+import { checkRequests } from "../answers/checks/sentences";
 import {
   CITATION_PLACES,
   type CitationAttributes,
   type CitationFormatRequest,
+  type Document,
   EXPORT_FORMATS,
   type ExportFormat,
   type ExportMindOptions,
@@ -45,7 +47,6 @@ import {
   type Mind,
   type MindExport,
   type MindExportPreview,
-  type SearchScope,
   type SharedDocument,
   type SharePagePreview,
   type UnreadFile,
@@ -99,7 +100,7 @@ export interface ExportsDependencies {
   /** Reads the Mind's Blocks (see `MindContent.read`). */
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   /** The live Documents: a Citation whose Document was deleted can't be checked. */
-  liveDocuments(): SourceDocument[];
+  liveDocuments(): readonly (SourceDocument & Pick<Document, "reference">)[];
   /** The text kept of Documents unlinked with their Linked folder: Citations quoting it still check. */
   keptCitationTexts(): KeptCitationText[];
   /** A Citation's quote as its Document's text reads it, or null when the Document or the quote isn't there. */
@@ -108,11 +109,6 @@ export interface ExportsDependencies {
   language(): Language;
   /** A Folder's, Tag's or Document's name; null for one that isn't there. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
-  /**
-   * The files in a Mind's Search scope that couldn't be read, and why (#740), so the file
-   * says what it was made without. None: everything in scope was read.
-   */
-  unread(mindId: string, scope: SearchScope | null): UnreadFile[];
   /** The Mind's citation style (#289), and the language its text is in, which a style may take. */
   citationStyle(mindId: string): { style: ResolvedCitationStyle; textLanguage: Language };
   /** The family the Mind's font is written as in Word and HTML; null: the default. */
@@ -174,21 +170,22 @@ function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: 
   if (unread.length === 0) return [];
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const line = (text: string) => ({ kind: "text" as const, text, marks: NO_MARKS });
+  const section = unreadSection(unread, t, names, unreadPartsCounts(unread, t));
   return [
-    { kind: "heading", level: 2, content: [line(t("unread.heading"))] },
-    { kind: "paragraph", content: [line(unreadCountText(unread, t))] },
+    { kind: "heading", level: 2, content: [line(section.heading)] },
+    { kind: "paragraph", content: [line(section.count)] },
     ...(names
       ? [
           {
             kind: "list" as const,
             ordered: false,
             start: 1,
-            items: unread.map((file) => [
-              { kind: "paragraph" as const, content: [line(unreadFileText(file, t))] },
+            items: section.items.map((item) => [
+              { kind: "paragraph" as const, content: [line(item)] },
             ]),
           },
         ]
-      : unreadPartsCounts(unread, t).map((count) => ({
+      : section.counts.map((count) => ({
           kind: "paragraph" as const,
           content: [line(count)],
         }))),
@@ -205,13 +202,16 @@ interface Prepared {
   /** For a Mind imported from a Word file: whether its import is still going. */
   word: { importing: boolean } | null;
   blocks: Block[];
+  /** What the Mind's checks couldn't read when they ran (#740); empty when all was read. */
+  unread: readonly UnreadFile[];
+  unreadNames: boolean;
   preview: MindExportPreview;
   failedSentences: FailedSentence[];
   trackedChanges: number;
   language: Language;
   style: ResolvedCitationStyle;
   textLanguage: Language;
-  documents: readonly SourceDocument[];
+  documents: readonly (SourceDocument & Pick<Document, "reference">)[];
   bibliography: boolean;
   listed: boolean;
   font: string | null;
@@ -280,7 +280,7 @@ export function createExports(deps: ExportsDependencies) {
         const waiting = pendingProposals(fragment);
         return {
           read: readBlocks(fragment, readOptions),
-          unread: deps.unread(mind.id, doc ? mindScopeOf(doc) : null),
+          unread: doc ? checkUnreadOf(doc, checkRequests(fragment)) : [],
           unreadNames: doc ? unreadFileNamesOf(doc.getMap(MIND_SETTINGS_FIELD)) : false,
           questions: countQuestions(fragment),
           word: doc && fromWord ? { importing: wordImportProgressOf(doc) !== null } : null,
@@ -331,6 +331,8 @@ export function createExports(deps: ExportsDependencies) {
       readOptions,
       word,
       blocks,
+      unread,
+      unreadNames,
       preview,
       failedSentences: [...failed.values()],
       trackedChanges,
@@ -348,7 +350,7 @@ export function createExports(deps: ExportsDependencies) {
 
   /** The source pack's PDF: the Mind's cited pages, as saved, with their quotes marked. */
   const sourcePack = async (prepared: Prepared): Promise<MindExport> => {
-    const { title, blocks, style, language, attributesOf, preview } = prepared;
+    const { title, blocks, style, language, attributesOf, preview, unread, unreadNames } = prepared;
     const citations = numberCitations(blocks, style.form, attributesOf);
     if (citations.length === 0) throw new Error(translate(language, "export.pack.empty"));
     const pages = await packPages(citations, deps.citedPage);
@@ -356,7 +358,7 @@ export function createExports(deps: ExportsDependencies) {
       language,
       paper: deps.paper(),
       title: preview.fileName.slice(0, -".pdf".length),
-      body: renderSourcePack(title, pages, language),
+      body: renderSourcePack(title, pages, language, unread, unreadNames),
       notes: [],
     });
     return {
@@ -568,8 +570,9 @@ export function createExports(deps: ExportsDependencies) {
         throw new Error("This copy of IncarnaMind can't make PDFs.");
       }
       if (format === "source-pack") return sourcePack(prepared);
-      const thin = thinEntries((request) =>
-        deps.formatCitations({ ...request, language: prepared.textLanguage }),
+      const thin = thinEntries(
+        (request) => deps.formatCitations({ ...request, language: prepared.textLanguage }),
+        documents,
       );
       if (format === "docx" && prepared.word) {
         return exportIntoWord(prepared, prepared.word, thin);
@@ -592,7 +595,7 @@ export function createExports(deps: ExportsDependencies) {
             labels.unverified,
           )
         : style.form !== "numbered"
-          ? await styleCitations(prepared.blocks, style, thin.format, labels.needsDetails)
+          ? await styleCitations(prepared.blocks, style, thin.format)
           : prepared.bibliography
             ? addSources(
                 prepared.blocks,
@@ -711,16 +714,26 @@ interface ThinEntries {
   documents: ReadonlySet<string>;
 }
 
+/**
+ * The Documents the Saved line counts: those whose entry lacks authors or a date, so its words
+ * are what is missing. A record missing only its title is written with the Document's name
+ * instead, so it isn't counted (#1910).
+ */
 function thinEntries(
   format: (request: CitationFormatRequest) => Promise<FormattedCitations>,
+  documents: readonly (SourceDocument & Pick<Document, "reference">)[],
 ): ThinEntries {
-  const documents = new Set<string>();
+  const counted = new Set<string>();
+  const byId = new Map(documents.map((document) => [document.id, document]));
   return {
-    documents,
+    documents: counted,
     async format(request) {
       const formatted = await format(request);
       for (const entry of formatted.bibliography) {
-        if (entry.needsDetails && entry.documentId !== null) documents.add(entry.documentId);
+        if (!entry.needsDetails || entry.documentId === null) continue;
+        const fields = byId.get(entry.documentId)?.reference?.fields;
+        if (fields && fields.authors.length > 0 && fields.issued !== "") continue;
+        counted.add(entry.documentId);
       }
       return formatted;
     },

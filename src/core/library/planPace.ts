@@ -8,7 +8,8 @@
  *   or, when the provider doesn't say when, for a wait that doubles each time
  *   the limit is still reached (`firstWaitMs` up to `longestWaitMs`).
  *   Documents wait meanwhile, and one tries first when the wait is over: it
- *   never retries in a loop.
+ *   never retries in a loop. A request refused while it waits says when the
+ *   plan resets as the plan said it, never this wait's own end.
  */
 import { ChatGptPlanError, isPlanLimit } from "../providers/chatgpt/errors";
 import { ClaudePlanLimitError } from "../providers/providerErrors";
@@ -40,27 +41,28 @@ const PLANS: Record<
     /** The Pace's lane: every request tagging makes on the plan, Organize's and automatic tagging's. */
     lane: string;
     limit(error: unknown): error is PlanLimit;
-    /** What tagging meets while it waits, until `until` (epoch milliseconds). */
-    waiting(until: number): Error;
+    /** What tagging meets while it waits, until `until`; `resetsAt` as the plan said it (epoch milliseconds). */
+    waiting(until: number, resetsAt: number | null): Error;
   }
 > = {
   chatgpt: {
     lane: "chatgpt-plan-tagging",
     limit: isPlanLimit,
-    waiting: (until) =>
+    waiting: (until, resetsAt) =>
       new ChatGptPlanError(
         "plan-limit",
         `Tagging waits for your ChatGPT plan's limit to reset, until ${new Date(until).toISOString()}.`,
         429,
+        resetsAt,
       ),
   },
   "claude-account": {
     lane: "claude-plan-tagging",
     limit: isClaudePlanLimit,
-    waiting: (until) =>
+    waiting: (until, resetsAt) =>
       new ClaudePlanLimitError(
         `Tagging waits for your Claude plan's limit to reset, until ${new Date(until).toISOString()}.`,
-        until,
+        resetsAt,
       ),
   },
 };
@@ -77,10 +79,11 @@ export function createPlanPace(options: {
   const { pace, timers } = options;
   const plan = PLANS[options.plan];
   let pausedUntil: number | null = null;
+  let resetsAt: number | null = null;
   let nextWait = PLAN_PACE.firstWaitMs;
 
   const paused = () => pausedUntil !== null && timers.now() < pausedUntil;
-  const waiting = () => plan.waiting(pausedUntil ?? timers.now());
+  const waiting = () => plan.waiting(pausedUntil ?? timers.now(), resetsAt);
 
   function pause(error: PlanLimit): void {
     const now = timers.now();
@@ -88,6 +91,7 @@ export function createPlanPace(options: {
     nextWait = Math.min(nextWait * 2, PLAN_PACE.longestWaitMs);
     if (pausedUntil !== null && pausedUntil >= until) return;
     pausedUntil = Math.max(until, now);
+    resetsAt = error.resetsAt;
     const ends = pausedUntil;
     timers.sleep(ends - now, options.signal).then(
       () => {

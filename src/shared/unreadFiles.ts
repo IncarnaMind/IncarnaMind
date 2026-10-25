@@ -186,6 +186,31 @@ export function unreadRecordLines(files: readonly UnreadFile[], t: Translate): s
   ];
 }
 
+/** The words of an export's section about what couldn't be read (#740). */
+export interface UnreadSection {
+  heading: string;
+  count: string;
+  /** A line for each file, when the Mind names them. */
+  items: string[];
+  /** What a workbook left unread, counted, when it doesn't. */
+  counts: string[];
+}
+
+/** An export's words about what its Mind's checks couldn't read (#740): its heading, count and, at the Mind's word, each file's line. */
+export function unreadSection(
+  files: readonly UnreadFile[],
+  t: Translate,
+  names: boolean,
+  counts: readonly string[] = [],
+): UnreadSection {
+  return {
+    heading: t("unread.heading"),
+    count: unreadCountText(files, t),
+    items: names ? files.map((file) => unreadFileText(file, t, true)) : [],
+    counts: names ? [] : [...counts],
+  };
+}
+
 /** The Mind settings key that says its exports name the files they couldn't read; absent: count only. */
 const NAMES_KEY = "unreadFileNames";
 

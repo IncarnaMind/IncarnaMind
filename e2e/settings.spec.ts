@@ -11,9 +11,12 @@ import {
   dismissChatSetup,
   interceptOpenExternal,
   launchApp,
+  openAdvancedModels,
   openSettings,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
+  showSettingsPage,
   urlsOpened,
 } from "./app";
 
@@ -103,6 +106,7 @@ test("Settings lists its pages, and each holds its settings", async () => {
       }
       await shot(window, `settings-${page}`);
       if (page === "models") {
+        await openAdvancedModels(settings);
         await content.getByTestId("tagging-settings").scrollIntoViewIfNeeded();
         await shot(window, "settings-models-tagging");
       }
@@ -162,7 +166,7 @@ test("the list of pages works by keyboard, with a focus ring", async () => {
   }
 });
 
-test("Organize in the Library, with no model chosen yet, opens Models, where Tagging is", async () => {
+test("Organize in the Library, with no model chosen yet, opens Models at Tagging, with Advanced open", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -185,7 +189,134 @@ test("Organize in the Library, with no model chosen yet, opens Models, where Tag
     await window.getByTestId("library").getByTestId("library-organize-set-up").click();
     const settings = window.getByTestId("settings");
     await expect(settings).toHaveAttribute("data-page", "models");
-    await expect(settings.getByTestId("tagging-settings")).toBeAttached();
+    await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
+    const tagging = settings.getByTestId("tagging-settings");
+    await expect(tagging).toBeInViewport();
+    await expect(tagging.getByTestId("tagging-automatic").getByRole("radio")).toBeFocused();
+  } finally {
+    await app.close();
+  }
+});
+
+test("Models folds Tagging and Organize under Advanced, which a choice of the User's own opens by itself, in English and Chinese at 900 and 1,600 px (#1570)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    const settings = window.getByTestId("settings");
+    const page = settings.getByTestId("settings-page-models");
+    const advanced = settings.getByTestId("models-advanced");
+    const toggle = advanced.getByTestId("models-advanced-toggle");
+    const tagging = advanced.getByTestId("tagging-settings");
+    const moves = tagging.getByTestId("tagging-automatic-organize");
+    const fits = () => page.evaluate((element) => element.scrollWidth <= element.clientWidth);
+    const openModels = async (settingsName: string) => {
+      await window.getByRole("button", { name: settingsName }).click();
+      await showSettingsPage(window, "models");
+    };
+    const closeWithEsc = async () => {
+      await window.keyboard.press("Escape");
+      await expect(settings).toBeHidden();
+    };
+
+    for (const [language, settingsName, word, asksFirst] of [
+      ["en", "Settings", "Advanced", "Organize asks first, in the Library."],
+      ["zh-CN", "设置", "高级", "“整理”会先在资料库里询问。"],
+    ] as const) {
+      await setLanguage(window, language);
+      for (const width of [900, 1600]) {
+        await setWindowSize(app, window, width, 800);
+        // A fresh install: the providers and the models for Answers, and Advanced folded.
+        await openModels(settingsName);
+        await expect(page.getByTestId("model-defaults")).toBeVisible();
+        await expect(toggle).toHaveText(word);
+        await expect(toggle).toBeVisible();
+        await expect(advanced).not.toHaveAttribute("open");
+        for (const control of ["tagging-automatic", "tagging-organize"]) {
+          await expect(tagging.getByTestId(control)).toBeHidden();
+        }
+        await expect(moves).toBeHidden();
+        expect(await fits()).toBe(true);
+        await toggle.scrollIntoViewIfNeeded();
+        await shot(window, `models-advanced-${language}-${width}-folded`);
+
+        // By mouse in English, by keyboard in Chinese.
+        if (language === "en") await toggle.click();
+        else {
+          await toggle.focus();
+          await window.keyboard.press("Enter");
+        }
+        await expect(advanced).toHaveAttribute("open", "");
+        await expect(tagging.getByTestId("tagging-automatic").getByRole("radio")).toBeChecked();
+        await expect(tagging.getByTestId("tagging-organize")).toHaveText(asksFirst);
+        await expect(moves).toBeVisible();
+        await expect(moves).toBeChecked();
+        expect(await fits()).toBe(true);
+        await tagging.scrollIntoViewIfNeeded();
+        await shot(window, `models-advanced-${language}-${width}-open`);
+        await closeWithEsc();
+      }
+    }
+
+    // A choice of the User's own: Advanced opens by itself, and stays open when it's put back.
+    await openModels("设置");
+    await toggle.click();
+    await moves.click();
+    await expect(moves).not.toBeChecked();
+    await expect
+      .poll(() =>
+        window.evaluate(
+          async () =>
+            (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLibrary())
+              .settings.automatic,
+        ),
+      )
+      .toBe(false);
+    await closeWithEsc();
+    await openModels("设置");
+    await expect(advanced).toHaveAttribute("open", "");
+    await expect(moves).toBeVisible();
+    await expect(moves).not.toBeChecked();
+    await moves.click();
+    await expect(moves).toBeChecked();
+    await expect(advanced).toHaveAttribute("open", "");
+    await closeWithEsc();
+    await openModels("设置");
+    await expect(toggle).toBeVisible();
+    await expect(advanced).not.toHaveAttribute("open");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a cloud model added on a fresh install follows its own default, so Advanced stays folded (#1570)", async () => {
+  let { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-sonnet-5-5",
+      });
+    });
+  } finally {
+    await app.close();
+  }
+
+  ({ app, window } = await launchApp(dataDir, { fakeChat: true }));
+  try {
+    const settings = await openSettings(window, "models");
+    await expect(settings.getByTestId("models-advanced")).not.toHaveAttribute("open");
+    await expect(settings.getByTestId("tagging-settings")).toBeHidden();
+    expect(
+      await window.evaluate(
+        async () =>
+          (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLibrary())
+            .settings.automatic,
+      ),
+    ).toBe(false);
   } finally {
     await app.close();
   }
@@ -222,6 +353,8 @@ test("the pages are named in Chinese too", async () => {
         await expect(window.getByTestId("settings-page-title")).toHaveText("模型");
       await shot(window, `settings-${page}-zh`);
       if (page === "models") {
+        await expect(window.getByTestId("models-advanced-toggle")).toHaveText("高级");
+        await openAdvancedModels(window.getByTestId("settings"));
         await window.getByTestId("tagging-settings").scrollIntoViewIfNeeded();
         await shot(window, "settings-models-tagging-zh");
       }
