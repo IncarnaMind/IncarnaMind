@@ -3000,9 +3000,18 @@ export function createCore(adapters: CoreAdapters): Core {
       mindsChanged();
       layouts.forgetDeletedMinds();
     },
+    restoreMind: (mindId) => recentlyDeleted.restore([{ kind: "mind", id: mindId }]),
     editMind: (mindId, change) => content.edit(mindId, change),
     linkFolder: (path) => documents.linkedFolders.add(path),
     unlinkFolder,
+    restoreFolder: (linkedFolderId) => {
+      db.transaction(() => {
+        const { went } = documents.linkedFolders.restore(linkedFolderId);
+        if (went.length > 0) {
+          recentlyDeleted.restore(went.map((id) => ({ kind: "document" as const, id })));
+        }
+      });
+    },
     linkedFolderExists: (linkedFolderId) =>
       documents.linkedFolders.list().some((folder) => folder.id === linkedFolderId),
     documentsIn: (linkedFolderId) => documents.list({ linkedFolderId }),
@@ -3795,6 +3804,7 @@ export function createCore(adapters: CoreAdapters): Core {
     offerExamples: async () => examples.offer(minds.list().length > 0),
     createExamples: async (group) => examples.create(group),
     removeExamples: async (group) => examples.remove(group),
+    restoreExamples: async (group) => examples.restore(group),
     setLinkedFolderLayout: async (linkedFolderId, layout) =>
       documents.linkedFolders.setLayout(linkedFolderId, layout),
     setLinkedFolderPaused: async (linkedFolderId, paused) =>
