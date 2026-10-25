@@ -58,14 +58,14 @@ function startsWord(text: string, at: number): boolean {
   return !WORD_CHARACTER.test(text[at - 1] ?? "");
 }
 
-/** How many readings of one name are spelled, so a name of several stays cheap to fold. */
-const MOST_READINGS = 8;
+/** How many ways one name is spelled, so a name of several polyphonic characters stays cheap to fold. */
+const MOST_WAYS = 8;
 
 /** Every way the name's characters can be read, the collation's reading of each first. */
 function readingWays(readings: readonly (readonly (string | null)[])[]): (string | null)[][] {
   const ways: (string | null)[][] = [];
   const walk = (at: number, way: (string | null)[]) => {
-    if (ways.length >= MOST_READINGS) return;
+    if (ways.length >= MOST_WAYS) return;
     if (at === readings.length) {
       ways.push([...way]);
       return;
@@ -179,7 +179,6 @@ function oneEditApart(a: string, b: string): boolean {
   );
 }
 
-/** The first of `spellings` that has `word`, at the start of a syllable: a name's readings, in order. */
 function findSpelled(spellings: readonly Spelling[], word: string): Found | null {
   for (const spelling of spellings) {
     const found = findIn(spelling, word, true);
