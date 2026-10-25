@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import type { Document } from "../../../core/api";
+import { readPdfPageText } from "../../../shared/pdfFormText";
 import { findQuoteInPages, lostLigatures, type TextPiece } from "../../../shared/quoteMatch";
 import { core } from "../core";
 import { useT } from "../i18n";
@@ -519,7 +520,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
           pages.push(read.pieces);
           continue;
         }
-        const content = await (await pdf.getPage(page)).getTextContent();
+        const { content } = await readPdfPageText(await pdf.getPage(page));
         const pieces: TextPiece[] = [];
         for (const entry of content.items) {
           if (!("str" in entry)) continue;
@@ -1156,7 +1157,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
         textDiv.replaceChildren(read.container);
         textRuns.current = read;
       } else {
-        const content = await proxy.getTextContent();
+        const { content } = await readPdfPageText(proxy);
         if (cancelled) return;
         const container = document.createElement("div");
         container.className = "textLayer";

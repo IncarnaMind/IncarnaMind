@@ -95,6 +95,8 @@ export const zhCN = {
   "library.fix.appStopped": "读取这个文件时 IncarnaMind 停止了运行",
   "library.fix.scan": "这是扫描件，暂时没有文字",
   "library.fix.pages": "有些扫描页未能读取",
+  "library.fix.forms":
+    "有些表单字段未能读取。请在创建此文档的应用中另存为不可编辑的 PDF，再添加该副本",
   "library.fix.empty": "这个文件是空的",
   "library.fix.open": "用默认应用打开",
   "library.fix.retry": "重试",
@@ -1264,6 +1266,7 @@ export const zhCN = {
   "documents.failure.pagesUnread.one": "第 {pages} 页扫描件无法识别",
   "documents.failure.pagesUnread.other": "第 {pages} 页扫描件无法识别",
   "documents.failure.pagesUnread.all": "扫描件无法识别",
+  "documents.failure.formsUnread": "有些表单字段未能读取",
   "documents.pagesUnread.one": "第 {pages} 页扫描件无法识别",
   "documents.pagesUnread.other": "第 {pages} 页扫描件无法识别",
   "documents.pagesUnread.all": "扫描件无法识别",

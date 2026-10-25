@@ -49,9 +49,10 @@ import { documentTitle } from "./title";
  * are read from their pictures; see `SCAN_CURRENT_SINCE`). 10: #756 (a saved
  * web page's pictures are read, their text in its section; see
  * `PICTURES_CURRENT_SINCE`). 11: #901 (a PDF's pages keep the name they
- * print, from its page labels or its headers and footers).
+ * print, from its page labels or its headers and footers). 12: #1818
+ * (PDF form fields are included in the pages' text).
  */
-export const PROCESSING_VERSION = 11;
+export const PROCESSING_VERSION = 12;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -63,10 +64,10 @@ export const PROCESSING_VERSION = 11;
  * only PDFs' scanned pages, which `SCAN_CURRENT_SINCE` reads again; version
  * 10 only web pages with saved pictures, which `PICTURES_CURRENT_SINCE` reads;
  * version 11 only PDFs', whose pages gain their printed names and whose
- * Passages come out as they were.
+ * Passages come out as they were; version 12 includes their form fields.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 11,
+  pdf: 12,
   text: 5,
   markdown: 5,
   docx: 7,
@@ -183,8 +184,8 @@ type Processed =
        * as the Passages were built from it (see ./boilerplate), with its label and anchors.
        */
       pages: TextUnit[];
-      /** Scanned pages that couldn't be read, and why; null when every one was. */
-      unread: { pages: number[]; message: string } | null;
+      /** PDF pages with unread content, and why; null when all could be read. */
+      unread: { pages: number[]; message: string; forms?: true } | null;
     }
   | { outcome: "no-text"; pageCount: number | null }
   | { outcome: "failed"; reason: DocumentFailureReason; message: string };
@@ -511,7 +512,11 @@ async function processBytes(
     if (passages.length === 0) {
       // A scan none of whose pages could be read: it has text to find, once they can be.
       const processed: Processed = unread
-        ? { outcome: "failed", reason: "pages-unread", message: unreadMessage(unread) }
+        ? {
+            outcome: "failed",
+            reason: unread.forms ? "forms-unread" : "pages-unread",
+            message: unreadMessage(unread),
+          }
         : { outcome: "no-text", pageCount };
       return { processed, firstPages };
     }
@@ -528,5 +533,7 @@ async function processBytes(
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** The technical detail of scanned pages that couldn't be read, in English, for logs and tooltips. */
-export const unreadMessage = (unread: { pages: number[]; message: string }) =>
-  `Scanned ${unread.pages.length === 1 ? "page" : "pages"} ${unread.pages.join(", ")} couldn't be read${unread.message ? `: ${unread.message}` : "."}`;
+export const unreadMessage = (unread: { pages: number[]; message: string; forms?: true }) =>
+  unread.forms
+    ? unread.message
+    : `Scanned ${unread.pages.length === 1 ? "page" : "pages"} ${unread.pages.join(", ")} couldn't be read${unread.message ? `: ${unread.message}` : "."}`;

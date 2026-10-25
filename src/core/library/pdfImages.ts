@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist/types/src/display/api";
 import type { DrawnPage, PageText } from "../../shared/citedPage";
+import { readPdfPageText } from "../../shared/pdfFormText";
 
 export interface DocumentPageImage {
   page: number;
@@ -215,7 +216,7 @@ export async function drawPdfPages(
           drawn.push({ surface, top });
           await page.render({ canvas: surface.canvas, viewport, background: "white" }).promise;
           checkWorker();
-          const content = await page.getTextContent();
+          const { content } = await readPdfPageText(page);
           for (const item of content.items) {
             if (!("str" in item)) continue;
             const [, , c, d, e, f] = Util.transform(viewport.transform, item.transform);

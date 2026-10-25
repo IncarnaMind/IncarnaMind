@@ -2583,6 +2583,7 @@ export type DocumentFailureReason =
    * searched; Retry reads the others.
    */
   | "pages-unread"
+  | "forms-unread"
   /**
    * The app stopped while it was being read, not closed in good order: it
    * isn't read again by itself, as it could stop the app again. Retry reads it.

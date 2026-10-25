@@ -964,12 +964,15 @@ export function createDocuments(options: DocumentsOptions) {
       } else {
         status = result.outcome;
       }
-      // Scanned pages that couldn't be read are this version's failure: the rest is searched (#397).
+      // A partial read keeps the readable text searchable (#397, #1818).
       const failure =
         result.outcome === "failed"
           ? { reason: result.reason, message: result.message }
           : result.outcome === "ready" && result.unread
-            ? { reason: "pages-unread", message: unreadMessage(result.unread) }
+            ? {
+                reason: result.unread.forms ? "forms-unread" : "pages-unread",
+                message: unreadMessage(result.unread),
+              }
             : null;
       db.run(
         `UPDATE documents SET status = ?, page_count = ?, failure_reason = ?, failure_message = ?,

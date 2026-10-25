@@ -99,6 +99,8 @@ export const en = {
   "library.fix.appStopped": "IncarnaMind stopped while reading this file",
   "library.fix.scan": "A scan with no text yet",
   "library.fix.pages": "Some scanned pages couldn’t be read",
+  "library.fix.forms":
+    "Some form fields couldn’t be read. Save a flattened PDF in the app that created it, then add that copy",
   "library.fix.empty": "This file is empty",
   "library.fix.open": "Open in default app",
   "library.fix.retry": "Retry",
@@ -1310,6 +1312,7 @@ export const en = {
   "documents.failure.pagesUnread.one": "scanned page {pages} couldn’t be read",
   "documents.failure.pagesUnread.other": "scanned pages {pages} couldn’t be read",
   "documents.failure.pagesUnread.all": "its scanned pages couldn’t be read",
+  "documents.failure.formsUnread": "some form fields couldn’t be read",
   "documents.pagesUnread.one": "Scanned page {pages} couldn’t be read",
   "documents.pagesUnread.other": "Scanned pages {pages} couldn’t be read",
   "documents.pagesUnread.all": "The scanned pages couldn’t be read",

@@ -37,6 +37,8 @@ export function documentFix(doc: Document): DocumentFix | null {
       return { reason: "library.fix.tooLarge", open: here, retry: null };
     case "pages-unread":
       return { reason: "library.fix.pages", open: here, retry: here ? "readAgain" : null };
+    case "forms-unread":
+      return { reason: "library.fix.forms", open: here, retry: here ? "readAgain" : null };
     case "processing-error":
       return { reason: "library.fix.processing", open: false, retry: here ? "retry" : null };
     case "app-stopped":
