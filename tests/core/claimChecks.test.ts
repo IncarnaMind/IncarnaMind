@@ -1513,8 +1513,12 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
   const SPRING_QUOTE = "Spring tides happen at new moon and at full moon";
   const SAYS = "Tides says spring tides happen at new and full moon.";
   const LINES = "Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same";
+  const CONTRACT = {
+    name: "劳动合同书.md",
+    contents:
+      "# 劳动合同书\n\n乙方自2027年1月11日起入职。\n\n乙方每年享有带薪年休假10天，法定节假日另计。",
+  };
 
-  /** A model that searches, writes `beside` in the turn that cites `quote`, with no marker in it, then `after` alone. */
   const citesBeside = (step: { search?: string; quote: string; beside: string; after: string }) =>
     scriptedModel(
       (call) => {
@@ -1580,13 +1584,8 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
       says: "劳动合同书写明乙方每年享有带薪年休假10天，不是15天。",
     },
   ])("in Chinese, $shape: the sentence is Contradicted, with its Citation", async (each) => {
-    const contract = {
-      name: "劳动合同书.md",
-      contents:
-        "# 劳动合同书\n\n乙方自2027年1月11日起入职。\n\n乙方每年享有带薪年休假10天，法定节假日另计。",
-    };
     const model = citesBeside(each);
-    const { core, client, check } = await mindWith([each.sentence], model, [contract]);
+    const { core, client, check } = await mindWith([each.sentence], model, [CONTRACT]);
     await core.updateSettings({ user: { language: "zh-CN" } });
 
     await check();
@@ -1644,6 +1643,160 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
     const [checked] = await shownChecks(core, client);
     expect(checked?.shown).toEqual({ state: "not-checked", reason: "refused" });
   });
+
+  const inSteps = (
+    ...steps: ("search" | ((passage: (quote: string) => string) => ScriptedReply))[]
+  ) =>
+    scriptedModel(
+      (call) => {
+        const found = call.results.find((result) => result.tool === "search_documents");
+        const passage = (quote: string) =>
+          shownPassages(found?.text ?? "").find((each) => each.text.includes(quote))?.id ?? "P1";
+        const step = steps[Math.min(call.results.length, steps.length - 1)];
+        if (step === "search") {
+          return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
+        }
+        return step ? step(passage) : { text: "" };
+      },
+      { generate: checkGenerate({}) },
+    );
+  const cites = (passage: string, quote: string) => ({
+    tool: "cite",
+    input: { citations: [{ marker: 1, passage, quote }] },
+  });
+  const HARBOUR_QUOTE = "Harbours publish the times of high water every year.";
+  const HARBOUR_SAYS = "Tides says harbours publish them every year, not every week.";
+  const LEAVE_QUOTE = "乙方每年享有带薪年休假10天";
+  const LEAVE_SAYS = "劳动合同书写明乙方每年享有带薪年休假10天，不是15天。";
+
+  // protects=a verdict written beside cite before any search stays a preamble, though the model searches after it: the sentence is "not checked", as on main; fails_when=the earlier verdict decides the sentence; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en" as const,
+      sentence: SUPPORTED,
+      quote: SPRING_QUOTE,
+      first: "Verdict: unsupported\nTopic: not found",
+      last: "Covered: none\nNot covered: spring tides at new and full moon",
+    },
+    {
+      language: "zh-CN" as const,
+      sentence: "乙方每年享有带薪年休假10天。",
+      quote: LEAVE_QUOTE,
+      first: "Verdict: contradicted\nScope: 乙方, same\nTopic: found",
+      last: "劳动合同书写明乙方每年享有带薪年休假10天。[^1]",
+    },
+  ])(
+    "$language: a verdict beside cite before the search is “not checked”, malformed",
+    async (each) => {
+      const model = inSteps(
+        () => ({ text: each.first, calls: [cites("P1", each.quote)] }),
+        "search",
+        (passage) => ({ calls: [cites(passage(each.quote), each.quote)] }),
+        () => ({ text: each.last }),
+      );
+      const { core, client, check } = await mindWith([each.sentence], model, [CONTRACT]);
+      if (each.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+
+      await check();
+
+      const [checked] = await shownChecks(core, client);
+      expect(checked?.shown).toEqual({ state: "not-checked", reason: "malformed" });
+    },
+  );
+
+  // protects=text beside a later cite with no verdict in it, after the verdict lines, never becomes what the Document says: the card's sentence is the reply's; fails_when=the card says "Let me correct the quote."; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en" as const,
+      sentence: CONTRADICTED,
+      quote: HARBOUR_QUOTE,
+      lines: "Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: none, same",
+      between: "Let me correct the quote.",
+      says: HARBOUR_SAYS,
+    },
+    {
+      language: "zh-CN" as const,
+      sentence: "乙方每年有15天带薪年休假。",
+      quote: LEAVE_QUOTE,
+      lines: "Verdict: contradicted\nScope: 乙方, same\nTopic: found\nRoles: none, same",
+      between: "我来更正引文。",
+      says: LEAVE_SAYS,
+    },
+  ])(
+    "$language: a preamble set aside after the verdict lines isn't what the Document says",
+    async (each) => {
+      const model = inSteps(
+        "search",
+        (passage) => ({
+          text: each.lines,
+          calls: [cites(passage(each.quote), `${each.quote}，每周`)],
+        }),
+        (passage) => ({ text: each.between, calls: [cites(passage(each.quote), each.quote)] }),
+        () => ({ text: `${each.says} [^1]` }),
+      );
+      const { core, client, check } = await mindWith([each.sentence], model, [CONTRACT]);
+      if (each.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+
+      await check();
+
+      const [checked] = await shownChecks(core, client);
+      expect(checked?.shown).toEqual({ state: "contradicted" });
+      expect(checked?.check.says).toBe(each.says);
+      expect(checked?.check.evidence).toMatchObject({ quote: each.quote, check: "found" });
+    },
+  );
+
+  // protects=of two verdicts written beside cite after the search, the later one decides the sentence, in either order and in Chinese; fails_when=the earlier verdict decides it; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en" as const,
+      sentence: SUPPORTED,
+      quote: SPRING_QUOTE,
+      earlier: "Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: none, same",
+      later: LINES,
+      says: SAYS,
+      state: "supported",
+    },
+    {
+      language: "en" as const,
+      sentence: CONTRADICTED,
+      quote: HARBOUR_QUOTE,
+      earlier: LINES,
+      later: "Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: none, same",
+      says: HARBOUR_SAYS,
+      state: "contradicted",
+    },
+    {
+      language: "zh-CN" as const,
+      sentence: "乙方每年有15天带薪年休假。",
+      quote: LEAVE_QUOTE,
+      earlier: "Verdict: supported\nScope: 乙方, same\nTopic: found\nRoles: none, same",
+      later: "Verdict: contradicted\nScope: 乙方, same\nTopic: found\nRoles: none, same",
+      says: LEAVE_SAYS,
+      state: "contradicted",
+    },
+  ])(
+    "$language: of two verdicts beside cite, the later is the sentence's: $state",
+    async (each) => {
+      const model = inSteps(
+        "search",
+        (passage) => ({
+          text: each.earlier,
+          calls: [cites(passage(each.quote), `${each.quote}，每周`)],
+        }),
+        (passage) => ({ text: each.later, calls: [cites(passage(each.quote), each.quote)] }),
+        () => ({ text: `${each.says} [^1]` }),
+      );
+      const { core, client, check } = await mindWith([each.sentence], model, [CONTRACT]);
+      if (each.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+
+      await check();
+
+      const [checked] = await shownChecks(core, client);
+      expect(checked?.shown).toEqual({ state: each.state });
+      expect(checked?.check.says).toBe(each.says);
+    },
+  );
 });
 
 describe("Needs re-check", () => {
