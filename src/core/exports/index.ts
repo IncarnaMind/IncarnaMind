@@ -23,7 +23,12 @@ import { readableQuoteText } from "../../shared/readableQuote";
 import type { ScopeKind } from "../../shared/searchScope";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
-import { unreadCountText, unreadFileNamesOf, unreadFileText } from "../../shared/unreadFiles";
+import {
+  unreadCountText,
+  unreadFileNamesOf,
+  unreadFileText,
+  unreadPartsCounts,
+} from "../../shared/unreadFiles";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
 import {
@@ -186,7 +191,10 @@ function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: 
             ]),
           },
         ]
-      : []),
+      : unreadPartsCounts(unread, t).map((count) => ({
+          kind: "paragraph" as const,
+          content: [line(count)],
+        }))),
   ];
 }
 

@@ -7,7 +7,7 @@
 import type { SentenceResult } from "../../shared/claimChecks";
 import { formatDate } from "../../shared/dates";
 import { type MessageKey, translate } from "../../shared/i18n";
-import { UNREAD_REASON_KEYS } from "../../shared/unreadFiles";
+import { unreadFileText } from "../../shared/unreadFiles";
 import type { NodeJSON } from "../answers/blocks";
 import type { UnreadFile } from "../api";
 import type { Language } from "../language";
@@ -185,10 +185,7 @@ export function statementBlocks(
     rows
       .filter(([key]) => counts[key] > 0 || always.includes(key))
       .map(([key, label]) => [t(label), number(counts[key])]);
-  const unreadRow = (file: UnreadFile) =>
-    `${file.name}${t("unread.file.reason", {
-      reason: t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" }),
-    })}`;
+  const unreadRow = (file: UnreadFile) => unreadFileText(file, t);
   const unreadPart =
     unread.length === 0
       ? []

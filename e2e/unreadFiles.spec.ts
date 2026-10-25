@@ -3,8 +3,10 @@ import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, DocumentStatus } from "../src/core/api";
+import { MAX_ROWS } from "../src/core/documents/formats/grid";
 import { parseCsv } from "../tests/helpers/csv";
 import { lockedPdf } from "../tests/helpers/lockedPdf";
+import { xlsxOf } from "../tests/helpers/office";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   askInAssistant,
@@ -508,5 +510,43 @@ for (const language of ["en", "zh-CN"] as const) {
     } finally {
       await removeDataFolder(out);
     }
+  });
+}
+
+/** A workbook Excel reads only in part: two hidden sheets, and rows past the reading limit. */
+const WORKBOOK = () =>
+  xlsxOf([
+    { name: "Visible", rows: [["Region"]] },
+    { name: "Q3 raw", state: "hidden", rows: [["Secret"], ["1"]] },
+    { name: "Q4 raw", state: "veryHidden", rows: [["Secret"], ["2"]] },
+    {
+      name: "Big",
+      rows: Array.from({ length: MAX_ROWS + 5 }, (_, index) => [`R${index + 1}`, index]),
+    },
+    { name: "After", rows: [["never read"]] },
+  ]);
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the list names the sheets and rows a workbook didn't read (${language})`, async () => {
+    test.setTimeout(180_000);
+    const { app, window } = await start(language, {
+      ...FILES,
+      "Budget 2026.xlsx": WORKBOOK(),
+    });
+    const answer = await askInAssistant(window, "What do tides do?");
+    const line = answer.getByTestId("unread-files");
+    await expect(line).toContainText(
+      language === "en" ? "4 files couldn’t be read" : "4 个文件未能读取",
+    );
+    await pointAndClick(window, line.getByTestId("unread-files-show"));
+    const row = line.getByTestId("unread-file").filter({ hasText: "Budget 2026.xlsx" });
+    await expect(row).toHaveAttribute("data-reason", "parts");
+    await expect(row).toHaveText(
+      language === "en"
+        ? /the hidden sheets “Q3 raw”, “Q4 raw” weren’t read; “Big”: rows 20,000\+ weren’t read; “After”: the whole sheet wasn’t read/
+        : /隐藏工作表“Q3 raw”、“Q4 raw”未读取；“Big”：第 20,000 行及之后的内容未读取；“After”：整张工作表未读取/,
+    );
+    await screenshot(window, `answer-workbook-${language}`);
+    await app.close();
   });
 }

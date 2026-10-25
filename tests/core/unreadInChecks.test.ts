@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, MIND_CHECK_UNREAD_FIELD, type UnreadFile } from "../../src/core";
+import { MAX_ROWS } from "../../src/core/documents/formats/grid";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkUnreadOf } from "../../src/shared/unreadFiles";
 import { checkingModel, type Plan } from "../helpers/checks";
@@ -20,6 +21,7 @@ import { lockedPdf } from "../helpers/lockedPdf";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { scriptedModels } from "../helpers/models";
+import { xlsxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
 import { fakePrinter } from "../helpers/printer";
 
@@ -486,5 +488,93 @@ describe("The check record", () => {
     const csvName = readdirSync(out).find((name) => name.endsWith(".csv"));
     const rows = parseCsv(readFileSync(join(out, csvName ?? ""), "utf8"));
     expect(rows.some((each) => each[0] === "What couldn’t be read")).toBe(false);
+  });
+});
+
+/**
+ * A workbook is read in part without a word (#740): hidden and very hidden sheets are left
+ * out, and the reading limit cuts its rows. Both are named in the same list, with what the
+ * rest of the workbook says.
+ */
+describe("A workbook read in part", () => {
+  const BUDGET = "Budget 2026.xlsx";
+  const workbook = () =>
+    xlsxOf([
+      { name: "Visible", rows: [["Region"]] },
+      { name: "Q3 raw", state: "hidden", rows: [["Secret"], ["1"]] },
+      { name: "Q4 raw", state: "veryHidden", rows: [["Secret"], ["2"]] },
+      {
+        name: "Big",
+        rows: Array.from({ length: MAX_ROWS + 5 }, (_, index) => [`R${index + 1}`, index]),
+      },
+      { name: "After", rows: [["never read"]] },
+    ]);
+  const withWorkbook = (options: Parameters<typeof startCore>[1] = {}) =>
+    linkedFolderWith({ [BUDGET]: workbook() }, options);
+
+  test("the list names the hidden sheets and the rows past the limit, with the workbook", async () => {
+    const { core } = await withWorkbook();
+
+    expect(await core.listUnreadFiles(null)).toMatchObject([
+      {
+        name: BUDGET,
+        reason: "parts",
+        parts: {
+          hiddenSheets: ["Q3 raw", "Q4 raw"],
+          rowsCut: [{ sheet: "Big", from: MAX_ROWS }],
+          sheetsNotRead: ["After"],
+        },
+      },
+    ]);
+  });
+
+  test("an export counts them, and names them only when the Mind names the files", async () => {
+    const { core, folderId } = await withWorkbook();
+    const { mind } = await mindOf(core, folderId, [SUPPORTED]);
+
+    const counted = await markdownOf(core, mind.id);
+    expect(counted).toContain("1 file couldn’t be read");
+    expect(counted).toContain("2 hidden sheets weren’t read");
+    expect(counted).toContain("2 sheets have rows that weren’t read");
+    expect(counted).not.toContain(BUDGET);
+    expect(counted).not.toContain("Q3 raw");
+
+    await core.setMindUnreadFileNames(mind.id, true);
+    const named = await markdownOf(core, mind.id);
+    expect(named).toContain(
+      "Budget 2026.xlsx: the hidden sheets “Q3 raw”, “Q4 raw” weren’t read; “Big”: rows 20,000+ weren’t read; “After”: the whole sheet wasn’t read",
+    );
+  });
+
+  test("the check record names the workbook and what it didn't read, in English and Chinese", async () => {
+    const out = await createTempDataFolder();
+    const { printed, printer } = fakePrinter();
+    const { core, folderId } = await withWorkbook({ printer });
+    await core.setOutputLocation(out);
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+
+    const saved = await core.saveCheckRecord(mind.id);
+
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    expect(printed[0]?.body ?? "").toContain(
+      "Budget 2026.xlsx: the hidden sheets “Q3 raw”, “Q4 raw”",
+    );
+    const csvName = readdirSync(out).find((name) => name.endsWith(".csv"));
+    const rows = parseCsv(readFileSync(join(out, csvName ?? ""), "utf8"));
+    expect(rows.find((each) => each[0] === "What couldn’t be read")?.[1]).toContain(
+      "“Big”: rows 20,000+ weren’t read; “After”: the whole sheet wasn’t read",
+    );
+
+    const chinese = await createTempDataFolder();
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await core.setOutputLocation(chinese);
+    const again = await core.saveCheckRecord(mind.id);
+    if (again.status !== "saved") throw new Error(`Not saved: ${again.status}`);
+    const zhName = readdirSync(chinese).find((name) => name.endsWith(".csv"));
+    const zhRows = parseCsv(readFileSync(join(chinese, zhName ?? ""), "utf8"));
+    expect(zhRows.find((each) => each[0] === "未能读取的文件")?.[1]).toContain(
+      "Budget 2026.xlsx：隐藏工作表“Q3 raw”、“Q4 raw”未读取；“Big”：第 20,000 行及之后的内容未读取；“After”：整张工作表未读取",
+    );
   });
 });

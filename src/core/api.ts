@@ -2653,6 +2653,11 @@ export interface Document {
   /** Set when `status` is "failed": why the latest version read failed. */
   failure: DocumentFailure | null;
   /**
+   * What of it wasn't read when the rest was (#740): a workbook's hidden sheets and the sheets
+   * the reading limit cut short. Null when all of it was, and for every other kind.
+   */
+  unreadParts: UnreadParts | null;
+  /**
    * The Folder its file is in: the Linked folder's own Folder, or one inside
    * it. Null for a file added on its own.
    */
@@ -3634,9 +3639,28 @@ export interface UnsupportedFile {
  *   (`unlockDocument`, #763); another kind needs its password removed;
  * - "damaged": the file is broken, or couldn't be read;
  * - "too-large": too large to open;
- * - "pages": a scan some of whose pages haven't been read yet.
+ * - "pages": a scan some of whose pages haven't been read yet;
+ * - "parts": a workbook read in part, whose hidden sheets or rows past the reading limit were
+ *   left out (`UnreadFile.parts` says which). The rest of it is searched.
  */
-export type UnreadReason = "format" | "scan" | "password" | "damaged" | "too-large" | "pages";
+export type UnreadReason =
+  | "format"
+  | "scan"
+  | "password"
+  | "damaged"
+  | "too-large"
+  | "pages"
+  | "parts";
+
+/** What of a Document wasn't read when the rest was (#740). */
+export interface UnreadParts {
+  /** Hidden and very hidden sheets left out, by name, in the file's order. */
+  hiddenSheets: string[];
+  /** Sheets with rows left out at the reading limit: the first row not read, from 1. */
+  rowsCut: { sheet: string; from: number }[];
+  /** Sheets after the limit was reached, from which nothing was read. */
+  sheetsNotRead: string[];
+}
 
 /** A file in a Search scope that couldn't be read, with why (#740). */
 export interface UnreadFile {
@@ -3651,6 +3675,8 @@ export interface UnreadFile {
   documentId: string | null;
   /** For "pages": the scanned pages that couldn't be read, from 1; empty when none could be, and for every other reason. */
   pages: number[];
+  /** For "parts": what wasn't read; absent for every other reason. */
+  parts?: UnreadParts;
 }
 
 /**

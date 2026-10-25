@@ -1869,6 +1869,15 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE conversation_messages ADD COLUMN quotes TEXT;
     `,
   },
+  {
+    version: 106,
+    description: "A workbook says which sheets and rows weren't read (#740)",
+    // JSON, an UnreadParts: hidden and very hidden sheets left out, sheets the reading limit cut
+    // short, and sheets after it. NULL when every part was read, and for every other kind.
+    sql: `
+      ALTER TABLE documents ADD COLUMN unread_parts TEXT;
+    `,
+  },
 ];
 
 /**
