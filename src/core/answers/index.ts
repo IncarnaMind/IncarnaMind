@@ -179,6 +179,7 @@ import { type ChangedScale, changedScale, changedScaleNote } from "./changedScal
 import {
   type AnswerDocuments,
   createCitationSession,
+  type QuoteInput,
   withoutDeadMarkers,
   withoutFootnoteDefinitions,
 } from "./citations";
@@ -1129,26 +1130,26 @@ export function createAnswers(options: AnswersOptions) {
         [...new Set(markersIn(text))].flatMap((marker) => session.quotes.recorded(marker) ?? []),
         answerLanguage(context.question),
       );
-    // A figure whose inputs quote their Passages directly comes with no Citation marker (#1831).
+    // A figure's Citations are its inputs', which the model may leave out of its sentence or write
+    // only as footnote definitions; one quoted directly has no marker of its own (#1831).
     const citeFigures = (text: string): string => {
       const records: CitationRecordInput[] = [];
       const markersOf = new Map<number, number[]>();
       let next = Math.max(0, ...markersIn(text)) + 1;
+      const markerOf = (source: number | QuoteInput): number => {
+        if (typeof source === "number") return source;
+        const same = records.find(
+          (each) => each.passage === source.passage && each.quote === source.quote,
+        );
+        if (same) return same.marker;
+        while (session.tools.hasRecord?.(next)) next++;
+        records.push({ ...source, marker: next });
+        return next++;
+      };
       for (const figure of uncitedFigures(text)) {
-        for (const quote of figures.directQuotes(figure)) {
-          let record = records.find(
-            (each) => each.passage === quote.passage && each.quote === quote.quote,
-          );
-          if (!record) {
-            while (session.tools.hasRecord?.(next)) next++;
-            record = { ...quote, marker: next++ };
-            records.push(record);
-          }
-          markersOf.set(figure, [...(markersOf.get(figure) ?? []), record.marker]);
-        }
+        markersOf.set(figure, figures.inputSources(figure).map(markerOf));
       }
-      if (records.length === 0) return text;
-      session.tools.cite(records, { structured: true });
+      if (records.length > 0) session.tools.cite(records, { structured: true });
       return withFigureCitations(text, (figure) =>
         (markersOf.get(figure) ?? []).filter((marker) => session.tools.hasRecord?.(marker)),
       );

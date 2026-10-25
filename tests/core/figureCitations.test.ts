@@ -112,6 +112,30 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
     expect(answer.figures).toMatchObject([{ marker: 1, value: 310_000_000 }]);
   });
 
+  // protects=a figure whose input cites a record the model wrote only as a footnote definition, not a marker, gets that record's marker after its sentence; fails_when=the definition hides the missing marker and the figure ends uncited (a cell said not found); no_claim=none beyond protects.
+  test("from its cite record when the Answer wrote only a footnote definition", async () => {
+    const model = scriptedModel((call) => {
+      const search = call.results.find((each) => each.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: "net debt" } }] };
+      const passage = shownPassages(search.text)[0]?.id;
+      if (!called(call, "cite")) {
+        const citations = [{ marker: 1, passage, quote: "Net debt: 310,000." }];
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      if (!called(call, "calculate")) {
+        const figure = netDebt(call);
+        const [input] = figure.inputs;
+        const inputs = [{ ...input, citation: 1, passage: undefined, quote: undefined }];
+        return { calls: [{ tool: "calculate", input: { figures: [{ ...figure, inputs }] } }] };
+      }
+      return { text: "Net debt was [=1] at Q3.\n\n[^1]: Net debt: 310,000." };
+    });
+    const { core } = await setUp(model);
+    const answer = await askAssistant(core, { text: "What was net debt in GBP millions?" });
+    expect(answer.text.trim()).toBe("Net debt was [=1] at Q3[^1].");
+    expect(answer.citations).toMatchObject([{ marker: 1, check: "found" }]);
+  });
+
   // protects=a figure in a table's cell gets its input's Citation in that cell; fails_when=the cell shows the figure unmarked; no_claim=none beyond protects.
   test("in a table's cell of an Answer", async () => {
     const table = "| Metric | Q3 2026 |\n|---|---|\n| Net debt | [=1] |";
