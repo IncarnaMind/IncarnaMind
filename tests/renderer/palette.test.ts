@@ -157,26 +157,13 @@ describe("⌘K's actions", () => {
     expect(actions("zzqx")).toEqual([]);
   });
 
-  // protects=typing a command's own keyword ("local") puts the command it names first, above one whose name only has a word that starts with it ("Change output location…"); fails_when=the entry whose name has "location" ranks first for "local"; no_claim=other queries.
-  test("a keyword a command names itself by ranks it above a name that only has a word starting with it", () => {
-    expect(actions("local")[0]?.[1]?.[0]).toBe("Keep everything on this computer");
-    expect(actions("local")[0]?.[1]).toContain("Change output location…");
-    expect(actions("本地", "zh-CN")[0]?.[1]?.[0]).toBe("所有内容都留在这台电脑上");
+  test("a word inside another word, or one typo across two, doesn't find an action (#1372)", () => {
+    expect(actions("ew mind")).toEqual([]);
+    expect(actions("theme")).toEqual([]);
+    expect(actions("new mind")).toEqual([["actions", ["New Mind"]]]);
+    // A typo of a word's start still finds the action.
+    expect(actions("neww mind")).toEqual([["actions", ["New Mind"]]]);
   });
-
-  // protects=a keyword never puts a command above one whose name starts with what was typed: "settings" and its Chinese, pinyin and initials list Settings first, not Local mode; fails_when=a command that only lists "settings" among its keywords ranks above Settings…; no_claim=the rows after the first.
-  test.each([
-    ["settings", "en"],
-    ["设置", "zh-CN"],
-    ["shezhi", "zh-CN"],
-    ["sz", "zh-CN"],
-  ] as const)(
-    "typing %s finds Settings first, ahead of commands that only name it as a keyword",
-    (typed, language) => {
-      const first = actions(typed, language)[0]?.[1]?.[0] ?? "";
-      expect(first.startsWith(language === "en" ? "Settings" : "设置")).toBe(true);
-    },
-  );
 
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {
     const [withTwo] = palette.actionGroup(

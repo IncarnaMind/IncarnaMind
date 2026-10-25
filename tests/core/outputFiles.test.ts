@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, type FileWriteRequest, InvalidInputError, NotFoundError } from "../../src/core";
 import { silentLogger } from "../../src/core/activityLog";
+import type { Logger } from "../../src/core/adapters";
 import { createOwnFiles } from "../../src/core/documents/ownFiles";
 import { createEventHub } from "../../src/core/events";
 import { createOutputFiles } from "../../src/core/outputFiles";
@@ -498,7 +499,7 @@ test("Show in Finder shows only a file IncarnaMind saved", async () => {
 
 describe("Saving next to an original (the call other features use)", () => {
   /** The module over an empty database, with one Linked folder holding one original. */
-  async function outputsWith() {
+  async function outputsWith(log: Logger = silentLogger, suggested?: string) {
     const db = openDatabase(":memory:");
     migrate(db);
     const now = () => new Date().toISOString();
@@ -509,10 +510,10 @@ describe("Saving next to an original (the call other features use)", () => {
       events: createEventHub(),
       now,
       settings: createSettings(db, now, () => ["en-US"], "none"),
-      suggested: join(await createSourceFolder(), "IncarnaMind"),
+      suggested: suggested ?? join(await createSourceFolder(), "IncarnaMind"),
       linkedFolders: () => [{ id: "linked-1", path: linked }],
       recordOwnFile: createOwnFiles(db, now).record,
-      log: silentLogger,
+      log,
     });
     outputs.setLinkedFolderWriting("linked-1", true);
     const fingerprints = () =>
@@ -557,6 +558,33 @@ describe("Saving next to an original (the call other features use)", () => {
     const transcript = new TextEncoder().encode("[00:01] The tide turned at noon.");
     await outputs.save({ name: "Meeting.vtt", data: transcript, folder, ownFile: null });
     expect(fingerprints()).toHaveLength(1);
+  });
+
+  test("the default Output location not made yet is not a fault, and any other fault there is logged (#964)", async () => {
+    const warn = vi.fn();
+    const log: Logger = { ...silentLogger, warn };
+    const notYet = await outputsWith(log);
+    await notYet.outputs.save({
+      name: "Lease.md",
+      data,
+      folder: join(notYet.linked, "Leases"),
+      ownFile: "export",
+    });
+    expect(warn).not.toHaveBeenCalled();
+
+    const inTheWay = await writeSourceFile(await createSourceFolder(), "In the way.txt", "A file.");
+    const blocked = await outputsWith(log, join(inTheWay, "IncarnaMind"));
+    expect(
+      await blocked.outputs.save({
+        name: "Lease.md",
+        data,
+        folder: join(blocked.linked, "Leases"),
+        ownFile: "export",
+      }),
+    ).toMatchObject({ inDefaultFolder: false });
+    expect(warn).toHaveBeenCalledWith("output.defaultFolder", {
+      error: expect.stringContaining("ENOTDIR"),
+    });
   });
 
   test("a folder outside the Output location and every Linked folder, or a link leading out of one, is refused", async () => {

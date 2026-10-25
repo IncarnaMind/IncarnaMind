@@ -247,7 +247,11 @@ test("A figure the Documents don't state is worked out from theirs: a wrong mult
     join(sources, "Board update.pdf"),
     buildPdf([
       {
-        lines: ["Board update", "Net debt was $1,234m and EBITDA was $942m at the end of 2025."],
+        lines: [
+          "Board update",
+          "Net debt was $1,234m and EBITDA was $942m in 2025,",
+          "the board said.",
+        ],
       },
     ]),
   );
@@ -266,7 +270,7 @@ test("A figure the Documents don't state is worked out from theirs: a wrong mult
   });
   await addDocuments(window, [join(sources, "Board update.pdf")]);
   await newMind(window);
-  const wrong = "Net debt to EBITDA was 1.1x at the end of 2025.";
+  const wrong = "Net debt to EBITDA was 1.1x at the end of 2025, as the rows show.";
   const right = "Net debt to EBITDA was 1.3x at the end of 2025.";
   const editor = window.getByTestId("mind-editor");
   await editor.click();
@@ -292,6 +296,11 @@ test("A figure the Documents don't state is worked out from theirs: a wrong mult
   await expect(inputs).toHaveCount(2);
   await expect(inputs.first()).toContainText("$1,234m");
   await expect(inputs.first()).toContainText("Board update");
+  // Its tooltip is the quote as a person reads it, the line end inside it a space (#905).
+  await expect(inputs.first()).toHaveAttribute(
+    "title",
+    "Net debt was $1,234m and EBITDA was $942m in 2025, the board said.",
+  );
   await screenshot(window, "check-calculated-contradicted-en");
   // An input opens its Document at the quote it was read from.
   await pointAndClick(window, inputs.first());

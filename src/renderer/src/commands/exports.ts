@@ -114,6 +114,7 @@ export const exportCommands: readonly Command[] = [
     label: "export.changeLocation",
     keywords: ["export.changeLocation.keywords"],
     group: "file",
+    // A setting, not a file moved: the User changes it again the same way, so there is nothing to undo.
     reversible: true,
     run: async () => {
       await chooseOutputLocation();

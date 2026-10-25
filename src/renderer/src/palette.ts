@@ -183,14 +183,6 @@ export function findings(t: Translate): Findings {
   return { kinds, names };
 }
 
-/**
- * What a keyword match scores less than the same match in a name, and the most it scores: a name's
- * kinds are a thousand apart (`./matcher`), and a keyword never ranks above a name that starts
- * with the words, however well it matches.
- */
-const KEYWORD_PENALTY = 500;
-const KEYWORD_MOST = 2000;
-
 /** How many of each group show; the rest is a word or two more away. */
 const SHOWN = { names: 5, actions: 6, recent: 5, words: 5 } as const;
 
@@ -266,8 +258,10 @@ export function recentGroup(
 /**
  * The registry's commands that apply here, with their shortcuts and, when they
  * act on one thing, its name: those whose name or keywords, in English or
- * Chinese, hold every word typed, best first; with nothing typed, the few that
- * are `top`, in its order, or, for ">" (`all`), every one in the menus' order.
+ * Chinese, hold every word typed at a word's start or one typo from it, best
+ * first, so letters inside a word or across two never find an action (#1372);
+ * with nothing typed, the few that are `top`, in its order, or, for ">" (`all`),
+ * every one in the menus' order.
  */
 export function actionGroup(
   words: readonly string[],
@@ -293,17 +287,17 @@ export function actionGroup(
   const items = offered.flatMap((command) => {
     const name = labelOf(command, ctx, t);
     const byName = words.length > 0 ? matchName(words, name) : null;
-    const byKeyword =
-      byName || words.length === 0
-        ? null
-        : (command.keywords ?? []).map((key) => matchName(words, t(key))).find(Boolean);
+    const named = byName && (byName.atWordStart || byName.typo) ? byName : null;
     const elsewhere =
-      byName || byKeyword || words.length === 0
+      named || words.length === 0
         ? null
-        : [labelOf(command, ctx, other), ...(command.keywords ?? []).map((key) => other(key))]
+        : ([
+            labelOf(command, ctx, other),
+            ...(command.keywords ?? []).flatMap((key) => [t(key), other(key)]),
+          ]
             .map((each) => matchName(words, each))
-            .find((match) => match !== null);
-    if (words.length > 0 && !byName && !byKeyword && !elsewhere) return [];
+            .find((match) => match !== null && (match.atWordStart || match.typo)) ?? null);
+    if (words.length > 0 && !named && !elsewhere) return [];
     const item: PaletteItem = {
       kind: "command",
       key: `command:${command.id}`,
@@ -313,16 +307,8 @@ export function actionGroup(
       meta: command.appliesTo ? targetName : "",
       shortcut: menuKeysLabel(command),
     };
-    // A keyword of the command's own, which names what it is for ("local" for Local mode), ranks
-    // below a name that starts with the words but above one that only has them at the start of a
-    // word ("location"); a match in the other language ranks below all of those.
-    const score =
-      byName?.score ??
-      (byKeyword
-        ? Math.min(byKeyword.score - KEYWORD_PENALTY, KEYWORD_MOST)
-        : elsewhere
-          ? elsewhere.score - 4000
-          : 0);
+    // A match by keyword or in the other language ranks below one by its name.
+    const score = named?.score ?? (elsewhere ? elsewhere.score - 4000 : 0);
     return [{ item, score, group: command.group }];
   });
   const topOf = (id: CommandId) => commands.get(id)?.top ?? Number.MAX_SAFE_INTEGER;

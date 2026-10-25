@@ -3421,7 +3421,7 @@ export const zhCN = {
   "export.failed.gone": "这个文件夹已不存在",
   "export.failed.notAllowed": "你没有允许在同步文件夹“{folder}”中添加文件",
   "export.changeLocation": "更改保存位置…",
-  "export.changeLocation.keywords": "保存位置 输出位置 文件夹 文件保存到哪里 导出 文稿",
+  "export.changeLocation.keywords": "保存位置 文件夹 文件保存到哪里 导出",
   "export.allow": "允许",
   "export.doneIn": "已保存“{name}”到“{folder}”",
   "export.record.doneIn": "已保存“{name}”和 CSV 文件到“{folder}”",

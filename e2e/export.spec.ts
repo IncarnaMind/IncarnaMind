@@ -285,6 +285,12 @@ test("the Saved line names the folder, goes by itself after ten seconds unless t
   await pointAt(window, result);
   await window.clock.fastForward("00:30");
   await expect(result).toBeVisible();
+  // The window rendering again, as a new language does, doesn't take the held line away.
+  await bridge(window).language("zh-CN");
+  await expect(result).toBeVisible();
+  await expect(done).toHaveText(savedLine("Tides.docx", sources, "zh-CN"));
+  await bridge(window).language("en");
+  await expect(done).toHaveText(savedLine("Tides.docx", sources));
   await window.mouse.move(2, 2);
   await window.clock.fastForward("00:09");
   await expect(result).toBeVisible();
