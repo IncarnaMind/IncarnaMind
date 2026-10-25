@@ -57,10 +57,10 @@ async function onScreen(
     for (const part of parts) {
       const rect = part.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) continue;
-      const left = change ? Math.min(change.x, rect.x) : rect.x;
-      const top = change ? Math.min(change.y, rect.y) : rect.y;
-      const right = change ? Math.max(change.x + change.width, rect.right) : rect.right;
-      const bottom = change ? Math.max(change.y + change.height, rect.bottom) : rect.bottom;
+      const left: number = change ? Math.min(change.x, rect.x) : rect.x;
+      const top: number = change ? Math.min(change.y, rect.y) : rect.y;
+      const right: number = change ? Math.max(change.x + change.width, rect.right) : rect.right;
+      const bottom: number = change ? Math.max(change.y + change.height, rect.bottom) : rect.bottom;
       change = { x: left, y: top, width: right - left, height: bottom - top };
     }
     if (!change) throw new Error("The change doesn't show.");
