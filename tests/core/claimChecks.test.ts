@@ -377,17 +377,29 @@ describe("One claim check", () => {
     });
   });
 
-  // protects=a request after the model's verdict that the provider rate-limits leaves the sentence not checked on the limit's reason, so the run tries it again: a contradiction is never shown unconfirmed, nor a verdict without its evidence (#1618); fails_when=the sentence is Contradicted or Supported without the request that confirms it; no_claim=the run's pauses, which runItems' tests cover.
-  test.each([
-    ["the contradiction's confirmation", CONTRADICTED, "Compare a sentence"],
-    ["the evidence asked for again", SUPPORTED, "You checked a sentence"],
+  // protects=a request after the model's verdict that the provider rate-limits leaves the sentence not checked on the limit's reason, so the run tries it again: a contradiction is never shown unconfirmed, nor a verdict without its evidence, nor a wider Supported the parts ask would settle (#1618); fails_when=the sentence is Contradicted or Supported without the request that confirms it; no_claim=the run's pauses, which runItems' tests cover.
+  test.each<[string, string, string, Plan]>([
+    [
+      "the contradiction's confirmation",
+      CONTRADICTED,
+      "Compare a sentence",
+      PLANS[CONTRADICTED] as Plan,
+    ],
+    ["the evidence asked for again", SUPPORTED, "You checked a sentence", { verdict: "supported" }],
+    [
+      "the parts of a wider-supported sentence",
+      SUPPORTED,
+      "A sentence the User wrote says more",
+      {
+        verdict: "supported",
+        quote: "Spring tides happen at new moon and at full moon",
+        says: "Scope: wider\nTides says spring tides happen at new and full moon.",
+      },
+    ],
   ])(
     "%s rate-limited leaves the sentence not checked, on the rate limit",
-    async (_, claim, asked) => {
-      const plans: Record<string, Plan> = {
-        ...PLANS,
-        [SUPPORTED]: { verdict: "supported" },
-      };
+    async (_, claim, asked, plan) => {
+      const plans: Record<string, Plan> = { ...PLANS, [claim]: plan };
       const model = scriptedModel((call) => checkReply(call, plans), {
         generate: (call) =>
           call.system.startsWith(asked)

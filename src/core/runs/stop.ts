@@ -97,13 +97,11 @@ export async function runItems<I, T>(
   /** No item starts before this, in ms since the epoch: a provider limited requests. */
   let pausedUntil = 0;
   const workers = Math.max(1, Math.min(concurrency, items.length));
-  /** How many items may run at once now: one fewer each time a provider limits requests. */
   let allowed = workers;
   /** Items that ended without a rate limit since the last one: a round of them brings one more back. */
   let calm = 0;
-  /** A rate limit that outlasted every pause: the provider won't take more now, so nothing else is sent. */
+  /** A limit that outlasted every pause: the rest aren't sent, so a limited key gives up after one round (#1618). */
   let limitedOut: ProviderError | null = null;
-  /** Workers holding an item: waiting out a pause, or running it. */
   let holding = 0;
 
   const settle = (index: number, outcome: ItemOutcome<T>) => {

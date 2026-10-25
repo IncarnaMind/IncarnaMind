@@ -463,6 +463,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     ) {
       const part = await parts(evidence);
       if (signal.aborted) return notChecked("stopped");
+      if (isFailed(part)) return failedCheck(part.failed);
       // The Passage the check cited states the term's own value, so no nearest line is asked about.
       const nearest = differs ? undefined : null;
       if (part.covered && part.uncovered)
@@ -478,6 +479,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         if (verdict.topic === "not found") return unsupported();
         const part = await parts(evidence);
         if (signal.aborted) return notChecked("stopped");
+        if (isFailed(part)) return failedCheck(part.failed);
         if (!part.covered || !part.uncovered) return unsupported();
         // A judgement has just compared this very quote with the sentence: no nearest line.
         return unsupported({ reason: verdict.says, ...part }, evidence, null);
@@ -613,7 +615,6 @@ async function compare(
   }
 }
 
-/** A request made after the model's verdict that the provider failed. */
 interface Failed {
   failed: ProviderError;
 }
@@ -629,12 +630,12 @@ async function partOf(
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
   language: Language,
-): Promise<ReturnType<typeof readPart>> {
+): Promise<ReturnType<typeof readPart> | Failed> {
   const asked = await compare(request, quoted, session, signal, partInstructions(language));
   if ("reply" in asked) return readPart(asked.reply);
   if (!signal.aborted)
     console.error(`A sentence's parts couldn't be asked for: ${asked.failed.message}`);
-  return { covered: null, uncovered: null };
+  return { failed: asked.failed };
 }
 
 interface Opinions {
