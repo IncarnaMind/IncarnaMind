@@ -476,6 +476,8 @@ export function createExamples(options: ExamplesOptions) {
         options.writeValue(valueKey(group), examples);
       } catch (error) {
         if (gone.hadMind) options.deleteMind(examples.mindId);
+        // A folder that did come back keeps its files; one that didn't takes its copies with it.
+        if (!options.linkedFolderExists(examples.linkedFolderId)) await discardFiles(examples);
         throw error;
       }
     }

@@ -328,6 +328,33 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     expect(await core.listLinkedFolders()).toEqual([]);
   });
 
+  test("Undo is all or nothing: a Document that can't come back takes the restored Mind and files with it (#1292)", async () => {
+    const { core, dataDir } = await startWithExamples();
+    const made = await core.createExamples();
+    const mindId = made.mindId as string;
+    const folder = join(dataDir, "Examples");
+    await vi.waitFor(
+      async () => {
+        const documents = await core.listDocuments();
+        expect(documents).toHaveLength(2);
+        expect(documents.every((each) => each.status === "ready")).toBe(true);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    const [first] = await core.listDocuments();
+    if (!first) throw new Error("The example's Documents never appeared.");
+
+    await core.removeExamples();
+    await core.deletePermanently([{ kind: "document", id: first.id }]);
+
+    await expect(core.restoreExamples()).rejects.toThrow(/deleted permanently/);
+    expect(await core.listMinds()).toEqual([]);
+    expect((await core.listDeleted()).map((each) => each.id)).toEqual([mindId]);
+    expect(await core.listLinkedFolders()).toEqual([]);
+    expect(await core.listDocuments()).toEqual([]);
+    await expect(access(folder)).rejects.toThrow();
+  });
+
   test("Undo after the examples were removed, their Mind deleted before, brings back the Documents and leaves the User's own delete alone (#1292)", async () => {
     const { core } = await startWithExamples();
     const made = await core.createExamples();
