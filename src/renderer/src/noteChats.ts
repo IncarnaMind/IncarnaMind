@@ -23,10 +23,13 @@ function remembered(): Record<string, string> {
   }
 }
 
-/** Remember that a note was made from a chat, by the note's id. */
+/**
+ * Remember that a note was made from a chat, by the note's id. The first chat it
+ * came from stays: that is the one its ⋯ opens, so History names the same.
+ */
 export function rememberNoteChat(mindId: string, conversationId: string): void {
   const saved = remembered();
-  if (saved[mindId] === conversationId) return;
+  if (saved[mindId] !== undefined) return;
   try {
     localStorage.setItem(KEY, JSON.stringify({ ...saved, [mindId]: conversationId }));
   } catch {
