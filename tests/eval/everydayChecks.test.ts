@@ -505,8 +505,16 @@ describe("Standing on its own, and the example unasked", () => {
           landed: true,
         },
         { content: "大潮出现在新月和满月时，并且每年都会淹没港口[^1]。", landed: true },
+        {
+          content: "It wins across every category (e.g., Theft, Assault) and every metric[^7].",
+          landed: true,
+        },
       ],
-      writtenInMinds: ["Crime forecasting: best results in all cases.", "大潮出现在新月和满月时。"],
+      writtenInMinds: [
+        "Crime forecasting: best results in all cases.",
+        "大潮出现在新月和满月时。",
+        "It wins across every category.",
+      ],
     });
     expect(rewrittenLater(reworded)).toEqual([
       {
@@ -517,6 +525,11 @@ describe("Standing on its own, and the example unasked", () => {
       {
         given: "大潮出现在新月和满月时，并且每年都会淹没港口[^1]。",
         now: "大潮出现在新月和满月时。",
+        cut: true,
+      },
+      {
+        given: "It wins across every category (e.g., Theft, Assault) and every metric[^7].",
+        now: "It wins across every category.",
         cut: true,
       },
     ]);
