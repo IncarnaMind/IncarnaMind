@@ -33,6 +33,11 @@ describe("what Organize says of a Document", () => {
     expect(says(held())).toEqual({ notSorted: false, sorted: true });
   });
 
+  test("one the User turned down is settled, even after a run that failed", () => {
+    // A Reject finishes the Document (see the core's reject): no Folder, classified, no error.
+    expect(says(held())).toEqual({ notSorted: false, sorted: true });
+  });
+
   test("a Folder Organize suggested still waits: neither sorted nor one it couldn't sort", () => {
     expect(says(held({ groupId: "finance", suggested: true }))).toEqual({
       notSorted: false,

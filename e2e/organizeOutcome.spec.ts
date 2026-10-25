@@ -118,7 +118,6 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
       "17 · 17 suggested",
     );
 
-    // To review holds what waits, then what Organize couldn't sort, with the same reason.
     await pointAndClick(window, review.getByTestId("library-review-name"));
     const unsorted = review.getByTestId("library-review-unsorted");
     await expect(unsorted.getByTestId("library-review-document")).toHaveCount(3);
@@ -178,7 +177,6 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await screenshot(loose, "organize-outcome-zh-900-not-sorted");
     await screenshot(unsorted, "organize-outcome-zh-900-review-not-sorted");
 
-    // Accept all leaves the three it couldn't sort, and the title line says so.
     await pointAndClick(window, review.getByTestId("library-review-accept-all"));
     await expect(review.getByTestId("library-review-document")).toHaveCount(3);
     await expect(review.getByTestId("library-review-accept-all")).toHaveCount(0);
@@ -287,6 +285,62 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(
       section(library, "not-in-a-folder").getByTestId("library-not-sorted").first(),
     ).toHaveText("Not sorted: the model gave no reason");
+
+    // A suggestion that a re-run fails for, then turned down, is the User's decision: finishing it
+    // settles the Document, so nothing calls it one Organize couldn't sort.
+    await (await coreOf(window)).evaluate(async (core) => {
+      const [documents, libraryNow] = await Promise.all([core.listDocuments(), core.getLibrary()]);
+      const note = documents.find((each) => each.name === "Note 1");
+      const reports = libraryNow.groups.find((each) => each.name === "Reports");
+      if (!note || !reports) throw new Error("No Document or Folder to suggest.");
+      await core.restoreAssignment(note.id, {
+        groupId: reports.id,
+        source: "automatic",
+        suggested: true,
+        status: "classified",
+        error: null,
+        model: null,
+      });
+    });
+    failing = true;
+    await (await coreOf(window)).evaluate(async (core) => {
+      const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
+      if (!note) throw new Error("No Document named Note 1.");
+      await core.classifyDocuments([note.id]);
+    });
+    await expect
+      .poll(
+        () =>
+          window.evaluate(async () => {
+            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
+            const { assignments } = await core.getLibrary();
+            const held = assignments.find((each) => each.documentId === note?.id);
+            return [held?.status, held?.suggested] as const;
+          }),
+        { timeout: 30_000 },
+      )
+      .toEqual(["failed", true]);
+    await (await coreOf(window)).evaluate(async (core) => {
+      const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
+      if (!note) throw new Error("No Document named Note 1.");
+      await core.rejectAssignments([note.id]);
+    });
+    failing = false;
+    await expect(window.getByTestId("library-not-sorted-count")).toHaveCount(0);
+    await expect(library.getByTestId("library-review-unsorted")).toHaveCount(0);
+    await expect(looseNow.getByTestId("library-not-sorted")).toHaveCount(0);
+    const settled = await (await coreOf(window)).evaluate(async (core) => {
+      const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
+      const { assignments } = await core.getLibrary();
+      return assignments.find((each) => each.documentId === note?.id) ?? null;
+    });
+    expect(settled).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+      error: null,
+    });
   } finally {
     server.close();
     await app.close();

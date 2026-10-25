@@ -37,7 +37,7 @@ function showDecided(decision: Decision, ids: readonly string[]): void {
       const decided: DocumentGroupAssignment =
         decision === "accept"
           ? { ...item, source: "user", suggested: false }
-          : { ...item, groupId: null, suggested: false };
+          : { ...item, groupId: null, suggested: false, status: "classified", error: null };
       return [[id, decided] as const];
     }),
   );

@@ -1150,8 +1150,10 @@ export function createLibrary(options: {
     reject(input: unknown): AssignmentChange[] {
       return review(input, (row) => {
         const at = now();
+        // The User's decision settles the Document, so a run that failed before the rejection
+        // doesn't outlive it: it is finished, not one Organize couldn't sort (#1928).
         db.run(
-          "UPDATE document_groups SET group_id = NULL, suggested = 0, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+          "UPDATE document_groups SET group_id = NULL, suggested = 0, status = 'classified', error_kind = NULL, error_message = NULL, error_wording = NULL, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
           [randomUUID(), at, row.document_id],
         );
         if (row.group_id && !rejected(row.document_id).has(row.group_id))

@@ -288,6 +288,35 @@ describe("Organize suggests a Folder and waits for the User", () => {
     });
   });
 
+  test("a run that fails after a Suggested Folder, turned down, is finished: not one Organize couldn't sort", async () => {
+    const { core, fake, sources } = await setUp();
+    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
+    if (!invoice) throw new Error("Not added.");
+
+    fake.sort(() => {
+      throw new Error("The model stopped answering");
+    });
+    await core.classifyDocuments([invoice.id]);
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "failed" }),
+    );
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({ suggested: true });
+
+    const [change] = await core.rejectAssignments([invoice.id]);
+    expect(change?.after).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+      error: null,
+    });
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+      error: null,
+    });
+  });
+
   test("putting a rejected Suggested Folder back offers that Folder to Organize again, and rejecting it once more turns it down again", async () => {
     const { core, fake, finance, thesis, sources } = await setUp();
     const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
