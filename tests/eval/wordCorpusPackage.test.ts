@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { corpusFailure, inspectPackage, readExtended } from "../../eval/word/corpus";
+import {
+  checkInputPackage,
+  corpusFailure,
+  inspectPackage,
+  readExtended,
+} from "../../eval/word/corpus";
 import { checkExport } from "../../eval/word/exports";
 import { part, unzip } from "../helpers/docx";
 import { paragraph, run, wordFile } from "../helpers/word";
@@ -20,13 +25,22 @@ test("the pinned unsupported-fields input stays malformed and is classified as a
         '<w:r><w:fldChar w:fldCharType="end"/></w:r>',
     ),
   });
-  const { problems } = await inspectPackage(bytes);
+  const { features, problems } = await inspectPackage(bytes);
   expect(problems).toEqual(["word/document.xml: NOTEREF \\* points at no bookmark"]);
   const subject = { name: entry.name, known: entry.known };
-  const reported = corpusFailure(subject, "package", problems.join("; "));
+  const outcome = await checkInputPackage(bytes, features);
+  expect(outcome).toMatchObject({ ok: false, inspectionProblem: true });
+  const reported = corpusFailure(subject, "package", outcome);
   expect(reported.known).toMatch(/known: NOTEREF.*bookmark/);
   expect(reported.failure).toBeUndefined();
-  expect(corpusFailure({ name: entry.name }, "package", problems.join("; "))).toEqual({
+  const stale = await checkInputPackage(bytes, {
+    ...features,
+    paragraphs: features.paragraphs + 1,
+  });
+  expect(corpusFailure(subject, "package", stale)).toEqual({
+    failure: `${entry.name}: package: its listed features are out of date: paragraphs`,
+  });
+  expect(corpusFailure({ name: entry.name }, "package", outcome)).toEqual({
     failure: `${entry.name}: package: ${problems.join("; ")}`,
   });
 });
@@ -44,7 +58,10 @@ test.each([
   "list export opens in LibreOffice",
 ])("a known input defect never waives a failure in %s", (step) => {
   expect(
-    corpusFailure({ name: "known.docx", known: "Malformed input package" }, step, "Failed"),
+    corpusFailure({ name: "known.docx", known: "Malformed input package" }, step, {
+      detail: "Failed",
+      inspectionProblem: true,
+    }),
   ).toEqual({ failure: `known.docx: ${step}: Failed` });
 });
 
@@ -64,10 +81,28 @@ test("an exported NOTEREF passes with its bookmark and fails if its target is ch
   const { problems } = await inspectPackage(broken);
   expect(problems).toEqual(["word/document.xml: NOTEREF MissingBookmark points at no bookmark"]);
   expect(
-    corpusFailure(
-      { name: "export.docx", known: "Malformed input package" },
-      "exports back",
-      problems.join("; "),
-    ),
+    corpusFailure({ name: "export.docx", known: "Malformed input package" }, "exports back", {
+      detail: problems.join("; "),
+    }),
   ).toEqual({ failure: `export.docx: exports back: ${problems.join("; ")}` });
+});
+
+test("stale feature metadata still fails for a known input whose package is sound", async () => {
+  const bytes = wordFile({ body: paragraph("The tenant pays rent.") });
+  const { features, problems } = await inspectPackage(bytes);
+  expect(problems).toEqual([]);
+  expect(await checkInputPackage(bytes, features)).toEqual({ ok: true, detail: "" });
+  const outcome = await checkInputPackage(bytes, {
+    ...features,
+    paragraphs: features.paragraphs + 1,
+  });
+  expect(outcome).toEqual({
+    ok: false,
+    detail: "its listed features are out of date: paragraphs",
+  });
+  expect(
+    corpusFailure({ name: "known.docx", known: "Old package defect" }, "package", outcome),
+  ).toEqual({
+    failure: "known.docx: package: its listed features are out of date: paragraphs",
+  });
 });
