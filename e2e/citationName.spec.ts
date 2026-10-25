@@ -230,3 +230,49 @@ test("in a citation style, the References and the Citations ask again and read t
     await app.close();
   }
 });
+
+test("a Citation card names the place of a Document that shares its name, and Open goes to that Document (#1507)", async () => {
+  const library = join(sources, "Reading");
+  await mkdir(join(library, "2025"), { recursive: true });
+  await mkdir(join(library, "2026"), { recursive: true });
+  await writeFile(join(library, "2025", "Annual-Report.txt"), "The office is closed in August.\n");
+  await writeFile(
+    join(library, "2026", "Annual-Report.txt"),
+    "Spring tides happen at new moon and at full moon.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1400, 900);
+    await dismissChatSetup(window);
+    await connectLocalChatModel(window);
+    await linkFolderFromSidebar(app, window, library);
+    await expectReadyDocuments(window, 2);
+    await newMind(window);
+    const editor = window.getByTestId("mind-editor");
+    await pointAndClick(window, editor);
+    await addToNote(window, await askInAssistant(window, "When do spring tides happen?"));
+    const chip = editor.getByTestId("citation-chip");
+    await expect(chip).toHaveCount(1);
+    await window.mouse.move(0, 0);
+    await chip.focus();
+    const card = window.getByTestId("citation-card");
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("Annual-Report · 2026");
+
+    const cited = await window.evaluate(async () => {
+      const api = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const documents = await api.listDocuments();
+      return documents.find((document) =>
+        document.path.replace(/\\/g, "/").endsWith("2026/Annual-Report.txt"),
+      )?.id;
+    });
+    await card.getByTestId("citation-open").click();
+    await expect(card).toHaveCount(0);
+    await expect(
+      window.locator(`[data-testid="document-tab"][data-document-id="${cited}"]`),
+    ).toHaveCount(1);
+    await expect(window.getByTestId("viewer-title")).toHaveText("Annual-Report");
+  } finally {
+    await app.close();
+  }
+});

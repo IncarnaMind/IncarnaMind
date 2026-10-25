@@ -2,6 +2,7 @@ import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, us
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
+import { useDocumentPlace } from "../documentPlaces";
 import { documentStatusText, isProcessing } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useFirstOpen } from "../firstOpen";
@@ -266,6 +267,7 @@ const DocumentRow = memo(function DocumentRow({
   const rename = useRename<HTMLButtonElement>(`sidebar-document:${item.id}`);
   const renameDocument = useAppStore((state) => state.renameDocument);
   const shownName = displayName(item);
+  const place = useDocumentPlace(item.id);
   const source = sourceOf(item);
   const chips = chipsOf(item.tags, tagsById);
   const tagNames =
@@ -332,7 +334,7 @@ const DocumentRow = memo(function DocumentRow({
           data-testid="open-document"
           aria-current={isOpen ? "true" : undefined}
           aria-description={tagNames}
-          title={[shownName === source ? shownName : `${shownName}\n${source}`, tagNames]
+          title={[shownName === source ? shownName : `${shownName}\n${source}`, place, tagNames]
             .filter(Boolean)
             .join("\n")}
           // A click opens it, in a preview beside the Mind or in the group already showing a Document;
@@ -349,8 +351,15 @@ const DocumentRow = memo(function DocumentRow({
           <DocumentLineIcon kind={item.kind} className={rowIconClass(lit)} />
           {/* Takes what the status leaves; in it, the name gives way before the colours. */}
           <span className="flex min-w-0 flex-1 items-center gap-2">
-            <span data-testid="row-text" className="min-w-0 truncate">
-              {shownName}
+            <span className="flex min-w-0 items-center gap-2">
+              <span data-testid="row-text" className="max-w-full shrink-0 truncate">
+                {shownName}
+              </span>
+              {place && (
+                <span data-testid="row-place" className="min-w-0 truncate text-ink-meta">
+                  {place}
+                </span>
+              )}
             </span>
             <NotCitedLabel item={item} />
             <TagMarks
