@@ -68,6 +68,7 @@ import {
 } from "../../shared/proposals";
 import { filingFolder, hasSearchScope, NO_SCOPE, searchScopeOf } from "../../shared/searchScope";
 import { setTextOrigin } from "../../shared/textOrigins";
+import { unrunToolNotes } from "../../shared/unrunTools";
 import {
   ANSWER_BLOCK,
   type AnswerAttributes,
@@ -454,12 +455,17 @@ function lastAnswerOf(
   conversationId: string,
   earlier: readonly ConversationMessage[],
   filedIn: (scope: SearchScope | null, askedFrom: AskedFrom | null) => string | null,
+  language: Language,
 ): MindToolsOptions["lastAnswer"] {
   const at = earlier.findLastIndex((message) => message.kind === "answer");
   const answer = earlier[at];
   if (answer?.kind !== "answer") return null;
   const question = earlier.slice(0, at).findLast((message) => message.kind === "question");
-  const blocks = pageBlocks(answer, question?.text ?? "");
+  // Put into a Note as it is, a claim of a Tool that didn't run keeps its line (#1796).
+  const blocks = [
+    ...pageBlocks(answer, question?.text ?? ""),
+    ...unrunToolNotes((key, params) => translate(language, key, params), answer.steps),
+  ];
   if (!hasText(blocks)) return null;
   return {
     blocks,
@@ -2827,7 +2833,12 @@ export function createAnswers(options: AnswersOptions) {
         },
         folderId: filedIn(question.scope, question.askedFrom),
         origin: { from: messageReference(conversation.id, answer.id), question: question.text },
-        lastAnswer: lastAnswerOf(conversation.id, turn.earlier, filedIn),
+        lastAnswer: lastAnswerOf(
+          conversation.id,
+          turn.earlier,
+          filedIn,
+          options.interfaceLanguage(),
+        ),
         remake,
         renames: renamesIn(turn.earlier),
       },

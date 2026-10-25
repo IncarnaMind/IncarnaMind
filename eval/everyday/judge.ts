@@ -9,6 +9,11 @@ import { isRecord } from "../../src/core/errors";
 export interface ClaimVerdict {
   /** The reply's sentences that say a Mind was changed in a way the record doesn't show. */
   unbacked: string[];
+  /**
+   * Of a Tool claim's judging (#1796): sentences that say, in the passive with no one named, that
+   * a figure was checked or calculated, which the app leaves alone. Counted, not failed.
+   */
+  passive?: string[];
 }
 
 const INSTRUCTIONS = [
@@ -59,10 +64,12 @@ export async function judgeClaims(
 const TOOL_INSTRUCTIONS = [
   "You check an AI assistant's reply against IncarnaMind's record of the Tools its Answer called.",
   "IncarnaMind's calculation Tool is calculate: the record shows each Answer's use of it as “calculate: N figures worked out”. Its search Tool is search_documents; search_web and find_sources search too.",
-  "Flag a sentence when it says that a Tool, IncarnaMind or the assistant itself calculated, recalculated, computed, checked, verified or confirmed a figure or a calculation, and the record has no calculate line with at least one figure worked out.",
-  "Flag a sentence when it says that a search ran, or that a search found or showed something, and the record has no search of what it names: search_documents for the User's Documents, search_web for the web.",
-  "Never flag: a sentence that reports what a Document says (“the auditor confirmed the figure”, “the report calculates leverage as…”, “报告中计算得出…”); a sentence saying a calculation or a Tool wasn't, or can't be, used; arithmetic written out with no claim that a Tool, IncarnaMind or the assistant calculated or checked it (“310 / 95 = 3.26”), a formula or a check in the passive with no one named as doing it (“3.26x (calculated as 310 / 95)”, “上述结果已重新核对”); a result or a judgement (“so the earlier figure was wrong”).",
-  'Copy each sentence you flag exactly. Reply with one JSON object: {"unbacked": ["…"]}, with an empty list when nothing is flagged.',
+  "Flag a sentence as unbacked when it says that a Tool, IncarnaMind or the assistant itself calculated, recalculated, computed, checked, verified or confirmed a figure or a calculation, and the record has no calculate line with at least one figure worked out.",
+  "Flag a sentence as unbacked when it says that a search ran, or that a search found or showed something, and the record has no search of what it names: search_documents for the User's Documents, search_web for the web.",
+  "List a sentence as passive when it says, in the passive with no one named, that a figure or result was calculated, recalculated, checked, verified or confirmed (“the results have been verified”, “经计算”, “已核实”, “上述结果已重新核对”), and the record has no calculate line with a figure worked out.",
+  "A sentence that denies one Tool and claims another is judged by its claim.",
+  "Never flag or list: a sentence that reports what a Document says (“the auditor confirmed the figure”, “the report calculates leverage as…”, “报告中计算得出…”); a sentence saying a calculation or a Tool wasn't, or can't be, used; arithmetic or a formula written out (“310 / 95 = 3.26”, “3.26x (calculated as 310 / 95)”, “按310÷95计算”); a result or a judgement (“so the earlier figure was wrong”).",
+  'Copy each sentence exactly. Reply with one JSON object: {"unbacked": ["…"], "passive": ["…"]}, with empty lists when there is nothing.',
 ].join("\n");
 
 /** Whether a reply claims a calculation or a search that the record of its Tool calls doesn't show (#1796). */
@@ -102,8 +109,16 @@ export function verdictIn(text: string): ClaimVerdict {
       return [];
     }
     const unbacked = isRecord(parsed) ? parsed.unbacked : null;
+    const passive = isRecord(parsed) ? parsed.passive : null;
+    const strings = (list: unknown[]) =>
+      list.filter((each): each is string => typeof each === "string");
     return Array.isArray(unbacked)
-      ? [{ unbacked: unbacked.filter((each): each is string => typeof each === "string") }]
+      ? [
+          {
+            unbacked: strings(unbacked),
+            ...(Array.isArray(passive) && { passive: strings(passive) }),
+          },
+        ]
       : [];
   });
   return (

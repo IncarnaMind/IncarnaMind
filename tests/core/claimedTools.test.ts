@@ -2,9 +2,12 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, ConversationAnswer, Core } from "../../src/core";
 import { toolClaimsIn, unrunToolClaims } from "../../src/core/answers/claimedTools";
+import { askAssistant, changesIn } from "../helpers/assistant";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 /**
@@ -23,7 +26,7 @@ describe("What a reply says a Tool did", () => {
     ["Using the calculation Tool: 310 / 95 = 3.26x.", ["calculate"]],
     ["Recomputed with the calculator, the headroom is £22.5m.", ["calculate"]],
     ["I recalculated the ratio: 3.26x.", ["calculate"]],
-    ["I've verified the figures, and the headroom is £22.5m.", ["calculate"]],
+    ["I've verified the calculation, and the headroom is £22.5m.", ["calculate"]],
     ["IncarnaMind calculated the headroom as £22.5m.", ["calculate"]],
     ["Checked by IncarnaMind's calculation: 3.26x.", ["calculate"]],
     ["- I computed 310 / 95 = 3.26.", ["calculate"]],
@@ -34,7 +37,7 @@ describe("What a reply says a Tool did", () => {
     ["使用计算工具重新计算：310/95=3.26倍。", ["calculate"]],
     ["经计算工具验证，结果正确。", ["calculate"]],
     ["我重新计算了杠杆率，结果是3.26倍。", ["calculate"]],
-    ["我已核实上述数字。", ["calculate"]],
+    ["我已核实上述计算结果。", ["calculate"]],
     ["我搜索了你的文档。", ["search"]],
     ["搜索结果显示，修订函2027年才生效。", ["search"]],
   ])("“%s” claims %j", (reply, tools) => {
@@ -60,6 +63,26 @@ describe("What a reply says a Tool did", () => {
     "The facility agent confirmed the ratio in its compliance certificate.",
     "310 / 95 = 3.26, so the earlier 3.37x was wrong.",
     "IncarnaMind checked every quote against its page.",
+    "I've verified the figures, and the headroom is £22.5m.",
+    "IncarnaMind's calculation Tool isn't available to this model, so 310 / 95 ≈ 3.26 is my own working.",
+    "IncarnaMind's calculation Tool can't be used by this model.",
+    "The calculation Tool you asked for isn't available to this model.",
+    "Calculation Tool: not available for this model.",
+    "**Calculation Tool:** unavailable for this model, so the figures below are my own working.",
+    "The calculation tool would be needed to verify this, and it's not available.",
+    "The calculation tool is available to this model.",
+    "I've double-checked these figures against the 10-K.",
+    "I verified each figure against its source.",
+    "I confirmed the figures match the final certificate.",
+    "I verified the figures are the final ones, not the draft.",
+    "Earlier I said the calculation tool confirmed 3.37x, but no calculation had run.",
+    "My earlier claim that the calculation tool confirmed 3.37x was wrong.",
+    "The vendor memo says:\n> The calculation tool confirms 3.37x.",
+    "The memo reads ‘the calculation tool confirms 3.37x’.",
+    "The vendor wrote 'the calculation tool confirms 3.37x' in its note.",
+    "Per the vendor note, the calculation tool confirms 3.37x.",
+    "Schedule 3 describes a calculation tool the agent uses each quarter.",
+    "A calculation tool is mentioned in clause 4 of the agreement.",
     "An online loan calculator would give a different figure.",
     "审计师确认净负债为3.1亿英镑。",
     "报告中计算得出杠杆率为3.26倍。",
@@ -68,6 +91,16 @@ describe("What a reply says a Tool did", () => {
     "我没有使用计算工具，这个模型无法调用它。",
     "这个模型无法调用计算工具。",
     "这个模型无法调用 IncarnaMind 的计算工具，以下数字是我自己算的。",
+    "我已核实上述数字。",
+    "IncarnaMind 的计算工具对这个模型不可用。",
+    "计算工具对这个模型不可用，以下为我自己的计算。",
+    "计算工具：不可用。",
+    "计算工具这个模型用不了，以下为我自己的计算。",
+    "我核对了报告中的数字，终版为310和95。",
+    "我已核实这些数字均来自终版合规数据。",
+    "我之前说计算工具确认了3.37倍，这是不对的。",
+    "供应商备忘录称其计算工具确认为3.37倍。",
+    "备忘录写道：『计算工具确认3.37倍』。",
     "你可以用计算工具核对这些数字。",
     "财务部已核对上述数字。",
     "我核对了协议的生效日期。",
@@ -269,6 +302,76 @@ describe("A reply that says a Tool ran when none did", { timeout: 60_000 }, () =
     expect(answer.steps?.unrunTools).toEqual(["calculate"]);
     expect(answer.steps?.calculateUnavailable).toBe(true);
     expect(answer.steps).not.toHaveProperty("askedAgainFor");
+  });
+
+  // protects=the denial the instructions ask for is honest by construction: in the Tool loop it gets no second request, and written without Tools no line; fails_when=either is asked about or flagged; no_claim=that a real model writes these words.
+  test("the denial the instructions ask for is left alone, in the loop and without Tools", async () => {
+    const DENIAL =
+      "IncarnaMind's calculation Tool isn't available to this model, so 310 / 95 ≈ 3.26 is my own working.";
+    const looped: ModelCall[] = [];
+    const inLoop = await setUp(
+      scriptedModel((call) => {
+        looped.push(call);
+        if (call.results.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: "Cedar leverage" } }] };
+        }
+        return { text: DENIAL };
+      }),
+      { kind: "ollama", modelId: "local-model" },
+    );
+    const looping = await ask(inLoop, ASKED);
+    expect(looped.some((call) => call.prompt.includes("no call in the record did"))).toBe(false);
+    expect(looping.steps).not.toHaveProperty("askedAgainFor");
+    expect(looping.steps).not.toHaveProperty("unrunTools");
+
+    const withoutTools = await setUp(
+      scriptedModel((call) =>
+        call.tools.length > 0
+          ? { error: { status: 400, message: "this model does not support tools" } }
+          : {
+              text: JSON.stringify({
+                answer: "计算工具对这个模型不可用，以下为我自己的计算：310 ÷ 95 ≈ 3.26。",
+                citations: [],
+              }),
+            },
+      ),
+      { kind: "ollama", modelId: "local-model" },
+    );
+    const written = await ask(withoutTools, ASKED);
+    expect(written.steps).not.toHaveProperty("unrunTools");
+  });
+
+  // protects=put into a Note as it is, an Answer whose claim stands keeps the line there, in the Note's words; fails_when=the claim lands in the Note unmarked; no_claim=that a real model gives answer: true.
+  test("an Answer put into a Note as it is keeps its line there", async () => {
+    const model = scriptedModel((call) => {
+      if (call.prompt.includes("Make it a document")) {
+        return call.results.some((result) => result.tool === "create_mind")
+          ? { text: "Done." }
+          : { calls: [{ tool: "create_mind", input: { title: "Cedar", answer: true } }] };
+      }
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "Cedar leverage" } }] };
+      }
+      return { text: CLAIM };
+    });
+    const core = await setUp(model, { kind: "ollama", modelId: "local-model" });
+
+    const first = await askAssistant(core, { text: ASKED });
+    expect(first.steps?.unrunTools).toEqual(["calculate"]);
+    const put = await askAssistant(core, {
+      text: "Make it a document",
+      conversationId: first.conversationId,
+    });
+
+    const made = changesIn(put).find((change) => change.created);
+    if (!made) throw new Error("No Note was made.");
+    const client = await connectToMind(core, made.mindId);
+    await client.settled();
+    const text = readMind(client).textContent;
+    expect(text).toContain(CLAIM);
+    expect(text).toContain(
+      "No calculation ran: this model can’t use IncarnaMind’s calculation Tool",
+    );
   });
 
   // protects=a reply that reports what a Document says gets no line and no second request; fails_when=it is flagged or asked about; no_claim=none beyond protects.

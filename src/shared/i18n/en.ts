@@ -5335,10 +5335,10 @@ export const en = {
   "answer.notWritten.retry": "Try again",
   "answer.notAllDone": "The assistant didn’t make every change this reply describes",
   "answer.notCalculated":
-    "No calculation ran: IncarnaMind didn’t calculate the figures in this reply, so they’re unchecked",
+    "No calculation ran: IncarnaMind didn’t calculate the figures worked out in this reply, so they’re unchecked",
   "answer.notCalculated.unavailable":
-    "No calculation ran: this model can’t use IncarnaMind’s calculation Tool, so the figures in this reply are unchecked",
-  "answer.notSearched": "No search ran: this reply wasn’t drawn from a search of your Documents",
+    "No calculation ran: this model can’t use IncarnaMind’s calculation Tool, so the figures worked out in this reply are unchecked",
+  "answer.notSearched": "No search ran: this reply wasn’t drawn from a search",
   "answer.added": "Added to “{mind}”",
   "answer.table.open": "Open as a table",
   "answer.table.openNth": "Open table {n} as a table",

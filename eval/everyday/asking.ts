@@ -147,6 +147,8 @@ export interface CaseResult {
   request: string;
   model: string;
   failures: RequestFailure[];
+  /** Sentences the judge read as a passive check or calculation that no call ran (#1796): counted, not failed. */
+  toolPassive?: string[];
   reply: string;
   page: string;
   /** What the guard took out: sentences of the reply, by Add to note, and Blocks of what the calls gave to write into Minds. */
@@ -572,6 +574,8 @@ export async function runCase(
     request: each.request,
     model,
     failures,
+    ...(toolVerdict?.passive &&
+      toolVerdict.passive.length > 0 && { toolPassive: toolVerdict.passive }),
     reply: answer.text,
     page,
     removed: takenOut(outcome).removed,

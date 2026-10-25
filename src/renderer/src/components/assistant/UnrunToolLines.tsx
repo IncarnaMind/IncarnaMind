@@ -1,5 +1,5 @@
+import { type UnrunSteps, unrunToolLines } from "../../../../shared/unrunTools";
 import { useT } from "../../i18n";
-import { type UnrunSteps, unrunToolLines } from "../../unrunTools";
 import { ProblemLine } from "../ProblemLine";
 
 /** Under a reply that still says a Tool ran when none did, which stays above them (`unrunToolLines`). */
