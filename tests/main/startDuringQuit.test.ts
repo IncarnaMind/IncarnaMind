@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -8,6 +8,11 @@ import {
   reopenAfterQuit,
   startAgainIfStalled,
 } from "../../src/main/startDuringQuit";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs")>();
+  return { ...original, lstatSync: vi.fn(original.lstatSync) };
+});
 
 const quitEvent = () => ({
   defaultPrevented: false,
@@ -195,10 +200,12 @@ describe("the Electron lock before a new start", () => {
   );
 
   test("an unreadable lock location is reported and keeps recovery enabled", () => {
-    const file = join(folder, "file");
-    writeFileSync(file, "");
+    const error = Object.assign(new Error("Permission denied"), { code: "EACCES" });
+    vi.mocked(lstatSync).mockImplementationOnce(() => {
+      throw error;
+    });
     const report = vi.fn();
-    expect(electronInstanceWasPresent(file, report)).toBe(true);
-    expect(report).toHaveBeenCalledWith("app.singleInstanceLockCheckFailed", expect.any(Error));
+    expect(electronInstanceWasPresent(folder, report)).toBe(true);
+    expect(report).toHaveBeenCalledWith("app.singleInstanceLockCheckFailed", error);
   });
 });

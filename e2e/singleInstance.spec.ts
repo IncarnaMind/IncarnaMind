@@ -386,7 +386,7 @@ async function startWhileQuitting(
           dataFolderHeld: heldByAnotherCopy(dataDir, (what, error) => {
             throw new Error(what, { cause: error });
           }),
-          log: await logOf(dataDir),
+          log: await logOf(dataDir).catch((error: unknown) => `Log unavailable: ${String(error)}`),
           events: existsSync(`${mark}.events`) ? await readFile(`${mark}.events`, "utf8") : "",
         }),
         contentType: "application/json",
