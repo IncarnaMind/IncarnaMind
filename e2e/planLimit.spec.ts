@@ -24,15 +24,16 @@ import {
  * next model with limit left; one click asks the same Question again in place
  * with it, and the model chip says which model answers, until when. The
  * limits last the session: reopened, the app says "for now". Tagging or
- * Organize that meets the plan's limit (#1571) waits: one line in the sidebar
- * says until when, with Use an API key instead, and the work goes on by itself
- * at the reset. Set INCARNAMIND_SCREENSHOTS to a folder to also save
- * screenshots, narrow and wide, in English and Chinese.
+ * Organize that meets the plan's limit waits: one line in the sidebar says
+ * until when, with Use an API key instead, and the work goes on by itself at
+ * the reset. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots,
+ * narrow and wide, in English and Chinese.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 const NARROW = { width: 900, height: 720 };
 const WIDE = { width: 1600, height: 720 };
+const PLAN_LINE_WIDE = 1440;
 
 const SOL = "gpt-6.1-sol";
 const LUNA = "gpt-6-luna";
@@ -94,6 +95,15 @@ async function shots(app: Parameters<typeof setWindowSize>[0], window: Page, nam
   await shot(window, `${name}-narrow`);
   await setWindowSize(app, window, WIDE.width, WIDE.height);
   await shot(window, `${name}-wide`);
+}
+
+async function planLineShots(app: Parameters<typeof setWindowSize>[0], window: Page, name: string) {
+  if (!SCREENSHOTS) return;
+  await setWindowSize(app, window, NARROW.width, NARROW.height);
+  await shot(window, `${name}-narrow`);
+  await setWindowSize(app, window, PLAN_LINE_WIDE, NARROW.height);
+  await shot(window, `${name}-wide`);
+  await setWindowSize(app, window, NARROW.width, NARROW.height);
 }
 
 async function askAndFail(window: Page, question: string): Promise<Locator> {
@@ -275,14 +285,14 @@ test("tagging that meets the plan's limit waits: one line says until when, with 
     const action = await useKey.boundingBox();
     if (!row || !action) throw new Error("The plan's line isn't visible.");
     expect(action.x + action.width).toBeLessThanOrEqual(row.x + row.width);
-    await shot(window, "tagging-limit-en-narrow");
+    await planLineShots(app, window, "tagging-limit-en");
 
     await setLanguage(window, "zh-CN");
     await expect(paused.getByTestId("status-label")).toHaveText(
       new RegExp(`^ChatGPT 订阅额度已用完，.*:${minutesOf(resets)}.* 恢复$`),
     );
     await expect(useKey).toHaveText("改用 API 密钥");
-    await shot(window, "tagging-limit-zh-narrow");
+    await planLineShots(app, window, "tagging-limit-zh");
 
     await pointAndClick(window, useKey);
     await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");

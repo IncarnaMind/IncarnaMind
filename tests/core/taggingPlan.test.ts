@@ -3,8 +3,8 @@
  * limits are ChatGPT's or Claude's own, so tagging takes one Document at a
  * time, its requests spaced, and when the plan's limit is reached it waits for
  * it to reset, sending nothing meanwhile, as Organize does. Each Document that
- * waits says when the plan resets, when the plan said (#1571). Through the
- * core, against the fake OpenAI and the fake Anthropic the plans' own tests use.
+ * waits says when the plan resets, when the plan said. Through the core,
+ * against the fake OpenAI and the fake Anthropic the plans' own tests use.
  */
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import { type Core, createAiSdkChatModel, type Document } from "../../src/core";
