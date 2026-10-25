@@ -227,6 +227,53 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(window.getByTestId("library-sorted")).toHaveText("All sorted");
     await screenshot(window, "organize-outcome-en-sorted-1600");
 
+    // A Document the User moved to no Folder by hand is the User's decision, not Organize's: the
+    // line stays, and its row isn't one Organize couldn't sort.
+    await (await coreOf(window)).evaluate(async (core) => {
+      const note = (await core.listDocuments()).find((each) => each.name === "Note 2");
+      if (!note) throw new Error("No Document named Note 2.");
+      await core.assignDocumentGroup(note.id, null);
+    });
+    await expect(window.getByTestId("library-sorted")).toHaveText("All sorted");
+    const looseNow = section(library, "not-in-a-folder");
+    await expect(looseNow.getByTestId("library-document")).toHaveCount(1);
+    await expect(looseNow.getByTestId("library-not-sorted")).toHaveCount(0);
+
+    // One Organize stopped short of, because tagging with AI is off where it is, is neither
+    // sorted nor one it couldn't sort: the line goes, and no reason is invented for it.
+    await window.evaluate(async (url) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.setTaggingWithAi(null, false);
+      await core.saveLibrarySettings({
+        classifier: { kind: "ollama", baseUrl: url, modelId: "tev1:0.8b" },
+        automatic: true,
+      });
+    }, `http://127.0.0.1:${port}`);
+    const stoppedPath = join(sources, "Note 4.txt");
+    await writeFile(stoppedPath, "A note added while sorting with AI is off here.");
+    await window.evaluate(async (path) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.addDocuments([path]);
+    }, stoppedPath);
+    await expect
+      .poll(
+        () =>
+          window.evaluate(
+            async () =>
+              (
+                await (
+                  globalThis as unknown as { incarnamind: CoreBridge }
+                ).incarnamind.listDocuments()
+              ).filter((each) => each.status === "ready").length,
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(41);
+    await expect(looseNow.getByTestId("library-document")).toHaveCount(2);
+    await expect(window.getByTestId("library-sorted")).toHaveCount(0);
+    await expect(window.getByTestId("library-not-sorted-count")).toHaveCount(0);
+    await expect(looseNow.getByTestId("library-not-sorted")).toHaveCount(0);
+
     // A failed assignment with no reason saved (Undo of an older change can put one back) still
     // says so, in its row and in the title line, rather than going quiet.
     await (await coreOf(window)).evaluate(async (core) => {

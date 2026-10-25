@@ -2,6 +2,7 @@ import type { AssignmentChange, DocumentGroupAssignment } from "../../core/api";
 import { displayName } from "../../shared/documentNames";
 import { core } from "./core";
 import { applyAssignments } from "./documentUpdates";
+import { isNotSorted } from "./organizeOutcome";
 import { useAppStore } from "./store";
 import { makeInTurn, type Undoable, useUndo } from "./undo";
 
@@ -22,14 +23,8 @@ export const waitingIds = (): string[] =>
   );
 
 /**
- * Organize couldn't sort the Document: it ran, placed it in no Folder, and failed. A restored
- * assignment may keep that state with no error saved; it still shows, with a reason of its own.
+ * Whether Organize left a Document it couldn't sort, which To review shows with the reason.
  */
-export const isNotSorted = (
-  item: Pick<DocumentGroupAssignment, "status" | "groupId"> | undefined,
-): boolean => item?.status === "failed" && item.groupId === null;
-
-/** Whether Organize left a Document it couldn't sort, which To review shows with the reason. */
 export const hasNotSorted = (): boolean =>
   (useAppStore.getState().library?.assignments ?? []).some((item) => isNotSorted(item));
 

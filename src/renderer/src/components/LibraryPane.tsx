@@ -31,13 +31,14 @@ import {
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
+import { isNotSorted, isSorted } from "../organizeOutcome";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
 import { documentFields, folderFields } from "../sortFields";
 import { useAppStore } from "../store";
-import { hasNotSorted, isNotSorted, waitingIds } from "../suggestionReview";
+import { hasNotSorted, waitingIds } from "../suggestionReview";
 import { reviewIds, toReviewOf } from "../toReview";
 import { moveThroughRows } from "../treeKeys";
 import { useUnreadFiles } from "../unreadFiles";
@@ -170,12 +171,11 @@ export function LibraryPane() {
   );
   const { notSortedCount, allSorted } = useMemo(() => {
     let count = 0;
-    // Nothing is left to look at once Organize has been through every Document and no Folder waits.
     let sorted = documents.length > 0;
     for (const doc of documents) {
       const item = assignments.get(doc.id);
       if (isNotSorted(item)) count++;
-      if (item?.status !== "classified" || item.suggested) sorted = false;
+      if (!isSorted(item, doc.tagging)) sorted = false;
     }
     return { notSortedCount: count, allSorted: sorted && count === 0 };
   }, [documents, assignments]);
