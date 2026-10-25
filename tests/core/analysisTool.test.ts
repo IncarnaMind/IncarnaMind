@@ -21,7 +21,6 @@ const SALES_CSV = [
   "South,2026Q2,n/a",
 ].join("\n");
 
-/** A Tool call as a scripted model makes it. */
 type Call = { tool: string; input: unknown };
 
 function analysingModel(plan: {

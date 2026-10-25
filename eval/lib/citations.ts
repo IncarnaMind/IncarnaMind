@@ -540,7 +540,7 @@ async function readAnswer(
 type Ending = { finished: AnswerFinished } | { failed: ProviderError };
 
 /** Asks one Question in a new Mind and reads its Answer back. */
-async function askOne(
+export async function askOne(
   library: Library,
   question: EvalQuestion,
   round: number,

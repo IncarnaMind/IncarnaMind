@@ -689,13 +689,13 @@ test("an empty conversation says once what it reads and searches, following focu
   await expect(reads).toHaveText("Searches All Documents");
   await screenshot(window, "steps-empty-en");
 
-  // Asked: the line goes; under the Answer, only Add to note (naming the empty Mind) and Copy.
+  // Asked: the line goes; under the Answer, Write as a note, Add to note (naming the empty Mind) and Copy.
   await pointAndClick(window, window.getByTestId("mind-list-item").filter({ hasText: "Beta" }));
   const answer = await ask(window, "When do spring tides happen?");
   await expect(reads).toHaveCount(0);
   await window.mouse.move(10, 10);
   const actions = answer.getByTestId("answer-actions");
-  await expect(actions).toHaveText("Add to “Beta”Copy");
+  await expect(actions).toHaveText("Write as a noteAdd to “Beta”Copy");
   await expect(actions).not.toContainText(MODEL_NAME);
   await expect(answer.getByTestId("answer-copy")).toHaveCSS("font-size", "13px");
   await expect(answer.getByTestId("answer-copy")).toHaveCSS("font-weight", "400");

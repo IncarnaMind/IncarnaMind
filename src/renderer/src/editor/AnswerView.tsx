@@ -484,7 +484,6 @@ export function CallRows({
   );
 }
 
-/** The row of a call through a Connector, of Find sources, of web search, of a Minds' Tool, of an Analysis, or of a Skill script. */
 export function CallRow({ call }: { call: AnswerToolCall }) {
   if (call.source === "asks") return <AskCall call={call} />;
   if (call.source === "minds") return <MindCall call={call} />;

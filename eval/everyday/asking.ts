@@ -338,9 +338,12 @@ export async function runCase(
     watch,
     checkModel = null,
     deciding,
+    asking,
   }: {
     /** Watches the app's own asks inside the Answer; none watched without it. */
     watch?: ReaskWatch;
+    /** Called just before the request itself is asked, after the turns it follows. */
+    asking?: () => void;
     /** The model the cited sentences are checked on; null: the default chat model. */
     checkModel?: ChatModelChoice | null;
     /** Arm C: decides each request first, and forces the chat model's requests as the decision says. */
@@ -474,6 +477,7 @@ export async function runCase(
   watch?.begin(each.firstReply ?? null);
   await decideFirst(each.request);
   const stoppedAtAsk = { last: false };
+  asking?.();
   const answer = await ask(
     core,
     {

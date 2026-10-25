@@ -38,8 +38,6 @@
  * paragraph pointing to an earlier Answer, and one about "home working"
  * (居家办公) asked beside a Mind ends by setting the Documents apart from it,
  * unless the instructions say that Mind is an example.
- * Offered an Analysis (#447), revenue by region (按地区) runs Python over the sheet,
- * with its table and total; with "manager" (负责人) it joins the regions sheet too.
  * Before its search it reasons, a line that quotes the Question, as a model
  * that thinks does. A Question asked "slowly" waits a moment before each step
  * and writes its Answer word by word, so a test sees each step of the Answer.
@@ -510,7 +508,6 @@ export function searchParts(tool: string, query: string): StreamPart[] {
 const BY_REGION = /\bby region\b|按地区/i;
 const WITH_MANAGERS = /\bmanager|负责人/i;
 
-/** An Analysis of revenue by region over the sheets found, then the Answer with its results. */
 function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
   const ran = toolResults(prompt, "run_analysis");
   const chinese = /\p{Script=Han}/u.test(question);

@@ -19,12 +19,6 @@ import {
   setWindowSize,
 } from "./app";
 
-/*
- * Answers that run an Analysis (#447): asked for revenue by region over a workbook, the scripted
- * model runs Python over the whole sheet in the real sandbox (ADR-0023), and the Answer shows the
- * table and total it gave, with a step that says so. The conversation keeps the Analysis.
- */
-
 const SALES = xlsxOf([
   {
     name: "Sales",

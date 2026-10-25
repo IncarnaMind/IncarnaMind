@@ -30,7 +30,6 @@ const MESSAGES = [
   '[data-testid="undo-message"]',
   '[data-testid="model-setup"]',
   '[data-testid="first-open-steps"]',
-  '[data-testid="start-guide"]',
   '[data-testid="assistant-empty"]',
 ].join(", ");
 

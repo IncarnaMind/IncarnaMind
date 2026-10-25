@@ -2017,11 +2017,6 @@ export interface MarkedFigure extends CalculatedFigure {
   marker: number;
 }
 
-/**
- * A figure an Analysis of the Answer gave (#447), which has no formula or
- * inputs of its own: its card says "From Analysis 2", and its inputs and code
- * are the Analysis's.
- */
 export interface FigureFromAnalysis {
   /** The Answer's Analysis, by its number. */
   analysis: number;
@@ -2268,6 +2263,8 @@ export interface GettingStarted {
   askedReady: boolean;
   /** The User hid the checklist. */
   hidden: boolean;
+  /** The first-run card was shown on this device: an empty note keeps no second guide after that (#1940). */
+  seen: boolean;
 }
 
 /** Settings that belong to this device and never sync (ADR-0003). */
@@ -6021,6 +6018,23 @@ export interface UndoAddToNoteInput {
   blockIds: string[];
 }
 
+/**
+ * What taking an "Add to note" back kept: the Blocks whose words the User changed
+ * since they went in, which Undo leaves rather than take away their edit (#1962).
+ */
+export interface UndoAddToNoteResult {
+  kept: number;
+}
+
+/**
+ * A Conversation a note's Blocks came from (#1940): History names that Conversation
+ * under the note's title, also while the note is closed.
+ */
+export interface NoteConversation {
+  mindId: string;
+  conversationId: string;
+}
+
 /** Where words of a search are in a piece of text: `start` to `end`, in UTF-16 code units. */
 export interface TextRange {
   start: number;
@@ -7938,6 +7952,10 @@ export interface MindExportPreview {
   fromWord: boolean;
   /** Someone's changes from that Word file still waiting (#734), shown or accepted as `theirChanges` says. */
   theirChanges: number;
+  /** The files in the Mind's Search scope that couldn't be read (#740); 0 when everything in it was read. */
+  unreadFiles: number;
+  /** Whether the export names those files, or only counts them: the Mind's choice, off until the User ticks it. */
+  unreadFileNames: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
@@ -9055,8 +9073,16 @@ export interface CoreApi {
    * Mind open in the editor adds at its cursor itself, by the same rules.
    */
   addToNote(input: AddToNoteInput): Promise<AddedToNote>;
-  /** Takes the Blocks an "Add to note" put into a Mind back out, with their links back. */
-  undoAddToNote(input: UndoAddToNoteInput): Promise<void>;
+  /**
+   * Takes the Blocks an "Add to note" put into a Mind back out, with their links back. A Block
+   * whose words the User changed since it went in stays, and is counted in `kept`.
+   */
+  undoAddToNote(input: UndoAddToNoteInput): Promise<UndoAddToNoteResult>;
+  /**
+   * The Conversation each Mind's Blocks came from, by Mind id, for History's names: read from
+   * the links back the Blocks keep, so it covers notes made before this version too.
+   */
+  listNoteConversations(): Promise<NoteConversation[]>;
 
   getSettings(): Promise<Settings>;
   /**
@@ -10256,6 +10282,12 @@ export interface CoreApi {
     options?: SetMindCitationStyleOptions,
   ): Promise<MindCitationStyle>;
   /**
+   * Whether this Mind's exports name the files in its Search scope that couldn't be read, or only
+   * count them (#740). Off until the User ticks it in the export options; the export and its
+   * preview ask this.
+   */
+  setMindUnreadFileNames(mindId: string, names: boolean): Promise<void>;
+  /**
    * Every style the app ships but the common ones, for the picker, read from the style pack the
    * first time it is asked for.
    */
@@ -10670,6 +10702,7 @@ const methods: Record<CoreApiMethod, true> = {
   resolveReference: true,
   addToNote: true,
   undoAddToNote: true,
+  listNoteConversations: true,
   getSettings: true,
   updateSettings: true,
   getLayout: true,
@@ -10917,6 +10950,7 @@ const methods: Record<CoreApiMethod, true> = {
   formatCitations: true,
   getMindCitationStyle: true,
   setMindCitationStyle: true,
+  setMindUnreadFileNames: true,
   listCitationStyles: true,
   openCitationStyleLicences: true,
   getMindStyle: true,

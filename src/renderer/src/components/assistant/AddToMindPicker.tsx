@@ -4,7 +4,7 @@ import { mindName } from "../../../../shared/naming";
 import type { AddTarget } from "../../addToNote";
 import { Popover } from "../../editor/Popover";
 import { useT } from "../../i18n";
-import { useAppStore } from "../../store";
+import { exampleMindIds, useAppStore } from "../../store";
 import { SearchIcon } from "../icons";
 import { MindLineIcon, PlusLineIcon } from "../lineIcons";
 
@@ -49,10 +49,14 @@ export function AddToMindPicker({
   // The groups as stored, not a list made from them: a new list each time would never settle.
   const tabGroups = useAppStore((state) => state.layout?.groups);
   const groups = useAppStore((state) => state.library?.groups);
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const field = useRef<HTMLInputElement>(null);
   const listId = useId();
+  // The examples aren't the User's notes: Add to note never fills one (#1940).
+  const exampleIds = exampleMindIds({ examples, otherExamples });
 
   const nameOf = (mind: Mind) => mindName(mind) || t("mind.untitled");
   const folderOf = (folderId: string | null) => {
@@ -65,8 +69,9 @@ export function AddToMindPicker({
     ) ?? false;
   const typed = query.trim().toLocaleLowerCase();
   const matches = (mind: Mind) => nameOf(mind).toLocaleLowerCase().includes(typed);
-  const focused = minds.find((mind) => mind.id === focusedMindId && mind.kind === "mind");
-  const others = minds.filter((mind) => mind.id !== focusedMindId && mind.kind === "mind");
+  const own = (mind: Mind) => mind.kind === "mind" && !exampleIds.includes(mind.id);
+  const focused = minds.find((mind) => mind.id === focusedMindId && own(mind));
+  const others = minds.filter((mind) => mind.id !== focusedMindId && own(mind));
   const shown = typed ? others.filter(matches).slice(0, FOUND) : others.slice(0, RECENT);
 
   const options: Option[] = [];
