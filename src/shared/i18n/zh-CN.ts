@@ -1433,8 +1433,11 @@ export const zhCN = {
   "status.taggingWith.one": "正在用 {service} 为 1 个文档打标签",
   "status.taggingWith.other": "正在用 {service} 为 {count} 个文档打标签",
   "status.sends": "每个文档的名称、目录和简短摘录都会发送到 {service}。",
+  "status.sends.scans":
+    "每个文档的名称、目录和简短摘录都会发送到 {service}。包括扫描件的页面图片。",
   "status.sends.onThisComputer": "每个文档的名称、目录和简短摘录都留在这台电脑上。",
-  "status.sends.scans": "包括扫描件的页面图片。",
+  "status.sends.onThisComputer.scans":
+    "每个文档的名称、目录和简短摘录都留在这台电脑上。包括扫描件的页面图片。",
   "status.taggingWaiting": "打标签需要 AI 模型",
   "status.taggingPermission": "打标签需要你允许",
   "status.taggingFailed.one": "1 个文档未能打标签",

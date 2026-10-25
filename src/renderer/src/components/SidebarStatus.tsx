@@ -322,7 +322,8 @@ function StatusSends({ short, sends }: { short: string; sends: string }) {
               {sends}
             </div>
           </Popover>,
-          document.body,
+          // Inside the +N list when the row is there, so opening the tip doesn't light-dismiss it.
+          button.current.closest('[data-testid="status-others"]') ?? document.body,
         )}
     </>
   );
@@ -555,7 +556,7 @@ function useStatuses(): Status[] {
           ),
       ),
   );
-  const sends = taggingSends(service ?? null, t);
+  const sends = taggingSends(service ?? null, t, scans);
   const stop = {
     label: t("tagging.stop"),
     testId: "tagging-stop",
@@ -978,7 +979,7 @@ function useStatuses(): Status[] {
         tone: "progress",
         short: text,
         full: text,
-        sends: scans ? `${sends} ${t("status.sends.scans")}` : sends,
+        sends,
         action: stop,
       });
     }

@@ -1482,9 +1482,12 @@ export const en = {
   "status.taggingWith.one": "Tagging 1 Document with {service}",
   "status.taggingWith.other": "Tagging {count} Documents with {service}",
   "status.sends": "Each Document’s name, outline and short excerpts go to {service}.",
+  "status.sends.scans":
+    "Each Document’s name, outline and short excerpts go to {service}. Page images of scans are included.",
   "status.sends.onThisComputer":
     "Each Document’s name, outline and short excerpts stay on this computer.",
-  "status.sends.scans": "Page images of scans are included.",
+  "status.sends.onThisComputer.scans":
+    "Each Document’s name, outline and short excerpts stay on this computer. Page images of scans are included.",
   "status.taggingWaiting": "No AI model for Tags",
   "status.taggingPermission": "Tags need your OK",
   "status.taggingFailed.one": "1 Document couldn’t be tagged",
