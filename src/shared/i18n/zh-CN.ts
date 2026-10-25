@@ -3520,6 +3520,7 @@ export const zhCN = {
   "share.page.found.none.other":
     "{date}对照原页面核对：{total} 处引文都未找到，原因见各处引用的卡片。",
   "share.page.checkedLine": "引用已由 IncarnaMind 核对",
+  "share.page.notes": "注释",
   "share.card.label": "引用 {number}：{source}",
   "share.card.page": "第 {range} 页",
   "share.card.pages": "第 {range} 页",
