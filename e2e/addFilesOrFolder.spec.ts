@@ -195,11 +195,19 @@ test("⌘K finds the one way in, and running it opens the one sheet, at 1,600 px
     await expect(found).toHaveCount(1);
     await interceptOpenDialog(app, picked);
     await window.keyboard.press("Enter");
-    const dialog = window.getByTestId("link-folder-dialog");
-    await expect(dialog).toBeVisible();
     await expect(window.getByTestId("palette")).toBeHidden();
-    await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(dialog).toBeHidden();
+    if (mac) {
+      const dialog = window.getByTestId("link-folder-dialog");
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Cancel" }).click();
+      await expect(dialog).toBeHidden();
+    } else {
+      // A file: it is read as a Document, and no folder is offered.
+      await expect(
+        window.getByTestId("document-list-item").filter({ hasText: "Rates" }),
+      ).toHaveCount(1, { timeout: 20_000 });
+      await expect(window.getByTestId("link-folder-dialog")).toHaveCount(0);
+    }
   } finally {
     await app.close();
   }
