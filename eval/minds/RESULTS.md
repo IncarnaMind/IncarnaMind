@@ -2,6 +2,8 @@
 
 How `npm run eval:minds` (see [README.md](README.md)) measured the assistant on 2026-10-24 (#1781). Ten runs of each of 14 requests (7 requests, each in English and in Chinese) on each model, 140 runs a model, at commit 6044399af (the code of this folder before the results were written). Claude Haiku 5.5 (`claude-haiku-5-5`) and Kimi K2.6 (`kimi-k2.6`, International endpoint, made-up Minds only); the claims in replies judged by Claude Sonnet 5.5.
 
+The requests added since (`new-from-two-plain-docs`, `-ai` and `-made`) and the numbers after #1790's fix are in pull request #1866.
+
 **The bar is 9 of 10 runs for each request.** "Passed" is the runs that pass every check. Seconds are the median from asking to the end of the Answer. Tokens are a run's average over all its model requests, the rewrites that `edit_mind` asks for included, most of the input from the cache.
 
 ## Pass count per request and model

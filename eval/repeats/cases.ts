@@ -166,6 +166,72 @@ export const DOCUMENTS: readonly RepeatDocument[] = [
       },
     ],
   },
+  {
+    language: "en",
+    file: "Annual report 2025 - Harrow Kitchens.pdf",
+    onlyFor: ["en-periods"],
+    pages: [
+      {
+        lines: [
+          "HARROW KITCHENS LTD - ANNUAL REPORT 2025",
+          "For the year ended 31 December 2025, with the figures for 2024 for comparison.",
+          "Key figures                          2025        2024",
+          "Revenue (thousand pounds)            4,200       3,600",
+          "Employees at the year end            48          41",
+          "Revenue in the fourth quarter of 2025 was 1,300 thousand pounds, the strongest quarter of the year.",
+          "The board proposes a dividend of 12 pence a share for 2025.",
+        ],
+      },
+    ],
+  },
+  {
+    language: "en",
+    file: "Supply agreement 2025-2027 - Harrow Kitchens.pdf",
+    onlyFor: ["en-periods"],
+    pages: [
+      {
+        lines: [
+          "SUPPLY AGREEMENT",
+          "Between Harrow Kitchens Ltd (the Buyer) and Fenwick Timber Ltd (the Supplier).",
+          "This agreement runs from 1 January 2025 to 31 December 2027.",
+          "The Supplier delivers 120 cubic metres of oak a year to the Buyer, at a fixed price of 610 pounds a cubic metre.",
+        ],
+      },
+    ],
+  },
+  {
+    language: "zh-CN",
+    file: "2025年年度报告 - 青禾餐饮.pdf",
+    onlyFor: ["zh-periods"],
+    pages: [
+      {
+        chineseLines: [
+          "青禾餐饮有限公司2025年年度报告",
+          "报告期为2025年1月1日至12月31日，并列示2024年数据以供比较。",
+          "主要数据　　　　　　　　2025年　　　2024年",
+          "营业收入（万元）　　　　4,200　　　　3,600",
+          "年末员工人数　　　　　　48　　　　　41",
+          "2025年第四季度营业收入为1,300万元，为全年最高。",
+          "董事会建议2025年度每股派发现金红利0.12元。",
+        ],
+      },
+    ],
+  },
+  {
+    language: "zh-CN",
+    file: "供货合同（2025—2027）- 青禾餐饮.pdf",
+    onlyFor: ["zh-periods"],
+    pages: [
+      {
+        chineseLines: [
+          "供货合同",
+          "甲方（买方）：青禾餐饮有限公司　乙方（供方）：远山粮油有限公司",
+          "本合同期限自2025年1月1日起至2027年12月31日止。",
+          "乙方每年向甲方供应大米120吨，单价为每吨人民币5,200元。",
+        ],
+      },
+    ],
+  },
 ];
 
 /**
@@ -179,7 +245,10 @@ export const DOCUMENTS: readonly RepeatDocument[] = [
  * agreement's, or add one to its own, each expected not Contradicted, and a
  * holiday figure for the year before the agreement starts, expected "I didn't
  * find this". The paraphrases say a clause's duty or permission in other
- * words, each expected Supported.
+ * words, each expected Supported. The periods sets hold a year's report with
+ * the year before for comparison and a three-year supply agreement: a
+ * prior-year figure, a quarter and a year of the term are the Documents' own
+ * periods, a year the report doesn't state isn't.
  */
 const sentencesOf =
   (kind: RepeatSentence["kind"], expected: Expected) =>
@@ -344,6 +413,12 @@ export const SETS: readonly RepeatSet[] = [
       ["number", "The salary is 65,000 per year, paid monthly in arrears."],
       ["date", "Unused holiday days carried over must be taken by 30 April."],
       ["year", "The Employee starts on 11 January 2028."],
+      ["start-month", "The Employee starts on 11 February 2027."],
+      ["probation-length", "The first six months are a probation period."],
+      [
+        "notice-length",
+        "After probation, either side must give one month's written notice to end this agreement.",
+      ],
       ["negation", "Unused holiday days can't be carried over into the next year."],
       ["unit", "The salary is 61,500 per month."],
       ["reporting-line", "The Director of People reports to the Employee."],
@@ -419,6 +494,8 @@ export const SETS: readonly RepeatSet[] = [
       ["number", "乙方月工资为人民币两万元。"],
       ["date", "乙方自2027年2月11日起入职。"],
       ["year", "乙方自2028年1月11日起入职。"],
+      ["probation-length", "试用期为六个月。"],
+      ["notice-length", "试用期满后，任何一方须提前一个月书面通知对方，方可解除本合同。"],
       ["negation", "试用期内任何一方都不得解除本合同。", 1682],
       ["unit", "乙方年工资为人民币一万八千元。"],
       ["reporting-line", "人力资源总监向乙方汇报。"],
@@ -501,7 +578,11 @@ export const SETS: readonly RepeatSet[] = [
         ["person-home", "The Director of People may work from home three days a week.", 1718],
       ]),
       ...notCovered([
-        ["period-not-covered", "In 2024 the Employee was entitled to 25 days of paid holiday."],
+        [
+          "period-not-covered",
+          "In 2024 the Employee was entitled to 25 days of paid holiday.",
+          1765,
+        ],
       ]),
     ],
   },
@@ -519,7 +600,52 @@ export const SETS: readonly RepeatSet[] = [
         ["person-home", "人力资源总监每周可在家工作三天。", 1718],
         ["added-detail", "乙方月工资为人民币一万八千元，通过银行转账发放。"],
       ]),
-      ...notCovered([["period-not-covered", "2024年乙方享有带薪年休假15天。"]]),
+      ...notCovered([["period-not-covered", "2024年乙方享有带薪年休假15天。", 1765]]),
+    ],
+  },
+  {
+    id: "en-periods",
+    language: "en",
+    mind: "Report and supply terms",
+    sentences: [
+      ...paraphrases([
+        ["prior-year", "Harrow Kitchens' revenue in 2024 was 3,600 thousand pounds."],
+        [
+          "quarter",
+          "Harrow Kitchens' revenue in the fourth quarter of 2025 was 1,300 thousand pounds.",
+        ],
+        [
+          "term-year",
+          "In 2026 Fenwick Timber delivers 120 cubic metres of oak to Harrow Kitchens.",
+        ],
+      ]),
+      ...conflicts([
+        ["prior-year-wrong", "Harrow Kitchens had 45 employees at the end of 2024."],
+        [
+          "term-year-wrong",
+          "In 2026 the oak price under the supply agreement is 650 pounds a cubic metre.",
+        ],
+      ]),
+      ...notCovered([
+        ["year-not-stated", "Harrow Kitchens' revenue in 2023 was 3,100 thousand pounds.", 1765],
+      ]),
+    ],
+  },
+  {
+    id: "zh-periods",
+    language: "zh-CN",
+    mind: "年报与供货条款",
+    sentences: [
+      ...paraphrases([
+        ["prior-year", "青禾餐饮2024年营业收入为3,600万元。"],
+        ["quarter", "青禾餐饮2025年第四季度营业收入为1,300万元。"],
+        ["term-year", "2026年远山粮油向青禾餐饮供应大米120吨。"],
+      ]),
+      ...conflicts([
+        ["prior-year-wrong", "青禾餐饮2024年末员工人数为45人。"],
+        ["term-year-wrong", "2026年大米单价为每吨人民币5,600元。", 1708],
+      ]),
+      ...notCovered([["year-not-stated", "青禾餐饮2023年营业收入为3,100万元。", 1765]]),
     ],
   },
 ];
