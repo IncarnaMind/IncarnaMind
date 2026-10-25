@@ -25,6 +25,7 @@ import { isMoveToKey, moveThroughRows, TREE_ROW, useTreeItem } from "../treeKeys
 import { useRename } from "../useRename";
 import { useTreeKeyboard } from "../useTreeKeyboard";
 import { DocumentTagMenu } from "./DocumentTags";
+import { ExampleRow } from "./ExampleRow";
 import { InlineName } from "./InlineName";
 import { LibraryFolders } from "./LibraryFolders";
 import { LinkedFolderRows } from "./LinkedFolderRows";
@@ -87,9 +88,30 @@ export function DocumentsSection() {
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
   );
   const quiet = firstOpen && !hasOwnDocuments;
+  // The example folds to one row once the User has a Document of their own (#1944).
+  const exampleMindId = useAppStore((state) => state.examples?.mindId ?? null);
+  const exampleFolders = useAppStore((state) =>
+    allExamples(state)
+      .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
+      .join(" "),
+  );
+  const folded = useMemo(
+    () =>
+      hasOwnDocuments ? new Set(exampleFolders.split(" ").filter(Boolean)) : new Set<string>(),
+    [hasOwnDocuments, exampleFolders],
+  );
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
   const documents = useAppStore((state) => state.documents);
-  const hasLinkedFolders = useAppStore((state) => state.linkedFolders.length > 0);
+  const shownDocuments = useMemo(
+    () =>
+      folded.size === 0
+        ? documents
+        : documents.filter((each) => !folded.has(each.linkedFolderId ?? "")),
+    [documents, folded],
+  );
+  const hasLinkedFolders = useAppStore((state) =>
+    state.linkedFolders.some((each) => !folded.has(each.id)),
+  );
   const addDocuments = useAppStore((state) => state.addDocuments);
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
@@ -194,16 +216,18 @@ export function DocumentsSection() {
       )}
       <div ref={tree} data-testid="sidebar-sections" {...treeKeys}>
         <LibraryFolders
-          documents={quiet ? NO_DOCUMENTS : documents}
+          documents={quiet ? NO_DOCUMENTS : shownDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
+          hideExamples={folded.size > 0}
         />
         {!quiet && hasLinkedFolders && (
           <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
-            <LinkedFolderRows />
+            <LinkedFolderRows hideExamples={folded.size > 0} />
           </SidebarSection>
         )}
         {!quiet && <SidebarTags />}
+        {folded.size > 0 && exampleMindId && <ExampleRow mindId={exampleMindId} />}
       </div>
       <LinkFolderDialog />
       <TagNamesTip />

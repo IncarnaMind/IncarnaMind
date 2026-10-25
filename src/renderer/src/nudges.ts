@@ -6,7 +6,7 @@ export const stepsShownOf = (progress: GettingStarted | undefined): boolean =>
 
 export const firstOpenOf = (progress: GettingStarted | undefined): boolean =>
   stepsShownOf(progress) &&
-  !(progress?.mistakeSeen && progress.indexed && (progress.askedOwn || progress.askedReady));
+  !(progress?.indexed && (progress?.askedOwn || progress?.askedReady) && progress?.citationChecked);
 
 export type NudgeId = "usage-data";
 
