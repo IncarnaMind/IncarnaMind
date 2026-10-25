@@ -199,8 +199,8 @@ describe("Help during the call", { timeout: 60_000 }, () => {
 
     const [first] = calls;
     expect(first?.prompt).toContain("<live-transcript>");
-    expect(first?.system).toContain("Reply in exactly this form");
-    expect(first?.system).toContain("A line saying so already starts the reply");
+    expect(first?.prompt).toContain("Reply in exactly this form");
+    expect(first?.prompt).toContain("A line saying so already starts the reply");
     expect(english.answer.text).toMatch(
       /^The live text is behind, so this rests on the lines so far\.\n\n★ /,
     );

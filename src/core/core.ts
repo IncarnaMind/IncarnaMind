@@ -134,7 +134,6 @@ import {
   createTextRecognitionModel,
   type TextRecognitionModel,
 } from "./documents/scan";
-import type { WindowedPassage } from "./documents/search";
 import type { Reranker } from "./documents/searchTool";
 import { tunedSearch } from "./documents/searchTuning";
 import { LANGUAGE_SAMPLE, writtenInChinese } from "./documents/textLanguage";
