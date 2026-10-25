@@ -10,11 +10,14 @@ import type {
   CitationAttributes,
   CitationCheck,
   CitationCheckReason,
+  CitationRecheck,
   Document,
   KeptCitationText,
   QuotedPiece,
   QuotedWords,
 } from "../core/api";
+import type { Language } from "../core/language";
+import { formatDate } from "./dates";
 import { displayName } from "./documentNames";
 import type { MessageKey } from "./i18n";
 import {
@@ -214,6 +217,102 @@ export function citationState(
     return { check: "cant-check", reason: "document-removed", documentId: null, changedAfterCited };
   }
   return { check, reason, documentId: live.id, changedAfterCited };
+}
+
+/** Where a Citation's quote stands in its Document's current version. */
+export type QuoteStanding = "found" | "moved" | "gone";
+
+/**
+ * How a Citation's quote stands in the version `recheck` read: at the
+ * Location it cites, at another one, or no longer there. Null while the
+ * version isn't checked, and when it can't be checked.
+ */
+export function quoteStanding(
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
+  recheck: CitationRecheck | null,
+): QuoteStanding | null {
+  if (recheck === null || recheck.check === "cant-check") return null;
+  if (recheck.check !== "found") return "gone";
+  const from = cited.pageFrom ?? null;
+  const to = cited.pageTo ?? from;
+  const now = recheck.pageFrom;
+  if (now !== from || (recheck.pageTo ?? now) !== to) return "moved";
+  // The same Units, but a sheet's rows or a Word section's paragraphs can narrow to
+  // another place inside them, which the Citation's own label names.
+  if (cited.location && recheck.location) {
+    return englishPrintedLocation(cited.location) === englishPrintedLocation(recheck.location)
+      ? "found"
+      : "moved";
+  }
+  return "found";
+}
+
+/**
+ * When a Document's current version was made: a web page's fetch of that
+ * version, else its file's last change, else when it was indexed.
+ */
+export function versionMoment(
+  document: Pick<Document, "modifiedAt" | "updatedAt" | "contentHash"> & {
+    web: {
+      fetchedAt: string;
+      versions: readonly { contentHash: string; fetchedAt: string }[];
+    } | null;
+  },
+): string | null {
+  const web = document.web;
+  const fetched =
+    web?.versions.find((each) => each.contentHash === document.contentHash)?.fetchedAt ??
+    web?.fetchedAt;
+  return fetched ?? document.modifiedAt ?? document.updatedAt;
+}
+
+/**
+ * "This Document changed on 12 October 2026" in a language: when the version
+ * the Citation now opens was made. Null while the Document is unchanged.
+ */
+export function changedOnMessage(
+  changed: boolean,
+  moment: string | null,
+  language: Language,
+  t: Translate,
+): string | null {
+  return changed && moment
+    ? t("citation.changed.on", { date: formatDate(moment, language) })
+    : null;
+}
+
+/** What a Citation's card and the viewer say once its Document changed after it was cited. */
+export interface ChangedSource {
+  notice: string;
+  /** How the quote stands in the new version; null while that is looked for, and when it can't be. */
+  quote: string | null;
+}
+
+/**
+ * What a Citation's card and its viewer say when its Document changed after
+ * it was cited: that it changed, and where its quote stands in the new
+ * version once it is looked for. Null only while the Document is unchanged.
+ */
+export function changedSourceNote(
+  changed: boolean,
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
+  recheck: CitationRecheck | "failed" | null,
+  t: Translate,
+): ChangedSource | null {
+  if (!changed) return null;
+  const notice = t("citation.changedAfterCited");
+  if (recheck === "failed" || recheck === null) return { notice, quote: null };
+  const standing = quoteStanding(cited, recheck);
+  if (standing === "found") return { notice, quote: t("citation.changed.still") };
+  if (standing === "gone") return { notice, quote: t("citation.changed.gone") };
+  if (standing === null) return { notice, quote: null };
+  const where = recheck.location ? formatLocation(recheck.location, t) : null;
+  return {
+    notice,
+    quote: where
+      ? t("citation.changed.moved", { location: where })
+      : t("citation.changed.moved.anywhere"),
+  };
 }
 
 /**

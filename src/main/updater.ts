@@ -33,6 +33,11 @@ const GITHUB_RELEASES: Readonly<ExternalService> = {
 
 type SettingsSource = Pick<CoreApi, "getSettings" | "getPrivacySettings">;
 
+let installsOnQuit = false;
+
+/** Whether a downloaded update installs when the app quits: the updater then starts the app itself, if at all. */
+export const updateInstallsOnQuit = () => installsOnQuit;
+
 /** Lists the update check on the Privacy page, on or off as the User chose. */
 export function registerUpdateCheck(core: Pick<Core, "networkTraffic" | "getPrivacySettings">) {
   core.networkTraffic.register({
@@ -83,6 +88,7 @@ async function checkForUpdates(
   }
 
   await result.downloadPromise;
+  installsOnQuit = true;
   const { language } = await core.getSettings();
   if (await ask(language, "ready", version)) {
     await restartToInstall(autoUpdater, settleQuit, releaseDataFolder);

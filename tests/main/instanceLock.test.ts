@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
-import { lockInstance } from "../../src/main/instanceLock";
+import { heldByAnotherCopy, lockInstance } from "../../src/main/instanceLock";
 
 const CHILD = fileURLToPath(new URL("../helpers/instanceLockChild.ts", import.meta.url));
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -66,6 +66,20 @@ describe("one copy of the app holds a data folder", () => {
     for (const each of both) each.release();
   });
 
+  test("tells whether another copy holds the folder, without taking it", async () => {
+    const where = await folder();
+    expect(heldByAnotherCopy(where, report)).toBe(false);
+    const first = lockInstance(where, report);
+    expect(heldByAnotherCopy(where, report)).toBe(true);
+    first.release();
+    expect(heldByAnotherCopy(where, report)).toBe(false);
+    await writeFile(join(where, "instance.owner"), "not a database, only text ".repeat(8));
+    expect(heldByAnotherCopy(where, report)).toBe(false);
+    const next = lockInstance(where, report);
+    expect(next.held).toBe(true);
+    next.release();
+  });
+
   test("letting go twice is harmless", async () => {
     const lock = lockInstance(await folder(), report);
     lock.release();
@@ -97,19 +111,26 @@ describe("one copy of the app holds a data folder", () => {
       db.exec("BEGIN EXCLUSIVE");
       return db;
     };
-    const ask = () =>
+    const ask = (mode = "try", sawItHeld?: () => void) =>
       new Promise<{ held: boolean; after: number }>((resolve, reject) => {
         const began = Date.now();
-        const child = spawn(process.execPath, [bundle, "try", where], {
+        const child = spawn(process.execPath, [bundle, mode, where], {
           stdio: ["ignore", "pipe", "inherit"],
         });
         let out = "";
+        let toldHeld = false;
         child.stdout.on("data", (chunk: Buffer) => {
           out += chunk.toString();
+          if (toldHeld || !out.includes("sawItHeld")) return;
+          toldHeld = true;
+          sawItHeld?.();
         });
         child.on("error", reject);
         // On its exit: it has let the folder go by then.
-        child.on("exit", () => resolve({ ...JSON.parse(out), after: Date.now() - began }));
+        child.on("exit", () => {
+          const last = out.trim().split("\n").at(-1) ?? "";
+          resolve({ ...JSON.parse(last), after: Date.now() - began });
+        });
       });
 
     // Another copy's try: it holds instance.lock for a moment and not instance.owner.
@@ -124,8 +145,14 @@ describe("one copy of the app holds a data folder", () => {
     const refused = await ask();
     expect(refused.held).toBe(false);
     expect(refused.after).toBeLessThan(5_000);
-    lock.close();
-    owner.close();
+
+    // A copy that took Electron's lock from the holder waits a moment for it to end, then gives up.
+    expect((await ask("leaving")).held).toBe(false);
+    const waiting = ask("leaving", () => {
+      lock.close();
+      owner.close();
+    });
+    expect((await waiting).held).toBe(true);
   });
 
   test("a folder busy with nobody holding it past the deadline is not started on, and says so", async () => {
@@ -134,7 +161,7 @@ describe("one copy of the app holds a data folder", () => {
     stopped.exec("PRAGMA locking_mode = EXCLUSIVE");
     stopped.exec("BEGIN EXCLUSIVE");
     const began = performance.now();
-    const lock = lockInstance(where, report, 300);
+    const lock = lockInstance(where, report, { giveUpAfterMs: 300 });
     stopped.close();
     expect(lock).toMatchObject({ held: false, timedOut: true });
     expect(performance.now() - began).toBeGreaterThanOrEqual(300);
@@ -147,7 +174,10 @@ describe("one copy of the app holds a data folder", () => {
     await writeFile(join(where, "instance.owner"), text);
     const lock = lockInstance(where, report);
     expect(lock.held).toBe(true);
-    expect(lockInstance(where, report, 50)).toMatchObject({ held: false, timedOut: false });
+    expect(lockInstance(where, report, { giveUpAfterMs: 50 })).toMatchObject({
+      held: false,
+      timedOut: false,
+    });
     lock.release();
   });
 

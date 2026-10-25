@@ -3138,6 +3138,11 @@ export const en = {
   "command.citation.open": "Open cited page",
   "citation.regenerate": "Regenerate the Answer",
   "citation.changedAfterCited": "The Document changed after this was cited.",
+  "citation.changed.on": "This Document changed on {date}.",
+  "citation.changed.still": "The quote is still here.",
+  "citation.changed.gone": "Its quote is no longer in the new version.",
+  "citation.changed.moved": "Its quote is now at {location}.",
+  "citation.changed.moved.anywhere": "Its quote is in another place in the new version.",
   "citation.recheck": "Check against the current version",
   "citation.unsupported": "{model} can’t add Citations: nothing here is checked",
   "citation.unsupported.choose": "Choose another model",
@@ -3714,6 +3719,8 @@ export const en = {
   "error.startup.body": "Your data folder couldn’t be opened.\n\n{message}",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+  "error.startup.stalled":
+    "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
   "error.startup.newer.title": "Update IncarnaMind to open your data",
   "error.startup.newer.body":
     "A newer IncarnaMind saved this data. Update to open it; nothing changed.",
@@ -3769,6 +3776,7 @@ export const en = {
   "error.folder.nameTaken": "A Folder with this name already exists.",
   "error.folder.limit": "The Library supports up to 100 Folders.",
   "error.mind.notFound": "That Mind doesn’t exist or has been deleted.",
+  "error.layout.units": "That place in a Document counts from 1.",
   "error.layout.wordPlace": "That place in the Word file isn’t one IncarnaMind can open.",
   "error.mind.notFromWord":
     "This Mind wasn’t imported from a Word file, so it has no original to add.",
