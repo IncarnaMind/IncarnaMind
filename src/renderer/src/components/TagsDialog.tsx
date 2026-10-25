@@ -5,6 +5,7 @@ import { core } from "../core";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { formatCount } from "../linkedFolders";
+import { matchName, queryWords } from "../matcher";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { deleteTag, editTag, mergeTags } from "../tagChanges";
@@ -91,10 +92,14 @@ export function TagsDialog() {
     }
   };
 
-  const wanted = search.trim().toLocaleLowerCase();
-  const shown = wanted
-    ? tags.filter((tag) => `${tag.name} ${tag.description}`.toLocaleLowerCase().includes(wanted))
-    : tags;
+  const words = queryWords(search);
+  const shown =
+    words.length === 0
+      ? tags
+      : tags.filter((tag) => {
+          const match = matchName(words, `${tag.name} ${tag.description}`);
+          return match !== null && !match.typo;
+        });
 
   return (
     <dialog

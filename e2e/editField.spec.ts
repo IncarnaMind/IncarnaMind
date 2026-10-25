@@ -146,6 +146,68 @@ async function watched(window: Page): Promise<{ enterAt: number; actedAt: number
   );
 }
 
+interface PlaceLook {
+  texts: number[][];
+  problem: number[] | null;
+  running: number[] | null;
+  applied: number[] | null;
+}
+
+/**
+ * Where the text below the line is, and which line is drawn, from now on: after
+ * every change to the page and on every frame painted, so a jump that lasts
+ * between two changes is seen as well as one a change made.
+ */
+async function watchPlaces(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const looks: PlaceLook[] = [];
+    const state = { watching: true, looks };
+    (globalThis as unknown as { __places: typeof state }).__places = state;
+    const rect = (selector: string) => {
+      const each = document.querySelector(selector);
+      if (!each) return null;
+      const box = each.getBoundingClientRect();
+      return [box.left, box.top, box.width, box.height];
+    };
+    const look = () => {
+      looks.push({
+        texts: [...document.querySelectorAll('[data-testid="mind-editor"] > p')].map((each) => {
+          const box = each.getBoundingClientRect();
+          return [box.top, box.height];
+        }),
+        problem: rect('[data-testid="edit-problem"]'),
+        running: rect('[data-testid="menu-edit-line"]'),
+        applied: rect('[data-testid="applied-line"]'),
+      });
+    };
+    look();
+    new MutationObserver(look).observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      characterData: true,
+    });
+    const frame = () => {
+      if (!state.watching) return;
+      look();
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+}
+
+async function placesSeen(window: Page): Promise<PlaceLook[]> {
+  return window.evaluate(() => {
+    const state = (
+      globalThis as unknown as {
+        __places: { watching: boolean; looks: PlaceLook[] };
+      }
+    ).__places;
+    state.watching = false;
+    return state.looks;
+  });
+}
+
 test("typing in the menu's Edit with AI field and pressing Enter changes the text in place, in English and in Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -821,6 +883,73 @@ for (const sidebar of ["shown", "hidden"] as const) {
     expect(undo?.y).toBe(spot?.y);
     expect(undo?.height).toBe(spot?.height);
     await expect(editor.getByTestId("applied-count")).toHaveText("Changed 1 paragraph");
+    await app.close();
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Try again turns the problem line into the working line in its own box, so the text doesn't jump, in ${language}`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    // A model its provider doesn't know: the first request fails.
+    await useLocalChatModel(window, "fake-not-found");
+    await setWindowSize(app, window, 1280, 820);
+    await setLanguage(window, language);
+    await newMind(window);
+    const editor = window.getByTestId("mind-editor");
+    await editor.click();
+    await window.keyboard.type("The tides here are very strong.");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("The moon is bright over the harbour.");
+    const paragraphs = editor.locator(":scope > p");
+    const menu = window.getByTestId("selection-menu");
+    const line = editor.getByTestId("edit-problem");
+
+    await slideSelect(window, paragraphs.first(), "The tides here are very strong");
+    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.type("replace tides with seas slowly");
+    await window.keyboard.press("Enter");
+    await expect(menu.getByTestId("edit-problem")).toContainText(
+      language === "en" ? /Edit with AI didn.t work/ : "用 AI 编辑未能完成",
+    );
+    // Esc closes the menu: the same line shows in the page, until Try again.
+    await window.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(line).toContainText(language === "en" ? "Try again" : "重试");
+    const spot = await line.boundingBox();
+    if (!spot) throw new Error("The problem line isn't visible.");
+    const before = await paragraphs.evaluateAll((all) =>
+      all.map((each) => {
+        const box = each.getBoundingClientRect();
+        return [box.top, box.height];
+      }),
+    );
+
+    // With a model that answers slowly, Try again runs at once, and nothing below the line moves.
+    await useLocalChatModel(window);
+    await watchPlaces(window);
+    await pointAndClick(window, line.getByTestId("menu-edit-action"));
+    const running = editor.getByTestId("menu-edit-line");
+    await expect(running).toContainText(language === "en" ? "Making the changes…" : "正在修改…");
+    await expect(editor.getByTestId("applied-line")).toBeVisible({ timeout: 40_000 });
+    const places = await placesSeen(window);
+
+    const beforeLine = places.filter((each) => each.applied === null);
+    expect(beforeLine.length).toBeGreaterThan(0);
+    for (const each of beforeLine) {
+      // The line's box never goes away: the working line is drawn where the problem was.
+      expect(each.problem ?? each.running).not.toBeNull();
+      expect(each.texts).toEqual(before);
+    }
+    const working = beforeLine.filter((each) => each.running !== null);
+    expect(working.length).toBeGreaterThan(0);
+    for (const each of working)
+      expect(each.running).toEqual([spot.x, spot.y, spot.width, spot.height]);
+    // The Undo line replaces the working line in the same box, and the text still hasn't moved.
+    const applied = places.find((each) => each.applied !== null);
+    if (!applied) throw new Error("The Undo line was never seen.");
+    expect(applied.texts).toEqual(before);
+    await expect(paragraphs.first()).toHaveText("The seas here are very strong.");
     await app.close();
   });
 }

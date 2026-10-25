@@ -164,26 +164,6 @@ const FOLDER_COLUMNS = "id, path, layout, paused, ignore_patterns, created_at, u
 /** Statuses of a Document once processing has finished with it. */
 const PROCESSED = "('ready', 'no-text', 'failed')";
 
-/**
- * A rough guess at indexing speed with the built-in model on a laptop CPU
- * (ADR-0009: about 25 Passages a second): a PDF holds about 3 seconds of work
- * per megabyte, plain text, which is much denser, about 30, and every file
- * costs a little on top. Office files are zipped, with images: a guess from
- * the samples' text per megabyte (unmeasured).
- */
-const SECONDS_PER_FILE = 0.2;
-const SECONDS_PER_MEGABYTE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 3,
-  text: 30,
-  markdown: 30,
-  docx: 10,
-  pptx: 2,
-  xlsx: 20,
-  csv: 30,
-  web: 30,
-  transcript: 30,
-};
-
 /** A folder is laid out flat when this share of its folders with files hold exactly one. */
 const FLAT_SHARE = 0.9;
 /**
@@ -257,6 +237,8 @@ export interface LibraryOptions {
   stat: StatIdentity;
   retryMs: number;
   detectDataless: boolean;
+  /** How long reading these files takes on this computer, in seconds (./readingSpeed). */
+  readingSeconds(files: readonly FoundFile[]): number | null;
 }
 
 /** What one pass looks at. */
@@ -1502,21 +1484,16 @@ export function createLibrary(options: LibraryOptions) {
       });
       const local = files.filter((file) => !file.onlineOnly);
       const placeholders = files.filter((file) => file.onlineOnly);
-      let bytes = 0;
-      let seconds = 0;
-      for (const file of local) {
-        bytes += file.size;
-        seconds += SECONDS_PER_FILE + (file.size / 1_000_000) * SECONDS_PER_MEGABYTE[file.kind];
-      }
+      const seconds = options.readingSeconds(local);
       return {
         path,
         files: local.length,
-        bytes,
+        bytes: local.reduce((sum, file) => sum + file.size, 0),
         onlineOnly: {
           files: placeholders.length,
           bytes: placeholders.reduce((sum, file) => sum + file.size, 0),
         },
-        estimatedSeconds: Math.ceil(seconds),
+        estimatedSeconds: seconds === null ? null : Math.ceil(seconds),
         layout: suggestLayout(local.map((file) => relativePath(path, file.path))),
         insideLinkedFolderId: outer?.id ?? null,
         containsLinkedFolderIds: linked
