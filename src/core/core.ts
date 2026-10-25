@@ -521,6 +521,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const conversations = createConversations(db, now);
   const conversationsChanged = () => events.emit("conversations.changed", null);
   const publishConversation = (turn: Turn) => {
+    conversations.publish(turn);
     events.emit("conversation.message", turn.question);
     events.emit("conversation.message", turn.answer);
     conversationsChanged();

@@ -518,6 +518,9 @@ const readColumns = (read: AnswerRead | null): [string | null, string | null, nu
 ];
 
 export function createConversations(db: Database, now: () => string) {
+  /** The state before each conversation's first unpublished turn, shared by overlapping turns. */
+  const pendingTurns = new Map<string, { updatedAt: string; answerIds: Set<string> }>();
+
   /** Each conversation's Minds asked from, each once, in the order first asked from. */
   function askedFromIn(ids: readonly string[]): Map<string, AskedFrom[]> {
     const rows = db.all<{
@@ -843,8 +846,11 @@ export function createConversations(db: Database, now: () => string) {
       read: AnswerRead | null,
     ): AddedTurn {
       const previousConversationUpdatedAt =
-        input.conversationId === null ? null : liveRow(input.conversationId).updated_at;
-      return db.transaction(() => {
+        input.conversationId === null
+          ? null
+          : (pendingTurns.get(input.conversationId)?.updatedAt ??
+            liveRow(input.conversationId).updated_at);
+      const added = db.transaction(() => {
         const at = now();
         let conversationId = input.conversationId;
         if (conversationId === null) {
@@ -893,13 +899,40 @@ export function createConversations(db: Database, now: () => string) {
         const turn = turnOf(question, answer.id);
         return { turn, previousConversationUpdatedAt };
       });
+      if (previousConversationUpdatedAt !== null) {
+        const id = added.turn.conversation.id;
+        const pending = pendingTurns.get(id) ?? {
+          updatedAt: previousConversationUpdatedAt,
+          answerIds: new Set<string>(),
+        };
+        pending.answerIds.add(added.turn.answer.id);
+        pendingTurns.set(id, pending);
+      }
+      return added;
+    },
+
+    publish(turn: Turn): void {
+      const pending = pendingTurns.get(turn.conversation.id);
+      if (!pending) return;
+      pending.answerIds.delete(turn.answer.id);
+      if (pending.updatedAt < turn.conversation.updatedAt) {
+        pending.updatedAt = turn.conversation.updatedAt;
+      }
+      if (pending.answerIds.size === 0) pendingTurns.delete(turn.conversation.id);
     },
 
     /** Removes an unpublished turn whose model or Skill couldn't be asked. */
-    discard({ turn, previousConversationUpdatedAt }: AddedTurn): void {
+    discard(added: AddedTurn): void {
+      const { turn } = added;
       const questionId = turn.question.id;
       const answerId = turn.answer.id;
-      db.transaction(() => {
+      const pending = pendingTurns.get(turn.conversation.id);
+      const lastPending = pending
+        ? pending.answerIds.size === 1 && pending.answerIds.has(answerId)
+        : true;
+      const previousConversationUpdatedAt =
+        pending?.updatedAt ?? added.previousConversationUpdatedAt;
+      const discarded = db.transaction(() => {
         const question = db.get<{ seq: number; conversation_id: string; position: number }>(
           `SELECT seq, conversation_id, position FROM conversation_messages
            WHERE id = ? AND kind = 'question' AND deleted_at IS NULL`,
@@ -911,7 +944,8 @@ export function createConversations(db: Database, now: () => string) {
              AND text = '' AND deleted_at IS NULL`,
           [answerId, questionId],
         );
-        if (!question || !answer || question.conversation_id !== answer.conversation_id) return;
+        if (!question || !answer || question.conversation_id !== answer.conversation_id)
+          return false;
         db.run("DELETE FROM conversation_messages_fts WHERE rowid IN (?, ?)", [
           BigInt(question.seq),
           BigInt(answer.seq),
@@ -922,7 +956,7 @@ export function createConversations(db: Database, now: () => string) {
           [question.conversation_id],
         );
         if (remaining?.count !== 0) {
-          if (previousConversationUpdatedAt !== null) {
+          if (lastPending && previousConversationUpdatedAt !== null) {
             db.run(
               `UPDATE conversations SET updated_at = ?
                WHERE id = ? AND updated_at = ?
@@ -939,14 +973,18 @@ export function createConversations(db: Database, now: () => string) {
               ],
             );
           }
-          return;
+          return true;
         }
         db.run(
           "DELETE FROM conversations_fts WHERE rowid IN (SELECT seq FROM conversations WHERE id = ?)",
           [question.conversation_id],
         );
         db.run("DELETE FROM conversations WHERE id = ?", [question.conversation_id]);
+        return true;
       });
+      if (!discarded) return;
+      pending?.answerIds.delete(answerId);
+      if (lastPending) pendingTurns.delete(turn.conversation.id);
     },
 
     /**

@@ -340,6 +340,73 @@ describe("Empty conversations", { timeout: 30_000 }, () => {
     ]);
     expect(content.messages[2]).toMatchObject({ kind: "question", text: "Latest" });
   });
+
+  test.each(["older first", "newer first"])(
+    "rejected overlapping turns leave the conversation untouched (%s)",
+    async (order) => {
+      const slowUrl = "http://127.0.0.1:2";
+      let hold = false;
+      let release = () => {};
+      const readiness = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let began = () => {};
+      const readinessBegan = new Promise<void>((resolve) => {
+        began = resolve;
+      });
+      const { core, clock, ended } = await setUp(streamingModel("Hello."), {
+        ollamaModels: {
+          describe: async (baseUrl) => {
+            if (hold && baseUrl === slowUrl) {
+              began();
+              await readiness;
+            }
+            return null;
+          },
+          loaded: async () => null,
+          running: async () => true,
+        },
+      });
+      const other = await core.saveChatProvider({
+        kind: "ollama",
+        baseUrl: slowUrl,
+        modelId: "other-model",
+        keepDefault: true,
+      });
+      const first = await ask(core, ended, { text: "Hello" });
+      const before = await core.getConversation(first.conversation.id);
+      clock.advance(1000);
+      hold = true;
+      const slowModel = { providerId: other.id, modelId: "other-model" };
+
+      const older = core.askInConversation({
+        conversationId: first.conversation.id,
+        text: "Older",
+        forcedSkill: "no-such-skill",
+        ...(order === "newer first" && { model: slowModel }),
+      });
+      const newer = core.askInConversation({
+        conversationId: first.conversation.id,
+        text: "Newer",
+        forcedSkill: "no-such-skill",
+        ...(order === "older first" && { model: slowModel }),
+      });
+      await readinessBegan;
+      const firstRejection = order === "older first" ? older : newer;
+      const secondRejection = order === "older first" ? newer : older;
+      await expect(firstRejection).resolves.toMatchObject({
+        asked: false,
+        reason: "skill-unavailable",
+      });
+      release();
+      await expect(secondRejection).resolves.toMatchObject({
+        asked: false,
+        reason: "skill-unavailable",
+      });
+
+      expect(await core.getConversation(first.conversation.id)).toEqual(before);
+    },
+  );
 });
 
 describe("History: by Folder, all of them, and search", { timeout: 30_000 }, () => {
