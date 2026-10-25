@@ -1,12 +1,15 @@
 import {
   type AskedOutcome,
+  reviewAsked,
   undoAsked,
   useAskedFacts,
+  useAskedReview,
   useAskedState,
   useWrittenOnTop,
 } from "../../askedChanges";
 import type { ChangedMind } from "../../changedMinds";
 import { appliedFact, changeFact, keptText, leftText } from "../../changeFacts";
+import { shortcutLabel } from "../../commands/keymap";
 import { useT } from "../../i18n";
 import { showChanges, type Waiting } from "../../mindChanges";
 import { PencilLineIcon } from "../lineIcons";
@@ -18,7 +21,8 @@ import { useReadMindId } from "./readMind";
  * "Wrote it into “Untitled” · Undo" for the empty Mind in front, "Changed 3
  * paragraphs in “Q3 review” · Undo" for an edit, with Open too when that Mind
  * isn't the one in front. Undo takes back this Answer's changes there alone,
- * and says why it can't once the Mind changed since or closed. Then a line of
+ * and says why it can't once the Mind changed since or closed; Review changes
+ * shows them while the Mind's ⌘K and ⋯ offer it (#1795). Then a line of
  * their own for the changes that wait: "I also suggested 2 changes in
  * “Sources” · Review".
  */
@@ -164,6 +168,7 @@ function AppliedActions({
   const t = useT();
   const { mindId } = row;
   const state = useAskedState(answerId, mindId);
+  const reviewable = useAskedReview(answerId, mindId);
   const onTop = useWrittenOnTop(answerId, mindId);
   const inFront = useReadMindId() === mindId;
   if (state === "undone") {
@@ -178,7 +183,9 @@ function AppliedActions({
   }
   const why =
     state === "changed-since"
-      ? t("mindChanges.undo.changedSince", { mind: name })
+      ? reviewable
+        ? t("mindChanges.undo.changedSince", { mind: name, palette: shortcutLabel("palette.open") })
+        : t("mindChanges.undo.changedSince.noReview", { mind: name })
       : state === "closed"
         ? t("mindChanges.undo.closed", { mind: name })
         : undefined;
@@ -215,6 +222,19 @@ function AppliedActions({
       >
         {t("edit.applied.undo")}
       </button>
+      {reviewable && (
+        <>
+          <Dot />
+          <button
+            type="button"
+            data-testid="mind-changes-review"
+            onClick={() => reviewAsked(answerId, mindId)}
+            className="mind-changes-review"
+          >
+            {t("edit.applied.review")}
+          </button>
+        </>
+      )}
     </>
   );
 }

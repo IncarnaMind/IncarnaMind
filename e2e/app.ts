@@ -653,6 +653,21 @@ export async function runCommand(window: Page, id: string, label: string): Promi
   await pointAndClick(window, item);
 }
 
+/** How many times ⌘K lists the command, once its words are typed (0 or 1); then Esc closes it. */
+export async function paletteOffers(window: Page, id: string, words: string): Promise<number> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(`>${words}`);
+  const palette = window.getByTestId("palette");
+  await expect(
+    palette.locator('[data-testid="palette-item"], [data-testid="palette-empty"]').first(),
+  ).toBeVisible();
+  const count = await palette.locator(`[data-key="command:${id}"]`).count();
+  await window.keyboard.press("Escape");
+  await expect(palette).toBeHidden();
+  return count;
+}
+
 /** A Folder's row in the sidebar's Folders view, with what is listed in it, by its name. */
 export const sidebarFolder = (window: Page, name: string) =>
   window

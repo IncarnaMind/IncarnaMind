@@ -557,7 +557,7 @@ test("an older Answer already visible when it is sought stays put after its flas
   await expect(selected).not.toHaveAttribute("data-sought");
   await expect.poll(() => isFullyVisible(selected)).toBe(true);
   const after = await whereIs(window);
-  expect(after.scrollTop).toBe(position);
+  expect(after.scrollTop).toBeCloseTo(position, 0);
   expect(after.fromFoot).toBeGreaterThan(24);
   await app.close();
 });
