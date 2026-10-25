@@ -4,6 +4,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge, ReferencePatch } from "../src/core/api";
 import { readPackIndex } from "../src/core/citationStyles/pack";
+import type { TestHooks } from "../src/shared/testHooks";
 import { paragraphsOf, part, unzip } from "../tests/helpers/docx";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -20,6 +21,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
   sidebarFolder,
   useLocalChatModel,
@@ -123,19 +125,24 @@ async function chooseStyle(window: Page, search: string, label: string): Promise
   const picker = window.getByTestId("citation-style-picker");
   const field = picker.getByTestId("citation-style-search");
   await expect(field).toBeFocused();
-  // The catalogue's count is in the field once every style is listed: before it, the first match is
-  // the common list's, and Enter may take another's once the rest arrive.
-  await expect(field).toHaveAttribute("aria-label", /\d/);
   await window.keyboard.type(search);
-  // Results can still be re-ranked after the first match shows ("IEEE Access" above "IEEE"), so the
-  // style is picked by its exact name rather than by Enter on whatever is first at that moment.
-  await picker
-    .getByTestId("citation-style-option-label")
-    .getByText(label, { exact: true })
-    .first()
-    .click();
+  await expect(picker.getByTestId("citation-style-option-label").first()).toHaveText(label);
+  await window.keyboard.press("Enter");
   await expect(picker).toBeHidden();
 }
+
+async function openPickerFromRow(window: Page, row: Locator): Promise<void> {
+  await row.hover();
+  await pointAndClick(window, row.getByTestId("mind-menu"));
+  await pointAndClick(window, row.getByTestId("mind.citationStyle"));
+}
+
+const holdStyleCatalogue = (window: Page, hold: boolean) =>
+  window.evaluate((held) => {
+    const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
+    if (!hooks) throw new Error("Test hooks are off: launch with INCARNAMIND_TEST_HOOKS=1.");
+    hooks.holdStyleCatalogue(held);
+  }, hold);
 
 test("a Mind citing a paper offers a citation style; chosen, its Citations and References read in it, the References' picker switches it, with Undo, and the export follows", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
@@ -597,13 +604,7 @@ test("the style chosen for a Mind in a Folder, from its menu, is the one a new M
   await pointAndClick(window, folder.getByTestId("folder-row"));
   await expect(folder).toHaveAttribute("data-expanded", "true");
 
-  /** Opens a Mind's citation style picker from its row's ⋯ menu. */
-  const openPicker = async (row: Locator) => {
-    await row.hover();
-    await pointAndClick(window, row.getByTestId("mind-menu"));
-    await pointAndClick(window, row.getByTestId("mind.citationStyle"));
-  };
-  await openPicker(folder.getByTestId("mind-row").filter({ hasText: "Chapter 1" }));
+  await openPickerFromRow(window, folder.getByTestId("mind-row").filter({ hasText: "Chapter 1" }));
   await chooseStyle(window, "ieee", "IEEE");
 
   // "New Mind here", from the Folder's menu: it starts in IEEE, ticked in its picker.
@@ -611,13 +612,95 @@ test("the style chosen for a Mind in a Folder, from its menu, is the one a new M
   await pointAndClick(window, folder.getByTestId("folder.newMind"));
   const rows = folder.getByTestId("mind-row");
   await expect(rows).toHaveCount(2);
-  await openPicker(rows.filter({ hasNotText: "Chapter 1" }));
+  await openPickerFromRow(window, rows.filter({ hasNotText: "Chapter 1" }));
   const current = window.locator('[data-testid="citation-style-option"][data-current="true"]');
   await expect(current.getByTestId("citation-style-option-label")).toHaveText("IEEE");
   await window.keyboard.press("Escape");
   await expect(window.getByTestId("citation-style-picker")).toBeHidden();
   await app.close();
 });
+
+for (const [language, name, id] of [
+  ["en", "ieee", "ieee"],
+  ["zh-CN", "温哥华", "vancouver"],
+] as const) {
+  test(`in ${language}: a style's exact name typed and Enter at once take it before every style has arrived; when they arrive, what was shown keeps its place and the highlight, under a resting pointer too`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    const minds = await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const folder = await core.createLibraryGroup({ name: "Thesis", description: "" });
+      const first = await core.createMind({ title: "Chapter 1", folderId: folder.id });
+      const second = await core.createMind({ title: "Chapter 2", folderId: folder.id });
+      return { first: first.id, second: second.id };
+    });
+    const styleOf = (mindId: string) =>
+      window.evaluate(
+        (id) =>
+          (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getMindCitationStyle(
+            id,
+          ),
+        mindId,
+      );
+    const folder = sidebarFolder(window, "Thesis");
+    await pointAndClick(window, folder.getByTestId("folder-row"));
+    await expect(folder).toHaveAttribute("data-expanded", "true");
+    const row = (title: string) => folder.getByTestId("mind-row").filter({ hasText: title });
+    const picker = window.getByTestId("citation-style-picker");
+    const field = picker.getByTestId("citation-style-search");
+    const options = picker.getByTestId("citation-style-option");
+    const labels = picker.getByTestId("citation-style-option-label");
+
+    await holdStyleCatalogue(window, true);
+    await openPickerFromRow(window, row("Chapter 1"));
+    await expect(field).toBeFocused();
+    await expect(field).not.toHaveAttribute("aria-label", /\d/);
+    await window.keyboard.type(name);
+    await window.keyboard.press("Enter");
+    await expect(picker).toBeHidden();
+    await expect.poll(async () => (await styleOf(minds.first)).style).toBe(id);
+
+    expect((await styleOf(minds.second)).chosen).toBe(false);
+    await openPickerFromRow(window, row("Chapter 2"));
+    await expect(field).toBeFocused();
+    await window.keyboard.type("chi");
+    await expect(options).toHaveCount(2);
+    await expect(options.first()).toHaveAttribute("data-style", "chicago-notes");
+    const box = await field.boundingBox();
+    if (!box) throw new Error("The picker's field isn't on screen.");
+    const pointer = { x: box.x + box.width / 2, y: box.y + box.height + 220 };
+    await window.mouse.move(pointer.x, pointer.y);
+    await holdStyleCatalogue(window, false);
+    await expect(field).toHaveAttribute("aria-label", /\d/);
+    await expect
+      .poll(() =>
+        window.evaluate(
+          ({ x, y }) =>
+            document.elementFromPoint(x, y)?.closest('[role="option"]')?.matches(":hover") ?? false,
+          pointer,
+        ),
+      )
+      .toBe(true);
+    await expect(options.first()).toHaveAttribute("data-style", "chicago-notes");
+    await expect(picker.locator('[role="option"][aria-selected="true"]')).toHaveAttribute(
+      "data-style",
+      "chicago-notes",
+    );
+    await window.keyboard.press("ControlOrMeta+a");
+    await window.keyboard.type("ieee");
+    await expect(labels.first()).toHaveText("IEEE");
+    await expect(
+      picker
+        .locator('[role="option"][aria-selected="true"]')
+        .getByTestId("citation-style-option-label"),
+    ).toHaveText("IEEE");
+    await window.keyboard.press("Enter");
+    await expect(picker).toBeHidden();
+    await expect.poll(async () => (await styleOf(minds.second)).style).toBe("ieee");
+    await app.close();
+  });
+}
 
 test("every CSL style: ⌘K and the References' style open the one picker, which finds a journal in English and Chinese and lists Recently used; the Mind keeps the journal's name, a style this version lacks says so, and the picker fits a 1,100px window", async () => {
   const count = readPackIndex(

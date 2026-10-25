@@ -498,3 +498,7 @@ The check before building the Library's grouping (#51) found that clustering Doc
 ## The harness bake-off
 
 `npm run eval:harness` asks 30 requests, in English and Chinese, of IncarnaMind's Run engine, Claude Code and Codex on the same model, the outside two reaching the Documents only through IncarnaMind's MCP server, and reports one results table per model (#1208). `npm run eval` doesn't run it. See `harness/README.md`; `tests/eval/harnessScoring.test.ts` checks its scoring and its adapter to Anthropic's API.
+
+## Reports from a cited Mind
+
+`npm run eval:reports` turns a Mind whose Notes cite two sample papers (6 Citations, in English and in Chinese, and 20) into a report with the built-in Skill "mind-to-report" forced, on a real chat model, in the Answer and in a new Mind (#1800). Each run counts the claims kept with a working Citation that opens the Mind's Location (and how many are its very record), the claims kept with none (a model judges that), every source or id left as text in the report and its Markdown export, and how often the app had to make an id written as text its Citation. `INCARNAMIND_EVAL_REPORTS` lists case ids (`reports/cases.ts`), `INCARNAMIND_EVAL_REPORTS_RUNS` sets the runs of each (10). About $0.003 a run on Claude Haiku 5.5 and $0.08 on Sonnet 5.5.

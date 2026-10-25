@@ -5,7 +5,7 @@
 import { describe, expect, test } from "vitest";
 import { SETS } from "../../eval/repeats/cases";
 import { type Outcome, outcomeOf } from "../../eval/repeats/repeat";
-import { type RepeatRow, report, summarise } from "../../eval/repeats/score";
+import { meetsExpected, type RepeatRow, report, summarise } from "../../eval/repeats/score";
 import type { ClaimCheckAttributes } from "../../src/core";
 
 const QUOTE = {
@@ -120,16 +120,17 @@ describe("the repeated checks", () => {
   });
 
   test("expect the not-found card for a figure for a year the agreement doesn't cover", () => {
-    const [summary] = summarise(
-      (["absent", "differs", "contradicted", "partly"] as const).map((outcome, index) =>
-        row(index + 1, "period-not-covered", outcome, "en-near-misses"),
-      ),
+    const rows = (["absent", "differs", "contradicted", "partly"] as const).map((outcome, index) =>
+      row(index + 1, "period-not-covered", outcome, "en-near-misses"),
     );
-    expect(summary?.misses.map((each) => each.outcome)).toEqual([
+    expect(rows.filter((each) => !meetsExpected(each)).map((each) => each.outcome)).toEqual([
       "differs",
       "contradicted",
       "partly",
     ]);
+    const [summary] = summarise(rows);
+    expect(summary?.known).toHaveLength(4);
+    expect(summary?.misses).toEqual([]);
     expect(summary?.absentOnStated).toBe(0);
   });
 
@@ -187,5 +188,6 @@ describe("the repeated checks", () => {
     const keys = (id: string) => SETS.find((each) => each.id === id)?.sentences.map((s) => s.key);
     expect(keys("en")).toEqual(keys("zh"));
     expect(keys("en-control")).toEqual(keys("zh-control"));
+    expect(keys("en-periods")).toEqual(keys("zh-periods"));
   });
 });

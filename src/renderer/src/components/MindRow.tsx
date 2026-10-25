@@ -2,7 +2,7 @@ import { type KeyboardEvent, useRef } from "react";
 import type { Mind } from "../../../core/api";
 import { mindName } from "../../../shared/naming";
 import { useCitationStylePicker } from "../citationStylePicker";
-import { useDragSource } from "../dragDrop";
+import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { onMiddleClick } from "../middleClick";
@@ -54,6 +54,7 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
   const several = useSeveralSelected("sidebar");
   const treeItem = useTreeItem({ depth, selected: select.selected });
   const dragSource = useDragSource(() => rowDrag(object, "sidebar"));
+  const dragged = useDraggedRef(object);
 
   if (rename.renaming) {
     return (
@@ -88,12 +89,13 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
       data-testid="mind-row"
       data-mind-id={mind.id}
       data-folder-id={mind.folderId ?? ""}
+      data-dragging={dragged || undefined}
       role="none"
       {...select.refProps}
       {...dragSource}
       {...objectMenu.rowProps}
       ref={row}
-      className={rowClass(lit, "app", several)}
+      className={rowClass(lit, "app", several, dragged)}
     >
       <button
         {...rename.nameProps}

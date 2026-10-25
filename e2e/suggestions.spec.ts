@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
@@ -8,6 +9,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  pointAndClick,
   removeDataFolder,
   useLocalChatModel,
 } from "./app";
@@ -59,7 +61,38 @@ test("a pause at the end of a paragraph its Documents support shows grey text wi
   await addDocuments(window, [join(sources, "Tides.md")]);
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
-  await editor.click();
+  // A checked sentence above the one being written, so its card can be open while Tab accepts (#1762).
+  await editor.evaluate((dom) => {
+    const note = (dom as unknown as { editor: Editor }).editor;
+    note.commands.insertContentAt(0, [
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: "Penguins nest on the harbour cliffs.",
+            marks: [
+              {
+                type: "claimCheck",
+                attrs: {
+                  id: "check-1",
+                  request: "check-1",
+                  action: "check-against-documents",
+                  state: "unsupported",
+                  text: "Penguins nest on the harbour cliffs.",
+                  scope: { folderId: null, widened: false },
+                  versions: [],
+                  excluded: [],
+                  checkedAt: "2099-01-01T00:00:00.000Z",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    note.commands.focus("end");
+  });
   const suggestion = window.getByTestId("suggestion");
 
   // Suggestions are off: after a few sentences, the offer, where the User writes.
@@ -96,14 +129,20 @@ test("a pause at the end of a paragraph its Documents support shows grey text wi
   await expect(suggestion).toHaveCount(0);
   await expect(lastParagraph(window)).toContainText("The tides at the harbour rises");
 
-  // ⌥→ takes the next word; Tab the rest, with a real Citation whose quote is found.
+  // ⌥→ takes the next word; Tab the rest, with a real Citation whose quote is found. A check
+  // card open on a sentence above takes no focus, and Tab still accepts the suggestion.
   await expect(suggestion).toBeVisible();
   await window.keyboard.press("Alt+ArrowRight");
   await expect(lastParagraph(window)).toContainText("harbour rises Spring");
   await expect(suggestion).toContainText("tides happen at new moon");
+  await pointAndClick(window, window.getByTestId("claim-mark").first());
+  await expect(window.getByTestId("claim-card")).toBeVisible();
   await window.keyboard.press("Tab");
   await expect(suggestion).toHaveCount(0);
   await expect(lastParagraph(window)).toContainText(`harbour rises ${SPRING}`);
+  await expect(window.getByTestId("claim-card")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("claim-card")).toHaveCount(0);
   const citation = lastParagraph(window).getByTestId("citation");
   await expect(citation).toHaveAttribute("data-check", "found");
   await expect(editor).toBeFocused();
