@@ -51,7 +51,7 @@ import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { translate } from "../../shared/i18n";
 import { englishPlace } from "../../shared/locations";
-import { holdsNothing } from "../../shared/madeMind";
+import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
 import {
@@ -192,6 +192,7 @@ import {
 } from "./claimedChanges";
 import { unmadeFixesIn } from "./claimedFixes";
 import {
+  askedText,
   conversationContext,
   conversationContextOf,
   estimateTokens,
@@ -254,11 +255,13 @@ import {
   emptyMindNote,
   exampleNote,
   LISTED_DOCUMENTS,
+  LISTED_MINDS,
   type ListedDocuments,
   languageInstruction,
   loadedSkillText,
   meetingInstructions,
   mindInstructions,
+  mindsLine,
   selectedTextBlock,
   signInNeededInstructions,
   skillInstructions,
@@ -428,6 +431,9 @@ const NOTHING_TO_CITE =
 
 /** Tells the model its Question's Search scope holds no Documents, so it answers from what it has (#748). */
 const EMPTY_SCOPE_NOTE = `The User limited this Question to a Search scope (Folders, Tags or Documents) that holds no Documents, so there is nothing to search. ${NOTHING_TO_CITE} The line under your Answer offers to search all their Documents instead.`;
+
+// Told only this, models took a Mind the User named for a Document and wrote nothing (#1790).
+const MINDS_ARE_NOT_DOCUMENTS = "Their Minds aren't Documents: read_mind reads one they name.";
 
 const noDocumentsNote = (examples: boolean) =>
   `None of the User's own Documents can be searched yet${examples ? " (the examples IncarnaMind made aren't theirs)" : ""}, so there is nothing to search. ${NOTHING_TO_CITE} They can add Documents to the Library.`;
@@ -859,6 +865,8 @@ export function createAnswers(options: AnswersOptions) {
     questionId: string;
     model: ChatModelChoice;
     context: QuestionContext;
+    /** The line naming the User's Minds, for a pass that offers the Minds' Tools (see `AnswerRequest`). */
+    mindsLine?: { line: string; asked: string };
     /** The Documents of the Question's Search scope; null with no Search scope (every Document). */
     documentIds: string[] | null;
     /** The User limited the Question to some Documents. Absent: `documentIds` names some. */
@@ -2249,9 +2257,10 @@ export function createAnswers(options: AnswersOptions) {
           [
             base,
             mode === "no-documents"
-              ? scoped && input.emptyScope
-                ? EMPTY_SCOPE_NOTE
-                : noDocumentsNote(input.emptyScope)
+              ? [
+                  scoped && input.emptyScope ? EMPTY_SCOPE_NOTE : noDocumentsNote(input.emptyScope),
+                  ...(withMindTools ? [MINDS_ARE_NOT_DOCUMENTS] : []),
+                ].join(" ")
               : documentInstructions(
                   mode,
                   options.documents.searchableNames(documentIds, LISTED_DOCUMENTS),
@@ -2301,6 +2310,7 @@ export function createAnswers(options: AnswersOptions) {
           : messages,
         ...(mindRequest && { mind: mindRequest }),
         question: context.question,
+        ...(input.mindsLine && { mindsLine: input.mindsLine }),
         model: prepared.model,
         ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
         documents,
@@ -2720,6 +2730,7 @@ export function createAnswers(options: AnswersOptions) {
       mind && earlier.length > 0 ? mind.reading.section(MIND_TOKEN_LIMIT, asking) : mind?.section;
     const documents = options.documents.names();
     const shown = namesOnScreen(onScreen, documentIds);
+    const named = help ? [] : namedMinds();
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
       documents,
@@ -2733,6 +2744,12 @@ export function createAnswers(options: AnswersOptions) {
       cut: (tokens) => reading.section(tokens, asking),
     });
     start({
+      ...(named.length > 0 && {
+        mindsLine: {
+          line: mindsLine(named),
+          asked: askedText(shown, section?.selection ?? "", question.text),
+        },
+      }),
       home: conversationHome(conversation.id, answer.id),
       answerId: answer.id,
       questionId: question.id,
@@ -2835,6 +2852,18 @@ export function createAnswers(options: AnswersOptions) {
     }
     return { quoted, leftOut };
   }
+
+  // A Mind only an Answer wrote in stays out: read_mind still finds it when the User names it.
+  // Peeked, so Minds not open aren't loaded; and only so many, so a big Library doesn't slow a Question.
+  const namedMinds = (): string[] => {
+    const names: string[] = [];
+    for (const mind of options.minds?.list().slice(0, 2 * LISTED_MINDS) ?? []) {
+      if (names.length >= LISTED_MINDS) break;
+      if (names.includes(mind.name) || options.content.peek(mind.id, madeByAnswer)) continue;
+      names.push(mind.name);
+    }
+    return names;
+  };
 
   // One outside the Search scope can't be searched: naming it would point the model at nothing.
   const namesOnScreen = (onScreen: readonly string[], documentIds: readonly string[] | null) =>
