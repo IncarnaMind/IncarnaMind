@@ -49,9 +49,6 @@ interface WordImportState {
 
 export const refusalKey = (reason: WordRefusalReason): MessageKey => `wordImport.refusal.${reason}`;
 
-/** A file the import screen takes: a Word file, which it imports or says why it can't. */
-export const isWordFile = (name: string) => /\.(docx|docm|doc|dotx|dotm|dot)$/i.test(name);
-
 const reportError = (error: unknown) => useAppStore.getState().reportError(error);
 
 export const useWordImport = create<WordImportState>()((set, get) => ({

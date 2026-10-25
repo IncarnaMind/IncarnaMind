@@ -78,3 +78,21 @@ export function cycleTabs(step: 1 | -1): void {
   const next = group.tabs[(index + step + group.tabs.length) % group.tabs.length];
   if (next) void store.changeLayout({ type: "show", tabId: next.id });
 }
+
+/**
+ * The focused group's tab at this place from 1, or its last for 9 (⌃1–⌃9); null where there is
+ * none. With the groups merged, their one strip holds every group's tabs, as the User sees them.
+ */
+export function tabByNumber(number: number): LayoutTab | null {
+  const { layout } = useAppStore.getState();
+  if (!layout) return null;
+  const tabs = groupsMerged()
+    ? layout.groups.flatMap((group) => group.tabs)
+    : focusedGroupOf(layout).tabs;
+  return (number === 9 ? tabs.at(-1) : tabs[number - 1]) ?? null;
+}
+
+export async function showTabByNumber(number: number): Promise<void> {
+  const tab = tabByNumber(number);
+  if (tab) await useAppStore.getState().changeLayout({ type: "show", tabId: tab.id });
+}

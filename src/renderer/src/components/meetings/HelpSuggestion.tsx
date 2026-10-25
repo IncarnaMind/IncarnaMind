@@ -252,7 +252,7 @@ export function HelpSuggestion({
   const streaming = answer.status === "streaming";
   const items = shownItems(readHelpReply(answer.text), {
     shape: HELP_SHAPE[help.kind],
-    leadIn: help.kind === "leading",
+    leadIn: help.kind === "leading" || answer.steps?.textBehind === true,
     streaming,
   });
   const markers = [
