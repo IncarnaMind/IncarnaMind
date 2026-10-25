@@ -85,6 +85,8 @@ export interface CheckCost {
   searches: number;
   /** Checks that searched more than once. */
   searchedAgain: number;
+  /** Checks asked to search again before saying the sentence isn't found. */
+  askedAgain: number;
   inputTokens: number;
   outputTokens: number;
   /** The requests' time, end to end, as one after another. */
@@ -101,6 +103,7 @@ export function costOf(rows: readonly RepeatRow[]): CheckCost {
     requests: mean((row) => row.requests?.length ?? 0),
     searches: mean(searches),
     searchedAgain: rows.filter((row) => searches(row) > 1).length,
+    askedAgain: rows.filter((row) => row.requests?.some((request) => request.searchAgain)).length,
     inputTokens: mean((row) => sum(row, (request) => request.inputTokens)),
     outputTokens: mean((row) => sum(row, (request) => request.outputTokens)),
     seconds: mean((row) => sum(row, (request) => request.ms)) / 1000,
@@ -229,7 +232,7 @@ export function report(
             `- Genuine conflicts Contradicted: ${group.conflicts.contradicted} of ${group.conflicts.checked}`,
           ]
         : []),
-      `- A sentence's check, on average: ${group.cost.requests.toFixed(2)} requests, ${group.cost.searches.toFixed(2)} searches (more than one in ${group.cost.searchedAgain} of ${group.sentences.reduce((total, each) => total + each.repeats, 0)}), ${Math.round(group.cost.inputTokens)} tokens in, ${Math.round(group.cost.outputTokens)} out, ${group.cost.seconds.toFixed(1)} s of requests`,
+      `- A sentence's check, on average: ${group.cost.requests.toFixed(2)} requests, ${group.cost.searches.toFixed(2)} searches (more than one in ${group.cost.searchedAgain} of ${group.sentences.reduce((total, each) => total + each.repeats, 0)}, asked to search again in ${group.cost.askedAgain}), ${Math.round(group.cost.inputTokens)} tokens in, ${Math.round(group.cost.outputTokens)} out, ${group.cost.seconds.toFixed(1)} s of requests`,
       ...knownLines(group.known),
       "",
       ...(group.misses.length > 0

@@ -8,6 +8,7 @@
 import type { LanguageModelV4Prompt, LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory } from "../../src/core";
+import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { type HandedPassage, passagesIn } from "./passagesHanded";
 
 export interface WatchedRequest {
@@ -19,6 +20,8 @@ export interface WatchedRequest {
   reply: string;
   /** The searches this request asked for. */
   asked: string[];
+  /** The check was asked to search again before it says the sentence isn't found (#1608). */
+  searchAgain: boolean;
   inputTokens: number;
   outputTokens: number;
   ms: number;
@@ -86,6 +89,7 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
       handed,
       reply: "",
       asked: [],
+      searchAgain: asked.includes(SEARCH_AGAIN),
       inputTokens: 0,
       outputTokens: 0,
       ms: 0,
