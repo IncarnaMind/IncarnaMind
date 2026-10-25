@@ -197,7 +197,10 @@ describe("A reply that says a Tool ran when none did", { timeout: 60_000 }, () =
 
     const answer = await ask(core, ASKED);
 
-    expect(asks.length).toBeGreaterThan(0);
+    const beforeCalculating = asks.filter(
+      (call) => !call.results.some((result) => result.tool === "calculate"),
+    );
+    expect(beforeCalculating).toHaveLength(1);
     expect(answer.text).not.toContain("calculation tool confirms");
     expect(answer.toolCalls.find((call) => call.tool === "calculate")?.resultCount).toBe(1);
     expect(answer.steps?.askedAgainFor).toEqual(["calculate"]);
