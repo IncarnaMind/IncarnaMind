@@ -381,12 +381,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     };
     if (!finished || reply.trim() === "") return byCalculation ?? notChecked("empty");
     // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite`, with no marker,
-    // and only the sentence after it: the Answer sets that turn aside as a preamble (#1673).
+    // and only the sentence after it: the Answer sets that turn aside as a preamble (#1673). A
+    // refusal after them is its last word.
+    const refused = readsAsRefusal(reply);
     const verdict =
-      readVerdict(reply) ?? (setAside === "" ? null : readVerdict(`${setAside}\n\n${reply}`));
-    if (!verdict) {
-      return byCalculation ?? notChecked(readsAsRefusal(reply) ? "refused" : "malformed");
-    }
+      readVerdict(reply) ??
+      (setAside === "" || refused ? null : readVerdict(`${setAside}\n\n${reply}`));
+    if (!verdict) return byCalculation ?? notChecked(refused ? "refused" : "malformed");
     if (!searched) return notChecked("unread");
     if (byCalculation && verdict.verdict !== "contradicted") return byCalculation;
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */

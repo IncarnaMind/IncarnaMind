@@ -1629,6 +1629,21 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
     expect(checked?.shown).toEqual({ state: "not-checked", reason: "malformed" });
     expect(checked?.check.evidence).toBeNull();
   });
+
+  // protects=a refusal written after verdict lines beside cite is the reply's last word: the sentence is "not checked", refused; fails_when=the earlier verdict is taken; no_claim=none beyond protects.
+  test("verdict lines beside cite, then a refusal: “not checked”, refused", async () => {
+    const model = citesBeside({
+      quote: SPRING_QUOTE,
+      beside: LINES,
+      after: "I'm sorry, I can't check this sentence.",
+    });
+    const { core, client, check } = await mindWith([SUPPORTED], model);
+
+    await check();
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "not-checked", reason: "refused" });
+  });
 });
 
 describe("Needs re-check", () => {
