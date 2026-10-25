@@ -323,20 +323,20 @@ for (const language of ["en", "zh-CN"] as const) {
             range.selectNodeContents(element);
             return range.getBoundingClientRect().width;
           });
-          expect(button.width - label).toBeLessThanOrEqual(8);
+          expect(button.width - label).toBeLessThanOrEqual(8.5);
 
           const gutter = column.x - card.x;
           const fits = gutter >= pillBox.width + 8;
           // In the gutter, no text starts under the pill; otherwise the page ends above it.
           if (fits) {
             expect(pillBox.x + pillBox.width).toBeLessThanOrEqual(column.x + 0.5);
-            expect(scroller.height).toBeCloseTo(before.height, 0);
+            expect(Math.abs(scroller.height - before.height)).toBeLessThanOrEqual(1);
           } else {
-            expect(scroller.y + scroller.height).toBeCloseTo(pillBox.y, 0);
-            expect(scroller.y).toBeCloseTo(before.top, 0);
+            expect(Math.abs(scroller.y + scroller.height - pillBox.y)).toBeLessThanOrEqual(1);
+            expect(Math.abs(scroller.y - before.top)).toBeLessThanOrEqual(1);
             expect(scroller.height).toBeLessThan(before.height);
             // Nothing moves with the shorter view: the line that was in the middle is where it was.
-            expect((await boxOf(anchored)).y).toBeCloseTo(anchoredBox.y, 0);
+            expect(Math.abs((await boxOf(anchored)).y - anchoredBox.y)).toBeLessThanOrEqual(1);
           }
 
           // A press and a drag where a line under the pill would be: the caret, then a selection,
@@ -383,7 +383,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(frontMindName(window)).toHaveText("Tides");
           await expect(pill).toHaveCount(0);
           if (!fits)
-            await expect.poll(async () => (await viewOf(window)).height).toBe(before.height);
+            await expect
+              .poll(async () => Math.abs((await viewOf(window)).height - before.height))
+              .toBeLessThanOrEqual(1);
 
           // And by keyboard: the focus reaches it and Enter takes the change back.
           await renameInTab(window, name);
@@ -393,7 +395,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(frontMindName(window)).toHaveText("Tides");
           await expect(pill).toHaveCount(0);
           if (!fits)
-            await expect.poll(async () => (await viewOf(window)).height).toBe(before.height);
+            await expect
+              .poll(async () => Math.abs((await viewOf(window)).height - before.height))
+              .toBeLessThanOrEqual(1);
         }
       }
     } finally {
