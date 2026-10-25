@@ -250,7 +250,7 @@ describe("the Mind's own checks", () => {
     const result = await core.checkSentences({
       requestId: crypto.randomUUID(),
       mindId,
-      action: "find-support",
+      action: "check-against-documents",
       ...selected(client, CAP),
     });
 

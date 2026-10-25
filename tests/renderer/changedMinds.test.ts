@@ -169,6 +169,33 @@ describe("The Minds an Answer changed", () => {
     ]);
   });
 
+  // protects=a revision of text the same Answer wrote counts what it wrote in its place, not both versions; fails_when=the row counts the first version too; no_claim=what the core counts.
+  test("a revision of the Answer's own text counts once", () => {
+    const [row] = changedMinds({
+      toolCalls: [
+        call("create_mind", {
+          mindId: "a",
+          created: true,
+          request: "r1",
+          proposals: 6,
+          paragraphs: 3,
+          tables: 1,
+        }),
+        call("edit_mind", {
+          mindId: "a",
+          created: false,
+          request: "r2",
+          proposals: 4,
+          paragraphs: 2,
+          tables: 1,
+          revised: true,
+          replacedOwn: { paragraphs: 3, tables: 1, charts: 0 },
+        }),
+      ],
+    });
+    expect(row).toMatchObject({ created: true, requests: ["r1", "r2"], wrote: 2, tables: 1 });
+  });
+
   // protects=a table counts as a table, never as a place or as nothing: a rewrite's table isn't one of its places changed, and an added table alone still makes the row say what was added (#961); fails_when=a table alone reads as 0 changes, or a rewrite's table is also counted as a place; no_claim=how the card words it.
   test("tables count as tables: a rewrite's table is no place changed, and a table alone is something", () => {
     expect(

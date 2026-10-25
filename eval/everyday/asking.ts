@@ -199,10 +199,12 @@ export async function ask(
   const answering = core.on("question.asked", (request) => {
     if (request.answerId !== asked.answerId) return;
     const wanted = choose?.toLocaleLowerCase();
+    // An option named exactly that comes first: "Project plan" isn't "Project plan (draft)".
     const option = wanted
-      ? request.question.options.find((each) =>
+      ? (request.question.options.find((each) => each.label.toLocaleLowerCase() === wanted) ??
+        request.question.options.find((each) =>
           `${each.label} ${each.description}`.toLocaleLowerCase().includes(wanted),
-        )
+        ))
       : undefined;
     if (option) {
       void core.answerUserQuestion(request.requestId, {
