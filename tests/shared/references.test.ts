@@ -9,7 +9,7 @@ import {
   emptyReferenceFields,
   formatName,
   formatNames,
-  isCitableWork,
+  isPaperOrBook,
   lookupIdentifier,
   missingDetails,
   normalizeDoi,
@@ -161,19 +161,31 @@ describe("What a record needs before it can be cited", () => {
   });
 });
 
-describe("What makes a Mind offer a citation style (#289)", () => {
-  test("a paper or a book with its authors or its year, not a file of type Other", () => {
-    const paper = record({ type: "article-journal", authors: [{ literal: "钱学森" }] });
-    expect(isCitableWork(paper)).toBe(true);
-    expect(isCitableWork(record({ type: "book", issued: "1958" }))).toBe(true);
-    // A contract read from its file is Other, even with an author and a date in its metadata.
-    const contract = record({
-      type: "document",
-      authors: [{ literal: "Ann Lee" }],
-      issued: "2024",
-    });
-    expect(isCitableWork(contract)).toBe(false);
-    expect(isCitableWork(record({ type: "report", title: "Q3 review" }))).toBe(false);
-    expect(isCitableWork(null)).toBe(false);
+describe("What makes a Mind offer a citation style, and take GB/T 7714 (#289, #1910)", () => {
+  const authors = [{ literal: "钱学森" }];
+
+  test("a paper or a book with its authors or its year", () => {
+    for (const type of [
+      "article-journal",
+      "paper-conference",
+      "article",
+      "chapter",
+      "book",
+      "thesis",
+    ] as const) {
+      expect(isPaperOrBook(record({ type, authors })), type).toBe(true);
+      expect(isPaperOrBook(record({ type, issued: "1958" })), type).toBe(true);
+    }
+  });
+
+  test("never a report, a web page or Other, whatever its authors and date say", () => {
+    for (const type of ["report", "webpage", "document"] as const) {
+      expect(isPaperOrBook(record({ type, authors, issued: "2024" })), type).toBe(false);
+    }
+  });
+
+  test("not a paper with neither authors nor a date, and nothing at all", () => {
+    expect(isPaperOrBook(record({ type: "article-journal", title: "Q3 review" }))).toBe(false);
+    expect(isPaperOrBook(null)).toBe(false);
   });
 });

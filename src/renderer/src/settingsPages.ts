@@ -22,6 +22,7 @@ export type SettingsTarget =
   | "local-mode"
   | "chat-model"
   | "add-provider"
+  | "tagging"
   | SignInRoute;
 
 export const offeredSettingsPages: readonly SettingsPage[] = settingsPages.filter(
