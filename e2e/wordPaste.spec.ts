@@ -65,6 +65,21 @@ test("a Word document pasted into a new Mind keeps its Title, lists and table, l
   await expect(editor).not.toContainText("[JM1]");
   await expect(editor).not.toContainText("Confirm with the hydrology team");
 
+  const spacing = await editor.evaluate((root) => {
+    const children = [...root.children];
+    const between = (aboveText: string, belowText: string) => {
+      const above = children.find((block) => block.textContent?.startsWith(aboveText));
+      const below = children.find((block) => block.textContent?.startsWith(belowText));
+      if (!above || !below) throw new Error("A pasted paragraph or heading isn't drawn.");
+      return below.getBoundingClientRect().top - above.getBoundingClientRect().bottom;
+    };
+    return {
+      aroundPageBreak: between("Figure 1: the surveyed sites.", "3 Discussion"),
+      aroundParagraph: between("This report covers", "1 Methods"),
+    };
+  });
+  expect(spacing.aroundPageBreak).toBeLessThanOrEqual(spacing.aroundParagraph);
+
   const [first, second] = await Promise.all([
     steps.nth(0).boundingBox(),
     steps.nth(1).boundingBox(),
@@ -75,6 +90,7 @@ test("a Word document pasted into a new Mind keeps its Title, lists and table, l
 
   await window.keyboard.press("ControlOrMeta+z");
   await expect(editor).not.toContainText("Calibrate each gauge");
+  await expect(editor).not.toContainText("The central and southern estuaries");
   await window.keyboard.press("ControlOrMeta+Shift+z");
   await expect(steps).toHaveCount(3);
 
