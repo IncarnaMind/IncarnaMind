@@ -3,7 +3,12 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { decideAll } from "../../eval/minds/state";
-import { type Core, GENERATED_MARK, MIND_ORIGINS_FIELD } from "../../src/core";
+import {
+  type Core,
+  GENERATED_MARK,
+  MIND_ORIGINS_FIELD,
+  MIND_REPLACED_ORIGINS_FIELD,
+} from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
@@ -587,6 +592,33 @@ describe("Use all after Reject all of a later rewrite (#1950)", { timeout: 60_00
     expect(seen(await connectToMind(core, mind.id))).toEqual(before);
     await card.undo();
     expect(seen(await connectToMind(core, mind.id))).toEqual(after);
+  });
+
+  // protects=accepting the rewrite lets go of the origins it replaced, which can't come back, on the card and in the Mind, and Undo of the Accept keeps them, so a Reject after it still puts them back; fails_when=the kept origins stay after Accept all, or Undo of the Accept loses them and the earlier Answer's text is written twice; no_claim=none beyond protects.
+  test("Accept all lets the kept origins go, and Undo of it keeps them for a Reject", async () => {
+    const { core, mind, client, first, second, before, after } = await rewritten("content");
+    const kept = () => client.doc.getMap(MIND_REPLACED_ORIGINS_FIELD).size;
+    const editor = boundEditor(client);
+    expect(kept()).toBe(1);
+
+    resolveInEditor(editor, "all", "accept");
+    expect(kept()).toBe(0);
+    expect(seen(client).origins).toEqual(after.origins);
+    editor.commands.undo();
+    expect(kept()).toBe(1);
+    await client.settled();
+
+    const card = await decideAll(core, changedMinds(second), "accept");
+    expect((await connectToMind(core, mind.id)).doc.getMap(MIND_REPLACED_ORIGINS_FIELD).size).toBe(
+      0,
+    );
+    await card.undo();
+    await decideAll(core, changedMinds(second), "reject");
+    const page = await connectToMind(core, mind.id);
+    expect(seen(page)).toEqual(before);
+    await useAll(core, first);
+    await page.settled();
+    expect(units(page)).toEqual(LEASES.map((_, index) => String(index + 1)));
   });
 
   // protects=the origins a rewrite replaced are kept with the Mind, so Reject all after a restart still puts them back and Use all writes the text once; fails_when=after a restart the Block keeps the later Answer's origin; no_claim=none beyond protects.

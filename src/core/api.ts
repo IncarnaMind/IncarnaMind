@@ -414,7 +414,8 @@ export const MIND_REVISIONS_FIELD = "revisions";
  * The name of the Y.Map, beside a Mind's Blocks, that keeps by request the origin
  * (`MIND_ORIGINS_FIELD`) each Block had before that request's change gave it its own: a change
  * written over Blocks keeps their ids, so rejecting it in a Block puts that origin back
- * (`restoreOrigins`). An older version leaves it as it is and keeps the new origin.
+ * (`restoreOrigins`), and accepting it there lets that origin go (`forgetOrigins`). An older
+ * version leaves it as it is and keeps the new origin (ADR-0003).
  */
 export const MIND_REPLACED_ORIGINS_FIELD = "replacedOrigins";
 

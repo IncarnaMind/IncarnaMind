@@ -15,7 +15,6 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   type KeptCitationText,
-  MIND_ORIGINS_FIELD,
   MIND_PROPOSAL_REQUESTS_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
@@ -23,6 +22,7 @@ import {
   type TextPlace,
   WORD_CHANGE_ID,
 } from "../../../core/api";
+import { originMaps } from "../../../shared/blockOrigins";
 import { citationState } from "../../../shared/citations";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import {
@@ -871,10 +871,7 @@ export function resolveInEditor(
   const undo: Y.UndoManager | undefined = yUndoPluginKey.getState(editor.state)?.undoManager;
   // The counts of what was decided (`decideProposals`) go back with the Blocks, and so do the
   // origins a reject gives back (`restoreOrigins`).
-  undo?.addToScope([
-    binding.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD),
-    binding.doc.getMap(MIND_ORIGINS_FIELD),
-  ]);
+  undo?.addToScope([binding.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD), ...originMaps(binding.doc)]);
   undo?.stopCapturing();
   let resolved: ResolvedProposal[] = [];
   const applying = applyingIn(editor.state);
