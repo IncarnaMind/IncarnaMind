@@ -161,6 +161,8 @@ describe("⌘K's actions", () => {
     expect(actions("ew mind")).toEqual([]);
     expect(actions("theme")).toEqual([]);
     expect(actions("new mind")).toEqual([["actions", ["New Mind"]]]);
+    // A typo of a word's start still finds the action.
+    expect(actions("neww mind")).toEqual([["actions", ["New Mind"]]]);
   });
 
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {

@@ -20,6 +20,8 @@ export interface NameMatch {
   ranges: TextRange[];
   /** Whether what was typed is the name or starts one of its words, rather than being inside one. */
   atWordStart: boolean;
+  /** Whether the name holds what was typed with one typo, inside one word, rather than as it was typed. */
+  typo: boolean;
 }
 
 /** A spelling of the name, each of its units pointing at the folded name's. */
@@ -278,5 +280,6 @@ export function matchName(words: readonly string[], name: string): NameMatch | n
     score: kind * 1000 - Math.min(folded.text.length, 999),
     ranges: joinRanges(ranges),
     atWordStart: kind >= 2,
+    typo: kind === 0,
   };
 }

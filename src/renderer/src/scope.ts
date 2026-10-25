@@ -193,7 +193,7 @@ export function scopeChoices(
         : ofKind
             .flatMap((choice, index) => {
               const match = matchName(words, choice.name);
-              return match ? [{ choice, index, match }] : [];
+              return match && !match.typo ? [{ choice, index, match }] : [];
             })
             .sort(
               (a, b) =>

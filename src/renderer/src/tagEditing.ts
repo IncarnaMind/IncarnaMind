@@ -72,7 +72,7 @@ export function pickerOptions(
   const matches = states
     .flatMap((state, index) => {
       const match = matchName(words, state.tag.name);
-      return match ? [{ state, index, match }] : [];
+      return match && !match.typo ? [{ state, index, match }] : [];
     })
     .sort((a, b) => b.match.score - a.match.score || a.index - b.index)
     .map(({ state }) => state);

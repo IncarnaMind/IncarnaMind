@@ -258,9 +258,10 @@ export function recentGroup(
 /**
  * The registry's commands that apply here, with their shortcuts and, when they
  * act on one thing, its name: those whose name or keywords, in English or
- * Chinese, start a word with every word typed, best first, so letters inside a
- * word or across two never find an action (#1372); with nothing typed, the few
- * that are `top`, in its order, or, for ">" (`all`), every one in the menus' order.
+ * Chinese, hold every word typed at a word's start or one typo from it, best
+ * first, so letters inside a word or across two never find an action (#1372);
+ * with nothing typed, the few that are `top`, in its order, or, for ">" (`all`),
+ * every one in the menus' order.
  */
 export function actionGroup(
   words: readonly string[],
@@ -286,7 +287,7 @@ export function actionGroup(
   const items = offered.flatMap((command) => {
     const name = labelOf(command, ctx, t);
     const byName = words.length > 0 ? matchName(words, name) : null;
-    const named = byName?.atWordStart ? byName : null;
+    const named = byName && (byName.atWordStart || byName.typo) ? byName : null;
     const elsewhere =
       named || words.length === 0
         ? null
@@ -295,7 +296,7 @@ export function actionGroup(
             ...(command.keywords ?? []).flatMap((key) => [t(key), other(key)]),
           ]
             .map((each) => matchName(words, each))
-            .find((match) => match?.atWordStart === true) ?? null);
+            .find((match) => match !== null && (match.atWordStart || match.typo)) ?? null);
     if (words.length > 0 && !named && !elsewhere) return [];
     const item: PaletteItem = {
       kind: "command",

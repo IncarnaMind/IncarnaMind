@@ -96,6 +96,8 @@ describe("typing in the picker", () => {
     expect(found("cmm")).toEqual(["重命名"]);
     expect(found("zhongming")).toEqual(["重命名"]);
     expect(found("zmm")).toEqual(["重命名"]);
+    // A typo isn't offered: the name typed is a new Tag unless a Tag holds it.
+    expect(found("Invoce")).toEqual([]);
   });
 });
 

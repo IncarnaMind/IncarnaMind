@@ -48,4 +48,8 @@ describe('the "@" picker\'s choices', () => {
     expect(names("fin")).toEqual(["Finance", "Refinance"]);
     expect(names("")).toEqual(["Finance", "Refinance", "财务", "重命名", "报告"]);
   });
+
+  test("a typo doesn't offer one: typing over a name still adds the name itself", () => {
+    expect(names("finanse")).toEqual([]);
+  });
 });

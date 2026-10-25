@@ -96,7 +96,10 @@ export function TagsDialog() {
   const shown =
     words.length === 0
       ? tags
-      : tags.filter((tag) => matchName(words, `${tag.name} ${tag.description}`) !== null);
+      : tags.filter((tag) => {
+          const match = matchName(words, `${tag.name} ${tag.description}`);
+          return match !== null && !match.typo;
+        });
 
   return (
     <dialog
