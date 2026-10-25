@@ -10,6 +10,7 @@ import {
   documentIdOf,
   dragBy,
   dragTabTo,
+  editItem,
   enterContent,
   expectFirstTabAtCardStart,
   frontMind,
@@ -715,6 +716,38 @@ test("a key held down moves the tab once per press, and Undo takes back one pres
   await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Alpha", "Delta", "Epsilon"]);
   await window.keyboard.press("ControlOrMeta+Shift+z");
   await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Delta", "Alpha", "Epsilon"]);
+  await app.close();
+});
+
+test("⌘Z pressed the moment a first move starts takes that move back, and only it", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  await pointAndClick(window, tabNamed(window, "Beta"));
+
+  // All three keys in one go, so the Undo lands while both moves still wait for the core and the
+  // stack is empty: it must wait for them, then take back only the last one.
+  await window.evaluate(() => {
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    const target = document.activeElement ?? document.body;
+    const press = (init: KeyboardEventInit) =>
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
+      );
+    press({ key: "PageDown", code: "PageDown", ctrlKey: true, shiftKey: true });
+    press({ key: "PageDown", code: "PageDown", ctrlKey: true, shiftKey: true });
+    press({ key: "z", code: "KeyZ", ...(mac ? { metaKey: true } : { ctrlKey: true }) });
+  });
+
+  // Only the move made last is taken back: it is the one Redo offers, and the one that comes back.
+  await expect
+    .poll(() => editItem(app, "edit.redo"))
+    .toEqual({ label: "Redo Move Tab", enabled: true });
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta"]);
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Delta", "Beta"]);
+  await expect(window.getByTestId("undo-message")).toHaveText("Moved “Beta” right");
   await app.close();
 });
 

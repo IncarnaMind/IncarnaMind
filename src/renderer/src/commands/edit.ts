@@ -4,7 +4,7 @@ import { files } from "../core";
 import { noteAround } from "../editor/noteKeymap";
 import { useT } from "../i18n";
 import type { Translate } from "../objects";
-import { nextToRedo, nextToUndo, typesText, type Undoable, useUndo } from "../undo";
+import { nextToRedo, nextToUndo, typesText, type Undoable, undoReady, useUndo } from "../undo";
 import { type Command, type CommandContext, fromMenu } from "./registry";
 
 /**
@@ -54,7 +54,7 @@ export const editCommands: readonly Command[] = [
     group: "edit",
     reversible: true,
     enabled: (ctx) =>
-      placeOf(ctx) !== null || nextToUndo(useUndo.getState()) ? true : { reason: "undo.nothing" },
+      placeOf(ctx) !== null || undoReady(useUndo.getState()) ? true : { reason: "undo.nothing" },
     run(ctx) {
       const place = placeOf(ctx);
       if (place === "note") noteHere(document.activeElement)?.commands.undo();
@@ -85,7 +85,7 @@ function editMenuState(t: Translate): EditMenuState {
   const state = useUndo.getState();
   return {
     text: placeOf({ selection: [], focus: null, surface: "mind" }),
-    undo: nameOf(nextToUndo(state), t),
+    undo: nameOf(nextToUndo(state), t) ?? (undoReady(state) ? "" : null),
     redo: nameOf(nextToRedo(state), t),
   };
 }
