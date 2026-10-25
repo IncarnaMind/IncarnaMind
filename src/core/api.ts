@@ -2160,6 +2160,8 @@ export interface GettingStarted {
   askedReady: boolean;
   /** The User hid the checklist. */
   hidden: boolean;
+  /** The first-run card was shown on this device: an empty note keeps no second guide after that (#1940). */
+  seen: boolean;
 }
 
 /** Settings that belong to this device and never sync (ADR-0003). */
@@ -5905,6 +5907,23 @@ export interface UndoAddToNoteInput {
   blockIds: string[];
 }
 
+/**
+ * What taking an "Add to note" back kept: the Blocks whose words the User changed
+ * since they went in, which Undo leaves rather than take away their edit (#1962).
+ */
+export interface UndoAddToNoteResult {
+  kept: number;
+}
+
+/**
+ * A Conversation a note's Blocks came from (#1940): History names that Conversation
+ * under the note's title, also while the note is closed.
+ */
+export interface NoteConversation {
+  mindId: string;
+  conversationId: string;
+}
+
 /** Where words of a search are in a piece of text: `start` to `end`, in UTF-16 code units. */
 export interface TextRange {
   start: number;
@@ -8938,8 +8957,16 @@ export interface CoreApi {
    * Mind open in the editor adds at its cursor itself, by the same rules.
    */
   addToNote(input: AddToNoteInput): Promise<AddedToNote>;
-  /** Takes the Blocks an "Add to note" put into a Mind back out, with their links back. */
-  undoAddToNote(input: UndoAddToNoteInput): Promise<void>;
+  /**
+   * Takes the Blocks an "Add to note" put into a Mind back out, with their links back. A Block
+   * whose words the User changed since it went in stays, and is counted in `kept`.
+   */
+  undoAddToNote(input: UndoAddToNoteInput): Promise<UndoAddToNoteResult>;
+  /**
+   * The Conversation each Mind's Blocks came from, by Mind id, for History's names: read from
+   * the links back the Blocks keep, so it covers notes made before this version too.
+   */
+  listNoteConversations(): Promise<NoteConversation[]>;
 
   getSettings(): Promise<Settings>;
   /**
@@ -10553,6 +10580,7 @@ const methods: Record<CoreApiMethod, true> = {
   resolveReference: true,
   addToNote: true,
   undoAddToNote: true,
+  listNoteConversations: true,
   getSettings: true,
   updateSettings: true,
   getLayout: true,
