@@ -531,6 +531,35 @@ describe("Qwen's real-time transcription, played back in the format Alibaba docu
     expect(done.at(-1)).toBe(22_000);
   });
 
+  test("a late first partial never moves done backwards", async () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 4);
+    expect(heard.progress.at(-1)).toBe(2000);
+
+    service.say({
+      header: { event: "result-generated" },
+      payload: {
+        output: {
+          sentence: {
+            sentence_id: 1,
+            begin_time: 0,
+            end_time: null,
+            text: "Late words",
+            sentence_end: false,
+          },
+        },
+      },
+    });
+    expect(heard.progress.at(-1)).toBe(2000);
+
+    const finished = stream.finish();
+    service.say({ header: { event: "task-finished" }, payload: { output: {}, usage: null } });
+    await finished;
+    expect(heard.progress.at(-1)).toBe(4000);
+  });
+
   test("heartbeats, which carry no sentence, are ignored", async () => {
     const heartbeat = {
       header: { event: "result-generated" },

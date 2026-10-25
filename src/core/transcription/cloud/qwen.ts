@@ -59,6 +59,7 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
   const header = (action: string) => ({ action, task_id: taskId, streaming: "duplex" });
   let received = 0;
   let finalMs = 0;
+  let furthestMs = 0;
   let open: Sentence | null = null;
   let started = false;
   const waiting: (Uint8Array | string)[] = [];
@@ -108,7 +109,9 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
   }
 
   function doneMs(): number {
-    return open ? open.startMs : Math.max(finalMs, msOf(received) - UNHEARD_MS);
+    const candidate = open ? open.startMs : Math.max(finalMs, msOf(received) - UNHEARD_MS);
+    furthestMs = Math.max(furthestMs, candidate);
+    return furthestMs;
   }
 
   function say(sentence: Sentence, final: boolean): void {
