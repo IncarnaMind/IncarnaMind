@@ -6,6 +6,7 @@ import {
   addDocuments,
   askInAssistant,
   assistantAnswers,
+  center,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
@@ -96,12 +97,6 @@ async function mindWithText(window: Page, name: string, text: string) {
   await window.keyboard.type(text);
   await nameMind(window, name);
 }
-
-const center = async (target: Locator) => {
-  const box = await target.boundingBox();
-  if (!box) throw new Error("The element isn't visible.");
-  return box;
-};
 
 const placeOf = async (window: Page, answer: Locator) => ({
   question: (await center(window.getByTestId("assistant-question").last())).y,

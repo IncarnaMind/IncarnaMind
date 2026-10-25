@@ -160,6 +160,10 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
     focusNext.current = false;
     addFiles.current?.focus();
   }, [filesOpen]);
+  // Shown, it has been seen: an empty note of the User's own keeps no second guide after that (#1940).
+  useEffect(() => {
+    if (progress && !progress.seen) updateGettingStarted({ seen: true });
+  }, [progress, updateGettingStarted]);
   if (!progress) return null;
 
   const done: Record<StepKey, boolean> = {

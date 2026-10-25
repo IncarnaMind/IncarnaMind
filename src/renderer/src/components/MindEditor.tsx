@@ -121,6 +121,7 @@ import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPlaceOf } from "../mindWriting";
+import { firstOpenOf } from "../nudges";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
 import { skillDescription, skillTitle } from "../skills";
@@ -129,7 +130,7 @@ import { askForSuggestion, describeSuggestion } from "../suggestions";
 import { resumeTabCloseFocus } from "../tabFocus";
 import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
 import { CompareSheet } from "./CompareSheet";
-import { useIsExample } from "./GettingStarted";
+import { StartGuide, useIsExample } from "./GettingStarted";
 import { CheckLineIcon, MineLineIcon } from "./lineIcons";
 import { MindNotice } from "./MindNotice";
 
@@ -677,7 +678,7 @@ function MindEditorView({
     useComposer.getState().requestFocus();
   };
 
-  // An empty Mind of the User's own shows the three steps while Get started is shown.
+  // An empty Mind of the User's own shows the start guide until the first-run card has been seen (#1940).
   const empty = useEditorState({
     editor,
     selector: ({ editor: current }) => isEmptyMind(current.state.doc),
@@ -698,6 +699,9 @@ function MindEditorView({
   const findShown = useMindTools((state) => state.findMindId === mindId);
   const outlineShown = useMindTools((state) => state.outlineMindId === mindId);
   const firstOpen = useFirstOpen();
+  // An empty note of the User's own shows the guide until the first-run card has been seen (#1940).
+  const progress = useAppStore((state) => state.settings?.device.gettingStarted);
+  const guide = firstOpenOf(progress) && !progress?.seen && empty && !isExample && !readOnly;
   const verification = useVerification(doc);
   const countShown = useCountSettings(doc).shown;
   const frame = useRef<HTMLDivElement>(null);
@@ -770,7 +774,10 @@ function MindEditorView({
           slots.badge,
         )}
       {readOnly && <MindNotice kind="read-only" />}
-      <div ref={frame} className={`mind-editor-frame ${wordLook?.className ?? ""}`}>
+      <div
+        ref={frame}
+        className={`mind-editor-frame ${guide ? "mind-editor-frame--guide" : ""} ${wordLook?.className ?? ""}`}
+      >
         {wordLook && <style>{wordLook.css}</style>}
         {wordLook && <WordTableFades frame={frame} />}
         {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
@@ -794,6 +801,7 @@ function MindEditorView({
             <CitationStylePrompt mindId={mindId} editor={editor} doc={doc} />
           )}
       </div>
+      {guide && <StartGuide />}
       {sheetSlot &&
         comparing &&
         !readOnly &&

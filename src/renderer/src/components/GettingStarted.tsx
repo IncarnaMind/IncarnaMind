@@ -1,8 +1,12 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { ExampleGroup } from "../../../core/api";
+import { shortcutLabel } from "../commands/keymap";
+import { CheckMarkIcon } from "../editor/icons";
 import { useGap, useT } from "../i18n";
 import { allExamples, useAppStore } from "../store";
 import { useAddYourDocuments } from "./AddYourDocuments";
+import { AskIcon, PlugIcon } from "./icons";
+import { SLOT, Slotted } from "./Slotted";
 import { buttonStyle } from "./ui";
 
 /** Whether a Mind is the example one. */
@@ -114,6 +118,160 @@ function OtherExamples({ mindId }: { mindId: string }) {
         </Fragment>
       ))}
     </p>
+  );
+}
+
+/** A step of the three, numbered: filled while it is the one to do, a green tick once done. */
+function GuideStep({
+  number,
+  state,
+  title,
+  children,
+}: {
+  number: number;
+  state: "next" | "later" | "done";
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <li data-testid="start-step" className="grid grid-cols-[24px_minmax(0,1fr)] gap-x-3">
+      <span
+        aria-hidden="true"
+        className={`flex size-6 items-center justify-center rounded-full text-[12px] font-bold ${
+          state === "next"
+            ? "bg-ink text-white"
+            : state === "done"
+              ? "bg-success text-white"
+              : "border-[1.5px] border-tab-divider text-ink-meta"
+        }`}
+      >
+        {state === "done" ? <CheckMarkIcon check="found" className="size-3" /> : number}
+      </span>
+      <div className="flex min-w-0 flex-col gap-2">
+        <h3 className="text-[16px] leading-6 font-semibold text-ink">{title}</h3>
+        {children}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Under an empty Mind's first line, while the checklist is shown: the three
+ * steps, add Documents or connect apps, ask, and check where each claim comes
+ * from, and the example Mind to see it first. Typing in the Mind puts it away.
+ */
+export function StartGuide() {
+  const t = useT();
+  const gap = useGap();
+  const progress = useAppStore((state) => state.settings?.device.gettingStarted);
+  const examplesAvailable = useAppStore((state) => state.examples?.available === true);
+  const addLinkedFolder = useAppStore((state) => state.addLinkedFolder);
+  const pickDocuments = useAppStore((state) => state.pickDocuments);
+  const openSettings = useAppStore((state) => state.openSettings);
+  const openExamples = useAppStore((state) => state.openExamples);
+  if (!progress) return null;
+
+  const done = [progress.indexed, progress.askedOwn, progress.citationChecked];
+  const next = done.indexOf(false);
+  const stateOf = (index: number): "next" | "later" | "done" =>
+    done[index] ? "done" : index === next ? "next" : "later";
+
+  return (
+    <section
+      aria-labelledby="start-guide-title"
+      data-testid="start-guide"
+      className="mt-10 flex flex-col gap-1 font-sans"
+    >
+      <h2 id="start-guide-title" className="mb-2 text-[13px] leading-5 font-semibold text-ink-meta">
+        {t("startGuide.title")}
+      </h2>
+      <ol className="flex flex-col gap-5">
+        <GuideStep number={1} state={stateOf(0)} title={t("startGuide.documents.title")}>
+          <p className="-mt-2 text-ui text-ink-secondary">{t("startGuide.documents.body")}</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-testid="start-link-folder"
+              title={t("startGuide.documents.linkFolder.tip")}
+              onClick={() => void addLinkedFolder()}
+              className={buttonStyle("primary")}
+            >
+              {t("startGuide.documents.linkFolder")}
+            </button>
+            <button
+              type="button"
+              data-testid="start-add-files"
+              onClick={() => void pickDocuments()}
+              className={buttonStyle("secondary")}
+            >
+              {t("startGuide.documents.addFiles")}
+            </button>
+            <button
+              type="button"
+              data-testid="start-connect-app"
+              onClick={() => openSettings("connectors")}
+              className={buttonStyle("secondary")}
+            >
+              <PlugIcon className="size-3.5" />
+              {t("startGuide.documents.connectApp")}
+            </button>
+          </div>
+          <p className="text-[13px] leading-5 text-ink-meta">{t("startGuide.documents.apps")}</p>
+        </GuideStep>
+
+        <GuideStep number={2} state={stateOf(1)} title={t("startGuide.ask.title")}>
+          <p className="-mt-2 text-ui text-ink-secondary">
+            <Slotted
+              message={t("startGuide.ask.body", { shortcut: SLOT })}
+              slot={
+                <kbd className="rounded-sm bg-chip px-[5px] py-px font-sans text-[12px] text-ink-strong">
+                  {shortcutLabel("composer.focus")}
+                </kbd>
+              }
+            />
+          </p>
+          <div
+            aria-hidden="true"
+            className="relative rounded-lg bg-frame py-2 pr-3 pl-11 text-[15px] leading-6 text-ink-placeholder"
+          >
+            <span className="absolute top-2 left-2.5 flex size-6 items-center justify-center rounded-md bg-tab-divider text-white">
+              <AskIcon className="size-3" />
+            </span>
+            {t("startGuide.ask.example")}
+          </div>
+        </GuideStep>
+
+        <GuideStep number={3} state={stateOf(2)} title={t("startGuide.check.title")}>
+          <p className="-mt-2 text-ui text-ink-secondary">
+            <Slotted
+              message={t("startGuide.check.body", { mark: SLOT })}
+              slot={
+                <span
+                  aria-hidden="true"
+                  className="inline-flex h-[18px] items-center gap-0.5 rounded-sm bg-success-wash pr-[5px] pl-[3px] align-[1px] text-[11px] leading-[18px] font-bold text-success"
+                >
+                  <CheckMarkIcon check="found" className="size-[11px]" />1
+                </span>
+              }
+            />
+          </p>
+        </GuideStep>
+      </ol>
+      {examplesAvailable && (
+        <p className="mt-5 text-ui text-ink-meta">
+          {t("startGuide.example.lead")}
+          {gap(t("startGuide.example.lead"), t("startGuide.example.open"))}
+          <button
+            type="button"
+            data-testid="start-open-example"
+            onClick={() => void openExamples()}
+            className="rounded-sm text-accent underline-offset-2 hover:underline focus-visible:outline-offset-0"
+          >
+            {t("startGuide.example.open")}
+          </button>
+        </p>
+      )}
+    </section>
   );
 }
 

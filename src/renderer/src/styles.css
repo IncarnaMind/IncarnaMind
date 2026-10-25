@@ -3068,6 +3068,11 @@
       color: var(--color-ink-placeholder);
     }
   }
+  /* An empty Mind showing the three steps under its line: no room kept for writing between them. */
+  .mind-editor-frame--guide .mind-editor {
+    min-height: 0;
+  }
+
   /* A code block's language picker, top right. */
   .code-language {
     position: absolute;

@@ -51,7 +51,7 @@ import { core } from "./core";
 import { flashBlocks } from "./editor/blockOrigins";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { notePlace } from "./editor/notePlace";
-import { rememberNoteChat } from "./noteChats";
+import type { Words } from "./lineNames";
 import { exampleMindIds, useAppStore } from "./store";
 import { answerUndoPlace, useUndo } from "./undo";
 
@@ -65,6 +65,12 @@ export interface AddedAnswer {
   /** The Notes to add: the part of the Answer selected, or all of it. */
   blocks: NodeJSON[];
 }
+
+/** What an Undo that kept Blocks the User edited says, or null when it took everything back. */
+const undoKept = (kept: number): Words | null =>
+  kept === 0
+    ? null
+    : (t) => t(kept === 1 ? "answer.undoKept.one" : "answer.undoKept", { count: kept });
 
 /** The Mind's name, which an unnamed Mind is about to take from the first line of what goes in (the core names it a moment after the Note is in). */
 const nameOfMind = (mindId: string, blocks: readonly NodeJSON[]) => {
@@ -143,7 +149,6 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
   };
   const ids = addInEditor(editor, checked, read.cursorInMind(), bringScope);
   if (!ids) return true;
-  rememberNoteChat(mindId, added.answer.conversationId);
   setOrigins(doc, ids, originOf(added));
   flashBlocks(editor, ids);
   const { model } = added.answer;
@@ -177,11 +182,14 @@ async function addToOtherMind(added: AddedAnswer, mindId: string, openIt: boolea
     origin: originOf(added),
     model: added.answer.model,
   });
-  rememberNoteChat(mindId, added.answer.conversationId);
   const mind = nameOfMind(mindId, added.blocks);
+  let kept = 0;
   useUndo.getState().push({
     said: (t) => t("answer.added", { mind: mind || t("mind.untitled") }),
-    undo: () => core.undoAddToNote({ mindId, blockIds }),
+    undo: async () => {
+      kept = (await core.undoAddToNote({ mindId, blockIds })).kept;
+    },
+    undoneNote: () => undoKept(kept),
     shownAt: answerUndoPlace(added.answer.id),
   });
   if (openIt) await openBeside(mindId);
@@ -230,12 +238,15 @@ async function addToNewMind(added: AddedAnswer): Promise<void> {
   const taken = useAppStore.getState().minds.map((mind) => mindName(mind));
   const mind = await newMindFor(added, numberedName(named, taken) ?? given);
   const { blockIds } = await putIn(mind.id, added);
-  rememberNoteChat(mind.id, added.answer.conversationId);
   await openBeside(mind.id);
   const name = nameOfMind(mind.id, added.blocks);
+  let kept = 0;
   useUndo.getState().push({
     said: (t) => t("answer.added", { mind: name || t("mind.untitled") }),
-    undo: () => core.undoAddToNote({ mindId: mind.id, blockIds }),
+    undo: async () => {
+      kept = (await core.undoAddToNote({ mindId: mind.id, blockIds })).kept;
+    },
+    undoneNote: () => undoKept(kept),
     shownAt: answerUndoPlace(added.answer.id),
   });
 }
