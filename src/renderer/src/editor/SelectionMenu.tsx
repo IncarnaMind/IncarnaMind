@@ -36,6 +36,7 @@ import {
   selectionToMath,
   TURN_INTO,
 } from "./selectionCommands";
+import { forgetMenuClosed, keepMenuClosed, menuClosedOver } from "./selectionDismissal";
 import { type EditWithAiField, useEditField } from "./useEditField";
 
 /**
@@ -140,13 +141,8 @@ function fitToView(frame: HTMLElement | null) {
   frame?.style.setProperty("--selection-menu-room", view ? `${view.clientHeight - 24}px` : "100vh");
 }
 
-/** The selection the User closed the menu over, which keeps it closed until the selection changes, even for an update already waiting. */
-const dismissedOver = new WeakMap<Editor, string>();
-const selectionKey = (editor: Editor) =>
-  `${editor.state.selection.from}-${editor.state.selection.to}`;
-
 function hideMenu(editor: Editor) {
-  dismissedOver.set(editor, selectionKey(editor));
+  keepMenuClosed(editor, editor.state.selection.from, editor.state.selection.to);
   editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, "hide"));
 }
 
@@ -166,8 +162,7 @@ function openedAt<Anchor extends Element | VirtualElement>(
 function showsOver(editor: Editor, pressed: boolean): boolean {
   const { selection, doc } = editor.state;
   if (pressed || editor.view.composing || !editor.isEditable) return false;
-  if (dismissedOver.get(editor) === selectionKey(editor)) return false;
-  dismissedOver.delete(editor);
+  if (menuClosedOver(editor)) return false;
   if (selection.empty || !(selection instanceof TextSelection)) return false;
   if (editor.isActive("codeBlock")) return false;
   return doc.textBetween(selection.from, selection.to).length > 0;
@@ -284,6 +279,10 @@ export function SelectionMenu({
     const press = () => {
       pressed.current = true;
     };
+    // A press changes nothing by itself: only a selection change under it is the User's own (#1355).
+    const selectionMoved = () => {
+      if (pressed.current) forgetMenuClosed(editor);
+    };
     const release = () => {
       if (!pressed.current) return;
       pressed.current = false;
@@ -301,7 +300,7 @@ export function SelectionMenu({
       if (!anywhere && !inMenu && !editor.view.hasFocus()) return;
       if (!inField) {
         if (selectionForEdit(editor.state) === null) return;
-        dismissedOver.delete(editor);
+        forgetMenuClosed(editor);
         if (!showsOver(editor, false)) return;
       }
       event.preventDefault();
@@ -351,6 +350,7 @@ export function SelectionMenu({
     dom.addEventListener(FORMAT_OPEN, openFormat);
     dom.addEventListener("compositionend", afterComposition);
     dom.addEventListener("mousedown", press);
+    editor.on("selectionUpdate", selectionMoved);
     document.addEventListener("mouseup", release);
     dom.addEventListener("keydown", onKey, true);
     return () => {
@@ -359,6 +359,7 @@ export function SelectionMenu({
       dom.removeEventListener(FORMAT_OPEN, openFormat);
       dom.removeEventListener("compositionend", afterComposition);
       dom.removeEventListener("mousedown", press);
+      editor.off("selectionUpdate", selectionMoved);
       document.removeEventListener("mouseup", release);
       dom.removeEventListener("keydown", onKey, true);
     };

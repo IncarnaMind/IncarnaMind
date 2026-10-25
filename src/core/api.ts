@@ -5528,6 +5528,11 @@ export interface AnswerFinished extends AnswerPlace {
    * them, and why: for looking into how a model cites (the evaluation reports them).
    */
   rejectedRecords: RejectedRecord[];
+  /**
+   * How many of the Question context's Citations the model wrote as ids in text rather than
+   * citing them (#1800), each made that Citation or taken out: the evaluation counts them.
+   */
+  idsAsText: number;
   /** Markers the model left out of its text for records it gave, which the engine put in. */
   placedMarkers: number;
   /**
@@ -7793,7 +7798,7 @@ export interface MindExport extends MindExportPreview {
   trackedChanges: number;
   /**
    * The Documents whose Bibliography entries are too thin to cite (`BibliographyEntry.needsDetails`),
-   * each marked so in the file. None in Numbered, which lists Documents by name.
+   * for the result line's count. None in Numbered, which lists Documents by name.
    */
   needsDetails: string[];
 }

@@ -6,6 +6,7 @@
  * It shows bold, italic, strikethrough, inline code and links, math as `$…$`
  * and `$$…$$`, tables as pipe tables, Citations as plain references like
  * "[Attention Is All You Need, p. 3]", not as markers the model could reuse,
+ * each with its id when the Answer has `ContextCitations` ("[… p. 3 · C1]", #1800),
  * and the User's footnotes where their markers are, as Pandoc's inline notes:
  * "^[…]". Underline and highlight add nothing, and an image adds nothing (the
  * model can't see it). In a Mind imported from a Word file, someone's changes
@@ -36,9 +37,16 @@ import {
   theirChangesReading,
 } from "../mindText";
 import { changedContent, changeSpans, type ShownChange } from "../shownChanges";
+import type { ContextCitations } from "./contextCitations";
 
 /** The live Documents a Citation's name is looked up in; null: not known, so names stay as cited. */
 type Documents = readonly LiveDocument[] | null;
+
+/** How Citations are named: by `documents`, each with its id in `ids` when the Answer has them. */
+interface Naming {
+  documents: Documents;
+  ids?: ContextCitations | undefined;
+}
 
 const textOf = (value: unknown) => (typeof value === "string" ? value : null);
 
@@ -48,7 +56,7 @@ const textOf = (value: unknown) => (typeof value === "string" ? value : null);
  * earlier Answers. It names the Document as it is named now. One without a
  * Document's name is not shown.
  */
-function citationSource(attributes: Record<string, unknown>, documents: Documents): Footnote {
+function citationSource(attributes: Record<string, unknown>, { documents, ids }: Naming): Footnote {
   const name = shownDocumentName(
     {
       documentId: textOf(attributes.documentId),
@@ -65,7 +73,9 @@ function citationSource(attributes: Record<string, unknown>, documents: Document
     pageFrom: typeof from === "number" ? from : null,
     pageTo: typeof to === "number" ? to : null,
   });
-  return { source: location ? `${name}, ${englishLocation(location)}` : name, unverified: false };
+  const source = location ? `${name}, ${englishLocation(location)}` : name;
+  const id = ids?.idOf(attributes);
+  return { source: id ? `${source} · ${id}` : source, unverified: false };
 }
 
 /**
@@ -78,6 +88,7 @@ export function answerMarkdown(
   citations: readonly MarkedCitation[],
   figures: readonly MarkedFigure[] = [],
   documents: Documents = null,
+  ids?: ContextCitations,
 ): string {
   const byMarker = new Map(citations.map((citation) => [citation.marker, citation]));
   const figureByMarker = new Map(figures.map((figure) => [figure.marker, figure]));
@@ -92,8 +103,10 @@ export function answerMarkdown(
           pageFrom: citation?.pageFrom,
           pageTo: citation?.pageTo,
           location: citation?.location,
+          passageId: citation?.passageId,
+          quote: citation?.quote,
         },
-        documents,
+        { documents, ids },
       );
       return source ? `${space}[${source}]` : "";
     })
@@ -101,9 +114,9 @@ export function answerMarkdown(
 }
 
 /** Questions are read too, as the User's words; the space before a Citation stays. */
-const readOptions = (documents: Documents): ReadOptions => ({
+const readOptions = (naming: Naming): ReadOptions => ({
   includeQuestions: true,
-  footnote: (attributes) => citationSource(attributes, documents),
+  footnote: (attributes) => citationSource(attributes, naming),
   trimBeforeCitation: false,
 });
 
@@ -113,11 +126,11 @@ const readOptions = (documents: Documents): ReadOptions => ({
  */
 function readingOf(
   element: Y.XmlElement,
-  documents: Documents,
+  naming: Naming,
   review: ReviewReading | undefined,
 ): ReadOptions {
   const { doc } = element;
-  const options = readOptions(documents);
+  const options = readOptions(naming);
   if (review) return { ...options, review };
   return doc && wordFileOf(doc) ? { ...options, review: theirChangesReading(doc) } : options;
 }
@@ -132,11 +145,10 @@ export function elementMarkdown(
   element: Y.XmlElement,
   documents: Documents = null,
   review?: ReviewReading,
+  ids?: ContextCitations,
 ): string {
-  return blocksMarkdown(
-    readBlock(element, readingOf(element, documents, review)),
-    documents,
-  ).trim();
+  const naming = { documents, ids };
+  return blocksMarkdown(readBlock(element, readingOf(element, naming, review)), naming).trim();
 }
 
 /** An element's content as Markdown: its child Blocks separated by blank lines. */
@@ -144,28 +156,27 @@ export function contentMarkdownOf(
   element: Y.XmlElement,
   documents: Documents = null,
   review?: ReviewReading,
+  ids?: ContextCitations,
 ): string {
-  return blocksMarkdown(
-    readBlocks(element, readingOf(element, documents, review)),
-    documents,
-  ).trim();
+  const naming = { documents, ids };
+  return blocksMarkdown(readBlocks(element, readingOf(element, naming, review)), naming).trim();
 }
 
-function blocksMarkdown(blocks: readonly Block[], documents: Documents): string {
+function blocksMarkdown(blocks: readonly Block[], naming: Naming): string {
   return blocks
-    .map((block) => blockMarkdown(block, documents))
+    .map((block) => blockMarkdown(block, naming))
     .filter((text) => text.trim() !== "")
     .join("\n\n");
 }
 
 /** A Block a change adds or removes whole, its change on each of the Blocks inside it, or on all of it. */
-function blockMarkdown(block: Block, documents: Documents): string {
+function blockMarkdown(block: Block, naming: Naming): string {
   const change: ShownChange | null = block.deleted
     ? { kind: "delete", pending: block.deleted }
     : block.inserted
       ? { kind: "insert", pending: block.inserted }
       : null;
-  if (!change) return plainBlockMarkdown(block, documents);
+  if (!change) return plainBlockMarkdown(block, naming);
   const { inserted: _inserted, deleted: _deleted, ...plain } = block;
   const spread = (inner: readonly Block[]) =>
     inner.map((each) => ({ ...each, ...changeOf(change) }));
@@ -173,13 +184,13 @@ function blockMarkdown(block: Block, documents: Documents): string {
     case "paragraph":
     case "heading":
     case "question":
-      return plainBlockMarkdown(block, documents);
+      return plainBlockMarkdown(block, naming);
     case "list":
-      return plainBlockMarkdown({ ...plain, items: plain.items.map(spread) }, documents);
+      return plainBlockMarkdown({ ...plain, items: plain.items.map(spread) }, naming);
     case "quote":
-      return plainBlockMarkdown({ ...plain, content: spread(plain.content) }, documents);
+      return plainBlockMarkdown({ ...plain, content: spread(plain.content) }, naming);
     default: {
-      const text = plainBlockMarkdown(plain, documents);
+      const text = plainBlockMarkdown(plain, naming);
       return text ? `[${changeWords(change)}:\n${text}\n]` : "";
     }
   }
@@ -188,7 +199,7 @@ function blockMarkdown(block: Block, documents: Documents): string {
 const changeOf = ({ kind, pending }: ShownChange) =>
   kind === "insert" ? { inserted: pending } : { deleted: pending };
 
-function plainBlockMarkdown(block: Block, documents: Documents): string {
+function plainBlockMarkdown(block: Block, naming: Naming): string {
   switch (block.kind) {
     case "paragraph":
     case "question":
@@ -204,16 +215,16 @@ function plainBlockMarkdown(block: Block, documents: Documents): string {
     case "rule":
       return "---";
     case "list":
-      return listMarkdown(block, documents);
+      return listMarkdown(block, naming);
     case "quote":
-      return blocksMarkdown(block.content, documents)
+      return blocksMarkdown(block.content, naming)
         .split("\n")
         .map((line) => (line ? `> ${line}` : ">"))
         .join("\n");
     case "table":
-      return tableMarkdown(block.rows, documents);
+      return tableMarkdown(block.rows, naming);
     case "chart":
-      return chartMarkdown(block, documents);
+      return chartMarkdown(block, naming);
     case "image":
     // Only an export writes a Bibliography; a Mind's own Blocks never hold one.
     case "bibliography":
@@ -226,12 +237,12 @@ function plainBlockMarkdown(block: Block, documents: Documents): string {
  * row, a cell's lines joined by "<br>", and a cell over several columns or
  * rows in the first of them.
  */
-function tableMarkdown(rows: readonly TableCell[][], documents: Documents): string {
+function tableMarkdown(rows: readonly TableCell[][], naming: Naming): string {
   const layout = tableLayout(rows);
   const lines = layout.rows.map((row) => {
     const cells: string[] = [];
     for (const { cell, continued } of row) {
-      const text = cell && !continued ? blocksMarkdown(cell.content, documents) : "";
+      const text = cell && !continued ? blocksMarkdown(cell.content, naming) : "";
       // A backslash before a pipe is escaped first, or it would escape the pipe's own escape.
       cells.push(
         text
@@ -249,7 +260,7 @@ function tableMarkdown(rows: readonly TableCell[][], documents: Documents): stri
   return lines.join("\n");
 }
 
-function chartMarkdown(block: Extract<Block, { kind: "chart" }>, documents: Documents): string {
+function chartMarkdown(block: Extract<Block, { kind: "chart" }>, naming: Naming): string {
   const { chart } = block;
   const drawn = chosenSeries(chart);
   const marks: Marks = {
@@ -280,7 +291,7 @@ function chartMarkdown(block: Extract<Block, { kind: "chart" }>, documents: Docu
         const value = row.values[series];
         if (!value) return cell([]);
         const source = value.citation
-          ? citationSource(value.citation as unknown as Record<string, unknown>, documents)
+          ? citationSource(value.citation as unknown as Record<string, unknown>, naming)
           : null;
         return cell([
           ...words(value.shown),
@@ -297,19 +308,19 @@ function chartMarkdown(block: Extract<Block, { kind: "chart" }>, documents: Docu
   const cut = chart.data.cutFrom
     ? ` (its first ${chart.data.rows.length} rows of ${chart.data.cutFrom})`
     : "";
-  return `Chart, ${chart.kind}${chart.title ? `: ${chart.title}` : ""}${cut}\n\n${tableMarkdown(rows, documents)}`;
+  return `Chart, ${chart.kind}${chart.title ? `: ${chart.title}` : ""}${cut}\n\n${tableMarkdown(rows, naming)}`;
 }
 
 /** Question context writes a Citation's source, never its work. */
 const blankWork = { documentId: null, documentName: null, location: null };
 
-function listMarkdown(list: Extract<Block, { kind: "list" }>, documents: Documents): string {
+function listMarkdown(list: Extract<Block, { kind: "list" }>, naming: Naming): string {
   let number = list.start;
   return list.items
     .map((item) => {
       const marker = list.ordered ? `${number++}.` : "-";
       const indent = " ".repeat(marker.length + 1);
-      return blocksMarkdown(item, documents)
+      return blocksMarkdown(item, naming)
         .split("\n")
         .map((line, index) => (index === 0 ? `${marker} ${line}` : line ? `${indent}${line}` : ""))
         .join("\n");
