@@ -129,7 +129,7 @@ export function guards(rows: readonly PairedRow[]): Guard[] {
   ].flatMap((each) => (each ? [each] : []));
 }
 
-const seconds = (ms: number | null) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`);
+export const seconds = (ms: number | null) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`);
 const known = (values: readonly (number | null)[]) =>
   values.filter((value): value is number => value !== null);
 const spread = (values: readonly (number | null)[]) => {
@@ -189,7 +189,8 @@ export function pairedSection(rows: readonly PairedRow[], names: [string, string
   ].join("\n");
 }
 
-const cell = (run: ArmRun) =>
+/** What an arm's run of an item came to, beyond its times. */
+export const outcomeOf = (run: ArmRun) =>
   [
     run.status === "failed" ? `failed: ${(run.error ?? "").slice(0, 60)}` : null,
     run.cited === null ? null : run.cited ? "cited" : "not cited",
@@ -209,7 +210,7 @@ export function itemTable(rows: readonly PairedRow[], names: [string, string]): 
     "|---|---|---|---|---|---|---|",
     ...rows.map(
       (row) =>
-        `| ${row.id}${row.run > 1 ? ` #${row.run}` : ""} | ${row.language} | ${seconds(row.baseline.firstWordsMs)} / ${seconds(row.candidate.firstWordsMs)} | ${seconds(row.baseline.doneMs)} / ${seconds(row.candidate.doneMs)} | ${row.baseline.modelCalls} / ${row.candidate.modelCalls} | ${cell(row.baseline)} | ${cell(row.candidate)} |`,
+        `| ${row.id}${row.run > 1 ? ` #${row.run}` : ""} | ${row.language} | ${seconds(row.baseline.firstWordsMs)} / ${seconds(row.candidate.firstWordsMs)} | ${seconds(row.baseline.doneMs)} / ${seconds(row.candidate.doneMs)} | ${row.baseline.modelCalls} / ${row.candidate.modelCalls} | ${outcomeOf(row.baseline)} | ${outcomeOf(row.candidate)} |`,
     ),
   ].join("\n");
 }

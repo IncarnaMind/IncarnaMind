@@ -46,11 +46,16 @@ export async function gradeAnswer(
       "<answer>",
       answer,
       "</answer>",
+      "Grade the Answer: right, partly or wrong? Reply with that one word.",
     ].join("\n"),
-    maxOutputTokens: 64,
+    maxOutputTokens: 400,
     maxRetries: 1,
   });
-  const word = text.replace(/[^\p{L}]/gu, "").toLowerCase();
+  // A judge that reasons first gives its grade last.
+  const word = text
+    .toLowerCase()
+    .match(/\b(?:right|partly|wrong)\b/g)
+    ?.at(-1);
   if (word === "right" || word === "partly" || word === "wrong") return word;
   console.error(`The judge's grade couldn't be read: ${text.slice(0, 200)}`);
   return "unread";

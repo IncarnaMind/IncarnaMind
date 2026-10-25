@@ -34,7 +34,14 @@ import {
   SET_IDS,
   type SetId,
 } from "./paired";
-import { itemTable, newFalseSupported, type PairedRow, pairedSection } from "./pairedReport";
+import {
+  itemTable,
+  newFalseSupported,
+  outcomeOf,
+  type PairedRow,
+  pairedSection,
+  seconds,
+} from "./pairedReport";
 import { percentile } from "./report";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
 
@@ -131,9 +138,8 @@ function chosen(
   return wanted.filter((item) => kept.has(item));
 }
 
-const seconds = (ms: number | null) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`);
 const line = (id: string, run: ArmRun) =>
-  `${id} ${run.status === "failed" ? `failed (${run.error})` : `${seconds(run.firstWordsMs)} words, ${seconds(run.doneMs)} done, ${run.modelCalls} calls${run.cited === null ? "" : run.cited ? ", cited" : ", not cited"}${run.grade ? `, ${run.grade}` : ""}${run.falseSupported ? `, ${run.falseSupported} false Supported` : ""}${run.duplicate ? ", twice" : ""}${run.failures.length ? `, ${run.failures.join(" ")}` : ""}`}`;
+  `${id} ${seconds(run.firstWordsMs)} words, ${seconds(run.doneMs)} done, ${run.modelCalls} calls ${outcomeOf(run)}`;
 
 test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one", async () => {
   const log = createLog();
