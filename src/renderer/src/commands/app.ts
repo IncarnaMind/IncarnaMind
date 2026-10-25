@@ -6,6 +6,7 @@ import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
 import { blockMenuOpeners } from "../editor/blockMenuOpeners";
 import { originOf } from "../editor/blockOrigins";
+import { goToCitation } from "../editor/citationMark";
 import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
 import { useFindSources } from "../findSources";
@@ -13,6 +14,7 @@ import { useHistory } from "../history";
 import { startSkillFromMind } from "../makeSkill";
 import { showCheckCard, startCheckThisMind, startMindCheck } from "../mindCheck";
 import { useMindTools } from "../mindTools";
+import { citationStepOpen } from "../nudges";
 import { useReferenceImport } from "../referenceImport";
 import { useAppStore } from "../store";
 import { verifyDocument } from "../verify";
@@ -113,6 +115,14 @@ const appCommands: readonly Command[] = [
     run: () => useAppStore.getState().openHome(),
   },
   {
+    id: "firstOpen.checkCitation",
+    label: "firstOpen.step.citation.title",
+    group: "open",
+    reversible: true,
+    when: () => citationStepOpen(useAppStore.getState().settings?.device.gettingStarted),
+    run: () => goToCitation(),
+  },
+  {
     id: "word.import",
     label: "wordImport.command",
     group: "main",
@@ -122,6 +132,7 @@ const appCommands: readonly Command[] = [
   {
     id: "verify.document",
     label: "verify.command",
+    purpose: "verify.command.purpose",
     keywords: ["verify.command.keywords"],
     group: "main",
     // It adds the PDF and makes a Mind of it, each deleted as any other is.
@@ -257,6 +268,7 @@ const appCommands: readonly Command[] = [
   {
     id: "mind.check",
     label: "mindCheck.command",
+    purpose: "mindCheck.command.purpose",
     keywords: ["mindCheck.command.keywords"],
     group: "main",
     top: 12,
@@ -298,6 +310,7 @@ const appCommands: readonly Command[] = [
   {
     id: "mind.checkContradictions",
     label: "contradictions.command",
+    purpose: "contradictions.command.purpose",
     keywords: ["contradictions.command.keywords"],
     group: "main",
     // It changes no words: its marks go with Check again, or when the sentence is edited.

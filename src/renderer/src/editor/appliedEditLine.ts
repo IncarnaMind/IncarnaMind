@@ -7,7 +7,12 @@
  * `data-applied-restore`. They go once the User edits.
  */
 import { type Editor, Extension, isMacOS } from "@tiptap/core";
-import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import {
+  DOMSerializer,
+  Fragment,
+  type Node as ProseMirrorNode,
+  type Schema,
+} from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
@@ -22,6 +27,7 @@ import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { type ChangeKind, countChanged } from "../../../shared/proposals";
 import { type ChangeCounts, changeFact } from "../changeFacts";
 import { SPARK_PATH } from "../components/iconPaths";
+import { anchorOf } from "./arrivedChanges";
 import {
   type ChangedBlock,
   LINE_WIDGET,
@@ -246,12 +252,11 @@ interface Place {
   to: number;
 }
 
-interface Ends {
-  from: number | null;
-  to: number | null;
-}
-
-function endsOf(state: EditorState, change: ChangePlace): Ends | null {
+function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
+  if (change.paragraph) {
+    const found = blockAt(state.doc, change.paragraph);
+    return found ? { from: found.pos + 1, to: found.pos + found.node.nodeSize - 1 } : null;
+  }
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return null;
   const at = (relative: unknown): number | null =>
@@ -259,32 +264,10 @@ function endsOf(state: EditorState, change: ChangePlace): Ends | null {
   const from = at(change.from);
   const inside = at(change.to);
   const end = inside === null || inside > state.doc.content.size ? null : state.doc.resolve(inside);
-  const to = change.block !== "added" ? inside : end && end.depth > 0 ? end.after(1) : null;
-  return { from, to };
-}
-
-function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
-  if (change.paragraph) {
-    const found = blockAt(state.doc, change.paragraph);
-    return found ? { from: found.pos + 1, to: found.pos + found.node.nodeSize - 1 } : null;
-  }
-  const ends = endsOf(state, change);
-  if (!ends) return null;
-  const { from, to } = ends;
+  const to = change.block !== "added" ? inside : end && end.depth > 0 ? end.after() : null;
   return from === null || to === null || to < from || to > state.doc.content.size
     ? null
     : { from, to };
-}
-
-// A change whose start it deleted itself holds to words that are gone, so its line lands at its
-// end, over the Block it changed (#1411). Review still leaves it out: with no start to find its
-// words again, Restore must not put the old words beside the new.
-function unstartedPlace(state: EditorState, change: ChangePlace): Place | null {
-  if (change.paragraph || change.block !== null) return null;
-  const ends = endsOf(state, change);
-  return ends && ends.from === null && ends.to !== null && ends.to <= state.doc.content.size
-    ? { from: ends.to, to: ends.to }
-    : null;
 }
 
 const textOf = (removed: Fragment) => removed.textBetween(0, removed.size, "\n", "￼");
@@ -310,13 +293,25 @@ function holds(state: EditorState, relative: unknown): boolean {
   return item instanceof Y.Item && !item.deleted;
 }
 
+// A list item has no id of its own: an added one is found by its first paragraph's.
+function addedFrom(doc: ProseMirrorNode, blockId: string, written: Fragment): number | null {
+  const found = blockAt(doc, blockId);
+  const type = written.firstChild?.type;
+  if (!found || !type || found.node.type === type) return found?.pos ?? null;
+  const $pos = doc.resolve(found.pos);
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    if ($pos.node(depth).type === type) return $pos.before(depth);
+  }
+  return null;
+}
+
 // Its place can take in words typed just after it, as its end holds to what follows, and a
 // paragraph written anew is all that paragraph: its own words still start where they did.
 function foundAgain(state: EditorState, change: AppliedChange): Place | null {
   const { doc } = state;
   if (change.block === "added") {
-    const block = change.blockId === null ? null : blockAt(doc, change.blockId);
-    const place = block && { from: block.pos, to: block.pos + change.written.size };
+    const from = change.blockId === null ? null : addedFrom(doc, change.blockId, change.written);
+    const place = from === null ? null : { from, to: from + change.written.size };
     return place && place.to <= doc.content.size && asWritten(doc, change, place) ? place : null;
   }
   const binding = ySyncPluginKey.getState(state)?.binding;
@@ -374,15 +369,15 @@ export function changeNow(
 }
 
 export const placeOfChange = (state: EditorState, change: AppliedChange): Place | null =>
-  changeNow(state, change)?.place ?? unstartedPlace(state, change);
+  changeNow(state, change)?.place ?? null;
 
 const blockIdOf = (node: ProseMirrorNode | null | undefined): string | null => {
   const id: unknown = node?.attrs[BLOCK_ID_ATTRIBUTE];
   return typeof id === "string" ? id : null;
 };
 
-// A ProseMirror place's Yjs position holds to the item before it; this one holds to the item at it.
-function itemAt(state: EditorState, pos: number): Y.RelativePosition | null {
+/** A ProseMirror place's Yjs position holds to the item before it; this one holds to the item at it. */
+export function itemAt(state: EditorState, pos: number): Y.RelativePosition | null {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return null;
   const before = absolutePositionToRelativePosition(pos, binding.type, binding.mapping);
@@ -405,7 +400,7 @@ export function appliedChanges(
       change.block === "removed"
         ? null
         : change.block === "added"
-          ? blockIdOf(doc.nodeAt(place.from))
+          ? (anchorOf(doc.nodeAt(place.from))?.blockId ?? null)
           : $from.parent.isTextblock
             ? blockIdOf($from.parent)
             : null;
@@ -580,7 +575,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
   }
   if (line.kind === "applied") {
     const what = text(
-      "min-w-0 font-semibold",
+      "applied-count min-w-0 font-semibold",
       line.facts ? changeFact(t, line.facts, null) : appliedText(t, line.blocks),
       "applied-count",
     );
@@ -610,7 +605,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
     return lineElement("applied-line", "applied-line", [
       sparkle(),
       text(
-        "min-w-0 font-semibold",
+        "applied-count min-w-0 font-semibold",
         reviewText(t, blocks, line.byAssistant === true),
         "applied-count",
       ),
@@ -622,7 +617,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
   }
   return lineElement("applied-line", "applied-line", [
     sparkle(),
-    text("min-w-0", t(line.asked ? "edit.held.own" : "edit.held"), "applied-count"),
+    text("applied-count min-w-0", t(line.asked ? "edit.held.own" : "edit.held"), "applied-count"),
     dot(),
     button("apply", t("edit.held.apply")),
     dot(),
@@ -674,6 +669,20 @@ function changedBlockOf(
         title: lineText(state.doc.textBetween(place.from, place.to, " ", "\uFFFC")),
       }
     : { key, pos, how: "words" };
+}
+
+function removedBlocks(schema: Schema, removed: Fragment): HTMLElement {
+  const drawn = DOMSerializer.fromSchema(schema).serializeFragment(removed);
+  const item = drawn.firstElementChild;
+  const ownItem =
+    removed.childCount === 1 &&
+    removed.firstChild?.type.name === "listItem" &&
+    item instanceof HTMLElement;
+  const element = ownItem ? item : document.createElement("div");
+  if (!ownItem) element.append(drawn);
+  element.classList.add("applied-old--block");
+  element.contentEditable = "false";
+  return element;
 }
 
 interface PlacedChange {
@@ -794,10 +803,12 @@ function changeMarks(
     const oldDrawn = change.removed.size > 0 && oldShows;
     if (oldDrawn) {
       const old = () => {
-        const element = document.createElement(change.block ? "div" : "del");
-        element.className = change.block ? "applied-old applied-old--block" : "applied-old";
+        const element = change.block
+          ? removedBlocks(state.schema, change.removed)
+          : document.createElement("del");
+        element.classList.add("applied-old");
         element.dataset.appliedChange = String(index);
-        element.textContent = textOf(change.removed);
+        if (!change.block) element.textContent = textOf(change.removed);
         return element;
       };
       marks.push(

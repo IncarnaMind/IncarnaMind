@@ -77,6 +77,7 @@ import {
   MindIdContext,
   PageSlotsContext,
 } from "../editor/mindContext";
+import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
@@ -131,7 +132,7 @@ import { resumeTabCloseFocus } from "../tabFocus";
 import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
 import { CompareSheet } from "./CompareSheet";
 import { StartGuide, useIsExample } from "./GettingStarted";
-import { CheckLineIcon, MineLineIcon, SearchLineIcon } from "./lineIcons";
+import { CheckLineIcon, MineLineIcon } from "./lineIcons";
 import { MindNotice } from "./MindNotice";
 
 /** Stands in for the hint's button in its translated words, which are split around it. */
@@ -562,16 +563,6 @@ function MindEditorView({
       },
       { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
       {
-        id: "find-support",
-        label: hasDocuments ? "editor.ai.findSupport" : "editor.ai.addDocumentsToFindSupport",
-        icon: <SearchLineIcon className="size-3.5" />,
-        available,
-        run: (current) =>
-          hasDocuments
-            ? void checkSentences(current, mindId, doc, "find-support")
-            : void useAppStore.getState().pickDocuments(),
-      },
-      {
         id: "check-against-documents",
         label: hasDocuments ? "editor.ai.checkAgainstDocuments" : "editor.ai.addDocumentsToCheck",
         icon: <CheckLineIcon className="size-3.5" />,
@@ -808,6 +799,7 @@ function MindEditorView({
         {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
         <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
         {!readOnly && <TableMenu editor={editor} />}
+        {!readOnly && <ListMenu editor={editor} />}
         <FootnoteArea editor={editor} citationView={citationView} />
         {(style !== "numbered" || styleChoice.bibliography) && (
           <ReferencesBlock
