@@ -49,7 +49,7 @@ const wordsAtEnd = (signs: FlowSigns): FlowSigns => ({
 });
 
 /** The events that show the User something is happening; those in `WORDS` carry words. */
-const SIGNS: readonly CoreEventName[] = [
+export const SIGNS: readonly CoreEventName[] = [
   "answer.started",
   "answer.phase",
   "answer.reasoning",

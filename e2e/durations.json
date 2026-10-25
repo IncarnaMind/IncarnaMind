@@ -121,6 +121,7 @@
   "keyCharacters.spec.ts": 7,
   "keyForm.spec.ts": 148,
   "keyNotChecked.spec.ts": 5,
+  "landedCitationVersion.spec.ts": 40,
   "lastPickedModel.spec.ts": 45,
   "library.spec.ts": 65,
   "libraryBridges.spec.ts": 33,
@@ -279,6 +280,7 @@
   "wordLookTables.spec.ts": 15,
   "wordLookTabs.spec.ts": 31,
   "wordPaste.spec.ts": 4,
+  "writeAsNote.spec.ts": 138,
   "writeIntoMind.spec.ts": 13,
   "writtenFrom.spec.ts": 33,
   "xlsxNoValue.spec.ts": 5

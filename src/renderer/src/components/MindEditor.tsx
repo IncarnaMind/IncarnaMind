@@ -679,7 +679,6 @@ function MindEditorView({
     useComposer.getState().requestFocus();
   };
 
-  // An empty Mind of the User's own shows the three steps while Get started is shown.
   const empty = useEditorState({
     editor,
     selector: ({ editor: current }) => isEmptyMind(current.state.doc),
@@ -700,8 +699,9 @@ function MindEditorView({
   const findShown = useMindTools((state) => state.findMindId === mindId);
   const outlineShown = useMindTools((state) => state.outlineMindId === mindId);
   const firstOpen = useFirstOpen();
-  const stepsUnderWay = useAppStore((state) => firstOpenOf(state.settings?.device.gettingStarted));
-  const guide = stepsUnderWay && empty && !isExample && !readOnly;
+  // An empty note of the User's own shows the guide until the first-run card has been seen (#1940).
+  const progress = useAppStore((state) => state.settings?.device.gettingStarted);
+  const guide = firstOpenOf(progress) && !progress?.seen && empty && !isExample && !readOnly;
   const verification = useVerification(doc);
   const countShown = useCountSettings(doc).shown;
   const frame = useRef<HTMLDivElement>(null);
@@ -802,11 +802,11 @@ function MindEditorView({
             <CitationStylePrompt mindId={mindId} editor={editor} doc={doc} />
           )}
       </div>
+      {guide && <StartGuide />}
       {sheetSlot &&
         comparing &&
         !readOnly &&
         createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
-      {guide && <StartGuide />}
       {!readOnly && <BlockHandle editor={editor} />}
       {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
       {!readOnly && <LinkBubble editor={editor} />}

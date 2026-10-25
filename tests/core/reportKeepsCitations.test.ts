@@ -8,7 +8,7 @@ import {
   messageReference,
 } from "../../src/core";
 import { pageBlocks } from "../../src/shared/answerBlocks";
-import { citationState } from "../../src/shared/citations";
+import { citationState, needsRecheck } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
 import { checkReply, isCheckRun } from "../helpers/checks";
 import {
@@ -19,8 +19,8 @@ import {
 } from "../helpers/citations";
 import { sha256, waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { part, textOf, unzip } from "../helpers/docx";
-import type { MindClient } from "../helpers/mindClient";
-import { editMind, heading, note, writeMind } from "../helpers/minds";
+import { connectToMind, type MindClient } from "../helpers/mindClient";
+import { editMind, heading, note, readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
@@ -306,6 +306,53 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
     const live = (await core.listDocuments()).map((each) => ({ ...each }));
     expect(citationState(first ?? {}, live).changedAfterCited).toBe(true);
     expect(third).toMatchObject({ check: "cant-check", checkReason: "document-removed" });
+  });
+
+  // protects=the report put in a new Mind keeps each Citation on the version the Mind's quotes (ADR-0017's amendment): its Document changed since and the quote gone, it needs re-check; changed but the quote where it was, it stays quiet; unchanged, it lands checked as before; fails_when=a Citation in the new Mind is re-pointed at the new version, or one whose quote is gone lands quiet; no_claim=none beyond protects.
+  test("put in a new Mind, a Citation of a changed Document keeps its version and needs re-check", async () => {
+    const model = reportModel(() => REPORT);
+    const { core, client, mind, documents } = await setUpWithDocuments(model, pdfs());
+    const citations = await writeReview(core, client, documents);
+    const attention = named(documents, "Attention");
+    if (!attention.path) throw new Error("No file.");
+    const changed = buildPdf([
+      { lines: ["Abstract", "A new abstract."] },
+      { lines: ["Results", BLEU] },
+    ]);
+    await writeFile(attention.path, changed);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [attention.id]);
+
+    const { answer } = await ask(core, ASKED, mind.id);
+    const report = await inNewMind(core, answer, ASKED);
+
+    const landed: CitationAttributes[] = [];
+    readMind(await connectToMind(core, report.id)).descendants((node) => {
+      if (node.type.name === "citation") landed.push(node.attrs as CitationAttributes);
+    });
+    expect(landed.map(kept)).toEqual(citations.map(kept));
+    expect(landed.map((each) => each.check)).toEqual(["found", "found", "found"]);
+    const live = (await core.listDocuments()).map((each) => ({ ...each }));
+    const asked = await Promise.all(
+      landed.map(async (each) => {
+        const state = citationState(each, live);
+        const recheck = state.changedAfterCited
+          ? await core.recheckCitation({
+              documentId: each.documentId ?? "",
+              quote: each.quote ?? "",
+              pageFrom: each.pageFrom,
+              pageTo: each.pageTo,
+              contentHash: each.contentHash,
+            })
+          : null;
+        return [state.changedAfterCited, needsRecheck(state, each, recheck)];
+      }),
+    );
+    expect(asked).toEqual([
+      [true, true],
+      [true, false],
+      [false, false],
+    ]);
   });
 
   // protects=a Citation whose Passage is gone can't be kept: cite says so and the model is told to say its source is no longer available, and nothing stands in for it; fails_when=it is kept as a working Citation, or the refusal is silent; no_claim=none beyond protects.

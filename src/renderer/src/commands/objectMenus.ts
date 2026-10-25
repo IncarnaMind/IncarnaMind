@@ -11,6 +11,7 @@ const EXPORTS = ["mind.exportMenu", "mind.aiUseStatement", "mind.checkRecord"] a
 registerMenu("mind", [
   "mind.open",
   "mind.openTab",
+  "mind.openChat",
   "mind.outline",
   ...EXPORTS,
   "mind.history",
@@ -75,7 +76,6 @@ registerMixedMenu(["selection.moveTo", "selection.delete"]);
 
 registerMenu("linkedFolder", [
   "linkedFolder.pause",
-  "linkedFolder.layout",
   "folder.sort",
   "linkedFolder.download",
   "linkedFolder.reveal",
@@ -91,6 +91,7 @@ registerMenu("deleted", ["deleted.restore", "deleted.deletePermanently"]);
 registerMenu(
   "tab",
   [
+    "mind.openChat",
     "mind.outline",
     "mind.look.word",
     "mind.look.plain",
@@ -124,7 +125,12 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
-registerMenu("citation", ["citation.open", "citation.remove"]);
+registerMenu("citation", [
+  "citation.open",
+  "citation.update",
+  "citation.keepOld",
+  "citation.remove",
+]);
 
 registerMenu("chart", [
   "chart.table",

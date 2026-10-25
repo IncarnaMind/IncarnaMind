@@ -1063,6 +1063,313 @@ describe("A memo's figure worked out from amounts in brackets (#978)", () => {
   });
 });
 
+describe("A limit the figure stays within, and a cost printed in brackets (#1908)", () => {
+  const RESULTS = {
+    name: "Cedar results.md",
+    contents: [
+      "# Cedar results",
+      "",
+      "Adjusted EBITDA 187.3 (FY2025), 88.0 and 91.5 (H1 2025, H1 2026)",
+      "",
+      "Finance costs (41.2)",
+      "",
+      "Net debt at 30 June 2026 528.9",
+      "",
+      "Net debt to Adjusted EBITDA must not exceed 3.25 to 1",
+    ].join("\n"),
+  };
+  const EBITDA_LINE = "Adjusted EBITDA 187.3 (FY2025), 88.0 and 91.5 (H1 2025, H1 2026)";
+  const ebitda = (name: string, number: string) => ({
+    name,
+    label: `Adjusted EBITDA ${number}`,
+    quote: EBITDA_LINE,
+    number,
+  });
+  const LEVERAGE = {
+    inputs: [
+      { name: "nd", label: "Net debt", quote: "Net debt at 30 June 2026 528.9", number: "528.9" },
+      ebitda("fy", "187.3"),
+      ebitda("h1a", "88.0"),
+      ebitda("h1b", "91.5"),
+    ],
+    formula: "nd / (fy - h1a + h1b)",
+    as: "times",
+  };
+  const COVER = {
+    inputs: [
+      ebitda("fy", "187.3"),
+      {
+        name: "fc",
+        label: "Finance costs",
+        quote: "Finance costs (41.2)",
+        number: "(41.2)",
+        bracketedCost: true,
+      },
+    ],
+    formula: "fy / fc",
+    as: "times",
+  };
+  async function checked(
+    document: { name: string; contents: string },
+    claim: string,
+    calculation: NonNullable<Plan["calculation"]>,
+    said: "supported" | "contradicted" | "unsupported",
+  ) {
+    const plans = { [claim]: { verdict: said, calculation } } as const;
+    const calls: ModelCall[] = [];
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [document]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    const result = await setup.core.checkClaim({ claim });
+    // Each case's figures are worked out: a verdict never stands because calculate refused one.
+    const replies = calls
+      .flatMap((call) => call.results)
+      .filter((each) => each.tool === "calculate");
+    expect(replies.at(-1)?.text).toMatch(/^Recorded/);
+    return result;
+  }
+  const INSIDE = (limit: string) =>
+    `Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the ${limit} covenant.`;
+  const COVERED = (times: string) =>
+    `Using finance costs of (41.2) as a stand-in, cover would be ${times}.`;
+
+  // protects=a sentence naming a limit is judged on the comparison the model says it makes, exactly against the limit, while only a figure the sentence states rounds to its precision; a cost in brackets is judged on its size; a figure that breaks its limit or a wrong cover is still Contradicted, and a limit given with no relation is still compared as the figure (today's behaviour); fails_when=2.77x "inside a 3.25x covenant" or 4.55x cover from "(41.2)" is Contradicted, a breach passes, or 4.546x passes "at least 4.55x" or 2.772x "inside a 2.77x covenant" by rounding; no_claim=that a real model gives relation, which the real-model counts measure.
+  test.each([
+    [INSIDE("3.25x"), { ...LEVERAGE, stated: "3.25x", relation: "at most" }, "supported"],
+    [INSIDE("2.5x"), { ...LEVERAGE, stated: "2.5x", relation: "at most" }, "contradicted"],
+    [INSIDE("3.25x"), { ...LEVERAGE, stated: "3.25x" }, "contradicted"],
+    [
+      "Adjusted EBITDA covers finance costs at least 4x.",
+      { ...COVER, stated: "4x", relation: "at least" },
+      "supported",
+    ],
+    [
+      "Adjusted EBITDA covers finance costs at least 5x.",
+      { ...COVER, stated: "5x", relation: "at least" },
+      "contradicted",
+    ],
+    [
+      "Adjusted EBITDA covers finance costs at least 4.55x.",
+      { ...COVER, stated: "4.55x", relation: "at least" },
+      "contradicted",
+    ],
+    [INSIDE("2.77x"), { ...LEVERAGE, stated: "2.77x", relation: "at most" }, "contradicted"],
+    [COVERED("4.55x"), { ...COVER, stated: "4.55x" }, "supported"],
+    [COVERED("5.55x"), { ...COVER, stated: "5.55x" }, "contradicted"],
+  ] as const)("“%s” is %s", async (claim, calculation, verdict) => {
+    const said = verdict === "supported" ? "contradicted" : "supported";
+    const result = await checked(RESULTS, claim, calculation, said);
+    expect(result).toMatchObject({ verdict, calculation: { stated: calculation.stated } });
+  });
+
+  const LEDGER = {
+    name: "Ledger.md",
+    contents: [
+      "# Ledger",
+      "",
+      "Operating profit (12.0)",
+      "",
+      "Revenue 400.0",
+      "",
+      "Loss before tax (6.5)",
+      "",
+      "Tax rate 30%",
+      "",
+      "Receipts 10.0",
+      "",
+      "Payments (15.0)",
+      "",
+      "Other income 1.0",
+      "",
+      "Underlying EBITDA -50.0",
+      "",
+      "Net debt 528.9",
+    ].join("\n"),
+  };
+  const LEDGER_ZH = {
+    name: "台账.md",
+    contents: [
+      "# 台账",
+      "",
+      "营业利润 （12.0）",
+      "",
+      "营业收入 400.0",
+      "",
+      "税前亏损 （6.5）",
+      "",
+      "税率 30%",
+      "",
+      "收款 10.0",
+      "",
+      "付款 （15.0）",
+      "",
+      "其他收入 1.0",
+      "",
+      "基础EBITDA -50.0",
+      "",
+      "净负债 528.9",
+    ].join("\n"),
+  };
+  const RESULTS_ZH = {
+    name: "雪松业绩.md",
+    contents: [
+      "# 雪松业绩",
+      "",
+      "调整后EBITDA 187.3（2025财年），88.0 和 91.5（2025年上半年、2026年上半年）",
+      "",
+      "2026年6月30日净负债 528.9",
+    ].join("\n"),
+  };
+  const line = (name: string, quote: string, number: string, bracketedCost?: boolean) => ({
+    name,
+    label: quote,
+    quote,
+    number,
+    ...(bracketedCost && { bracketedCost }),
+  });
+  const LEDGER_LINES = {
+    en: {
+      op: line("op", "Operating profit (12.0)", "(12.0)"),
+      rev: line("rev", "Revenue 400.0", "400.0"),
+      pbt: line("pbt", "Loss before tax (6.5)", "(6.5)"),
+      t: line("t", "Tax rate 30%", "30%"),
+      r: line("r", "Receipts 10.0", "10.0"),
+      p: line("p", "Payments (15.0)", "(15.0)", true),
+      oi: line("oi", "Other income 1.0", "1.0"),
+      ue: line("ue", "Underlying EBITDA -50.0", "-50.0"),
+      nd: line("nd", "Net debt 528.9", "528.9"),
+    },
+    zh: {
+      op: line("op", "营业利润 （12.0）", "（12.0）"),
+      rev: line("rev", "营业收入 400.0", "400.0"),
+      pbt: line("pbt", "税前亏损 （6.5）", "（6.5）"),
+      t: line("t", "税率 30%", "30%"),
+      r: line("r", "收款 10.0", "10.0"),
+      p: line("p", "付款 （15.0）", "（15.0）", true),
+      oi: line("oi", "其他收入 1.0", "1.0"),
+      ue: line("ue", "基础EBITDA -50.0", "-50.0"),
+      nd: line("nd", "净负债 528.9", "528.9"),
+    },
+  };
+  const zhEbitda = (name: string, number: string) =>
+    line(
+      name,
+      "调整后EBITDA 187.3（2025财年），88.0 和 91.5（2025年上半年、2026年上半年）",
+      number,
+    );
+  const ZH_LEVERAGE = {
+    inputs: [
+      line("nd", "2026年6月30日净负债 528.9", "528.9"),
+      zhEbitda("fy", "187.3"),
+      zhEbitda("h1a", "88.0"),
+      zhEbitda("h1b", "91.5"),
+    ],
+    formula: "nd / (fy - h1a + h1b)",
+    as: "times",
+  };
+  const cases = (language: "en" | "zh") => {
+    const { op, rev, pbt, t, r, p, oi, ue, nd } = LEDGER_LINES[language];
+    const zh = language === "zh";
+    const ledger = zh ? LEDGER_ZH : LEDGER;
+    const results = zh ? RESULTS_ZH : RESULTS;
+    const leverage = zh ? ZH_LEVERAGE : LEVERAGE;
+    const both = zh
+      ? "2026年6月30日净负债为528.9，杠杆率为2.5倍，在3.25倍的契约上限之内。"
+      : "Net debt at 30 June 2026 was £528.9m: leverage of 2.5x is inside the 3.25x covenant.";
+    const limit = { ...leverage, stated: zh ? "3.25倍" : "3.25x", relation: "at most" as const };
+    const figure = { ...leverage, stated: zh ? "2.5倍" : "2.5x" };
+    return [
+      [
+        ledger,
+        zh ? "营业利润率为3%。" : "Operating margin was 3%.",
+        { inputs: [op, rev], formula: "op / rev", as: "percent", stated: "3%" },
+        "contradicted",
+      ],
+      [
+        ledger,
+        zh ? "税后利润为4.55。" : "Profit after tax was 4.55.",
+        { inputs: [pbt, t], formula: "pbt * (1 - t)", stated: "4.55" },
+        "contradicted",
+      ],
+      [
+        ledger,
+        zh ? "净现金流为5.0。" : "Net cash flow was 5.0.",
+        { inputs: [r, p], formula: "SUM(r, p)", stated: "5.0" },
+        "contradicted",
+      ],
+      [
+        ledger,
+        zh
+          ? "付款按税率计算再加其他收入，合计为3.5。"
+          : "Payments at the tax rate plus other income give a total of 3.5.",
+        { inputs: [p, t, oi], formula: "(p * t) + oi", stated: "3.5" },
+        "contradicted",
+      ],
+      [results, both, [limit, figure], "contradicted"],
+      [results, both, [figure, limit], "contradicted"],
+      [
+        ledger,
+        zh
+          ? "净负债528.9，基础EBITDA为-50.0，杠杆率仍在3.25倍的契约上限之内。"
+          : "With net debt of 528.9 and underlying EBITDA of -50.0, leverage stays inside the 3.25x covenant.",
+        {
+          inputs: [nd, ue],
+          formula: "nd / ue",
+          as: "times",
+          stated: zh ? "3.25倍" : "3.25x",
+          relation: "at most" as const,
+        },
+        "unsupported",
+      ],
+    ] as const;
+  };
+
+  // protects=brackets on a loss keep its sign, a sum in any form (SUM, a product added) keeps the sign of a cost in it, every number the model names must hold whatever their order, and a negative figure is never inside a positive limit, in English and Chinese (review of #1908); fails_when="Operating margin was 3%" against an operating loss "(12.0)", "Net cash flow was 5.0" against SUM(10.0, (15.0)), or "Leverage of 2.5x is inside the 3.25x covenant" at 2.77x is Supported, or a loss-making EBITDA's negative leverage is inside a covenant; no_claim=what the model's own verdict is when the calculation decides nothing, which stays as it said.
+  test.each(
+    [...cases("en"), ...cases("zh")].map(
+      ([document, claim, calculation, verdict]) => [claim, verdict, document, calculation] as const,
+    ),
+  )("%#: “%s” is %s", async (claim, verdict, document, calculation) => {
+    const said = verdict === "contradicted" ? "supported" : "unsupported";
+    const result = await checked(document, claim, calculation, said);
+    expect(result.verdict).toBe(verdict);
+  });
+
+  // protects=a cost in brackets is read by its size only when the model marks it so; fails_when=187.3 ÷ (41.2) agrees with "4.55x" though no input was marked; no_claim=none beyond protects.
+  test("a cost in brackets keeps its sign unless the model marks it a cost", async () => {
+    const [fy, fc] = COVER.inputs;
+    if (!fy || !fc) throw new Error("No cover inputs.");
+    const unmarked = { ...COVER, inputs: [fy, { ...fc, bracketedCost: false }], stated: "4.55x" };
+    const result = await checked(RESULTS, COVERED("4.55x"), unmarked, "unsupported");
+    expect(result.verdict).toBe("contradicted");
+  });
+
+  // protects=a check is offered relation, which it must give, saying when it is a limit; fails_when=the model is never told a limit can be named, or may leave relation out; no_claim=none beyond protects.
+  test("the check's calculate takes relation for a limit", async () => {
+    const calls: ModelCall[] = [];
+    const claim = INSIDE("3.25x");
+    const plans = {
+      [claim]: { verdict: "supported", calculation: { ...LEVERAGE, stated: "3.25x" } },
+    } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [RESULTS]);
+    await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    await setup.core.checkClaim({ claim });
+    const offered = JSON.stringify(calls[0]?.options.tools);
+    expect(offered).toContain('"at most"');
+    expect(offered).toContain("give relation");
+    expect(offered).toContain("bracketedCost");
+    expect(offered).toMatch(/"required":\[[^\]]*"stated","relation"\]/);
+  });
+});
+
 describe("A count of people in brackets is a count (#1023)", () => {
   const ACCOUNTS = {
     name: "Statement of accounts.md",
