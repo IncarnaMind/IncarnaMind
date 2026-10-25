@@ -330,6 +330,37 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
       `Couldn’t sort again: ${DECISION_FAILURE}`,
     );
+    const reportsSection = library.getByTestId("library-section").filter({
+      has: library.page().getByTestId("library-section-name").filter({ hasText: "Reports" }),
+    });
+    if ((await reportsSection.getByTestId("library-show-all").count()) > 0)
+      await pointAndClick(window, reportsSection.getByTestId("library-show-all"));
+    const noteInReports = reportsSection.getByTestId("library-document").filter({
+      has: window.getByRole("button", { name: "Note 1", exact: true }),
+    });
+    await expect(noteInReports.getByTestId("library-sort-failed")).toHaveText(
+      `Couldn’t sort again: ${DECISION_FAILURE}`,
+    );
+    // Screenshots of the row's reason: no row selected by an earlier click, and the pointer off the rows.
+    for (const box of await library.locator('[data-testid="library-select"]:checked').all())
+      await box.uncheck();
+    const shoot = async (name: string) => {
+      await toTop(library);
+      await pointAt(window, library.getByTestId("library-heading"));
+      await screenshot(window, name);
+      await screenshot(noteInReports, `${name}-row`);
+    };
+    await shoot("organize-outcome-en-1600-sort-failed");
+    await setWindowSize(app, window, 900, 760);
+    await shoot("organize-outcome-en-900-sort-failed");
+    await setLanguage(window, "zh-CN");
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
+      `未能再次整理：${DECISION_FAILURE}`,
+    );
+    await shoot("organize-outcome-zh-900-sort-failed");
+    await setWindowSize(app, window, 1600, 900);
+    await shoot("organize-outcome-zh-1600-sort-failed");
+    await setLanguage(window, "en");
     await pointAt(window, noteRow);
     await pointAndClick(window, noteRow.getByTestId("document-file-menu"));
     await pointAndClick(window, window.getByTestId("document.reject"));

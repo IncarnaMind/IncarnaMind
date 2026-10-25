@@ -336,15 +336,6 @@ export const LibraryRow = memo(function LibraryRow({
                     {t("library.notSorted.reason", { reason: notSorted })}
                   </span>
                 )}
-                {sortFailed !== null && (
-                  <span
-                    data-testid="library-sort-failed"
-                    title={t("library.sortAgain.title", { reason: sortFailed })}
-                    className="min-w-0 max-w-60 shrink truncate text-label font-semibold text-ink-meta"
-                  >
-                    {t("library.sortAgain.reason", { reason: sortFailed })}
-                  </span>
-                )}
                 {suggestedIn !== null && !review && (
                   <>
                     <span
@@ -434,6 +425,15 @@ export const LibraryRow = memo(function LibraryRow({
           />
         </span>
       </div>
+      {sortFailed !== null && (
+        <p
+          data-testid="library-sort-failed"
+          title={t("library.sortAgain.reason", { reason: sortFailed })}
+          className="truncate pr-1.5 pb-1.5 pl-14 text-label font-semibold leading-5 text-ink-meta"
+        >
+          {t("library.sortAgain.reason", { reason: sortFailed })}
+        </p>
+      )}
       {citing && doc.reference && (
         <div id={citePanelId} data-cite-panel="" className="min-w-0 pr-1.5 pb-3 pl-14">
           <CiteAsPanel
