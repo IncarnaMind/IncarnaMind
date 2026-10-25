@@ -237,6 +237,15 @@ test("tagging that meets the plan's limit waits: one line says until when, with 
     await setWindowSize(app, window, NARROW.width, NARROW.height);
     await dismissChatSetup(window);
     await signInWithChatGpt(app, window, openai);
+    await window.evaluate(async (model) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const plan = (await core.listChatProviders()).find((each) => each.kind === "chatgpt");
+      if (!plan) throw new Error("The ChatGPT plan isn't set up.");
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
+        automatic: true,
+      });
+    }, LUNA);
 
     // The plan's limit resets a little later: long enough to read the line.
     const resets = usedUp(openai, LUNA, 20 / 3600);
