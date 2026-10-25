@@ -279,6 +279,26 @@ describe("an Analysis an Answer runs", () => {
     });
   });
 
+  test.each(["Region", "", '"1,240"'])(
+    "column heading %j keeps a Citation to its original text",
+    async (heading) => {
+      const model = analysingModel({
+        query: "Revenue",
+        runs: [salesRun()],
+        answer: "Revenue is [=1].",
+      });
+      const { core } = await setUp(model, totalOf, [
+        { name: "sales.csv", contents: `${heading},Revenue\nNorth,120\nSouth,80` },
+      ]);
+
+      const { answer } = await askAndRead(core, "What was the total revenue?");
+      const input = answer.analyses[0]?.inputs[0];
+      if (input?.kind !== "range") throw new Error("No range input.");
+
+      expect(await core.recheckCitation(input.citation)).toMatchObject({ check: "found" });
+    },
+  );
+
   test("a result table written as [=table 1] on a line of its own is in the Answer as a table, its numbers as a report shows them", async () => {
     const model = analysingModel({
       query: "revenue",

@@ -110,6 +110,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         (unit.label?.sheet ?? null) === named &&
         unit.label?.rows?.includes(read.headingRow),
     );
+    const headingLine = heading?.label?.rows?.indexOf(read.headingRow) ?? -1;
     const citation: Citation = {
       passageId: source.passageId,
       documentId: source.documentId,
@@ -123,7 +124,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         from: read.headingRow,
         to: read.rowNumbers.at(-1) ?? read.headingRow,
       },
-      quote: read.columns.join("\t"),
+      quote: heading?.text.split("\n")[headingLine] ?? source.text,
       check: "found",
       checkReason: null,
     };

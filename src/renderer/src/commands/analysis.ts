@@ -8,7 +8,6 @@ export const analysisCommands: readonly Command[] = [
     label: "analysis.command",
     keywords: ["analysis.command.keywords"],
     group: "main",
-    // It only marks the composer; the chip's × or Esc takes it back.
     reversible: true,
     run: () => {
       const { seat, update } = useComposer.getState();
