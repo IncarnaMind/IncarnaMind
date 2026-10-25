@@ -377,6 +377,7 @@ export async function launchApp(
   });
   const window = await app.firstWindow();
   await window.getByTestId("plus-menu").waitFor();
+  await waitUntilLive(window);
   if (!keepWindow) {
     await resizeContent(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height, {
       waitForHeight: true,
@@ -385,6 +386,31 @@ export async function launchApp(
   }
   await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
+}
+
+/**
+ * The app is live: its core answers the page, and the page draws a frame after that. A launch
+ * asks for a size only once it is: a size asked during a first start waits for a frame that
+ * start hasn't drawn yet, and the resize's own wait then reports an app that isn't answering
+ * (#432, #1741). A window that has gone rejects at once, which is the clear error; a slow one
+ * is waited out here, where the app is, rather than inside the size check.
+ */
+async function waitUntilLive(window: Page): Promise<void> {
+  try {
+    await window.evaluate(
+      () =>
+        new Promise<void>((live) => {
+          const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          void bridge
+            .getSettings()
+            .then(() => requestAnimationFrame(() => requestAnimationFrame(() => live())));
+        }),
+    );
+  } catch (error) {
+    throw new Error("The app did not come up: its window stopped before the core answered.", {
+      cause: error,
+    });
+  }
 }
 
 async function answerExportQuestions(
@@ -1343,6 +1369,9 @@ export async function interceptSkillPicker(window: Page, path: string): Promise<
 /** Not in a Folder lists its first five Documents, then "Show N more Documents". */
 const FIRST_LISTED = 5;
 
+/** How long the core may take to read a Document: expect's 5 s runs out on a loaded runner (#1741). */
+const DOCUMENT_READY_WAIT_MS = 30_000;
+
 /**
  * Adds files through the sidebar's file picker and waits until each is
  * processed and ready. Each shows Not in a Folder (its first five, if more).
@@ -1353,7 +1382,9 @@ export async function addDocuments(window: Page, paths: string[]): Promise<void>
   const listed = Math.min(paths.length, FIRST_LISTED);
   await expect(items).toHaveCount(listed);
   for (let index = 0; index < listed; index++) {
-    await expect(items.nth(index)).toHaveAttribute("data-status", "ready");
+    await expect(items.nth(index)).toHaveAttribute("data-status", "ready", {
+      timeout: DOCUMENT_READY_WAIT_MS,
+    });
   }
   if (paths.length > listed) await expectReadyDocuments(window, paths.length);
 }
