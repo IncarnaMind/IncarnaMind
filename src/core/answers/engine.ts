@@ -736,7 +736,7 @@ const checkCalculationsSchema = {
         type: "string",
         enum: ["equals", "at most", "at least"],
         description:
-          'How the figure stands to stated: "equals" when stated is the figure; "at most" or "at least" when stated is a limit the sentence says the figure stays within or above ("inside a 3.25x covenant").',
+          'How the figure stands to stated: "equals" when stated is the figure; "at most" or "at least" when stated is a limit the sentence says the figure stays within or above ("inside a 3.25x covenant", "不超过3.25倍", "至少5倍").',
       },
     },
     required: [...calculationsSchema.items.required, "stated"],

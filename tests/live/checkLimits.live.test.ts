@@ -8,9 +8,11 @@
  * - INCARNAMIND_LIVE_RUNS: how many times each sentence is checked (1 when unset).
  * - INCARNAMIND_LIVE_DECOY_RUNS: how many times each decoy is (INCARNAMIND_LIVE_RUNS when unset).
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
- * - INCARNAMIND_LIVE_REPORT: a file to keep each verdict and the counts in.
+ * - INCARNAMIND_LIVE_REPORT: a file to keep each verdict and the counts in, with what the model
+ *   gave calculate and was told back for a verdict that isn't the expected one.
  */
 import { appendFile } from "node:fs/promises";
+import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import { createAiSdkChatModel } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
@@ -26,6 +28,40 @@ const DECOY_RUNS = Number(process.env.INCARNAMIND_LIVE_DECOY_RUNS ?? RUNS);
 const LANGUAGES = (process.env.INCARNAMIND_LIVE_LANGUAGES ?? "en,zh").split(",");
 
 type Expected = "supported" | "contradicted";
+
+/** The prompt of the last request a check streamed: its calls and their results so far. */
+let lastPrompt: readonly { role: string; content: unknown }[] = [];
+const createChatModel: typeof createAiSdkChatModel = (spec) =>
+  wrapLanguageModel({
+    model: createAiSdkChatModel(spec),
+    middleware: {
+      specificationVersion: "v4",
+      wrapStream: ({ doStream, params }) => {
+        lastPrompt = params.prompt;
+        return doStream();
+      },
+    },
+  });
+
+/** What the model gave calculate, and what it was told back: "calculate → …". */
+function calculateCalls(): string {
+  const parts = lastPrompt.flatMap((message) =>
+    Array.isArray(message.content) ? (message.content as Record<string, unknown>[]) : [],
+  );
+  const calls = parts.filter((part) => part.toolName === "calculate");
+  if (calls.length === 0) return "no calculate";
+  const given = (input: unknown) =>
+    ((input as { figures?: Record<string, unknown>[] } | null)?.figures ?? []).map(
+      ({ formula, stated, relation }) => ({ formula, stated, relation }),
+    );
+  return calls
+    .map((part) =>
+      part.type === "tool-call"
+        ? `calculate ${JSON.stringify(given(part.input))}`
+        : `→ ${JSON.stringify(part.output).slice(0, 200)}`,
+    )
+    .join(" ");
+}
 
 const CASES = [
   {
@@ -104,9 +140,7 @@ describe.each(CASES.filter((each) => LANGUAGES.includes(each.language)))(
       `${MODEL}: ${RUNS} checks of each sentence`,
       { timeout: 3_600_000 },
       async () => {
-        const core = startCore(await createTempDataFolder(), {
-          createChatModel: createAiSdkChatModel,
-        });
+        const core = startCore(await createTempDataFolder(), { createChatModel });
         core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
         await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
         const sources = await createTempDataFolder();
@@ -117,18 +151,22 @@ describe.each(CASES.filter((each) => LANGUAGES.includes(each.language)))(
         const counts: Record<string, number> = {};
         for (const [claim, expected] of each.claims) {
           const verdicts: string[] = [];
+          const misses: string[] = [];
           const runs = expected === "supported" ? RUNS : DECOY_RUNS;
           for (let run = 0; run < runs; run++) {
             const result = await core.checkClaim({ claim });
-            const relation =
-              result.verdict === "not-checked" ? undefined : result.calculation?.relation;
+            const calculation = result.verdict === "not-checked" ? null : result.calculation;
             const right = result.verdict === expected;
             const key = `${expected}:${right ? "right" : "wrong"}`;
             counts[key] = (counts[key] ?? 0) + 1;
             const why = result.verdict === "not-checked" ? ` (${result.reason})` : "";
-            verdicts.push(`${result.verdict}${relation ? ` (${relation})` : why}`);
+            const worked = calculation
+              ? ` (${calculation.figure.shown} ${calculation.relation ?? "equals"} ${calculation.stated})`
+              : why;
+            verdicts.push(`${result.verdict}${worked}`);
+            if (!right) misses.push(`  - ${result.verdict}: ${calculateCalls()}`);
           }
-          lines.push(`- ${claim} [${expected}] → ${verdicts.join(", ")}`);
+          lines.push(`- ${claim} [${expected}] → ${verdicts.join(", ")}`, ...misses);
         }
         const { spent } = await core.getCostSummary();
         lines.push(`Counts: ${JSON.stringify(counts)}`, `Spent: ${JSON.stringify(spent)}`, "");

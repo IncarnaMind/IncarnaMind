@@ -1108,7 +1108,7 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
   const COVERED = (times: string) =>
     `Using finance costs of (41.2) as a stand-in, cover would be ${times}.`;
 
-  // protects=a sentence naming a limit is judged on the comparison the model says it makes, and a cost in brackets on its size; a figure that breaks its limit or a wrong cover is still Contradicted, and a limit given with no relation is still compared as the figure (today's behaviour); fails_when=2.77x "inside a 3.25x covenant" or 4.55x cover from "(41.2)" is Contradicted, or a breach passes; no_claim=that a real model gives relation, which the real-model counts measure.
+  // protects=a sentence naming a limit is judged on the comparison the model says it makes, exactly against the limit, while only a figure the sentence states rounds to its precision; a cost in brackets is judged on its size; a figure that breaks its limit or a wrong cover is still Contradicted, and a limit given with no relation is still compared as the figure (today's behaviour); fails_when=2.77x "inside a 3.25x covenant" or 4.55x cover from "(41.2)" is Contradicted, a breach passes, or 4.546x passes "at least 4.55x" or 2.772x "inside a 2.77x covenant" by rounding; no_claim=that a real model gives relation, which the real-model counts measure.
   test.each([
     [INSIDE("3.25x"), { ...LEVERAGE, stated: "3.25x", relation: "at most" }, "supported"],
     [INSIDE("2.5x"), { ...LEVERAGE, stated: "2.5x", relation: "at most" }, "contradicted"],
@@ -1123,6 +1123,12 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
       { ...COVER, stated: "5x", relation: "at least" },
       "contradicted",
     ],
+    [
+      "Adjusted EBITDA covers finance costs at least 4.55x.",
+      { ...COVER, stated: "4.55x", relation: "at least" },
+      "contradicted",
+    ],
+    [INSIDE("2.77x"), { ...LEVERAGE, stated: "2.77x", relation: "at most" }, "contradicted"],
     [COVERED("4.55x"), { ...COVER, stated: "4.55x" }, "supported"],
     [COVERED("5.55x"), { ...COVER, stated: "5.55x" }, "contradicted"],
   ] as const)("“%s” is %s", async (claim, calculation, verdict) => {
