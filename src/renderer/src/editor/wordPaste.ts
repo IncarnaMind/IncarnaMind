@@ -82,6 +82,32 @@ function dropComments(body: HTMLElement): void {
   }
 }
 
+const showsNothing = (element: Element) =>
+  (element.textContent ?? "").trim() === "" && !element.querySelector("img, br");
+
+/**
+ * Word writes a page break outside its paragraph, followed by the paragraph's remaining content.
+ * A Mind has no pasted page break, so drop the break and, when it stood alone, those two empty parts.
+ * A break Word put inside a paragraph that keeps its words leaves a space instead, so the words
+ * either side don't join.
+ */
+function dropPageBreaks(body: HTMLElement): void {
+  for (const pageBreak of body.querySelectorAll("br")) {
+    if (!/page-break-before\s*:\s*always/i.test(pageBreak.getAttribute("style") ?? "")) continue;
+    let holder: Element = pageBreak;
+    while (holder.parentElement && !holder.parentElement.matches("body, div, td, th")) {
+      holder = holder.parentElement;
+    }
+    let rest = holder.nextSibling;
+    while (rest && holdsNothing(rest)) rest = rest.nextSibling;
+    if (holder === pageBreak) pageBreak.remove();
+    else pageBreak.replaceWith(" ");
+    if (!showsNothing(holder)) continue;
+    holder.remove();
+    if (rest && isElement(rest) && rest.tagName === "P" && showsNothing(rest)) rest.remove();
+  }
+}
+
 function headingOf(paragraph: Element, document: Document): Element | null {
   const style = /^Mso(.+?)(?:CxSp\w+)?$/.exec(paragraph.className)?.[1];
   const level = style === undefined ? null : headingLevelOfStyleName(style);
@@ -106,6 +132,7 @@ export function fromWord(html: string): string {
   for (const empty of [...body.getElementsByTagName("o:p")]) {
     if (empty.textContent === "") empty.remove();
   }
+  dropPageBreaks(body);
   const lists = (container: Element) => {
     const children = [...container.childNodes].filter((node) => !holdsNothing(node));
     if (!children.some((child) => listParagraphOf(child))) return;

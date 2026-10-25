@@ -158,5 +158,17 @@ export async function inspectPackage(bytes: Uint8Array): Promise<PackageReport> 
     }
   }
   if (!known.has("word/document.xml")) problems.push("word/document.xml is missing");
+  for (const [name, text] of parts) {
+    if (!/^word\/document\d*\.xml$/.test(name)) continue;
+    // Word shows "Error! Reference source not found." for a cross-reference to a note whose
+    // bookmark isn't there.
+    const bookmarks = new Set(
+      [...text.matchAll(/<w:bookmarkStart\b[^>]*\bw:name="([^"]*)"/g)].map((m) => m[1]),
+    );
+    for (const found of text.matchAll(/\bNOTEREF\s+(\S+)/g)) {
+      if (!bookmarks.has(found[1]))
+        problems.push(`${name}: NOTEREF ${found[1]} points at no bookmark`);
+    }
+  }
   return { features: countFeatures(parts, names), problems };
 }

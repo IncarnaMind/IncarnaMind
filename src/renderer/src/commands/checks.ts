@@ -2,14 +2,22 @@ import type { Editor } from "@tiptap/core";
 import type { ClaimCheckAction } from "../../../core/api";
 import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
-import { checkSentences, useChecks } from "../checks";
-import type { ShownClaim } from "../editor/claimChecks";
+import {
+  checkSentences,
+  setCheckCardOpen,
+  setClaimFocus,
+  setOpenClaim,
+  useChecks,
+} from "../checks";
+import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { startMindCheck } from "../mindCheck";
 import {
+  applyFigure,
   contradictedAt,
   cutSentence,
   cutUnsupported,
+  figureAt,
   fixesFree,
   keepAsView,
   notFoundAt,
@@ -26,6 +34,28 @@ function withSentences() {
   const note = noteHandle.current;
   if (!note || note.editor.isDestroyed || useChecks.getState().running[note.mindId]) return null;
   return selectionForEdit(note.editor.state) ? note : null;
+}
+
+/**
+ * The checked sentence the caret is in: what "Show the check for this
+ * sentence" opens. A caret exactly between two sentences takes the one it ends.
+ */
+function withClaimAtCaret() {
+  const note = noteHandle.current;
+  if (!note || note.editor.isDestroyed) return null;
+  const { head } = note.editor.state.selection;
+  const claims = shownClaims(note.editor.state);
+  const claim =
+    claims.find((each) => each.sentence.from < head && head < each.sentence.to) ??
+    claims.find((each) => each.sentence.from <= head && head <= each.sentence.to) ??
+    null;
+  return claim ? { ...note, claim } : null;
+}
+
+function showClaimCard(at: NonNullable<ReturnType<typeof withClaimAtCaret>>): void {
+  setCheckCardOpen(at.place, false);
+  setOpenClaim(at.place, at.claim.check.id);
+  setClaimFocus(at.place, at.claim.check.id);
 }
 
 /** Find support and Check against Documents (#96), on the selected sentences, from ⌘K. */
@@ -72,6 +102,19 @@ function withCuttable() {
 }
 
 export const checkCommands: readonly Command[] = [
+  {
+    id: "check.showCard",
+    label: "claim.showCard",
+    group: "main",
+    shortcut: { keys: "CmdOrCtrl+Shift+K" },
+    // It changes nothing: it shows what a check found, for a keyboard User to act on.
+    reversible: true,
+    when: () => withClaimAtCaret() !== null,
+    run() {
+      const at = withClaimAtCaret();
+      if (at) showClaimCard(at);
+    },
+  },
   checkCommand("find-support", "editor.ai.findSupport"),
   checkCommand("check-against-documents", "editor.ai.checkAgainstDocuments"),
   {
@@ -136,6 +179,18 @@ export const checkCommands: readonly Command[] = [
     run() {
       const at = withKeepable();
       if (at) keepAsView(at.editor, at.claim);
+    },
+  },
+  {
+    id: "check.useFigure",
+    label: "claim.useFigure.command",
+    group: "main",
+    // Applied as one step of the Mind's Undo, which brings back the check it had.
+    reversible: true,
+    when: () => withClaim(figureAt) !== null,
+    run() {
+      const at = withClaim(figureAt);
+      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim);
     },
   },
 ];

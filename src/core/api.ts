@@ -648,12 +648,15 @@ export type ComparisonCellStatus = "waiting" | "writing" | "done" | "failed";
  * Why a cell has no Answer: its Document doesn't answer the Question
  * ("not-found"), has no text to search, was deleted, is a file
  * IncarnaMind wrote, which checks leave out (#80), or is one the User keeps as
- * their own workings, which Answers never cite; or why its model didn't
- * write one (a `ProviderErrorKind`). "cost-cap" and "plan-limit" stopped the
- * fill (`RunStop`): the cell wasn't checked.
+ * their own workings, which Answers never cite; its Answer gave an amount at
+ * another scale than its Citation's Document ("scale-changed", #1798; `message`
+ * is the amount as the Document gives it); or why its model didn't write one
+ * (a `ProviderErrorKind`). "cost-cap" and "plan-limit" stopped the fill
+ * (`RunStop`): the cell wasn't checked.
  */
 export type ComparisonProblem =
   | "not-found"
+  | "scale-changed"
   | "nothing-to-search"
   | "source-removed"
   | "left-out"
@@ -2268,6 +2271,11 @@ export interface TabCitation {
    * tells whether that text was kept because its Linked folder was unlinked.
    */
   contentHash?: string;
+  /** Where in the Document it points, as it shows ("Revenue, rows 12–14"): its label, narrower than the Units. */
+  location?: CitationLocation;
+  /** The Units the Citation itself cites, when the tab was opened at another place: a quote that moved. */
+  pageFrom?: number;
+  pageTo?: number;
 }
 
 /** Where in its Document a Document tab was opened: a Citation's Units and quote. */
@@ -3662,8 +3670,12 @@ export interface LinkedFolderPreview {
   bytes: number;
   /** Cloud placeholders, left out until the User asks to download them. */
   onlineOnly: { files: number; bytes: number };
-  /** A rough guess at how long indexing takes on this computer, in seconds. */
-  estimatedSeconds: number;
+  /**
+   * Roughly how long reading them takes, in seconds, at the speed files of their kinds were
+   * read on this computer. Null until files of each of their kinds have been read here, with
+   * the embedding model in use, and when a file's size is far from the sizes read.
+   */
+  estimatedSeconds: number | null;
   /** The layout it would get. */
   layout: LinkedFolderLayout;
   /** The folder is inside a Linked folder already: linking it adds nothing. Its id, or null. */
@@ -5446,6 +5458,12 @@ export interface AnswerSteps {
    * meeting did. Absent: an Answer written before this was kept, or one that isn't in the assistant.
    */
   sent?: { documents: string[]; transcript?: true };
+  /**
+   * A help button was pressed while its Meeting's live text was behind (#1366): the lines it had,
+   * if any, went with the Question, and the reply says so first. Absent: it wasn't behind, or this
+   * isn't a help Answer.
+   */
+  textBehind?: true;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -10,6 +10,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  moveAssistant,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -52,17 +53,44 @@ const whereIs = (window: Page): Promise<Where> =>
     };
   });
 
-/** Every frame from now on, where the Question at `index` is under the thread's top, once it shows. */
+const isFullyVisible = (answer: Locator) =>
+  answer.evaluate((element) => {
+    const thread = element.closest('[data-testid="assistant-thread"]');
+    if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    const box = element.getBoundingClientRect();
+    const view = thread.getBoundingClientRect();
+    return box.top >= view.top - 1 && box.bottom <= view.bottom + 1;
+  });
+
+/** One frame's place for the sampled Question, in px: its place among the messages, and what shows. */
+interface Place {
+  /** Under the conversation's top, which no scroll or resize of the panel changes. */
+  inConversation: number;
+  /** Under the panel's top: where the User sees it. */
+  seen: number;
+  /** How far the conversation reaches past the panel. */
+  past: number;
+}
+
+/** Every frame from now on, where the Question at `index` is, once it shows. */
 const followQuestion = (window: Page, index: number) =>
   window.evaluate((at) => {
-    const holder = globalThis as unknown as { tops: number[]; following: boolean };
-    holder.tops = [];
+    const holder = globalThis as unknown as { places: Place[]; following: boolean };
+    holder.places = [];
     holder.following = true;
     const sample = () => {
-      const thread = document.querySelector('[data-testid="assistant-thread"]');
+      const thread = document.querySelector<HTMLElement>('[data-testid="assistant-thread"]');
+      const log = document.querySelector<HTMLElement>('[data-testid="assistant-log"]');
       const question = document.querySelectorAll('[data-testid="assistant-question"]').item(at);
-      if (thread && question) {
-        holder.tops.push(question.getBoundingClientRect().top - thread.getBoundingClientRect().top);
+      if (thread && log && question) {
+        const panel = thread.getBoundingClientRect();
+        const conversation = log.getBoundingClientRect();
+        const top = question.getBoundingClientRect().top;
+        holder.places.push({
+          inConversation: top - conversation.top,
+          seen: top - panel.top,
+          past: thread.scrollHeight - thread.clientHeight,
+        });
       }
       if (holder.following) requestAnimationFrame(sample);
     };
@@ -71,10 +99,25 @@ const followQuestion = (window: Page, index: number) =>
 
 const stopFollowing = (window: Page) =>
   window.evaluate(() => {
-    const holder = globalThis as unknown as { tops: number[]; following: boolean };
+    const holder = globalThis as unknown as { places: Place[]; following: boolean };
     holder.following = false;
-    return holder.tops;
+    return holder.places;
   });
+
+/** Each place the Question was in, and the panel it was seen in, for a failure that says what moved (#1824). */
+const whereItMoved = (places: Place[]): string => {
+  const states = new Map<string, number[]>();
+  for (const { inConversation, seen, past } of places) {
+    const at = Math.round(inConversation * 100) / 100;
+    const state = `${seen} px under the panel's top, ${past} px past it`;
+    const counts = states.get(state) ?? [];
+    counts.push(at);
+    states.set(state, counts);
+  }
+  return `the Question moved: ${[...states]
+    .map(([state, at]) => `${Math.min(...at)}–${Math.max(...at)} px in the conversation (${state})`)
+    .join("; ")}`;
+};
 
 /** From now on, the layout shifts the User didn't cause that move a Question. */
 const watchQuestionShifts = (window: Page) =>
@@ -120,11 +163,12 @@ for (const language of ["en", "zh-CN"] as const) {
     for (const question of QUESTIONS[language]) {
       await followQuestion(window, asked);
       const answer = await askInAssistant(window, question);
-      const tops = await stopFollowing(window);
-      // The same place from the first frame it shows to the Answer's last word.
-      expect(tops.length).toBeGreaterThan(30);
+      const places = await stopFollowing(window);
+      // The same place in the conversation from the first frame it shows to the Answer's last word.
+      expect(places.length).toBeGreaterThan(30);
+      const tops = places.map((each) => each.inConversation);
       const spread = Math.max(...tops) - Math.min(...tops);
-      expect(spread, `the Question moved: ${[...new Set(tops)].join(", ")}`).toBeLessThan(1);
+      expect(spread, whereItMoved(places)).toBeLessThan(1);
       const here = await whereIs(window);
       expect(here.scrollTop).toBe(0);
       expect(here.answerBelowFoot).toBeLessThan(0);
@@ -238,5 +282,282 @@ test("a scroll up before the Answer reaches the foot leaves no blank under it on
     return scroller.scrollHeight - (end + scroller.scrollTop);
   });
   expect(blank).toBeLessThan(80);
+  await app.close();
+});
+
+async function expectAnchoredQuestion(window: Page) {
+  await expect(window.getByTestId("assistant-thread")).toHaveAttribute("data-anchored", "");
+  await expect.poll(async () => (await whereIs(window)).question).toBeLessThan(24);
+}
+
+async function askSlowAnchored(window: Page, question: string) {
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect(window.getByTestId("composer-input")).toBeFocused();
+  await window.keyboard.type(question);
+  await window.keyboard.press("Enter");
+  const answers = assistantAnswers(window);
+  await expect(answers).toHaveCount(5);
+  const answer = answers.last();
+  await expect(answer).toHaveAttribute("data-status", "streaming");
+  await expectAnchoredQuestion(window);
+  return answer;
+}
+
+test("a short-lived Answer shrink clamps the scroll without releasing the anchored Question, which later follows the foot", async () => {
+  const { app, window } = await startLongThread();
+  const answer = await askSlowAnchored(
+    window,
+    "What do tides do with forty citations. Answer slowly",
+  );
+  const anchored = await whereIs(window);
+  const log = window.getByTestId("assistant-log");
+  const thread = window.getByTestId("assistant-thread");
+
+  const grown = await answer.evaluate((element) => {
+    const log = element.parentElement;
+    if (!(log instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    const room = Number.parseFloat(log.style.paddingBottom) || 0;
+    const added = Math.floor(room / 2);
+    element.style.paddingBottom = `${added}px`;
+    return { room, added };
+  });
+  expect(grown.added).toBeGreaterThan(40);
+  await expect
+    .poll(() => log.evaluate((element) => Number.parseFloat(element.style.paddingBottom) || 0))
+    .toBeLessThan(grown.room);
+
+  const clamped = await answer.evaluate((element) => {
+    const thread = element.closest('[data-testid="assistant-thread"]');
+    if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    element.style.paddingBottom = "0px";
+    const top = thread.scrollTop;
+    // The clamp's scroll can arrive before the resize observer refills the room.
+    thread.dispatchEvent(new Event("scroll"));
+    return top;
+  });
+  expect(clamped).toBeLessThan(anchored.scrollTop - 2);
+  await expectAnchoredQuestion(window);
+  expect(Math.abs((await whereIs(window)).question - anchored.question)).toBeLessThanOrEqual(2);
+  expect((await whereIs(window)).scrollTop).toBeCloseTo(anchored.scrollTop, 0);
+
+  await answer.evaluate((element) => {
+    const thread = element.closest('[data-testid="assistant-thread"]');
+    if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    element.style.paddingBottom = `${thread.clientHeight}px`;
+  });
+  await expect(thread).not.toHaveAttribute("data-anchored");
+  await expect.poll(async () => (await whereIs(window)).fromFoot).toBeLessThanOrEqual(2);
+  const atFoot = await whereIs(window);
+  await answer.evaluate((element) => {
+    const thread = element.closest('[data-testid="assistant-thread"]');
+    if (!(thread instanceof HTMLElement)) throw new Error("The assistant isn't showing.");
+    element.style.paddingBottom = `${thread.clientHeight + 80}px`;
+  });
+  await expect
+    .poll(async () => (await whereIs(window)).scrollTop)
+    .toBeGreaterThan(atFoot.scrollTop + 40);
+  await expect.poll(async () => (await whereIs(window)).fromFoot).toBeLessThanOrEqual(2);
+  await expect(answer).toHaveAttribute("data-status", "streaming");
+  await app.close();
+});
+
+for (const { language, width, question } of [
+  {
+    language: "en",
+    width: 1440,
+    question: "What do tides do with forty citations. Answer slowly",
+  },
+  {
+    language: "zh-CN",
+    width: 900,
+    question: "潮水每天怎样变化？ forty citations. Answer slowly",
+  },
+] as const) {
+  test(`resizing, docking, floating and folding keep an anchored Question from the foot (${language}, ${width}px)`, async () => {
+    const { app, window } = await startLongThread();
+    await setWindowSize(app, window, width, 640);
+    await setLanguage(window, language);
+    const answer = await askSlowAnchored(window, question);
+    const assistant = window.getByTestId("assistant");
+
+    const before = await assistant.boundingBox();
+    if (!before) throw new Error("The assistant isn't showing.");
+    const dock = await assistant.getAttribute("data-dock");
+    await window.getByTestId("assistant-resize").focus();
+    await window.keyboard.press(dock === "bottom" ? "ArrowUp" : "ArrowLeft");
+    await expect
+      .poll(() =>
+        assistant.evaluate((element, place) => {
+          const box = element.getBoundingClientRect();
+          return place === "bottom" ? box.height : box.width;
+        }, dock),
+      )
+      .toBe(dock === "bottom" ? before.height + 10 : before.width + 10);
+    await expectAnchoredQuestion(window);
+
+    await moveAssistant(window, "float");
+    await expect(assistant).toHaveAttribute("data-dock", "float");
+    await expectAnchoredQuestion(window);
+    await window.getByTestId("assistant-fold").click();
+    await expect(assistant).toHaveAttribute("data-folded", "true");
+    await window.getByTestId("assistant-fold").click();
+    await expect(assistant).not.toHaveAttribute("data-folded");
+    await expectAnchoredQuestion(window);
+
+    await moveAssistant(window, "right");
+    await expect(assistant).toHaveAttribute("data-chosen-dock", "right");
+    await expect(assistant).toHaveAttribute("data-dock", width < 1000 ? "bottom" : "right");
+    await expectAnchoredQuestion(window);
+    await expect(answer).toHaveAttribute("data-status", "streaming");
+    await app.close();
+  });
+}
+
+test("Add to Mind on an earlier Answer leaves the anchored Question and its room unchanged", async () => {
+  const { app, window } = await startLongThread();
+  const answer = await askSlowAnchored(
+    window,
+    "What do tides do with forty citations. Answer slowly",
+  );
+  const before = await whereIs(window);
+  const room = () =>
+    window.evaluate(() => {
+      const thread = document.querySelector<HTMLElement>('[data-testid="assistant-thread"]');
+      const log = document.querySelector<HTMLElement>('[data-testid="assistant-log"]');
+      const question = [...(log?.querySelectorAll(".assistant-question") ?? [])].at(-1);
+      const last = [...(log?.children ?? [])]
+        .filter((child) => !child.matches('[data-testid="add-to-picker"]'))
+        .at(-1);
+      if (!thread || !log || !question || !last) throw new Error("The anchored turn is missing.");
+      const style = getComputedStyle(thread);
+      const filled = last.getBoundingClientRect().bottom - question.getBoundingClientRect().top;
+      const inner =
+        thread.clientHeight -
+        (Number.parseFloat(style.paddingTop) || 0) -
+        (Number.parseFloat(style.paddingBottom) || 0);
+      return {
+        actual: Number.parseFloat(log.style.paddingBottom) || 0,
+        expected: Math.max(0, Math.round(inner - filled)),
+      };
+    });
+  const check = async () => {
+    const held = await room();
+    expect(held.actual).toBe(held.expected);
+    const after = await whereIs(window);
+    expect(Math.abs(after.question - before.question)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(2);
+    await expect(window.getByTestId("assistant-thread")).toHaveAttribute("data-anchored", "");
+  };
+  const duringNextChunk = async (act: () => Promise<void>) => {
+    const text = await answer.textContent();
+    await act();
+    await expect.poll(() => answer.textContent()).not.toBe(text);
+    await expect
+      .poll(async () => {
+        const held = await room();
+        return held.actual - held.expected;
+      })
+      .toBe(0);
+    await check();
+  };
+
+  await duringNextChunk(async () => {
+    await assistantAnswers(window)
+      .first()
+      .getByTestId("answer-add-to")
+      .evaluate((button: HTMLElement) => button.click());
+    await expect(window.getByTestId("add-to-picker")).toBeVisible();
+  });
+  await duringNextChunk(async () => {
+    await window.getByTestId("add-to-search").fill("no such Mind");
+    await expect(window.locator(".add-to-empty")).toBeVisible();
+  });
+  await duringNextChunk(async () => {
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("add-to-picker")).toHaveCount(0);
+  });
+  await app.close();
+});
+
+test("an older Answer sought in another conversation stays in view after its flash ends", async () => {
+  const { app, window } = await startLongThread();
+  await window.keyboard.press("ControlOrMeta+Shift+o");
+  await expect(window.getByTestId("assistant-empty")).toBeVisible();
+  for (const day of ["Friday", "Saturday", "Sunday", "Thursday"]) {
+    await askInAssistant(window, `What do tides do on ${day}`);
+  }
+  const previous = await window.getByTestId("assistant-thread").boundingBox();
+  if (!previous) throw new Error("The assistant isn't showing.");
+  await window.mouse.move(previous.x + previous.width / 2, previous.y + previous.height / 2, {
+    steps: 8,
+  });
+  await window.mouse.wheel(0, -200);
+  await expect.poll(async () => (await whereIs(window)).fromFoot).toBeGreaterThan(100);
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Your Documents answer this");
+  const found = window
+    .locator('[data-testid="palette-group"][data-group="conversationText"]')
+    .getByTestId("palette-item")
+    .filter({ hasText: "What do tides do on Monday" });
+  await expect(found).toHaveCount(1);
+  await found.click();
+
+  const answers = assistantAnswers(window);
+  await expect(answers).toHaveCount(4);
+  const selected = answers.first();
+  await expect(selected).toHaveAttribute("data-sought", "true");
+  await expect.poll(() => isFullyVisible(selected)).toBe(true);
+  await expect.poll(async () => (await whereIs(window)).fromFoot).toBeGreaterThan(24);
+  const before = (await whereIs(window)).scrollTop;
+
+  await expect(selected).not.toHaveAttribute("data-sought");
+  await expect.poll(() => isFullyVisible(selected)).toBe(true);
+  const after = await whereIs(window);
+  expect(after.fromFoot).toBeGreaterThan(24);
+  expect(Math.abs(after.scrollTop - before)).toBeLessThanOrEqual(2);
+  await app.close();
+});
+
+test("an older Answer already visible when it is sought stays put after its flash ends", async () => {
+  const { app, window } = await startLongThread();
+  const older = assistantAnswers(window).first();
+  await older.scrollIntoViewIfNeeded();
+  await expect.poll(() => isFullyVisible(older)).toBe(true);
+  const position = (await whereIs(window)).scrollTop;
+
+  await window.keyboard.press("ControlOrMeta+Shift+o");
+  await expect(window.getByTestId("assistant-empty")).toBeVisible();
+  for (const day of ["Friday", "Saturday", "Sunday", "Thursday"]) {
+    await askInAssistant(window, `What do tides do on ${day}`);
+  }
+  await window.getByTestId("assistant-thread").evaluate((thread, top) => {
+    thread.scrollTop = top;
+    thread.dispatchEvent(new Event("scroll"));
+  }, position);
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Your Documents answer this");
+  const found = window
+    .locator('[data-testid="palette-group"][data-group="conversationText"]')
+    .getByTestId("palette-item")
+    .filter({ hasText: "What do tides do on Monday" });
+  await expect(found).toHaveCount(1);
+  await found.click();
+
+  const selected = assistantAnswers(window).first();
+  await expect(selected).toHaveAttribute("data-sought", "true");
+  await expect.poll(() => isFullyVisible(selected)).toBe(true);
+  const before = await whereIs(window);
+  expect(before.scrollTop).toBe(position);
+  expect(before.fromFoot).toBeGreaterThan(24);
+
+  await expect(selected).not.toHaveAttribute("data-sought");
+  await expect.poll(() => isFullyVisible(selected)).toBe(true);
+  const after = await whereIs(window);
+  expect(after.scrollTop).toBe(position);
+  expect(after.fromFoot).toBeGreaterThan(24);
   await app.close();
 });

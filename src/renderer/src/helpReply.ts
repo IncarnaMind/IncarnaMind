@@ -73,19 +73,20 @@ const plain = (line: string) => line.replace(/\*\*|__/g, "").trim();
 
 /**
  * What the panel shows of a reply in its button's shape: at most two options or readings, after
- * the one line "Am I leading them?" puts first (`leadIn`), the one still being written included
- * while it `streaming`; or at most three short lines. What a model adds anyway around them (a
- * lead-in, a remark, a third option) is left out.
+ * the one line "Am I leading them?" or "the live text is behind" puts first (`leadIn`), the one
+ * still being written included while it `streaming`; or at most three short lines. What a model
+ * adds anyway around them (a lead-in, a remark, a third option) is left out.
  */
 export function shownItems(
   items: readonly ReplyItem[],
   { shape, leadIn, streaming }: { shape: HelpShape; leadIn: boolean; streaming: boolean },
 ): ReplyItem[] {
+  const [first] = items;
   if (shape === "lines") {
     const bullets = items.filter((item) => item.bullet);
-    return (bullets.length > 0 ? bullets : items).slice(0, 3);
+    const lead = leadIn && first && !first.bullet ? [first] : [];
+    return [...lead, ...(bullets.length > 0 ? bullets : items.slice(lead.length))].slice(0, 3);
   }
-  const [first] = items;
   const lead = leadIn && first && first.effect === null ? [first] : [];
   const last = items.at(-1);
   const writing = streaming && last && last.effect === null && !lead.includes(last) ? [last] : [];

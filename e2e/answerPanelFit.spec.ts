@@ -192,9 +192,36 @@ for (const { width, height } of SIZES) {
         expect(ring.offset).toBeLessThanOrEqual(-2);
         expect(ring.masked).toBe(false);
 
-        const seen = new Set<number>();
-        for (let press = 0; press < 40; press++) {
-          const state = await frame.evaluate((each) => {
+        /**
+         * A key scrolls the frame over a moment, so it is read once it rests, or as soon as it is
+         * at its end: a key read at once sometimes leaves the last column unseen (#1521).
+         */
+        const frameAtRest = (from: number) =>
+          frame.evaluate(
+            (each, was) =>
+              new Promise<void>((resolve) => {
+                const atEnd = () => each.scrollLeft + each.clientWidth >= each.scrollWidth - 1;
+                let last = -1;
+                let still = 0;
+                const settle = () => {
+                  still = each.scrollLeft === last ? still + 1 : 0;
+                  last = each.scrollLeft;
+                  if (still >= 2) resolve();
+                  else requestAnimationFrame(settle);
+                };
+                let waited = 0;
+                const started = () => {
+                  // Two seconds with no movement: the key took nothing, and the read after it says why.
+                  if (++waited > 120) resolve();
+                  else if (each.scrollLeft !== was || atEnd()) settle();
+                  else requestAnimationFrame(started);
+                };
+                requestAnimationFrame(started);
+              }),
+            from,
+          );
+        const readFrame = () =>
+          frame.evaluate((each) => {
             const frameBox = each.getBoundingClientRect();
             const headings = [...each.querySelectorAll<HTMLElement>("tr:first-child > *")];
             const first = headings[0];
@@ -217,14 +244,22 @@ for (const { width, height } of SIZES) {
               firstAtEdge: Math.abs(firstBox.left - frameBox.left) <= 1,
               firstInFront: first.contains(middle),
               atEnd: each.scrollLeft + each.clientWidth >= each.scrollWidth - 1,
+              scrollLeft: each.scrollLeft,
             };
           });
+
+        const seen = new Set<number>();
+        let state = await readFrame();
+        for (let press = 0; press < 40; press++) {
           for (const column of state.visible) seen.add(column);
           expect(state.firstAtEdge).toBe(true);
           expect(state.firstInFront).toBe(true);
           if (state.atEnd) break;
           await window.keyboard.press("ArrowRight");
+          await frameAtRest(state.scrollLeft);
+          state = await readFrame();
         }
+        for (const column of state.visible) seen.add(column);
         expect([...seen].sort()).toEqual([1, 2, 3]);
         await expect(frame).not.toHaveAttribute("data-more-after", "");
         await expect(frame).toHaveAttribute("data-more-before", "");

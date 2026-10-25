@@ -19,6 +19,7 @@ import {
   writeSourceFile,
 } from "../helpers/documents";
 import { turnOnEmbeddings } from "../helpers/embedding";
+import { connectToMind } from "../helpers/mindClient";
 import { buildPdf } from "../helpers/pdf";
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
@@ -62,7 +63,7 @@ async function changeFile(core: Core, documentId: string, path: string, contents
  * A Citation of version 1, made while the file changed to version 2 under
  * the Answer being written, and then version 3.
  */
-async function citeThenChange() {
+async function citeThenChange(fileName = "Tides.pdf") {
   let release = () => {};
   const released = new Promise<void>((resolve) => {
     release = resolve;
@@ -76,7 +77,7 @@ async function citeThenChange() {
     answer,
     pause: { after: answer.length, until: released },
   });
-  const setup = await setUpWithDocuments(model, [{ name: "Tides.pdf", contents: V1 }]);
+  const setup = await setUpWithDocuments(model, [{ name: fileName, contents: V1 }]);
   const { core, client, mind, documents } = setup;
   const document = documents[0];
   if (!document) throw new Error("Nothing was added.");
@@ -165,12 +166,45 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
     expect(
       queryDatabase(dataDir, "SELECT 1 FROM passages WHERE content_hash = ?", [sha256(V2)]),
     ).toEqual([]);
-    // The Citation goes with its Mind: nothing quotes version 1 any more.
+    // The Mind waits in Recently deleted and can come back with its Citation, so version 1 stays.
     await second.deleteMind(mind.id);
     second.close();
 
+    const third = startCore(dataDir);
+    expect(pagesByVersion(dataDir)).toEqual({ [sha256(V1)]: 2, [sha256(V3)]: 3 });
+    // The Citation goes with its Mind once it is deleted for good: nothing quotes version 1 any more.
+    await third.deletePermanently([{ kind: "mind", id: mind.id }]);
+    third.close();
+
     startCore(dataDir);
     expect(pagesByVersion(dataDir)).toEqual({ [sha256(V3)]: 3 });
+  });
+
+  test("a Mind in Recently deleted keeps the version its Citation quotes through a restart, and restored, the Citation still opens it", async () => {
+    const { core, dataDir, document, mind, answerId } = await citeThenChange("潮汐.pdf");
+    const nothingCited = await core.createMind({ title: "Nothing cited" });
+    await core.deleteMind(mind.id);
+    await core.deleteMind(nothingCited.id);
+    core.close();
+
+    const second = startCore(dataDir);
+    expect(pagesByVersion(dataDir)).toEqual({ [sha256(V1)]: 2, [sha256(V2)]: 2 });
+    await second.restore([{ kind: "mind", id: mind.id }]);
+    second.close();
+
+    const third = startCore(dataDir);
+    expect(pagesByVersion(dataDir)).toEqual({ [sha256(V1)]: 2, [sha256(V2)]: 2 });
+    const citation = onlyCitation(await connectToMind(third, mind.id), answerId);
+    expect(citation).toMatchObject({ documentId: document.id, contentHash: sha256(V1) });
+    expect(
+      await third.readableQuote({
+        documentId: document.id,
+        contentHash: sha256(V1),
+        pageFrom: 2,
+        pageTo: 2,
+        quote: SPRING,
+      }),
+    ).toBe(SPRING);
   });
 });
 
