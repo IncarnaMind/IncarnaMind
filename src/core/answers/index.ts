@@ -67,6 +67,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { filingFolder, hasSearchScope, NO_SCOPE, searchScopeOf } from "../../shared/searchScope";
+import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import {
   ANSWER_BLOCK,
@@ -1224,15 +1225,33 @@ export function createAnswers(options: AnswersOptions) {
       for (const record of records) recordedQuotes.set(quoteKey(record), record.marker);
       return session.tools.cite(records, citeOptions);
     };
+    const wordsOf = (marker: number) => {
+      const citation = session.quotes.recorded(marker)?.citation;
+      return citation && { passage: citation.passageId, quote: normaliseText(citation.quote) };
+    };
+    // A Citation that quotes an input's words cites that input; another claim's beside the figure,
+    // though from the same Passage, doesn't (#1831).
+    const covers = (cited: number, marker: number) => {
+      const [shown, input] = [wordsOf(cited), wordsOf(marker)];
+      return (
+        cited === marker ||
+        (!!shown &&
+          !!input &&
+          input.quote !== "" &&
+          shown.passage === input.passage &&
+          shown.quote.includes(input.quote))
+      );
+    };
     // An id written as text is a Citation (#1800), made one first: a figure beside it isn't cited twice.
     const citeFigures = (text: string): string =>
       withFigureCitations(
         session.citeWrittenIds(text, notKept),
-        (figure) =>
+        (figure, cited) =>
           figures.inputSources(figure).flatMap((source) => {
             const marker =
               typeof source === "number" ? source : recordedQuotes.get(quoteKey(source));
-            return marker !== undefined && session.tools.hasRecord?.(marker) ? [marker] : [];
+            if (marker === undefined || !session.tools.hasRecord?.(marker)) return [];
+            return cited.some((each) => covers(each, marker)) ? [] : [marker];
           }),
         (figure) => figures.figure(figure),
       );

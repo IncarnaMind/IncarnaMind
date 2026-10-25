@@ -195,6 +195,37 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
     expect(answer.citations).toHaveLength(1);
   });
 
+  // protects=a figure whose sentence cites only another claim, from the same Passage, still gets its own input's Citation (review of #1831); fails_when=the figure looks cited by the EBITDA Citation beside it; no_claim=none beyond protects.
+  test("and its own when its sentence cites only another claim", async () => {
+    const model = calculatingModel((call) =>
+      called(call, "cite")
+        ? { text: "Net debt was [=1] and LTM adjusted EBITDA 95,000 [^1]." }
+        : {
+            calls: [
+              {
+                tool: "cite",
+                input: {
+                  citations: [
+                    {
+                      marker: 1,
+                      passage: passageOf(call)?.id,
+                      quote: "LTM adjusted EBITDA: 95,000.",
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+    );
+    const { core } = await setUp(model);
+    const answer = await askAssistant(core, { text: "What was net debt in GBP millions?" });
+    expect(answer.text).toBe("Net debt was [=1][^9001] and LTM adjusted EBITDA 95,000 [^1].");
+    expect(answer.citations.map((each) => [each.marker, each.quote])).toEqual([
+      [9001, "Net debt: 310,000."],
+      [1, "LTM adjusted EBITDA: 95,000."],
+    ]);
+  });
+
   // protects=a figure whose sentence cites a Citation of the Mind by the id it was shown with keeps that one Citation (#1800); fails_when=the figure's input is cited beside it again; no_claim=none beyond protects.
   test("and not again when its sentence cites a Citation by its id", async () => {
     let id = "";

@@ -144,17 +144,20 @@ interface FigureAt {
 }
 
 // A marker that starts the next sentence ("[=1]. [^1]") is this one's, as in `markedSentence`.
-const citedAfter = (text: string, end: number) =>
-  /^[ \t\u3000]*\[\^\d{1,4}\](?!:)/.test(text.slice(end));
+const citedAfter = (text: string, end: number): number[] => {
+  const marker = /^[ \t\u3000]*\[\^(\d{1,4})\](?!:)/.exec(text.slice(end));
+  return marker ? [Number(marker[1])] : [];
+};
 
-/** The sentences and table cells of an Answer that show figures but no Citation marker. */
-function uncitedPlaces(text: string): { span: Span; figures: FigureAt[]; cell: boolean }[] {
+/** The sentences and table cells of an Answer that show figures, with the markers each has. */
+function figurePlaces(
+  text: string,
+): { span: Span; figures: FigureAt[]; cell: boolean; markers: number[] }[] {
   const places = [
     ...answerSentences(text).map((sentence) => ({ ...sentence, cell: false })),
     ...answerTableUnits(text).filter((unit) => unit.cell),
   ];
   return places.flatMap(({ start, end, markers, cell }) => {
-    if (markers.length > 0 || (!cell && citedAfter(text, end))) return [];
     const words = text.slice(start, end);
     // A marker in code ("`[=1]`") is the text's own, not a figure.
     const code = [...words.matchAll(/`[^`]*`/g)].map((each) => [
@@ -164,28 +167,30 @@ function uncitedPlaces(text: string): { span: Span; figures: FigureAt[]; cell: b
     const figures = [...words.matchAll(FIGURE_MARKER)]
       .filter((each) => !code.some(([from = 0, to = 0]) => each.index >= from && each.index < to))
       .map((each) => ({ figure: Number(each[1]), end: start + each.index + each[0].length }));
-    return figures.length > 0 ? [{ span: { start, end }, figures, cell }] : [];
+    const cited = cell ? markers : [...markers, ...citedAfter(text, end)];
+    return figures.length > 0 ? [{ span: { start, end }, figures, cell, markers: cited }] : [];
   });
 }
 
 /**
- * `text` with Citation markers put in where it shows figures with none (#1831): right after
- * each figure, past a scale or unit written after its marker ("[=1] million"), or at the end of
- * its table cell. `citationsOf` gives a figure's markers; one that several figures of a place
- * share goes after the last of them. `figureOf` gives a figure, for the words after its marker.
+ * `text` with Citation markers put in where it shows figures without their inputs' (#1831):
+ * right after each figure, past a scale or unit written after its marker ("[=1] million"), or
+ * at the end of its table cell. `citationsOf` gives the markers a figure still needs, given
+ * those its sentence or cell has; one that several figures of a place share goes after the last
+ * of them. `figureOf` gives a figure, for the words after its marker.
  */
 export function withFigureCitations(
   text: string,
-  citationsOf: (figure: number) => readonly number[],
+  citationsOf: (figure: number, cited: readonly number[]) => readonly number[],
   figureOf: (figure: number) => PlacedFigure | null,
 ): string {
   const at = new Map<number, number[]>();
-  for (const place of uncitedPlaces(text)) {
+  for (const place of figurePlaces(text)) {
     const after = new Map<number, number>();
     for (const { figure, end } of place.figures) {
       const shown = figureOf(figure);
       const where = place.cell ? place.span.end : shown ? figureMarkerEnd(text, end, shown) : end;
-      for (const marker of citationsOf(figure)) after.set(marker, where);
+      for (const marker of citationsOf(figure, place.markers)) after.set(marker, where);
     }
     for (const [marker, where] of after) at.set(where, [...(at.get(where) ?? []), marker]);
   }
