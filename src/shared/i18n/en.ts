@@ -76,6 +76,8 @@ export const en = {
   "library.problem.show": "Show",
   "unread.count.one": "1 file couldn’t be read",
   "unread.count": "{count} files couldn’t be read",
+  "unread.heading": "What couldn’t be read",
+  "unread.more": "and {count} more",
   "unread.show": "Show",
   "unread.file.reason": ": {reason}",
   "unread.ocr": "Read with OCR",
@@ -3451,6 +3453,9 @@ export const en = {
   "export.citedDocuments.other": "{count} Documents",
   "export.commentFailedChecks": "Comment on checks that failed",
   "export.commentFailedChecks.hint": "Quote not found, Contradicted, Unsupported or Needs re-check",
+  "export.unreadNames": "Name the files",
+  "export.unreadNames.hint":
+    "The section about what couldn’t be read lists the files by name. Off, it says how many.",
   "aiStatement.command": "Export AI use statement",
   "aiStatement.keywords": "AI use disclosure declaration thesis dissertation paper record",
   "aiStatement.title": "AI use statement: {name}",
@@ -3515,8 +3520,12 @@ export const en = {
   "aiStatement.sentences.column.checked": "Checked",
   "aiStatement.unread.one":
     "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it:",
+  "aiStatement.unread.one.fullStop":
+    "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it.",
   "aiStatement.unread":
     "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them:",
+  "aiStatement.unread.fullStop":
+    "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them.",
   "aiStatement.note":
     "Schools have their own forms for declaring AI use. Use these counts to fill in yours.",
   "checkRecord.command": "Export check record…",
@@ -3776,6 +3785,8 @@ export const en = {
   "error.document.nameEmpty": "A Document’s name can’t be empty.",
   "error.document.nameTooLong": "A Document’s name can’t be longer than {max} characters.",
   "error.document.notCitedChoice": "Whether a Document is cited must be true or false.",
+  "error.mind.unreadFileNames":
+    "Whether an export names the files it couldn’t read must be true or false.",
   "error.document.fileMissing": "The Document’s file is missing.",
   "error.verify.request": "That isn’t a request to verify a document that IncarnaMind can read.",
   "error.verify.notVerifying": "This Mind doesn’t verify a document.",
