@@ -3765,6 +3765,8 @@ export const en = {
   "error.document.nameEmpty": "A Document’s name can’t be empty.",
   "error.document.nameTooLong": "A Document’s name can’t be longer than {max} characters.",
   "error.document.notCitedChoice": "Whether a Document is cited must be true or false.",
+  "error.mind.unreadFileNames":
+    "Whether an export names the files it couldn’t read must be true or false.",
   "error.document.fileMissing": "The Document’s file is missing.",
   "error.verify.request": "That isn’t a request to verify a document that IncarnaMind can read.",
   "error.verify.notVerifying": "This Mind doesn’t verify a document.",

@@ -4528,9 +4528,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     setMindUnreadFileNames: async (mindId, names) => {
       if (typeof names !== "boolean") {
-        throw new InvalidInputError(
-          "Whether an export names the files it couldn't read is yes or no.",
-        );
+        throw new InvalidInputError({ key: "error.mind.unreadFileNames" });
       }
       const mind = writableMind(mindId);
       content.editSettings(mind.id, (mindSettings) => setUnreadFileNames(mindSettings, names));
