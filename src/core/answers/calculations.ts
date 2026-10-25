@@ -157,7 +157,8 @@ export function readOnItsLine(
     (each) => near(writtenNumber(each), writtenNumber(figure)) && adds(each),
   );
   const [first] = found;
-  return first && found.every((each) => own(each) === own(first)) ? first : null;
+  if (!first || !found.every((each) => own(each) === own(first))) return null;
+  return first.unit.kind === "plain" ? { ...first, unit: figure.unit } : first;
 }
 
 const SHOW_AS: readonly ShowAs[] = ["number", "percent", "points", "currency", "times", "yes-no"];

@@ -1132,18 +1132,20 @@ export function createAnswers(options: AnswersOptions) {
       );
     // A figure's Citations are its inputs', which the model may leave out of its sentence or write
     // only as footnote definitions; one quoted directly has no marker of its own (#1831).
+    // By Passage and quote, across calls: a Mind write is read again as its input streams in.
+    const figureQuoteMarkers = new Map<string, number>();
     const citeFigures = (text: string): string => {
       const records: CitationRecordInput[] = [];
       const markersOf = new Map<number, number[]>();
       let next = Math.max(0, ...markersIn(text)) + 1;
       const markerOf = (source: number | QuoteInput): number => {
         if (typeof source === "number") return source;
-        const same = records.find(
-          (each) => each.passage === source.passage && each.quote === source.quote,
-        );
-        if (same) return same.marker;
+        const key = `${source.passage}\n${source.quote}`;
+        const known = figureQuoteMarkers.get(key);
+        if (known !== undefined && session.tools.hasRecord?.(known)) return known;
         while (session.tools.hasRecord?.(next)) next++;
         records.push({ ...source, marker: next });
+        figureQuoteMarkers.set(key, next);
         return next++;
       };
       for (const figure of uncitedFigures(text)) {

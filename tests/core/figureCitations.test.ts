@@ -178,7 +178,15 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
   // protects=a figure the assistant writes into a Mind carries its input's Citation there, checked; fails_when=the Mind holds the figure's number with no Citation; no_claim=the reply, which only says what was done.
   test("in a Mind the assistant writes", async () => {
     const model = calculatingModel(
-      () => ({ calls: [{ tool: "add_to_mind", input: { content: "Net debt was [=1] at Q3." } }] }),
+      () => ({
+        calls: [
+          {
+            tool: "add_to_mind",
+            input: { content: "Net debt was [=1] at Q3." },
+            streamInput: true,
+          },
+        ],
+      }),
       { text: "" },
     );
     const { core, mind, client } = await setUp(model);
