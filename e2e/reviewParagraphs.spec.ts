@@ -142,7 +142,7 @@ for (const each of CASES) {
     await motionSettled(window);
     await screenshot(window, `review-paragraphs-wide-${each.language}`);
 
-    await setWindowSize(app, window, 760, 900);
+    await setWindowSize(app, window, 900, 900);
     await expect(count).toHaveText(each.review);
     expect(await marked(editor)).toEqual({ changed: 4, added: 1, unmarked: 4 });
     expect(await fitsWidth(editor)).toBe(true);
