@@ -88,7 +88,7 @@ test("a check looks in the Mind's chosen scope, its card says where, and a chang
   await slideSelect(window, line, "Harbours publish", { line, words: "spring." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   const marks = window.getByTestId("claim-mark");
   await expect(marks).toHaveCount(2);
@@ -246,7 +246,7 @@ test("when the Mind's own scope holds nothing, the check says so and offers all 
     await slideSelect(window, line, "Harbours publish", { line, words: "spring." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
   };
   const marks = window.getByTestId("claim-mark");
@@ -280,8 +280,8 @@ test("when the Mind's own scope holds nothing, the check says so and offers all 
   await remove("Seabirds");
   await slideSelect(window, line, "Harbours publish", { line, words: "spring." });
   await expect(
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
-  ).toContainText("添加文档后才能查找支持");
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
+  ).toContainText("添加文档后才能核对");
   await window.keyboard.press("Escape");
   const card = await checkCard(window);
   await pointAndClick(window, card.getByTestId("badge-check-mind"));
@@ -312,7 +312,7 @@ test("a Mind imported from a Word file isn't supported by its own file, and the 
   await slideSelect(window, line, "Harbours publish", { line, words: "week." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   const mark = window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "unsupported");

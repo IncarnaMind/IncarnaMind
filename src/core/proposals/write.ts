@@ -16,8 +16,10 @@
  *   written nowhere (`Written.unmadeTable`).
  * - `proposeAfter` adds new paragraphs under the stretch, each a Proposal.
  * - `proposeBlocks` writes new content for a whole element (an Answer
- *   written again) over what it holds: Blocks kept as they are, paragraphs
- *   compared word by word, and other Blocks added or removed whole.
+ *   written again) over what it holds, and `proposeOver` over Blocks of a
+ *   Mind (the assistant's own text written anew): Blocks kept as they are,
+ *   each paragraph paired with the one it is most like and compared word by
+ *   word, lists item by item, and other Blocks added or removed whole.
  * - `takeBackForRegenerate` rejects a Proposal and says where the text it
  *   covered is now, to make it again from that text.
  *
@@ -1438,18 +1440,33 @@ function pairUp(
     if (!counterpart(segment, alike, translating)) return null;
     return 1 + 2 * alike;
   };
-  const rows = segments.length;
-  const columns = paragraphs.length;
-  // best[i][j]: the most the paragraphs from i and from j can pair for.
-  const best = Array.from({ length: rows + 1 }, () => new Array<number>(columns + 1).fill(0));
-  const at = (i: number, j: number) => best[i]?.[j] ?? 0;
+  return bestPairing(segments.length, paragraphs.length, weight);
+}
+
+/**
+ * Which row each column pairs with, in order (null: none), for the most `weight` in all; a
+ * weight of null: those two can't pair.
+ */
+function bestPairing(
+  rows: number,
+  columns: number,
+  weight: (row: number, column: number) => number | null,
+): (number | null)[] {
+  const weights = new Float64Array(rows * columns);
+  for (let i = 0; i < rows; i++) {
+    for (let j = 0; j < columns; j++) weights[i * columns + j] = weight(i, j) ?? Number.NaN;
+  }
+  const pairOf = (i: number, j: number) => weights[i * columns + j] ?? Number.NaN;
+  // best[i][j]: the most the rows from i and the columns from j can pair for.
+  const best = new Float64Array((rows + 1) * (columns + 1));
+  const at = (i: number, j: number) => best[i * (columns + 1) + j] ?? 0;
   for (let i = rows - 1; i >= 0; i--) {
     for (let j = columns - 1; j >= 0; j--) {
-      const pair = weight(i, j);
-      (best[i] as number[])[j] = Math.max(
+      const pair = pairOf(i, j);
+      best[i * (columns + 1) + j] = Math.max(
         at(i + 1, j),
         at(i, j + 1),
-        pair === null ? Number.NEGATIVE_INFINITY : pair + at(i + 1, j + 1),
+        Number.isNaN(pair) ? Number.NEGATIVE_INFINITY : pair + at(i + 1, j + 1),
       );
     }
   }
@@ -1459,8 +1476,8 @@ function pairUp(
   let i = 0;
   let j = 0;
   while (i < rows && j < columns) {
-    const pair = weight(i, j);
-    if (pair !== null && pair + at(i + 1, j + 1) >= at(i, j) - TIE) {
+    const pair = pairOf(i, j);
+    if (!Number.isNaN(pair) && pair + at(i + 1, j + 1) >= at(i, j) - TIE) {
       paired[j] = i;
       i++;
       j++;
@@ -1854,10 +1871,27 @@ const shapeOf = (name: string, attributes: Attributes) =>
     .map((value) => (value === undefined || value === null ? "" : String(value)))
     .join(",")}`;
 
+/** What a Block with no text is, beyond its type: a formula's LaTeX, a chart's figures. */
+const leafOf = (attributes: Attributes) =>
+  JSON.stringify(
+    Object.entries(attributes)
+      .filter(
+        ([key, value]) =>
+          key !== BLOCK_ID_ATTRIBUTE &&
+          key !== PROPOSAL_ATTRIBUTE &&
+          value !== null &&
+          value !== undefined,
+      )
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+
 /** How a Block of the Mind is compared with one of the new Answer: its type, shape and text. */
 function elementKey(element: Y.XmlElement): string {
   const attributes = element.getAttributes() as Attributes;
   if (INLINE_NODES.has(element.nodeName)) return answerNodeKey(element.nodeName, attributes);
+  if (element.length === 0 && !TEXT_BLOCKS.has(element.nodeName)) {
+    return `\u0003${element.nodeName}${leafOf(attributes)}`;
+  }
   const inside = element
     .toArray()
     .map((child) => {
@@ -1875,6 +1909,9 @@ function jsonKey(node: NodeJSON): string {
   if (node.type === "text") return node.text ?? "";
   const attributes = node.attrs ?? {};
   if (INLINE_NODES.has(node.type)) return answerNodeKey(node.type, attributes);
+  if ((node.content ?? []).length === 0 && !TEXT_BLOCKS.has(node.type)) {
+    return `\u0003${node.type}${leafOf(attributes)}`;
+  }
   const inside = (node.content ?? []).map(jsonKey).join("");
   return `\u0003${shapeOf(node.type, attributes)}{${inside}}`;
 }
@@ -1911,21 +1948,209 @@ export function citationsIn(node: Y.XmlElement | NodeJSON): string[] {
   return (node.content ?? []).flatMap(citationsIn);
 }
 
-/** Two Blocks whose words are compared one by one: paragraphs, or headings of a level. */
-const comparable = (element: Y.XmlElement, node: NodeJSON) =>
-  TEXT_BLOCKS.has(element.nodeName) &&
+const sameShape = (element: Y.XmlElement, node: NodeJSON) =>
   element.nodeName === node.type &&
   shapeOf(element.nodeName, element.getAttributes() as Attributes) ===
     shapeOf(node.type, node.attrs ?? {});
 
+/** Two Blocks whose words are compared one by one: paragraphs, or headings of a level. */
+const comparable = (element: Y.XmlElement, node: NodeJSON) =>
+  TEXT_BLOCKS.has(element.nodeName) && sameShape(element, node);
+
+const nested = (element: Y.XmlElement, node: NodeJSON) =>
+  WRAPPERS.has(element.nodeName) && sameShape(element, node);
+
+const childBlocks = (element: Y.XmlElement) =>
+  element.toArray().filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
+
+const idOf = (element: Y.XmlElement) => stringOf(element.getAttribute(BLOCK_ID_ATTRIBUTE));
+
+const PAIRED_WORDS = /\p{Script=Han}+|[\p{L}\p{N}]+/gu;
+
 /**
- * Writes `content` (an Answer written again) over what `container` holds
- * now, as Proposals of `request`: Blocks that are the same stay as they are;
- * where they differ, a paragraph or heading paired with one of the same kind
- * is compared word by word (one change if it is mostly new), and other Blocks
- * are removed and added whole, the new after the old. What the User wrote
- * stays until they accept a change to it. `container` must hold no Proposals.
- * Call it in a Yjs transaction.
+ * The words of all the text a Block holds, in the Mind or in the new text, as `wordsOf` reads
+ * them, without `splitWords`: a long Mind compares every Block with every other.
+ */
+function wordsIn(block: Y.XmlElement | NodeJSON): string[] {
+  const texts: string[] = [];
+  const visit = (node: Y.XmlElement | Y.XmlText | NodeJSON) => {
+    if (node instanceof Y.XmlText) {
+      for (const run of node.toDelta() as Run[]) texts.push(stringOf(run.insert));
+      return;
+    }
+    if (!(node instanceof Y.XmlElement) && node.type === "text") {
+      texts.push(node.text ?? "");
+      return;
+    }
+    const children =
+      node instanceof Y.XmlElement
+        ? node
+            .toArray()
+            .filter((child) => child instanceof Y.XmlElement || child instanceof Y.XmlText)
+        : (node.content ?? []);
+    for (const child of children) visit(child);
+    texts.push(" ");
+  };
+  visit(block);
+  const words: string[] = [];
+  for (const [run] of texts.join("").matchAll(PAIRED_WORDS)) {
+    if (!HAN.test(run)) words.push(run.toLowerCase());
+    else if (run.length === 1) words.push(run);
+    else for (let at = 1; at < run.length; at++) words.push(run.slice(at - 1, at + 1));
+  }
+  return words;
+}
+
+function sharedIn(a: Int32Array, b: Int32Array): number {
+  let shared = 0;
+  for (let i = 0, j = 0; i < a.length && j < b.length; ) {
+    const x = a[i] ?? 0;
+    const y = b[j] ?? 0;
+    if (x === y) shared++;
+    if (x <= y) i++;
+    if (y <= x) j++;
+  }
+  return shared;
+}
+
+/**
+ * Which of `old`'s Blocks each of `content`'s is written over (null: none, it is added): the
+ * pairing of the most Blocks of a kind, the more of the shorter's words the other holds the
+ * better, so a paragraph made longer, split or merged pairs with the one it grew from, and one
+ * the new text adds or moves never takes the place of the one after it. A list item pairs only
+ * with one close to it (DESIGN.md, How a change reads).
+ */
+function pairBlocks(old: readonly Y.XmlElement[], content: readonly NodeJSON[]): (number | null)[] {
+  const numbers = new Map<string, number>();
+  const read = (name: string, attributes: Attributes, block: Y.XmlElement | NodeJSON) => {
+    const words = Int32Array.from(wordsIn(block), (word) => {
+      const known = numbers.get(word);
+      if (known !== undefined) return known;
+      numbers.set(word, numbers.size);
+      return numbers.size - 1;
+    }).sort();
+    const pairs = TEXT_BLOCKS.has(name) || WRAPPERS.has(name);
+    return { shape: pairs ? shapeOf(name, attributes) : null, words };
+  };
+  const olds = old.map((element) =>
+    read(element.nodeName, element.getAttributes() as Attributes, element),
+  );
+  const news = content.map((node) => read(node.type, node.attrs ?? {}, node));
+  return bestPairing(old.length, content.length, (i, j) => {
+    const a = olds[i];
+    const b = news[j];
+    if (!a || !b || a.shape === null || a.shape !== b.shape) return null;
+    const total = a.words.length + b.words.length;
+    const shorter = Math.min(a.words.length, b.words.length);
+    const shared = shorter === 0 ? 0 : sharedIn(a.words, b.words);
+    const held = shorter === 0 ? Number(total === 0) : shared / shorter;
+    const alike = total === 0 ? 1 : (2 * shared) / total;
+    if (old[i]?.nodeName === "listItem" && alike < COUNTERPART_LIKENESS) return null;
+    return 1 + 2 * held;
+  });
+}
+
+interface BlockWriter {
+  next(target: string): ProposalRef;
+  newId(): string;
+  notes: CitationNotes;
+}
+
+/**
+ * Writes `content` over `old`, Blocks side by side in `parent`, as Proposals. Blocks that are
+ * the same stay as they are. Where they differ, each new Block goes over the old one it pairs
+ * with (`pairBlocks`): a paragraph or heading word by word (one change if it is mostly new), a
+ * list, list item or quote Block by Block inside it. The rest are removed and added whole, each
+ * new one after the old ones before it. Returns the ids of the Blocks `content` is written as.
+ */
+function writeBlocks(
+  parent: Y.XmlElement | Y.XmlFragment,
+  old: readonly Y.XmlElement[],
+  content: readonly NodeJSON[],
+  writer: BlockWriter,
+): string[] {
+  const ids: string[] = [];
+  let last: Y.XmlElement | null = null;
+  const keep = (element: Y.XmlElement) => {
+    last = element;
+    ids.push(idOf(element));
+  };
+  const remove = (element: Y.XmlElement) => {
+    for (const key of citationsIn(element)) writer.notes.removed.add(key);
+    setProposal(element, { ...refOf(writer.next(targetText(element))), kind: "delete" });
+    last = element;
+  };
+  const add = (node: NodeJSON) => {
+    for (const key of citationsIn(node)) writer.notes.added.add(key);
+    const element = createElement(node);
+    setProposal(element, { ...refOf(writer.next("")), kind: "insert" });
+    const [first] = old;
+    if (last) addAfter(last, [element]);
+    else if (first) addBeside(first, [element], "before");
+    else parent.insert(0, [element]);
+    keep(element);
+  };
+  const writeOver = (element: Y.XmlElement, node: NodeJSON) => {
+    const size = sizeOf(element);
+    const tokens = comparable(element, node)
+      ? tokensIn(element, 0, size, (child, attributes) => ({
+          key: answerNodeKey(child.nodeName, attributes),
+        }))
+      : null;
+    if (tokens) {
+      const segment: Segment = {
+        element,
+        from: 0,
+        to: size,
+        whole: true,
+        shown: true,
+        tokens,
+        start: 0,
+        end: size,
+        kind: kindOf(element),
+      };
+      writeHunks(segment, jsonTokens(node.content ?? []), writer.next, writer.newId, writer.notes);
+    } else if (nested(element, node)) {
+      writeBlocks(element, childBlocks(element), node.content ?? [], writer);
+    } else {
+      remove(element);
+      add(node);
+      return;
+    }
+    keep(element);
+  };
+  const steps = diffSteps(old.map(elementKey), content.map(jsonKey));
+  let at = 0;
+  for (const hunk of hunksOf(steps, () => false)) {
+    for (; at < hunk.oldFrom; at++) keep(old[at] as Y.XmlElement);
+    const removed = old.slice(hunk.oldFrom, hunk.oldTo);
+    const added = content.slice(hunk.newFrom, hunk.newTo);
+    const paired = pairBlocks(removed, added);
+    const waiting: NodeJSON[] = [];
+    let from = 0;
+    for (const [index, node] of added.entries()) {
+      const pair = paired[index];
+      if (pair === null || pair === undefined) {
+        waiting.push(node);
+        continue;
+      }
+      for (; from < pair; from++) remove(removed[from] as Y.XmlElement);
+      for (const each of waiting.splice(0)) add(each);
+      writeOver(removed[from] as Y.XmlElement, node);
+      from++;
+    }
+    for (; from < removed.length; from++) remove(removed[from] as Y.XmlElement);
+    for (const each of waiting) add(each);
+    at = hunk.oldTo;
+  }
+  for (; at < old.length; at++) keep(old[at] as Y.XmlElement);
+  return ids;
+}
+
+/**
+ * Writes `content` (an Answer written again) over what `container` holds now, as Proposals of
+ * `request` (`writeBlocks`): what the User wrote stays until they accept a change to it.
+ * `container` must hold no Proposals. Call it in a Yjs transaction.
  */
 export function proposeBlocks(
   container: Y.XmlElement,
@@ -1935,77 +2160,24 @@ export function proposeBlocks(
 ): Written {
   const { proposals, next } = proposalsOf(request, newId);
   const notes = notesOf();
-  const old = container.toArray().filter((child) => child instanceof Y.XmlElement);
-  const hunks = hunksOf(diffSteps(old.map(elementKey), content.map(jsonKey)), () => false);
-
-  /** A Block of the new Answer, added whole. */
-  const addedBlock = (node: NodeJSON, ref: ProposalRef) => {
-    for (const key of citationsIn(node)) notes.added.add(key);
-    const element = createElement(node);
-    setProposal(element, { ...refOf(ref), kind: "insert" });
-    return element;
-  };
-  /** A Block of the Mind, removed whole. */
-  const removeBlock = (element: Y.XmlElement, ref: ProposalRef) => {
-    for (const key of citationsIn(element)) notes.removed.add(key);
-    setProposal(element, { ...refOf(ref), kind: "delete" });
-  };
-
-  // Planned in order, so the Proposals are numbered as they read; written from the end.
-  const plans = hunks.map((hunk) => {
-    const removed = old.slice(hunk.oldFrom, hunk.oldTo);
-    const added = content.slice(hunk.newFrom, hunk.newTo);
-    const pairs = removed.slice(0, added.length).map((element, index) => {
-      const node = added[index] as NodeJSON;
-      const tokens = comparable(element, node)
-        ? tokensIn(element, 0, sizeOf(element), (child, attributes) => ({
-            key: answerNodeKey(child.nodeName, attributes),
-          }))
-        : null;
-      if (tokens) {
-        const segment: Segment = {
-          element,
-          from: 0,
-          to: sizeOf(element),
-          whole: true,
-          shown: true,
-          tokens,
-          start: 0,
-          end: sizeOf(element),
-          kind: kindOf(element),
-        };
-        return { kind: "words" as const, segment, tokens: jsonTokens(node.content ?? []) };
-      }
-      return { kind: "whole" as const, element, node, ref: next(targetText(element)) };
-    });
-    // Words are compared when written, each change made then: their numbers come after.
-    const gone = removed.slice(added.length).map((element) => ({
-      element,
-      ref: next(targetText(element)),
-    }));
-    const extra = added.slice(removed.length).map((node) => ({ node, ref: next("") }));
-    return { hunk, pairs, gone, extra };
-  });
-
-  for (const { hunk, pairs, gone, extra } of plans.reverse()) {
-    // New Blocks go after the last Block this place removes, else after the one before it.
-    const anchor = old[hunk.oldTo - 1] ?? null;
-    if (extra.length > 0) {
-      const elements = extra.map(({ node, ref }) => addedBlock(node, ref));
-      if (anchor) addAfter(anchor, elements);
-      else container.insert(0, elements);
-    }
-    for (const { element, ref } of gone) removeBlock(element, ref);
-    for (const pair of [...pairs].reverse()) {
-      if (pair.kind === "words") {
-        writeHunks(pair.segment, pair.tokens, next, newId, notes);
-      } else {
-        addAfter(pair.element, [addedBlock(pair.node, pair.ref)]);
-        removeBlock(pair.element, pair.ref);
-      }
-    }
-  }
+  writeBlocks(container, childBlocks(container), content, { next, newId, notes });
   return { proposals, droppedCitations: droppedOf(notes), notes: noNotes() };
+}
+
+/**
+ * Writes `content` over `old`, top-level Blocks side by side in a Mind, as Proposals of
+ * `request` (`writeBlocks`). Returns the ids of the top-level Blocks `content` is written as,
+ * in its order. Call it in a Yjs transaction.
+ */
+export function proposeOver(
+  blocks: Y.XmlFragment,
+  old: readonly Y.XmlElement[],
+  content: readonly NodeJSON[],
+  request: string,
+  newId: () => string,
+): string[] {
+  const { next } = proposalsOf(request, newId);
+  return writeBlocks(blocks, old, content, { next, newId, notes: notesOf() });
 }
 
 // ---------------------------------------------------------------------------

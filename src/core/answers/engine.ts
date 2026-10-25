@@ -324,8 +324,8 @@ export interface GatedCall extends RunToolCall {
  * Which Tools a Run is offered (#78):
  * - "answer": an ordinary Answer's: the Documents' search and `cite`, and
  *   every other Tool the request brings (Skills, Connectors, Find sources);
- * - "check": a check Run's (find support, verify, a comparison table's
- *   cells, contradiction watch): the Documents' search and `cite` only,
+ * - "check": a check Run's (check against documents, verify, a comparison
+ *   table's cells, contradiction watch): the Documents' search and `cite` only,
  *   whatever the request brings, so the text it checks can't steer a write or
  *   a send;
  * - "documents": the Documents' Tools as an Answer has them, and nothing the

@@ -1,6 +1,6 @@
 /**
- * What checks may use as evidence (#80). A check Run (find support and check
- * against Documents, #96; verify, #97, #110) and a comparison table's cells
+ * What checks may use as evidence (#80). A check Run (check against
+ * Documents, #96; verify, #97, #110) and a comparison table's cells
  * (#98) search the User's Documents as an Answer does, with the search Tool,
  * but leave out:
  * - IncarnaMind's own files (`Document.ownFile`): an export or a source pack

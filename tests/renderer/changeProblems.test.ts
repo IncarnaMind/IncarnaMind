@@ -91,6 +91,7 @@ describe("Why a call changed nothing, on its row", () => {
     { kind: "no-mind" },
     { kind: "not-found", name: "Chapter 9" },
     { kind: "several", name: "Notes" },
+    { kind: "not-picked", name: "Q3 plan" },
     { kind: "no-heading", mindId: "a", heading: "Risks" },
     { kind: "no-place", mindId: "a", place: "Risks" },
     { kind: "several-places", mindId: "a", name: "Summary", adding: false },
@@ -117,6 +118,13 @@ describe("Why a call changed nothing, on its row", () => {
       expect(text).not.toBeNull();
       expect(text).not.toMatch(/mindCall\./);
     }
+  });
+
+  // protects=after the User skips the question which Mind (#1865), the row says no Mind was picked, never that several Minds share the name; fails_when=it reads as "Several Minds are called"; no_claim=none beyond protects.
+  test("a Mind not picked says so", () => {
+    const problem: MindProblem = { kind: "not-picked", name: "Q3 plan" };
+    expect(problemText(en, problem, "Q3 plan")).toBe("Didn’t change “Q3 plan”: no Mind was picked");
+    expect(problemText(zh, problem, "Q3 plan")).toBe("未修改“Q3 plan”：没有选择 Mind");
   });
 
   // protects=a name that fits several places reads as adding when a Block was to be added, in English and Chinese; fails_when=an add_to_mind row says it couldn't change; no_claim=none beyond protects.
