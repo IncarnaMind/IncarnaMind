@@ -1,5 +1,6 @@
 import {
   type LayoutChange,
+  type LayoutGroup,
   type LayoutTab,
   MAX_TAB_GROUPS,
   type WindowLayout,
@@ -9,7 +10,7 @@ import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../../lay
 import { useAppStore } from "../../store";
 import { focusTab } from "../../tabFocus";
 import { tabTitle } from "../../tabs";
-import type { Undoable } from "../../undo";
+import { type Undoable, UndoRefused } from "../../undo";
 
 /*
  * What the tab commands and buttons do beyond one change to the layout: they
@@ -57,17 +58,36 @@ export async function moveToGroup(tabId: string, direction: -1 | 1): Promise<voi
   if (next) focusTab(tabId);
 }
 
-/** Puts a tab at a place among its group's tabs, by the id of the tab that takes the place after it. */
-async function moveTabTo(tabId: string, place: number): Promise<void> {
-  const at = groupOfTab(useAppStore.getState().layout, tabId);
-  if (!at) return;
-  const others = at.group.tabs.filter((tab) => tab.id !== tabId);
-  await useAppStore.getState().changeLayout({
-    type: "move",
-    tabId,
-    groupId: at.group.id,
-    before: others[place]?.id ?? null,
-  });
+/** The tabs either side of a tab in its group, by ID. */
+interface Neighbours {
+  left: string | null;
+  right: string | null;
+}
+
+function neighboursOf(group: LayoutGroup, tab: LayoutTab): Neighbours {
+  const place = group.tabs.indexOf(tab);
+  return { left: group.tabs[place - 1]?.id ?? null, right: group.tabs[place + 1]?.id ?? null };
+}
+
+/**
+ * A neighbour that has closed gives way to the other one; with both gone the place is gone too,
+ * so Undo refuses rather than put the tab somewhere else.
+ */
+async function moveTabBetween(tabId: string, place: Neighbours): Promise<void> {
+  const store = useAppStore.getState();
+  const at = groupOfTab(store.layout, tabId);
+  if (!at) throw new UndoRefused((t) => t("undo.tabClosed"), null);
+  const others = at.group.tabs.filter((each) => each.id !== tabId);
+  const right = others.findIndex((each) => each.id === place.right);
+  const left = others.findIndex((each) => each.id === place.left);
+  let before: string | null;
+  if (right !== -1) before = place.right;
+  else if (left !== -1) before = others[left + 1]?.id ?? null;
+  else if (place.left === null) before = others[0]?.id ?? null;
+  else if (place.right === null) before = null;
+  else throw new UndoRefused((t) => t("undo.tabNeighboursClosed"), null);
+  const next = await store.changeLayout({ type: "move", tabId, groupId: at.group.id, before });
+  if (!next) throw new UndoRefused((t) => t("undo.tabMoveRefused"), null);
 }
 
 /** The tab next to this one in the same run of pinned or unpinned tabs: none across that line. */
@@ -90,8 +110,12 @@ export async function moveWithinGroup(tabId: string, step: -1 | 1): Promise<Undo
   const neighbour = neighbourInRun(tabs, tab, step);
   if (!neighbour) return;
   const before = step === -1 ? neighbour.id : (tabs[place + 2]?.id ?? null);
+  const from = neighboursOf(at.group, tab);
   const next = await store.changeLayout({ type: "move", tabId, groupId: at.group.id, before });
   if (!next) return;
+  const movedAt = groupOfTab(next, tabId);
+  const moved = movedAt?.group.tabs.find((each) => each.id === tabId);
+  if (!movedAt || !moved) return;
   focusTab(tabId);
   return {
     said: (t) =>
@@ -99,8 +123,8 @@ export async function moveWithinGroup(tabId: string, step: -1 | 1): Promise<Undo
         name: tabTitle(useAppStore.getState(), tab.item, t),
       }),
     name: (t) => t("undo.name.tabMove"),
-    undo: () => moveTabTo(tabId, place),
-    redo: () => moveTabTo(tabId, place + step),
+    undo: () => moveTabBetween(tabId, from),
+    redo: () => moveTabBetween(tabId, neighboursOf(movedAt.group, moved)),
   };
 }
 
