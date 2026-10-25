@@ -575,7 +575,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
   }
   if (line.kind === "applied") {
     const what = text(
-      "min-w-0 font-semibold",
+      "applied-count min-w-0 font-semibold",
       line.facts ? changeFact(t, line.facts, null) : appliedText(t, line.blocks),
       "applied-count",
     );
@@ -605,7 +605,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
     return lineElement("applied-line", "applied-line", [
       sparkle(),
       text(
-        "min-w-0 font-semibold",
+        "applied-count min-w-0 font-semibold",
         reviewText(t, blocks, line.byAssistant === true),
         "applied-count",
       ),
@@ -617,7 +617,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
   }
   return lineElement("applied-line", "applied-line", [
     sparkle(),
-    text("min-w-0", t(line.asked ? "edit.held.own" : "edit.held"), "applied-count"),
+    text("applied-count min-w-0", t(line.asked ? "edit.held.own" : "edit.held"), "applied-count"),
     dot(),
     button("apply", t("edit.held.apply")),
     dot(),

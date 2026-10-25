@@ -1074,6 +1074,9 @@
    */
   .mind-editor-frame .mind-editor:not(.assistant-answer-text) {
     padding-top: var(--mind-band);
+  }
+  /* The first-run guide's steps follow its line at once: it keeps no writing room of its own. */
+  .mind-editor-frame:not(.mind-editor-frame--guide) .mind-editor:not(.assistant-answer-text) {
     min-height: calc(10rem + var(--mind-band));
   }
   /*
@@ -3481,6 +3484,8 @@
     }
   }
   .mind-editor .applied-line--band .applied-count {
+    flex: 1 1 0%;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
