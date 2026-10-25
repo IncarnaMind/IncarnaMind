@@ -468,7 +468,8 @@ function listedName(name: string): string {
 /** How many Documents `unreadDocumentsNote` names before "and N more". */
 const NAMED_UNREAD = 5;
 
-/** A reason a Document had no text to search at all; "parts" is not one, since its rest is searched. */
+// "parts" is left out: a workbook read in part keeps its Passages, so it is not a Document the
+// search finds no text in.
 type WholeReason = Exclude<UnreadReason, "parts">;
 
 /** Why a Document couldn't be read, as the note tells the model. */
@@ -495,8 +496,7 @@ const UNREAD_WORDS: Record<WholeReason, (pages: readonly number[]) => string> = 
  * why; empty when there are none.
  */
 export function unreadDocumentsNote(unread: readonly UnreadFile[]): string {
-  // A workbook read in part keeps its Passages, so the note, which is about Documents with no
-  // text to search, leaves it out; the line beside the Answer names it (#740).
+  // The line beside the Answer still names a workbook read in part (#740).
   const whole = unread.filter(
     (file): file is UnreadFile & { reason: WholeReason } => file.reason !== "parts",
   );
