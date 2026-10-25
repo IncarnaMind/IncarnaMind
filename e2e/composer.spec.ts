@@ -13,6 +13,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   enterContent,
+  forceQuit,
   launchApp,
   nameMind,
   ollamaListing,
@@ -119,6 +120,12 @@ const bridge = (window: Page) => ({
       const answer = messages.filter((message) => message.kind === "answer").at(-1);
       return answer?.kind === "answer" ? { status: answer.status, text: answer.text } : null;
     }),
+  storedConversation: () =>
+    window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [conversation] = await core.listConversations();
+      return conversation ? core.getConversation(conversation.id) : null;
+    }),
 });
 
 /** The scripted Answer repeats the Question: a long one keeps it streaming for a few seconds. */
@@ -135,6 +142,7 @@ async function busyOllama() {
   const waiting: (() => void)[] = [];
   let holding = false;
   let cloud = false;
+  let tags = 0;
   const server: Server = createServer((request, response) => {
     request.resume();
     if (request.url !== "/api/tags") {
@@ -142,6 +150,7 @@ async function busyOllama() {
       response.end();
       return;
     }
+    tags += 1;
     const listing = {
       name: "fake-model",
       model: "fake-model",
@@ -160,6 +169,9 @@ async function busyOllama() {
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}`,
+    get tags() {
+      return tags;
+    },
     hold() {
       holding = true;
     },
@@ -323,6 +335,121 @@ test("Stop keeps what streamed, and Regenerate writes the Answer again", async (
   await expect(assistantAnswers(window)).toHaveCount(1);
   await expect(window.getByTestId("mind-editor").getByTestId("answer")).toHaveCount(0);
   await app.close();
+});
+
+test("a Question waiting for model readiness survives a force-quit, is stopped on restart, and can be retried", async () => {
+  const ollama = await busyOllama();
+  try {
+    const first = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(first.window);
+    await bridge(first.window).ollama(ollama.url);
+    await pointAndClick(first.window, first.window.getByTestId("plus-menu"));
+    await pointAndClick(first.window, first.window.getByTestId("plus-new-mind"));
+    const input = first.window.getByTestId("composer-input");
+    await pointAndClick(first.window, input);
+    const question = "Keep this Question through a crash";
+    const before = ollama.tags;
+    ollama.hold();
+    await first.window.keyboard.type(question);
+    await first.window.keyboard.press("Enter");
+    await expect(first.window.getByTestId("assistant-question")).toContainText(question);
+    await expect(first.window.getByTestId("assistant-answer-on-its-way")).toBeVisible();
+    // The held response proves the ask is waiting inside readyModel.
+    await expect.poll(() => ollama.tags).toBeGreaterThan(before);
+    await expect.poll(() => bridge(first.window).storedConversation()).not.toBeNull();
+    await forceQuit(first.app);
+    ollama.release();
+
+    const restarted = await launchApp(dataDir, { fakeChat: true });
+    const content = await bridge(restarted.window).storedConversation();
+    if (!content) throw new Error("The Question and its Conversation were not kept.");
+    expect(content.messages.map((message) => message.kind)).toEqual(["question", "answer"]);
+    const [storedQuestion, storedAnswer] = content.messages;
+    expect(storedQuestion).toMatchObject({ kind: "question", text: question });
+    expect(storedAnswer).toMatchObject({ kind: "answer", status: "stopped", text: "" });
+    if (storedAnswer?.kind !== "answer") throw new Error("The recovered Answer is missing.");
+
+    await pointAndClick(restarted.window, restarted.window.getByTestId("assistant-title"));
+    await expect(
+      restarted.window.getByTestId("assistant-history-row").filter({ hasText: question }),
+    ).toHaveCount(1);
+    await restarted.window.keyboard.press("Escape");
+
+    // Opened as a person does, by its words in ⌘K.
+    await restarted.window.keyboard.press("ControlOrMeta+k");
+    const palette = restarted.window.getByTestId("palette");
+    await expect(palette).toBeVisible();
+    await restarted.window.keyboard.type(question);
+    const found = palette
+      .locator('[data-testid="palette-group"][data-group="conversations"]')
+      .getByTestId("palette-item")
+      .first();
+    await expect(found).toBeVisible();
+    await pointAndClick(restarted.window, found);
+    await expect(palette).toBeHidden();
+
+    // Recovered, it says it was stopped where the User looks, and its own retry writes it again.
+    const answer = assistantAnswers(restarted.window).first();
+    await expect(answer).toHaveAttribute("data-status", "stopped");
+    await restarted.window.mouse.move(10, 10);
+    await expect(answer.getByTestId("answer-stopped")).toHaveText("Stopped");
+    await expect.poll(() => opacityOf(answer.getByTestId("answer-actions"))).toBe(1);
+    await openSteps(restarted.window, answer);
+    await pointAndClick(restarted.window, answer.getByTestId("answer-regenerate"));
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+    await expect(answer).toContainText("scripted");
+    await expect
+      .poll(async () => (await bridge(restarted.window).storedAnswer())?.status)
+      .toBe("done");
+    await restarted.app.close();
+  } finally {
+    ollama.close();
+  }
+});
+
+test("a Question already inserted while Thinking survives a force-quit (control)", async () => {
+  const ollama = await busyOllama();
+  try {
+    const first = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(first.window);
+    await bridge(first.window).ollama(ollama.url);
+    await pointAndClick(first.window, first.window.getByTestId("plus-menu"));
+    await pointAndClick(first.window, first.window.getByTestId("plus-new-mind"));
+    const input = first.window.getByTestId("composer-input");
+    await pointAndClick(first.window, input);
+    const before = ollama.tags;
+    ollama.hold();
+    await first.window.keyboard.type("Answer slowly: what is a Mind?");
+    await first.window.keyboard.press("Enter");
+    await expect.poll(() => ollama.tags).toBeGreaterThan(before);
+    ollama.release();
+    const answer = assistantAnswers(first.window).first();
+    await expect(answer).toHaveAttribute("data-status", "streaming");
+    // Thinking is shown only after the turn is inserted and its Answer starts.
+    await expect(answer.getByTestId("answer-writing")).toHaveText("Thinking…", {
+      timeout: 15_000,
+    });
+    await forceQuit(first.app);
+
+    const restarted = await launchApp(dataDir, { fakeChat: true });
+    const content = await bridge(restarted.window).storedConversation();
+    if (!content) throw new Error("The inserted Question and its Conversation were not kept.");
+    expect(content.messages.map((message) => message.kind)).toEqual(["question", "answer"]);
+    expect(content.messages[0]).toMatchObject({
+      kind: "question",
+      text: "Answer slowly: what is a Mind?",
+    });
+    expect(content.messages[1]).toMatchObject({ kind: "answer", status: "stopped" });
+    await pointAndClick(restarted.window, restarted.window.getByTestId("assistant-title"));
+    await expect(
+      restarted.window
+        .getByTestId("assistant-history-row")
+        .filter({ hasText: "Answer slowly: what is a Mind" }),
+    ).toHaveCount(1);
+    await restarted.app.close();
+  } finally {
+    ollama.close();
+  }
 });
 
 test("sending empties the composer and shows the Question with its Answer on its way at once; until it is written the send button is Stop, so a second Enter, a double click, or Enter then a click never asks twice, and the same Question can be asked again once it is done", async () => {

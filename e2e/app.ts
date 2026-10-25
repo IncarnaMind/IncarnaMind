@@ -1475,6 +1475,9 @@ export function setLanguage(window: Page, language: "en" | "zh-CN"): Promise<unk
   );
 }
 
+/** The scale a copy's transform says, 1 with none. */
+export const scaleOf = (transform: string) => Number(/^matrix\(([^,]+),/.exec(transform)?.[1] ?? 1);
+
 /** How many animations are running (src/renderer/src/motion.ts), leaving copies included. */
 export function motionRunning(window: Page): Promise<number> {
   return window.evaluate(
@@ -2134,6 +2137,13 @@ export async function nameMind(window: Page, name: string): Promise<void> {
     },
   );
   await expect(frontMindName(window)).toHaveText(name);
+}
+
+/** Hides or shows the sidebar with its button, as a person does: in the sidebar's header or the tab strip. */
+export async function setSidebarShown(window: Page, shown: boolean): Promise<void> {
+  const toggle = window.getByTestId("sidebar-toggle");
+  await pointAndClick(window, toggle);
+  await expect(toggle).toHaveAttribute("aria-expanded", shown ? "true" : "false");
 }
 
 /** Moves the cursor to the start of the text as the system does: ⌘↑ on macOS, where ⌘Home doesn't. */

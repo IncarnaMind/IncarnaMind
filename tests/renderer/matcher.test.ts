@@ -67,4 +67,26 @@ describe("Chinese names by pinyin, and typos", () => {
       "Contract typo test",
     ]);
   });
+
+  test("a typo stays inside one word, never letters across words (#1372)", () => {
+    expect(matchName(queryWords("theme"), "Remove the examples")).toBeNull();
+    expect(marked("theme", "Theme")).toEqual(["Theme"]);
+    // One word may still have its typo, even beside another.
+    expect(marked("contarct", "Remove the contract")).toEqual(["contract"]);
+  });
+
+  test("a character read two ways is found by either reading, in full pinyin or initials (#1416)", () => {
+    expect(marked("chongming", "重命名")).toEqual(["重命"]);
+    expect(marked("cmm", "重命名")).toEqual(["重命名"]);
+    // The reading the collation gives still finds it.
+    expect(marked("zhongming", "重命名")).toEqual(["重命"]);
+    expect(marked("chongxin", "重新读取")).toEqual(["重新"]);
+    expect(marked("xingzhang", "行长")).toEqual(["行长"]);
+    expect(marked("hangzhang", "行长")).toEqual(["行长"]);
+    expect(marked("changdu", "长度")).toEqual(["长度"]);
+    expect(marked("chuchai", "出差")).toEqual(["出差"]);
+    // A name mixing Chinese and English keeps both.
+    expect(marked("cmm r", "重命名 Rename")).toEqual(["重命名", "R"]);
+    expect(marked("hang zhang", "行长 (bank)")).toEqual(["行长"]);
+  });
 });

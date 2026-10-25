@@ -4,18 +4,23 @@
  * applied to a copy of each Mind with the functions the card uses
  * (src/renderer/src/mindChanges.ts), not through the window.
  */
+import { randomUUID } from "node:crypto";
+import type { JSONContent } from "@tiptap/core";
 import * as Y from "yjs";
 import {
   BLOCK_ID_ATTRIBUTE,
   type Core,
+  GENERATED_MARK,
   MIND_CONTENT_FIELD,
   MIND_PROPOSAL_REQUESTS_FIELD,
   type ProposalRef,
 } from "../../src/core";
 import type { ChangeStates } from "../../src/core/answers/toolRecord";
 import { plainText } from "../../src/core/mindText";
+import { messageReference } from "../../src/core/references";
 import type { ChangedMind } from "../../src/renderer/src/changedMinds";
 import { askedFor, waitsForUser } from "../../src/shared/askedChanges";
+import { setOrigins } from "../../src/shared/blockOrigins";
 import { holdsOnlyItsTitle } from "../../src/shared/madeMind";
 import { decideProposals, pendingProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -97,17 +102,44 @@ export async function readWorkspace(core: Core): Promise<MindState[]> {
   return Promise.all(minds.map((mind) => readState(core, mind.id, mind.title)));
 }
 
-export async function seedWorkspace(core: Core, seeds: readonly SeedMind[]): Promise<void> {
+/**
+ * Seeds the Minds. `written` names Minds whose text is AI text: a Meeting's notes filled after
+ * Stop ("ai"), or what an Answer added, with its origin ("answer").
+ */
+export async function seedWorkspace(
+  core: Core,
+  seeds: readonly SeedMind[],
+  written: { titles: readonly string[]; by: "ai" | "answer" } | null = null,
+): Promise<void> {
   for (const seed of seeds) {
     const mind = await core.createMind({ title: seed.title });
     const client = await connectToMind(core, mind.id);
-    writeMind(
-      client,
-      seed.blocks.map((line) => (line.startsWith("## ") ? heading(2, line.slice(3)) : note(line))),
+    const blocks = seed.blocks.map((line) =>
+      line.startsWith("## ") ? heading(2, line.slice(3)) : note(line),
     );
+    const by = written?.titles.includes(seed.title) ? written.by : null;
+    writeMind(client, by ? blocks.map(asGenerated) : blocks);
+    if (by === "answer") {
+      const ids = blocks.flatMap((block) =>
+        typeof block.attrs?.id === "string" ? [block.attrs.id] : [],
+      );
+      setOrigins(client.doc, ids, {
+        from: messageReference(randomUUID(), randomUUID()),
+        question: "",
+      });
+    }
     await client.settled();
   }
 }
+
+const asGenerated = (block: JSONContent): JSONContent => ({
+  ...block,
+  content: block.content?.map((child) =>
+    child.type === "text"
+      ? { ...child, marks: [...(child.marks ?? []), { type: GENERATED_MARK }] }
+      : child,
+  ),
+});
 
 export interface Decided {
   /** How many changes it took in the Minds it reached. */
