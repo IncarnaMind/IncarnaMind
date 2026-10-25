@@ -1063,6 +1063,313 @@ describe("A memo's figure worked out from amounts in brackets (#978)", () => {
   });
 });
 
+describe("A limit the figure stays within, and a cost printed in brackets (#1908)", () => {
+  const RESULTS = {
+    name: "Cedar results.md",
+    contents: [
+      "# Cedar results",
+      "",
+      "Adjusted EBITDA 187.3 (FY2025), 88.0 and 91.5 (H1 2025, H1 2026)",
+      "",
+      "Finance costs (41.2)",
+      "",
+      "Net debt at 30 June 2026 528.9",
+      "",
+      "Net debt to Adjusted EBITDA must not exceed 3.25 to 1",
+    ].join("\n"),
+  };
+  const EBITDA_LINE = "Adjusted EBITDA 187.3 (FY2025), 88.0 and 91.5 (H1 2025, H1 2026)";
+  const ebitda = (name: string, number: string) => ({
+    name,
+    label: `Adjusted EBITDA ${number}`,
+    quote: EBITDA_LINE,
+    number,
+  });
+  const LEVERAGE = {
+    inputs: [
+      { name: "nd", label: "Net debt", quote: "Net debt at 30 June 2026 528.9", number: "528.9" },
+      ebitda("fy", "187.3"),
+      ebitda("h1a", "88.0"),
+      ebitda("h1b", "91.5"),
+    ],
+    formula: "nd / (fy - h1a + h1b)",
+    as: "times",
+  };
+  const COVER = {
+    inputs: [
+      ebitda("fy", "187.3"),
+      {
+        name: "fc",
+        label: "Finance costs",
+        quote: "Finance costs (41.2)",
+        number: "(41.2)",
+        bracketedCost: true,
+      },
+    ],
+    formula: "fy / fc",
+    as: "times",
+  };
+  async function checked(
+    document: { name: string; contents: string },
+    claim: string,
+    calculation: NonNullable<Plan["calculation"]>,
+    said: "supported" | "contradicted" | "unsupported",
+  ) {
+    const plans = { [claim]: { verdict: said, calculation } } as const;
+    const calls: ModelCall[] = [];
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [document]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    const result = await setup.core.checkClaim({ claim });
+    // Each case's figures are worked out: a verdict never stands because calculate refused one.
+    const replies = calls
+      .flatMap((call) => call.results)
+      .filter((each) => each.tool === "calculate");
+    expect(replies.at(-1)?.text).toMatch(/^Recorded/);
+    return result;
+  }
+  const INSIDE = (limit: string) =>
+    `Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the ${limit} covenant.`;
+  const COVERED = (times: string) =>
+    `Using finance costs of (41.2) as a stand-in, cover would be ${times}.`;
+
+  // protects=a sentence naming a limit is judged on the comparison the model says it makes, exactly against the limit, while only a figure the sentence states rounds to its precision; a cost in brackets is judged on its size; a figure that breaks its limit or a wrong cover is still Contradicted, and a limit given with no relation is still compared as the figure (today's behaviour); fails_when=2.77x "inside a 3.25x covenant" or 4.55x cover from "(41.2)" is Contradicted, a breach passes, or 4.546x passes "at least 4.55x" or 2.772x "inside a 2.77x covenant" by rounding; no_claim=that a real model gives relation, which the real-model counts measure.
+  test.each([
+    [INSIDE("3.25x"), { ...LEVERAGE, stated: "3.25x", relation: "at most" }, "supported"],
+    [INSIDE("2.5x"), { ...LEVERAGE, stated: "2.5x", relation: "at most" }, "contradicted"],
+    [INSIDE("3.25x"), { ...LEVERAGE, stated: "3.25x" }, "contradicted"],
+    [
+      "Adjusted EBITDA covers finance costs at least 4x.",
+      { ...COVER, stated: "4x", relation: "at least" },
+      "supported",
+    ],
+    [
+      "Adjusted EBITDA covers finance costs at least 5x.",
+      { ...COVER, stated: "5x", relation: "at least" },
+      "contradicted",
+    ],
+    [
+      "Adjusted EBITDA covers finance costs at least 4.55x.",
+      { ...COVER, stated: "4.55x", relation: "at least" },
+      "contradicted",
+    ],
+    [INSIDE("2.77x"), { ...LEVERAGE, stated: "2.77x", relation: "at most" }, "contradicted"],
+    [COVERED("4.55x"), { ...COVER, stated: "4.55x" }, "supported"],
+    [COVERED("5.55x"), { ...COVER, stated: "5.55x" }, "contradicted"],
+  ] as const)("“%s” is %s", async (claim, calculation, verdict) => {
+    const said = verdict === "supported" ? "contradicted" : "supported";
+    const result = await checked(RESULTS, claim, calculation, said);
+    expect(result).toMatchObject({ verdict, calculation: { stated: calculation.stated } });
+  });
+
+  const LEDGER = {
+    name: "Ledger.md",
+    contents: [
+      "# Ledger",
+      "",
+      "Operating profit (12.0)",
+      "",
+      "Revenue 400.0",
+      "",
+      "Loss before tax (6.5)",
+      "",
+      "Tax rate 30%",
+      "",
+      "Receipts 10.0",
+      "",
+      "Payments (15.0)",
+      "",
+      "Other income 1.0",
+      "",
+      "Underlying EBITDA -50.0",
+      "",
+      "Net debt 528.9",
+    ].join("\n"),
+  };
+  const LEDGER_ZH = {
+    name: "台账.md",
+    contents: [
+      "# 台账",
+      "",
+      "营业利润 （12.0）",
+      "",
+      "营业收入 400.0",
+      "",
+      "税前亏损 （6.5）",
+      "",
+      "税率 30%",
+      "",
+      "收款 10.0",
+      "",
+      "付款 （15.0）",
+      "",
+      "其他收入 1.0",
+      "",
+      "基础EBITDA -50.0",
+      "",
+      "净负债 528.9",
+    ].join("\n"),
+  };
+  const RESULTS_ZH = {
+    name: "雪松业绩.md",
+    contents: [
+      "# 雪松业绩",
+      "",
+      "调整后EBITDA 187.3（2025财年），88.0 和 91.5（2025年上半年、2026年上半年）",
+      "",
+      "2026年6月30日净负债 528.9",
+    ].join("\n"),
+  };
+  const line = (name: string, quote: string, number: string, bracketedCost?: boolean) => ({
+    name,
+    label: quote,
+    quote,
+    number,
+    ...(bracketedCost && { bracketedCost }),
+  });
+  const LEDGER_LINES = {
+    en: {
+      op: line("op", "Operating profit (12.0)", "(12.0)"),
+      rev: line("rev", "Revenue 400.0", "400.0"),
+      pbt: line("pbt", "Loss before tax (6.5)", "(6.5)"),
+      t: line("t", "Tax rate 30%", "30%"),
+      r: line("r", "Receipts 10.0", "10.0"),
+      p: line("p", "Payments (15.0)", "(15.0)", true),
+      oi: line("oi", "Other income 1.0", "1.0"),
+      ue: line("ue", "Underlying EBITDA -50.0", "-50.0"),
+      nd: line("nd", "Net debt 528.9", "528.9"),
+    },
+    zh: {
+      op: line("op", "营业利润 （12.0）", "（12.0）"),
+      rev: line("rev", "营业收入 400.0", "400.0"),
+      pbt: line("pbt", "税前亏损 （6.5）", "（6.5）"),
+      t: line("t", "税率 30%", "30%"),
+      r: line("r", "收款 10.0", "10.0"),
+      p: line("p", "付款 （15.0）", "（15.0）", true),
+      oi: line("oi", "其他收入 1.0", "1.0"),
+      ue: line("ue", "基础EBITDA -50.0", "-50.0"),
+      nd: line("nd", "净负债 528.9", "528.9"),
+    },
+  };
+  const zhEbitda = (name: string, number: string) =>
+    line(
+      name,
+      "调整后EBITDA 187.3（2025财年），88.0 和 91.5（2025年上半年、2026年上半年）",
+      number,
+    );
+  const ZH_LEVERAGE = {
+    inputs: [
+      line("nd", "2026年6月30日净负债 528.9", "528.9"),
+      zhEbitda("fy", "187.3"),
+      zhEbitda("h1a", "88.0"),
+      zhEbitda("h1b", "91.5"),
+    ],
+    formula: "nd / (fy - h1a + h1b)",
+    as: "times",
+  };
+  const cases = (language: "en" | "zh") => {
+    const { op, rev, pbt, t, r, p, oi, ue, nd } = LEDGER_LINES[language];
+    const zh = language === "zh";
+    const ledger = zh ? LEDGER_ZH : LEDGER;
+    const results = zh ? RESULTS_ZH : RESULTS;
+    const leverage = zh ? ZH_LEVERAGE : LEVERAGE;
+    const both = zh
+      ? "2026年6月30日净负债为528.9，杠杆率为2.5倍，在3.25倍的契约上限之内。"
+      : "Net debt at 30 June 2026 was £528.9m: leverage of 2.5x is inside the 3.25x covenant.";
+    const limit = { ...leverage, stated: zh ? "3.25倍" : "3.25x", relation: "at most" as const };
+    const figure = { ...leverage, stated: zh ? "2.5倍" : "2.5x" };
+    return [
+      [
+        ledger,
+        zh ? "营业利润率为3%。" : "Operating margin was 3%.",
+        { inputs: [op, rev], formula: "op / rev", as: "percent", stated: "3%" },
+        "contradicted",
+      ],
+      [
+        ledger,
+        zh ? "税后利润为4.55。" : "Profit after tax was 4.55.",
+        { inputs: [pbt, t], formula: "pbt * (1 - t)", stated: "4.55" },
+        "contradicted",
+      ],
+      [
+        ledger,
+        zh ? "净现金流为5.0。" : "Net cash flow was 5.0.",
+        { inputs: [r, p], formula: "SUM(r, p)", stated: "5.0" },
+        "contradicted",
+      ],
+      [
+        ledger,
+        zh
+          ? "付款按税率计算再加其他收入，合计为3.5。"
+          : "Payments at the tax rate plus other income give a total of 3.5.",
+        { inputs: [p, t, oi], formula: "(p * t) + oi", stated: "3.5" },
+        "contradicted",
+      ],
+      [results, both, [limit, figure], "contradicted"],
+      [results, both, [figure, limit], "contradicted"],
+      [
+        ledger,
+        zh
+          ? "净负债528.9，基础EBITDA为-50.0，杠杆率仍在3.25倍的契约上限之内。"
+          : "With net debt of 528.9 and underlying EBITDA of -50.0, leverage stays inside the 3.25x covenant.",
+        {
+          inputs: [nd, ue],
+          formula: "nd / ue",
+          as: "times",
+          stated: zh ? "3.25倍" : "3.25x",
+          relation: "at most" as const,
+        },
+        "unsupported",
+      ],
+    ] as const;
+  };
+
+  // protects=brackets on a loss keep its sign, a sum in any form (SUM, a product added) keeps the sign of a cost in it, every number the model names must hold whatever their order, and a negative figure is never inside a positive limit, in English and Chinese (review of #1908); fails_when="Operating margin was 3%" against an operating loss "(12.0)", "Net cash flow was 5.0" against SUM(10.0, (15.0)), or "Leverage of 2.5x is inside the 3.25x covenant" at 2.77x is Supported, or a loss-making EBITDA's negative leverage is inside a covenant; no_claim=what the model's own verdict is when the calculation decides nothing, which stays as it said.
+  test.each(
+    [...cases("en"), ...cases("zh")].map(
+      ([document, claim, calculation, verdict]) => [claim, verdict, document, calculation] as const,
+    ),
+  )("%#: “%s” is %s", async (claim, verdict, document, calculation) => {
+    const said = verdict === "contradicted" ? "supported" : "unsupported";
+    const result = await checked(document, claim, calculation, said);
+    expect(result.verdict).toBe(verdict);
+  });
+
+  // protects=a cost in brackets is read by its size only when the model marks it so; fails_when=187.3 ÷ (41.2) agrees with "4.55x" though no input was marked; no_claim=none beyond protects.
+  test("a cost in brackets keeps its sign unless the model marks it a cost", async () => {
+    const [fy, fc] = COVER.inputs;
+    if (!fy || !fc) throw new Error("No cover inputs.");
+    const unmarked = { ...COVER, inputs: [fy, { ...fc, bracketedCost: false }], stated: "4.55x" };
+    const result = await checked(RESULTS, COVERED("4.55x"), unmarked, "unsupported");
+    expect(result.verdict).toBe("contradicted");
+  });
+
+  // protects=a check is offered relation, which it must give, saying when it is a limit; fails_when=the model is never told a limit can be named, or may leave relation out; no_claim=none beyond protects.
+  test("the check's calculate takes relation for a limit", async () => {
+    const calls: ModelCall[] = [];
+    const claim = INSIDE("3.25x");
+    const plans = {
+      [claim]: { verdict: "supported", calculation: { ...LEVERAGE, stated: "3.25x" } },
+    } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [RESULTS]);
+    await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    await setup.core.checkClaim({ claim });
+    const offered = JSON.stringify(calls[0]?.options.tools);
+    expect(offered).toContain('"at most"');
+    expect(offered).toContain("give relation");
+    expect(offered).toContain("bracketedCost");
+    expect(offered).toMatch(/"required":\[[^\]]*"stated","relation"\]/);
+  });
+});
+
 describe("A count of people in brackets is a count (#1023)", () => {
   const ACCOUNTS = {
     name: "Statement of accounts.md",
@@ -1534,6 +1841,296 @@ describe("When the model can't check a sentence", () => {
     ]);
     expect(calls).toEqual([]);
   });
+});
+
+describe("A reply whose verdict is written in the turn that calls cite (#1673)", () => {
+  const SPRING_QUOTE = "Spring tides happen at new moon and at full moon";
+  const SAYS = "Tides says spring tides happen at new and full moon.";
+  const LINES = "Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same";
+  const CONTRACT = {
+    name: "劳动合同书.md",
+    contents:
+      "# 劳动合同书\n\n乙方自2027年1月11日起入职。\n\n乙方每年享有带薪年休假10天，法定节假日另计。",
+  };
+
+  const citesBeside = (step: { search?: string; quote: string; beside: string; after: string }) =>
+    scriptedModel(
+      (call) => {
+        const searches = call.results.filter((result) => result.tool === "search_documents");
+        if (searches.length === 0) {
+          return {
+            ...(step.search && { text: step.search }),
+            calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }],
+          };
+        }
+        if (call.results.some((result) => result.tool === "cite")) return { text: step.after };
+        const shown = shownPassages(searches.at(-1)?.text ?? "");
+        const passage = shown.find((each) => each.text.includes(step.quote));
+        const citations = [{ marker: 1, passage: passage?.id, quote: step.quote }];
+        return { text: step.beside, calls: [{ tool: "cite", input: { citations } }] };
+      },
+      { generate: checkGenerate({}) },
+    );
+
+  // protects=verdict lines written beside cite with no marker, the marked sentence or the last lines after it, give the sentence its verdict and Citation in the model's own three requests; fails_when=the lines are dropped as a preamble and the check reads "not checked"; no_claim=how often a real model writes it so.
+  test.each([
+    { shape: "the verdict lines, then the marked sentence", beside: LINES, after: `${SAYS} [^1]` },
+    {
+      shape: "the whole reply, then only its last lines",
+      beside: `${LINES}\n\n${SAYS}`,
+      after: "Covered: spring tides at new and full moon\nNot covered: none",
+    },
+  ])("$shape: the sentence is Supported, with its Citation", async ({ beside, after }) => {
+    const model = citesBeside({ quote: SPRING_QUOTE, beside, after });
+    const { core, client, check } = await mindWith([SUPPORTED], model);
+
+    expect(await check()).toEqual({ kind: "checked", sentences: 1, checked: 1, smallModel: false });
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "supported" });
+    expect(checked?.check.says).toBe(SAYS);
+    expect(checked?.check.evidence).toMatchObject({ quote: SPRING_QUOTE, check: "found" });
+    expect(model.doStreamCalls).toHaveLength(3);
+    const askedForEvidence = model.doGenerateCalls.filter((call) =>
+      JSON.stringify(call.prompt).includes("without recording the Passage"),
+    );
+    expect(askedForEvidence).toEqual([]);
+  });
+
+  // protects=a Chinese check whose verdict lines come beside cite and whose sentence or last lines come after it, as Claude Haiku 5.5 wrote them, is Contradicted with its Citation and the Chinese sentence; fails_when=it reads "not checked"; no_claim=the verdict a real model gives.
+  test.each([
+    {
+      shape: "the verdict lines, then the marked sentence",
+      sentence: "乙方自2027年2月11日起入职。",
+      quote: "乙方自2027年1月11日起入职",
+      beside:
+        "The labour contract states the start date as 2027年1月11日, not 2027年2月11日.\n\nVerdict: contradicted\nScope: 乙方, same\nTopic: found",
+      after: "劳动合同书写明乙方自2027年1月11日起入职，不是2027年2月11日。[^1]",
+      says: "劳动合同书写明乙方自2027年1月11日起入职，不是2027年2月11日。",
+    },
+    {
+      shape: "the whole reply, then only its last lines",
+      sentence: "乙方每年有15天带薪年休假。",
+      quote: "乙方每年享有带薪年休假10天",
+      beside:
+        "Verdict: contradicted\nScope: 乙方, same\nTopic: found\nRoles: none, same\n\n劳动合同书写明乙方每年享有带薪年休假10天，不是15天。",
+      after: "Covered: 乙方的年休假天数\nNot covered: 无",
+      says: "劳动合同书写明乙方每年享有带薪年休假10天，不是15天。",
+    },
+  ])("in Chinese, $shape: the sentence is Contradicted, with its Citation", async (each) => {
+    const model = citesBeside(each);
+    const { core, client, check } = await mindWith([each.sentence], model, [CONTRACT]);
+    await core.updateSettings({ user: { language: "zh-CN" } });
+
+    await check();
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "contradicted" });
+    expect(checked?.check.says).toBe(each.says);
+    expect(checked?.check.evidence).toMatchObject({ quote: each.quote, check: "found" });
+  });
+
+  // protects=text before a search and text beside cite that holds no verdict stay a preamble: the verdict and sentence come from the reply after them; fails_when=a preamble's words become what the Document says; no_claim=none beyond protects.
+  test("a real preamble, before the search and beside cite, is still only a preamble", async () => {
+    const model = citesBeside({
+      search: "Let me search the Documents for spring tides.",
+      quote: SPRING_QUOTE,
+      beside: "I'll record the Passage that decides it.",
+      after: `${LINES}\n${SAYS} [^1]`,
+    });
+    const { core, client, check } = await mindWith([SUPPORTED], model);
+
+    await check();
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "supported" });
+    expect(checked?.check.says).toBe(SAYS);
+  });
+
+  // protects=a reply with no verdict line in any turn still reads "not checked" with its reason, though it cited; fails_when=it gets a verdict, or its Citation shows; no_claim=none beyond protects.
+  test("a reply with no verdict lines in any turn is “not checked”, malformed", async () => {
+    const model = citesBeside({
+      quote: SPRING_QUOTE,
+      beside: "I'll record the Passage that decides it.",
+      after: "It reads well to me.",
+    });
+    const { core, client, check } = await mindWith([SUPPORTED], model);
+
+    await check();
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "not-checked", reason: "malformed" });
+    expect(checked?.check.evidence).toBeNull();
+  });
+
+  // protects=a refusal written after verdict lines beside cite is the reply's last word: the sentence is "not checked", refused; fails_when=the earlier verdict is taken; no_claim=none beyond protects.
+  test("verdict lines beside cite, then a refusal: “not checked”, refused", async () => {
+    const model = citesBeside({
+      quote: SPRING_QUOTE,
+      beside: LINES,
+      after: "I'm sorry, I can't check this sentence.",
+    });
+    const { core, client, check } = await mindWith([SUPPORTED], model);
+
+    await check();
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "not-checked", reason: "refused" });
+  });
+
+  const inSteps = (
+    ...steps: ("search" | ((passage: (quote: string) => string) => ScriptedReply))[]
+  ) =>
+    scriptedModel(
+      (call) => {
+        const found = call.results.find((result) => result.tool === "search_documents");
+        const passage = (quote: string) =>
+          shownPassages(found?.text ?? "").find((each) => each.text.includes(quote))?.id ?? "P1";
+        const step = steps[Math.min(call.results.length, steps.length - 1)];
+        if (step === "search") {
+          return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
+        }
+        return step ? step(passage) : { text: "" };
+      },
+      { generate: checkGenerate({}) },
+    );
+  const cites = (passage: string, quote: string) => ({
+    tool: "cite",
+    input: { citations: [{ marker: 1, passage, quote }] },
+  });
+  const HARBOUR_QUOTE = "Harbours publish the times of high water every year.";
+  const HARBOUR_SAYS = "Tides says harbours publish them every year, not every week.";
+  const LEAVE_QUOTE = "乙方每年享有带薪年休假10天";
+  const LEAVE_SAYS = "劳动合同书写明乙方每年享有带薪年休假10天，不是15天。";
+
+  // protects=a verdict written beside cite before any search stays a preamble, though the model searches after it: the sentence is "not checked", as on main; fails_when=the earlier verdict decides the sentence; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en" as const,
+      sentence: SUPPORTED,
+      quote: SPRING_QUOTE,
+      first: "Verdict: unsupported\nTopic: not found",
+      last: "Covered: none\nNot covered: spring tides at new and full moon",
+    },
+    {
+      language: "zh-CN" as const,
+      sentence: "乙方每年享有带薪年休假10天。",
+      quote: LEAVE_QUOTE,
+      first: "Verdict: contradicted\nScope: 乙方, same\nTopic: found",
+      last: "劳动合同书写明乙方每年享有带薪年休假10天。[^1]",
+    },
+  ])(
+    "$language: a verdict beside cite before the search is “not checked”, malformed",
+    async (each) => {
+      const model = inSteps(
+        () => ({ text: each.first, calls: [cites("P1", each.quote)] }),
+        "search",
+        (passage) => ({ calls: [cites(passage(each.quote), each.quote)] }),
+        () => ({ text: each.last }),
+      );
+      const { core, client, check } = await mindWith([each.sentence], model, [CONTRACT]);
+      if (each.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+
+      await check();
+
+      const [checked] = await shownChecks(core, client);
+      expect(checked?.shown).toEqual({ state: "not-checked", reason: "malformed" });
+    },
+  );
+
+  // protects=text beside a later cite with no verdict in it, after the verdict lines, never becomes what the Document says: the card's sentence is the reply's; fails_when=the card says "Let me correct the quote."; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en" as const,
+      sentence: CONTRADICTED,
+      quote: HARBOUR_QUOTE,
+      lines: "Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: none, same",
+      between: "Let me correct the quote.",
+      says: HARBOUR_SAYS,
+    },
+    {
+      language: "zh-CN" as const,
+      sentence: "乙方每年有15天带薪年休假。",
+      quote: LEAVE_QUOTE,
+      lines: "Verdict: contradicted\nScope: 乙方, same\nTopic: found\nRoles: none, same",
+      between: "我来更正引文。",
+      says: LEAVE_SAYS,
+    },
+  ])(
+    "$language: a preamble set aside after the verdict lines isn't what the Document says",
+    async (each) => {
+      const model = inSteps(
+        "search",
+        (passage) => ({
+          text: each.lines,
+          calls: [cites(passage(each.quote), `${each.quote}，每周`)],
+        }),
+        (passage) => ({ text: each.between, calls: [cites(passage(each.quote), each.quote)] }),
+        () => ({ text: `${each.says} [^1]` }),
+      );
+      const { core, client, check } = await mindWith([each.sentence], model, [CONTRACT]);
+      if (each.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+
+      await check();
+
+      const [checked] = await shownChecks(core, client);
+      expect(checked?.shown).toEqual({ state: "contradicted" });
+      expect(checked?.check.says).toBe(each.says);
+      expect(checked?.check.evidence).toMatchObject({ quote: each.quote, check: "found" });
+    },
+  );
+
+  // protects=of two verdicts written beside cite after the search, the later one decides the sentence, in either order and in Chinese; fails_when=the earlier verdict decides it; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en" as const,
+      sentence: SUPPORTED,
+      quote: SPRING_QUOTE,
+      earlier: "Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: none, same",
+      later: LINES,
+      says: SAYS,
+      state: "supported",
+    },
+    {
+      language: "en" as const,
+      sentence: CONTRADICTED,
+      quote: HARBOUR_QUOTE,
+      earlier: LINES,
+      later: "Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: none, same",
+      says: HARBOUR_SAYS,
+      state: "contradicted",
+    },
+    {
+      language: "zh-CN" as const,
+      sentence: "乙方每年有15天带薪年休假。",
+      quote: LEAVE_QUOTE,
+      earlier: "Verdict: supported\nScope: 乙方, same\nTopic: found\nRoles: none, same",
+      later: "Verdict: contradicted\nScope: 乙方, same\nTopic: found\nRoles: none, same",
+      says: LEAVE_SAYS,
+      state: "contradicted",
+    },
+  ])(
+    "$language: of two verdicts beside cite, the later is the sentence's: $state",
+    async (each) => {
+      const model = inSteps(
+        "search",
+        (passage) => ({
+          text: each.earlier,
+          calls: [cites(passage(each.quote), `${each.quote}，每周`)],
+        }),
+        (passage) => ({ text: each.later, calls: [cites(passage(each.quote), each.quote)] }),
+        () => ({ text: `${each.says} [^1]` }),
+      );
+      const { core, client, check } = await mindWith([each.sentence], model, [CONTRACT]);
+      if (each.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+
+      await check();
+
+      const [checked] = await shownChecks(core, client);
+      expect(checked?.shown).toEqual({ state: each.state });
+      expect(checked?.check.says).toBe(each.says);
+    },
+  );
 });
 
 describe("Needs re-check", () => {

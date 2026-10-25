@@ -185,8 +185,17 @@ export interface CreateMindInput {
  *   `chosen` in the `claimCheck` mark's `scope`. An older version would read
  *   it as made in the Mind's Folder or in every Document, and say so on its
  *   card. Older content is version 26 content as it is.
+ * - 27: a numbered list's scheme, start level and continuation (#1419): the
+ *   `numbering`, `startLevel` and `continues` attributes on an ordered list,
+ *   which an older version's editor would strip, so it would draw the list as
+ *   a "1. a. i." list from level 0 that starts again. Older content is
+ *   version 27 content as it is.
+ * - 28: a Citation the User keeps on the version it quotes though its
+ *   Document changed (#99): `keptOver` on the Citation, which an older
+ *   version's editor would strip, so it would ask again to be checked. Older
+ *   content is version 28 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 26;
+export const CONTENT_SCHEMA_VERSION = 28;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -404,6 +413,15 @@ export const MIND_PROPOSAL_REQUESTS_FIELD = "proposalRequests";
  * (`restoreRevised`); accepting any of it lets them go.
  */
 export const MIND_REVISIONS_FIELD = "revisions";
+
+/**
+ * The name of the Y.Map, beside a Mind's Blocks, that keeps by request the origin
+ * (`MIND_ORIGINS_FIELD`) each Block had before that request's change gave it its own: a change
+ * written over Blocks keeps their ids, so rejecting it in a Block puts that origin back
+ * (`restoreOrigins`). Entries are kept for good: History can bring back a version from
+ * before any decision. An older version leaves it as it is and keeps the new origin (ADR-0003).
+ */
+export const MIND_REPLACED_ORIGINS_FIELD = "replacedOrigins";
 
 /**
  * What a change the assistant made in a Mind was (#880, #1559): text changed
@@ -1018,6 +1036,8 @@ export type MindProblem =
   | { kind: "no-mind" }
   | { kind: "not-found"; name: string }
   | { kind: "several"; name: string }
+  /** Minds of close titles, and the User didn't pick which one was meant (#1865). */
+  | { kind: "not-picked"; name: string }
   | { kind: "no-heading"; mindId: string; heading: string }
   | { kind: "no-place"; mindId: string; place: string }
   | { kind: "several-places"; mindId: string; name: string; adding: boolean }
@@ -1095,6 +1115,12 @@ export interface MindChange {
    * are gone, and its request holds the new text and the rest of them.
    */
   revised?: true;
+  /**
+   * Of the text it revised, what earlier calls of the same Answer had written: their counts
+   * already hold it, so the Answer's card counts it once. Absent: none, or the text was an
+   * earlier Answer's.
+   */
+  replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
@@ -1105,15 +1131,21 @@ export interface MindChange {
    */
   checking?: number;
   /**
-   * The check of the sentences with Citations it wrote, once over: how many there were
-   * (`cited`), how many it sent to be checked (`sent`), how many got a verdict
-   * (`checked`) and how many couldn't be checked (`failed`), and what stopped it, if
-   * anything did. Those it couldn't check, or didn't, are marked not checked, under
-   * `request`; `blocked` says how many of them the User's own choice kept from being sent
-   * (the flow turned off, or Local mode), which checking again can't change. Absent: none was checked.
+   * The check of the sentences it wrote that a check reads (#1909: every claim,
+   * cited or not), once over: how many there were (`checkable`), how many have a
+   * Citation (`cited`), how many it sent to be checked (`sent`), how many got a
+   * verdict (`checked`) and how many couldn't be checked (`failed`), and what
+   * stopped it, if anything did. Those it couldn't check, or didn't, are marked
+   * not checked, under `request`; `blocked` says how many of them the User's own
+   * choice kept from being sent (the flow turned off, or Local mode), which
+   * checking again can't change. Absent: none was checked.
    */
   selfCheck?: {
     request: string;
+    /** The write's top-level Blocks; absent on a check recorded before #1909. */
+    blocks?: string[];
+    /** Absent on a check recorded before #1909: `cited` was what it checked then. */
+    checkable?: number;
     cited: number;
     sent: number;
     checked: number;
@@ -1675,6 +1707,12 @@ export interface RecheckCitationInput {
   pageFrom: number | null;
   pageTo: number | null;
   quote: string;
+  /**
+   * The version the Citation quotes. When the Document has a newer one, the result also says
+   * how the Citation stands in this version (`inQuotedVersion`) and how its words changed
+   * (`changed`).
+   */
+  contentHash?: string | null;
 }
 
 /**
@@ -1693,6 +1731,26 @@ export interface CitationRecheck {
   pageFrom: number | null;
   pageTo: number | null;
   location: CitationLocation | null;
+  /**
+   * Asked with the version the Citation quotes, which is no longer the current one: its check
+   * in that version, at the Units it cites (ADR-0017's amendment); null once that version's
+   * text is no longer kept.
+   */
+  inQuotedVersion?: Pick<CitationRecheck, "check" | "checkReason"> | null;
+  /**
+   * Asked with the version the Citation quotes, which is no longer the current one, and the
+   * quote isn't in the current one as cited: its words as they changed at its place; null
+   * when nothing there is like them any more.
+   */
+  changed?: ChangedQuote | null;
+}
+
+/** A Citation's quote as its words changed in its Document's current version (#99). */
+export interface ChangedQuote {
+  /** From the quote to the words at its place now, in order: kept, taken out or put in. */
+  parts: { kind: "same" | "removed" | "added"; text: string }[];
+  /** The words at its place now, cited in the current version: what Update the sentence… cites. */
+  now: CitedSelection;
 }
 
 /** Words the User selected in a Document's viewer, on one of its Units (`citeSelection`). */
@@ -1853,6 +1911,11 @@ export interface CitationAttributes {
   verdict?: string | null;
   /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
   quotedWords?: QuotedWords | null;
+  /**
+   * The Document's version the User chose to keep citing the old one over (Keep citing the old
+   * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
+   */
+  keptOver?: string | null;
 }
 
 /** A Citation, as the Answer event stream reports it. */
@@ -2079,8 +2142,8 @@ export interface UserSettings {
 
 /**
  * The "Get started" checklist of a first run, at the bottom of the sidebar:
- * check a Citation in the example Mind, add Documents or connect an app, and
- * ask a Question of one's own. Each step ticks itself as the User does it.
+ * add Documents or connect an app, ask a Question of one's own, and check a
+ * Citation. Each step ticks itself as the User does it.
  */
 export interface GettingStarted {
   /** Shown: the examples were made on this device's first run. */
@@ -4913,6 +4976,9 @@ export interface LeftOutDocument {
   reason: EvidenceExclusion;
 }
 
+/** How a sentence's number bounds a figure: it is a limit the figure stays within, or above. */
+export type LimitRelation = "at most" | "at least";
+
 /**
  * How a check worked out a figure the sentence states but the Documents don't
  * (#707): the figure, calculated from numbers they state (ADR-0021), and the
@@ -4923,6 +4989,11 @@ export interface ClaimCalculation {
   figure: CalculatedFigure;
   /** The number as the sentence writes it: "1.1x". */
   stated: string;
+  /**
+   * The sentence's number is a limit the figure stays within ("inside a 3.25x covenant": at most)
+   * or above (at least), rather than the figure itself (#1908). Absent: it is the figure.
+   */
+  relation?: LimitRelation;
   /**
    * Whether they agree. One that doesn't contradicts the sentence; one that
    * does settles only that number, and a Passage may still contradict the rest.
@@ -9208,8 +9279,9 @@ export interface CoreApi {
   downloadOnlineOnlyFiles(linkedFolderId: string): Promise<LinkedFolder>;
   /**
    * Checks a Citation again against its Document's current version (see
-   * `CitationRecheck`), e.g. after the Document changed. Nothing is stored:
-   * the editor writes the result onto the Citation's node.
+   * `CitationRecheck`), e.g. after the Document changed; given the version it
+   * quotes, in that version too. Nothing is stored: the editor writes the
+   * result onto the Citation's node.
    */
   recheckCitation(input: RecheckCitationInput): Promise<CitationRecheck>;
   /**

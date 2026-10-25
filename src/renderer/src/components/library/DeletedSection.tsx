@@ -296,8 +296,8 @@ function DeletedRow({
             : "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
         }`}
       />
-      <div className="flex min-h-[39px] items-center gap-4 pr-1.5 pl-3">
-        <span className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex min-h-[39px] flex-wrap items-center gap-x-3 gap-y-1 py-1 pr-1.5 pl-3">
+        <span className="flex min-w-0 flex-[1_1_216px] items-center gap-2">
           <span aria-hidden="true" className="w-3 shrink-0" />
           <KindIcon item={item} />
           <span
@@ -324,7 +324,7 @@ function DeletedRow({
             {t(left === 1 ? "deleted.days.one" : "deleted.days", { count: left })}
           </span>
         </span>
-        <span className="flex shrink-0 items-center justify-end gap-1">
+        <span className="ml-auto flex shrink-0 items-center justify-end gap-1">
           {!selected && (
             <span className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100">
               <button

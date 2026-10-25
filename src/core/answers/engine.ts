@@ -269,6 +269,11 @@ export interface AnswerTools {
    * one request to fix them asks about (see ./figureRetry).
    */
   figureProblems?(): FigureProblem[];
+  /**
+   * `text` with a Citation marker for each quote a figure gave its inputs directly, where the
+   * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
+   */
+  citeFigures?(text: string): string;
 }
 
 /** A record whose quote the check doesn't find, with the text of the Passage it names (see `AnswerTools.unfoundQuotes`). */
@@ -475,6 +480,12 @@ export type AnswerEngineEvent =
    * ("Let me look that up"), or are being replaced: remove them.
    */
   | { type: "text-retracted"; length: number }
+  /**
+   * The texts the model wrote beside `cite` or `calculate` alone, after a search, with no marker
+   * in them, that the Answer doesn't show, in the order written. Once, before "finished", when
+   * there is any.
+   */
+  | { type: "text-set-aside"; texts: string[] }
   /**
    * A Tool call started, for its Tool-call card: any Tool but `cite` and `calculate`, or the
    * search the engine makes for a model without Tools. `tool` is its name at
@@ -728,12 +739,32 @@ const checkCalculationsSchema = {
     ...calculationsSchema.items,
     properties: {
       ...calculationsSchema.items.properties,
+      inputs: {
+        ...calculationsSchema.items.properties.inputs,
+        items: {
+          ...calculationsSchema.items.properties.inputs.items,
+          properties: {
+            ...calculationsSchema.items.properties.inputs.items.properties,
+            bracketedCost: {
+              type: "boolean",
+              description:
+                'True when the number is a cost or deduction printed in brackets ("Finance costs (41.2)", "财务费用 (41.2)"), so its size is meant. Never for a loss or another result in brackets.',
+            },
+          },
+        },
+      },
       stated: {
         type: "string",
         description: 'The number as the sentence to check writes it: "1.1x", "12%".',
       },
+      relation: {
+        type: "string",
+        enum: ["equals", "at most", "at least"],
+        description:
+          'How the figure stands to stated: "equals" when stated is the figure; "at most" or "at least" when stated is a limit the sentence says the figure stays within or above ("inside a 3.25x covenant", "不超过3.25倍", "至少5倍").',
+      },
     },
-    required: [...calculationsSchema.items.required, "stated"],
+    required: [...calculationsSchema.items.required, "stated", "relation"],
   },
 } as const;
 
@@ -1443,7 +1474,7 @@ export function documentTools(
           ...own(DOCUMENT_TOOLS.calculate),
           description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. The formula is in Excel's syntax over the inputs' names. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025", "inputs": [{"name": "r24", "label": "Revenue 2024", "citation": 1, "number": "$1,231.0 million"}, {"name": "r25", "label": "Revenue 2025", "citation": 1, "number": "$1,482.6 million"}], "formula": "r25 / r24 - 1", "as": "percent"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale ("单位：万元", "in millions") applied, so give scale ("亿", "billion") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction off by adding it, never by subtracting it. ${
             checking
-              ? "Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it."
+              ? 'Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above ("leverage inside the 3.25x covenant"), give relation "at most" or "at least".'
               : "Write the figure's marker, such as [=1], in the number's place; never write the number yourself."
           }`,
           inputSchema: {
@@ -1660,10 +1691,12 @@ async function* toolLoop(
   /** An earlier step wrote the Answer and recorded its Citations: text with markers after that is a second copy. */
   let answered = false;
   /**
-   * The last text written beside `cite` or `calculate` alone, with no marker
-   * in it, and taken back: the Answer, if the model never writes another.
+   * Texts written beside `cite` or `calculate` alone, with no marker in them,
+   * and taken back: the last is the Answer if the model never writes another,
+   * and a check whose reply has no verdict reads it from those written after
+   * a search.
    */
-  let unmarked = "";
+  let setAside: { text: string; searched: boolean }[] = [];
   /** The Tool of each call, by its id. */
   const calls = new Map<string, Tool>();
   /** Searches running now: the Answer is "searching" while there are any. */
@@ -1702,6 +1735,9 @@ async function* toolLoop(
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
     if (!request.documents.wroteIntoMind?.()) {
+      const figured = request.documents.citeFigures?.(keptText) ?? keptText;
+      yield* textEdits(keptText, figured);
+      keptText = figured;
       const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
       yield* citeUnmarked(request, placed, temperature, budget, () =>
         nudges.take("unmarked-quotes"),
@@ -1850,7 +1886,7 @@ async function* toolLoop(
           if (shown > 0) yield { type: "text-retracted", length: shown };
           released = Math.min(released, keptText.length);
           if (recorded && !stepTools.some((each) => !recording(each)) && !again)
-            unmarked = stepText;
+            setAside.push({ text: stepText, searched });
         } else {
           keptText += stepText;
           if (recorded && MARKER.test(stepText)) answered = true;
@@ -1888,7 +1924,8 @@ async function* toolLoop(
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        if (keptText.trim() === "" && unmarked.trim() !== "") keptText = unmarked;
+        if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
+          keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
           const records = parseRecords(taken.records).filter(
@@ -1911,10 +1948,12 @@ async function* toolLoop(
           keptText = "";
           stepText = "";
           answered = false;
-          unmarked = "";
+          setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
           break;
         }
+        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
+        if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
         if (taken.text !== keptText) {
           yield* textEdits(keptText.slice(0, released), taken.text);
           keptText = taken.text;
@@ -2057,6 +2096,7 @@ async function* structured(
       }
       if (budget) yield* retryFigures(request, placed, temperature, budget);
       if (signal.aborted) return;
+      yield* textEdits(placed, request.documents.citeFigures?.(placed) ?? placed);
     }
   }
   yield* flagClaims(request, emitted);
