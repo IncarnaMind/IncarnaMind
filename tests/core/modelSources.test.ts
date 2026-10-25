@@ -35,14 +35,15 @@ const COPIES: ModelCopies = {
   r2: { url: "https://models.example.com/{folder}/", hosts: ["cdn.example.net"] },
 };
 
-function probing(answers: { huggingface: boolean; modelscope: boolean }) {
+function probing(answers: { huggingface: boolean; modelscope: boolean; hfMirror?: boolean }) {
   const asked: string[] = [];
   const fetcher: typeof fetch = (input) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     asked.push(url.host);
     const answered =
       (url.host === "huggingface.co" && answers.huggingface) ||
-      (url.host === "www.modelscope.cn" && answers.modelscope);
+      (url.host === "www.modelscope.cn" && answers.modelscope) ||
+      (url.host === "hf-mirror.com" && answers.hfMirror === true);
     return answered
       ? Promise.resolve(new Response(null, { status: 200 }))
       : Promise.reject(new TypeError(`${url.host} can't be reached`));
@@ -120,6 +121,21 @@ describe("Where a built-in model's files come from (#1578)", () => {
     const answered = probing({ huggingface: true, modelscope: false });
     expect((await order(sourcesWith(answered.fetcher, { language: "zh-CN" })))[0]).toBe(
       "huggingface",
+    );
+  });
+
+  // protects=until IncarnaMind's ModelScope copy exists, the probe races hf-mirror.com in its place, and the mirror answering first leads; fails_when=the probe asks a copy that doesn't exist, or the mirror's answer leaves Hugging Face first; no_claim=how the real mirror answers.
+  test("with no ModelScope copy, the probe races the mirror, which leads when it answers first", async () => {
+    const { fetcher, asked } = probing({
+      huggingface: false,
+      modelscope: false,
+      hfMirror: true,
+    });
+    expect(await order(sourcesWith(fetcher, { copies: {} }))).toEqual(["hf-mirror", "huggingface"]);
+    expect(asked).toEqual(["huggingface.co", "hf-mirror.com"]);
+    const nobody = probing({ huggingface: false, modelscope: false });
+    expect((await order(sourcesWith(nobody.fetcher, { copies: {}, language: "zh-CN" })))[0]).toBe(
+      "hf-mirror",
     );
   });
 
@@ -239,6 +255,33 @@ describe("A built-in model downloads from the next source when one fails (#1578)
       pinned.contents.get("model.onnx"),
     );
     expect(copy.requests.map((each) => each.path)).toEqual([`${FOLDER}/model.onnx`]);
+  });
+
+  // protects=with Hugging Face's host blocked, the next source downloads each file and it passes its SHA-256 check; fails_when=the blocked source ends the download, or a file is installed unchecked; no_claim=how a proxy blocks it, which the fetcher stands in for.
+  test("with Hugging Face blocked, the next source downloads the file and it passes its check", async () => {
+    const { pinned, copy, copies } = await twoSources({ "model.onnx": 2048 });
+    const blocked: typeof fetch = (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      return url.hostname === "huggingface.co"
+        ? Promise.reject(new TypeError(`blocked: ${url.host}`))
+        : LOCAL_FETCH(input, init);
+    };
+    const directory = join(await mkdtemp(join(tmpdir(), "incarnamind-models-")), FOLDER);
+    await downloadModel({
+      directory,
+      source: {
+        ...pinned.source,
+        baseUrl: `https://huggingface.co/Xenova/${FOLDER}/resolve/abc123/`,
+      },
+      signal: new AbortController().signal,
+      onProgress: () => {},
+      sources: sourcesWith(blocked, { copies }),
+    });
+    expect(pinned.requests).toEqual([]);
+    expect(copy.requests.map((each) => each.path)).toEqual([`${FOLDER}/model.onnx`]);
+    expect(new Uint8Array(await readFile(join(directory, "model.onnx")))).toEqual(
+      pinned.contents.get("model.onnx"),
+    );
   });
 
   // protects=a file that gets no bytes for the stall time moves to the next source, which resumes it with a Range request from where the first stopped, and the joined file passes its check; fails_when=the stall waits forever, starts over, or keeps a file that fails its SHA-256; no_claim=the 25 s itself, which the default carries.
