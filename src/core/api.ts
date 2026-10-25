@@ -648,12 +648,15 @@ export type ComparisonCellStatus = "waiting" | "writing" | "done" | "failed";
  * Why a cell has no Answer: its Document doesn't answer the Question
  * ("not-found"), has no text to search, was deleted, is a file
  * IncarnaMind wrote, which checks leave out (#80), or is one the User keeps as
- * their own workings, which Answers never cite; or why its model didn't
- * write one (a `ProviderErrorKind`). "cost-cap" and "plan-limit" stopped the
- * fill (`RunStop`): the cell wasn't checked.
+ * their own workings, which Answers never cite; its Answer gave an amount at
+ * another scale than its Citation's Document ("scale-changed", #1798; `message`
+ * is the amount as the Document gives it); or why its model didn't write one
+ * (a `ProviderErrorKind`). "cost-cap" and "plan-limit" stopped the fill
+ * (`RunStop`): the cell wasn't checked.
  */
 export type ComparisonProblem =
   | "not-found"
+  | "scale-changed"
   | "nothing-to-search"
   | "source-removed"
   | "left-out"
