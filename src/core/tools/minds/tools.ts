@@ -906,12 +906,13 @@ const holdsText = (blocks: readonly NodeJSON[]) =>
 
 function writtenBy(
   note: Y.XmlFragment,
-  request: string,
+  requests: ReadonlySet<string>,
+  within?: readonly string[],
 ): { paragraphs: number; tables: number; charts: number } {
   const counts = { paragraphs: 0, tables: 0, charts: 0 };
   const visit = (element: Y.XmlElement, written: boolean) => {
     const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
-    const ours = written || (proposal?.kind === "insert" && proposal.request === request);
+    const ours = written || (proposal?.kind === "insert" && requests.has(proposal.request));
     if (ours && element.nodeName === "table") counts.tables++;
     else if (ours && element.nodeName === CHART_NODE) counts.charts++;
     else if (ours && element.nodeName === "paragraph") counts.paragraphs++;
@@ -919,7 +920,11 @@ function writtenBy(
       for (const child of element.toArray()) if (child instanceof Y.XmlElement) visit(child, ours);
     }
   };
-  for (const block of note.toArray()) if (block instanceof Y.XmlElement) visit(block, false);
+  for (const block of note.toArray()) {
+    if (block instanceof Y.XmlElement && (!within || within.includes(idOf(block)))) {
+      visit(block, false);
+    }
+  }
   return counts;
 }
 
@@ -930,6 +935,12 @@ function writtenBy(
  */
 export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle(): void } {
   const { minds, focused } = options;
+  const ownRequests = new Set<string>();
+  // A revision of text this Answer wrote takes its place: the Answer's card counts it once.
+  const replacedOwn = (mindId: string, blockIds: readonly string[]) => {
+    const counts = minds.read(mindId, (note) => writtenBy(note, ownRequests, blockIds));
+    return counts.paragraphs + counts.tables + counts.charts > 0 ? { replacedOwn: counts } : {};
+  };
 
   const askedIn = new Map<string, Set<string>>();
   /** What became of a call's change, for the model to say: applied, or waiting for the User and why. */
@@ -1021,10 +1032,12 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         `Nothing was added: ${place.why}. Don't add it to another Mind instead.`,
       );
     }
+    const request = randomUUID();
+    ownRequests.add(request);
     return {
       mind,
       named: after,
-      request: randomUUID(),
+      request,
       anchor: place.after,
       written: 0,
       ids: [],
@@ -1070,7 +1083,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
   const changeIn = (mindId: string, request: string, created: boolean): MindChange => {
     const { proposals, paragraphs, tables, charts } = minds.read(mindId, (note) => ({
       proposals: waitingChanges(note, (each) => each.request === request),
-      ...writtenBy(note, request),
+      ...writtenBy(note, new Set([request])),
     }));
     return {
       mindId,
@@ -1426,7 +1439,13 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     const at = blocks.findLastIndex((block) => block.type === "table");
     const table = blocks[at];
     const tableId = writer.ids[at];
-    if (!table || !tableId) {
+    // A later call of the Answer may have revised the table away before `cite` recorded its markers.
+    const there =
+      tableId !== undefined &&
+      minds.read(writer.mind.id, (note) =>
+        topLevelBlocks(note).some((each) => idOf(each) === tableId),
+      );
+    if (!table || !tableId || !there) {
       return {
         problem: "noTable",
         said: "No chart was drawn: content holds no table. Say so in your reply; to chart figures, write them as a cited table with chart.",
@@ -1580,16 +1599,33 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         if (each.chart) options.changed(toolCallId, { ...each.sent, chartNotDrawn: "uncited" });
         continue;
       }
-      minds.edit(each.mindId, (note) => {
+      const there = minds.edit(each.mindId, (note) => {
+        let found = 0;
         for (const element of topLevelBlocks(note)) {
           const at = each.ids.indexOf(idOf(element));
           const block = blocks[at];
-          if (at >= 0 && block) syncContent(element, block.content ?? []);
+          if (at < 0 || !block) continue;
+          syncContent(element, block.content ?? []);
+          found++;
         }
+        return found;
       });
       const drawn = each.chart?.(blocks) ?? null;
+      const charted = drawn !== null && !drawn.problem;
+      // A later call revised some of what this one wrote: counted now, it would read as having
+      // written less, or nothing. Its card keeps what it wrote, and the chart drawn now.
+      const counts =
+        there < each.ids.length
+          ? {
+              ...each.sent,
+              ...(charted && {
+                proposals: each.sent.proposals + 1,
+                charts: (each.sent.charts ?? 0) + 1,
+              }),
+            }
+          : each.change();
       options.changed(toolCallId, {
-        ...each.change(),
+        ...counts,
         ...citedIn({ cited, unrecorded }),
         ...someTableNotes(notes),
         ...(drawn?.problem && { chartNotDrawn: drawn.problem }),
@@ -1719,16 +1755,18 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     const uncited = uncitedIn(mind, content, again, { answer: false, retry });
     if (uncited) throw uncited;
     const dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));
+    const replaced = over.kind === "own" ? replacedOwn(mind.id, over.blockIds) : {};
     const request = randomUUID();
+    ownRequests.add(request);
     minds.checkpoint(mind.id);
     const ids = minds.edit(mind.id, (note) => {
       const asked =
         over.kind === "own" ? ownAsked(note, over) : remade === undefined || !remade.typedSince;
-      const revised = blocks.map(createElement);
+      // `settle` writes Citations recorded later into the Blocks written, which only Blocks added whole can take.
       const written =
         over.kind === "own"
-          ? replaceOwn(note, over, revised, request)
-          : replaceApplied(note, over, revised, request);
+          ? replaceOwn(note, over, blocks.map(createElement), request)
+          : replaceApplied(note, over, blocks, request, { whole: unrecorded > 0 });
       const doc = note.doc;
       if (!written || !doc) return written;
       setOrigins(doc, written, options.origin);
@@ -1754,7 +1792,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           : 0;
       return {
         ...changeIn(mind.id, request, false),
-        ...(over.kind === "own" && { revised: true }),
+        ...(over.kind === "own" && { revised: true, ...replaced }),
         ...(changed > 0 && { changed }),
       };
     };
@@ -1880,6 +1918,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           ...checkedNotes(checked),
         ].join(" ");
       }
+      const replaced = waiting.kind === "own" ? replacedOwn(mind.id, waiting.blockIds) : {};
       const { result, length, reason, revised } = await minds.proposeInMind({
         mindId: mind.id,
         ...stretch,
@@ -1903,8 +1942,9 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         }
         throw why;
       }
+      ownRequests.add(result.request);
       const { tables, changed } = minds.read(mind.id, (note) => ({
-        tables: writtenBy(note, result.request).tables,
+        tables: writtenBy(note, new Set([result.request])).tables,
         changed: changedParagraphs(note, (ref) => ref.request === result.request),
       }));
       const notes = someTableNotes({
@@ -1912,7 +1952,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         extraCells: result.extraCells ?? 0,
       });
       const change: MindChange = revised
-        ? { ...changeIn(mind.id, result.request, false), revised: true, ...notes }
+        ? { ...changeIn(mind.id, result.request, false), revised: true, ...replaced, ...notes }
         : {
             mindId: mind.id,
             created: false,

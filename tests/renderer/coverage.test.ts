@@ -12,7 +12,7 @@ const claim = (
     from: at,
     to: at + 10,
     shown: { state },
-    check: { action: "find-support", scope },
+    check: { action: "check-against-documents", scope },
   }) as unknown as ShownClaim;
 
 describe("how the checks cover the Documents (#764)", () => {
@@ -27,7 +27,7 @@ describe("how the checks cover the Documents (#764)", () => {
       mostlyUncovered: true,
       canWiden: true,
       range: { from: 0, to: 50 },
-      action: "find-support",
+      action: "check-against-documents",
     });
   });
 

@@ -412,6 +412,8 @@ function Option({
 }) {
   const words = item.kind === "note" || item.kind === "passage" || item.kind === "said";
   const ranges = item.kind === "object" || item.kind === "command" ? item.ranges : [];
+  const purpose = item.kind === "command" ? item.purpose : "";
+  const twoLines = words || purpose !== "";
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: the field owns the keys (aria-activedescendant).
     <div
@@ -427,10 +429,10 @@ function Option({
       onMouseMove={onPoint}
       onClick={(event) => onChoose(event.metaKey || event.ctrlKey)}
       className={`flex cursor-default gap-2.5 rounded-md px-2 ${
-        words ? "items-start py-1.5" : "h-9 items-center"
+        twoLines ? "items-start py-1.5" : "h-9 items-center"
       } ${active ? "bg-hover" : ""}`}
     >
-      <span className={`flex shrink-0 ${words ? "pt-0.5" : ""}`}>
+      <span className={`flex shrink-0 ${twoLines ? "pt-0.5" : ""}`}>
         <ItemIcon item={item} />
       </span>
       <span className="min-w-0 flex-1">
@@ -447,6 +449,15 @@ function Option({
         {words && (
           <span className="block truncate text-[13px] leading-5 text-ink-secondary">
             <Marked text={item.excerpt} ranges={item.highlights} />
+          </span>
+        )}
+        {purpose !== "" && (
+          <span
+            data-testid="palette-purpose"
+            className="block truncate text-[12px] leading-4 text-ink-meta"
+            title={purpose}
+          >
+            {purpose}
           </span>
         )}
       </span>
