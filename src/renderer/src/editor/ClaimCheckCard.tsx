@@ -1,5 +1,13 @@
 import type { Editor } from "@tiptap/core";
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import type { ClaimCalculation } from "../../../core/api";
@@ -17,6 +25,7 @@ import {
   closeOpenClaim,
   removeClaimMark,
   replaceCitation,
+  setClaimFocus,
   setOpenClaim,
   useChecks,
   widenCitation,
@@ -44,6 +53,7 @@ import {
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
 import { ClaimOutline } from "./ClaimOutline";
+import { focusFirstAction, keepFocusInside } from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
@@ -91,8 +101,11 @@ function searchTheWeb(mindId: string, sentence: string): void {
  * Citation (a plain tick when the card changes the sentence's own Citation
  * instead), an amber "!", an outlined red "≠", a grey ring when it wasn't
  * checked, ↻ when it needs a re-check. Hovering or focusing it shows its card,
- * and clicking keeps the card until it is dismissed; Esc closes it. While the
- * card is open, its sentence is outlined.
+ * and clicking keeps the card until it is dismissed; Esc closes it and puts
+ * the caret back in the sentence. Enter or Space on the focused mark, and the
+ * "Show the check for this sentence" command, open the card with the focus on
+ * its first action, where Tab and Shift+Tab wrap (#1762). While the card is
+ * open, its sentence is outlined.
  */
 export function ClaimMark({
   claim,
@@ -119,9 +132,13 @@ export function ClaimMark({
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const pinned = useChecks((store) => store.openClaim[place] === id);
+  const requestedFocus = useChecks((store) => store.focusClaim[place] === id);
   const [peeking, setPeeking] = useState(false);
   const askers = useRef(new Set<string>());
   const timer = useRef<number | undefined>(undefined);
+  const card = useRef<HTMLDivElement>(null);
+  /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
+  const openedByKeyboard = useRef(false);
   const open = pinned || peeking;
   const decision = state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
   const plus = decision.kind === "add";
@@ -137,10 +154,37 @@ export function ClaimMark({
   const dismiss = useCallback(() => {
     askers.current.clear();
     window.clearTimeout(timer.current);
+    openedByKeyboard.current = false;
     closeOpenClaim(place, id);
+    setClaimFocus(place, null);
     setPeeking(false);
   }, [place, id]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  /** The first action of a card opened from the keyboard takes the focus (#1762). */
+  const takeFirstAction = useCallback(() => {
+    focusFirstAction(card.current);
+    setClaimFocus(place, null);
+  }, [place]);
+  useEffect(() => {
+    if (requestedFocus) openedByKeyboard.current = true;
+  }, [requestedFocus]);
+  // A card already open under the mouse: the popover only takes the focus as it first shows.
+  useEffect(() => {
+    if (!requestedFocus || !open) return;
+    if (!card.current?.checkVisibility({ checkVisibilityCSS: true })) return;
+    takeFirstAction();
+  }, [requestedFocus, open, takeFirstAction]);
+  const initialFocus = useMemo(
+    () => ({ current: requestedFocus ? { focus: takeFirstAction } : null }),
+    [requestedFocus, takeFirstAction],
+  );
+
+  /** Esc gives the caret back where it was, in the text the card is about (#1762). */
+  const returnToNote = () => {
+    if (editor.isDestroyed || !editor.view.dom.checkVisibility()) return;
+    editor.view.focus();
+  };
 
   const guided = useAppStore((app) => {
     const progress = app.settings?.device.gettingStarted;
@@ -187,8 +231,10 @@ export function ClaimMark({
           if (!isQuietFocus(event.currentTarget)) hold("focus", true);
         }}
         onBlur={() => hold("focus", false)}
-        onClick={() => {
+        onClick={(event) => {
           setOpenClaim(place, id);
+          // Enter or Space on the focused mark: the card takes the focus, as the command's does.
+          if (event.detail === 0) setClaimFocus(place, id);
           // Step 1 of the first open's steps, "See a mistake it caught".
           if (state === "contradicted") {
             useAppStore.getState().updateGettingStarted({ mistakeSeen: true });
@@ -211,7 +257,11 @@ export function ClaimMark({
             anchor={button}
             placement="bottom-end"
             middleware={() => claimCardPlace(button)}
-            onDismiss={dismiss}
+            onDismiss={(how) => {
+              if (how === "escape" && openedByKeyboard.current) returnToNote();
+              dismiss();
+            }}
+            initialFocus={initialFocus}
             aria-label={t("claim.card.label", {
               state: t(`claim.state.${state}`),
               sentence: comparableSentence(claim.sentence.text),
@@ -222,8 +272,10 @@ export function ClaimMark({
             onPointerLeave={() => hold("card", false)}
             onFocus={() => hold("card-focus", true)}
             onBlur={() => hold("card-focus", false)}
+            onKeyDown={(event) => keepFocusInside(event, event.currentTarget)}
           >
             <ClaimCard
+              rootRef={card}
               claim={claim}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
@@ -376,6 +428,7 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
  * Documents IncarnaMind wrote that matched are named, with Count it.
  */
 function ClaimCard({
+  rootRef,
   claim,
   verified,
   cited,
@@ -398,6 +451,7 @@ function ClaimCard({
   onCutSentence,
   onKeep,
 }: {
+  rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
   verified: string | null;
@@ -482,7 +536,12 @@ function ClaimCard({
         : null;
 
   return (
-    <div className={`citation-card citation-card--${TONE[state]}`} contentEditable={false}>
+    <div
+      ref={rootRef}
+      tabIndex={-1}
+      className={`citation-card citation-card--${TONE[state]}`}
+      contentEditable={false}
+    >
       <div className="citation-card-head">
         <p data-testid="claim-badge" data-check={state} className="citation-badge">
           <ClaimMarkIcon state={state} className="citation-badge-icon" />

@@ -667,6 +667,7 @@ export const en = {
   "claim.state.needs-recheck": "Needs re-check",
   "claim.mark.label": "Sentence check: {state}",
   "claim.card.label": "Sentence check: {state}. {sentence}",
+  "claim.showCard": "Show the check for this sentence",
   "claim.sentence": "“{sentence}”",
   "claim.addAsCitation": "Add as Citation",
   "claim.alreadyCited": "Already cited",

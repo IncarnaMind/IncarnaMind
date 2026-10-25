@@ -656,6 +656,7 @@ export const zhCN = {
   "claim.state.needs-recheck": "需重新核对",
   "claim.mark.label": "句子核对：{state}",
   "claim.card.label": "句子核对：{state}。{sentence}",
+  "claim.showCard": "查看这句话的核对结果",
   "claim.sentence": "“{sentence}”",
   "claim.addAsCitation": "添加为引用",
   "claim.alreadyCited": "已引用",
