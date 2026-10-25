@@ -443,7 +443,7 @@ async function extractPdf(
         ? {
             pages: [...new Set([...unreadForms, ...(unreadScans?.pages ?? [])])],
             message:
-              "Some PDF form fields could not be read. Save a flattened PDF in the app that created it, then add that copy.",
+              "Some PDF form fields could not be read. Print to PDF in the app that created it, then add that copy.",
             forms: true as const,
           }
         : unreadScans;

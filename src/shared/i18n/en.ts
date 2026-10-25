@@ -100,7 +100,7 @@ export const en = {
   "library.fix.scan": "A scan with no text yet",
   "library.fix.pages": "Some scanned pages couldn’t be read",
   "library.fix.forms":
-    "Some form fields couldn’t be read. Save a flattened PDF in the app that created it, then add that copy",
+    "Some form fields couldn’t be read. Print to PDF in the app that created it, then add that copy",
   "library.fix.empty": "This file is empty",
   "library.fix.open": "Open in default app",
   "library.fix.retry": "Retry",

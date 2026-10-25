@@ -128,6 +128,17 @@ for (const language of ["en", "zh-CN"] as const) {
         await window.screenshot({
           path: join(process.env.INCARNAMIND_SCREENSHOTS, `pdf-forms-partial-${language}.png`),
         });
+      await pointAndClick(window, item.getByTestId("open-document"));
+      const warning = window.getByTestId("viewer").getByTestId("forms-unread");
+      await expect(warning).toContainText(language === "zh-CN" ? "打印为 PDF" : "Print to PDF");
+      await expect(warning.getByTestId("forms-retry")).toBeVisible();
+      if (process.env.INCARNAMIND_SCREENSHOTS)
+        await window.screenshot({
+          path: join(
+            process.env.INCARNAMIND_SCREENSHOTS,
+            `pdf-forms-partial-viewer-${language}.png`,
+          ),
+        });
     } finally {
       await app.close();
       await removeDataFolder(dataDir);

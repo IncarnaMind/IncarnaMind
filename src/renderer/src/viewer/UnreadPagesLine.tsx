@@ -5,27 +5,28 @@ import { unreadPages } from "../scanStatus";
 import { useAppStore } from "../store";
 
 /**
- * A PDF whose scanned pages couldn't all be read (#397): which, where the
- * User is looking at them, with Retry, which reads only those pages again.
+ * A PDF's unread content, where the User is looking at it, with Retry.
  */
 export function UnreadPagesLine({ document }: { document: Document }) {
   const t = useT();
   const language = useLanguage();
   const retryDocument = useAppStore((state) => state.retryDocument);
   const { failure } = document;
-  if (document.status !== "failed" || failure?.reason !== "pages-unread") return null;
+  const forms = failure?.reason === "forms-unread";
+  if (document.status !== "failed" || !failure || (!forms && failure.reason !== "pages-unread"))
+    return null;
   return (
     <div className="shrink-0 border-b border-rule px-4 py-1.5">
       <ProblemLine
-        testId="scan-unread"
+        testId={forms ? "forms-unread" : "scan-unread"}
         title={failure.message}
         action={{
           label: t("documents.retryAction"),
-          testId: "scan-retry",
+          testId: forms ? "forms-retry" : "scan-retry",
           onClick: () => void retryDocument(document.id),
         }}
       >
-        {unreadPages(failure, t, language, "sentence")}
+        {forms ? t("library.fix.forms") : unreadPages(failure, t, language, "sentence")}
       </ProblemLine>
     </div>
   );

@@ -241,7 +241,7 @@ test("an unreadable field is a partial-reading problem, and readable fields stay
     ]),
   );
   expect(document).toMatchObject({ status: "failed", failure: { reason: "forms-unread" } });
-  expect(document.failure?.message).toContain("flattened PDF");
+  expect(document.failure?.message).toContain("Print to PDF");
   const text = (await core.readDocumentText(document.id)).pages[0]?.text ?? "";
   expect(text).toContain("Approval signature: [?]");
   expect(text).toContain("Batch identifier: BIRCH-42");
