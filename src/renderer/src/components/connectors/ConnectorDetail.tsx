@@ -21,6 +21,7 @@ import { ConnectorForm } from "./ConnectorForm";
 import { ConnectorTile } from "./ConnectorTile";
 import { ConnectorTools, ReviewedTools } from "./ConnectorTools";
 import { commandLine } from "./commandLine";
+import { RemoteKeyForm } from "./RemoteKey";
 import { ClientForm, RemoteSignIn } from "./RemoteSignIn";
 
 /** A state's dot: working (blue), or waiting for the User (amber). Green and red are for checks only. */
@@ -278,6 +279,7 @@ function ConnectorControls({ connector }: { connector: Connector }) {
   const heldBack = connector.transport === "http" && connector.signIn.heldBack;
   const dot = heldBack ? null : stateDot[connector.state];
   const [editing, setEditing] = useState(false);
+  const [changingKey, setChangingKey] = useState(false);
   return (
     <div
       data-testid="connector"
@@ -336,21 +338,60 @@ function ConnectorControls({ connector }: { connector: Connector }) {
       {editing && connector.transport === "stdio" && (
         <ConnectorForm editing={connector} onDone={() => setEditing(false)} />
       )}
+      {connector.transport === "http" && connector.connection === "sse" && (
+        <p className="text-[12px] leading-[18px] text-ink-meta">
+          {t("remoteConnectors.connection.sse")}
+        </p>
+      )}
+      {connector.transport === "http" && (connector.headers?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-meta">
+          <span data-testid="connector-key-mask">{connector.headers?.join(", ")} · ••••••••</span>
+          {connector.error?.kind !== "key-refused" &&
+            connector.error?.kind !== "missing-secrets" && (
+              <button
+                type="button"
+                onClick={() => setChangingKey(true)}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("remoteConnectors.key.change")}
+              </button>
+            )}
+        </div>
+      )}
+      {changingKey && connector.transport === "http" && (
+        <RemoteKeyForm connector={connector} onDone={() => setChangingKey(false)} />
+      )}
       {connector.state === "error" && connector.error && (
         <ErrorNotice
           error={connector.error}
+          name={name}
+          keySignIn={connector.transport === "http" && (connector.headers?.length ?? 0) > 0}
+          onChangeKey={() => setChangingKey(true)}
           onRetry={() => void act(() => core.restartConnector(id))}
         />
       )}
-      {connector.transport === "http" && connector.enabled && connector.state !== "paused" && (
-        <RemoteSignIn connector={connector} />
-      )}
+      {connector.transport === "http" &&
+        !connector.headers?.length &&
+        connector.enabled &&
+        connector.state !== "paused" && <RemoteSignIn connector={connector} />}
     </div>
   );
 }
 
 /** What went wrong, in plain words, and what the User can do. */
-function ErrorNotice({ error, onRetry }: { error: ConnectorError; onRetry(): void }) {
+function ErrorNotice({
+  error,
+  name,
+  onRetry,
+  onChangeKey,
+  keySignIn,
+}: {
+  error: ConnectorError;
+  name: string;
+  onRetry(): void;
+  onChangeKey(): void;
+  keySignIn: boolean;
+}) {
   const t = useT();
   const message =
     error.kind === "missing-command"
@@ -360,9 +401,11 @@ function ErrorNotice({ error, onRetry }: { error: ConnectorError; onRetry(): voi
             install: error.install,
           })
         : t("connectors.error.missing-command", { command: error.command ?? "" })
-      : error.kind === "unreachable"
-        ? t("remoteConnectors.error.unreachable")
-        : t(`connectors.error.${error.kind}`);
+      : error.kind === "missing-secrets" && keySignIn
+        ? t("remoteConnectors.key.missing")
+        : error.kind === "unreachable"
+          ? t("remoteConnectors.error.unreachable", { name })
+          : t(`connectors.error.${error.kind}`);
   return (
     <div
       role="alert"
@@ -375,7 +418,11 @@ function ErrorNotice({ error, onRetry }: { error: ConnectorError; onRetry(): voi
         {message}
       </p>
       <div className="flex flex-wrap items-center gap-2 text-[12px]">
-        {error.retrying ? (
+        {error.kind === "key-refused" || (keySignIn && error.kind === "missing-secrets") ? (
+          <button type="button" onClick={onChangeKey} className={buttonStyle("secondary", "sm")}>
+            {t("remoteConnectors.key.change")}
+          </button>
+        ) : error.retrying && error.kind !== "unreachable" ? (
           <span className="text-ink-meta">{t("connectors.restarting")}</span>
         ) : (
           <button type="button" onClick={onRetry} className={buttonStyle("secondary", "sm")}>

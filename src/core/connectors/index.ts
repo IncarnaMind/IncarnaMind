@@ -32,9 +32,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
 import type { Browser, ProcessLauncher } from "../adapters";
 import type {
   Connector,
@@ -73,10 +71,20 @@ import {
   HeldBackError,
   manualClientRecord,
 } from "./auth";
-import { type ConnectorConfig, parseAddInput, parseClient, readMcpServers } from "./config";
-import { startError, stoppedError } from "./errors";
 import {
+  type ConnectorConfig,
+  parseAddInput,
+  parseClient,
+  parseHeaders,
+  readMcpServers,
+} from "./config";
+import { startError, stoppedError } from "./errors";
+import { headerSecret, hideHeaders, sanitizedTool, saveHeaders } from "./headers";
+import {
+  connectionFetch,
+  KeyRefusedError,
   needsSignIn,
+  OpeningRejectedError,
   remoteError,
   remoteService,
   remoteTransport,
@@ -140,7 +148,14 @@ interface ConnectorRow {
  */
 type StoredConfig =
   | { transport: "stdio"; command: string; args: string[]; env: string[] }
-  | { transport: "http"; url: string; clientId: string | null };
+  | {
+      transport: "http";
+      url: string;
+      clientId: string | null;
+      connection: "http" | "sse";
+      headers: string[];
+      headerKey: string | null;
+    };
 
 interface ToolInfo extends ConnectorTool {
   inputSchema: Record<string, unknown>;
@@ -174,6 +189,9 @@ interface Runtime {
   signInError: ConnectorSignInError | null;
   /** Remote: Local mode kept its sign-in from renewing or starting, as its server isn't on this computer (see `RemoteConnectorSignIn.heldBack`). */
   heldBack: boolean;
+  controller: AbortController | null;
+  connection: "http" | "sse" | null;
+  redact(value: string): string;
 }
 
 class MissingSecretsError extends Error {
@@ -198,6 +216,7 @@ export interface ConnectorsOptions {
   /** A Connector was added, deleted, or turned on or off. */
   onEnabledChange(): void;
   reportError(error: unknown): void;
+  fetch?: typeof fetch;
   timing?: Partial<ConnectorTiming>;
 }
 
@@ -213,10 +232,24 @@ function storedConfig(row: ConnectorRow): StoredConfig {
     if (row.transport === "http") {
       if (isRecord(parsed) && typeof parsed.url === "string") {
         const clientId = typeof parsed.clientId === "string" ? parsed.clientId : null;
-        return { transport: "http", url: parsed.url, clientId };
+        return {
+          transport: "http",
+          url: parsed.url,
+          clientId,
+          connection: parsed.connection === "sse" ? "sse" : "http",
+          headers: texts(parsed.headers),
+          headerKey: typeof parsed.headerKey === "string" ? parsed.headerKey : null,
+        };
       }
       // Unreadable: a URL that can't connect.
-      return { transport: "http", url: "", clientId: null };
+      return {
+        transport: "http",
+        url: "",
+        clientId: null,
+        connection: "http",
+        headers: [],
+        headerKey: null,
+      };
     }
     if (isRecord(parsed) && typeof parsed.command === "string") {
       return {
@@ -257,16 +290,6 @@ export function connectorToolEffects(service: ExternalService, readOnly: boolean
     { action: readOnly ? "read" : "write", scope },
     { action: "network", scope },
   ];
-}
-
-function toToolInfo(tool: McpTool): ToolInfo {
-  return {
-    name: tool.name,
-    title: tool.title ?? tool.annotations?.title ?? null,
-    description: tool.description ?? "",
-    readOnly: tool.annotations?.readOnlyHint === true,
-    inputSchema: tool.inputSchema,
-  };
 }
 
 /** Lowercase letters, digits and "_", for a Tool name the model calls: "Linear (work)" → "linear_work". */
@@ -407,6 +430,19 @@ export function createConnectors(options: ConnectorsOptions) {
         },
         onChange: changed,
         heldBack: awayInLocalMode,
+        fetch: async (input, init) => {
+          const row = rowById(id);
+          if (closed || row?.enabled !== 1) throw new Error("The Connector is stopped.");
+          gate.check("connectors", serviceOf(row));
+          const runtime = runtimes.get(id);
+          const signal = runtime?.signingIn?.controller.signal ?? runtime?.controller?.signal;
+          return (options.fetch ?? globalThis.fetch)(input, {
+            ...init,
+            ...(signal
+              ? { signal: init?.signal ? AbortSignal.any([signal, init.signal]) : signal }
+              : {}),
+          });
+        },
       });
       auths.set(id, found);
     }
@@ -447,6 +483,8 @@ export function createConnectors(options: ConnectorsOptions) {
         transport: "http",
         url: config.url,
         clientId: config.clientId,
+        connection: runtime?.connection ?? config.connection,
+        headers: config.headers,
         signIn: {
           ...(auths.get(row.id)?.status() ?? { signedIn: false, expired: false }),
           heldBack: options.localOnly() && runtime?.heldBack === true,
@@ -498,6 +536,9 @@ export function createConnectors(options: ConnectorsOptions) {
         signingIn: null,
         signInError: null,
         heldBack: false,
+        controller: null,
+        connection: null,
+        redact: (value) => value,
       };
       runtimes.set(id, runtime);
     }
@@ -514,6 +555,8 @@ export function createConnectors(options: ConnectorsOptions) {
     runtime.generation++;
     clearRetry(runtime);
     runtime.starting = null;
+    runtime.controller?.abort();
+    runtime.controller = null;
     const session = runtime.session;
     runtime.session = null;
     runtime.client = null;
@@ -548,7 +591,10 @@ export function createConnectors(options: ConnectorsOptions) {
   /** Records a failure; failures that may pass are retried, waiting longer each time. */
   const fail = (id: string, runtime: Runtime, error: ConnectorError) => {
     runtime.failures++;
-    const retryable = error.kind !== "missing-command" && error.kind !== "missing-secrets";
+    const retryable =
+      error.kind !== "missing-command" &&
+      error.kind !== "missing-secrets" &&
+      error.kind !== "key-refused";
     const retrying = retryable && runtime.failures <= timing.maxRestarts;
     runtime.state = "error";
     runtime.error = { ...error, retrying };
@@ -608,7 +654,7 @@ export function createConnectors(options: ConnectorsOptions) {
         tools: {
           onChanged: (error, tools) => {
             if (error || !tools || !ready || !current()) return;
-            runtime.tools = tools.map(toToolInfo);
+            runtime.tools = tools.map((tool) => sanitizedTool(tool, runtime.redact));
             changed();
           },
         },
@@ -627,7 +673,7 @@ export function createConnectors(options: ConnectorsOptions) {
         const page = await client.listTools(cursor ? { cursor } : undefined, {
           timeout: timing.connectTimeoutMs,
         });
-        tools.push(...page.tools.map(toToolInfo));
+        tools.push(...page.tools.map((tool) => sanitizedTool(tool, runtime.redact)));
         cursor = page.nextCursor;
       } while (cursor && tools.length < 1_000);
     }
@@ -719,47 +765,106 @@ export function createConnectors(options: ConnectorsOptions) {
 
   async function connectRemote(
     id: string,
-    url: string,
+    config: Extract<StoredConfig, { transport: "http" }>,
     runtime: Runtime,
     generation: number,
   ): Promise<void> {
     const current = () => !closed && runtime.generation === generation;
+    const { url } = config;
     const auth = authOf(id, url);
     const held = auth.heldBackCount();
-    let transport: StreamableHTTPClientTransport | null = null;
+    const connectionState: { transport: Transport | null } = { transport: null };
+    const controller = new AbortController();
+    runtime.controller = controller;
+    let keyRefused = false;
     try {
+      gate.check("connectors", serviceOf(requireRow(id)));
+      const headers = Object.fromEntries(
+        await Promise.all(
+          config.headers.map(async (name) => {
+            const value = await secrets.tryGet(headerSecret(config.headerKey ?? id, name));
+            if (value === null)
+              throw new MissingSecretsError("The Connector's key can't be read on this device.");
+            return [name, value];
+          }),
+        ),
+      );
+      runtime.redact = hideHeaders(headers);
       await auth.load();
       // An access token that has expired is renewed first, rather than sent to be refused.
-      await auth.refreshIfStale();
+      if (config.headers.length === 0) await auth.refreshIfStale();
       if (!current()) return;
-      const connection = await remoteTransport(url, auth);
-      if (!current()) return;
-      transport = connection;
-      runtime.session = { close: () => connection.close(), kill: () => void connection.close() };
-      const { client, tools, ready } = await handshake(runtime, generation, connection, () =>
-        lost(id, runtime, generation, () => ({
-          kind: "stopped",
-          command: null,
-          install: null,
-          message: "The connection closed.",
-          retrying: false,
-        })),
-      );
+      const open = async (kind: "http" | "sse") => {
+        const connection = await remoteTransport(url, auth, {
+          connection: kind,
+          headers,
+          fetch: connectionFetch({
+            url,
+            headers,
+            signal: controller.signal,
+            fetch: auth.fetch,
+            check: () => gate.check("connectors", serviceOf(requireRow(id))),
+            opening: kind === "http",
+            onKeyRefused: () => {
+              keyRefused = true;
+            },
+          }),
+        });
+        if (!current()) {
+          await connection.close();
+          throw new Error("The Connector is stopped.");
+        }
+        connectionState.transport = connection;
+        runtime.session = { close: () => connection.close(), kill: () => void connection.close() };
+        runtime.connection = kind;
+        return handshake(runtime, generation, connection, () =>
+          lost(id, runtime, generation, () => ({
+            kind: "stopped",
+            command: null,
+            install: null,
+            message: "The connection closed.",
+            retrying: false,
+          })),
+        );
+      };
+      let connected: Awaited<ReturnType<typeof open>>;
+      try {
+        connected = await open(config.connection);
+      } catch (error) {
+        if (config.connection !== "http" || !causedBy(error, OpeningRejectedError) || !current())
+          throw error;
+        await connectionState.transport?.close();
+        connected = await open("sse");
+      }
+      const { client, tools, ready } = connected;
       if (!current()) {
-        connection.close().catch(options.reportError);
+        connectionState.transport?.close().catch(options.reportError);
         return;
       }
       ready();
       becameReady(runtime, client, tools);
     } catch (error) {
-      transport?.close().catch(() => undefined);
+      connectionState.transport?.close().catch(() => undefined);
       if (!current()) return;
       runtime.session = null;
       runtime.client = null;
       if (causedBy(error, HeldBackError) || auth.heldBackCount() > held) {
         waitForSignIn(runtime, true);
       } else if (needsSignIn(error)) waitForSignIn(runtime);
-      else fail(id, runtime, remoteError(error));
+      else
+        fail(
+          id,
+          runtime,
+          error instanceof MissingSecretsError
+            ? {
+                kind: "missing-secrets",
+                command: null,
+                install: null,
+                message: error.message,
+                retrying: false,
+              }
+            : remoteError(keyRefused ? new KeyRefusedError("The server refused this key.") : error),
+        );
     }
   }
 
@@ -767,7 +872,7 @@ export function createConnectors(options: ConnectorsOptions) {
     const row = rowById(id);
     if (row?.enabled !== 1) return;
     const config = storedConfig(row);
-    if (config.transport === "http") await connectRemote(id, config.url, runtime, generation);
+    if (config.transport === "http") await connectRemote(id, config, runtime, generation);
     else await connectLocal(id, config, runtime, generation);
   }
 
@@ -820,7 +925,15 @@ export function createConnectors(options: ConnectorsOptions) {
         secretName = clientSecret(id);
         await secrets.set(secretName, manualClientRecord(secret));
       }
-      stored = { transport: "http", url: config.url, clientId: config.client?.clientId ?? null };
+      await saveHeaders(secrets, id, config.headers);
+      stored = {
+        transport: "http",
+        url: config.url,
+        clientId: config.client?.clientId ?? null,
+        connection: config.connection,
+        headers: Object.keys(config.headers),
+        headerKey: id,
+      };
     } else {
       const envNames = Object.keys(config.env);
       if (envNames.length > 0) {
@@ -845,6 +958,9 @@ export function createConnectors(options: ConnectorsOptions) {
       );
     } catch (error) {
       if (secretName) await secrets.delete(secretName).catch(options.reportError);
+      if (stored.transport === "http")
+        for (const name of stored.headers)
+          await secrets.delete(headerSecret(id, name)).catch(options.reportError);
       throw error;
     }
     // Connecting it, where the form says what goes to it, allows its Tool calls (ADR-0022).
@@ -922,7 +1038,8 @@ export function createConnectors(options: ConnectorsOptions) {
       );
     }
     const reason = remoteError(error);
-    if (reason.kind === "unreachable") lost(row.id, runtime, generation, () => reason);
+    if (reason.kind === "unreachable" || reason.kind === "key-refused")
+      lost(row.id, runtime, generation, () => reason);
   };
 
   /** A Connector's Tool, as an Answer offers it to the model. */
@@ -973,13 +1090,18 @@ export function createConnectors(options: ConnectorsOptions) {
           throw new Error(`The Connector "${row.name}" isn't connected right now.`);
         }
         const generation = runtime.generation;
-        const auth = config.transport === "http" ? authOf(row.id, config.url) : null;
+        const auth =
+          config.transport === "http" && config.headers.length === 0
+            ? authOf(row.id, config.url)
+            : null;
         const held = auth?.heldBackCount() ?? 0;
         let result: Awaited<ReturnType<Client["callTool"]>>;
         try {
           await auth?.refreshIfStale();
         } catch (error) {
-          if (auth) remoteCallFailed(row, runtime, generation, error, auth.heldBackCount() > held);
+          if (config.transport === "http")
+            remoteCallFailed(row, runtime, generation, error, (auth?.heldBackCount() ?? 0) > held);
+          if (config.transport === "http") throw new Error(remoteError(error).message);
           throw error;
         }
         // After the sign-in's refresh, which can wait on its server: the call is what sends.
@@ -995,10 +1117,14 @@ export function createConnectors(options: ConnectorsOptions) {
             resetTimeoutOnProgress: true,
           });
         } catch (error) {
-          if (auth) remoteCallFailed(row, runtime, generation, error, auth.heldBackCount() > held);
+          if (config.transport === "http")
+            remoteCallFailed(row, runtime, generation, error, (auth?.heldBackCount() ?? 0) > held);
+          if (config.transport === "http") throw new Error(remoteError(error).message);
           throw error;
         }
-        const text = resultText(result);
+        if (runtime.generation !== generation)
+          throw new Error("The Connector stopped before the Tool finished.");
+        const text = runtime.redact(resultText(result));
         if (result.isError === true) throw new Error(text);
         return text;
       },
@@ -1117,6 +1243,10 @@ export function createConnectors(options: ConnectorsOptions) {
         consent.revoke("connectors", service.id);
       }
       if (config.transport === "http") {
+        for (const name of config.headers)
+          await secrets
+            .delete(headerSecret(config.headerKey ?? row.id, name))
+            .catch(options.reportError);
         await authOf(row.id, config.url).deleteAll().catch(options.reportError);
         auths.delete(row.id);
       } else {
@@ -1132,6 +1262,8 @@ export function createConnectors(options: ConnectorsOptions) {
      */
     async signIn(id: unknown): Promise<ConnectorSignInResult> {
       const { row, config } = requireRemote(id);
+      if (config.headers.length > 0)
+        throw new InvalidInputError("Change this Connector's key instead.");
       if (row.enabled !== 1) throw new InvalidInputError({ key: "error.connector.off" });
       if (paused(row)) throw new InvalidInputError({ key: "error.connector.localMode" });
       const storage = secrets.status();
@@ -1162,6 +1294,7 @@ export function createConnectors(options: ConnectorsOptions) {
       const held = auth.heldBackCount();
       const done = signInRemote({
         url: config.url,
+        connection: runtime.connection ?? config.connection,
         auth,
         browser: options.browser,
         pages: options.signInPages(row.name),
@@ -1211,6 +1344,9 @@ export function createConnectors(options: ConnectorsOptions) {
       const { row, config } = requireRemote(id);
       const runtime = runtimeOf(row.id);
       await cancelSignIn(runtime);
+      stop(row.id);
+      for (const name of config.headers)
+        await secrets.delete(headerSecret(config.headerKey ?? row.id, name));
       await authOf(row.id, config.url).signOut();
       runtime.signInError = null;
       if (rowById(row.id)?.enabled === 1) waitForSignIn(runtime);
@@ -1221,6 +1357,8 @@ export function createConnectors(options: ConnectorsOptions) {
     /** Sets (or, with null, clears) the OAuth app a remote Connector signs in with. Signs out first. */
     async setClient(id: unknown, input: unknown): Promise<Connector> {
       const { row, config } = requireRemote(id);
+      if (config.headers.length > 0)
+        throw new InvalidInputError({ key: "error.connector.authChoice" });
       const client = parseClient(input);
       if (client?.clientSecret) {
         const { canSave, protection } = secrets.status();
@@ -1229,7 +1367,13 @@ export function createConnectors(options: ConnectorsOptions) {
       const runtime = runtimeOf(row.id);
       await cancelSignIn(runtime);
       db.run("UPDATE connectors SET config = ?, updated_at = ? WHERE id = ?", [
-        JSON.stringify({ url: config.url, clientId: client?.clientId ?? null }),
+        JSON.stringify({
+          url: config.url,
+          clientId: client?.clientId ?? null,
+          connection: config.connection,
+          headers: config.headers,
+          headerKey: config.headerKey,
+        }),
         now(),
         row.id,
       ]);
@@ -1237,6 +1381,42 @@ export function createConnectors(options: ConnectorsOptions) {
       runtime.signInError = null;
       if (rowById(row.id)?.enabled === 1) waitForSignIn(runtime);
       else changed();
+      return toConnector(requireRow(row.id));
+    },
+
+    async setHeaders(id: unknown, input: unknown): Promise<Connector> {
+      const { row, config } = requireRemote(id);
+      const headers = parseHeaders(input);
+      const runtime = runtimeOf(row.id);
+      await cancelSignIn(runtime);
+      stop(row.id);
+      const generation = runtime.generation;
+      const headerKey = randomUUID();
+      changed();
+      await saveHeaders(secrets, headerKey, headers);
+      try {
+        if (closed || runtime.generation !== generation || !rowById(row.id)) {
+          throw new InvalidInputError({ key: "error.connector.keyChangeCancelled" });
+        }
+        const { transport: _, ...stored } = config;
+        db.run("UPDATE connectors SET config = ?, updated_at = ? WHERE id = ?", [
+          JSON.stringify({ ...stored, headers: Object.keys(headers), headerKey }),
+          now(),
+          row.id,
+        ]);
+      } catch (error) {
+        for (const name of Object.keys(headers))
+          await secrets.delete(headerSecret(headerKey, name)).catch(options.reportError);
+        throw error;
+      }
+      for (const name of config.headers)
+        await secrets
+          .delete(headerSecret(config.headerKey ?? row.id, name))
+          .catch(options.reportError);
+      if (runtime.generation !== generation || closed) return toConnector(requireRow(row.id));
+      if (row.enabled === 1 && Object.keys(headers).length > 0) start(row.id);
+      else waitForSignIn(runtime);
+      changed();
       return toConnector(requireRow(row.id));
     },
 
@@ -1248,7 +1428,8 @@ export function createConnectors(options: ConnectorsOptions) {
       const adding = candidates.filter((each) => each.entry.action === "add");
       // Every environment goes to the keychain: check it can take them before adding any.
       const hasSecrets = (config: ConnectorConfig | null) =>
-        config?.transport === "stdio" && Object.keys(config.env).length > 0;
+        config &&
+        Object.keys(config.transport === "stdio" ? config.env : config.headers).length > 0;
       if (adding.some((each) => hasSecrets(each.config))) {
         const { canSave, protection } = secrets.status();
         if (!canSave) throw new SecretStorageError(protection);
@@ -1265,6 +1446,15 @@ export function createConnectors(options: ConnectorsOptions) {
 
     /** Whether any Connector is on: Answers may then send Tool results to the chat model. */
     anyEnabled: () => liveRows().some((row) => row.enabled === 1 && !paused(row)),
+
+    consentChanged(): void {
+      for (const row of liveRows()) {
+        if (row.transport !== "http" || row.enabled !== 1) continue;
+        if (!consent.allows("connectors", serviceOf(row))) stop(row.id);
+        else if (!runtimes.get(row.id)?.session && !paused(row)) start(row.id);
+      }
+      changed();
+    },
 
     /** "Keep everything on this computer" was turned on or off: remote Connectors disconnect, or connect again. */
     localModeChanged(): void {

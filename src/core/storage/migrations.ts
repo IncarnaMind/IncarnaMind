@@ -1869,6 +1869,15 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE conversation_messages ADD COLUMN quotes TEXT;
     `,
   },
+  {
+    version: 106,
+    description: "Remote Connector transport and header-secret references (#1995)",
+    sql: `
+      UPDATE connectors
+      SET config = json_set(config, '$.connection', 'http', '$.headers', json('[]'), '$.headerKey', NULL)
+      WHERE transport = 'http' AND json_valid(config);
+    `,
+  },
 ];
 
 /**

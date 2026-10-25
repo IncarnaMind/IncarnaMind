@@ -37,6 +37,8 @@ export interface RemoteConnectorConfig {
   name: string;
   url: string;
   client: ClientCredentials | null;
+  connection: "http" | "sse";
+  headers: Record<string, string>;
 }
 
 export type ConnectorConfig = LocalConnectorConfig | RemoteConnectorConfig;
@@ -88,6 +90,34 @@ export function parseClient(value: unknown): ClientCredentials | null {
   if (clientSecret.includes("\0"))
     throw new InvalidInputError({ key: "error.connector.clientSecretInvalid" });
   return { clientId, clientSecret: clientSecret || null };
+}
+
+export function parseHeaders(value: unknown): Record<string, string> {
+  if (value === undefined || value === null) return {};
+  if (!isRecord(value) || Object.keys(value).length > 32) {
+    throw new InvalidInputError({ key: "error.connector.headersInvalid" });
+  }
+  const names = new Set<string>();
+  return Object.fromEntries(
+    Object.entries(value).map(([name, raw]) => {
+      const normalized = name.toLowerCase();
+      if (
+        !/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/.test(name) ||
+        names.has(normalized) ||
+        /^(host|connection|content-length|content-type|accept|cookie|proxy-authorization|transfer-encoding|mcp-.*)$/i.test(
+          name,
+        ) ||
+        typeof raw !== "string" ||
+        !raw.trim() ||
+        raw.length > 16_384 ||
+        /[\r\n\0]/.test(raw)
+      ) {
+        throw new InvalidInputError({ key: "error.connector.headersInvalid" });
+      }
+      names.add(normalized);
+      return [name, raw.trim()];
+    }),
+  );
 }
 
 function parseName(value: unknown): string {
@@ -163,11 +193,18 @@ export function parseAddInput(input: unknown): ConnectorConfig {
     if (input.command !== undefined) {
       throw new InvalidInputError("A Connector has either a command or a URL, not both.");
     }
+    const headers = parseHeaders(input.headers);
+    const client = parseClient(input.client);
+    if (client && Object.keys(headers).length > 0) {
+      throw new InvalidInputError({ key: "error.connector.authChoice" });
+    }
     return {
       transport: "http",
       name: parseName(input.name),
       url: parseRemoteUrl(input.url),
-      client: parseClient(input.client),
+      client,
+      connection: input.connection === "sse" ? "sse" : "http",
+      headers,
     };
   }
   return {
@@ -191,25 +228,20 @@ const STREAMABLE_HTTP_TYPES = new Set(["http", "streamable-http", "streamablehtt
 const looksLikeServer = (value: unknown) =>
   isRecord(value) && (typeof value.command === "string" || typeof value.url === "string");
 
-/**
- * A remote server: added when it speaks Streamable HTTP. The older SSE
- * transport (a "sse" type, or a URL ending in /sse with no type) and custom
- * headers, usually an API key, aren't supported.
- */
 function remoteCandidate(name: string, value: Record<string, unknown>): ImportCandidate {
   const url = typeof value.url === "string" ? value.url.trim() : "";
   const base = { name, command: null, args: [], env: [], ...(url ? { url } : {}) };
   const type = typeof value.type === "string" ? value.type.toLowerCase() : "";
-  const sse = type === "sse" || (type === "" && /\/sse\/?$/i.test(url.split("?")[0] ?? ""));
-  const headers = isRecord(value.headers) && Object.keys(value.headers).length > 0;
-  if (sse || headers || (type !== "" && !STREAMABLE_HTTP_TYPES.has(type))) {
+  if (type !== "" && type !== "sse" && !STREAMABLE_HTTP_TYPES.has(type)) {
     return { entry: { ...base, action: "remote" }, config: null };
   }
   try {
     const parsed = parseRemoteUrl(url);
+    const headers = parseHeaders(value.headers);
+    const connection = type === "sse" ? "sse" : "http";
     return {
-      entry: { ...base, url: parsed, action: "add" },
-      config: { transport: "http", name, url: parsed, client: null },
+      entry: { ...base, url: parsed, headers: Object.keys(headers), connection, action: "add" },
+      config: { transport: "http", name, url: parsed, client: null, headers, connection },
     };
   } catch {
     return { entry: { ...base, action: "invalid" }, config: null };
@@ -269,9 +301,8 @@ export function readMcpServers(json: unknown): ImportCandidate[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new InvalidInputError({ key: "error.connector.jsonInvalid", values: { reason } });
+  } catch {
+    throw new InvalidInputError({ key: "error.connector.jsonInvalid" });
   }
   const servers = serversOf(parsed);
   if (!servers || Object.keys(servers).length === 0) {
