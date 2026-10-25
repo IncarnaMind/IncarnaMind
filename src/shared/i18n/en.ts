@@ -2852,6 +2852,7 @@ export const en = {
   "comparison.cell.readingText": "Reading…",
   "comparison.cell.stopped": "stopped",
   "comparison.cell.notFound": "not found",
+  "comparison.cell.scaleChanged": "scale differs from the Document, which gives {amount}",
   "comparison.cell.nothingToSearch": "no text to search",
   "comparison.cell.sourceRemoved": "source removed",
   "comparison.cell.leftOut": "left out: IncarnaMind wrote it",
@@ -3703,6 +3704,8 @@ export const en = {
   "error.startup.body": "Your data folder couldn’t be opened.\n\n{message}",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+  "error.startup.stalled":
+    "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
   "error.startup.newer.title": "Update IncarnaMind to open your data",
   "error.startup.newer.body":
     "A newer IncarnaMind saved this data. Update to open it; nothing changed.",
