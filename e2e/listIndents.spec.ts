@@ -15,7 +15,8 @@ import {
  * Lists in a Mind (#1341): Tab and Shift-Tab change an item's level (bullets, numbers and
  * checklists), each one ⌘Z; and a list is indented as Word indents it (DESIGN.md): the text of
  * level 1 starts 48px from the text edge, each further level 48px more, wrapped lines aligned to it.
- * English at 1,440 px, Chinese at 900 px.
+ * A to-do isn't indented: its box is on the text edge, its text 28px in, and each further level
+ * 24px more. English at 1,440 px, Chinese at 900 px; to-dos also at 900 and 1,600 px in both.
  */
 const MAC = process.platform === "darwin";
 const UNDO = MAC ? "Meta+z" : "Control+z";
@@ -222,7 +223,7 @@ for (const { language, width, body, items, long } of SETTINGS) {
     await app.close();
   });
 
-  test(`Tab and Shift-Tab change the level of a checklist item, one ⌘Z, indented the same (${language})`, async () => {
+  test(`Tab and Shift-Tab change the level of a checklist item, one ⌘Z each, the box at the text edge (${language})`, async () => {
     const { app, window, editor } = await openMind(language, width, body);
     const edgeLeft = await edge(editor);
 
@@ -232,17 +233,62 @@ for (const { language, width, body, items, long } of SETTINGS) {
     await window.keyboard.type(items[1]);
     const tasks = editor.locator("li[data-checked]");
     await expect(tasks).toHaveCount(2);
-    near((await textLeft(tasks.first())) - edgeLeft, 48);
-    near((await markerLeft(tasks.first())) - edgeLeft, 24);
+    near((await textLeft(tasks.first())) - edgeLeft, 28);
+    near((await markerLeft(tasks.first())) - edgeLeft, 0);
     await window.keyboard.press("Tab");
     const nested = editor.locator("ul ul li[data-checked]");
     await expect(nested).toHaveCount(1);
     await expect(nested.locator("> div")).toHaveText(items[1]);
-    near((await textLeft(nested)) - edgeLeft, 96);
-    near((await markerLeft(nested)) - edgeLeft, 72);
+    near((await textLeft(nested)) - edgeLeft, 52);
+    near((await markerLeft(nested)) - edgeLeft, 24);
     await screenshot(window, `checklist-${language}-${width}`);
+    await window.keyboard.press("Shift+Tab");
+    await expect(editor.locator("ul ul")).toHaveCount(0);
+    near((await markerLeft(tasks.nth(1))) - edgeLeft, 0);
+    await window.keyboard.press(UNDO);
+    await expect(nested).toHaveCount(1);
     await window.keyboard.press(UNDO);
     await expect(editor.locator("ul ul")).toHaveCount(0);
     await app.close();
   });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const width of [900, 1600]) {
+    test(`a to-do under a paragraph has its box on the paragraph's text edge, wrapped lines under its text (${language}, ${width} px)`, async () => {
+      const setting = SETTINGS.find((each) => each.language === language) ?? SETTINGS[0];
+      const { app, window, editor } = await openMind(language, width, setting.body);
+      const edgeLeft = await edge(editor);
+      await window.keyboard.type("[ ] ");
+      await window.keyboard.type(setting.long);
+      const task = editor.locator("li[data-checked]").first();
+      await screenshot(window, `todo-edge-${language}-${width}`);
+      const box = task.locator("> label > input");
+      const boxLeft = await box.evaluate((input) => input.getBoundingClientRect().left);
+      near(boxLeft - edgeLeft, 0);
+      near((await textLeft(task)) - edgeLeft, 28);
+      const starts = await task.locator("> div > p").evaluate((p) => {
+        const range = document.createRange();
+        range.selectNodeContents(p);
+        const tops = new Map<number, number>();
+        for (const rect of range.getClientRects()) {
+          if (rect.width === 0) continue;
+          const top = Math.round(rect.top);
+          tops.set(top, Math.min(tops.get(top) ?? Number.POSITIVE_INFINITY, rect.left));
+        }
+        return [...tops.values()];
+      });
+      expect(starts.length, "the long item wraps onto a second line").toBeGreaterThan(1);
+      for (const start of starts) near(start - edgeLeft, 28);
+      // A bullet next to it is as Word indents it.
+      await window.keyboard.press("Enter");
+      await window.keyboard.press("Enter");
+      await window.keyboard.type("- ");
+      await window.keyboard.type(setting.items[0]);
+      const bullet = editor.locator("ul > li:not([data-checked])").first();
+      near((await textLeft(bullet)) - edgeLeft, 48);
+      near((await markerLeft(bullet)) - edgeLeft, 24);
+      await app.close();
+    });
+  }
 }

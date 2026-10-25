@@ -30,22 +30,34 @@ const LINKED_WASH_MS = 1600;
  * Folder; it opens the Library, where its files are shown as on disk once
  * #1250 adds Source locations.
  */
-export function LinkedFolderRows() {
+export function LinkedFolderRows({ hideExamples = false }: { hideExamples?: boolean }) {
   const folders = useAppStore((state) => state.folders);
   const linkedFolders = useAppStore((state) => state.linkedFolders);
   const documents = useAppStore((state) => state.documents);
+  const exampleIds = useAppStore((state) =>
+    allExamples(state)
+      .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
+      .join(" "),
+  );
   const filled = useMemo(() => new Set(documents.map((each) => each.linkedFolderId)), [documents]);
+  const examples = useMemo(
+    () => new Set(hideExamples ? exampleIds.split(" ").filter(Boolean) : []),
+    [hideExamples, exampleIds],
+  );
   const language = useLanguage();
   const sidebarSort = useSort((state) => state.scopes.sidebar ?? state.all);
   const roots = useMemo(
     () =>
       sorted(
-        buildFolderTree(folders).filter((node) => node.folder.parentId === null),
+        buildFolderTree(folders).filter(
+          (node) =>
+            node.folder.parentId === null && !examples.has(node.folder.linkedFolderId ?? ""),
+        ),
         sidebarSort,
         (node) => folderFields(node.folder),
         language,
       ),
-    [folders, sidebarSort, language],
+    [folders, sidebarSort, language, examples],
   );
   const linkedById = new Map(linkedFolders.map((linked) => [linked.id, linked]));
   return (

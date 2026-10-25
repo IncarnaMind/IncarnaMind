@@ -448,6 +448,15 @@ const noDocumentsNote = (examples: boolean) =>
 const changesAMind = (change: MindChange) =>
   change.created || change.revised === true || change.proposals > 0;
 
+const touchedIn = (messages: readonly ConversationMessage[]): string[] =>
+  messages.flatMap((message) =>
+    message.kind === "answer"
+      ? message.toolCalls.flatMap((call) =>
+          call.mindChange && changesAMind(call.mindChange) ? [call.mindChange.mindId] : [],
+        )
+      : [],
+  );
+
 function lastAnswerOf(
   conversationId: string,
   earlier: readonly ConversationMessage[],
@@ -947,7 +956,7 @@ export function createAnswers(options: AnswersOptions) {
      */
     assistant?: Pick<
       MindToolsOptions,
-      "focused" | "folderId" | "origin" | "lastAnswer" | "remake"
+      "focused" | "folderId" | "origin" | "lastAnswer" | "remake" | "touched"
     > & {
       /** What the commands of the Conversation's earlier Answers renamed, oldest first. */
       renames: readonly CommandRename[];
@@ -1958,6 +1967,30 @@ export function createAnswers(options: AnswersOptions) {
               read: (toolCallId, call) => webPages.set(toolCallId, call),
             })
           : [];
+      const questions = outside ? undefined : options.questions;
+      const asksUser =
+        questions && input.assistant
+          ? {
+              ask: (toolCallId: string, question: UserQuestion, signal: AbortSignal) =>
+                questions.ask({ ...place, answerId, toolCallId, question }, signal),
+              recorded: (toolCallId: string, question: UserQuestion) => {
+                userQuestions.set(toolCallId, question);
+                const call = toolCalls.find((each) => each.id === toolCallId);
+                if (finished || !call) return;
+                call.asked = question;
+                writeSoon();
+              },
+            }
+          : null;
+      // The question and the User's answer stay in the thread on the call that asked.
+      const askInTray =
+        asksUser &&
+        (async (toolCallId: string, question: UserQuestion, signal: AbortSignal) => {
+          asksUser.recorded(toolCallId, question);
+          const answer = await asksUser.ask(toolCallId, question, signal);
+          asksUser.recorded(toolCallId, { ...question, answer });
+          return answer;
+        });
       // The Minds' Tools, for an Answer in the assistant (#202).
       const minds = outside ? undefined : options.minds;
       const focusedId = input.assistant?.focused?.mindId ?? null;
@@ -1984,6 +2017,7 @@ export function createAnswers(options: AnswersOptions) {
               },
               paragraph: paragraphAsked(context.question),
               ...input.assistant,
+              ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
               figure: (marker) => (calculating ? figures.figure(marker) : null),
               blocksOf: (text) => {
@@ -2065,21 +2099,6 @@ export function createAnswers(options: AnswersOptions) {
             })
           : null;
       if (mindsTools) settleMinds = () => mindsTools.settle();
-      const questions = outside ? undefined : options.questions;
-      const asksUser =
-        questions && input.assistant
-          ? {
-              ask: (toolCallId: string, question: UserQuestion, signal: AbortSignal) =>
-                questions.ask({ ...place, answerId, toolCallId, question }, signal),
-              recorded: (toolCallId: string, question: UserQuestion) => {
-                userQuestions.set(toolCallId, question);
-                const call = toolCalls.find((each) => each.id === toolCallId);
-                if (finished || !call) return;
-                call.asked = question;
-                writeSoon();
-              },
-            }
-          : null;
       const commands = outside ? undefined : options.commands;
       commandsOffered =
         commands && input.assistant
@@ -2092,15 +2111,7 @@ export function createAnswers(options: AnswersOptions) {
               renames: input.assistant.renames,
               runId: randomUUID(),
               steps: commands.steps,
-              ...(asksUser && {
-                // The question and the User's answer stay in the thread on the call that asked.
-                ask: async (toolCallId, question, signal) => {
-                  asksUser.recorded(toolCallId, question);
-                  const answer = await asksUser.ask(toolCallId, question, signal);
-                  asksUser.recorded(toolCallId, { ...question, answer });
-                  return answer;
-                },
-              }),
+              ...(askInTray && { ask: askInTray }),
               found: (toolCallId, found) => commandsFound.set(toolCallId, found),
               ran: (toolCallId, done) => commandsDone.set(toolCallId, done),
               failed: (toolCallId, problem) => commandProblems.set(toolCallId, problem),
@@ -2792,6 +2803,7 @@ export function createAnswers(options: AnswersOptions) {
         lastAnswer: lastAnswerOf(conversation.id, turn.earlier, filedIn),
         remake,
         renames: renamesIn(turn.earlier),
+        touched: touchedIn(turn.earlier),
       },
     });
     return {
