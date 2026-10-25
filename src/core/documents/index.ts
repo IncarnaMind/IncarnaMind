@@ -332,7 +332,7 @@ function parseSearchOptions(options: unknown): {
 function excludedIds(value: unknown): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id !== "")) {
-    throw new InvalidInputError("The Documents left out of a search must be ids.");
+    throw new InvalidInputError({ key: "error.search.options" });
   }
   return value as string[];
 }

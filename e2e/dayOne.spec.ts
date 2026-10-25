@@ -196,8 +196,9 @@ test("a Folder is offered at the eighth loose Document, by pointer and by the tr
   const offer = window.getByTestId("offer-folder");
   await expect(offer).toBeVisible();
   await window.getByTestId("show-more-documents").click();
-  // The User’s eight, and the example’s two until #1944’s fold.
-  await expect(window.getByTestId("document-list-item")).toHaveCount(10);
+  // The User's eight: the example's own Documents have folded to one Example row (#1944).
+  await expect(window.getByTestId("document-list-item")).toHaveCount(8);
+  await expect(window.getByTestId("example-row")).toHaveCount(1);
   const last = window.getByTestId("document-list-item").last();
   await last.getByTestId("open-document").focus();
   await window.keyboard.press("ArrowDown");
