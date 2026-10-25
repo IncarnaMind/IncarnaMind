@@ -15,7 +15,7 @@ const originsOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_ORIGINS_FIELD)
 const replacedOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_REPLACED_ORIGINS_FIELD);
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** The maps a decision on a change can write beside the Blocks: what an Undo of it takes back too. */
+/** The maps beside the Blocks that say where they came from, which an Undo of a decision takes back with the text. */
 export const originMaps = (doc: Y.Doc): Y.Map<unknown>[] => [originsOf(doc), replacedOf(doc)];
 
 /** A Block's origin read from stored or received data, or null when it isn't one. */
@@ -83,22 +83,6 @@ export function restoreOrigins(doc: Y.Doc, request: string, blockIds: Iterable<s
       origins.set(blockId, before[blockId]);
     }
   }
-}
-
-/**
- * Lets go of the origins `request`'s change replaced in these Blocks once it is accepted there,
- * in the caller's transaction: they can't come back.
- */
-export function forgetOrigins(doc: Y.Doc, request: string, blockIds: Iterable<string>): void {
-  const replaced = replacedOf(doc);
-  const before = replaced.get(request);
-  if (!isRecord(before)) return;
-  const done = new Set(blockIds);
-  const rest = Object.fromEntries(Object.entries(before).filter(([blockId]) => !done.has(blockId)));
-  const left = Object.keys(rest).length;
-  if (left === Object.keys(before).length) return;
-  if (left === 0) replaced.delete(request);
-  else replaced.set(request, rest);
 }
 
 /** Sets `to`'s origins to `from`'s wherever they differ, in the caller's transaction. */

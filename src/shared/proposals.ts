@@ -27,7 +27,7 @@ import {
   type ProposalRequest,
   type RecordAiUseInput,
 } from "../core/api";
-import { forgetOrigins, originOf, restoreOrigins } from "./blockOrigins";
+import { originOf, restoreOrigins } from "./blockOrigins";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
 
@@ -204,12 +204,12 @@ export function resolveProposals(
   /** Where each request's first top-level Block removed by a reject was: what it revised goes back there. */
   const removedAt = new Map<string, number>();
   const removedFrom = new Map<string, string | null>();
-  const decidedIn = new Map<string, Set<string>>();
-  const decided = (request: string, top: string | null) => {
-    if (!top) return;
-    const tops = decidedIn.get(request) ?? new Set<string>();
+  const rejectedIn = new Map<string, Set<string>>();
+  const rejected = (request: string, top: string | null) => {
+    if (outcome !== "reject" || !top) return;
+    const tops = rejectedIn.get(request) ?? new Set<string>();
     tops.add(top);
-    decidedIn.set(request, tops);
+    rejectedIn.set(request, tops);
   };
   const note = (ref: ProposalRef, characters: number, blockId: string | null) => {
     let entry = resolved.get(ref.id);
@@ -234,7 +234,7 @@ export function resolveProposals(
         const keep = (mark === PROPOSAL_INSERT_MARK) === (outcome === "accept");
         edits.push({ at, length, mark, keep });
         note(ref, keep && mark === PROPOSAL_INSERT_MARK ? length : 0, owner);
-        decided(ref.request, top);
+        rejected(ref.request, top);
       }
       at += length;
     }
@@ -267,7 +267,7 @@ export function resolveProposals(
         const keep = (attribute.kind === "insert") === (outcome === "accept");
         const written = keep && attribute.kind === "insert" && !footnote;
         note(attribute, written ? textLength(child) : 0, own);
-        decided(attribute.request, top);
+        rejected(attribute.request, top);
         if (!keep) {
           if (parent === blocks) {
             removedAt.set(attribute.request, index);
@@ -302,12 +302,10 @@ export function resolveProposals(
   }
   if (sameAnswer.size > 0) resolveProposals(blocks, (ref) => sameAnswer.has(ref.id), "reject");
   if (blocks.doc) {
-    // A change written over Blocks gave them its origin (`setOriginsOf`): rejected, it gives
-    // theirs back; accepted, theirs can't come back.
-    for (const [request, tops] of decidedIn) {
+    // A change written over Blocks gave them its origin (`setOriginsOf`): taken out, it gives theirs back.
+    for (const [request, tops] of rejectedIn) {
       const done = [...tops].filter((top) => !waitsIn(blocks, top, request));
-      if (outcome === "reject") restoreOrigins(blocks.doc, request, done);
-      else forgetOrigins(blocks.doc, request, done);
+      restoreOrigins(blocks.doc, request, done);
     }
   }
   // Walked from the end: the first one met is the last in the Mind.

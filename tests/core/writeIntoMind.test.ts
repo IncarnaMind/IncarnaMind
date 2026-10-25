@@ -594,27 +594,40 @@ describe("Use all after Reject all of a later rewrite (#1950)", { timeout: 60_00
     expect(seen(await connectToMind(core, mind.id))).toEqual(after);
   });
 
-  // protects=accepting the rewrite lets go of the origins it replaced, which can't come back, on the card and in the Mind, and Undo of the Accept keeps them, so a Reject after it still puts them back; fails_when=the kept origins stay after Accept all, or Undo of the Accept loses them and the earlier Answer's text is written twice; no_claim=none beyond protects.
-  test("Accept all lets the kept origins go, and Undo of it keeps them for a Reject", async () => {
+  // protects=Accept all keeps the origins the rewrite replaced, and Undo of the Accept followed by a Reject, on the Mind's bar and on the card, still puts them back; fails_when=the earlier Answer's text is written twice after Undo of an Accept and a Reject; no_claim=none beyond protects.
+  test("Undo of Accept all, then Reject all, puts the origins back", async () => {
     const { core, mind, client, first, second, before, after } = await rewritten("content");
     const kept = () => client.doc.getMap(MIND_REPLACED_ORIGINS_FIELD).size;
     const editor = boundEditor(client);
-    expect(kept()).toBe(1);
 
     resolveInEditor(editor, "all", "accept");
-    expect(kept()).toBe(0);
+    expect(kept()).toBe(1);
     expect(seen(client).origins).toEqual(after.origins);
     editor.commands.undo();
-    expect(kept()).toBe(1);
+    resolveInEditor(editor, "all", "reject");
+    expect(seen(client)).toEqual(before);
+    editor.commands.undo();
     await client.settled();
 
     const card = await decideAll(core, changedMinds(second), "accept");
-    expect((await connectToMind(core, mind.id)).doc.getMap(MIND_REPLACED_ORIGINS_FIELD).size).toBe(
-      0,
-    );
     await card.undo();
     await decideAll(core, changedMinds(second), "reject");
     const page = await connectToMind(core, mind.id);
+    expect(seen(page)).toEqual(before);
+    await useAll(core, first);
+    await page.settled();
+    expect(units(page)).toEqual(LEASES.map((_, index) => String(index + 1)));
+  });
+
+  // protects=a version restored from History, saved before the rewrite was accepted, brings it back waiting and takes it out again, the earlier origins with the text, so Use all writes the text once; fails_when=the kept origins went with the Accept and the earlier Answer's text is written twice; no_claim=History's own window.
+  test("restoring a version saved before Accept all puts the origins back", async () => {
+    const { core, mind, first, second, before } = await rewritten("content");
+    const checkpoint = await core.saveCheckpoint(mind.id, "accept");
+    await decideAll(core, changedMinds(second), "accept");
+
+    await core.restoreCheckpoint(mind.id, checkpoint.id);
+    const page = await connectToMind(core, mind.id);
+
     expect(seen(page)).toEqual(before);
     await useAll(core, first);
     await page.settled();
