@@ -16,7 +16,6 @@ import { LibraryRow } from "./LibraryRow";
 import { quietButtonClass } from "./LibrarySection";
 import { SectionHead, sectionNameClass } from "./SectionHead";
 
-/** To review's Not sorted group, for "Show all" past its first rows. */
 const UNSORTED_KEY = `${TO_REVIEW}:not-sorted`;
 
 export function ToReview({

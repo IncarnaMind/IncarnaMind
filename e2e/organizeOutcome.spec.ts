@@ -36,11 +36,9 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-/** A section of the Library page by its key, which the language never changes: a Folder's id, or not-in-a-folder. */
 const section = (library: Locator, key: string) =>
   library.locator(`[data-testid="library-section"][data-section="${key}"]`);
 
-/** 20 invoices for Finance, 17 reports for Reports, and three the fake tagger refuses. */
 async function forty(): Promise<string[]> {
   const files: string[] = [];
   for (let at = 1; at <= 20; at++) {
@@ -68,7 +66,6 @@ async function screenshot(target: Page | Locator, name: string): Promise<void> {
   if (SCREENSHOTS) await target.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 }
 
-/** The Library page back at its head, where the title line shows. */
 const toTop = (library: Locator) =>
   library.evaluate((element) => {
     const scroller = element.querySelector<HTMLElement>(":scope > div");
@@ -111,11 +108,9 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(loose.getByTestId("library-not-sorted")).toHaveCount(3);
     await expect(loose.getByTestId("library-not-sorted").first()).toHaveText(reason);
 
-    // The title line says what is left, not that sorting is done, and Review goes to it.
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("3 not sorted");
     await expect(library.getByTestId("library-review-not-sorted")).toHaveText("Review");
     await expect(library.getByTestId("library-sorted")).toHaveCount(0);
-    // A Folder's count says how many of its Documents are only suggested.
     await expect(sidebarFolder(window, "Finance").getByTestId("browse-count")).toHaveText(
       "20 · 20 suggested",
     );

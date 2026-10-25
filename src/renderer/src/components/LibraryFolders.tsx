@@ -155,7 +155,6 @@ export function LibraryFolders({
 
   const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents);
   const assignments = useAppStore((state) => state.library?.assignments);
-  // Which Documents a Folder only suggests, by Folder: they count there until the User accepts them.
   const suggestedByFolder = useMemo(() => {
     const byFolder = new Map<string, Set<string>>();
     for (const item of assignments ?? []) {
