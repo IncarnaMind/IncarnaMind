@@ -30,6 +30,7 @@ import {
 } from "../outputFiles";
 import { saveFailureReason } from "../problems";
 import { useAppStore } from "../store";
+import { useHeld } from "../useHeld";
 import { ExportAsks } from "./ExportAsks";
 import { CloseLineIcon, ExportLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
@@ -85,35 +86,6 @@ export function ExportResultLine({ mindId }: { mindId: string }) {
       </div>
     </div>
   );
-}
-
-/** Whether the pointer or the focus is on the line, which keeps a plain "Saved" showing. */
-function useHeld(line: RefObject<HTMLDivElement | null>): boolean {
-  const [held, setHeld] = useState(false);
-  useEffect(() => {
-    const element = line.current;
-    if (!element) return;
-    const hold = () => setHeld(true);
-    const release = (event: Event) => {
-      if (
-        event.type === "focusout" &&
-        element.contains((event as FocusEvent).relatedTarget as Node)
-      )
-        return;
-      setHeld(element.matches(":hover"));
-    };
-    element.addEventListener("pointerenter", hold);
-    element.addEventListener("pointerleave", release);
-    element.addEventListener("focusin", hold);
-    element.addEventListener("focusout", release);
-    return () => {
-      element.removeEventListener("pointerenter", hold);
-      element.removeEventListener("pointerleave", release);
-      element.removeEventListener("focusin", hold);
-      element.removeEventListener("focusout", release);
-    };
-  }, [line]);
-  return held;
 }
 
 function ResultBody({

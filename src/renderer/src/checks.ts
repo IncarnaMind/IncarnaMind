@@ -75,6 +75,8 @@ interface ChecksState {
   cardOpen: Readonly<Record<string, true>>;
   /** By tab, else by Mind: the id of the sentence check whose card the User keeps open. */
   openClaim: Readonly<Record<string, string>>;
+  /** By tab, else by Mind: the card the keyboard opened, whose first action takes the focus (#1762). */
+  focusClaim: Readonly<Record<string, string>>;
 }
 
 export const useChecks = create<ChecksState>()(() => ({
@@ -83,6 +85,7 @@ export const useChecks = create<ChecksState>()(() => ({
   smallModel: {},
   cardOpen: {},
   openClaim: {},
+  focusClaim: {},
 }));
 
 function setFor<K extends keyof ChecksState>(
@@ -113,6 +116,9 @@ export const setCheckCardOpen = (place: string, open: boolean) =>
   setFor("cardOpen", place, open ? true : null);
 
 export const setOpenClaim = (place: string, id: string | null) => setFor("openClaim", place, id);
+
+/** Asks a card opened from the keyboard to give its first action the focus, once it shows. */
+export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
 
 /** Only if `id` is still the open one: a card that closes late must not close its successor. */
 export function closeOpenClaim(place: string, id: string): void {

@@ -521,6 +521,44 @@ test("help during the call: Answer their question cites the price sheet, checked
   await removeDataFolder(sources);
 });
 
+test("help during the call with the live text behind and no line yet: the panel says so in one line, not options, in English and Chinese (#1366)", async () => {
+  test.setTimeout(120_000);
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    // No line is decoded in time: the audio piles up until the live text falls behind.
+    transcriber: { decodeMs: 600_000 },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await startRecording(window, await recordMeeting(window), { notice: true });
+  await expect
+    .poll(
+      async () =>
+        (await (await core(window)).evaluate((bridge) => bridge.listMeetings()))[0]?.transcript
+          ?.state,
+      { timeout: 60_000 },
+    )
+    .toBe("behind");
+  const panel = await panelOf(app);
+
+  const english = await pressIn(panel, "Answer their question");
+  const line = english.getByTestId("help-option");
+  await expect(line).toHaveCount(1);
+  await expect(line).toContainText("The live text is behind, so none of the call is written yet");
+  await expect(english.getByTestId("help-option-effect")).toHaveCount(0);
+  await shot(panel, "help-panel-behind-en");
+
+  await setLanguage(window, "zh-CN");
+  const chinese = await pressIn(panel, "回答对方的问题");
+  await expect(chinese.getByTestId("help-option")).toHaveCount(1);
+  await expect(chinese.getByTestId("help-option")).toContainText(
+    "实时转写跟不上，通话内容还没有转写出来",
+  );
+  await shot(panel, "help-panel-behind-zh");
+  await app.close();
+});
+
 test("help during the call follows the call's language: a Chinese call gets Chinese help in an English interface, for Sum up, What to ask next, Check what was said and a template's button", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,

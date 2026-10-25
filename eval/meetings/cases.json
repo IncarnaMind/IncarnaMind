@@ -1,0 +1,143 @@
+{
+  "format": 1,
+  "cases": [
+    {
+      "id": "en-online-EN2002a",
+      "language": "en",
+      "setting": "online",
+      "source": "ami-online",
+      "recording": "EN2002a",
+      "me": "FEO072",
+      "durationSeconds": 2142.87,
+      "speakers": 4,
+      "files": {
+        "mic.wav": "cd310c7cb99018e63a1ea0389b92bd61177a02862a9797c1bdf11c6e2de0581e",
+        "reference.json": "b78910e116d0592efa4751d8b95cd2c5741730069e4750cf74bdd2139356ae43",
+        "system.wav": "dd92283addab51fd8c232a61e58b9bcf5761d9b09f865baf7b637e5c1636f838"
+      }
+    },
+    {
+      "id": "en-online-IS1009b",
+      "language": "en",
+      "setting": "online",
+      "source": "ami-online",
+      "recording": "IS1009b",
+      "me": "FIO089",
+      "durationSeconds": 2027.4,
+      "speakers": 4,
+      "files": {
+        "mic.wav": "13fac0afb38a4ae5b67f75f3eb22270add6598bb70047019a9c575dafdd60b0f",
+        "reference.json": "87fa9be4ca60a1323c6e6a240a78874108249c144528917238570b67897f8a25",
+        "system.wav": "68eea80236ff5a7a1fa4817b28864072818f0039478de759fc813af37d525faa"
+      }
+    },
+    {
+      "id": "en-room-ES2004b",
+      "language": "en",
+      "setting": "room",
+      "source": "ami-room",
+      "recording": "ES2004b",
+      "durationSeconds": 2345.493375,
+      "speakers": 4,
+      "files": {
+        "reference.json": "ea454decd5700946b96dcf9ec32f929e9b2ad457d27f358e5b5c0c5c5392b5db",
+        "room.wav": "8a58a53413f7a47a29f8bd4d1b49e42cd4874eecc0c3f023c28a4702ecb50d88"
+      }
+    },
+    {
+      "id": "en-room-TS3003b",
+      "language": "en",
+      "setting": "room",
+      "source": "ami-room",
+      "recording": "TS3003b",
+      "durationSeconds": 2210.304,
+      "speakers": 4,
+      "files": {
+        "reference.json": "fd194b8bb32d678b9b140e95385f47e6f46e1563d1f78a51280c17ccd11ed3a5",
+        "room.wav": "dea4276863ba77b49d304e28638ae354bcd815e4ebeecf98902ce30782f8ba5a"
+      }
+    },
+    {
+      "id": "zh-online-R8007_M8011",
+      "language": "zh",
+      "setting": "online",
+      "source": "alimeeting-online",
+      "recording": "R8007_M8011",
+      "me": "SPK8068",
+      "durationSeconds": 1863.02,
+      "speakers": 4,
+      "files": {
+        "mic.wav": "defd609fb25aca2b845cf3643f2984eb58f90b5c083ca21dfea94667a9e2c1dc",
+        "reference.json": "fcc93cdf3f896f14ca7f4d4d9067af92824f459b680277baff78c6cc8c74afe2",
+        "system.wav": "bfbe1f5800956c20528b472a9160d40fe77c3b069e4fe2661e3f67b86ce6280b"
+      }
+    },
+    {
+      "id": "zh-online-R8008_M8013",
+      "language": "zh",
+      "setting": "online",
+      "source": "alimeeting-online",
+      "recording": "R8008_M8013",
+      "me": "SPK8048",
+      "durationSeconds": 2239.4705,
+      "speakers": 3,
+      "files": {
+        "mic.wav": "281b0586977d46f943d16e99ad7e8064333661fc8760a84af38f10aac44131ce",
+        "reference.json": "96e578814630cbb75a9af856ad9b217b3907c5df0118316554716015046219af",
+        "system.wav": "cd57366e25c91b4f32d47a1e11f1824329628d3e925a3ba68e1e58585775d3ec"
+      }
+    },
+    {
+      "id": "zh-room-R8003_M8001",
+      "language": "zh",
+      "setting": "room",
+      "source": "alimeeting-room",
+      "recording": "R8003_M8001",
+      "durationSeconds": 2068,
+      "speakers": 4,
+      "files": {
+        "reference.json": "238fa2752d25d7fcd466a102d10c4858f921b545f29bec5681fb07034a03ae53",
+        "room.wav": "95224cdef7bca327c9c113c4f2d3c38cbfd65f1c61e3aba3235ab399c1466341"
+      }
+    },
+    {
+      "id": "zh-room-R8007_M8010",
+      "language": "zh",
+      "setting": "room",
+      "source": "alimeeting-room",
+      "recording": "R8007_M8010",
+      "durationSeconds": 1856.3219375,
+      "speakers": 4,
+      "files": {
+        "reference.json": "022203b56640e49481ae41e2a54c32b597d8b640ffabfe10fbf2fe13bc968ee6",
+        "room.wav": "60c0decb4c942bf68e7ae6c058984f4f7c72beac878d9230be66eb19d0cad25a"
+      }
+    },
+    {
+      "id": "mixed-conversation-test-1",
+      "language": "mixed",
+      "setting": "conversation",
+      "source": "ascend",
+      "recording": "test-1",
+      "durationSeconds": 934.94,
+      "speakers": 2,
+      "files": {
+        "conversation.wav": "6a197af775d25c145918bb48b7111d3b0000a3022c735ec5bb00a390918a1355",
+        "reference.json": "14876ed86f99252e8961b212ffb659d1b1a52d5abbbb7ba53b7304a0f47fd697"
+      }
+    },
+    {
+      "id": "mixed-conversation-test-3",
+      "language": "mixed",
+      "setting": "conversation",
+      "source": "ascend",
+      "recording": "test-3",
+      "durationSeconds": 1291.24,
+      "speakers": 2,
+      "files": {
+        "conversation.wav": "8e92ac237c1475a2a80ef9dc2b9a640d5b6103571044e40ee9b4464216d87a3f",
+        "reference.json": "b62cf8e7fa31244fd0c9dcc667aca3faad65f4a4066c4e9f1c855f2615951890"
+      }
+    }
+  ]
+}
