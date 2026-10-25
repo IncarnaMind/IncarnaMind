@@ -3774,6 +3774,7 @@ export const en = {
   "error.folder.nameTaken": "A Folder with this name already exists.",
   "error.folder.limit": "The Library supports up to 100 Folders.",
   "error.mind.notFound": "That Mind doesn’t exist or has been deleted.",
+  "error.layout.units": "That place in a Document counts from 1.",
   "error.layout.wordPlace": "That place in the Word file isn’t one IncarnaMind can open.",
   "error.mind.notFromWord":
     "This Mind wasn’t imported from a Word file, so it has no original to add.",

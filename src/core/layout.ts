@@ -98,7 +98,7 @@ function parseCitation(value: unknown): TabCitation {
   for (const key of ["pageFrom", "pageTo"] as const) {
     const unit = value[key];
     if (unit === undefined || unit === null) continue;
-    if (!isUnit(unit)) throw new InvalidInputError("Units count from 1.");
+    if (!isUnit(unit)) throw new InvalidInputError({ key: "error.layout.units" });
     citation[key] = unit;
   }
   // A place a version of this app doesn't know is left out: the Units still open the Document.
