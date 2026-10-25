@@ -45,6 +45,7 @@ function usePillBand(
   lineId: number | null,
   tabId: string | null,
 ) {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the page under the pill is when to measure again.
   useLayoutEffect(() => {
     const anchor = place.current;
     const card = anchor?.parentElement;
