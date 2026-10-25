@@ -90,11 +90,13 @@ export function ModelsSettings() {
     setView({ page: "directory" }),
   );
   const changed = useAppStore(
-    (state) => !!state.library && changedFromDefaults(state.library.settings),
+    (state) =>
+      !!state.library &&
+      changedFromDefaults(state.library.settings, state.library.automaticDefault),
   );
   const toTagging = useAppStore((state) => state.settingsAt === "tagging");
   const [advanced, setAdvanced] = useState(false);
-  // Advanced opens for a choice of the User's own and for a link to Tagging, and stays open after.
+  // Once open, it never folds under the cursor; the next opening starts folded.
   useLayoutEffect(() => {
     if (changed || toTagging) setAdvanced(true);
   }, [changed, toTagging]);

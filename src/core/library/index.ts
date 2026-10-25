@@ -247,10 +247,12 @@ export function createLibrary(options: {
         : [],
     };
   };
-  const getSettings = (): LibrarySettings => {
-    const saved = savedSettings();
-    return { ...saved, automatic: saved.automatic ?? !options.usesCloud(saved) };
-  };
+  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !options.usesCloud(saved);
+  const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => ({
+    ...saved,
+    automatic: saved.automatic ?? defaultAutomatic(saved),
+  });
+  const getSettings = (): LibrarySettings => shownSettings(savedSettings());
   const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
   const automaticOffNotice = (): boolean => {
     const marker = settings.readDeviceValue(AUTOMATIC_OFF_NOTICE);
@@ -807,11 +809,13 @@ export function createLibrary(options: {
           `SELECT ${GROUP_COLUMNS} FROM library_groups WHERE deleted_at IS NOT NULL ORDER BY name COLLATE NOCASE, id`,
         )
         .map(toGroup);
+      const saved = savedSettings();
       return {
         groups: groups(),
         deletedGroups,
         assignments,
-        settings: getSettings(),
+        settings: shownSettings(saved),
+        automaticDefault: defaultAutomatic(saved),
         automaticOffNotice: automaticOffNotice(),
       };
     },

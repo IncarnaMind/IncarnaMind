@@ -211,6 +211,8 @@ test("Models folds Tagging and Organize under Advanced, which a choice of the Us
         }
         await expect(moves).toBeHidden();
         expect(await fits()).toBe(true);
+        await toggle.scrollIntoViewIfNeeded();
+        await shot(window, `models-advanced-${language}-${width}-folded`);
 
         // By mouse in English, by keyboard in Chinese.
         if (language === "en") await toggle.click();
@@ -224,6 +226,8 @@ test("Models folds Tagging and Organize under Advanced, which a choice of the Us
         await expect(moves).toBeVisible();
         await expect(moves).toBeChecked();
         expect(await fits()).toBe(true);
+        await tagging.scrollIntoViewIfNeeded();
+        await shot(window, `models-advanced-${language}-${width}-open`);
         await closeWithEsc();
       }
     }
@@ -254,6 +258,40 @@ test("Models folds Tagging and Organize under Advanced, which a choice of the Us
     await openModels("设置");
     await expect(toggle).toBeVisible();
     await expect(advanced).not.toHaveAttribute("open");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a cloud model added on a fresh install follows its own default, so Advanced stays folded (#1570)", async () => {
+  let { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-sonnet-5-5",
+      });
+    });
+  } finally {
+    await app.close();
+  }
+
+  ({ app, window } = await launchApp(dataDir, { fakeChat: true }));
+  try {
+    const settings = await openSettings(window, "models");
+    await expect(settings.getByTestId("models-advanced")).not.toHaveAttribute("open");
+    await expect(settings.getByTestId("tagging-settings")).toBeHidden();
+    expect(
+      await window.evaluate(
+        async () =>
+          (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLibrary())
+            .settings.automatic,
+      ),
+    ).toBe(false);
   } finally {
     await app.close();
   }

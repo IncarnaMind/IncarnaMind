@@ -1,20 +1,20 @@
 import type { LibrarySettings, TaggingClassifier } from "../core/api";
 
-/** A Library's settings until the User changes one. */
-export const LIBRARY_DEFAULTS: LibrarySettings = {
+export const LIBRARY_DEFAULTS = {
   classifier: { kind: "automatic" },
   organizeWith: null,
-  automatic: true,
   taggingStopped: [],
-};
+} satisfies Omit<LibrarySettings, "automatic">;
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** Whether the User changed any of the Library's settings from its default. */
-export const changedFromDefaults = (settings: LibrarySettings): boolean =>
+export const changedFromDefaults = (
+  settings: LibrarySettings,
+  automaticDefault: boolean,
+): boolean =>
   !same(settings.classifier, LIBRARY_DEFAULTS.classifier) ||
   !same(settings.organizeWith, LIBRARY_DEFAULTS.organizeWith) ||
-  settings.automatic !== LIBRARY_DEFAULTS.automatic ||
+  settings.automatic !== automaticDefault ||
   !same(settings.taggingStopped, LIBRARY_DEFAULTS.taggingStopped);
 
 /** Only this verified local decision-model family receives PDF page images. */
