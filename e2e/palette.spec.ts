@@ -114,6 +114,32 @@ test("the words inside a Mind are found as soon as they are typed", async () => 
   await expect(group(window, "notes").locator("b")).toHaveText("Ålesund");
 });
 
+test("a press on the dimmed area closes ⌘K, and one inside it doesn't", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1280, 660);
+    await dismissChatSetup(window);
+    await writeMind(window, ["Harbour log", "Tides in Bergen"]);
+
+    await openPalette(window);
+    // Inside: the press lands in the field and the palette stays.
+    await window.getByTestId("palette-search").click();
+    await window.keyboard.type("Bergen");
+    await expect(palette(window)).toBeVisible();
+    await expect(group(window, "notes")).toContainText("Harbour log");
+
+    // Outside: the press lands on the dimmed area, clear of the palette, and closes it.
+    const box = await palette(window).boundingBox();
+    if (!box) throw new Error("The palette isn't on the page.");
+    expect(box.x).toBeGreaterThan(24);
+    await window.mouse.click(box.x - 24, box.y + box.height / 2);
+    await expect(palette(window)).toBeHidden();
+    await expect.poll(() => focusInNote(window)).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
+
 test("names, commands and the words in Documents, all by keyboard; Esc closes and gives the focus back", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1280, 660);

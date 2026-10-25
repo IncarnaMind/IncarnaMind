@@ -379,6 +379,60 @@ test("a link: added with the button or ⌘K on a selection, edited, opened and r
   await expect(field).toHaveCount(0);
 });
 
+test("the link field opens once beside the link each time Edit is pressed, though the editor loses the focus to it (#1705)", async () => {
+  const { window, editor } = await startMind();
+  await window.keyboard.type("Notes on the tides");
+  // The link sits well below the first line, so a field anchored there would show it.
+  for (let line = 0; line < 5; line++) await window.keyboard.press("Enter");
+  await window.keyboard.type("Read the Tides paper today");
+  const line = editor.locator("p").last();
+  await slideSelect(window, line, "Tides paper");
+  await window.keyboard.press("ControlOrMeta+K");
+  const field = window.getByTestId("link-field");
+  await expect(field).toBeFocused();
+  await window.keyboard.type("example.com/tides");
+  await window.keyboard.press("Enter");
+  const link = line.locator("a");
+  await expect(link).toHaveAttribute("href", "https://example.com/tides");
+
+  // Each show of the popover that holds the field is one opening; a changed anchor shows it again.
+  await window.evaluate(() => {
+    const counter = { opens: 0 };
+    (globalThis as { linkFieldOpens?: typeof counter }).linkFieldOpens = counter;
+    const show = HTMLElement.prototype.showPopover;
+    HTMLElement.prototype.showPopover = function (this: HTMLElement) {
+      if (this.querySelector('[data-testid="link-field"]')) counter.opens += 1;
+      return show.call(this);
+    };
+  });
+  const opens = () =>
+    window.evaluate(
+      () => (globalThis as { linkFieldOpens?: { opens: number } }).linkFieldOpens?.opens ?? 0,
+    );
+
+  // Edit from the bubble: the field opens beside the link, in the window.
+  await clickEndOf(window, line);
+  await link.click();
+  await window.getByTestId("link-edit").hover();
+  await window.getByTestId("link-edit").click();
+  await expect(field).toBeFocused();
+  const panel = await window.locator('[popover]:has([data-testid="link-field"])').boundingBox();
+  const lineBox = await line.boundingBox();
+  if (!panel || !lineBox) throw new Error("The field or the line isn't on the page.");
+  expect(panel.y).toBeGreaterThanOrEqual(lineBox.y - 2 * lineBox.height);
+  expect(panel.y).toBeLessThanOrEqual(lineBox.y + 3 * lineBox.height);
+
+  // Closed and edited again: two openings, not four.
+  await window.keyboard.press("Escape");
+  await expect(field).toHaveCount(0);
+  await window.getByTestId("link-edit").hover();
+  await window.getByTestId("link-edit").click();
+  await expect(field).toBeFocused();
+  await window.keyboard.press("Escape");
+  await expect(field).toHaveCount(0);
+  expect(await opens()).toBe(2);
+});
+
 /** Types a Mind of headings with a page of text under each, then puts the cursor at its start. */
 async function writeSections(window: Page, titles: readonly string[]) {
   for (const [index, title] of titles.entries()) {
@@ -511,11 +565,18 @@ test("find in the Mind: a count, next and previous by keyboard and mouse, Chines
   await field.fill("moon");
   await expect(count).toHaveText("1 / 2");
   await window.keyboard.press("Enter");
+  // The menu shows a moment after the selection changes: run the page's clock past it, so "it
+  // stays closed" is checked, not only "it hasn't opened yet" (#1355).
+  await window.clock.install();
   await window.keyboard.press("Escape");
   await expect(bar).toHaveCount(0);
   await expect(editor.locator(".find-match")).toHaveCount(0);
   await expect(editor).toBeFocused();
   expect(await window.evaluate(() => globalThis.getSelection()?.toString())).toBe("moon");
+  const menu = window.getByTestId("selection-menu");
+  await window.clock.runFor(500);
+  await expect(menu).toBeHidden();
+  await window.clock.resume();
 
   // The close button does the same, and ⌘F opens it again with the selected words.
   await window.keyboard.press("ControlOrMeta+F");
@@ -523,6 +584,10 @@ test("find in the Mind: a count, next and previous by keyboard and mouse, Chines
   await window.getByTestId("find-close").hover();
   await window.getByTestId("find-close").click();
   await expect(bar).toHaveCount(0);
+
+  // A selection the User makes still opens it.
+  await slideSelect(window, editor.locator("p").nth(1), "Tides");
+  await expect(menu).toBeVisible();
 });
 
 test("find in the Mind works while an Answer streams into the assistant, and counts the text written meanwhile", async () => {
