@@ -363,15 +363,6 @@ for (const language of ["en", "zh-CN"] as const) {
           // Collapse the selection, so its menu closes and doesn't sit over the next view.
           await window.keyboard.press("ArrowRight");
 
-          if (SCREENSHOTS) {
-            await window.screenshot({
-              path: join(
-                SCREENSHOTS,
-                `undo-pill-passes-${language}-${width}${viewer ? "-viewer" : ""}.png`,
-              ),
-            });
-          }
-
           // A press on the pill's own words, not its button, does nothing either.
           const message = await boxOf(pill.getByTestId("undo-message"));
           await window.mouse.click(message.x + message.width / 2, message.y + message.height / 2);
