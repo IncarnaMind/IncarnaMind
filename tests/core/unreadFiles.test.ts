@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import type { UnreadFile } from "../../src/core";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
+import { translate } from "../../src/shared/i18n";
+import { unreadCountText, unreadFileText } from "../../src/shared/unreadFiles";
 import { createTempDataFolder, NO_MODEL_FILES, startCore } from "../helpers/core";
 import { createSourceFolder, linkAndProcess, writeSourceFile } from "../helpers/documents";
 import { encryptedOfficeFile } from "../helpers/office";
@@ -110,5 +113,38 @@ describe("listUnreadFiles", () => {
     const core = startCore(await createTempDataFolder());
     await linkAndProcess(core, library);
     expect(await core.listUnreadFiles(null)).toEqual([]);
+  });
+});
+
+/** The line an Answer, a check and an export show, and each file's line with its reason. */
+describe("unreadCountText and unreadFileText", () => {
+  const file = (name: string): UnreadFile => ({
+    id: name,
+    name,
+    reason: "format",
+    extension: ".doc",
+    documentId: null,
+    pages: [],
+  });
+
+  test.each([
+    ["en", 1, "1 file couldn’t be read"],
+    ["en", 3, "3 files couldn’t be read"],
+    ["zh-CN", 1, "1 个文件未能读取"],
+    ["zh-CN", 3, "3 个文件未能读取"],
+  ] as const)("says the count in %s: %i", (language, count, said) => {
+    const files = Array.from({ length: count }, (_, index) => file(`Old ${index}.doc`));
+    expect(unreadCountText(files, (key, params) => translate(language, key, params))).toBe(said);
+  });
+
+  test("names a file and why it couldn't be read, in English and Chinese", () => {
+    expect(
+      unreadFileText(file("Contract.doc"), (key, params) => translate("en", key, params)),
+    ).toBe(
+      "Contract.doc: Format not read yet (.doc). Convert it to PDF, Word, PowerPoint or Excel.",
+    );
+    expect(
+      unreadFileText(file("Contract.doc"), (key, params) => translate("zh-CN", key, params)),
+    ).toBe("Contract.doc：暂不支持此格式（.doc）。请转换为 PDF、Word、PowerPoint 或 Excel。");
   });
 });
