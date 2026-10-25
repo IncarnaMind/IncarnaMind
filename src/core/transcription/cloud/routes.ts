@@ -150,8 +150,20 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
       }),
     );
 
-  function sending(route: CloudTranscriptionRoute): CloudSending {
-    if (chosen() !== route || !keys.has(route)) return "stopped";
+  function sending(route: CloudTranscriptionRoute, stream: CloudStream | null): CloudSending {
+    if (chosen() !== route) return "stopped";
+    const current = keys.get(route);
+    if (!current) return "stopped";
+    if (stream) {
+      if (stream.service !== route) return "stopped";
+      if (current.fingerprint !== fingerprint(stream.apiKey)) return "stopped";
+      if (
+        route === "qwen" &&
+        (stream.service !== "qwen" || qwenRegion(current.endpoint).url !== stream.url)
+      ) {
+        return "stopped";
+      }
+    }
     try {
       gate.check("transcription", serviceNow(route));
       return "ok";
@@ -277,7 +289,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
         refused.add(route);
         return { route, refused: "key" };
       }
-      const now = sending(route);
+      const now = sending(route, null);
       if (now === "local-mode") return { route, refused: "local-mode" };
       if (now !== "ok") return null;
       if (refused.has(route)) return { route, refused: "key" };

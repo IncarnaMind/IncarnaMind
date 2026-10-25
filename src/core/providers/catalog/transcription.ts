@@ -4,7 +4,7 @@
  * monthly cap counts it) and where the audio goes.
  */
 import type { CloudTranscriptionRoute, ExternalService, Money } from "../../api";
-import { QWEN_REALTIME_PATH } from "../../transcription/cloud/qwen";
+import { QWEN_REALTIME_PATH } from "../../transcription/cloud/protocol";
 import { catalogProvider, endpointOf } from "./providers";
 import type { Localized } from "./types";
 

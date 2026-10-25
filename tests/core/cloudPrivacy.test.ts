@@ -237,6 +237,57 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     });
   }
 
+  test("qwen: deleting one regional provider cannot authorize its old socket with the other region's consent", async () => {
+    const service = counting();
+    const { core, record, meeting } = await meetingOn("qwen", service);
+    const first = (await core.listChatProviders())[0]?.id ?? "";
+    await core.saveChatProvider({
+      kind: "qwen",
+      endpoint: "intl",
+      apiKey: "sk-qwen-intl-first",
+      modelId: "qwen3.7-plus",
+    });
+    await core.deleteChatProvider(first);
+    await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
+
+    const international = (await core.listChatProviders()).find(
+      (provider) => provider.endpoint === "intl",
+    )?.id;
+    await core.deleteChatProvider(international ?? "");
+    await core.saveChatProvider({
+      kind: "qwen",
+      apiKey: "sk-qwen-cn-active",
+      modelId: "qwen3.7-plus",
+    });
+    await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
+    await core.saveChatProvider({
+      kind: "qwen",
+      endpoint: "intl",
+      apiKey: "sk-qwen-intl-remaining",
+      modelId: "qwen3.7-plus",
+    });
+    await core.stopMeeting(meeting.id);
+    const exercised = await core.createMeeting();
+    await core.startMeeting({ meetingId: exercised.id });
+    await until(core, exercised.id, (each) => each.cloud === "qwen");
+
+    record(4 * SECOND);
+    await settle();
+    const active = (await core.listChatProviders()).find(
+      (provider) => provider.endpoint !== "intl",
+    )?.id;
+    service.mark();
+    await core.deleteChatProvider(active ?? "");
+    await core.revokeConsent("transcription", SERVICES.qwen);
+    record(4 * SECOND);
+    await settle();
+
+    expect(service.sentSinceMark()).toBe(0);
+    expect(
+      (await core.listMeetings()).find((each) => each.id === exercised.id)?.transcript?.cloud,
+    ).toBeNull();
+  });
+
   for (const route of ["soniox", "qwen"] as const) {
     test(`${route}: a key the service refuses says so, and the next Meeting goes to this computer until the key changes`, async () => {
       const service = counting({ refuse: true });

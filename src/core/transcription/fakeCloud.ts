@@ -7,8 +7,8 @@
  */
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { OPENAI_TRANSCRIPTION_URL } from "./cloud/openai";
-import { QWEN_REALTIME_PATH } from "./cloud/qwen";
-import { type CloudConnect, type CloudSocket, HANDSHAKE_REFUSED } from "./cloud/socket";
+import { HANDSHAKE_REFUSED, QWEN_REALTIME_PATH } from "./cloud/protocol";
+import type { CloudConnect, CloudSocket } from "./cloud/socket";
 
 export const FAKE_CLOUD_LINES: readonly string[] = [
   "The budget holds at one point two million.",
@@ -24,6 +24,8 @@ export interface FakeCloudOptions {
   refuse?: boolean;
   /** How many voices Soniox's side tells apart, taking turns line by line: 2 by default. */
   voices?: number;
+  /** A first Qwen sentence that stays partial, so a drop leaves its speech unfinished. */
+  latePartial?: { atMs: number; beginMs: number; text: string; dropOnFinish?: boolean };
 }
 
 /** 20 ms frames: one is speech when its level is above a whisper's, as the fake engine hears it. */
@@ -42,15 +44,16 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
     const qwen = new URL(url).pathname === QWEN_REALTIME_PATH;
     let closed = false;
     let sentences = 0;
+    let partialSent = false;
     let sentMs = 0;
     let loudMs = 0;
     let lineStartMs: number | null = null;
     let items = 0;
     let previous: string | null = null;
-    const reply = (message: object) =>
-      later(() => {
-        if (!closed) events.message(JSON.stringify(message));
-      });
+    const reply = (message: object) => {
+      if (closed) return;
+      later(() => events.message(JSON.stringify(message)));
+    };
     const close = (code: number) => {
       if (closed) return;
       closed = true;
@@ -101,6 +104,10 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
           const { action } = (JSON.parse(data) as { header: { action: string } }).header;
           if (action === "run-task") reply({ header: { event: "task-started" }, payload: {} });
           if (action === "finish-task") {
+            if (options.latePartial?.dropOnFinish) {
+              close(1006);
+              return;
+            }
             reply({ header: { event: "task-finished" }, payload: { output: {}, usage: null } });
             close(1000);
           }
@@ -126,6 +133,27 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
         );
         const startMs = sentMs;
         heardAudio(samples);
+        const late = options.latePartial;
+        if (qwen && late && !partialSent && sentMs >= late.atMs) {
+          partialSent = true;
+          reply({
+            header: { event: "result-generated" },
+            payload: {
+              output: {
+                sentence: {
+                  sentence_id: 1,
+                  begin_time: late.beginMs,
+                  end_time: null,
+                  text: late.text,
+                  heartbeat: false,
+                  sentence_end: false,
+                  words: [],
+                },
+              },
+              usage: null,
+            },
+          });
+        }
         for (let at = 0; at + FRAME <= samples.length; at += FRAME) {
           let sum = 0;
           for (let i = at; i < at + FRAME; i++) sum += (samples[i] as number) ** 2;
@@ -137,40 +165,41 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
             const start = lineStartMs;
             const end = frameMs + 20;
             const speaker = String((said % (options.voices ?? 2)) + 1);
-            reply(
-              qwen
-                ? {
-                    header: { event: "result-generated" },
-                    payload: {
-                      output: {
-                        sentence: {
-                          begin_time: start,
-                          end_time: end,
-                          text: nextLine(),
-                          heartbeat: false,
-                          sentence_end: true,
-                          sentence_id: ++sentences,
-                          words: [],
+            if (!late)
+              reply(
+                qwen
+                  ? {
+                      header: { event: "result-generated" },
+                      payload: {
+                        output: {
+                          sentence: {
+                            begin_time: start,
+                            end_time: end,
+                            text: nextLine(),
+                            heartbeat: false,
+                            sentence_end: true,
+                            sentence_id: ++sentences,
+                            words: [],
+                          },
                         },
+                        usage: { duration: Math.ceil(end / 1000) },
                       },
-                      usage: { duration: Math.ceil(end / 1000) },
+                    }
+                  : {
+                      tokens: [
+                        {
+                          text: nextLine(),
+                          start_ms: start,
+                          end_ms: end,
+                          is_final: true,
+                          speaker,
+                        },
+                        { text: "<end>", is_final: true },
+                      ],
+                      final_audio_proc_ms: end,
+                      total_audio_proc_ms: end,
                     },
-                  }
-                : {
-                    tokens: [
-                      {
-                        text: nextLine(),
-                        start_ms: start,
-                        end_ms: end,
-                        is_final: true,
-                        speaker,
-                      },
-                      { text: "<end>", is_final: true },
-                    ],
-                    final_audio_proc_ms: end,
-                    total_audio_proc_ms: end,
-                  },
-            );
+              );
             loudMs = 0;
             lineStartMs = null;
           }

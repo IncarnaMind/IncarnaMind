@@ -4,17 +4,14 @@
  * plays back what a service sent.
  */
 import { WebSocket } from "undici";
+import { HANDSHAKE_REFUSED } from "./protocol";
+
+export { HANDSHAKE_REFUSED } from "./protocol";
 
 export interface CloudSocket {
   send(data: string | Uint8Array): void;
   close(): void;
 }
-
-/**
- * What `closed` says when the service turned the connection away at the handshake for the key
- * (HTTP 401 or 403): a WebSocket's own failure carries no status, so it is asked for.
- */
-export const HANDSHAKE_REFUSED = 4401;
 
 export interface CloudSocketEvents {
   open(): void;

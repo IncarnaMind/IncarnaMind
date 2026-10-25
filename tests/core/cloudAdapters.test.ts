@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { CloudLoss, SpeechSegment } from "../../src/core";
 import { QWEN_REALTIME_MODEL } from "../../src/core/providers/catalog/transcription";
 import { createOpenAiStream, createUpsampler } from "../../src/core/transcription/cloud/openai";
@@ -383,6 +383,11 @@ const finalSentences = (messages: readonly QwenMessage[]) =>
     return sentence?.sentence_end ? [sentence] : [];
   });
 
+const qwenResult = (sentence: QwenSentence): QwenMessage => ({
+  header: { event: "result-generated" },
+  payload: { output: { sentence } },
+});
+
 describe("Qwen's real-time transcription, played back in the format Alibaba documents", () => {
   function connect() {
     const service = playback();
@@ -523,11 +528,11 @@ describe("Qwen's real-time transcription, played back in the format Alibaba docu
     for (const each of order.slice(from, to).filter((entry) => entry.startsWith("done "))) {
       expect(Number(each.slice(5))).toBeLessThanOrEqual(2200);
     }
-    // Between sentences, all but the last moments are done.
+    // Silence alone moves no boundary: only the final result says what is done.
     const between = order.slice(order.indexOf("final 1"), order.indexOf("partial 2"));
-    expect(
-      Math.max(...between.filter((e) => e.startsWith("done ")).map((e) => Number(e.slice(5)))),
-    ).toBeGreaterThan(10_000);
+    expect([
+      ...new Set(between.filter((e) => e.startsWith("done ")).map((e) => Number(e.slice(5)))),
+    ]).toEqual([10_300, 15_400]);
     expect(done.at(-1)).toBe(22_000);
   });
 
@@ -536,7 +541,7 @@ describe("Qwen's real-time transcription, played back in the format Alibaba docu
     service.open();
     service.say({ header: { event: "task-started" }, payload: {} });
     feed((samples) => stream.push(samples), 4);
-    expect(heard.progress.at(-1)).toBe(2000);
+    expect(heard.progress.at(-1)).toBe(0);
 
     service.say({
       header: { event: "result-generated" },
@@ -544,7 +549,7 @@ describe("Qwen's real-time transcription, played back in the format Alibaba docu
         output: {
           sentence: {
             sentence_id: 1,
-            begin_time: 0,
+            begin_time: 1000,
             end_time: null,
             text: "Late words",
             sentence_end: false,
@@ -552,12 +557,132 @@ describe("Qwen's real-time transcription, played back in the format Alibaba docu
         },
       },
     });
-    expect(heard.progress.at(-1)).toBe(2000);
+    expect(heard.progress.at(-1)).toBe(1000);
 
     const finished = stream.finish();
     service.say({ header: { event: "task-finished" }, payload: { output: {}, usage: null } });
     await finished;
     expect(heard.progress.at(-1)).toBe(4000);
+  });
+
+  test("a dropped late first sentence leaves all of its unfinalized speech to replay", () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 10);
+    service.say({
+      header: { event: "result-generated" },
+      payload: {
+        output: {
+          sentence: {
+            sentence_id: 1,
+            begin_time: 1000,
+            end_time: null,
+            text: "Not final yet",
+            sentence_end: false,
+            words: [{ end_time: 2000 }],
+          },
+        },
+      },
+    });
+    service.drop(1006);
+
+    expect(heard.losses).toEqual(["dropped"]);
+    expect(heard.finals()).toEqual([]);
+    expect(heard.progress.at(-1)).toBe(1000);
+  });
+
+  test("later partials and an out-of-order final never pass an unfinished earlier sentence", () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 10);
+    service.say(
+      qwenResult({
+        sentence_id: 1,
+        begin_time: 1000,
+        end_time: null,
+        text: "First unfinished",
+        sentence_end: false,
+      }),
+    );
+    service.say(
+      qwenResult({
+        sentence_id: 2,
+        begin_time: 5000,
+        end_time: null,
+        text: "Second unfinished",
+        sentence_end: false,
+      }),
+    );
+    service.say(
+      qwenResult({
+        sentence_id: 2,
+        begin_time: 5000,
+        end_time: 9000,
+        text: "Second finishes first",
+        sentence_end: true,
+      }),
+    );
+    expect(heard.progress.at(-1)).toBe(1000);
+
+    service.drop(1006);
+    expect(heard.progress.at(-1)).toBe(1000);
+  });
+
+  test("normal completion settles every open sentence and reports no loss", async () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 4);
+    for (const [sentence_id, begin_time, text] of [
+      [1, 1000, "First open"],
+      [2, 3000, "Second open"],
+    ] as const) {
+      service.say(
+        qwenResult({ sentence_id, begin_time, end_time: null, text, sentence_end: false }),
+      );
+    }
+
+    const finished = stream.finish();
+    service.say({ header: { event: "task-finished" }, payload: { output: {}, usage: null } });
+    await finished;
+    expect(heard.finals().map((each) => each.id)).toEqual([1, 2]);
+    expect(heard.progress.at(-1)).toBe(4000);
+    expect(heard.losses).toEqual([]);
+  });
+
+  test("a finish timeout leaves the unfinalized sentence to replay", async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, heard, stream } = connect();
+      service.open();
+      service.say({ header: { event: "task-started" }, payload: {} });
+      feed((samples) => stream.push(samples), 4);
+      service.say({
+        header: { event: "result-generated" },
+        payload: {
+          output: {
+            sentence: {
+              sentence_id: 1,
+              begin_time: 1000,
+              end_time: null,
+              text: "Still unfinished",
+              sentence_end: false,
+            },
+          },
+        },
+      });
+
+      const finished = stream.finish();
+      await vi.advanceTimersByTimeAsync(20_000);
+      await finished;
+      expect(heard.finals()).toEqual([]);
+      expect(heard.progress.at(-1)).toBe(1000);
+      expect(heard.losses).toEqual(["dropped"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("heartbeats, which carry no sentence, are ignored", async () => {

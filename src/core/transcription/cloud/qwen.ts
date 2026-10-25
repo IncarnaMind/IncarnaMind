@@ -4,13 +4,12 @@
  * stream's audio goes to it as it comes, and text comes back a sentence at a time: the words so
  * far, then the sentence once the speaker pauses. The service tells no speakers apart.
  *
- * It sends nothing while it hears silence, so what has been done is worked out here: everything
- * before the sentence being said, or, between sentences, all but the last moments, in which
- * speech may have begun without a first result yet.
+ * Text is done only up to a final result's boundary: the last finished sentence, or the start of
+ * the sentence now being said. Audio received beyond that is not guessed to be finished, since a
+ * late result can show that it is speech which still needs replaying after a lost connection.
  */
-import { randomUUID } from "node:crypto";
 import { cleanSpeech } from "../speechText";
-import { HANDSHAKE_REFUSED } from "./socket";
+import { HANDSHAKE_REFUSED } from "./protocol";
 import {
   type CloudStreamHandle,
   type CloudStreamOptions,
@@ -19,11 +18,6 @@ import {
   msOf,
 } from "./stream";
 
-/** Where it listens, on the host of the key's region: a key works in no other. */
-export const QWEN_REALTIME_PATH = "/api-ws/v1/inference";
-
-/** Between sentences, speech this recent may not have a result yet. */
-const UNHEARD_MS = 2000;
 /** The key can't be used here: made in the other region, or wrong. */
 const REFUSALS = new Set(["InvalidApiKey"]);
 
@@ -55,12 +49,13 @@ function sentenceOf(payload: unknown): (Sentence & { ended: boolean }) | null {
 
 export function createQwenStream(options: CloudStreamOptions & { url: string }): CloudStreamHandle {
   const { stream, report } = options;
-  const taskId = randomUUID();
+  const taskId = crypto.randomUUID();
   const header = (action: string) => ({ action, task_id: taskId, streaming: "duplex" });
   let received = 0;
   let finalMs = 0;
   let furthestMs = 0;
-  let open: Sentence | null = null;
+  const open = new Map<number, Sentence>();
+  let completed = false;
   let started = false;
   const waiting: (Uint8Array | string)[] = [];
   let ended = false;
@@ -89,9 +84,8 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
     message: heard,
     closed(code) {
       if (ended) return;
-      const finished = finishing !== null;
       end();
-      if (!finished) report.lost(refused || code === HANDSHAKE_REFUSED ? "refused" : "dropped");
+      if (!completed) report.lost(refused || code === HANDSHAKE_REFUSED ? "refused" : "dropped");
     },
   });
   const connectTimer = setTimeout(() => {
@@ -109,7 +103,10 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
   }
 
   function doneMs(): number {
-    const candidate = open ? open.startMs : Math.max(finalMs, msOf(received) - UNHEARD_MS);
+    const candidate =
+      open.size === 0
+        ? finalMs
+        : Math.min(...[...open.values()].map((sentence) => sentence.startMs));
     furthestMs = Math.max(furthestMs, candidate);
     return furthestMs;
   }
@@ -128,8 +125,10 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
   }
 
   function settle(): void {
-    if (open) say(open, true);
-    open = null;
+    for (const sentence of [...open.values()].sort((a, b) => a.startMs - b.startMs)) {
+      say(sentence, true);
+    }
+    open.clear();
     report.progress(msOf(received));
   }
 
@@ -152,17 +151,18 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
         const sentence = sentenceOf(message?.payload);
         if (!sentence) return;
         if (sentence.ended) {
-          if (open?.id === sentence.id) open = null;
+          open.delete(sentence.id);
           finalMs = Math.max(finalMs, sentence.endMs);
           say(sentence, true);
         } else {
-          open = sentence;
+          open.set(sentence.id, sentence);
           say(sentence, false);
         }
         report.progress(doneMs());
         return;
       }
       case "task-finished":
+        completed = true;
         settle();
         end();
         socket.close();
@@ -196,9 +196,9 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
         if (started) socket.send(done);
         else waiting.push(done);
         finishTimer = setTimeout(() => {
-          settle();
           end();
           socket.close();
+          report.lost("dropped");
         }, FINISH_TIMEOUT_MS);
       });
     },

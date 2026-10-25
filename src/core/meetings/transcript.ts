@@ -745,7 +745,8 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   function gateClosed(live: Live): Leaving | null {
     if (live.engine === "local") return null;
-    const now = options.cloud?.sending(live.engine) ?? "stopped";
+    if (!live.cloud) return "user";
+    const now = options.cloud?.sending(live.engine, live.cloud.stream) ?? "stopped";
     return now === "ok" ? null : now === "local-mode" ? "local-mode" : "user";
   }
 

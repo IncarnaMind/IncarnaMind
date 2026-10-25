@@ -399,6 +399,60 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       expect(texts.some((text) => FAKE_LINES.includes(text))).toBe(true);
     });
 
+    test("a drop after a late first partial replays every unfinished second", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, {
+        engine: {
+          cloud: {
+            latePartial: { atMs: SECOND, beginMs: SECOND, text: "Unfinished cloud words" },
+            dropAfterMs: 10 * SECOND,
+          },
+        },
+      });
+      await chooseQwen(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "qwen");
+
+      record(11 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.fellBack !== null);
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(final.gaps).toEqual([]);
+      expect(Math.min(...final.cues.map((cue) => cue.startMs))).toBeLessThanOrEqual(SECOND);
+      expect(final.cues.some((cue) => FAKE_LINES.includes(cue.text))).toBe(true);
+      expect(final.cues.some((cue) => cue.text === "Unfinished cloud words")).toBe(false);
+    });
+
+    test("a socket drop while finishing replays the unfinished sentence", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, {
+        engine: {
+          cloud: {
+            latePartial: {
+              atMs: SECOND,
+              beginMs: SECOND,
+              text: "Unfinished cloud words",
+              dropOnFinish: true,
+            },
+          },
+        },
+      });
+      await chooseQwen(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      record(4 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.partial !== null);
+
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(final.gaps).toEqual([]);
+      expect(Math.min(...final.cues.map((cue) => cue.startMs))).toBeLessThanOrEqual(SECOND);
+      expect(final.cues.some((cue) => FAKE_LINES.includes(cue.text))).toBe(true);
+    });
+
     test("the monthly cap counts Qwen's price from the catalog and hands the live audio to this computer; recording never stops", async () => {
       const dataDir = await createTempDataFolder();
       const { core, record } = await transcribingCore(dataDir);
