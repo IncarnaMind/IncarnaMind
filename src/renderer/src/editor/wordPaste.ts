@@ -88,6 +88,8 @@ const showsNothing = (element: Element) =>
 /**
  * Word writes a page break outside its paragraph, followed by the paragraph's remaining content.
  * A Mind has no pasted page break, so drop the break and, when it stood alone, those two empty parts.
+ * A break Word put inside a paragraph that keeps its words leaves a space instead, so the words
+ * either side don't join.
  */
 function dropPageBreaks(body: HTMLElement): void {
   for (const pageBreak of body.querySelectorAll("br")) {
@@ -98,7 +100,8 @@ function dropPageBreaks(body: HTMLElement): void {
     }
     let rest = holder.nextSibling;
     while (rest && holdsNothing(rest)) rest = rest.nextSibling;
-    pageBreak.remove();
+    if (holder === pageBreak) pageBreak.remove();
+    else pageBreak.replaceWith(" ");
     if (!showsNothing(holder)) continue;
     holder.remove();
     if (rest && isElement(rest) && rest.tagName === "P" && showsNothing(rest)) rest.remove();

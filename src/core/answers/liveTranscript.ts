@@ -10,6 +10,16 @@ import type { ContextWindow } from "../providers/models";
 import { estimateTokens } from "./context";
 import type { AnswerMessage } from "./engine";
 
+/**
+ * A recording Meeting's live Transcript as a Question sees it: its Passages in reading order, and
+ * whether its Transcript is `behind` (the live text fell behind: the rest is written after the
+ * Meeting stops, #1366).
+ */
+export interface LiveTranscript {
+  passages: WindowedPassage[];
+  behind: boolean;
+}
+
 /** The most of a live transcript a Question takes: about 8k tokens, half an hour of talk or so. */
 export const LISTENED_TOKEN_LIMIT = 8_000;
 

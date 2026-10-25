@@ -19,7 +19,13 @@ export const findHandle: Handle<{ next(): void; previous(): void }> = { current:
 export const sidebarHandle: Handle<{ hidden: boolean; toggle(): void }> = { current: null };
 
 /** The Mind the User last wrote in: its editor and its document, for the commands on its text. */
-export const noteHandle: Handle<{ editor: Editor; mindId: string; doc: Y.Doc }> = {
+export const noteHandle: Handle<{
+  editor: Editor;
+  mindId: string;
+  doc: Y.Doc;
+  /** The tab it is drawn in, else the Mind: where its check card opens (as `useCardPlace`). */
+  place: string;
+}> = {
   current: null,
 };
 

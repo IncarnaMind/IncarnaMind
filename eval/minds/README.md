@@ -4,7 +4,7 @@
 
 ## What it does
 
-1. For each run, a core on a new temporary data folder (never the User's), with the chat model given as a User gives it in Settings and no Documents. The workspace is nine test Minds (`cases.ts`), seeded through the core's public interface:
+1. For each run, a core on a new temporary data folder (never the User's), with the chat model given as a User gives it in Settings and no Documents, except for the requests asked in a Library that has some. The workspace is nine test Minds (`cases.ts`), seeded through the core's public interface:
    - **Weekly update**, **Monthly report**, **Board brief**: a Summary of three sentences and one more section each.
    - **Project plan** (Goals, Milestones, Risks) and **Meeting notes** (Attendees, Decisions, Action items).
    - **Harbour plan**, **Harbour budget**, **Harbour risks**: the word "supplier" in 3, 3 and 2 paragraphs (once in a heading), and **Warehouse notes**, which also says "supplier" and is no one's business.
@@ -16,7 +16,7 @@ Each run uses its own core, so runs can go in parallel (`INCARNAMIND_EVAL_MINDS_
 
 ## The requests
 
-`cases.ts`: seven, each in English and Chinese.
+`cases.ts`: ten, each in English and Chinese.
 
 | Request | Asked from | What must hold afterwards |
 |---|---|---|
@@ -26,6 +26,9 @@ Each run uses its own core, so runs can go in parallel (`INCARNAMIND_EVAL_MINDS_
 | `term-one-open`: the same request | Harbour budget, which is in front; the other two are not open | The same |
 | `new-from-two`: "Make a new Mind called Launch brief from my Project plan Mind and my Meeting notes Mind: the milestones from the plan and the decisions from the notes." | Home | One new Mind, titled Launch brief, holding a milestone of the plan and a decision of the notes; both sources unchanged |
 | `new-from-two-plain`: the same asked as "a new note … from the Project plan and the Meeting notes", never saying Mind | Home | The same |
+| `new-from-two-plain-docs`: the same, in a Library that also has two Documents of other matters (`DOCUMENTS`), so the model can search too (#1790) | Home | The same |
+| `new-from-two-plain-ai`: the same, the Project plan and the Meeting notes holding only AI text, as a Meeting's notes filled after Stop | Home | The same |
+| `new-from-two-plain-made`: the same, the two holding only what an Answer added, which the Minds line leaves out (#1790): it measures what that costs | Home | The same |
 | `missing-mind`: "Shorten the summary in my Budget forecast Mind." | Project plan, which is in front | Nothing changes, and the reply (or its question) names Budget forecast |
 
 ## What a run is held to
@@ -47,7 +50,7 @@ A run that fails to run (the provider's error, no Answer in five minutes) counts
 
 - **The window.** The core hands the changes over as Proposals and the window applies them, in one Undo step for each Mind, and draws the line of a Mind that isn't open yet as "opening" (`src/renderer/src/askedChanges.ts`). A Mind not in front is not "not open" here, so a change that reads as done before it applies (#1658) is for the built app's e2e tests. "One of the Minds is open" means the Mind in front of the conversation, which the model reads as `<mind>`.
 - **A second request.** Each run is one request in a new conversation, so "make it longer" after a summary (#893) is not asked here.
-- **Documents.** The workspace has none, so the model has no search Tool, which it has in a Library.
+- **Documents**, but for `new-from-two-plain-docs`. The workspace has none, so the model has no search Tool, which it has in a Library.
 
 ## Running it
 
@@ -69,7 +72,7 @@ Kimi K2.6 sees only this evaluation's made-up Minds: `INCARNAMIND_EVAL_CHAT_KIND
 
 The report goes into `eval/results/<start time>-minds/`. `report.md` has the pass count of each request and model against the bar of 9 in 10 runs, the median time to the end of the Answer and the tokens in and out of a run (the rewrites `edit_mind` asks for included), why runs failed, every run's result, and the transcript of every failure: what the model said, called and was told, what the app recorded its Tools doing, the card's rows and the reply. `report.json` has the same, with `rows` in the shape of the everyday evaluation's (`scripts/nightlyRealModel.ts` reads it).
 
-**Cost and time:** 140 runs (ten of each request) take about four minutes and $0.20 on Claude Haiku 5.5, and about nine minutes and $1.20 on Kimi K2.6, three at a time. The judge is a part of that.
+**Cost and time:** 200 runs (ten of each request) take about seven minutes and $0.28 on Claude Haiku 5.5, and about twelve minutes and $1.70 on Kimi K2.6, three at a time. The judge is a part of that.
 
 ## The nightly run
 
