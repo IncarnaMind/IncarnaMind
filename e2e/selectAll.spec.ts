@@ -1,7 +1,9 @@
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import {
+  addDocuments,
   clickEditItem,
   coreOf,
   createDataFolder,
@@ -24,6 +26,29 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
+type Route = "menu" | "keyboard";
+
+// Playwright's key dispatch can bypass the macOS menu that takes ⌘A (#1351).
+const chooseSelectAll = (app: ElectronApplication, window: Page, route: Route) =>
+  route === "menu"
+    ? clickEditItem(app, "edit.selectAll")
+    : window.keyboard.press("ControlOrMeta+a");
+
+async function selectAllIn(app: ElectronApplication, window: Page, route: Route, field: Locator) {
+  const value = await field.inputValue();
+  await chooseSelectAll(app, window, route);
+  await expect
+    .poll(() =>
+      field.evaluate((element) => {
+        if (!(element instanceof HTMLInputElement)) throw new Error("Not an input.");
+        return element.selectionStart === null
+          ? document.getSelection()?.toString()
+          : element.value.slice(element.selectionStart, element.selectionEnd ?? 0);
+      }),
+    )
+    .toBe(value);
+}
+
 for (const language of ["en", "zh-CN"] as const) {
   for (const route of ["menu", "keyboard"] as const) {
     test(`${route} Select All replaces text in the palette, Tags and monthly cap (${language})`, async () => {
@@ -33,22 +58,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await dismissChatSetup(window);
         await setLanguage(window, language);
         const core = await coreOf(window);
-        // Playwright's key dispatch can bypass the macOS menu that takes ⌘A (#1351).
-        const selectAll = async (field: Locator) => {
-          const value = await field.inputValue();
-          if (route === "menu") await clickEditItem(app, "edit.selectAll");
-          else await window.keyboard.press("ControlOrMeta+a");
-          await expect
-            .poll(() =>
-              field.evaluate((element) => {
-                if (!(element instanceof HTMLInputElement)) throw new Error("Not an input.");
-                return element.selectionStart === null
-                  ? document.getSelection()?.toString()
-                  : element.value.slice(element.selectionStart, element.selectionEnd ?? 0);
-              }),
-            )
-            .toBe(value);
-        };
+        const selectAll = (field: Locator) => selectAllIn(app, window, route, field);
         const shot = async (name: string) => {
           const folder = process.env.INCARNAMIND_SCREENSHOTS;
           if (route === "menu" && folder) {
@@ -121,4 +131,83 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     });
   }
+}
+
+for (const route of ["menu", "keyboard"] as const) {
+  test(`${route} Select All in the Library selects every row and no page text (#1350)`, async () => {
+    const sources = await createDataFolder();
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, 1280, 660);
+      await dismissChatSetup(window);
+      await setLanguage(window, "en");
+      const paths = ["Tides", "Currents", "Waves"].map((name) => join(sources, `${name}.txt`));
+      for (const path of paths) await writeFile(path, "The sea.\n");
+      await addDocuments(window, paths);
+      await window.getByTestId("open-library").click();
+      const library = window.getByTestId("library");
+      const rows = library.getByTestId("library-document");
+      const bar = library.getByTestId("library-selection");
+      await expect(rows).toHaveCount(3);
+      const everyRowSelected = async () => {
+        for (const row of await rows.all()) {
+          await expect(row).toHaveAttribute("aria-selected", "true");
+        }
+      };
+      const textSelected = () => window.evaluate(() => globalThis.getSelection()?.toString() ?? "");
+
+      // A row is ticked, as in the issue, and its checkbox holds the focus.
+      await pointAndClick(window, rows.first().getByTestId("library-select"));
+      await chooseSelectAll(app, window, route);
+      await expect(bar).toContainText("3 selected");
+      await everyRowSelected();
+      expect(await textSelected()).toBe("");
+
+      // The bar's own Select All holds the focus, as Tab reaches it: ⌘A is still the rows'.
+      await library.getByTestId("library-select-all").focus();
+      await chooseSelectAll(app, window, route);
+      await expect(bar).toContainText("3 selected");
+      await everyRowSelected();
+      expect(await textSelected()).toBe("");
+    } finally {
+      await app.close();
+      await removeDataFolder(sources);
+    }
+  });
+
+  test(`${route} Select All in a row's name field selects its text, and on a row every row (#1518)`, async () => {
+    const sources = await createDataFolder();
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, 1280, 660);
+      await dismissChatSetup(window);
+      const paths = ["Tides", "Currents", "Waves"].map((name) => join(sources, `${name}.txt`));
+      for (const path of paths) await writeFile(path, "The sea.\n");
+      await addDocuments(window, paths);
+      const sidebar = window.getByTestId("sidebar");
+      const rows = sidebar.getByTestId("document-list-item");
+      const selected = sidebar.getByTestId("sidebar-selection");
+
+      // The field sits in the list, where ⌘A otherwise selects rows.
+      await rows.first().getByTestId("open-document").focus();
+      await window.keyboard.press("F2");
+      const field = sidebar.locator("input:focus");
+      await expect(field).toBeFocused();
+      await window.keyboard.press("End");
+      await window.keyboard.type(" 文件");
+      await selectAllIn(app, window, route, field);
+      await expect(selected).toHaveText("");
+      await window.keyboard.type("采购 caigou");
+      await expect(field).toHaveValue("采购 caigou");
+      await window.keyboard.press("Enter");
+      await expect(rows.filter({ hasText: "采购 caigou" })).toHaveCount(1);
+
+      await rows.first().getByTestId("open-document").focus();
+      await chooseSelectAll(app, window, route);
+      await expect(selected).toHaveText("3 selected · Esc clears");
+    } finally {
+      await app.close();
+      await removeDataFolder(sources);
+    }
+  });
 }

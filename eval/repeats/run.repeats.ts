@@ -14,7 +14,7 @@ import { createWorkerEmbedder } from "../lib/embedder";
 import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
-import { SETS, writeDocuments } from "./cases";
+import { documentsOf, type RepeatSet, SETS, writeDocuments } from "./cases";
 import { repeatChecks } from "./repeat";
 import { type RepeatRow, report, summarise } from "./score";
 
@@ -44,9 +44,15 @@ test("repeated checks of an unchanged Mind", async () => {
   const rows: RepeatRow[] = [];
   let spentBefore = 0;
   let stopped = false;
-  for (const language of ["en", "zh-CN"] as const) {
-    const ofLanguage = sets.filter((each) => each.language === language);
-    if (ofLanguage.length === 0 || stopped) continue;
+  const libraries = new Map<string, RepeatSet[]>();
+  for (const set of sets) {
+    const key = [set.language, ...documentsOf(set).map((each) => each.file)].join("\n");
+    libraries.set(key, [...(libraries.get(key) ?? []), set]);
+  }
+  for (const ofLibrary of libraries.values()) {
+    const [first] = ofLibrary;
+    if (!first || stopped) continue;
+    const { language } = first;
     const folder = await mkdtemp(join(tmpdir(), "incarnamind-repeats-"));
     // The Library of a first run: the example's Documents beside the User's own, so the search
     // weighs the agreement against others as it does for a newcomer.
@@ -55,7 +61,7 @@ test("repeated checks of an unchanged Mind", async () => {
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
       reranker,
-      documents: await writeDocuments(folder, language),
+      documents: await writeDocuments(folder, first),
       examples: join(ROOT, "resources", "examples"),
       keep: config.keepData,
       embeddings: false,
@@ -84,7 +90,7 @@ test("repeated checks of an unchanged Mind", async () => {
       );
       const provider = await core.saveChatProvider(chatProviderOf(chat));
       const choice = { providerId: provider.id, modelId: chat.modelId };
-      for (const set of ofLanguage) {
+      for (const set of ofLibrary) {
         if (stopped) break;
         log(`${model} · ${set.id}: ${set.sentences.length} sentences, ${repeats} checks`);
         const results = await repeatChecks(core, {
@@ -112,6 +118,7 @@ test("repeated checks of an unchanged Mind", async () => {
             key: sentence.key,
             kind: sentence.kind,
             expected: sentence.expected,
+            ...(sentence.knownMiss !== undefined && { knownMiss: sentence.knownMiss }),
           });
         }
       }

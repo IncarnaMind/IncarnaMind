@@ -10,9 +10,11 @@
  * - Into another Mind: at its end, through the core. With no Mind in focus
  *   (`openIt`), it is shown too, in a new tab beside the focused one if it isn't open,
  *   never replacing it.
- * - Into a new Mind: made from the Answer, in its conversation's Folder, named by
- *   its first line, opened in a new tab beside the focused one, the Answer waiting
- *   there as changes to accept or reject.
+ * - Into a new Mind (New Mind under the Answer, #1559): the empty Mind the
+ *   assistant reads, when it is empty, as at its cursor; else a new Mind in the
+ *   conversation's Folder, named by its first line (" 2" after a name another
+ *   Mind has), with the Answer in it at once, opened in a new tab beside the
+ *   focused one.
  *
  * Each says what it did under the Answer, with Undo (and ⌘Z), and what went
  * in at once is recorded as AI use (#292); a change, once it is accepted.
@@ -20,17 +22,22 @@
 import type { Editor } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection } from "@tiptap/pm/state";
+import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import {
   BLOCK_ID_ATTRIBUTE,
   type BlockOrigin,
   type Conversation,
   type ConversationAnswer,
+  MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
 } from "../../core/api";
 import { messageReference } from "../../core/references";
 import { asGenerated } from "../../shared/aiText";
 import type { NodeJSON } from "../../shared/blockJson";
 import { setOrigins } from "../../shared/blockOrigins";
-import { cutTitle, mindName } from "../../shared/naming";
+import { holdsNothing } from "../../shared/madeMind";
+import { carryAnswerScope } from "../../shared/mindScope";
+import { cutTitle, mindName, numberedName } from "../../shared/naming";
 import {
   citedTables,
   firstLineOfBlocks,
@@ -74,7 +81,12 @@ const originOf = ({ answer }: AddedAnswer): BlockOrigin => ({
  * as one step of the note's Undo. Returns their new ids, or null when the
  * editor couldn't take them.
  */
-function addInEditor(editor: Editor, blocks: readonly NodeJSON[], atCursor: boolean) {
+export function addInEditor(
+  editor: Editor,
+  blocks: readonly NodeJSON[],
+  atCursor: boolean,
+  inTheSameStep: () => void,
+) {
   const place = notePlace(editor.state.doc, atCursor ? editor.state.selection : null);
   const ids = blocks.map(() => crypto.randomUUID());
   let nodes: ProseMirrorNode[];
@@ -90,16 +102,18 @@ function addInEditor(editor: Editor, blocks: readonly NodeJSON[], atCursor: bool
     useAppStore.getState().reportError(error);
     return null;
   }
-  const done = asOneStep(editor, () =>
-    editor.commands.command(({ tr }) => {
+  const done = asOneStep(editor, () => {
+    const added = editor.commands.command(({ tr }) => {
       const fragment = Fragment.from(nodes);
       tr.replaceWith(place.from, place.to, fragment);
       // The cursor goes after what came in, so the next Answer added goes after it, in order.
       const end = Math.min(place.from + fragment.size, tr.doc.content.size);
       tr.setSelection(Selection.near(tr.doc.resolve(end), -1));
       return true;
-    }),
-  );
+    });
+    if (added) inTheSameStep();
+    return added;
+  });
   if (!done) return null;
   const first = editor.view.nodeDOM(place.from);
   if (first instanceof HTMLElement) first.scrollIntoView({ block: "nearest" });
@@ -117,7 +131,16 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
   );
   const { editor, doc } = read;
   if (editor.isDestroyed) return false;
-  const ids = addInEditor(editor, checked, read.cursorInMind());
+  const folderId = useAppStore.getState().minds.find((each) => each.id === mindId)?.folderId;
+  // As the editor's own change, so the note's Undo takes the scope back with the Blocks.
+  const bringScope = () => {
+    yUndoPluginKey.getState(editor.state)?.undoManager.addToScope(doc.getMap(MIND_SETTINGS_FIELD));
+    doc.transact(
+      () => carryAnswerScope(doc, questionOf(added.answer)?.scope ?? null, folderId ?? null),
+      ySyncPluginKey,
+    );
+  };
+  const ids = addInEditor(editor, checked, read.cursorInMind(), bringScope);
   if (!ids) return true;
   setOrigins(doc, ids, originOf(added));
   flashBlocks(editor, ids);
@@ -172,30 +195,36 @@ const openBeside = (mindId: string) =>
 /**
  * A new Mind for an Answer, in the conversation's Folder. It is named by its first line, like
  * any Mind; the conversation's name goes on it only when the User gave the conversation one,
- * never the name it takes from the first Question, which is an instruction (#1174).
+ * never the name it takes from the first Question, which is an instruction (#1174). A table's
+ * first cell is no name either, so "Open as a table" passes the Question as the title (#1345).
  */
-async function newMindFor(added: AddedAnswer) {
-  const title = added.conversation?.title ?? "";
-  return core.createMind({ title, folderId: added.conversation?.folderId ?? null });
-}
+const newMindFor = (added: AddedAnswer, title = added.conversation?.title ?? "") =>
+  core.createMind({ title, folderId: added.conversation?.folderId ?? null });
 
-const putIn = (mindId: string, added: AddedAnswer, proposed: boolean) =>
+const putIn = (mindId: string, added: AddedAnswer) =>
   core.addToNote({
     mindId,
     blocks: added.blocks,
     origin: originOf(added),
     model: added.answer.model,
-    proposed,
   });
 
 /**
- * Into a new Mind: in its conversation's Folder, the Answer in it as changes to
- * accept or reject, in a new tab beside the focused one. Like any Mind made, it says
- * nothing, and Delete takes it back.
+ * Into a new Mind: the empty Mind the assistant reads, when there is one; else one in its
+ * conversation's Folder, the Answer in it at once, in a new tab beside the focused one. Like any
+ * Mind made, it says nothing, and Delete takes it back.
  */
 async function addToNewMind(added: AddedAnswer): Promise<void> {
-  const mind = await newMindFor(added);
-  await putIn(mind.id, added, true);
+  const read = readMindHandle.current;
+  const empty =
+    read && !read.editor.isDestroyed && holdsNothing(read.doc.getXmlFragment(MIND_CONTENT_FIELD));
+  if (read && empty && (await addToReadMind(added, read.mindId))) return;
+  // A name another Mind has gets a number, so a second Mind of the same Answer reads apart.
+  const given = added.conversation?.title ?? "";
+  const named = given || cutTitle(firstLineOfBlocks(added.blocks));
+  const taken = useAppStore.getState().minds.map((mind) => mindName(mind));
+  const mind = await newMindFor(added, numberedName(named, taken) ?? given);
+  await putIn(mind.id, added);
   await openBeside(mind.id);
 }
 
@@ -212,10 +241,12 @@ export async function openTable(added: AddedAnswer): Promise<void> {
   if (openingTable) return;
   openingTable = true;
   try {
-    const mind = await newMindFor(added);
+    const asked = added.conversation?.title || cutTitle(questionOf(added.answer)?.text ?? "");
+    const taken = useAppStore.getState().minds.map((mind) => mindName(mind));
+    const mind = await newMindFor(added, numberedName(asked, taken) ?? asked);
     await openBeside(mind.id);
     try {
-      await putIn(mind.id, added, false);
+      await putIn(mind.id, added);
     } catch (error) {
       useAppStore.getState().reportError(error);
       await core.deleteMind(mind.id);

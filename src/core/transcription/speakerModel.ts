@@ -2,7 +2,8 @@
  * The models that tell a Meeting's speakers apart after the call (#138), downloaded into the
  * data folder when the User first records a Meeting, and checked against their recorded sizes
  * and SHA-256, as the speech-to-text model is (./model). Nothing about the User is sent: plain
- * GET requests for the files, to huggingface.co.
+ * GET requests for the files, to huggingface.co or the other sources the built-in models use
+ * (../embedding/modelSources).
  *
  * Both may be redistributed, as their licences were checked on 2026-10-21:
  * - pyannote's segmentation-3.0 (MIT, © 2022 CNRS), as sherpa-onnx's authors exported it to
@@ -13,6 +14,7 @@
 import { join } from "node:path";
 import type { EmbeddingModelSource, Logger, SpeakerModelFiles } from "../adapters";
 import { downloadModel, isModelDownloaded } from "../embedding/download";
+import type { ModelSources } from "../embedding/modelSources";
 
 const SEGMENTATION_REVISION = "9403a6902bb58e3d5ae8c7e77c3422de279db2e0";
 // This mirror has no licence file: the licence is on the original's card,
@@ -64,6 +66,7 @@ export interface SpeakerModelOptions {
   dataDir: string;
   /** Overrides where the files come from (tests: none at all). */
   source?: { segmentation: EmbeddingModelSource; embedding: EmbeddingModelSource };
+  sources?: ModelSources;
   log: Logger;
 }
 
@@ -85,7 +88,12 @@ export function createSpeakerModel(options: SpeakerModelOptions) {
     downloading ??= (async () => {
       for (const model of models) {
         if (isModelDownloaded(model.directory, model.source.files)) continue;
-        await downloadModel({ ...model, signal: lifetime.signal, onProgress: () => {} });
+        await downloadModel({
+          ...model,
+          ...(options.sources && { sources: options.sources }),
+          signal: lifetime.signal,
+          onProgress: () => {},
+        });
       }
     })().finally(() => {
       downloading = null;

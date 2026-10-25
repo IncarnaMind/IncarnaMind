@@ -7,6 +7,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
+  # Nothing tests main once a pull request has merged, so the whole suite runs on it every night:
+  # the same jobs as a pull request that changes any file (nightly.yml has the macOS ones).
+  schedule:
+    - cron: "30 1 * * *"
   workflow_dispatch:
 
 permissions:
@@ -25,7 +29,7 @@ jobs:
   # Whether the change needs the heavy jobs. A draft pull request, and one that changes only the
   # repository's own documents (the root's *.md files and docs/, except docs/privacy.md, which a
   # unit test reads), skips them; the required checks still report, as passed. Marking a draft
-  # ready runs them. Any other file and every merge group run everything. Not every *.md is a
+  # ready runs them. Any other file, every merge group and every night run everything. Not every *.md is a
   # document: the built-in Skills and the example Documents are Markdown files the tests read.
   changes:
     name: Which checks to run
@@ -132,14 +136,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # The runners' apt mirror stalls for tens of minutes some days: give up on a stalled connection and try again.
-      - name: Make apt give up on a stalled mirror
-        run: |
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
       - name: Install LibreOffice Writer
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libreoffice-writer
+        uses: ./.github/actions/apt-install
+        timeout-minutes: 10
+        with:
+          package: libreoffice-writer
       - run: npm run eval:word
         env:
           INCARNAMIND_WORD_PDFS: ${{ runner.temp }}/word-exports
@@ -171,13 +172,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Make apt give up on a stalled mirror
-        run: |
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
       - name: Install LibreOffice Calc
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libreoffice-calc
+        uses: ./.github/actions/apt-install
+        timeout-minutes: 10
+        with:
+          package: libreoffice-calc
       - run: npm run eval:excel
         env:
           INCARNAMIND_EXCEL_OUT: ${{ runner.temp }}/excel-exports
@@ -200,7 +199,7 @@ jobs:
     # A pull request merges only when it is up to date with main and this passed, so the merge
     # commit's tree is the one already tested. Running it again on main tests nothing new.
     needs: changes
-    if: needs.changes.outputs.heavy == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    if: needs.changes.outputs.heavy == 'true' && contains(fromJSON('["pull_request","merge_group","schedule","workflow_dispatch"]'), github.event_name)
     runs-on: ubuntu-latest
     # A shard's specs take about 20 minutes; the rest is for a slow package mirror.
     timeout-minutes: 45
@@ -231,27 +230,35 @@ jobs:
         run: |
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
-      - name: Make apt give up on a stalled mirror
-        run: |
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
       # Chinese faces, as a Linux system with Chinese has (DESIGN.md, Typography): the runner has
       # none, so a printed PDF would hold no Chinese for the export specs to read back.
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends fonts-noto-cjk
+      - name: Install the Noto CJK fonts
+        uses: ./.github/actions/apt-install
+        with:
+          package: fonts-noto-cjk
       # ffmpeg makes the feel check's films into videos (e2e/feel.ts). Without it the frames are
       # kept, so a mirror that fails here, or is slow, doesn't fail the check or take the specs' time.
       - name: Install ffmpeg for the feel check's videos
         continue-on-error: true
         timeout-minutes: 3
-        run: |
-          for attempt in 1 2 3; do
-            sudo apt-get install -y -qq --no-install-recommends ffmpeg && exit 0
-            sleep 15
-            sudo apt-get update -qq
-          done
-          exit 1
+        uses: ./.github/actions/apt-install
+        with:
+          package: ffmpeg
       # The app needs a display: a virtual one, bigger than the window the specs set
       # (e2e/app.ts), at full colour depth. xvfb-run's own default is 640 × 480 at 8 bits.
-      - run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run test:smoke -- $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 8)
+      - name: Run the specs
+        shell: bash
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run test:smoke -- $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 8) 2>&1 | tee smoke.log
+      # A night's failures show on the run's page without opening a log.
+      - name: List the failed specs in the summary
+        if: failure()
+        run: |
+          {
+            echo "### Failed specs, shard ${{ matrix.shard }}/8"
+            echo '```'
+            grep -E '^\s+✘' smoke.log || echo "none: the shard stopped before its specs finished (a limit or a crash)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Playwright traces
         if: failure()
         uses: actions/upload-artifact@v7
@@ -298,7 +305,7 @@ jobs:
   # Branch protection requires this name, so the shards can change without touching it.
   smoke:
     name: Electron smoke test (Linux)
-    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    if: always() && contains(fromJSON('["pull_request","merge_group","schedule","workflow_dispatch"]'), github.event_name)
     needs: [changes, smoke-shard]
     runs-on: ubuntu-latest
     steps:

@@ -1,7 +1,8 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { SecretStorageStatus } from "../../../core/api";
+import { FieldProblem } from "../components/FieldProblem";
 import { SecretStorageNotice } from "../components/providers/ProviderForm";
-import { buttonStyle, errorTextClass, fieldClass } from "../components/ui";
+import { buttonStyle, fieldClass } from "../components/ui";
 import { core } from "../core";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
@@ -96,19 +97,14 @@ export function LockedPdf({ documentId, onUnlocked }: { documentId: string; onUn
         </button>
       </div>
       {wrong && (
-        <p
-          id="pdf-password-wrong"
-          role="alert"
-          data-testid="pdf-password-wrong"
-          className="text-ink-meta"
-        >
+        <FieldProblem id="pdf-password-wrong" testId="pdf-password-wrong">
           {t("viewer.locked.wrong")}
-        </p>
+        </FieldProblem>
       )}
       {error !== null && (
-        <p role="alert" data-testid="pdf-unlock-error" className={errorTextClass}>
+        <FieldProblem id="pdf-unlock-error" testId="pdf-unlock-error">
           {error}
-        </p>
+        </FieldProblem>
       )}
       {secretStorage && blocked && (
         <SecretStorageNotice status={secretStorage} onAccept={() => void acceptPlainText()} />

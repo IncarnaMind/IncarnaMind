@@ -15,6 +15,7 @@ export interface ScannedRun {
   text: string;
   /** Its box's corners as fractions of the page: top-left, top-right, bottom-right, bottom-left (x, y). */
   quad: readonly number[];
+  breakAfter: boolean;
 }
 
 export interface ScannedPage {
@@ -36,7 +37,7 @@ export function scannedPage(
     const gap = text.slice(anchor.end, next ? next.start : text.length);
     const breakAfter = !next || gap.includes("\n");
     const run = text.slice(anchor.start, anchor.end) + (breakAfter ? "" : gap);
-    runs.push({ text: run, quad: anchor.quad ?? [] });
+    runs.push({ text: run, quad: anchor.quad ?? [], breakAfter });
     pieces.push({ text: run, breakAfter });
   });
   return { runs, pieces };
@@ -118,6 +119,8 @@ export function scannedTextLayer(
       String(length / ((widthAt100(run.text.trimEnd()) * lineHeight) / 100)),
     );
     container.append(span);
+    // A line's end, as pdf.js marks it in its own layer: what the User selects reads as the page's text.
+    if (run.breakAfter) container.append(document.createElement("br"));
     divs.push(span);
     strings.push(run.text);
   }

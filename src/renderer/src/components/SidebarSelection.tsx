@@ -1,5 +1,6 @@
 import { useShallow } from "zustand/react/shallow";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
+import { formatCount } from "../linkedFolders";
 import { useSelectedOn } from "../selection";
 import { useAppStore } from "../store";
 import { SelectionTags } from "./SelectionTags";
@@ -12,6 +13,7 @@ import { SelectionTags } from "./SelectionTags";
  */
 export function SidebarSelection() {
   const t = useT();
+  const language = useLanguage();
   const items = useSelectedOn("sidebar");
   const documents = useAppStore(
     useShallow((state) => {
@@ -23,7 +25,7 @@ export function SidebarSelection() {
   return (
     <div className={several ? "flex h-7 items-center gap-2 px-2 text-[12px] text-ink-meta" : ""}>
       <span role="status" data-testid="sidebar-selection" className="min-w-0 flex-1 truncate">
-        {several && t("sidebar.selected", { count: items.length })}
+        {several && t("sidebar.selected", { count: formatCount(items.length, language) })}
       </span>
       {several && documents.length === items.length && (
         <SelectionTags documents={documents} testId="sidebar-selection-tags" />

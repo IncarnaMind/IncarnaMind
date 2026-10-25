@@ -122,6 +122,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-nothing")).toHaveCount(0);
     await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
     await expect(card.getByTestId("claim-search-web")).toHaveCount(0);
+    await expect(card.getByTestId("claim-cut-sentence")).toHaveCount(0);
+    await expect(card.getByTestId("claim-keep")).toHaveCount(0);
     await expect(card.getByTestId("claim-remove")).toBeVisible();
 
     await window.keyboard.press("Escape");

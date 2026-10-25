@@ -2,9 +2,11 @@ import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
+import { setOpenClaim } from "../checks";
 import { useT } from "../i18n";
 import { motionMode, subscribeMotion } from "../motion";
 import { ClaimMark } from "./ClaimCheckCard";
+import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
 import { type ShownClaim, shownClaims } from "./claimChecks";
 import type { ClaimMarkState } from "./icons";
@@ -52,7 +54,8 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
       mark.state === other.state &&
       mark.top === other.top &&
       mark.delay === other.delay &&
-      mark.claim.check === other.claim.check
+      mark.claim.check === other.claim.check &&
+      mark.claim.sentence.text === other.claim.sentence.text
     );
   });
 
@@ -81,6 +84,7 @@ export function MarginChecks({
   mind: { id: string; doc: Y.Doc };
 }) {
   const t = useT();
+  const place = useCardPlace(mind.id);
   const layer = useRef<HTMLDivElement>(null);
   const [marks, setMarks] = useState<readonly Mark[]>([]);
   /** Each mark's state as last drawn: a change from "checking" is its check finishing. */
@@ -115,7 +119,7 @@ export function MarginChecks({
       for (const claim of shownClaims(editor.state)) {
         let coords: { top: number; bottom: number };
         try {
-          coords = editor.view.coordsAtPos(claim.from, 1);
+          coords = editor.view.coordsAtPos(claim.sentence.from, 1);
         } catch {
           continue;
         }
@@ -195,6 +199,8 @@ export function MarginChecks({
       document.fonts.removeEventListener("loadingdone", request);
     };
   }, [editor]);
+
+  useEffect(() => () => setOpenClaim(place, null), [place]);
 
   // Motion turned to Reduced or Off stops the cascade (styles.css), so it never ends on its own:
   // its marks are simply there, and can't play it later if motion comes back on.
