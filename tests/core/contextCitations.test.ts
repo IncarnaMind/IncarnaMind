@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { createContextCitations, writtenIds } from "../../src/core/answers/contextCitations";
+import {
+  createContextCitations,
+  replaceWritten,
+  writtenIds,
+} from "../../src/core/answers/contextCitations";
 
 const cited = {
   passageId: "p1",
@@ -36,5 +40,18 @@ describe("The Citations a Question context shows, by id (#1800)", () => {
       ["C6"],
       ["C7"],
     ]);
+  });
+
+  // protects=a remark in round brackets that ends in a cited id keeps its words: only the id's own bracket becomes the marker, in English and Chinese; fails_when=the whole remark is taken out with the id; no_claim=none beyond protects.
+  test.each([
+    [
+      "Revenue grew (up 12% year on year, as the report says [Annual report, p. 3 · C1]).",
+      "Revenue grew (up 12% year on year, as the report says[^1]).",
+    ],
+    ["收入增长了（同比增长 12%，见【年报, p. 3 · C1】）。", "收入增长了（同比增长 12%，见[^1]）。"],
+  ])("a remark in round brackets keeps its words: %s", (text, kept) => {
+    const issued = (id: string) => id === "C1";
+
+    expect(replaceWritten(text, writtenIds(text, issued), () => "[^1]")).toBe(kept);
   });
 });

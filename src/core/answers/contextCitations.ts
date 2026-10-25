@@ -88,9 +88,12 @@ export interface WrittenIds {
   ids: string[];
 }
 
-/** Brackets a model may put an id in: as it read it, full-width as Chinese text has them, or round. */
+/**
+ * Brackets a model may put an id in: as it read it, full-width as Chinese text has them, or round.
+ * Round ones hold no other bracket: a remark in brackets ending in a cited id keeps its words.
+ */
 const BRACKET =
-  /[ \t]*(?:\[\^?([^[\]\n]{1,400})\]|【([^【】\n]{1,400})】|［([^［］\n]{1,400})］|〔([^〔〕\n]{1,400})〕|[(（]([^()（）\n]{1,400})[)）])/g;
+  /[ \t]*(?:\[\^?([^[\]\n]{1,400})\]|【([^【】\n]{1,400})】|［([^［］\n]{1,400})］|〔([^〔〕\n]{1,400})〕|[(（]([^()（）[\]【】［］〔〕\n]{1,400})[)）])/g;
 const ONLY_IDS = /^\s*\^?C\d{1,4}(?:\s*[,;，；、]\s*\^?C\d{1,4})*\s*$/;
 const ID = /C\d{1,4}/g;
 const ID_AFTER_DOT = /[·・]\s*(C\d{1,4})(?![\p{L}\p{N}])/gu;
