@@ -2199,6 +2199,13 @@ export async function clickEndOf(window: Page, line: Locator): Promise<void> {
 }
 
 /** Slides the mouse onto an element, in steps, as a person does, and leaves it there: returns where. */
+/** The box of a locator, failing when it isn't visible. */
+export async function center(target: Locator) {
+  const box = await target.boundingBox();
+  if (!box) throw new Error("The element isn't visible.");
+  return box;
+}
+
 export async function pointAt(window: Page, target: Locator): Promise<{ x: number; y: number }> {
   await target.scrollIntoViewIfNeeded();
   const box = await target.boundingBox();
