@@ -679,7 +679,7 @@ describe("Deleting permanently keeps the text Citations quote", { timeout: 30_00
     await core.closeMind(mind.id);
     clock.advance(1000);
     await core.deleteDocument(document.id);
-    return { core, clock, dataDir, document, path, citation };
+    return { core, clock, dataDir, document, mind, path, citation };
   }
 
   const pagesOf = (dataDir: string, documentId: string) =>
@@ -721,6 +721,47 @@ describe("Deleting permanently keeps the text Citations quote", { timeout: 30_00
     expect(queryDatabase(dataDir, "SELECT purged_at IS NOT NULL AS purged FROM documents")).toEqual(
       [{ purged: 1 }],
     );
+  });
+
+  test("by the User while the Mind that cites it waits in Recently deleted: the cited page stays, and the restored Mind's Citation can still be checked", async () => {
+    const { core, clock, dataDir, document, mind, citation } = await citedThenDeleted();
+    // Deleted after the Document: it waits in Recently deleted when the Document goes for good.
+    clock.advance(1000);
+    await core.deleteMind(mind.id);
+
+    await core.deletePermanently([{ kind: "document", id: document.id }]);
+
+    expect(pagesOf(dataDir, document.id)).toEqual([{ page: 2, live: 1 }]);
+    await core.restore([{ kind: "mind", id: mind.id }]);
+    expect(
+      citationState(citation, await core.listDocuments(), await core.listKeptCitationTexts()),
+    ).toMatchObject({ check: "found" });
+  });
+
+  test("by the 30 days while the Mind that cites it still waits: the same, at the next start", async () => {
+    const { core, clock, dataDir, document, mind } = await citedThenDeleted();
+    clock.advance(20 * DAY);
+    await core.deleteMind(mind.id);
+    core.close();
+    clock.advance(11 * DAY);
+
+    const reopened = startCore(dataDir, { now: clock.now });
+
+    expect(pagesOf(dataDir, document.id)).toEqual([{ page: 2, live: 1 }]);
+    expect(await reopened.listKeptCitationTexts()).toEqual([
+      { documentId: document.id, contentHash: document.contentHash, units: [2] },
+    ]);
+  });
+
+  test("one the Mind cites loses its text once the Mind is deleted permanently too", async () => {
+    const { core, dataDir, document, mind } = await citedThenDeleted();
+    await core.deleteMind(mind.id);
+    await core.deletePermanently([{ kind: "mind", id: mind.id }]);
+
+    await core.deletePermanently([{ kind: "document", id: document.id }]);
+
+    expect(pagesOf(dataDir, document.id)).toEqual([]);
+    expect(await core.listKeptCitationTexts()).toEqual([]);
   });
 
   test("one nothing cites loses all its text", async () => {
