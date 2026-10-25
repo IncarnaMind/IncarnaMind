@@ -339,6 +339,19 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     });
   });
 
+  test("Undo after the examples were removed, their folder unlinked before, brings back the Mind and leaves the folder unlinked (#1292)", async () => {
+    const { core } = await startWithExamples();
+    const made = await core.createExamples();
+    await core.removeLinkedFolder(made.linkedFolderId as string);
+
+    await core.removeExamples();
+    const back = await core.restoreExamples();
+    expect(back).toMatchObject({ mindId: made.mindId, linkedFolderId: null });
+    // Their own unlink stands: the removal didn't take the folder.
+    expect(await core.listLinkedFolders()).toEqual([]);
+    expect(await core.listDocuments()).toEqual([]);
+  });
+
   test("deleting the example Mind on its own leaves its Linked folder marked, and making them again starts afresh", async () => {
     const { core } = await startWithExamples();
     const made = await core.createExamples();

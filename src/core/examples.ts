@@ -145,11 +145,12 @@ export function createExamples(options: ExamplesOptions) {
    * The examples removed since the app started, so Undo can bring back the same
    * Mind and Documents (#1292). The undo stack lives in the window, which goes
    * with this process, so nothing here is kept on disk. A Mind the User had
-   * deleted before the removal stays in Recently deleted: it wasn't the removal's.
+   * deleted, or a folder they had unlinked, before the removal stays as it was:
+   * it wasn't the removal's.
    */
   const removed = new Map<
     ExampleGroup,
-    { legacy: boolean; hadMind: boolean; stored: StoredExamples }
+    { legacy: boolean; hadMind: boolean; hadFolder: boolean; stored: StoredExamples }
   >();
 
   const everyExample = (): StoredExamples[] =>
@@ -435,6 +436,7 @@ export function createExamples(options: ExamplesOptions) {
     removed.set(group, {
       legacy: old !== null,
       hadMind: options.mindExists(examples.mindId),
+      hadFolder: options.linkedFolderExists(examples.linkedFolderId),
       stored: examples,
     });
     if (options.mindExists(examples.mindId)) options.deleteMind(examples.mindId);
@@ -448,6 +450,7 @@ export function createExamples(options: ExamplesOptions) {
    * Brings back an example the User removed, as Undo does: the same Mind, with
    * what the User wrote in it, and the same Documents, so its Citations still
    * open them. The tea example's files no longer ship, so only its Mind comes back.
+   * What a failed step undid stays undone, so Undo is all or nothing.
    */
   const restore = async (group: ExampleGroup = DEFAULT_GROUP): Promise<Examples> => {
     const gone = removed.get(group);
@@ -458,16 +461,23 @@ export function createExamples(options: ExamplesOptions) {
       return status(group);
     }
     const examples = gone.stored;
-    if (gone.hadMind) options.restoreMind(examples.mindId);
     if (gone.legacy) {
+      if (gone.hadMind) options.restoreMind(examples.mindId);
       options.writeValue(LEGACY_VALUE, examples);
       options.writeValue(OFFERED_VALUE, true);
     } else {
       const source = options.source;
       if (!source) throw new Error("This copy of IncarnaMind has no examples.");
-      await copyFiles(source, EXAMPLE_SETS[group][examples.language]);
-      options.restoreFolder(examples.linkedFolderId);
-      options.writeValue(valueKey(group), examples);
+      if (gone.hadMind) options.restoreMind(examples.mindId);
+      try {
+        await copyFiles(source, EXAMPLE_SETS[group][examples.language]);
+        // A folder the User had unlinked before stays unlinked: the removal didn't take it.
+        if (gone.hadFolder) options.restoreFolder(examples.linkedFolderId);
+        options.writeValue(valueKey(group), examples);
+      } catch (error) {
+        if (gone.hadMind) options.deleteMind(examples.mindId);
+        throw error;
+      }
     }
     removed.delete(group);
     options.changed(status(group));
