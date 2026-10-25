@@ -5684,6 +5684,8 @@ export const en = {
   "analysis.chip": "Analyse data",
   "analysis.chip.hint": "The next Question may run an Analysis in Python over the data it finds",
   "analysis.chip.remove": "Don’t analyse data",
+  "analysis.planOpen": "Close the Research plan to analyse data.",
+  "analysis.call.didNotRun": "The analysis didn’t run",
   "analysis.call.running": "Running the analysis…",
   "analysis.call.ran": "Ran an analysis on {document}",
   "analysis.call.ran.none": "Ran an analysis",

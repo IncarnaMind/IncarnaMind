@@ -218,3 +218,81 @@ test("⌘K Analyse data… marks the next Question with a chip; the Question ask
   await expect(chip).toHaveCount(0);
   await app.close();
 });
+
+for (const entry of ["palette", "slash"] as const) {
+  test(`${entry}: an open Research plan keeps its draft and does not offer Analysis until closed`, async () => {
+    test.setTimeout(180_000);
+    const { app, window } = await launchWithSheets();
+    try {
+      await window.keyboard.press("ControlOrMeta+k");
+      await window.getByTestId("palette-search").fill(">Analyse data");
+      await window.keyboard.press("Enter");
+      await expect(window.getByTestId("composer-analyse")).toBeVisible();
+      await expect(window.getByTestId("composer-input")).toBeFocused();
+      if (entry === "palette") {
+        await window.keyboard.press("ControlOrMeta+k");
+        await window.getByTestId("palette-search").fill(">Research");
+        await window.keyboard.press("Enter");
+      } else {
+        await window.keyboard.type("/res");
+        await expect(window.getByTestId("slash-item-research")).toHaveAttribute(
+          "aria-selected",
+          "true",
+        );
+        await window.keyboard.press("Enter");
+      }
+      await expect(window.getByTestId("composer-research")).toBeVisible();
+      await window.getByTestId("composer-input").fill("Revenue by region");
+      await window.keyboard.press("Enter");
+      const plan = window.getByTestId("research-plan");
+      await expect(plan).toBeVisible();
+      await expect(window.getByTestId("composer-analyse")).toHaveCount(0);
+      await window.keyboard.press("ControlOrMeta+k");
+      await window.getByTestId("palette-search").fill(">Analyse data");
+      await expect(window.getByTestId("palette-empty")).toBeVisible();
+      await expect(window.locator('[data-key="command:analysis.start"]')).toHaveCount(0);
+      await window.keyboard.press("Escape");
+      await expect(plan).toBeVisible();
+      await window.getByTestId("research-plan-cancel").click();
+      await expect(plan).toHaveCount(0);
+      await expect(window.getByTestId("composer-input")).toHaveValue("Revenue by region");
+      await window.keyboard.press("ControlOrMeta+k");
+      await window.getByTestId("palette-search").fill(">Analyse data");
+      await window.keyboard.press("Enter");
+      await expect(window.getByTestId("composer-analyse")).toBeVisible();
+      await expect(window.getByTestId("composer-research")).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+test("a palette Question leaves the composer's Analysis choice for its own next Question", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchWithSheets();
+  try {
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.getByTestId("palette-search").fill(">Analyse data");
+    await window.keyboard.press("Enter");
+    const chip = window.getByTestId("composer-analyse");
+    await expect(chip).toBeVisible();
+    await window.getByTestId("composer-input").fill("Keep this draft");
+    const question = "What was revenue by region?";
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.getByTestId("palette-search").fill(question);
+    await pointAndClick(window, window.locator('[data-testid="palette-item"][data-key="ask"]'));
+    await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+      timeout: 60_000,
+    });
+    const asked = await (await coreOf(window)).evaluate(async (bridge) => {
+      const [latest] = await bridge.listConversations();
+      const { messages } = await bridge.getConversation(latest?.id ?? "");
+      return messages.find((message) => message.kind === "question");
+    });
+    expect(asked).toMatchObject({ kind: "question", text: question, analyse: false });
+    await expect(chip).toBeVisible();
+    await expect(window.getByTestId("composer-input")).toHaveValue("Keep this draft");
+  } finally {
+    await app.close();
+  }
+});

@@ -393,7 +393,12 @@ export function Composer({
 
   /** Research…: what is typed next is a topic (#130). */
   const chooseResearch = () => {
-    update({ research: true, skill: null, ...(picking && { text: withoutTyped(picking) }) });
+    update({
+      research: true,
+      skill: null,
+      analyse: false,
+      ...(picking && { text: withoutTyped(picking) }),
+    });
     useAnswers.getState().dismiss(composerKey(mindId));
     setPicking(null);
     field.current?.focus();
@@ -533,7 +538,9 @@ export function Composer({
     // ChatGPT and Claude, so a second press never asks the Question twice. The button is Stop.
     if (answerBeingWritten() !== null) return;
     const draft =
-      said === undefined ? current : { ...current, text: said, pastes: [], skill: null };
+      said === undefined
+        ? current
+        : { ...current, text: said, pastes: [], skill: null, analyse: false };
     const typed = draft.text.trim();
     // What is pasted, in chips, goes with the words typed.
     const text = [typed, ...draft.pastes.map((paste) => paste.text.trim())]

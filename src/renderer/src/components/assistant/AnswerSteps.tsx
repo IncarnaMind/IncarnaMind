@@ -17,6 +17,7 @@ import { shownDocumentName } from "../../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
 import { mindName } from "../../../../shared/naming";
 import { NO_SCOPE } from "../../../../shared/searchScope";
+import { analysisCallText } from "../../analysisCall";
 import {
   type FoldedLine,
   foldedLine,
@@ -41,7 +42,6 @@ import { useAnswers } from "../../answers";
 import { stepsScope } from "../../assistantContext";
 import { namedMind } from "../../changeProblems";
 import { commandCallText } from "../../commandFacts";
-import { analysisCallText } from "../../editor/AnalysisCall";
 import { CallRow, SkillRow } from "../../editor/AnswerView";
 import { CheckMarkIcon, RegenerateSmallIcon } from "../../editor/icons";
 import { holdSteps, type ShownStep, type StepHold, takeOver } from "../../heldStep";

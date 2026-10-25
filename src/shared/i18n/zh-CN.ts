@@ -5424,6 +5424,8 @@ export const zhCN = {
   "analysis.chip": "分析数据",
   "analysis.chip.hint": "下一个问题可以用 Python 对找到的数据运行数据分析",
   "analysis.chip.remove": "不分析数据",
+  "analysis.planOpen": "先关闭研究计划，再分析数据。",
+  "analysis.call.didNotRun": "数据分析未运行",
   "analysis.call.running": "正在运行数据分析…",
   "analysis.call.ran": "对“{document}”运行了数据分析",
   "analysis.call.ran.none": "运行了数据分析",
