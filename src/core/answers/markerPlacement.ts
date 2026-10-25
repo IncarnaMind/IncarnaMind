@@ -33,7 +33,7 @@ import {
   paragraphsOf,
   type Span,
 } from "../../shared/answerSentences";
-import { FIGURE_MARKER } from "../../shared/figureMarkers";
+import { FIGURE_MARKER, figureMarkerEnd, type PlacedFigure } from "../../shared/figureMarkers";
 import { delimiterRow, looksLikeTable, tableCellRanges } from "../../shared/markdownTables";
 import type { AnswerEngineEvent, AnswerTools } from "./engine";
 
@@ -137,44 +137,62 @@ export function answerTableUnits(
   return units;
 }
 
-/** The sentences and table cells of an Answer that show figures ("[=2]") but no Citation marker. */
-function uncitedPlaces(text: string): { span: Span; figures: number[]; cell: boolean }[] {
+/** A figure ("[=2]") in a sentence or table cell of an Answer, and where its marker ends. */
+interface FigureAt {
+  figure: number;
+  end: number;
+}
+
+// A marker that starts the next sentence ("[=1]. [^1]") is this one's, as in `markedSentence`.
+const citedAfter = (text: string, end: number) =>
+  /^[ \t\u3000]*\[\^\d{1,4}\](?!:)/.test(text.slice(end));
+
+/** The sentences and table cells of an Answer that show figures but no Citation marker. */
+function uncitedPlaces(text: string): { span: Span; figures: FigureAt[]; cell: boolean }[] {
   const places = [
     ...answerSentences(text).map((sentence) => ({ ...sentence, cell: false })),
     ...answerTableUnits(text).filter((unit) => unit.cell),
   ];
   return places.flatMap(({ start, end, markers, cell }) => {
-    if (markers.length > 0) return [];
-    const figures = [...text.slice(start, end).matchAll(FIGURE_MARKER)].map((each) =>
-      Number(each[1]),
-    );
+    if (markers.length > 0 || (!cell && citedAfter(text, end))) return [];
+    const words = text.slice(start, end);
+    // A marker in code ("`[=1]`") is the text's own, not a figure.
+    const code = [...words.matchAll(/`[^`]*`/g)].map((each) => [
+      each.index,
+      each.index + each[0].length,
+    ]);
+    const figures = [...words.matchAll(FIGURE_MARKER)]
+      .filter((each) => !code.some(([from = 0, to = 0]) => each.index >= from && each.index < to))
+      .map((each) => ({ figure: Number(each[1]), end: start + each.index + each[0].length }));
     return figures.length > 0 ? [{ span: { start, end }, figures, cell }] : [];
   });
 }
 
-/** The figures ("[=2]") of `text` that a sentence or table cell shows with no Citation marker. */
-export const uncitedFigures = (text: string): number[] => [
-  ...new Set(uncitedPlaces(text).flatMap((place) => place.figures)),
-];
-
 /**
- * `text` with Citation markers put in where it shows figures with none (#1831): at the end of
- * the sentence, before its closing punctuation, or of the table cell. `citationsOf` gives a
- * figure's markers.
+ * `text` with Citation markers put in where it shows figures with none (#1831): right after
+ * each figure, past a scale or unit written after its marker ("[=1] million"), or at the end of
+ * its table cell. `citationsOf` gives a figure's markers; one that several figures of a place
+ * share goes after the last of them. `figureOf` gives a figure, for the words after its marker.
  */
 export function withFigureCitations(
   text: string,
   citationsOf: (figure: number) => readonly number[],
+  figureOf: (figure: number) => PlacedFigure | null,
 ): string {
-  const insertions = uncitedPlaces(text).flatMap((place) => {
-    const markers = [...new Set(place.figures.flatMap((figure) => citationsOf(figure)))];
-    if (markers.length === 0) return [];
-    const at = place.cell ? place.span.end : insertionPoint(text, place.span);
-    return [{ at, label: markers.map((marker) => `[^${marker}]`).join("") }];
-  });
+  const at = new Map<number, number[]>();
+  for (const place of uncitedPlaces(text)) {
+    const after = new Map<number, number>();
+    for (const { figure, end } of place.figures) {
+      const shown = figureOf(figure);
+      const where = place.cell ? place.span.end : shown ? figureMarkerEnd(text, end, shown) : end;
+      for (const marker of citationsOf(figure)) after.set(marker, where);
+    }
+    for (const [marker, where] of after) at.set(where, [...(at.get(where) ?? []), marker]);
+  }
   let cited = text;
-  for (const { at, label } of insertions.sort((a, b) => b.at - a.at)) {
-    cited = `${cited.slice(0, at)}${label}${cited.slice(at)}`;
+  for (const [where, markers] of [...at].sort((a, b) => b[0] - a[0])) {
+    const label = markers.map((marker) => `[^${marker}]`).join("");
+    cited = `${cited.slice(0, where)}${label}${cited.slice(where)}`;
   }
   return cited;
 }
