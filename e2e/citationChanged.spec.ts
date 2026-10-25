@@ -1,9 +1,8 @@
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
-import { formatDate } from "../src/shared/dates";
 import {
   askInAssistant,
   createDataFolder,
@@ -73,6 +72,11 @@ const VERSION_D = [
   "",
 ].join("\n");
 
+/** The fixed past days each version was changed, so the card's date is asserted literally. */
+const CHANGED_B = new Date("2026-10-21T12:00:00Z");
+const CHANGED_C = new Date("2026-10-22T12:00:00Z");
+const CHANGED_D = new Date("2026-10-23T12:00:00Z");
+
 const QUESTION = "What refurbishment budget was approved, and when?";
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -101,20 +105,46 @@ const contentHashOf = (window: Page, path: string) =>
     return (await bridge.listDocuments()).find((each) => each.path === wanted)?.contentHash;
   }, path);
 
-/** When the Document's current version was made, through the core's bridge. */
-const versionMomentOf = (window: Page, path: string) =>
+/** When the file at `path` was last changed, as the indexed Document has it, through the core's bridge. */
+const modifiedAtOf = (window: Page, path: string) =>
   window.evaluate(async (wanted) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const document = (await bridge.listDocuments()).find((each) => each.path === wanted);
-    return document?.web?.fetchedAt ?? document?.modifiedAt ?? document?.updatedAt ?? null;
+    return (await bridge.listDocuments()).find((each) => each.path === wanted)?.modifiedAt ?? null;
   }, path);
+
+/** Writes a version of the file, dates it as changed that day, and waits until it is indexed. */
+async function writeVersion(
+  window: Page,
+  path: string,
+  text: string,
+  moment: Date,
+  before: string,
+): Promise<string> {
+  await writeFile(path, text);
+  await utimes(path, moment, moment);
+  await expect.poll(() => contentHashOf(window, path), { timeout: 15_000 }).not.toBe(before);
+  await expect
+    .poll(
+      async () => {
+        const at = await modifiedAtOf(window, path);
+        return at === null ? null : new Date(at).getTime();
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(moment.getTime());
+  const after = await contentHashOf(window, path);
+  if (after === undefined) throw new Error("The new version isn't indexed.");
+  return after;
+}
 
 /** The version each Citation of the Answer stores: what it quotes. */
 const storedVersions = (answer: Locator) =>
   answer.getByTestId("assistant-answer-text").evaluate((dom) => {
-    const versions: (string | null)[] = [];
+    const versions: string[] = [];
     (dom as unknown as { editor: Editor }).editor.state.doc.descendants((node) => {
-      if (node.type.name === "citation") versions.push(node.attrs.contentHash);
+      if (node.type.name === "citation" && typeof node.attrs.contentHash === "string") {
+        versions.push(node.attrs.contentHash);
+      }
     });
     return versions;
   });
@@ -139,6 +169,8 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await expect(chip).toHaveAttribute("data-check", "found");
     const cited = await storedVersions(answer);
     expect(cited).toEqual([await contentHashOf(window, note)]);
+    const [citedVersion] = cited;
+    if (citedVersion === undefined) throw new Error("The Citation stores no version.");
 
     const card = window.getByTestId("citation-card");
     const changed = window.getByTestId("citation-changed");
@@ -171,9 +203,7 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await screenshot(window, "viewer-before-en");
 
     // The same file on disk, edited: indexed again as a new version. The Citation keeps the one it quotes.
-    await writeFile(note, VERSION_B);
-    await expect.poll(() => contentHashOf(window, note), { timeout: 15_000 }).not.toBe(cited[0]);
-    const versionB = await contentHashOf(window, note);
+    const versionB = await writeVersion(window, note, VERSION_B, CHANGED_B, citedVersion);
     expect(await storedVersions(answer)).toEqual(cited);
 
     // The open viewer says so, never showing the new text as the old.
@@ -185,9 +215,7 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
 
     // The card says the same, names the day, and its Open says it too.
     await showCard();
-    const momentB = await versionMomentOf(window, note);
-    if (momentB === null) throw new Error("The Document has no date for its version.");
-    await expect(changedDate).toHaveText(`This Document changed on ${formatDate(momentB, "en")}`);
+    await expect(changedDate).toHaveText("This Document changed on 21 Oct 2026.");
     await expect(changed).toContainText("The Document changed after this was cited.");
     await expect(changedQuote).toHaveText("Its quote is no longer in the new version.");
     await screenshot(window, "card-after-en");
@@ -199,7 +227,7 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await setLanguage(window, "zh-CN");
     await expect(notice).toContainText("此文档在被引用后有改动。新版本中已找不到这条引文。");
     await showCard();
-    await expect(changedDate).toHaveText(`此文档已于 ${formatDate(momentB, "zh-CN")} 更新`);
+    await expect(changedDate).toHaveText("此文档已于 2026年10月21日 更新。");
     await expect(changed).toContainText("此文档在被引用后有改动。");
     await expect(changedQuote).toHaveText("新版本中已找不到这条引文。");
     await screenshot(window, "card-after-zh");
@@ -209,8 +237,7 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await showCard();
 
     // The quoted line, unchanged, now under another heading: found, and the card says where.
-    await writeFile(note, VERSION_C);
-    await expect.poll(() => contentHashOf(window, note), { timeout: 15_000 }).not.toBe(versionB);
+    const versionC = await writeVersion(window, note, VERSION_C, CHANGED_C, versionB);
     await showCard();
     await expect(changed).toContainText("The Document changed after this was cited.");
     await expect(changedQuote).toHaveText("Its quote is now at § Budget.");
@@ -224,15 +251,13 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await showCard();
     await expect(changedQuote).toHaveText("Its quote is now at § Budget.");
     await screenshot(window, "card-narrow-en");
-    const versionC = await contentHashOf(window, note);
     // A merged window shows the Mind's group: bring the Document's tab to the front.
     await window.getByRole("tab", { name: "Versioned note" }).click();
     await expect(viewer.getByTestId("viewer-text")).toBeVisible();
 
     // The quoted line back at its Location, with only another line changed: the Document
     // changed, so both still say it, and the quote is still where it was.
-    await writeFile(note, VERSION_D);
-    await expect.poll(() => contentHashOf(window, note), { timeout: 15_000 }).not.toBe(versionC);
+    await writeVersion(window, note, VERSION_D, CHANGED_D, versionC);
     await expect(viewer.getByTestId("viewer-text")).toContainText("Reviewed on 1 November 2026");
     await expect(viewer.locator("[data-quote-highlight]")).toHaveText(
       "Version A: the approved refurbishment budget is GBP 80,000.",
@@ -241,9 +266,7 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
       "The Document changed after this was cited. The quote is still here.",
     );
     await showCard();
-    const momentD = await versionMomentOf(window, note);
-    if (momentD === null) throw new Error("The Document has no date for its version.");
-    await expect(changedDate).toHaveText(`This Document changed on ${formatDate(momentD, "en")}`);
+    await expect(changedDate).toHaveText("This Document changed on 23 Oct 2026.");
     await expect(changed).toContainText("The Document changed after this was cited.");
     await expect(changedQuote).toHaveText("The quote is still here.");
     await screenshot(window, "card-still-here-en");

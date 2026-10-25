@@ -248,13 +248,22 @@ export function quoteStanding(
 }
 
 /**
- * When a Document's current version was made: a web page's latest fetch, else
- * its file's last change, else when it was indexed.
+ * When a Document's current version was made: a web page's fetch of that
+ * version, else its file's last change, else when it was indexed.
  */
 export function versionMoment(
-  document: Pick<Document, "modifiedAt" | "updatedAt"> & { web: { fetchedAt: string } | null },
+  document: Pick<Document, "modifiedAt" | "updatedAt" | "contentHash"> & {
+    web: {
+      fetchedAt: string;
+      versions: readonly { contentHash: string; fetchedAt: string }[];
+    } | null;
+  },
 ): string | null {
-  return document.web?.fetchedAt ?? document.modifiedAt ?? document.updatedAt;
+  const web = document.web;
+  const fetched =
+    web?.versions.find((each) => each.contentHash === document.contentHash)?.fetchedAt ??
+    web?.fetchedAt;
+  return fetched ?? document.modifiedAt ?? document.updatedAt;
 }
 
 /**

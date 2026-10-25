@@ -754,23 +754,33 @@ describe("A Citation whose Document changed after it was cited", () => {
 
   test("names the day the version it now opens was made", () => {
     const document = {
+      contentHash: "b",
       modifiedAt: "2026-10-21T12:00:00Z",
       updatedAt: "2026-10-24T09:00:00Z",
       web: null,
     };
     expect(versionMoment(document)).toBe("2026-10-21T12:00:00Z");
-    // A web page changed when its snapshot was fetched.
-    expect(versionMoment({ ...document, web: { fetchedAt: "2026-10-23T08:00:00Z" } })).toBe(
-      "2026-10-23T08:00:00Z",
-    );
+    // A web page changed when the version it now holds was fetched, not at a later fetch.
+    expect(
+      versionMoment({
+        ...document,
+        web: {
+          fetchedAt: "2026-10-25T08:00:00Z",
+          versions: [
+            { contentHash: "a", fetchedAt: "2026-10-20T08:00:00Z" },
+            { contentHash: "b", fetchedAt: "2026-10-23T08:00:00Z" },
+          ],
+        },
+      }),
+    ).toBe("2026-10-23T08:00:00Z");
     // A Document with no file of its own has when it was indexed.
     expect(versionMoment({ ...document, modifiedAt: null })).toBe("2026-10-24T09:00:00Z");
     const moment = "2026-10-21T12:00:00Z";
     expect(changedOnMessage(true, moment, "en", in_("en"))).toBe(
-      `This Document changed on ${formatDate(moment, "en")}`,
+      `This Document changed on ${formatDate(moment, "en")}.`,
     );
     expect(changedOnMessage(true, moment, "zh-CN", in_("zh-CN"))).toBe(
-      `此文档已于 ${formatDate(moment, "zh-CN")} 更新`,
+      `此文档已于 ${formatDate(moment, "zh-CN")} 更新。`,
     );
     expect(changedOnMessage(false, moment, "en", in_("en"))).toBeNull();
     expect(changedOnMessage(true, null, "en", in_("en"))).toBeNull();

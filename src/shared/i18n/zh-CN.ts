@@ -3014,7 +3014,7 @@ export const zhCN = {
   "citation.more": "这个引用的更多操作",
   "citation.regenerate": "重新生成回答",
   "citation.changedAfterCited": "此文档在被引用后有改动。",
-  "citation.changed.on": "此文档已于 {date} 更新",
+  "citation.changed.on": "此文档已于 {date} 更新。",
   "citation.changed.still": "引文仍在原处。",
   "citation.changed.gone": "新版本中已找不到这条引文。",
   "citation.changed.moved": "引文已移到{location}。",
