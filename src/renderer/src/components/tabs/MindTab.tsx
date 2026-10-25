@@ -14,6 +14,7 @@ import { useWritingProperties } from "../../mindStyles";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
 import { useAppStore } from "../../store";
+import { undoBandFor, useUndoPillBand } from "../../undoPill";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { useWordImport } from "../../wordImport";
 import { ExportResultLine } from "../ExportResultLine";
@@ -43,7 +44,9 @@ export function MindTab({ mindId }: { mindId: string }) {
   const [badge, setBadge] = useState<HTMLElement | null>(null);
   const [sheetSlot, setSheetSlot] = useState<HTMLElement | null>(null);
   const assistantSlot = useContext(ComposerDockContext);
-  const tabId = useTabPlace()?.tabId;
+  const place = useTabPlace();
+  const tabId = place?.tabId;
+  const band = useUndoPillBand((state) => undoBandFor(state, place?.groupId));
   const merged = useGroupsMerged();
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
   const wordDrop = useWordFileDrop();
@@ -68,6 +71,7 @@ export function MindTab({ mindId }: { mindId: string }) {
             onDragOverCapture={wordDrop.props.onDragOver}
             onDragLeave={wordDrop.props.onDragLeave}
             onDropCapture={wordDrop.props.onDrop}
+            style={band > 0 ? { marginBottom: band } : undefined}
             className={`mind-scroller min-h-0 flex-grow overflow-auto ${wordDrop.over ? `rounded-lg ${dropIntoClass}` : ""}`}
           >
             {/* Every text in it starts at one edge (styles.css, `.mind-column`). */}
