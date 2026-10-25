@@ -43,8 +43,7 @@ export const KNOWN: readonly Known[] = [
     flow: "first-open",
     step: "check the Mind",
     kind: "shift",
-    // The viewer moves with the tab bar on slower runners (#1312): one shift, the whole card's.
-    moved: ["check-card", "tab-group", "pdf-scroller"],
+    moved: ["check-card", "tab-group"],
     max: 0.0083,
     issue: 1312,
   },
