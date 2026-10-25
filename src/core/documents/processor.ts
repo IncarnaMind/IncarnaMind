@@ -16,6 +16,7 @@
 import type { Worker } from "node:worker_threads";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
+import type { DocumentKind } from "../api";
 import type {
   MetadataJob,
   MetadataResult,
@@ -34,8 +35,10 @@ export interface ProcessorHandlers {
   /**
    * A processing job is about to go to a worker, from the queue or its turn in the scan lane:
    * returns it as it starts, if that has changed since it was queued (the scanned pages it keeps).
+   * `warm`: the worker has read a file of its kind before, so it has nothing to load first (a
+   * new worker starts up, and loads PDF.js for its first PDF).
    */
-  onStart(job: ProcessingJob): ProcessingJob | undefined;
+  onStart(job: ProcessingJob, warm: boolean): ProcessingJob | undefined;
   /** A job that reads scanned pages stopped to wait its turn in the scan lane. */
   onWaiting(job: ProcessingJob): void;
   onResult(job: ProcessingJob, result: ProcessingResult): void;
@@ -133,8 +136,9 @@ export function createProcessor(
     const run = running.get(id);
     if (closed || !run) return;
     running.delete(id);
-    if (run.worker.alive) rest(run.worker);
     const { job } = run;
+    if (job.task === "process" && result.outcome === "ready") run.worker.kinds.add(job.kind);
+    if (run.worker.alive) rest(run.worker);
     const waiting = scansWaiting.findIndex((each) => each.job === job && each.stopping);
     if (waiting !== -1 && result.outcome === "stopped" && !run.cancelled) {
       const entry = scansWaiting[waiting];
@@ -230,7 +234,7 @@ export function createProcessor(
 
   function startWorker(): WorkerHandle {
     const thread = startDocumentWorker({ name: "incarnamind-documents" });
-    const handle: WorkerHandle = { thread, alive: true };
+    const handle: WorkerHandle = { thread, alive: true, kinds: new Set() };
     thread.on("message", (response: WorkerResponse) => {
       if ("result" in response) {
         finish(response.id, response.result);
@@ -273,10 +277,12 @@ export function createProcessor(
 
   function start(queued: WorkerJob, lane: "queue" | "scan"): void {
     const id = nextId++;
+    const worker = idle.pop() ?? startWorker();
+    const warm = worker.kinds.has(queued.kind);
     const run: Run = {
       id,
       job: queued,
-      worker: idle.pop() ?? startWorker(),
+      worker,
       lane,
       posted: false,
       stopped: false,
@@ -285,7 +291,7 @@ export function createProcessor(
     running.set(id, run);
     if (queued.task === "process") {
       try {
-        run.job = handlers.onStart(queued) ?? queued;
+        run.job = handlers.onStart(queued, warm) ?? queued;
       } catch (error) {
         reportError(error);
       }
@@ -395,6 +401,7 @@ interface WorkerHandle {
   thread: Worker;
   /** False once it has died: its job is failed, and it takes no other. */
   alive: boolean;
+  kinds: Set<DocumentKind>;
 }
 
 interface Run {

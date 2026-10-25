@@ -172,7 +172,17 @@ describe("Tabs and groups", () => {
         where: { in: "side", from },
         preview: true,
         focus: false,
-        place: { pageFrom: 1, quote, citation: { check: "found", number: 1 } },
+        place: {
+          pageFrom: 1,
+          quote,
+          citation: {
+            check: "found",
+            number: 1,
+            location: { kind: "page", from: 3, to: 3 },
+            pageFrom: 3,
+            pageTo: 3,
+          },
+        },
       });
 
     let layout = await cite(report, "Parks are cooler");
@@ -183,7 +193,13 @@ describe("Tabs and groups", () => {
     expect(preview.place).toEqual({
       pageFrom: 1,
       quote: "Parks are cooler",
-      citation: { check: "found", number: 1 },
+      citation: {
+        check: "found",
+        number: 1,
+        location: { kind: "page", from: 3, to: 3 },
+        pageFrom: 3,
+        pageTo: 3,
+      },
     });
     expect(preview.opened).toBe(1);
 
