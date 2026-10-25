@@ -74,7 +74,7 @@ function checked(
   return {
     id: randomUUID(),
     request: "request-1",
-    action: "find-support",
+    action: "check-against-documents",
     state,
     reason: state === "not-checked" ? "refused" : null,
     detail: null,
@@ -572,9 +572,9 @@ describe("The AI use statement", () => {
     expect(counts(chinese.parts)).toEqual(counts(english.parts));
     expect(chinese.title).toBe("AI 使用声明：Thesis");
     expect(paragraphsOf(english.parts)).toContain(
-      "Sentences the author had checked against the Documents, with Find support or Check against Documents, by result:",
+      "Sentences the author had checked against the Documents, with Check against Documents, by result:",
     );
-    expect(paragraphsOf(chinese.parts)).toContain("以下是“查找出处”或“对照文档核对”的结果：");
+    expect(paragraphsOf(chinese.parts)).toContain("以下是“对照文档核对”的结果：");
   });
 
   test("refuses a Mind that isn't there", async () => {

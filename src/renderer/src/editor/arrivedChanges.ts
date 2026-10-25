@@ -27,7 +27,7 @@ import {
   readProposalAttribute,
   resolveProposals,
 } from "../../../shared/proposals";
-import type { AppliedChange } from "./appliedEditLine";
+import type { ChangePlace } from "./appliedEditLine";
 import {
   type BlockPlace,
   type PendingProposal,
@@ -36,6 +36,7 @@ import {
   proposalsIn,
   rewrittenParagraphOf,
 } from "./proposalReview";
+import { blockAt } from "./writingPlace";
 
 const isProposalMark = (name: string) =>
   name === PROPOSAL_INSERT_MARK || name === PROPOSAL_DELETE_MARK;
@@ -55,10 +56,26 @@ export function asItWas(node: ProseMirrorNode): ProseMirrorNode {
   return node.type.create(attrs, node.content, marks);
 }
 
+/** A Block by its id, or by that of the first Block in it and how far up from that it is: a list item has none. */
+interface BlockAnchor {
+  blockId: string;
+  up: number;
+}
+
+interface Beside {
+  block: BlockAnchor;
+  side: "before" | "after";
+}
+
 // By Block and place in its text, which hold through the rewrite, as positions don't.
 type Planned =
-  | { kind: "added"; blockId: string }
-  | { kind: "removed"; removed: Fragment; before: string | null }
+  | { kind: "added"; block: BlockAnchor }
+  | {
+      kind: "removed";
+      removed: Fragment;
+      /** Null at the Mind's end. */
+      beside: Beside | null;
+    }
   | {
       kind: "words";
       from: BlockPlace;
@@ -83,19 +100,57 @@ function textPlaceAt(
   return block.isTextblock && blockId !== null ? { blockId, offset: $pos.parentOffset } : null;
 }
 
-function nextStaying(
+export function anchorOf(node: ProseMirrorNode | null): BlockAnchor | null {
+  let up = 0;
+  for (let at = node; at; at = at.firstChild, up++) {
+    const blockId = idOf(at);
+    if (blockId !== null) return { blockId, up };
+    if (at.isTextblock) return null;
+  }
+  return null;
+}
+
+function blockOf(
+  doc: ProseMirrorNode,
+  { blockId, up }: BlockAnchor,
+): { pos: number; node: ProseMirrorNode } | null {
+  const found = blockAt(doc, blockId);
+  if (!found || up === 0) return found;
+  const $pos = doc.resolve(found.pos);
+  const depth = $pos.depth - up + 1;
+  return depth >= 1 ? { pos: $pos.before(depth), node: $pos.node(depth) } : null;
+}
+
+function besidePlace(doc: ProseMirrorNode, { block, side }: Beside): number | null {
+  const found = blockOf(doc, block);
+  if (!found) return null;
+  return side === "before" ? found.pos : found.pos + found.node.nodeSize;
+}
+
+/** Undefined: nothing beside it stays. */
+function besideStaying(
   doc: ProseMirrorNode,
   pos: number,
   picked: ReadonlySet<string>,
-): string | null {
-  const index = doc.resolve(pos).index(0);
-  for (let at = index + 1; at < doc.childCount; at++) {
-    const node = doc.child(at);
+): Beside | null | undefined {
+  const $pos = doc.resolve(pos);
+  const parent = $pos.parent;
+  const stays = (node: ProseMirrorNode) => {
     const proposal = readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE]);
-    if (proposal?.kind === "delete" && picked.has(proposal.request)) continue;
-    return idOf(node);
+    return !(proposal?.kind === "delete" && picked.has(proposal.request));
+  };
+  const beside = (at: number, side: Beside["side"]) => {
+    const block = anchorOf(parent.child(at));
+    return block ? { block, side } : undefined;
+  };
+  for (let at = $pos.index() + 1; at < parent.childCount; at++) {
+    if (stays(parent.child(at))) return beside(at, "before");
   }
-  return null;
+  if ($pos.depth === 0) return null;
+  for (let at = $pos.index() - 1; at >= 0; at--) {
+    if (stays(parent.child(at))) return beside(at, "after");
+  }
+  return undefined;
 }
 
 /** The requests' changes, read before they are applied, as `anchorChanges` places them after. */
@@ -105,16 +160,23 @@ export function planChanges(state: EditorState, requests: ReadonlySet<string>): 
     .filter((proposal) => requests.has(proposal.request))
     .flatMap((proposal: PendingProposal): Planned[] => {
       if (proposal.block === "insert") {
-        const id = idOf(doc.nodeAt(proposal.from));
-        return id ? [{ kind: "added", blockId: id }] : [];
+        const block = anchorOf(doc.nodeAt(proposal.from));
+        return block ? [{ kind: "added", block }] : [];
       }
       if (proposal.block === "delete") {
         const node = doc.nodeAt(proposal.from);
+        const beside = besideStaying(doc, proposal.from, requests);
+        if (beside === undefined) {
+          console.warn(
+            `Review changes can't place Block ${proposal.id} of request ${proposal.request}, taken out with everything beside it: it won't show there.`,
+          );
+          return [];
+        }
         return [
           {
             kind: "removed",
             removed: node ? Fragment.from(asItWas(node)) : Fragment.empty,
-            before: nextStaying(doc, proposal.from, requests),
+            beside,
           },
         ];
       }
@@ -156,38 +218,29 @@ export function planChanges(state: EditorState, requests: ReadonlySet<string>): 
     });
 }
 
-function blockStart(doc: ProseMirrorNode, blockId: string): number | null {
-  let found: number | null = null;
-  doc.forEach((node, offset) => {
-    if (found === null && idOf(node) === blockId) found = offset;
-  });
-  return found;
-}
-
 /** The planned changes as `appliedEditLine` keeps them, once applied, for Review changes. */
-export function anchorChanges(state: EditorState, planned: readonly Planned[]): AppliedChange[] {
+export function anchorChanges(state: EditorState, planned: readonly Planned[]): ChangePlace[] {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return [];
   const relative = (pos: number): unknown =>
     absolutePositionToRelativePosition(pos, binding.type, binding.mapping);
   const { doc } = state;
-  return planned.flatMap((change): AppliedChange[] => {
+  return planned.flatMap((change): ChangePlace[] => {
     if (change.kind === "added") {
-      const at = blockStart(doc, change.blockId);
-      const node = at === null ? null : doc.nodeAt(at);
-      if (at === null || !node) return [];
+      const found = blockOf(doc, change.block);
+      if (!found) return [];
       // Inside the new Block's end: at the Mind's end, the end itself would take in what comes after it.
       return [
         {
-          from: relative(at),
-          to: relative(at + node.nodeSize - 1),
+          from: relative(found.pos),
+          to: relative(found.pos + found.node.nodeSize - 1),
           removed: Fragment.empty,
           block: "added",
         },
       ];
     }
     if (change.kind === "removed") {
-      const at = change.before === null ? doc.content.size : blockStart(doc, change.before);
+      const at = change.beside === null ? doc.content.size : besidePlace(doc, change.beside);
       if (at === null) return [];
       return [{ from: relative(at), to: relative(at), removed: change.removed, block: "removed" }];
     }

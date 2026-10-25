@@ -97,3 +97,14 @@ The Search scope the User sets for a Mind in its composer is where its Questions
 - **One whole value.** The key holds the scope's Folders, Tags and Documents as one value. A narrowed scope also holds where one click takes it back: `before: "all"` when it narrowed every Document, chosen; nothing when it narrowed the Mind's own. When two devices set it at once, one device's value wins whole, with its own way back, and no other key of the settings map is lost.
 - **A check records where it looked.** The `claimCheck` mark's `scope` gains `chosen`, the scope searched when it was the Mind's own choice, so the card, the Word comment and the check record name it, and a check made in another scope than the Mind's now needs a re-check. An older version's editor would strip `chosen` and read such a check as made in the Mind's Folder, and it could write over the scope key without knowing it, so the content schema version is 26: an older version opens a Mind written since read-only. Nothing older is rewritten.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: numbered lists take a scheme, a start level and a continuation (2026-10-25, #1419)
+
+A numbered list takes one of four schemes ("1. a. i.", Outline, Clauses and Chinese report), starts at a level other than the first, and can go on from the list before it. The Aa menu's Numbering sets them, and so does a list item's right-click menu.
+
+- **Content schema version 27** adds `numbering`, `startLevel` and `continues` on an ordered list. An older version's editor would strip them, so it would draw the list as a "1. a. i." list from level 0 that starts again, and opens these Minds read-only. Older content is version 27 content as it is.
+- **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: a Citation the User keeps on the version it quotes (2026-10-25, #1869)
+
+- **Content schema version 28** adds `keptOver` on a Citation: the Document's version the User chose to keep citing the old one over (ADR-0017's amendment). An older version's editor would strip it, so the Citation would ask again to be checked, and opens these Minds read-only. Older content is version 28 content as it is.

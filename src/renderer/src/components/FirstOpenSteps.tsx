@@ -5,7 +5,8 @@ import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
 import { type CommandContext, commands, offered } from "../commands/registry";
 import { askReadyQuestion } from "../conversations";
-import { CheckMarkIcon, ClaimMarkIcon } from "../editor/icons";
+import { goToCitation } from "../editor/citationMark";
+import { CheckMarkIcon } from "../editor/icons";
 import { goToMistake } from "../editor/mistakeMark";
 import { useT } from "../i18n";
 import { openModelSetup } from "../modelSetup";
@@ -14,7 +15,7 @@ import { revealAssistant } from "../quietAssistant";
 import { useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
 import { ExampleBanner } from "./GettingStarted";
-import { ChatLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
+import { ChatLineIcon, CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
 import { SLOT, Slotted } from "./Slotted";
 import { UnreadFilesLine } from "./UnreadFilesLine";
@@ -23,7 +24,7 @@ import { buttonStyle } from "./ui";
 type StepKey = "citation" | "question" | "files";
 type StepState = "open" | "later" | "done";
 
-const STEPS: readonly StepKey[] = ["citation", "question", "files"];
+const STEPS: readonly StepKey[] = ["files", "question", "citation"];
 
 const NEXT: readonly { id: CommandId; label: MessageKey }[] = [
   { id: "comparison.start", label: "firstOpen.next.compare" },
@@ -47,12 +48,8 @@ const stateAt = (current: StepKey | undefined, key: StepKey): StepState => {
   return after < 0 ? "done" : after === 0 ? "open" : "later";
 };
 
-const MistakeIcon: typeof PlusLineIcon = (props) => (
-  <ClaimMarkIcon state="contradicted" {...props} />
-);
-
 const DO_ICONS: Record<StepKey, typeof PlusLineIcon> = {
-  citation: MistakeIcon,
+  citation: CheckLineIcon,
   question: ChatLineIcon,
   files: PlusLineIcon,
 };
@@ -90,7 +87,6 @@ function Step({
   state,
   live,
   onDo,
-  offered = false,
   children,
 }: {
   step: StepKey;
@@ -98,8 +94,6 @@ function Step({
   state: StepState;
   live: boolean;
   onDo: () => void;
-  /** Its buttons show before its turn too: a newcomer's own files may come first. */
-  offered?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -131,9 +125,7 @@ function Step({
           />
         </button>
       </div>
-      {(state === "open" || (offered && state === "later")) && (
-        <div className="flex flex-col gap-2 pl-7">{children}</div>
-      )}
+      {state === "open" && <div className="flex flex-col gap-2 pl-7">{children}</div>}
     </li>
   );
 }
@@ -153,19 +145,25 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const card = useRef<HTMLElement>(null);
   // The ready Question's button goes once it is asked: the focus moves on to the next step.
   const focusNext = useRef(false);
-  const filesOpen =
-    progress?.mistakeSeen && (progress.askedOwn || progress.askedReady) && !progress.indexed;
+  const asked = progress?.askedOwn === true || progress?.askedReady === true;
+  const filesOpen = asked && progress?.indexed !== true;
+  const citationOpen = asked && progress?.indexed === true && progress?.citationChecked !== true;
   useEffect(() => {
-    if (!filesOpen || !focusNext.current) return;
+    if (!focusNext.current || !(filesOpen || citationOpen)) return;
     focusNext.current = false;
-    addFiles.current?.focus();
-  }, [filesOpen]);
+    const next = filesOpen
+      ? addFiles.current
+      : card.current?.querySelector<HTMLElement>(
+          '[data-step="citation"] [data-testid="first-open-step-do"]',
+        );
+    next?.focus();
+  }, [filesOpen, citationOpen]);
   if (!progress) return null;
 
   const done: Record<StepKey, boolean> = {
-    citation: progress.mistakeSeen,
-    question: progress.askedOwn || progress.askedReady,
     files: progress.indexed,
+    question: progress.askedOwn || progress.askedReady,
+    citation: progress.citationChecked,
   };
   const current = STEPS.find((key) => !done[key]);
   const liveState = (key: StepKey): StepState =>
@@ -203,15 +201,43 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
         </div>
         <ol className={`flex flex-col gap-3 ${allDone ? "pt-2" : ""}`}>
           <Step
-            step="citation"
+            step="files"
             number={1}
-            state={stateOf("citation")}
+            state={stateOf("files")}
             live={live}
-            onDo={() => card.current && goToMistake(card.current)}
+            onDo={() => void pickDocuments()}
           >
-            <p className="text-[13px] leading-5 text-ink-secondary">
-              {t("firstOpen.step.citation.body")}
-            </p>
+            {live && unread.length > 0 ? (
+              <UnreadFilesLine files={unread} testId="first-open-unread" />
+            ) : (
+              <p className="text-[13px] leading-5 text-ink-secondary">
+                {t("firstOpen.step.files.body")}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                ref={live ? addFiles : undefined}
+                type="button"
+                data-testid={only("first-open-add-files")}
+                onClick={() => void pickDocuments()}
+                className={buttonStyle(stateOf("files") === "open" ? "primary" : "secondary", "sm")}
+              >
+                {t("startGuide.documents.addFiles")}
+              </button>
+              <button
+                type="button"
+                data-testid={only("first-open-link-folder")}
+                onClick={() => void addLinkedFolder()}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("startGuide.documents.linkFolder")}
+              </button>
+            </div>
+            {live && skipped.length > 0 && (
+              <ProblemLine testId="first-open-skipped">
+                {t("documents.skipped", { names: skipped.join(", ") })}
+              </ProblemLine>
+            )}
           </Step>
           <Step
             step="question"
@@ -249,44 +275,23 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             )}
           </Step>
           <Step
-            step="files"
+            step="citation"
             number={3}
-            state={stateOf("files")}
+            state={stateOf("citation")}
             live={live}
-            offered
-            onDo={() => void pickDocuments()}
+            onDo={() => goToCitation()}
           >
-            {live && unread.length > 0 ? (
-              <UnreadFilesLine files={unread} testId="first-open-unread" />
-            ) : (
-              <p className="text-[13px] leading-5 text-ink-secondary">
-                {t("firstOpen.step.files.body")}
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <button
-                ref={live ? addFiles : undefined}
-                type="button"
-                data-testid={only("first-open-add-files")}
-                onClick={() => void pickDocuments()}
-                className={buttonStyle(stateOf("files") === "open" ? "primary" : "secondary", "sm")}
-              >
-                {t("startGuide.documents.addFiles")}
-              </button>
-              <button
-                type="button"
-                data-testid={only("first-open-link-folder")}
-                onClick={() => void addLinkedFolder()}
-                className={buttonStyle("secondary", "sm")}
-              >
-                {t("startGuide.documents.linkFolder")}
-              </button>
-            </div>
-            {live && skipped.length > 0 && (
-              <ProblemLine testId="first-open-skipped">
-                {t("documents.skipped", { names: skipped.join(", ") })}
-              </ProblemLine>
-            )}
+            <p className="text-[13px] leading-5 text-ink-secondary">
+              {t("firstOpen.step.citation.body")}
+            </p>
+            <button
+              type="button"
+              data-testid={only("first-open-example")}
+              onClick={() => card.current && goToMistake(card.current)}
+              className="w-fit rounded-sm text-left text-[13px] leading-5 text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
+            >
+              {t("firstOpen.step.citation.example")}
+            </button>
           </Step>
         </ol>
         {allDone && !hasModel && (

@@ -156,7 +156,7 @@ test("most sentences unsupported says so once; an unsupported card offers its th
   await slideSelect(window, line, "Penguins", { line, words: "waters." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   const marks = window.getByTestId("claim-mark");
   await expect(marks).toHaveCount(2);
@@ -197,9 +197,10 @@ test("in Chinese, the card's button and the panel it opens have one name, 查找
   await slideSelect(window, line, "Penguins", { line, words: "waters." });
   const menu = window.getByTestId("selection-menu");
   await expect(menu.getByTestId("selection-action-shorten")).toContainText("精简");
-  await pointAndClick(window, menu.getByTestId("selection-action-find-support"));
+  await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
   const marks = window.getByTestId("claim-mark");
   await expect(marks).toHaveCount(2);
+  await expect(window.locator('[data-check="unsupported"]')).toHaveCount(2);
 
   await pointAndClick(window, marks.first());
   const button = window.getByTestId("claim-card").getByTestId("claim-find-sources");

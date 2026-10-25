@@ -1074,6 +1074,9 @@
    */
   .mind-editor-frame .mind-editor:not(.assistant-answer-text) {
     padding-top: var(--mind-band);
+  }
+  /* The first-run guide's steps follow its line at once: it keeps no writing room of its own. */
+  .mind-editor-frame:not(.mind-editor-frame--guide) .mind-editor:not(.assistant-answer-text) {
     min-height: calc(10rem + var(--mind-band));
   }
   /*
@@ -2816,7 +2819,13 @@
         list-style: none;
       }
       :where(ul, ol)[data-id] > li {
+        --marker-room: 0px;
         position: relative;
+        padding-left: var(--marker-room);
+      }
+      /* The room a wide marker takes moves its item's text, not the levels under it (#1419). */
+      :where(:is(ul, ol)[data-id] > li > :is(ul, ol)) {
+        margin-left: calc(-1 * var(--marker-room));
       }
       :where(ul, ol)[data-id] > li > p:first-child::before {
         position: absolute;
@@ -2825,8 +2834,15 @@
       }
       ol[data-id] > li > p:first-child::before {
         content: counter(list-item) ".";
-        right: calc(100% + 8px);
+        right: calc(100% - var(--marker-room) + 8px);
         white-space: nowrap;
+      }
+      /* Each item's marker in its list's scheme (#1419), drawn by the editor: not text, so not copied or found. */
+      ol[data-id] > li > p[data-marker]:first-child::before {
+        content: attr(data-marker);
+      }
+      ol[data-id][data-start-level] {
+        padding-left: calc(48px * (1 + var(--start-level)));
       }
       ul[data-id] > li:not([data-checked]) > p:first-child::before {
         content: "";
@@ -2857,6 +2873,25 @@
       display: flex;
       gap: 8px;
       margin-left: -24px;
+    }
+    /*
+     * The Mind's own to-dos: the box sits at the text edge and its text starts 28px in; a nested
+     * to-do steps in by 24px. A checklist in an Answer keeps the browser's.
+     */
+    &:not(.assistant-answer-text) ul[data-id]:has(> li[data-checked]) {
+      padding-left: 0;
+    }
+    &:not(.assistant-answer-text) ul[data-id] > li[data-checked] {
+      gap: 12px;
+      margin-left: 0;
+    }
+    /* A to-do's own checklist starts at its text, 28px in, but its box is 24px in. */
+    &:not(.assistant-answer-text)
+      ul[data-id]
+      > li[data-checked]
+      > div
+      > ul[data-id]:has(> li[data-checked]) {
+      margin-left: -4px;
     }
     li[data-checked] > label {
       flex: none;
@@ -3462,6 +3497,8 @@
     }
   }
   .mind-editor .applied-line--band .applied-count {
+    flex: 1 1 0%;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -4304,9 +4341,12 @@
     text-decoration: line-through 1px var(--color-ink-meta);
     user-select: none;
   }
-  .mind-editor .applied-old--block {
-    display: block;
+  .mind-editor div.applied-old--block {
     margin-block: 4px;
+  }
+  /* A Block taken out reads as it was, a list or table too, every line of it struck. */
+  .mind-editor .applied-old--block :is(p, h1, h2, h3, h4, h5, h6, li, td, th) {
+    text-decoration: line-through 1px var(--color-ink-meta);
   }
   /*
    * How a change reads (#1028; DESIGN.md, AI edits): a struck run and its
@@ -4434,6 +4474,9 @@
     &:hover {
       color: var(--color-ink-secondary);
     }
+  }
+  .mind-editor .applied-changed {
+    color: var(--color-ink-meta);
   }
   .mind-editor .applied-kept-line {
     margin-block: 4px;
@@ -4618,6 +4661,15 @@
 
     .citation-marker-icon {
       display: block;
+    }
+  }
+  /* A Citation whose Document changed where it quotes carries ↻, needs re-check (#99). */
+  .citation-marker[data-recheck] {
+    padding: 0 5px 0 3px;
+
+    .citation-marker-icon {
+      display: block;
+      color: var(--color-ink-meta);
     }
   }
   /* In the style's words, each work that isn't found has its mark before its words. */
@@ -5120,6 +5172,21 @@
     width: 16px;
     height: 16px;
     flex-shrink: 0;
+  }
+  .citation-badge[data-recheck] {
+    color: var(--color-ink-secondary);
+  }
+  /* The cited words as they changed, as a change reads in the text (DESIGN.md, How a change reads). */
+  .citation-card-changed-words {
+    ins {
+      text-decoration: underline 1px currentColor;
+      text-underline-offset: 3px;
+    }
+    del {
+      margin-inline-end: 0.2em;
+      color: var(--color-ink-meta);
+      text-decoration: line-through 1px var(--color-ink-meta);
+    }
   }
   .citation-card-source {
     padding-left: 22px;
@@ -6028,6 +6095,26 @@
     &[role^="menuitem"]:focus-visible {
       background: var(--color-hover);
     }
+    &[aria-disabled="true"],
+    &[aria-disabled="true"]:hover {
+      background: none;
+      color: var(--color-ink-placeholder);
+      cursor: default;
+    }
+  }
+  /* Numbering ›: each scheme as its first levels draw it, its name after (#1419). */
+  .numbering-menu {
+    width: 272px;
+  }
+  .list-item-menu {
+    width: 220px;
+  }
+  .numbering-preview {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--writing-font, var(--font-system));
   }
   .editor-menu-icon {
     display: flex;

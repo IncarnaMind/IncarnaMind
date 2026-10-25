@@ -5,7 +5,7 @@
  * links back as they were. Each says what happened in the words of the undo
  * line, and what it was, for the Edit menu.
  */
-import type { LinkedFolderLayout, RestoreRef, TagLinkState } from "../../core/api";
+import type { RestoreRef, TagLinkState } from "../../core/api";
 import { core } from "./core";
 import { languageNow } from "./i18n";
 import type { Words } from "./lineNames";
@@ -128,26 +128,6 @@ export function linkedFolderPaused(
     },
     redo: async () => {
       await setPaused(paused);
-    },
-  };
-}
-
-/** A Linked folder shown as Folders or as a flat list: undone by the layout it had, done again by the new one. */
-export function linkedFolderShown(
-  shown: string,
-  layouts: { before: LinkedFolderLayout; after: LinkedFolderLayout },
-  setLayout: (layout: LinkedFolderLayout) => Promise<unknown>,
-): Undoable {
-  const { before, after } = layouts;
-  const flat = after === "flat";
-  return {
-    said: (t) => t(flat ? "undo.linkedFolderFlat" : "undo.linkedFolderTree", { name: shown }),
-    name: (t) => t(flat ? "linkedFolders.layout.flat" : "linkedFolders.layout.tree"),
-    undo: async () => {
-      await setLayout(before);
-    },
-    redo: async () => {
-      await setLayout(after);
     },
   };
 }

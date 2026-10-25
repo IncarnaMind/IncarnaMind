@@ -8,7 +8,11 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import type { CheckMindInput, Core } from "../../src/core";
 import { updateCheck } from "../../src/core/answers/checks/sentences";
-import { MIND_SETTINGS_FIELD } from "../../src/core/api";
+import {
+  CLAIM_CHECK_MARK,
+  type ClaimCheckAttributes,
+  MIND_SETTINGS_FIELD,
+} from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { mindCheckOf, writeMindCheck } from "../../src/shared/mindCheck";
@@ -235,6 +239,73 @@ describe("Check this Mind", () => {
       kind: "unchanged",
       since: "2026-10-02T14:20:00.000Z",
     });
+  });
+
+  test("a short sentence with a shown check counts and is checked, though it makes no claim (#1909)", async () => {
+    const { core, client, mindId, folderId, checks } = await setUp();
+    await core.checkMind(request(mindId, "all"));
+    const runsBefore = runsIn(checks).length;
+
+    const mark = (id: string, state: ClaimCheckAttributes["state"], text: string) => {
+      const check: ClaimCheckAttributes = {
+        id,
+        request: "old",
+        action: "check-against-documents",
+        state,
+        reason: null,
+        detail: null,
+        providerId: null,
+        modelId: null,
+        text,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        scope: { folderId, widened: false },
+        versions: [],
+        excluded: [],
+        checkedAt: "2026-10-02T13:00:00.000Z",
+      };
+      return { type: "text" as const, text, marks: [{ type: CLAIM_CHECK_MARK, attrs: check }] };
+    };
+    // "100" failed its check; "200" was checked as "100" and no longer holds. Neither makes a claim.
+    editMind(client, (blocks) => [
+      ...blocks,
+      {
+        type: "paragraph",
+        attrs: { id: "failed" },
+        content: [mark("failed", "not-checked", "100")],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "stale" },
+        content: [{ ...mark("stale", "supported", "100"), text: "200" }],
+      },
+    ]);
+    await client.settled();
+
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+      kind: "ready",
+      sentences: 2,
+      findsClaims: false,
+    });
+    expect(await core.checkMind(request(mindId, "changed", "short"))).toMatchObject({
+      kind: "checked",
+      sentences: 2,
+    });
+    expect(runsIn(checks).length).toBe(runsBefore + 2);
+    expect(
+      (await shownChecks(core, client, folderId))
+        .map(({ sentence, shown }) => [sentence, shown.state])
+        .filter(([sentence]) => sentence === "100" || sentence === "200"),
+    ).toEqual([
+      ["100", "unsupported"],
+      ["200", "unsupported"],
+    ]);
+    // Nothing is left: the count reaches 0.
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
 
   test("Check again after two claims are edited checks those two only, without naming the claims again", async () => {

@@ -86,7 +86,7 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-async function findSupport(window: Page, modelId: string) {
+async function checkSelection(window: Page, modelId: string) {
   await window.evaluate(
     async ({ model, url }) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -103,20 +103,20 @@ async function findSupport(window: Page, modelId: string) {
   await expect(line).toHaveText(SENTENCE);
   await slideSelect(window, line, "Spring tides", { line, words: "full moon." });
   const menu = window.getByTestId("selection-menu");
-  await pointAndClick(window, menu.getByTestId("selection-action-find-support"));
+  await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
   await expect(window.getByTestId("claim-mark")).toHaveCount(1);
   await expect((await checkCard(window)).getByTestId("mind-health")).toBeVisible();
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Find support on a 4B model says its verdicts may be wrong, and on a 30B model doesn't, in ${language}`, async () => {
+  test(`Check against Documents on a 4B model says its verdicts may be wrong, and on a 30B model doesn't, in ${language}`, async () => {
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await setWindowSize(app, window, 1440, 900);
     await dismissChatSetup(window);
     await setLanguage(window, language);
 
-    await findSupport(window, "scripted-4b");
+    await checkSelection(window, "scripted-4b");
     const notice = window.getByTestId("checks-small-model");
     await expect(notice).toHaveText(NOTICE[language]);
     // Quiet: in the badge's card under its rows, without covering them, and not a problem.
@@ -136,7 +136,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await setLanguage(window, language);
 
-    await findSupport(window, "scripted-30b");
+    await checkSelection(window, "scripted-30b");
     await expect(window.getByTestId("checks-small-model")).toHaveCount(0);
     await app.close();
   });
