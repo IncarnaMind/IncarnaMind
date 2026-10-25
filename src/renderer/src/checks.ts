@@ -117,7 +117,6 @@ export const setCheckCardOpen = (place: string, open: boolean) =>
 
 export const setOpenClaim = (place: string, id: string | null) => setFor("openClaim", place, id);
 
-/** Asks a card opened from the keyboard to give its first action the focus, once it shows. */
 export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
 
 /** Only if `id` is still the open one: a card that closes late must not close its successor. */
