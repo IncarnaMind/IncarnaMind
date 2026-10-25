@@ -13,7 +13,7 @@
    - **differs**: unsupported, and the card quotes a line that says something different;
    - **absent**: unsupported, and the card says "I didn’t find this in “{scope}”";
    - **not checked**, with why.
-5. The report: per set and model, each sentence's outcomes and how many checks gave its most frequent verdict (partly, differs and absent are one verdict, unsupported), false Supported, absent on a sentence the Documents state, the partly-supported card on a sentence whose topic the Documents don't hold, how many checks gave other verdicts than the check before, and every result that isn't the expected verdict in the check's own words. It goes into `eval/results/<start time>-repeats/` (`report.md`, `report.json`).
+5. The report: per set and model, each sentence's outcomes and how many checks gave its most frequent verdict (partly, differs and absent are one verdict, unsupported), false Supported, absent on a sentence the Documents state, the partly-supported card on a sentence whose topic the Documents don't hold, how many checks gave other verdicts than the check before, every result that isn't the expected verdict in the check's own words, and what a sentence's check cost on average: its requests, its searches, how many checks were asked to search again before saying a sentence isn't found (#1608), the tokens and the requests' time. It goes into `eval/results/<start time>-repeats/` (`report.md`, and `report.json` with each check's requests: the searches, the Passages handed and the replies, `requests.ts`).
 
 The cases are in `cases.ts`; `repeat.ts` checks any Mind's sentences in any core, so other sets can use it with their own Documents.
 

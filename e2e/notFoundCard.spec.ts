@@ -29,6 +29,9 @@ import {
  * of Undo. The scripted model supports a sentence that shares three words with a line it was
  * handed (src/main/fakeChat/checks.ts).
  */
+/** Where the card's screenshots go, for a pull request: none unless set. */
+const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+
 let dataDir: string;
 let sources: string;
 test.beforeEach(async () => {
@@ -47,6 +50,9 @@ const ALONE = "Seals rest on the sandbanks at low tide.";
 
 const LANGUAGES = {
   en: {
+    heading: "Not found",
+    mark: "Sentence check: Not found",
+    needLook: "2 need a look",
     cut: "Cut it",
     keep: "Keep as my view",
     searchAll: "Search all Documents",
@@ -57,6 +63,9 @@ const LANGUAGES = {
     kept: "Kept as your view",
   },
   "zh-CN": {
+    heading: "未找到",
+    mark: "句子核对：未找到",
+    needLook: "2 处需要留意",
     cut: "删除这句",
     keep: "保留为我的观点",
     searchAll: "搜索全部文档",
@@ -205,6 +214,11 @@ for (const language of ["en", "zh-CN"] as const) {
     for (const width of [1440, 900]) {
       await setWindowSize(app, window, width, 900);
       await openCard(marks.nth(2));
+      // Headed by what the check found: nothing, which is about the search, not the sentence (#1608).
+      await expect(marks.nth(2)).toHaveAccessibleName(words.mark);
+      await expect(card.getByTestId("claim-badge")).toHaveText(words.heading);
+      if (SCREENSHOTS)
+        await window.screenshot({ path: join(SCREENSHOTS, `not-found-${language}-${width}.png`) });
       const shown = await card
         .locator(".citation-card-actions button")
         .evaluateAll((all) => all.map((each) => each.getAttribute("data-testid")));
@@ -276,7 +290,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(marks).toHaveCount(3);
     expect(await keptWords(editor)).toEqual([NOTHING]);
     await expect.poll(() => wordsOf(lines.nth(0))).toBe(allFour);
-    await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText("2");
+    await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
+      words.needLook,
+    );
     await app.close();
   });
 
