@@ -3503,8 +3503,12 @@ export const en = {
   "aiStatement.sentences.column.checked": "Checked",
   "aiStatement.unread.one":
     "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it:",
+  "aiStatement.unread.one.fullStop":
+    "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it.",
   "aiStatement.unread":
     "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them:",
+  "aiStatement.unread.fullStop":
+    "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them.",
   "aiStatement.note":
     "Schools have their own forms for declaring AI use. Use these counts to fill in yours.",
   "checkRecord.command": "Export check record…",

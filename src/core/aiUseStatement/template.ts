@@ -190,8 +190,10 @@ export function statementBlocks(
       : [
           paragraph(
             unread.length === 1
-              ? t("aiStatement.unread.one")
-              : t("aiStatement.unread", { count: number(unread.length) }),
+              ? t(unreadNames ? "aiStatement.unread.one" : "aiStatement.unread.one.fullStop")
+              : t(unreadNames ? "aiStatement.unread" : "aiStatement.unread.fullStop", {
+                  count: number(unread.length),
+                }),
           ),
           ...(unreadNames ? [bulletList(unread.map((file) => unreadFileText(file, t)))] : []),
         ];

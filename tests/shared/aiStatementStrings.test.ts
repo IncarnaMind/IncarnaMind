@@ -83,7 +83,9 @@ const nothing: AiUseFigures = {
   unread: [],
   unreadNames: false,
 };
-const FIGURES = { everything, nothing };
+/** The same record with the Mind not naming its files: the sentence ends in a full stop, no list. */
+const unticked: AiUseFigures = { ...everything, unreadNames: false };
+const FIGURES = { everything, unticked, nothing };
 
 const statementKeys = (Object.keys(en) as MessageKey[]).filter((key) =>
   key.startsWith("aiStatement."),

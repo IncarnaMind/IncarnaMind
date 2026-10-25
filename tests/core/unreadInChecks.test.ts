@@ -237,40 +237,48 @@ describe("What a check couldn't read", () => {
 
 describe("The AI use statement", () => {
   test.each([
-    ["en", "When these sentences were checked, 3 files they were checked against couldn’t be read"],
-    ["zh-CN", "核对这些说法时，有 3 个文件未能读取"],
-  ] as const)("lists what the checks couldn't read, with why (%s)", async (language, intro) => {
-    const { core, folderId } = await withUnreadFiles();
-    await core.updateSettings({ user: { language } });
-    const { mind, check } = await mindOf(core, folderId, [SUPPORTED, UNSUPPORTED]);
-    await check();
-    await core.setMindUnreadFileNames(mind.id, true);
+    [
+      "en",
+      "When these sentences were checked, 3 files they were checked against couldn’t be read",
+      "didn’t search them:",
+    ],
+    ["zh-CN", "核对这些说法时，有 3 个文件未能读取", "没有检索这些文件："],
+  ] as const)(
+    "lists what the checks couldn't read, with why (%s)",
+    async (language, intro, ending) => {
+      const { core, folderId } = await withUnreadFiles();
+      await core.updateSettings({ user: { language } });
+      const { mind, check } = await mindOf(core, folderId, [SUPPORTED, UNSUPPORTED]);
+      await check();
+      await core.setMindUnreadFileNames(mind.id, true);
 
-    const made = await core.createAiUseStatement(mind.id);
-    const statement = readMind(await connectToMind(core, made.id));
+      const made = await core.createAiUseStatement(mind.id);
+      const statement = readMind(await connectToMind(core, made.id));
 
-    const texts: string[] = [];
-    statement.forEach((node) => void texts.push(node.textContent));
-    const at = texts.findIndex((each) => each.startsWith(intro));
-    expect(at).toBeGreaterThan(-1);
-    const list = statement.child(at + 1);
-    expect(list.type.name).toBe("bulletList");
-    const items: string[] = [];
-    list.forEach((item) => void items.push(item.textContent));
-    expect(items.sort()).toEqual(
-      language === "en"
-        ? [
-            "Contract.doc: Format not read yet (.doc). Convert it to PDF, Word, PowerPoint or Excel.",
-            "Locked.pdf: Password-protected. Remove the password and add it again.",
-            "Scan.pdf: A scan with no text that could be recognized (handwriting or a picture, say).",
-          ]
-        : [
-            "Contract.doc：暂不支持此格式（.doc）。请转换为 PDF、Word、PowerPoint 或 Excel。",
-            "Locked.pdf：已设置密码。请去掉密码后重新添加。",
-            "Scan.pdf：扫描件，未识别出文字（可能是手写内容或图片）。",
-          ],
-    );
-  });
+      const texts: string[] = [];
+      statement.forEach((node) => void texts.push(node.textContent));
+      const at = texts.findIndex((each) => each.startsWith(intro));
+      expect(at).toBeGreaterThan(-1);
+      expect(texts[at]).toMatch(new RegExp(`${ending}$`));
+      const list = statement.child(at + 1);
+      expect(list.type.name).toBe("bulletList");
+      const items: string[] = [];
+      list.forEach((item) => void items.push(item.textContent));
+      expect(items.sort()).toEqual(
+        language === "en"
+          ? [
+              "Contract.doc: Format not read yet (.doc). Convert it to PDF, Word, PowerPoint or Excel.",
+              "Locked.pdf: Password-protected. Remove the password and add it again.",
+              "Scan.pdf: A scan with no text that could be recognized (handwriting or a picture, say).",
+            ]
+          : [
+              "Contract.doc：暂不支持此格式（.doc）。请转换为 PDF、Word、PowerPoint 或 Excel。",
+              "Locked.pdf：已设置密码。请去掉密码后重新添加。",
+              "Scan.pdf：扫描件，未识别出文字（可能是手写内容或图片）。",
+            ],
+      );
+    },
+  );
 
   test.each(["en", "zh-CN"] as const)(
     "names no file and no sheet until the Mind asks for names (%s)",
@@ -285,8 +293,11 @@ describe("The AI use statement", () => {
 
       expect(statement.textContent).toContain(
         language === "en"
-          ? "3 files they were checked against couldn’t be read"
-          : "有 3 个文件未能读取",
+          ? "3 files they were checked against couldn’t be read, so the checks didn’t search them."
+          : "有 3 个文件未能读取，因此没有检索这些文件。",
+      );
+      expect(statement.textContent).not.toMatch(
+        language === "en" ? /didn’t search them:$/ : /没有检索这些文件：$/,
       );
       for (const name of ["Contract.doc", "Locked.pdf", "Scan.pdf"]) {
         expect(statement.textContent).not.toContain(name);
