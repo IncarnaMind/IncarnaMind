@@ -1,10 +1,9 @@
 import type { ConversationAnswer } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
-import { unbackedClaimKey, waitingProblemOf } from "../../changeProblems";
+import { unbackedClaimLine, waitingProblemOf } from "../../changeProblems";
 import { useT } from "../../i18n";
 import { showWaitingChanges, useWaitingIn } from "../../mindChanges";
 import { useAppStore } from "../../store";
-import { useAnswerLine } from "../../undo";
 import { ProblemLine } from "../ProblemLine";
 
 /**
@@ -44,55 +43,31 @@ export function WaitingChangesLine({ answer }: { answer: Pick<ConversationAnswer
 }
 
 /**
- * Under a reply that claims a change to a Mind that none of its Tool calls
- * made, even once the model was asked again: it says so, with Regenerate.
+ * Under a reply that still claims a change to a Mind none of its Tool calls
+ * made, once asked again (#1559): what wasn't done (`unbackedClaimLine`), with
+ * Try again. The reply stays above it.
  */
 export function UnbackedClaimLine({
   answer,
-  onRegenerate,
+  onRetry,
 }: {
-  answer: Pick<ConversationAnswer, "steps">;
-  onRegenerate(): void;
+  answer: Pick<ConversationAnswer, "steps" | "toolCalls">;
+  onRetry(): void;
 }) {
   const t = useT();
-  const key = unbackedClaimKey(answer.steps?.unbackedClaims);
-  if (!key) return null;
+  const line = unbackedClaimLine(t, answer);
+  if (line === null) return null;
   return (
     <ProblemLine
       role="status"
       testId="answer-unbacked-claim"
       action={{
-        label: t("answer.regenerate"),
-        testId: "answer-unbacked-regenerate",
-        onClick: onRegenerate,
+        label: t("answer.notWritten.retry"),
+        testId: "answer-unbacked-retry",
+        onClick: onRetry,
       }}
     >
-      {t(key)}
-    </ProblemLine>
-  );
-}
-
-export function NoMindToolsLine({
-  answerId,
-  onAdd,
-}: {
-  answerId: string;
-  onAdd(button: HTMLElement): void;
-}) {
-  const t = useT();
-  const added = useAnswerLine(answerId);
-  if (added) return null;
-  return (
-    <ProblemLine
-      role="status"
-      testId="answer-no-mind-tools"
-      action={{
-        label: t("answer.noMindTools.add"),
-        testId: "answer-no-mind-tools-add",
-        onClick: (event) => onAdd(event.currentTarget),
-      }}
-    >
-      {t("answer.noMindTools")}
+      {line}
     </ProblemLine>
   );
 }

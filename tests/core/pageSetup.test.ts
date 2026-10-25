@@ -16,7 +16,7 @@ import { openWordPackage } from "../../src/core/documents/formats/docxPackage";
 import { readPageSetup } from "../../src/core/documents/formats/docxPages";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { part, unzip } from "../helpers/docx";
-import { connectToMind } from "../helpers/mindClient";
+import { appendParagraph, connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { field, PNG, paragraph, picture, run, wordFile } from "../helpers/word";
 
@@ -640,5 +640,35 @@ describe("The Word corpus's pages", () => {
       }
     },
     60_000,
+  );
+});
+
+describe("The page of a native Mind's Word export", () => {
+  // protects=the Word export's paper goes by the computer's region as the PDF and Page view do, whatever the interface language, and A4 where the region is unknown; the margins stay one inch; fails_when=the interface language picks the paper, or an unknown region exports Letter; no_claim=a Mind imported from a Word file, which keeps its file's page (above).
+  test.each([
+    ["GB", ["en-GB"], "en", 11906, 16838],
+    ["US", ["en-US"], "zh-CN", 12240, 15840],
+    ["", [], "en", 11906, 16838],
+  ] as const)(
+    "on a computer in %j (languages %j) with the %s interface the .docx page is %d by %d twips",
+    async (region, languages, language, width, height) => {
+      const core = startCore(await createTempDataFolder(), {
+        systemRegion: () => region,
+        systemLanguages: () => languages,
+      });
+      await core.updateSettings({ user: { language } });
+      const mind = await core.createMind({ title: "Notes" });
+      const client = await connectToMind(core, mind.id);
+      appendParagraph(client, "Rent rises with inflation.");
+      await client.settled();
+
+      const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+      const document = part(files, "word/document.xml");
+
+      expect(document).toContain(`<w:pgSz w:w="${width}" w:h="${height}"/>`);
+      expect(document).toContain(
+        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"',
+      );
+    },
   );
 });

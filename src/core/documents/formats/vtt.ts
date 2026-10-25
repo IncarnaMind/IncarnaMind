@@ -27,10 +27,18 @@ export interface Cue {
  * Why a stretch of a Meeting has no text: transcription restarted after a
  * crash, the computer slept, IncarnaMind wasn't running, the audio was
  * deleted before it could catch up, no audio was recorded for it (the system's
- * permission prompt unanswered, a capture that stalled), or the cloud
- * service's connection dropped (#141).
+ * permission prompt unanswered, a capture that stalled), the cloud service's
+ * connection dropped (#141), or the User paused their microphone (the other
+ * side's lines go on through it).
  */
-export type GapReason = "restarted" | "sleep" | "interrupted" | "lost" | "uncaptured" | "cloud";
+export type GapReason =
+  | "restarted"
+  | "sleep"
+  | "interrupted"
+  | "lost"
+  | "uncaptured"
+  | "cloud"
+  | "muted";
 
 export const GAP_REASONS: readonly GapReason[] = [
   "restarted",
@@ -39,6 +47,7 @@ export const GAP_REASONS: readonly GapReason[] = [
   "lost",
   "uncaptured",
   "cloud",
+  "muted",
 ];
 
 /** A stretch without text shorter than this isn't listed: nobody can tell it was missing. */

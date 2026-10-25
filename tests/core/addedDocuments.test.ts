@@ -127,7 +127,7 @@ describe("Documents added since a Mind's checks", () => {
       sentences: 2,
       findsClaims: false,
       inFolder: true,
-      model: null,
+      model: (await core.getSettings()).user.chatModel,
     });
 
     plans[PENGUINS] = { verdict: "supported", quote: PENGUINS };

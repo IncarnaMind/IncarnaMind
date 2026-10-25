@@ -19,6 +19,7 @@ import { InfoPanel } from "./components/InfoPanel";
 import { DocumentMoveTo } from "./components/library/DocumentMoveTo";
 import { MeetingNoticeDialog } from "./components/MeetingNoticeDialog";
 import { MindStyleHost } from "./components/MindStyle";
+import { PanelBoundary } from "./components/PanelBoundary";
 import { Peek } from "./components/Peek";
 import { ProblemMark } from "./components/ProblemLine";
 import { ChatGptWelcomeDialog } from "./components/providers/ChatGptSignIn";
@@ -29,7 +30,6 @@ import { Sidebar } from "./components/Sidebar";
 import { SidebarControlContext } from "./components/SidebarToggle";
 import { SortMenu } from "./components/SortMenu";
 import { TagsDialog } from "./components/TagsDialog";
-import { TabNoticeLine } from "./components/tabs/TabNoticeLine";
 import { WordImportDialog } from "./components/WordImportDialog";
 import { files } from "./core";
 import { useDragState } from "./dragDrop";
@@ -255,7 +255,17 @@ function Workspace() {
           className="sidebar-panel"
           {...peek.panel}
         >
-          <Sidebar width={sidebarWidth} onOpenSettings={openSettings} />
+          <PanelBoundary
+            name="sidebar"
+            frame={{
+              tag: "aside",
+              className: "flex min-w-[165px] shrink flex-col bg-frame",
+              style: { flexBasis: sidebarWidth },
+              attributes: { id: "sidebar", "data-testid": "sidebar" },
+            }}
+          >
+            <Sidebar width={sidebarWidth} onOpenSettings={openSettings} />
+          </PanelBoundary>
         </div>
         {sidebar.hidden ? (
           <div
@@ -284,33 +294,34 @@ function Workspace() {
           // Links dropped become web pages, so the card is where they go (#261).
           cardOverlay={fileDrop.active && fileDrop.links ? <DropOverlay links /> : null}
         />
-        <TabNoticeLine />
         <DropLabel />
-        <CommandPalette />
-        {/* Where Move to… from ⌘K opens when nothing it moves is in sight: where the palette was. */}
-        <span
-          data-move-to-fallback
-          aria-hidden="true"
-          className="pointer-events-none fixed top-16 left-[calc(50%-8rem)] size-px"
-        />
-        <SettingsDialog />
-        <HistoryView />
-        <TagsDialog />
-        <RequestedDialogs />
-        <SortMenu />
-        <DocumentMoveTo />
-        <InfoPanel />
-        <Peek />
-        <AddWebPageDialog />
-        <FeedbackDialog />
-        <WordImportDialog />
-        <ChatGptWelcomeDialog />
-        <CitationStylePickerHost />
-        <MindStyleHost />
-        {/* Open after the dialog that triggered the request, so they show on top of it. */}
-        <ConsentDialog />
-        <MeetingNoticeDialog />
-        <FileWriteDialog />
+        <PanelBoundary name="overlays">
+          <CommandPalette />
+          {/* Where Move to… from ⌘K opens when nothing it moves is in sight: where the palette was. */}
+          <span
+            data-move-to-fallback
+            aria-hidden="true"
+            className="pointer-events-none fixed top-16 left-[calc(50%-8rem)] size-px"
+          />
+          <SettingsDialog />
+          <HistoryView />
+          <TagsDialog />
+          <RequestedDialogs />
+          <SortMenu />
+          <DocumentMoveTo />
+          <InfoPanel />
+          <Peek />
+          <AddWebPageDialog />
+          <FeedbackDialog />
+          <WordImportDialog />
+          <ChatGptWelcomeDialog />
+          <CitationStylePickerHost />
+          <MindStyleHost />
+          {/* Open after the dialog that triggered the request, so they show on top of it. */}
+          <ConsentDialog />
+          <MeetingNoticeDialog />
+          <FileWriteDialog />
+        </PanelBoundary>
         <ErrorNotices />
         {fileDrop.active && !fileDrop.links && !takenInside && <DropOverlay />}
         <p role="status" data-testid="sidebar-announcement" className="sr-only">

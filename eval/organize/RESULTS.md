@@ -101,3 +101,109 @@ Run on 2026-10-09 by the main session with the User's Anthropic key, `claude-son
 - Telling the model that Tags aren't exclusive didn't raise recall on the held-out half: it never adds a wrong Tag (precision 1.00) but still leaves out some that fit.
 - The five scans count as misses ("no text, and this route can't read page images"), although the model can read images; sending page images on this route when the model supports them is a possible follow-up.
 
+
+---
+
+## 2026-10-22: current models through the chat route, and two hosted decision models
+
+Commit `fbcdb5874`. Every Document of the 80-Document set, English Folder and Tag names unless marked zh-CN, through the app's own classifier code (README.md). Nothing was tuned: both halves are the measurement. One Document is 1.25 points of 80.
+
+- **Chat route** (the connected chat model, thinking off as the app asks, a 512-token reply, page images for scans): Claude Haiku 5.5, Claude Sonnet 5.5, and Kimi K2.6 on its International endpoint.
+- **Decision models** (one choice for the Folder, one yes/no question with a probability for each Tag, in one request; a Tag applies from 0.5): TypeSafe Jev 1.13 (`jev-1.13.0`; text only), and OpenAI's Decisions API on `gpt-6-luna` (public beta; the harness only, the app has no such classifier).
+
+### All 80 Documents
+
+| Model | Folder | Folder, lenient | Tag P / R / F1 | Exact Tag set | Median s | Cost of 100 Documents | Repeat run: Folder, F1, exact |
+|---|---:|---:|---|---:|---:|---:|---|
+| Claude Sonnet 5.5 | **76/80 (95%)** | 77 | 1.00 / 0.93 / **0.96** | **75/80** | 1.5 | $0.39 | not repeated |
+| OpenAI Decisions, `gpt-6-luna` | 75/80 (94%) | 76 | 0.85 / 0.84 / 0.85 | 54/80 | **0.35** | $0.021 | the same |
+| Claude Haiku 5.5 | 73/80 (91%) | 75 | 0.88 / 0.96 / 0.92 | 65/80 | 1.1 | $0.02 | 71/80, 0.91, 64/80 |
+| Jev 1.13 (text only) | 72/80 (90%): 72/75 of the Documents it can read | 72 | 0.89 / 0.78 / 0.83 | 52/80 | **0.22** | $0.006 | 74/80, 0.83, 52/80 |
+| Kimi K2.6 | 71/80 (89%) | 72 | 0.97 / 0.88 / 0.92 | 65/80 | 0.9 | $0.10 | 72/80, 0.95, 70/80 |
+
+- Cost is the tokens each run reported at the catalog's price for the model (Jev $0.042 and OpenAI Decisions $0.10 per million input tokens). Across everything in this section the runs cost about $0.97, of which $0.24 was Kimi with its thinking left on (below).
+- Between two runs of the same code Haiku, Kimi and Jev moved by up to 2 Folders and 0.03 F1, and Kimi by 5 exact Tag sets, so gaps of that size are noise. Sonnet's lead on exact Tag sets (75 against 65) and the decision models' lower Tag F1 are larger than that.
+- Since 2026-10-09 the chat route's scans are read (below), so Sonnet's Folders rose from 72 to 76 of 80, and its F1 on the held-out half from 0.87 to 0.92.
+
+### English and Chinese Documents apart
+
+| Model | English (47): Folder | F1 (P / R) | Exact | Chinese (33): Folder | F1 (P / R) | Exact |
+|---|---:|---|---:|---:|---|---:|
+| Sonnet 5.5 | 44 | 0.96 (1.00 / 0.93) | 44 | 32 | 0.96 (1.00 / 0.93) | 31 |
+| OpenAI Decisions | 44 | 0.85 (0.87 / 0.84) | 32 | 31 | 0.84 (0.83 / 0.85) | 22 |
+| Haiku 5.5 | 42 | 0.91 (0.88 / 0.95) | 38 | 31 | 0.92 (0.87 / 0.97) | 27 |
+| Jev 1.13 | 42 (3 scans unread) | 0.86 (0.92 / 0.80) | 33 | 30 (2 scans unread) | 0.80 (0.86 / 0.75) | 19 |
+| Kimi K2.6 | 43 | 0.93 (0.96 / 0.89) | 39 | 28 | 0.91 (0.97 / 0.85) | 26 |
+
+The Chinese Documents again with the Folder and Tag names in Chinese, as a User of the Chinese interface has them:
+
+| Model | Folder (of 33) | F1 (P / R) | Exact | Median s |
+|---|---:|---|---:|---:|
+| Haiku 5.5 | **33** | 0.93 (0.90 / 0.95) | 27 | 1.1 |
+| Sonnet 5.5 | 32 | **0.95** (1.00 / 0.90) | **30** | 1.4 |
+| Kimi K2.6 | 31 | 0.92 (0.95 / 0.90) | 27 | 1.0 |
+| OpenAI Decisions | 31 | 0.86 (0.87 / 0.85) | 23 | 0.37 |
+| Jev 1.13 | 29 (2 scans unread) | 0.82 (0.91 / 0.75) | 21 | 0.22 |
+
+Chinese names helped Haiku (31 to 33 Folders) and Kimi (28 to 31), and cost Jev one Folder. Jev's documentation says Chinese is handled less well than English; its Tag F1 is 0.06 lower on Chinese Documents than on English ones.
+
+### The five scans
+
+The scans were misses on 2026-10-09 because the chat route sent no page images. It does now: a chat model that reads images gets the first pages of a PDF without text (`chatGroupClassifier`, the Library does the same), and this run's chat route is that code. Without page images these five Documents cannot be organized at all, as Jev shows.
+
+| Model | Folder | Exact Tag set | Input tokens a scan (a text Document) | Mean call, s |
+|---|---:|---:|---:|---:|
+| Haiku 5.5 | 5/5 | 5/5 | 3,598 (1,742) | 1.2 |
+| Sonnet 5.5 | 5/5 | 5/5 | 3,598 (1,742) | 2.0 |
+| Kimi K2.6 | 5/5 | 5/5 | 2,971 (899) | 3.4 (1.3 in the repeat run) |
+| OpenAI Decisions | 5/5 | 4/5 (an extra Report on the whiteboard) | 3,403 (1,989) | 0.56 |
+| Jev 1.13 | 0/5, left for a model that reads pages | 0/5 | none | none |
+
+A scan costs about twice a text Document's tokens (three page images), and rendering its pages takes about 0.2 to 0.3 s.
+
+### Kimi K2.6 and thinking
+
+The app asks Kimi K2.6 not to think on a classification call (`thinking: disabled`, from the catalog), and Kimi answers with about 15 output tokens: no empty or unusable reply in 193 calls (both English runs and the Chinese run). With `INCARNAMIND_ORGANIZE_THINKING=default`, which leaves thinking as the provider has it, 79 of 80 calls returned nothing usable (72 "No output generated", 7 unparseable) because the model spent the whole 512-token reply allowance thinking (507 output tokens a Document), at 6 s a call.
+
+### The mistakes
+
+A Folder is missed on these Documents; "ok" means the right Folder.
+
+| Document | Labelled | Haiku | Sonnet | Kimi | Jev | OpenAI Decisions |
+|---|---|---|---|---|---|---|
+| en-corrosion-tech-report | Research papers | Reports | Reports | Reports | Reports | Reports |
+| en-reef-talk-deck | Research papers | Reports | Reports | Reports | Reports | Reports |
+| zh-sealing-tech-report | Research papers | Reports | Reports | Reports | ok | Reports |
+| zh-protein-talk-deck | Research papers | ok | ok | Reports | Reports | Reports |
+| en-annual-results-deck | Finance, or Reports | Reports | Reports | Reports | ok | Reports |
+| en-stats-textbook | Not in a Folder | Research | ok | Research | ok | ok |
+| zh-reading-notes | Research papers | ok | ok | Meetings | ok | ok |
+| zh-receipt | Finance | ok | ok | Not in a Folder | ok | ok |
+| zh-near-empty | Not in a Folder | ok | ok | Meetings | ok | ok |
+| en-sales-by-region | Reports, or Finance | Finance | ok | ok | ok | ok |
+| zh-retro-deck | Meetings | Reports | ok | ok | ok | ok |
+
+- **Shared by every model:** the lab technical report and the research-talk deck filed under Reports. Their labels are debatable (the 2026-10-09 notes say so), and the annual results deck fits Finance and Reports.
+- **Kimi** filed three Chinese Documents wrongly that the Claude models did not: a reading-notes file (Meetings), a receipt and a near-empty note.
+- **Tags:** every model missed Slides on `en-web-analytics-deck` and Report on `en-expense-claim`; Sonnet never adds a wrong Tag.
+  - Haiku adds Notes where it doesn't fit (6 times) and Paper (3); Kimi misses Book on manuals and novels (4).
+  - The decision models miss Invoice on receipts, expense claims and contracts with a payment schedule (Jev 5, OpenAI 4) and Notes on formal minutes, status notes and lists (Jev 4, OpenAI 5), and add Report to papers and decks (Jev 8, OpenAI 12).
+
+### What the decision models' probabilities say
+
+Tags if applied from each probability, over the 80 Documents:
+
+| From | Jev P / R / F1 | OpenAI Decisions P / R / F1 |
+|---:|---|---|
+| 0.3 | 0.81 / 0.86 / 0.84 | 0.85 / 0.85 / 0.85 |
+| **0.5** (the app's) | 0.89 / 0.78 / 0.83 | 0.85 / 0.84 / 0.85 |
+| 0.7 | 0.96 / 0.73 / 0.83 | 0.88 / 0.82 / 0.85 |
+| 0.9 | 1.00 / 0.43 / 0.60 | 0.93 / 0.81 / 0.87 |
+
+- **Jev** is calibrated: Tags it gave 0.8 or more were right 68 times in 70 (0.95 and above: 25 of 25), and those from 0.5 to 0.8 7 times in 14. The app's review band for an unknown model (0.5 to 0.8) matches that.
+- **OpenAI Decisions** is over-sure: Tags at 0.95 and above were right 75 times in 76, but the 19 between 0.5 and 0.95 only 6 times. A band of 0.5 to 0.95 would mark them for review.
+- Both are 3 to 7 times faster than the chat models (0.2 to 0.35 s against 0.9 to 1.5 s). Jev is the cheapest per 100 Documents and OpenAI Decisions costs about what Haiku does, but both lag the chat models on Tags, and Jev cannot read a scan.
+
+### Limits
+
+80 synthetic Documents labelled by one person, and some labels are debatable. Single runs, except the repeats listed. The Claude models, Kimi and the decision models were each run with one prompt wording; the decision models' Tag questions were not tuned (OpenAI's wording was written for this run, Jev's is the app's). Prices are the catalog's list prices, not a bill. The local routes were not rerun here, and nothing here measures Local mode.

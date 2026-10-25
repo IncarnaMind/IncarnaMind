@@ -15,7 +15,7 @@ const mindSchema = getSchema(noteExtensions());
  * The Mind's Blocks as the editor reads them from Yjs. Throws if anything in
  * them breaks the editor's schema.
  */
-export function readMind(client: MindClient): ProseMirrorNode {
+export function readMind(client: Pick<MindClient, "blocks">): ProseMirrorNode {
   const doc = yXmlFragmentToProseMirrorRootNode(client.blocks, mindSchema);
   if (doc.childCount > 0) doc.check();
   return doc;
@@ -106,7 +106,7 @@ export function answerText(client: MindClient, answerId: string): string {
  * {+…+}, a Citation as ⟨its check⟩, Blocks a Proposal adds or removes after
  * "+ " or "- ", one line per paragraph or heading.
  */
-export function shownWithChanges(client: MindClient): string[] {
+export function shownWithChanges(client: Pick<MindClient, "blocks">): string[] {
   const lines: string[] = [];
   readMind(client).descendants((node: ProseMirrorNode) => {
     if (!node.isTextblock) return true;

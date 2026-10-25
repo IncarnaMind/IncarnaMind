@@ -15,7 +15,7 @@ export interface TaggingService {
  * so, and offers Allow in place. Read only while `watching`.
  */
 export function useTaggingService(
-  flow: "tagging" | "classification",
+  flow: "tagging" | "classification" | "scan-images",
   watching: boolean,
 ): TaggingService | null {
   const [tagging, setTagging] = useState<TaggingService | null>(null);

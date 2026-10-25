@@ -64,6 +64,18 @@ describe("The sherpa-onnx recognizer", () => {
     expect(await engine.recognizer.decode(samples, "meeting:1:microphone")).toBe("Plain words.");
   });
 
+  test("writes the numbers of a stretch as digits, whichever way the model said them, so a check of 6.8% finds the line (#1508)", async () => {
+    const engine = await createSherpaEngine(model);
+    RESULTS.push(
+      '{"lang": "", "text": "Voss said six point eight percent to eighteen point four million, and 9.3% before the thirtieth of November.", "tokens": []}',
+    );
+
+    const text = await engine.recognizer.decode(samples, "meeting:1:microphone");
+
+    expect(text).toBe("Voss said 6.8% to 18.4 million, and 9.3% before the 30th of November.");
+    expect(text).toContain("6.8%");
+  });
+
   test("fails for a result it can't read at all, as before", async () => {
     const engine = await createSherpaEngine(model);
     RESULTS.push("not json");

@@ -89,12 +89,20 @@ export interface WatchOptions {
   minds(): { id: string; folderId: string | null }[];
   /** The live Documents in a Folder. */
   folderDocuments(folderId: string): string[];
-  /** The evidence a check of a sentence may use among `documentIds`: the cited ones left out. */
-  evidenceScope(documentIds: readonly string[], citedIds: readonly string[]): EvidenceScope;
+  /**
+   * The evidence a check of a Mind's sentence may use among `documentIds`:
+   * the cited ones, and the file the Mind was imported from, left out.
+   */
+  evidenceScope(
+    mindId: string,
+    documentIds: readonly string[],
+    citedIds: readonly string[],
+  ): EvidenceScope;
   searchableCount(documentIds: readonly string[] | null): number;
   /** Every live Document's current version, for telling a new one when it arrives. */
   documentVersions(): ReadonlyMap<string, string>;
   defaultModel(): ChatModelChoice | null;
+  modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
   /** The model to check with, or why not; the consent dialog shows before anything is sent. */
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   /** The model, when it can be used now without asking the User anything; null otherwise. */
@@ -156,11 +164,11 @@ export function createContradictionWatch(options: WatchOptions) {
     if (cited.length === 0) return { kind: "nothing" };
     if (folderId === null) return { kind: "no-folder" };
     const inFolder = options.folderDocuments(folderId);
-    if (options.searchableCount(options.evidenceScope(inFolder, []).documentIds) === 0) {
+    if (options.searchableCount(options.evidenceScope(mindId, inFolder, []).documentIds) === 0) {
       return { kind: "no-documents", folderId };
     }
     const claims = cited.flatMap((sentence): Claim[] => {
-      const scope = options.evidenceScope(inFolder, citedIdsOf(sentence));
+      const scope = options.evidenceScope(mindId, inFolder, citedIdsOf(sentence));
       if (options.searchableCount(scope.documentIds) === 0) return [];
       return [
         {
@@ -293,9 +301,10 @@ export function createContradictionWatch(options: WatchOptions) {
     };
   }
 
-  /** The Mind's own model, or none. */
   const modelOf = (mindId: string): ChatModelChoice | null =>
-    content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null));
+    options.modelInUse(
+      content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null)),
+    );
 
   // In the background ---------------------------------------------------------------------------
 
@@ -310,7 +319,7 @@ export function createContradictionWatch(options: WatchOptions) {
     if (closed) return;
     const ready = plan(mindId);
     if (ready.kind !== "ready") return;
-    const prepared = await options.prepareQuietly(modelOf(mindId) ?? options.defaultModel());
+    const prepared = await options.prepareQuietly(modelOf(mindId));
     if (!prepared || closed) return;
     const runId = randomUUID();
     const request = randomUUID();
@@ -410,7 +419,7 @@ export function createContradictionWatch(options: WatchOptions) {
       const { requestId, mindId } = input;
       const ready = plan(mindId);
       if (ready.kind !== "ready") return ready;
-      const model = await options.prepare(input.model ?? modelOf(mindId) ?? options.defaultModel());
+      const model = await options.prepare(input.model ?? modelOf(mindId));
       if (!model.ok) return model.result;
       const tracked = options.track(requestId, mindId);
       try {

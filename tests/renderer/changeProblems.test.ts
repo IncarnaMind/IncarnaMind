@@ -2,15 +2,15 @@ import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindProblem } from "../../src/core/api";
 import {
   problemText,
-  unbackedClaimKey,
+  unbackedClaimLine,
   waitingProblemOf,
 } from "../../src/renderer/src/changeProblems";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
  * What an Answer says under its reply about changes it couldn't make:
- * the changes waiting that stopped it, a reply that claims a change none of
- * its calls made, and why a call changed nothing, in English and Chinese.
+ * the changes waiting that stopped it, what wasn't done of a change its reply
+ * still claims, and why a call changed nothing, in English and Chinese.
  */
 
 const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
@@ -44,18 +44,41 @@ describe("The changes waiting that kept an Answer from changing a Mind", () => {
   });
 });
 
-describe("A reply that claims a change none of its calls made", () => {
-  // protects=the line names the weightiest unmade change; fails_when=a made-up Mind reads as a change, or none shows; no_claim=none beyond protects.
-  test("the line for the weightiest claim", () => {
-    expect(unbackedClaimKey(undefined)).toBeNull();
-    expect(unbackedClaimKey([])).toBeNull();
-    expect(unbackedClaimKey(["added", "made"])).toBe("answer.unbacked.made");
-    expect(unbackedClaimKey(["removed"])).toBe("answer.unbacked.removed");
-    expect(unbackedClaimKey(["removed", "changed"])).toBe("answer.unbacked.changed");
-    expect(en("answer.unbacked.changed")).toBe(
-      "This reply says it changed a Mind, but no change was made.",
+describe("The line under a reply that still claims a change (#1559)", () => {
+  const claimed = { steps: { unbackedClaims: ["added" as const] } };
+
+  // protects=with no write call, the line says nothing was written as none ran, in English and Chinese; fails_when=the line names no reason, or shows a key; no_claim=how the line is drawn.
+  test("no write call ran", () => {
+    expect(unbackedClaimLine(en, { ...claimed, toolCalls: [] })).toBe(
+      "Nothing was written: the assistant didn’t run the write",
     );
-    expect(zh("answer.unbacked.changed")).toBe("这条回答说修改了 Mind，但实际没有任何改动。");
+    expect(unbackedClaimLine(zh, { ...claimed, toolCalls: [] })).toBe(
+      "未写入任何内容：助手没有执行写入",
+    );
+  });
+
+  // protects=a write call that changed nothing gives its own reason; fails_when=the generic reason hides why; no_claim=none beyond protects.
+  test("a write call that changed nothing gives its reason", () => {
+    const failed = { ...call({ kind: "no-mind" }), tool: "add_to_mind" };
+    expect(unbackedClaimLine(en, { ...claimed, toolCalls: [failed] })).toBe(
+      en("answer.notWritten", { reason: en("mindCall.failed.noMind") }),
+    );
+  });
+
+  // protects=once a Mind changed, whose card says how, the line says not all the reply claims was done, never that nothing was; fails_when="Nothing was written" shows beside a write, or no line shows; no_claim=none beyond protects.
+  test("with a Mind changed, not all of it was done", () => {
+    expect(unbackedClaimLine(en, { ...claimed, toolCalls: [call(null, "a")] })).toBe(
+      "The assistant didn’t make every change this reply describes",
+    );
+    expect(unbackedClaimLine(zh, { ...claimed, toolCalls: [call(null, "a")] })).toBe(
+      "助手没有完成这条回答中说的全部改动",
+    );
+  });
+
+  // protects=no line without a claim; fails_when=a line shows under an honest reply; no_claim=none beyond protects.
+  test("no line without a claim", () => {
+    expect(unbackedClaimLine(en, { steps: null, toolCalls: [] })).toBeNull();
+    expect(unbackedClaimLine(en, { steps: {}, toolCalls: [call(null, "a")] })).toBeNull();
   });
 });
 

@@ -31,11 +31,11 @@ What is generated in response to exactly one Question, right after it: a Block i
 _Avoid_: output, response, reply
 
 **Question context**:
-What an Answer is generated from: in a Mind, every Block above its Question, except Notes the User has excluded; in a Conversation, its earlier Questions and Answers, and the Mind in focus when the Question was asked. Plus Passages from the Documents in the Question's Search scope.
+What an Answer is generated from: in a Mind, every Block above its Question, except Notes the User has excluded; in a Conversation, its earlier Questions and Answers, the Mind in focus when the Question was asked, the names of the Documents open on screen then, and the words the User selected in Documents to ask about, as each Document has them where they were selected. Plus Passages from the Documents in the Question's Search scope.
 _Avoid_: prompt, history
 
 **Search scope**:
-The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Mind starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents.
+The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Mind starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Mind's composer stays with the Mind, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Mind that has none.
 _Avoid_: filter, context
 
 ### The assistant
@@ -141,6 +141,10 @@ _Avoid_: Unsorted, Uncategorised, Inbox
 **Suggested Folder**:
 A Folder that Organize proposes for a Document, which waits for the User to accept it (it becomes the User's choice) or reject it (the Document stays Not in a Folder and that Folder isn't suggested for it again). While it waits, the Document counts as in that Folder, for listings and for the Folder's Search scope, marked as a suggestion.
 _Avoid_: automatic Folder, proposed Folder
+
+**To review**:
+The Library's view of what Organize suggested and the User hasn't accepted yet: the Documents waiting in a Suggested Folder, listed by that Folder, each to accept, move to another Folder or turn down ("Not this Folder"). It is the first section of the Library page while anything waits, with how many, and goes when nothing does.
+_Avoid_: inbox, queue, pending
 
 **Source location**:
 The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind.
@@ -298,7 +302,7 @@ The words of a Meeting, in order and with times, kept as a Document so that a Ci
 _Avoid_: captions, subtitles, minutes
 
 **Speaker**:
-A person in a Transcript who is told apart from the others. A Speaker is named by the User, and a Citation to a Transcript names who said the quote. Before that, a live Meeting's lines are "Me" (the microphone) or "Them" (the computer's sound), or "Speaker ?" with no computer sound.
+A person in a Transcript who is told apart from the others. A Speaker is named by the User, and a Citation to a Transcript names who said the quote. Before that, a live Meeting's lines are "Me" (the microphone) or "Them" (the computer's sound), or "Speaker ?" with no computer sound. After the call, the speaker pass numbers several voices "Speaker 1, 2…"; one other voice stays "Them", and "Me" stays "Me".
 _Avoid_: voice, participant, user
 
 ### Files

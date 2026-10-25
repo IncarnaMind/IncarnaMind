@@ -10,6 +10,7 @@
 import * as Y from "yjs";
 import { citationState, type LiveDocument } from "../../shared/citations";
 import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
+import { mindScopeOf } from "../../shared/mindScope";
 import { readProposalAttribute } from "../../shared/proposals";
 import { comparableSentence } from "../../shared/sentences";
 import { toolCallsOf } from "../../shared/toolCalls";
@@ -320,7 +321,12 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   const requests: string[] = [];
   for (const { check, sentence } of checkedSentences(fragment)) {
     requests.push(check.request);
-    const shown = claimCheckShown(check, { text: sentence, versions, folderId: sources.folderId });
+    const shown = claimCheckShown(check, {
+      text: sentence,
+      versions,
+      folderId: sources.folderId,
+      scope: fragment.doc ? mindScopeOf(fragment.doc) : null,
+    });
     const result = sentenceResultOf(shown);
     if (!result) continue;
     sentences[result === "changed" ? "needsRecheck" : result]++;

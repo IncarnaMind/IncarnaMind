@@ -1,0 +1,74 @@
+name: Nightly real models
+
+# The checks that ask real models: the live tests (tests/live) and the everyday requests
+# (eval/everyday) on Claude Haiku 5.5, and Kimi International for Chinese. Every night on main, and
+# by hand (workflow_dispatch). It costs money, so it is a file of its own: nightly.yml's jobs can
+# be run by hand without it. scripts/nightlyRealModel.ts says how it picks a key, what it writes
+# and what it needs; docs/agents/testing.md says how to run it and which secrets to set.
+
+on:
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: "Only these steps, separated by commas: live, everyday, kimi-live, kimi-everyday. Empty: all of them."
+        required: false
+        default: ""
+      requests:
+        description: "Only these everyday requests, as INCARNAMIND_EVAL_EVERYDAY takes them (hard, research, dates, chinese, or ids). Empty: all of them."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  # As in eval.yml: the evaluation drives the core in plain Node, on the CPU.
+  ONNXRUNTIME_NODE_INSTALL: skip
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+concurrency:
+  group: nightly-real-model
+  cancel-in-progress: false
+
+jobs:
+  real-models:
+    name: Real-model checks
+    # A run by hand from another branch would give that branch's files the keys.
+    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Restore the models and the fetched Documents
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/incarnamind-eval
+          key: incarnamind-everyday-${{ hashFiles('src/core/embedding/model.ts', 'src/core/reranking/model.ts') }}
+      - name: Run the checks
+        run: npm run nightly:real-model
+        env:
+          NIGHTLY_ANTHROPIC_KEY_1: ${{ secrets.NIGHTLY_ANTHROPIC_KEY_1 }}
+          NIGHTLY_ANTHROPIC_KEY_2: ${{ secrets.NIGHTLY_ANTHROPIC_KEY_2 }}
+          NIGHTLY_KIMI_KEY: ${{ secrets.NIGHTLY_KIMI_KEY }}
+          NIGHTLY_STEPS: ${{ inputs.steps }}
+          INCARNAMIND_EVAL_EVERYDAY: ${{ inputs.requests }}
+      - name: Keep the models and the fetched Documents
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/incarnamind-eval
+          key: incarnamind-everyday-${{ hashFiles('src/core/embedding/model.ts', 'src/core/reranking/model.ts') }}
+      - name: Upload the summary and the reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-real-model
+          path: eval/results/nightly-real-model/
+          if-no-files-found: ignore
+          retention-days: 30

@@ -102,6 +102,13 @@ Web search gives an Answer two Tools of IncarnaMind's own, offered only when the
 
 An edit the User asks for applies at once, with one Undo and a line over it saying what changed: one started on the text (Edit with AI, the selection menu's AI actions), and one asked of the assistant to write into a Mind or change it, whose requests `routeRequest` tags. Changes the User didn't ask for stay Proposals, and so does what the guards hold back: an edit that would remove most of the selection without mapping onto it, or an assistant change that would take out most of the User's own text. The core still writes every AI change as Proposals; the window that asked accepts them, and they stay Proposals otherwise.
 
+## Amendment, 2026-10-21: the model decides, and the assistant's changes apply at once (#1559)
+
+The 2026-10-16 amendment's tagging by `routeRequest` is gone: keywords couldn't cover how Users ask ("帮我总结一下这个知识库" fell through), and requests it left unclear were answered in the panel. Every turn in the assistant now has the Minds' Tools, and the model decides by one rule in its instructions: a piece of writing goes into the empty Mind in front or a new Mind, a change to the User's text is made in place, and a question is answered in the reply.
+
+- **Every change the assistant makes applies at once,** in every Mind it touches, with one Undo, and the Answer's line says so. A change in a second Mind no longer waits. The guard still holds back an assistant change that would take out most of the User's own text, and a rewrite over words the User typed since. The core still writes them as Proposals, tagged by what they are (written or edited); the window that asked accepts them.
+- **A claim needs its command.** A reply that says it wrote or changed something no call did, or names a fix or a count its edits didn't make, is asked about once, with the record of what the calls did, where a change that applies at once reads as applied. If it still claims it, the reply stays, with a line under it that says nothing was written, or that not every change it describes was made, and Try again.
+
 ## Amendment, 2026-10-18: model-written code in a sandbox runs without asking (ADR-0023)
 
 Code a model writes for an analysis runs in Pyodide, in a hidden, sandboxed renderer with no network, no Node and no files (ADR-0023). That is a new Effect scope, **sandboxed code**, which runs without asking. It needs no ask because its only inputs are values cited from the Documents, which reading already does without asking, and it can neither write a file nor send anything. The OS sandbox's levels above stay as they are for the processes a Tool starts; this sandbox is Chromium's, and runs on Windows too.

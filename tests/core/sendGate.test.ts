@@ -7,12 +7,15 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import type { Consent } from "../../src/core/consent";
+import { LocalModeError } from "../../src/core/errors";
+import { createSendGate } from "../../src/core/sendGate";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { answerIn, answerText, question, writeMind } from "../helpers/minds";
-import { scriptedModel, scriptedModels } from "../helpers/models";
+import { replyingModel, scriptedModel, scriptedModels } from "../helpers/models";
 
 const OPENAI = "https://api.openai.com";
 const ANSWER = "The tides come twice a day[^1].";
@@ -150,5 +153,34 @@ describe("Turning off the chat flow while an Answer is written (#1114)", () => {
 
     expect(await answerEnded(core, asked.answerId)).toMatchObject({ event: "finished" });
     expect(model.doStreamCalls).toHaveLength(2);
+  });
+});
+
+describe("A key test's model at the gate", () => {
+  const prompt = [{ role: "user" as const, content: [{ type: "text" as const, text: "Hi" }] }];
+  const consent = { onThisComputer: () => false } as unknown as Consent;
+  const service = { id: OPENAI, name: "OpenAI" };
+
+  test("is stopped in Local mode, streamed or not, before the model sees a request, and by nothing else", async () => {
+    let localOnly = true;
+    const gate = createSendGate(consent, () => localOnly);
+    const model = replyingModel();
+    const tested = gate.testModel(model, service);
+
+    await expect(tested.doGenerate({ prompt })).rejects.toThrow(LocalModeError);
+    await expect(tested.doStream({ prompt })).rejects.toThrow(LocalModeError);
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(model.doStreamCalls).toHaveLength(0);
+
+    localOnly = false;
+    await tested.doGenerate({ prompt });
+    expect(model.doGenerateCalls).toHaveLength(1);
+  });
+
+  test("a model on this computer is not wrapped", () => {
+    const gate = createSendGate(consent, () => true);
+    const model = replyingModel();
+
+    expect(gate.testModel(model, null)).toBe(model);
   });
 });

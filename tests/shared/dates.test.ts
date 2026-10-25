@@ -4,6 +4,7 @@ import {
   formatDate,
   formatDateTime,
   formatDay,
+  formatLongDay,
   formatMonth,
   formatShortDate,
   formatTime,
@@ -56,6 +57,14 @@ describe("the table", () => {
     expect(formatWeekdayDate("2026-10-09T10:42:00Z", "en", UTC)).toBe("Friday 9 Oct");
     expect(formatWeekdayDate("2026-10-09T10:42:00Z", "zh-CN", UTC)).toBe("10月9日星期五");
     expect(formatWeekdayDate("2025-12-31T09:05:00Z", "en", UTC)).toBe("Wednesday, 31 Dec 2025");
+  });
+
+  test("Long day: the weekday and the day in full, as Home's header shows today", () => {
+    expect(formatLongDay("2026-10-19T09:30:00Z", "en", UTC)).toBe("Monday 19 October");
+    expect(formatLongDay("2026-10-19T09:30:00Z", "zh-CN", UTC)).toBe("10月19日 星期一");
+    expect(formatLongDay("2025-12-31T09:05:00Z", "en", UTC)).toBe("Wednesday 31 December 2025");
+    expect(formatLongDay("2025-12-31T09:05:00Z", "zh-CN", UTC)).toBe("2025年12月31日 星期三");
+    expect(formatLongDay("not a date", "en", UTC)).toBe("");
   });
 
   test("a date known to the month or to the year", () => {

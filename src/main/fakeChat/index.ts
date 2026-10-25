@@ -3,18 +3,24 @@
  * test builds (`electron-vite build --mode test`) contain this file, and only
  * `INCARNAMIND_FAKE_CHAT=1` turns it on.
  *
- * A Question with "blank reply" in it gets a reply with no text at all. A model whose id ends
+ * A Question with "blank reply" in it gets a reply with no text at all. One with "refused request"
+ * in it is refused as a provider refuses a request it can't take (HTTP 400), quoting it; one with
+ * "overloaded" in it fails the first time it is asked, as its reply begins, as Anthropic's
+ * "Overloaded" does. One with "out of credit", "wrong key", "too many requests" or "no connection"
+ * in it fails as OpenAI answers an account with no credit (HTTP 429), a key it doesn't know (401)
+ * and a rate limit (429) do, and as a request that never reaches the provider does. A model whose id ends
  * "-not-found" fails as one its provider doesn't know when it answers; one ending "-claims-not-found"
  * does when it finds or checks claims; one ending "-claims-offline" can't reach its provider the
  * first time it finds claims. A key with "refused" in it is refused,
  * as a provider refuses a wrong key (HTTP 401). A model whose id ends "-no-tools" refuses
  * Tools and structured output, as a small server model does, so its Answers have no Citations.
  * A Document whose text says "slowly" takes a moment to tag or organize; one whose text says "unreachable"
- * can't reach the model the first time it is tagged (nor on the retry that follows), and one that says
+ * can't reach the model the first time it is tagged or organized (nor on the retry that follows; one that
+ * says "stays unreachable" never can), and one that says
  * "rate-limited" meets its rate limit.
  */
 
-import { APICallError } from "ai";
+import { APICallError, StreamProviderError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
@@ -52,9 +58,27 @@ const HOLD_MS = 120_000;
 /** Between two words of Edit with AI's new text: a passage takes a moment, not seconds. */
 const EDIT_WORD_MS = 10;
 
+const QUESTION_FAILURES: readonly {
+  when: RegExp;
+  status?: number;
+  message: string;
+  type?: string;
+}[] = [
+  {
+    when: /\bout of credit\b/i,
+    status: 429,
+    message: "You exceeded your current quota, please check your plan and billing details.",
+    type: "insufficient_quota",
+  },
+  { when: /\bwrong key\b/i, status: 401, message: "Incorrect API key provided." },
+  { when: /\btoo many requests\b/i, status: 429, message: "Rate limit reached for requests" },
+  { when: /\bno connection\b/i, message: "Cannot connect to API: fetch failed" },
+];
+
 /** The cells whose provider has refused them once already ("busy" in the Question). */
 const refusedOnce = new Set<string>();
 const offline = new Set<string>();
+const overloadedOnce = new Set<string>();
 
 /**
  * The scripted replies to a request that doesn't ask for JSON, in order: the first that
@@ -180,6 +204,44 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
           isRetryable: false,
         });
       }
+      const question = lastQuestion(prompt);
+      if (/refused request/i.test(question)) {
+        throw new APICallError({
+          message: `messages.0.content: "${question}" can't be taken`,
+          url: "https://fake.invalid/chat",
+          requestBodyValues: {},
+          statusCode: 400,
+        });
+      }
+      const scripted = QUESTION_FAILURES.find(({ when }) => when.test(question));
+      if (scripted) {
+        const { status, message, type } = scripted;
+        throw new APICallError({
+          message,
+          url: "https://fake.invalid/chat",
+          requestBodyValues: {},
+          ...(status && { statusCode: status }),
+          ...(type && { responseBody: JSON.stringify({ error: { message, type, code: type } }) }),
+          isRetryable: false,
+        });
+      }
+      if (/\boverloaded\b/i.test(question) && !overloadedOnce.has(question)) {
+        overloadedOnce.add(question);
+        const overloaded = new StreamProviderError({
+          message: "Overloaded",
+          type: "overloaded_error",
+          statusCode: 529,
+        });
+        return {
+          stream: new ReadableStream<StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] });
+              controller.enqueue({ type: "error", error: overloaded });
+              controller.close();
+            },
+          }),
+        };
+      }
       const search = tools?.find((each) => each.type === "provider");
       const edit = search ? null : fakeEdit(prompt);
       const parts = search
@@ -206,6 +268,15 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
             });
           }
           if (slow && part.type === "stream-start") await wait(SLOW_STEP_MS);
+          // A slow cell's words stand a moment before its Answer ends, for a test to see them.
+          if (
+            slow &&
+            part.type === "finish" &&
+            part.finishReason.unified === "stop" &&
+            isCell(prompt)
+          ) {
+            await wait(SLOW_STEP_MS);
+          }
           if (part.type === "text-delta" || part.type === "tool-input-delta") {
             await wait(slow ? SLOW_WORD_MS : edit ? EDIT_WORD_MS : WORD_DELAY_MS);
           }

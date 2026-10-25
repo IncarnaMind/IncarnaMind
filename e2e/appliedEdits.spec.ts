@@ -104,7 +104,8 @@ test("⌘J applies the change at once as AI text, with Changed 1 paragraph · Un
   await expect(line).toContainText(/Undo(⌘Z|Ctrl\+Z)/);
   await expect(line.getByTestId("applied-review")).toHaveText("Review changes");
   await expect(line).toHaveAttribute("title", "Why: Changed as you asked.");
-  await expect(window.getByTestId("undo-message")).toHaveText("Changed 1 paragraph");
+  // Its Undo is under the paragraph, not at the sidebar's foot as well.
+  await expect(window.getByTestId("undo-message")).toHaveCount(0);
   // Over the Block it changed.
   const lineBox = await line.boundingBox();
   const noteBox = await note.boundingBox();
@@ -288,8 +289,14 @@ test("an edit that would remove most of what was selected, and can't be mapped o
   await expect(line.getByTestId("applied-discard")).toHaveText("放弃");
   await setLanguage(window, "en");
 
+  // A screen reader hears the change the cursor is in, and no more once the cursor is out of it.
+  const spoken = window.getByTestId("proposal-spoken");
+  await pointAndClick(window, editor.locator("ins.proposal-insert").first());
+  await expect(spoken).toContainText("Suggested change");
+
   // Typing elsewhere leaves it waiting for its own Apply or Discard, not for Accept all.
   await pointAndClick(window, paragraphs.last());
+  await expect(spoken).not.toContainText("Suggested change");
   await window.keyboard.press("End");
   await window.keyboard.type(" tide tables");
   await expect(paragraphs.last()).toHaveText("Notes: tide tables");
@@ -310,6 +317,7 @@ test("an edit that would remove most of what was selected, and can't be mapped o
     "Notes: tide tables",
   ]);
   await expect(line.getByTestId("applied-count")).toHaveText(/^Changed \d+ paragraphs?$/);
+  await expect(spoken).toHaveText(/^Changed \d+ paragraphs?$/);
   await editor.focus();
   await window.keyboard.press("ControlOrMeta+z");
   await expect(paragraphs).toHaveText([FIRST, SECOND, THIRD, "Notes: tide tables"]);
@@ -522,6 +530,7 @@ test("by the keyboard alone: ⌘J, Review changes from ⌘K, ⌘⌫ restores the
   await expect(heldLine.getByTestId("applied-apply")).toBeVisible();
   await fromPalette(window, "edit.applyHeld", "Apply the waiting edit");
   await expect(heldLine.getByTestId("applied-count")).toHaveText(/^Changed \d+ paragraphs?$/);
+  await expect(window.getByTestId("proposal-spoken")).toHaveText(/^Changed \d+ paragraphs?$/);
   await expect(held.paragraphs).toHaveText([
     "Gulls wheel, crying",
     "salt wind on stone",

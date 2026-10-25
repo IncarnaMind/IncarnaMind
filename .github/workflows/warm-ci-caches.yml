@@ -1,0 +1,47 @@
+name: Warm CI caches
+
+# Only a run on main saves a cache that every pull request and merge group reads; one saved by a
+# pull request or a merge group is read by that ref alone. So ci.yml restores the apt packages'
+# files and never saves them, and this workflow saves them: when it changes, and every day, which
+# also picks up a new runner image within a day of its roll-out.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/actions/apt-install/**
+      - .github/workflows/warm-ci-caches.yml
+  schedule:
+    - cron: "41 3 * * *"
+  # A pull request that changes the action or this file warms its own ref, to show they work.
+  pull_request:
+    paths:
+      - .github/actions/apt-install/**
+      - .github/workflows/warm-ci-caches.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-ci-caches-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  apt:
+    name: Apt files of ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    # A cold install on a slow mirror takes about half an hour.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # The packages ci.yml installs with the apt-install action.
+        package: [fonts-noto-cjk, ffmpeg, libreoffice-writer, libreoffice-calc]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github
+      - uses: ./.github/actions/apt-install
+        with:
+          package: ${{ matrix.package }}
+          warm: "true"

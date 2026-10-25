@@ -4,7 +4,12 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { ANSWER_BLOCK, MIND_SETTINGS_FIELD, QUESTION_BLOCK } from "../../src/core";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { mindModelOf, observeMindModel, setMindModel } from "../../src/shared/mindModel";
+import {
+  mindModelOf,
+  modelInUse,
+  observeMindModel,
+  setMindModel,
+} from "../../src/shared/mindModel";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { note, question, readMind, writeMind } from "../helpers/minds";
@@ -172,5 +177,25 @@ describe("Minds written before the composer", () => {
     expect(Y.encodeStateVector(reader.doc)).toEqual(before);
     // And they have no model of their own: they follow the default for new Minds.
     expect(mindModelOf(reader.doc)).toBeNull();
+  });
+});
+
+describe("the model in use", () => {
+  const own = { providerId: "own", modelId: "own-model" };
+  const last = { providerId: "last", modelId: "last-model" };
+  const fallback = { providerId: "default", modelId: "default-model" };
+  const all = () => true;
+
+  test("is the Mind's own pick, else the last pick, else the Answers default", () => {
+    expect(modelInUse({ own, last, fallback }, all)).toEqual(own);
+    expect(modelInUse({ own: null, last, fallback }, all)).toEqual(last);
+    expect(modelInUse({ own: null, last: null, fallback }, all)).toEqual(fallback);
+    expect(modelInUse({ own: null, last: null, fallback: null }, all)).toBeNull();
+  });
+
+  test("skips a pick on a provider that is no longer saved, down the chain", () => {
+    expect(modelInUse({ own, last, fallback }, (id) => id !== "own")).toEqual(last);
+    expect(modelInUse({ own, last, fallback }, (id) => id === "default")).toEqual(fallback);
+    expect(modelInUse({ own: null, last, fallback }, (id) => id !== "last")).toEqual(fallback);
   });
 });

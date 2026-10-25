@@ -1,15 +1,16 @@
 /**
- * What the User asked the assistant to write or change applies at once
- * (#880), in the window whose Question asked for it, written or written
- * again. The core tags the requests of such a turn
- * (`ProposalRequest.requested`); their changes read as applied in the Mind
+ * What the assistant writes or changes applies at once (#880, #1559), in
+ * the window whose Question asked for it, written or written again. The core
+ * tags each of its requests (`ProposalRequest.requested`); their changes read as applied in the Mind
  * as they arrive, and a Mind not in view opens in a tab beside the one in
  * focus, never in its place. Once the Answer has ended, each Mind's are
  * applied in one step of its Undo, with the line over them saying what the
  * Answer's card says (`applyArrived`); the card then follows that step as
- * the User undoes and redoes in the Mind. Changes the User didn't ask for
- * wait, as before.
+ * the User undoes and redoes in the Mind. A Mind that isn't open in an
+ * editor, such as a second one the turn changed, applies them once it opens.
  */
+import type { EditorState } from "@tiptap/pm/state";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { useCallback, useSyncExternalStore } from "react";
 import type * as Y from "yjs";
 import { create } from "zustand";
@@ -25,7 +26,8 @@ import { applyingIn, editorDoc, setApplying } from "./editor/proposalReview";
 import { openMindCopy } from "./mindCopies";
 import { useAppStore } from "./store";
 
-export type AskedOutcome = "applied" | "held";
+/** "opening": its Mind isn't open in an editor yet, so its changes apply once it is (Open on its line). */
+export type AskedOutcome = "applied" | "held" | "opening";
 
 interface AskedChangesState {
   /** By Answer, then by Mind: whether the changes the User asked for there applied or wait. */
@@ -54,7 +56,11 @@ const asked = new Map<string, Asked>();
 const askedHere = new Set<string>();
 const seen = new Set<string>();
 
-const OPEN_WAIT_MS = 10_000;
+/** Whether this window has a Question in flight whose request, as the Mind's record has it, asks for these changes. */
+export function askedInThisWindow(state: EditorState, request: string): boolean {
+  const doc = ySyncPluginKey.getState(state)?.binding?.doc;
+  return askedHere.size > 0 && doc !== undefined && askedFor(doc, request);
+}
 
 const keyOf = (answerId: string, mindId: string) => `${answerId} ${mindId}`;
 
@@ -152,21 +158,43 @@ function follow(answer: ConversationAnswer, row: ChangedMind): void {
   });
 }
 
-async function finish(answer: ConversationAnswer): Promise<void> {
-  for (const row of changedMinds(answer)) {
-    const editor = mindEditor(row.mindId) ?? (await whenMindEditor(row.mindId, OPEN_WAIT_MS));
-    const doc = editor && editorDoc(editor);
-    if (!editor || !doc) continue;
-    const requests = askedOf(doc, row);
-    if (requests.size === 0) continue;
-    const calls = answer.toolCalls.filter(
-      (call) => call.mindChange && requests.has(call.mindChange.request),
+/** Each Mind's changes apply at once where it is open; one not open in front applies once it opens. */
+const finish = (answer: ConversationAnswer): Promise<unknown> =>
+  Promise.all(changedMinds(answer).map((row) => finishIn(answer, row)));
+
+async function finishIn(answer: ConversationAnswer, row: ChangedMind): Promise<void> {
+  let editor = mindEditor(row.mindId);
+  if (!editor) {
+    setOutcome(
+      {
+        answerId: answer.id,
+        mindId: row.mindId,
+        requests: new Set(row.requests),
+        facts: row,
+        applied: null,
+      },
+      "opening",
     );
-    const [facts = row] = changedMinds({ toolCalls: calls });
-    const each: Asked = { answerId: answer.id, mindId: row.mindId, requests, facts, applied: null };
-    asked.set(keyOf(answer.id, row.mindId), each);
-    if (applyArrived(editor, row.mindId, requests, facts) === "held") setOutcome(each, "held");
+    editor = await whenMindEditor(row.mindId, null);
   }
+  const doc = editor && editorDoc(editor);
+  if (!editor || !doc) return;
+  const requests = askedOf(doc, row);
+  if (requests.size === 0) {
+    // Only changes that wait, which the card lists as waiting.
+    useAskedChanges.setState((state) => {
+      const { [row.mindId]: _gone, ...rest } = state.outcomes[answer.id] ?? {};
+      return { outcomes: { ...state.outcomes, [answer.id]: rest } };
+    });
+    return;
+  }
+  const calls = answer.toolCalls.filter(
+    (call) => call.mindChange && requests.has(call.mindChange.request),
+  );
+  const [facts = row] = changedMinds({ toolCalls: calls });
+  const each: Asked = { answerId: answer.id, mindId: row.mindId, requests, facts, applied: null };
+  asked.set(keyOf(answer.id, row.mindId), each);
+  if (applyArrived(editor, row.mindId, requests, facts) === "held") setOutcome(each, "held");
 }
 
 onAskedApplied((mindId, requests, applied) => {
@@ -199,11 +227,6 @@ export function useAskedState(answerId: string, mindId: string): AskedState {
 export function undoAsked(answerId: string, mindId: string): void {
   const followed = asked.get(keyOf(answerId, mindId))?.applied?.followed;
   if (followed?.onTop()) followed.undo();
-}
-
-export async function reviewAsked(answerId: string, mindId: string): Promise<void> {
-  await useAppStore.getState().openMind(mindId);
-  asked.get(keyOf(answerId, mindId))?.applied?.review();
 }
 
 core.on("conversation.message", (message) => {

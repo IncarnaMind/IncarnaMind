@@ -48,10 +48,12 @@ function lineFor(passages: readonly ShownPassage[], question: string) {
 /**
  * A model that writes cells as a careful one does: it searches the Question,
  * cites the line that answers it and answers with that line, or replies
- * NOT_FOUND when the Document has none. `before` may answer a request first.
+ * NOT_FOUND when the Document has none. `before` may answer a request first;
+ * `hold` keeps each cell's last words from finishing until it resolves.
  */
 export function cellModel(
   before?: (call: ModelCall, asked: ReturnType<typeof cellAsked>) => ScriptedReply | null,
+  hold?: Promise<void>,
 ) {
   return scriptedModel((call) => {
     const asked = cellAsked(call);
@@ -74,7 +76,8 @@ export function cellModel(
       };
     }
     const value = (found.line.split(": ")[1] ?? found.line).replace(/\.$/, "");
-    return { text: `${value} [^1]` };
+    const text = `${value} [^1]`;
+    return hold ? { text, pause: { after: text.length, until: hold } } : { text };
   });
 }
 

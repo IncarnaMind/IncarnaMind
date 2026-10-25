@@ -709,7 +709,7 @@ describe("When Questions can't be answered", () => {
         payload: {
           mindId: mind.id,
           answerId,
-          error: { kind, message: expect.stringContaining(message) },
+          error: { kind, message: expect.stringContaining(message), status },
         },
       });
       expect(answerIn(reader, answerId).attrs).toMatchObject({
@@ -803,6 +803,39 @@ describe("When Questions can't be answered", () => {
       readiness: { ready: false, reason: "consent-declined" },
     });
     expect(model.doStreamCalls).toEqual([]);
+  });
+
+  test("a Question refused for a decline is answered once the service is allowed in Settings, and not before (#1297)", async () => {
+    const model = streamingModel("Answered after the allowance.");
+    const models = scriptedModels(model);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: models.createChatModel,
+    });
+    await saveProviderUnasked(core, { kind: "openai", apiKey: "sk-test", modelId: "gpt-test" });
+    const stopDeclining = core.on(
+      "consent.requested",
+      (request) => void core.respondToConsent(request.requestId, false),
+    );
+    const mind = await core.createMind();
+    const writer = await connectToMind(core, mind.id);
+    const asked = question("Can I ask this after all?");
+    writeMind(writer, [asked]);
+    await writer.settled();
+
+    const declined = await ask(core, mind.id, asked.attrs.id);
+    expect(await answerEnded(core, declined)).toMatchObject({ event: "failed" });
+    stopDeclining();
+    expect(model.doStreamCalls).toEqual([]);
+
+    await core.allowDataFlow("chat", "https://api.openai.com");
+    const requests: string[] = [];
+    core.on("consent.requested", (request) => requests.push(request.flow.service.id));
+    const answerId = await ask(core, mind.id, asked.attrs.id);
+    expect(await answerEnded(core, answerId)).toMatchObject({ event: "finished" });
+    expect(requests).toEqual([]);
+    expect(models.specs).toHaveLength(1);
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(answerIn(writer, answerId).attrs).toMatchObject({ status: "done" });
   });
 });
 

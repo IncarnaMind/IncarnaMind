@@ -7,6 +7,7 @@ import { TableIcon } from "../editor/icons";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import {
+  ChevronDownLineIcon,
   ChevronRightLineIcon,
   DocumentLineIcon,
   FindSourcesLineIcon,
@@ -18,7 +19,7 @@ import {
   RecordingLineIcon,
   VerifyLineIcon,
 } from "./lineIcons";
-import { iconButtonClass, menuClass, menuItemClass } from "./ui";
+import { iconButtonClass, menuClass, menuItemClass, primaryButtonClass } from "./ui";
 import { usePopoverMenu, useSubmenu } from "./usePopoverMenu";
 
 interface NewItem {
@@ -71,11 +72,16 @@ const MORE_ITEMS: readonly NewItem[] = [
 
 const WINDOW: CommandContext = { selection: [], focus: null, surface: "sidebar" };
 
-/** Each item runs the command ⌘K lists, with its keys, so the two can't drift apart. */
-export function NewMenu() {
+/**
+ * The one New menu, opened by the sidebar header's + or by the ▾ beside Home's New Mind
+ * (`place`). Each item runs the command ⌘K lists, with its keys, so the two can't drift apart.
+ */
+export function NewMenu({ place = "sidebar" }: { place?: "sidebar" | "home" }) {
   const t = useT();
-  const menu = usePopoverMenu();
+  const menu = usePopoverMenu(place === "home" ? { align: "end" } : {});
   const more = useSubmenu();
+  // Both can be in the window at once: Home's carry their own names for tests.
+  const testId = (name: string) => (place === "home" ? `home-${name}` : name);
   const picking = useAppStore((state) => state.pickingDocuments);
 
   const entryOf = (each: NewItem) => {
@@ -97,7 +103,7 @@ export function NewMenu() {
         key={each.testId}
         type="button"
         role="menuitem"
-        data-testid={each.testId}
+        data-testid={testId(each.testId)}
         disabled={each === ADD_DOCUMENTS && picking}
         onClick={() => {
           menu.close();
@@ -114,21 +120,34 @@ export function NewMenu() {
 
   return (
     <>
-      <button
-        {...menu.buttonProps}
-        type="button"
-        data-testid="plus-menu"
-        aria-label={t("sidebar.plus")}
-        title={t("sidebar.plus")}
-        className={`${iconButtonClass} text-ink-secondary`}
-      >
-        <PlusLineIcon className="size-4" />
-      </button>
+      {place === "home" ? (
+        <button
+          {...menu.buttonProps}
+          type="button"
+          data-testid="home-new-menu"
+          aria-label={t("home.newMind.more")}
+          title={t("home.newMind.more")}
+          className={`${primaryButtonClass} w-8 rounded-l-none px-0`}
+        >
+          <ChevronDownLineIcon className="size-3.5" />
+        </button>
+      ) : (
+        <button
+          {...menu.buttonProps}
+          type="button"
+          data-testid="plus-menu"
+          aria-label={t("sidebar.plus")}
+          title={t("sidebar.plus")}
+          className={`${iconButtonClass} text-ink-secondary`}
+        >
+          <PlusLineIcon className="size-4" />
+        </button>
+      )}
       <div
         {...menu.menuProps}
         role="menu"
         aria-label={t("sidebar.plus")}
-        data-testid="plus-menu-items"
+        data-testid={testId("plus-menu-items")}
         className={menuClass}
       >
         {/* Made as it opens: what each command offers is read then. */}
@@ -138,7 +157,7 @@ export function NewMenu() {
             <button
               {...more.itemProps}
               type="button"
-              data-testid="plus-more"
+              data-testid={testId("plus-more")}
               className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
             >
               <MoreLineIcon className="size-4 shrink-0 text-ink-meta" />
@@ -152,7 +171,7 @@ export function NewMenu() {
         {...more.menuProps}
         role="menu"
         aria-label={t("sidebar.plus.more")}
-        data-testid="plus-more-menu"
+        data-testid={testId("plus-more-menu")}
         className={menuClass}
       >
         {menu.open && MORE_ITEMS.map(item)}
