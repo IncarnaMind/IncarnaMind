@@ -81,6 +81,30 @@ describe("the repeated checks", () => {
     expect(outcomeOf(undefined)).toBe("no-mark");
   });
 
+  test("say Unsupported, not Not found, for a check that found a Passage about the sentence and quotes none", () => {
+    const found = mark({
+      unsupported: { reason: null, covered: null, uncovered: null, found: true },
+    });
+    expect(outcomeOf(found)).toBe("unsupported");
+    expect(meetsExpected({ outcome: outcomeOf(found), expected: "absent" })).toBe(false);
+    expect(meetsExpected({ outcome: outcomeOf(found), expected: "unsupported" })).toBe(true);
+
+    const absent = mark({});
+    expect(outcomeOf(absent)).toBe("absent");
+    expect(meetsExpected({ outcome: outcomeOf(absent), expected: "absent" })).toBe(true);
+
+    const partly = mark({
+      unsupported: {
+        reason: null,
+        covered: "two days a week",
+        uncovered: "all staff",
+        found: true,
+        quoted: QUOTE,
+      },
+    });
+    expect(outcomeOf(partly)).toBe("partly");
+  });
+
   test("count false Supported, absent on a stated sentence, and checks that differ from the one before", () => {
     const [summary] = summarise([
       row(1, "notice", "supported"),

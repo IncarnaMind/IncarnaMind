@@ -118,3 +118,10 @@ A rewrite of an Answer's text is written over the Blocks it changes (#1873), and
 - **Entries are kept for good.** An entry stays after the change is accepted, rejected or applied at once: History can bring back any earlier version of the Mind, with the change waiting again, and restoring it rejects that change, which needs the earlier origin. The map grows by one origin per Block a change was written over, the same size as that Block's own entry in `origins`, which also keeps entries for Blocks deleted since.
 - **No schema version.** An older version keeps the map as it is and leaves `origins` as the change set them: its Reject keeps the rewriting Answer's origin, as before, and no text is lost. It raises no content schema version.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: whether a check found a Passage about the sentence (2026-10-25, #1608)
+
+A check that can quote nothing says what it did find, so a sentence whose topic the Documents are about shows as Unsupported, never as Not found.
+
+- **Content schema version 29** adds `found` to a check's `unsupported` reason on the `claimCheck` mark: true when the check found a Passage about the sentence that doesn't back it. An older version's editor would strip it and read such a sentence as Not found, so it opens these Minds read-only. Older content is version 29 content as it is.
+- **No table, no migration.** Nothing outside the Mind's Yjs document changes.
