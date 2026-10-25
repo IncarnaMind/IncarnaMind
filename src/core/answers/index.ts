@@ -146,6 +146,7 @@ import { scriptCallInput, skillTools } from "../skills/tools";
 import { asksForSources } from "../sources/intent";
 import { inFlow } from "../timing/flows";
 import {
+  ASK_TOOLS,
   COMMAND_TOOLS,
   DOCUMENT_TOOLS,
   MIND_TOOLS,
@@ -2040,7 +2041,20 @@ export function createAnswers(options: AnswersOptions) {
                 questions.ask({ ...place, answerId, toolCallId, question }, signal),
               recorded: (toolCallId: string, question: UserQuestion) => {
                 userQuestions.set(toolCallId, question);
-                const call = toolCalls.find((each) => each.id === toolCallId);
+                let call = toolCalls.find((each) => each.id === toolCallId);
+                // The question reaches the User before the Run's card of its call can: the
+                // Answer keeps it, so it is still there when the Answer stops at the question.
+                if (!call && !finished) {
+                  callStarted({
+                    id: toolCallId,
+                    tool: ASK_TOOLS.ask,
+                    source: "asks",
+                    input: {},
+                    status: "running",
+                    resultCount: null,
+                  });
+                  call = toolCalls.find((each) => each.id === toolCallId);
+                }
                 if (finished || !call) return;
                 call.asked = question;
                 writeSoon();
