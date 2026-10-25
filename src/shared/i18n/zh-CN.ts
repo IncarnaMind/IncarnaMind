@@ -673,6 +673,8 @@ export const zhCN = {
   "claim.replaceCitation.doesntSupport": "原引用不支持这句话",
   "claim.calculated.title": "根据你的文档计算得出",
   "claim.calculated.stated": "这句话写的是 {stated}。",
+  "claim.calculated.stated.at most": "这句话写的是不超过 {stated}。",
+  "claim.calculated.stated.at least": "这句话写的是不低于 {stated}。",
   "claim.calculated.inputs": "计算所用的数字",
   "claim.calculated.negative": "按负数计算",
   "claim.useFigure": "改为 {figure}",
@@ -3503,6 +3505,10 @@ export const zhCN = {
   "export.comment.sentence.contradicted": "与文档矛盾：{says}",
   "export.comment.sentence.contradicted.worked":
     "与文档矛盾：根据文档算出 {shown}，句子里写的是 {stated}。",
+  "export.comment.sentence.contradicted.worked.at most":
+    "与文档矛盾：根据文档算出 {shown}，句子里写的是不超过 {stated}。",
+  "export.comment.sentence.contradicted.worked.at least":
+    "与文档矛盾：根据文档算出 {shown}，句子里写的是不低于 {stated}。",
   "export.comment.sentence.contradicted.plain": "与文档矛盾。",
   "export.comment.sentence.unsupported": "无依据：未在“{scope}”中找到。",
   "export.comment.sentence.unsupported.more": "无依据：未在“{scope}”等 {total} 项中找到。",

@@ -415,6 +415,15 @@ export const MIND_PROPOSAL_REQUESTS_FIELD = "proposalRequests";
 export const MIND_REVISIONS_FIELD = "revisions";
 
 /**
+ * The name of the Y.Map, beside a Mind's Blocks, that keeps by request the origin
+ * (`MIND_ORIGINS_FIELD`) each Block had before that request's change gave it its own: a change
+ * written over Blocks keeps their ids, so rejecting it in a Block puts that origin back
+ * (`restoreOrigins`). Entries are kept for good: History can bring back a version from
+ * before any decision. An older version leaves it as it is and keeps the new origin (ADR-0003).
+ */
+export const MIND_REPLACED_ORIGINS_FIELD = "replacedOrigins";
+
+/**
  * What a change the assistant made in a Mind was (#880, #1559): text changed
  * ("make it longer") or written ("write a summary page"); such a change applies
  * at once, with Undo. Absent: one that waits for the User, such as a revision
@@ -4967,6 +4976,9 @@ export interface LeftOutDocument {
   reason: EvidenceExclusion;
 }
 
+/** How a sentence's number bounds a figure: it is a limit the figure stays within, or above. */
+export type LimitRelation = "at most" | "at least";
+
 /**
  * How a check worked out a figure the sentence states but the Documents don't
  * (#707): the figure, calculated from numbers they state (ADR-0021), and the
@@ -4977,6 +4989,11 @@ export interface ClaimCalculation {
   figure: CalculatedFigure;
   /** The number as the sentence writes it: "1.1x". */
   stated: string;
+  /**
+   * The sentence's number is a limit the figure stays within ("inside a 3.25x covenant": at most)
+   * or above (at least), rather than the figure itself (#1908). Absent: it is the figure.
+   */
+  relation?: LimitRelation;
   /**
    * Whether they agree. One that doesn't contradicts the sentence; one that
    * does settles only that number, and a Passage may still contradict the rest.
