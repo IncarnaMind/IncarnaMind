@@ -14,7 +14,8 @@ export function useHeld(element: RefObject<HTMLElement | null>): boolean {
     const release = (event: Event) => {
       if (event.type === "focusout" && node.contains((event as FocusEvent).relatedTarget as Node))
         return;
-      setHeld(node.matches(":hover"));
+      // The pointer leaving doesn't release a focus that is still in it, nor the other way round.
+      setHeld(node.matches(":hover") || node.contains(document.activeElement));
     };
     node.addEventListener("pointerenter", hold);
     node.addEventListener("pointerleave", release);

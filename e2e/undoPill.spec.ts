@@ -176,6 +176,15 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(pill).toBeVisible();
       await window.clock.fastForward("00:02");
       await expect(pill).toHaveCount(0);
+
+      // The keyboard focus in it keeps it too, with the pointer elsewhere: Tab reaches its Undo.
+      await renameInTab(window, `Tides ${language} held again`);
+      await expect(pill).toBeVisible();
+      await pill.getByTestId("undo-action").focus();
+      await window.clock.fastForward("00:30");
+      await expect(pill).toBeVisible();
+      await window.keyboard.press("Escape");
+      await expect(pill).toHaveCount(0);
     } finally {
       await app.close();
     }
