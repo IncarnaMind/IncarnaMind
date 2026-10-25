@@ -1,5 +1,6 @@
 import { type RefObject, useContext, useLayoutEffect, useRef } from "react";
 import { useFade } from "../motion";
+import { useAppStore } from "../store";
 import { type UndoLineState, useUndo } from "../undo";
 import {
   fitsLeftOfText,
@@ -20,8 +21,10 @@ export function UndoPill() {
   const sidebar = useContext(SidebarControlContext);
   const line = useUndo((state) => state.line);
   const place = useRef<HTMLDivElement>(null);
+  // The pill is at the card's left, over the first group: its page is the one it must clear.
+  const tabId = useAppStore((state) => state.layout?.groups[0]?.activeTabId ?? null);
   const shown = showsUndoPill(sidebar) && line !== null && !line.change?.shownAt;
-  usePillBand(place, shown, shown && line ? line.id : null);
+  usePillBand(place, shown, shown && line ? line.id : null, tabId);
   if (!showsUndoPill(sidebar)) return null;
   return (
     <div
@@ -40,6 +43,7 @@ function usePillBand(
   place: RefObject<HTMLDivElement | null>,
   shown: boolean,
   lineId: number | null,
+  tabId: string | null,
 ) {
   useLayoutEffect(() => {
     const anchor = place.current;
@@ -80,7 +84,7 @@ function usePillBand(
     const scroller = group?.querySelector<HTMLElement>(".mind-scroller");
     if (scroller) watch.observe(scroller);
     return () => watch.disconnect();
-  }, [shown, lineId, place.current]);
+  }, [shown, lineId, tabId, place.current]);
 }
 
 function groupUnder(card: HTMLElement, pill: DOMRect): HTMLElement | null {
