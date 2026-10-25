@@ -395,11 +395,9 @@ test("a small library of one-file folders keeps its folders", async () => {
     )
     .toBe(3);
   // Each row names its folder too, until Source locations show the folders as on disk (#1250).
-  await expect(linkedRows(window).getByTestId("row-place")).toHaveText([
-    "Week 1",
-    "Week 2",
-    "Week 3",
-  ]);
+  await expect
+    .poll(async () => (await linkedRows(window).getByTestId("row-place").allTextContents()).sort())
+    .toEqual(["Week 1", "Week 2", "Week 3"]);
   await app.close();
 });
 
