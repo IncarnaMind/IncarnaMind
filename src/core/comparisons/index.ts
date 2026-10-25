@@ -111,6 +111,8 @@ export interface ComparisonTasks {
   /** Unfinished Tasks, with their kind and input. */
   unfinished(): readonly { id: string; kind: string; mindId: string | null; input: unknown }[];
   isLive(taskId: string): boolean;
+  /** Renames what a Task fills, so a run resumed after a quit fills those columns too. */
+  updateInput(taskId: string, input: ComparisonTaskInput): void;
   resume(taskId: string): Promise<unknown>;
   stop(taskId: string): Promise<unknown>;
 }
@@ -301,22 +303,47 @@ export function createComparisons(options: ComparisonsOptions) {
    */
   const extraScopes = new Map<string, Set<string> | "all">();
 
-  /** Adds a request's columns to a table's Task: its fill going, or the one it resumes next. */
+  /**
+   * Adds a request's columns to a table's Task: to the columns its durable
+   * input records, so a run resumed after a quit fills them too, and to its
+   * fill going, if any.
+   */
   function widen(tableId: string, questionIds: readonly string[] | null): void {
+    const task = taskOf(tableId);
+    const input = task ? taskInputOf(task.input) : null;
+    const merged =
+      input?.questionIds && questionIds !== null
+        ? [...new Set([...input.questionIds, ...questionIds])]
+        : null;
+    if (task && input) {
+      const kept = input.questionIds ?? [];
+      const wider =
+        merged === null
+          ? questionIds === null && input.questionIds !== undefined
+          : merged.length !== kept.length || merged.some((id) => !kept.includes(id));
+      if (wider) {
+        options.tasks.updateInput(task.id, {
+          tableId: input.tableId,
+          providerId: input.providerId,
+          modelId: input.modelId,
+          ...(merged && { questionIds: merged }),
+        });
+      }
+    }
     const fill = fills.get(tableId);
     if (fill) {
-      if (questionIds === null) fill.scope = null;
-      else if (fill.scope) for (const id of questionIds) fill.scope.add(id);
+      if (merged === null) fill.scope = null;
+      else if (fill.scope) for (const id of merged) fill.scope.add(id);
       return;
     }
-    if (questionIds === null) {
+    if (merged === null) {
       extraScopes.set(tableId, "all");
       return;
     }
     const current = extraScopes.get(tableId);
     if (current === "all") return;
-    const ids = current ?? new Set<string>();
-    for (const id of questionIds) ids.add(id);
+    const ids = current ?? new Set<string>(input?.questionIds ?? []);
+    for (const id of merged) ids.add(id);
     extraScopes.set(tableId, ids);
   }
 
@@ -649,7 +676,8 @@ export function createComparisons(options: ComparisonsOptions) {
     const controller = new AbortController();
     const abort = () => controller.abort();
     task.signal.addEventListener("abort", abort, { once: true });
-    // A column asked for before the Task ran joins the columns it was started with.
+    // A column asked for before the Task ran joins the columns it was started with,
+    // and the Task's input records them, so a resume after a quit fills them too.
     const extra = extraScopes.get(tableId);
     extraScopes.delete(tableId);
     const scope = !questionIds
@@ -657,6 +685,14 @@ export function createComparisons(options: ComparisonsOptions) {
       : extra === "all"
         ? null
         : new Set([...questionIds, ...(extra ?? [])]);
+    if (extra !== undefined) {
+      options.tasks.updateInput(task.id, {
+        tableId,
+        providerId,
+        modelId,
+        ...(scope && { questionIds: [...scope] }),
+      });
+    }
     const fill: Fill = {
       mindId,
       model: ready.model,

@@ -1684,6 +1684,7 @@ export function createCore(adapters: CoreAdapters): Core {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       unfinished: () => tasks.unfinished(),
       isLive: (taskId) => tasks.isLive(taskId),
+      updateInput: (taskId, input) => tasks.updateInput(taskId, input),
       resume: (taskId) => tasks.resume(taskId),
       stop: (taskId) => tasks.stop(taskId),
     },
