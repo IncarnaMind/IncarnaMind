@@ -608,7 +608,9 @@ test("a tab moves a place earlier or later in its group from its menu, its keys 
   const shown = window.getByRole("tab", { selected: true });
   for (let place = 1; place <= 10; place++) {
     await window.keyboard.press("Control+Shift+PageDown");
-    await expect.poll(() => tabIdOrder(window).then((ids) => ids.indexOf(alphaId ?? ""))).toBe(place);
+    await expect
+      .poll(() => tabIdOrder(window).then((ids) => ids.indexOf(alphaId ?? "")))
+      .toBe(place);
     await expect.poll(() => wholeInStrip(window, shown)).toBe(true);
   }
 
