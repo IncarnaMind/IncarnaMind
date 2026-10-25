@@ -164,6 +164,8 @@ describe("the link dialog's numbers", () => {
   test("counts group their digits in the interface language", () => {
     expect(formatCount(3214, "en")).toBe("3,214");
     expect(formatCount(12, "zh-CN")).toBe("12");
+    expect(formatCount(1731, "en")).toBe("1,731");
+    expect(formatCount(1731, "zh-CN")).toBe("1,731");
   });
 });
 

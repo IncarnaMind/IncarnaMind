@@ -357,7 +357,7 @@ describe("Testing the rerank connection", { timeout: 30_000 }, () => {
     rerankers.fail({ status: 401, message: "invalid api token" });
     expect(await core.testRerankConnection()).toEqual({
       ok: false,
-      error: { kind: "auth", message: "invalid api token" },
+      error: { kind: "auth", message: "invalid api token", status: 401 },
     });
     rerankers.fail({ status: 429, message: "Too many requests." });
     expect(await core.testRerankConnection()).toMatchObject({

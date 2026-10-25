@@ -1,4 +1,5 @@
-import { access, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -98,6 +99,55 @@ async function openDeleted(window: Page): Promise<Locator> {
 /** Gone from the page once nothing waits in it. */
 const nothingDeleted = (window: Page) =>
   expect(window.getByTestId("recently-deleted")).toHaveCount(0);
+
+const TIDE_NOTES = "# Tide notes\n\nSpring tides happen at new moon and at full moon.\n";
+
+// Where the old layout (before ADR-0010) kept a Document's copy: the data folder's documents
+// folder, named by its content's hash.
+async function addOldLayoutCopy(window: Page): Promise<string> {
+  const hash = createHash("sha256").update(TIDE_NOTES).digest("hex");
+  const copy = join(dataDir, "documents", `${hash}.md`);
+  await mkdir(join(dataDir, "documents"), { recursive: true });
+  await writeFile(copy, TIDE_NOTES);
+  await addDocuments(window, [copy]);
+  await read(window, async (core) => {
+    const [document] = await core.listDocuments();
+    if (document) await core.renameDocument(document.id, "Tide notes");
+  });
+  return copy;
+}
+
+const exists = (path: string) =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
+
+async function deleteFromSidebar(window: Page, name: string): Promise<void> {
+  const item = window
+    .getByTestId("sidebar")
+    .getByTestId("document-list-item")
+    .filter({ hasText: name });
+  await openDocumentMenu(item);
+  await item.getByTestId("document-file-actions").getByTestId("document.delete").click();
+  await expect(undoLine(window).getByTestId("undo-message")).toHaveText(
+    `Moved “${name}” to Recently deleted`,
+  );
+}
+
+async function restoreAndOpen(window: Page, name: string): Promise<Locator> {
+  await openDeleted(window);
+  await row(window, name).getByTestId("deleted-restore").click();
+  await expect(undoLine(window).getByTestId("undo-message")).toHaveText(`Restored “${name}”`);
+  const item = window
+    .getByTestId("sidebar")
+    .getByTestId("document-list-item")
+    .filter({ hasText: name });
+  await item.getByTestId("open-document").click();
+  const viewer = window.getByTestId("viewer");
+  await expect(viewer).toBeVisible();
+  return viewer;
+}
 
 test("deleting a Mind, a Document, a Folder and a Tag asks nothing and lands in Recently deleted; Restore puts each back exactly", async () => {
   test.setTimeout(120_000);
@@ -263,6 +313,49 @@ test("Delete Permanently asks once and says what is lost; the Document's file st
     documentId,
   );
   expect(refused).toContain("deleted permanently");
+});
+
+test("a Document the old layout copied into the data folder keeps its copy in Recently deleted: restored, it opens; deleted permanently, the copy goes (#1432)", async () => {
+  test.setTimeout(120_000);
+  const { window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  const copy = await addOldLayoutCopy(window);
+
+  await deleteFromSidebar(window, "Tide notes");
+  expect(await exists(copy)).toBe(true);
+  const viewer = await restoreAndOpen(window, "Tide notes");
+  await expect(viewer.getByTestId("viewer-text")).toContainText(
+    "Spring tides happen at new moon and at full moon.",
+  );
+  await expect(viewer.getByTestId("viewer-removed")).toHaveCount(0);
+
+  await deleteFromSidebar(window, "Tide notes");
+  await openDeleted(window);
+  await row(window, "Tide notes").getByTestId("deleted-delete").click();
+  await window.getByTestId("confirm-delete-permanently").click();
+  await nothingDeleted(window);
+  await expect.poll(() => exists(copy)).toBe(false);
+});
+
+test("one an older build deleted, its copy already gone, comes back as a Document whose file is missing (#1432)", async () => {
+  test.setTimeout(120_000);
+  const { window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  const copy = await addOldLayoutCopy(window);
+  await deleteFromSidebar(window, "Tide notes");
+  // What deleting did before #1432.
+  await rm(copy, { force: true });
+
+  const viewer = await restoreAndOpen(window, "Tide notes");
+
+  await expect(viewer.getByTestId("viewer-removed")).toContainText("is missing from its folder");
+  await expect(viewer.getByTestId("viewer-locate-file")).toBeVisible();
+  await expect(
+    window
+      .getByTestId("sidebar")
+      .getByTestId("document-list-item")
+      .filter({ hasText: "Tide notes" }),
+  ).toHaveAttribute("data-file-status", "missing");
 });
 
 test("emptying Recently deleted with many items asks once, counting what is lost", async () => {

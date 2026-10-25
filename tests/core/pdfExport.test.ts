@@ -346,7 +346,9 @@ async function webMind(core: Core, before: Document, after: Document) {
       text("Tea reached Europe through Portuguese merchants"),
       citation(after, 1, "found", { contentHash: before.contentHash, location: HISTORY }),
       text(". It is the most drunk after water"),
-      citation(after, 1, "found", { location: { kind: "section", heading: null } }),
+      citation(after, 1, "found", {
+        location: { kind: "section", heading: null, start: true },
+      }),
       text("."),
     ),
   ]);

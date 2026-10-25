@@ -12,9 +12,12 @@ export function QuoteChip({
   onShow,
   onRemove,
   testId,
+  where = "",
 }: {
   quote: string;
   from: string;
+  /** Where in `from` the words are, e.g. a Document's page: kept whole, as the words and `from` are cut. */
+  where?: string;
   /** The × button's name and tooltip. */
   removeLabel: string;
   onShow(): void;
@@ -25,8 +28,8 @@ export function QuoteChip({
   return (
     <span
       data-testid={testId}
-      title={quote}
-      className="question-skill composer-quote composer-quote--passage"
+      title={where ? `${quote}\n${from} ${where}` : quote}
+      className={`question-skill composer-quote composer-quote--passage${where ? " quote-chip--where-first" : ""}`}
     >
       <button
         type="button"
@@ -36,6 +39,12 @@ export function QuoteChip({
       >
         <span className="truncate quote-chip-words">“{words}”</span>
         <span className="quote-chip-from truncate">· {from}</span>
+        {where && (
+          <>
+            {" "}
+            <span className="quote-chip-where">{where}</span>
+          </>
+        )}
       </button>
       <button
         type="button"

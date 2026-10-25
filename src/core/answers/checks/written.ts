@@ -48,6 +48,7 @@ import {
 } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
 import { RunItemError, runItems } from "../../runs/stop";
+import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { markSentence } from "./sentences";
@@ -490,8 +491,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
   }
 
-  /** Null when there was nothing to check, or it couldn't be checked here. */
-  return async function checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null> {
+  // Null when there was nothing to check, or it couldn't be checked here.
+  return (input: CheckWrittenInput) => inStep("written-check", () => checkWritten(input));
+
+  async function checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null> {
     const { mindId, blocks, signal } = input;
     if (judgesUnreliably(input.prepared)) return null;
     const sentences = citedSentences(blocks);
@@ -621,7 +624,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       options.retainEvidence(mindId);
     }
     return done;
-  };
+  }
 }
 
 function paragraphAt(blocks: readonly NodeJSON[], path: readonly number[]): NodeJSON | undefined {

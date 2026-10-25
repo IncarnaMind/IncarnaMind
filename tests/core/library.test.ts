@@ -380,7 +380,7 @@ describe("Library groups", () => {
       flow: {
         id: "classification",
         service: { id: "https://api.openai.com", name: "OpenAI" },
-        sends: ["groups", "tags", "document-excerpts", "page-images"],
+        sends: ["groups", "tags", "document-excerpts"],
       },
       consent: "accepted",
       decidedAt: expect.any(String),
@@ -414,7 +414,8 @@ describe("Library groups", () => {
     await core.saveLibrarySettings({ classifier, automatic: false });
     await core.revokeConsent("classification", "https://api.openai.com");
 
-    await core.saveLibrarySettings({ classifier, automatic: true });
+    // Saved again with nothing changed, as any other setting's save does.
+    await core.saveLibrarySettings({ classifier, automatic: false });
     await core.classifyDocuments([doc.id]);
     await settled(core, doc.id, "waiting");
     expect(fake.calls).toHaveLength(0);
@@ -422,7 +423,7 @@ describe("Library groups", () => {
     // Choosing another model is a new choice.
     await core.saveLibrarySettings({
       classifier: { ...classifier, choice: { ...classifier.choice, modelId: "other" } },
-      automatic: true,
+      automatic: false,
     });
     await settled(core, doc.id);
     expect(fake.calls).toHaveLength(1);

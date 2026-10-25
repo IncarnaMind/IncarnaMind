@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { type Language, resolveLanguage } from "../../core/language";
 import { gap, type MessageKey, type MessageParams, translate } from "../../shared/i18n";
+import { formatCount } from "./linkedFolders";
 import { useAppStore } from "./store";
 
 /** The interface language: from settings once loaded, the OS language before that. */
@@ -18,6 +19,11 @@ export function languageNow(): Language {
 /** A message in the interface language now, outside React: e.g. an Undo line's. */
 export function translateNow(key: MessageKey, params?: MessageParams): string {
   return translate(languageNow(), key, params);
+}
+
+/** A count in the interface language now, outside React, grouped as the page's title is. */
+export function countNow(count: number): string {
+  return formatCount(count, languageNow());
 }
 
 /** The separator between two pieces of text, in the interface language. */

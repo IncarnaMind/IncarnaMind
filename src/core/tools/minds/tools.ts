@@ -44,18 +44,18 @@ import {
 } from "../../../shared/charts";
 import type { PlacedFigure } from "../../../shared/figureMarkers";
 import { translate } from "../../../shared/i18n";
+import { holdsNothing } from "../../../shared/madeMind";
 import { looksLikeTable } from "../../../shared/markdownTables";
 import {
   changedParagraphs,
-  pendingProposals,
   readProposalAttribute,
   recordProposalRequest,
   resolveProposals,
+  waitingChanges,
 } from "../../../shared/proposals";
 import { countFor, countText, mostlyCjk } from "../../../shared/wordCount";
 import {
   createElement,
-  holdsNothing,
   type NodeJSON,
   nodeOf,
   syncContent,
@@ -177,6 +177,11 @@ export interface MindToolsOptions {
   minds: MindsForTools;
   /** The model the Answer is written with: edits are made on it too. */
   prepared: PreparedChatModel;
+  /**
+   * The same model asked to skip thinking, for edit_mind's rewrites: one thinks for a minute
+   * before rewriting a paragraph as asked (Kimi K2.6, #1635). Without it, `prepared`.
+   */
+  rewriting?(): Promise<PreparedChatModel>;
   /** The Mind the Question was asked from, and the Blocks the User selected in it; null: none. */
   focused: { mindId: string; blockIds: readonly string[] } | null;
   /** Where a new Mind goes: the Folder of the Question's Search scope when that is one Folder. */
@@ -1050,7 +1055,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
   /** What a request did in a Mind: how many of its changes wait there now. */
   const changeIn = (mindId: string, request: string, created: boolean): MindChange => {
     const { proposals, paragraphs, tables, charts } = minds.read(mindId, (note) => ({
-      proposals: pendingProposals(note).filter((each) => each.request === request).length,
+      proposals: waitingChanges(note, (each) => each.request === request),
       ...writtenBy(note, request),
     }));
     return {
@@ -1597,7 +1602,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         answer: {
           type: "boolean",
           description:
-            'true to put your last Answer in this conversation in as it is, with its Citations, instead of content: when the User asks to put that Answer ("it", "this") in a Mind.',
+            'true to put your last Answer in this conversation in as it is, with its Citations, instead of content: when the User asks to put that Answer ("it", "this") in a Mind, as "add this to my notes" does after a Question.',
         },
       }
     : {};
@@ -1686,10 +1691,17 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         `That text of “${mind.name}” changed while it was being read. Nothing was changed.`,
       );
     }
-    const revision = (): MindChange => ({
-      ...changeIn(mind.id, request, false),
-      ...(over.kind === "own" && { revised: true }),
-    });
+    const revision = (): MindChange => {
+      const changed =
+        over.kind === "applied"
+          ? minds.read(mind.id, (note) => changedParagraphs(note, (ref) => ref.request === request))
+          : 0;
+      return {
+        ...changeIn(mind.id, request, false),
+        ...(over.kind === "own" && { revised: true }),
+        ...(changed > 0 && { changed }),
+      };
+    };
     const change: MindChange = {
       ...revision(),
       ...citedIn({ cited, unrecorded: 0 }),
@@ -1816,7 +1828,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         mindId: mind.id,
         ...stretch,
         instruction,
-        prepared: options.prepared,
+        prepared: (await options.rewriting?.()) ?? options.prepared,
         signal,
         beforeWriting: () => minds.checkpoint(mind.id),
         written: (request, proposals) =>

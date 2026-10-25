@@ -550,6 +550,7 @@ function ParagraphView({
     >
       {bullet && (
         <span
+          data-quote-skip=""
           className="slide-bullet"
           aria-hidden="true"
           style={{
