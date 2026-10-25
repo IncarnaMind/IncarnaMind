@@ -6,9 +6,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import type { QuotedText } from "../../src/core/answers/calculations";
+import { type QuotedText, readOnItsLine } from "../../src/core/answers/calculations";
 import { changedScale } from "../../src/core/answers/changedScale";
 import { extractXlsx } from "../../src/core/documents/formats/xlsx";
+import { readFigures } from "../../src/shared/figures";
 import type { UnitText } from "../../src/shared/units";
 
 const FIXTURES = join(import.meta.dirname, "../fixtures/comparisons");
@@ -42,6 +43,30 @@ describe("A cell's amount against its Citations' amounts", () => {
     });
     expect(check("£310 billion [^1]", [NET_DEBT])?.times).toBe(1_000);
     expect(check("£310,000 [^1]", [NET_DEBT])?.times).toBe(0.001);
+  });
+
+  // protects=a quote copied with spaces for the row's tabs, which reads "310000 GBP thousands" itself, isn't read as its row's bare cell; fails_when="GBP 310 million" is flagged against "310000" (seen with Claude Haiku 5.5 after #1798); no_claim=none beyond protects.
+  test("passes a right amount whose quote joins the row's cells with spaces", () => {
+    const spaced = cited(
+      "Net debt Q3 2026 actual 310000 GBP thousands actual, not forecast",
+      CEDAR,
+    );
+    expect(check("Net debt: GBP 310 million [^1]", [spaced])).toBeNull();
+    expect(check("Net debt: 310,000 GBP million [^1]", [spaced])?.times).toBe(1_000);
+  });
+
+  // protects=a row's cell adds only the scale a quoted number lacks, and keeps the currency the quote gives; fails_when="人民币31000" beside a bare "万" cell loses its yuan, or a row's bare cell overrides a quote's "GBP"; no_claim=none beyond protects.
+  test("a row's cell adds a quoted number's missing scale and keeps its currency", () => {
+    const context = { language: "zh-CN" };
+    const [yuan] = readFigures("人民币31000", context);
+    if (!yuan) throw new Error("No figure.");
+    expect(readOnItsLine("净负债\t31000\t万", yuan, context)).toMatchObject({
+      value: 310_000_000,
+      unit: { kind: "currency", code: "CNY" },
+    });
+    const [pounds] = readFigures("Net debt 310000 GBP thousands", { language: "en" });
+    if (!pounds) throw new Error("No figure.");
+    expect(readOnItsLine("Net debt\t310000\tGBP thousands", pounds, { language: "en" })).toBeNull();
   });
 
   // protects=a right amount passes at any scale it is written in: converted, as given, rounded, beside another; fails_when=a correct cell shows a problem line; no_claim=amounts worked out from several figures, which calculate checks.

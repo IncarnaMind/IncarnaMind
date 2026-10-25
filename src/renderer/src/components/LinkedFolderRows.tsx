@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import type { LinkedFolder } from "../../../core/api";
 import { buildFolderTree } from "../folders";
 import { useLanguage, useT } from "../i18n";
+import { sourceRequest } from "../libraryPage";
 import { indexingShare, linkedFolderRowState, rowStateLabel } from "../linkedFolders";
 import { useRequests } from "../requests";
 import { sorted } from "../sort";
@@ -27,25 +28,37 @@ const LINKED_WASH_MS = 1600;
 /**
  * The sidebar's Linked folders (ADR-0010): a row each, with its state. A row
  * doesn't unfold, since its files already sit in the Folders and Not in a
- * Folder; it opens the Library, where its files are shown as on disk once
- * #1250 adds Source locations.
+ * Folder; it opens the Library on its Documents (its Source location, #1507),
+ * where they are shown as on disk once #1250 adds Source locations.
  */
-export function LinkedFolderRows() {
+export function LinkedFolderRows({ hideExamples = false }: { hideExamples?: boolean }) {
   const folders = useAppStore((state) => state.folders);
   const linkedFolders = useAppStore((state) => state.linkedFolders);
   const documents = useAppStore((state) => state.documents);
+  const exampleIds = useAppStore((state) =>
+    allExamples(state)
+      .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
+      .join(" "),
+  );
   const filled = useMemo(() => new Set(documents.map((each) => each.linkedFolderId)), [documents]);
+  const examples = useMemo(
+    () => new Set(hideExamples ? exampleIds.split(" ").filter(Boolean) : []),
+    [hideExamples, exampleIds],
+  );
   const language = useLanguage();
   const sidebarSort = useSort((state) => state.scopes.sidebar ?? state.all);
   const roots = useMemo(
     () =>
       sorted(
-        buildFolderTree(folders).filter((node) => node.folder.parentId === null),
+        buildFolderTree(folders).filter(
+          (node) =>
+            node.folder.parentId === null && !examples.has(node.folder.linkedFolderId ?? ""),
+        ),
         sidebarSort,
         (node) => folderFields(node.folder),
         language,
       ),
-    [folders, sidebarSort, language],
+    [folders, sidebarSort, language, examples],
   );
   const linkedById = new Map(linkedFolders.map((linked) => [linked.id, linked]));
   return (
@@ -109,7 +122,6 @@ function LinkedFolderRow({
         data-root="true"
         data-state={state.kind}
         data-status={linked.status}
-        data-layout={linked.layout}
         {...(justLinked && { "data-just-linked": "true" })}
         {...objectMenu.rowProps}
         className={`${rowClass(false, state.kind === "unavailable" ? "muted" : "item")} @container`}
@@ -120,7 +132,9 @@ function LinkedFolderRow({
           data-testid="linked-folder-open"
           title={linked.path}
           onClick={(event) =>
-            useAppStore.getState().openLibrary(undefined, { side: event.metaKey || event.ctrlKey })
+            useAppStore
+              .getState()
+              .openLibrary(sourceRequest(linked.id), { side: event.metaKey || event.ctrlKey })
           }
           className={`${rowButtonClass} ${clearsActions.menu}`}
           style={rowPadding(0)}

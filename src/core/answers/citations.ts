@@ -26,7 +26,7 @@
  * lines, narrowed to those the quote covers ("Revenue, rows 12–14"); for
  * sections, the heading it sits under.
  */
-import { shownRanges } from "../../shared/answerBlocks";
+import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
 import {
@@ -53,6 +53,7 @@ import { foldRadicals, nameKey } from "../../shared/text";
 import { sameRun } from "../../shared/units";
 import {
   type AskedQuote,
+  type ChangedQuote,
   type Citation,
   type CitationCheck,
   type CitationCheckReason,
@@ -60,6 +61,7 @@ import {
   type CitedSelection,
   MAX_CITED_PAGES,
   type QuotedWords,
+  type RecheckCitationInput,
   type RejectedRecord,
   type SelectedPart,
 } from "../api";
@@ -68,7 +70,15 @@ import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
 import type { PageText } from "../documents/passages";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
+import { diffSteps, splitWords } from "../proposals/diff";
 import { closestWords } from "./closestWords";
+import {
+  type ContextCitation,
+  type ContextCitations,
+  issuedForm,
+  replaceWritten,
+  writtenIds,
+} from "./contextCitations";
 import { withCueMarks } from "./cueMarks";
 import type {
   AnswerSearchOptions,
@@ -365,7 +375,7 @@ const removedFrom = (range: PageRange): CitationRecheck => ({
 const FOUND: CheckResult = { check: "found", checkReason: null };
 const NOT_ON_PAGES: CheckResult = { check: "not-found", checkReason: "quote-not-on-pages" };
 
-function currentVersion(documents: RecheckDocuments, documentId: string, contentHash: string) {
+function versionOf(documents: RecheckDocuments, documentId: string, contentHash: string) {
   const units = documents.pageTexts(documentId, contentHash, null, null);
   const matching = matchingOf(units);
   const passageFor = (range: PageRange, quote: string): string | null => {
@@ -404,22 +414,195 @@ function currentVersion(documents: RecheckDocuments, documentId: string, content
   return { units, matching, inRange, result };
 }
 
+type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" | "pageTo">;
+
 /**
  * Checks a Citation again against its Document's current version (see
  * `CoreApi.recheckCitation`): in the cited Units first, then in each Unit,
  * and each two consecutive Units of one run, of the current version, in
  * order. The Passage given is one of the current version that holds the
- * Units, preferably one whose text holds the quote too.
+ * Units, preferably one whose text holds the quote too. Given the version it
+ * quotes, once the Document has a newer one: its check in that version too,
+ * and its words as they changed when the current one doesn't hold them.
  */
 export function recheckCitation(
   documents: RecheckDocuments,
-  input: { documentId: string; quote: string; pageFrom: number | null; pageTo: number | null },
+  input: Rechecked & { contentHash?: string | null },
 ): CitationRecheck {
+  const now = recheckInCurrent(documents, input);
+  const quoted = input.contentHash ?? "";
+  if (quoted === "" || now.contentHash === null || now.contentHash === quoted) return now;
+  return {
+    ...now,
+    inQuotedVersion: checkInVersion(documents, input, quoted),
+    changed:
+      now.check === "not-found" ? changedQuote(documents, input, quoted, now.contentHash) : null,
+  };
+}
+
+function checkInVersion(
+  documents: RecheckDocuments,
+  input: Rechecked,
+  contentHash: string,
+): CheckResult | null {
+  const version = versionOf(documents, input.documentId, contentHash);
+  // That version's text is no longer kept: the check made when it was cited stands.
+  if (version.units.length === 0) return null;
+  const range = { pageFrom: input.pageFrom, pageTo: input.pageTo };
+  return checkCitation({
+    quote: cleanQuote(input.quote),
+    range,
+    passage: range,
+    documentDeleted: false,
+    pages: version.inRange(range),
+    lostLigatures: version.matching.lostLigatures ?? false,
+  });
+}
+
+const holdsWord = (token: string) => /[\p{L}\p{N}]/u.test(token);
+const wordCount = (text: string) => splitWords(text).filter(holdsWord).length;
+
+/** At least this share of a quote's words stays at its place for the words there now to be its words, changed. */
+const LEAST_KEPT = 0.5;
+
+function changedQuote(
+  documents: RecheckDocuments,
+  input: Rechecked,
+  version: string,
+  current: string,
+): ChangedQuote | null {
+  const before = versionOf(documents, input.documentId, version);
+  const cited = before.inRange(input);
+  const found = quoteInUnits(cited, cleanQuote(input.quote), before.matching);
+  const start = found?.[0]?.start;
+  const end = found?.at(-1)?.end;
+  if (start === undefined || end === undefined) return null;
+  const { pageFrom, pageTo } = input;
+  // A Unit either side, in both versions: a page added before the quote moves its words on one.
+  const near = (units: readonly PageText[]) =>
+    units.filter(
+      (unit) =>
+        pageFrom === null ||
+        pageTo === null ||
+        (unit.page !== null && unit.page >= pageFrom - 1 && unit.page <= pageTo + 1),
+    );
+  const around = near(before.units);
+  const old = joinUnits(around);
+  const offset = old.starts[cited[0] ? around.indexOf(cited[0]) : 0] ?? 0;
+  const after = joinUnits(near(versionOf(documents, input.documentId, current).units));
+  const parts = changedParts(old.text, after.text, offset + start, offset + end);
+  if (!parts.some((part) => part.kind !== "same")) return null;
+  const kept = parts.filter((part) => part.kind === "same").map((part) => part.text);
+  const quoted = old.text.slice(offset + start, offset + end);
+  if (wordCount(kept.join("")) < wordCount(quoted) * LEAST_KEPT) return null;
+  const words = parts
+    .filter((part) => part.kind !== "removed")
+    .map((part) => part.text)
+    .join("")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const now = words === "" ? null : recheckInCurrent(documents, { ...input, quote: words });
+  return now?.check === "found" ? { parts, now: { ...now, quote: words } } : null;
+}
+
+type Segment = { same: string } | { removed: string; added: string };
+
+function changedParts(
+  oldText: string,
+  newText: string,
+  start: number,
+  end: number,
+): ChangedQuote["parts"] {
+  const a = splitWords(oldText);
+  const b = splitWords(newText);
+  const steps = diffSteps(a, b);
+  const segments: Segment[] = [];
+  const keep = (text: string) => {
+    const last = segments.at(-1);
+    if (last && "same" in last) last.same += text;
+    else if (text !== "") segments.push({ same: text });
+  };
+  const inQuote = (token: string, at: number) =>
+    token.slice(Math.max(0, start - at), Math.max(0, Math.min(token.length, end - at)));
+  let x = 0;
+  let i = 0;
+  let j = 0;
+  for (let step = 0; step < steps.length; ) {
+    if (steps[step] === "equal") {
+      const token = a[i++] ?? "";
+      j++;
+      keep(inQuote(token, x));
+      x += token.length;
+      step++;
+      continue;
+    }
+    const from = x;
+    let removed = "";
+    let added = "";
+    for (; step < steps.length && steps[step] !== "equal"; step++) {
+      if (steps[step] === "insert") {
+        added += b[j++] ?? "";
+        continue;
+      }
+      const token = a[i++] ?? "";
+      removed += inQuote(token, x);
+      x += token.length;
+    }
+    // Words put in where nothing was taken out belong to the quote only inside it.
+    const touches = from === x ? start < from && from < end : from < end && x > start;
+    if (touches) segments.push({ removed, added });
+  }
+  // Changes with only spaces and marks kept between them read as one: "sixty (60)" became
+  // "forty-five (45)", not "sixty" became "forty-five" and "60" became "45".
+  const joined: Segment[] = [];
+  for (const [index, segment] of segments.entries()) {
+    const before = joined.at(-1);
+    const next = segments[index + 1];
+    const between = "same" in segment && next && "removed" in next && !holdsWord(segment.same);
+    const change = "same" in segment ? { removed: segment.same, added: segment.same } : segment;
+    if (before && "removed" in before && (between || "removed" in segment)) {
+      joined[joined.length - 1] = {
+        removed: before.removed + change.removed,
+        added: before.added + change.added,
+      };
+    } else joined.push(segment);
+  }
+  // A bracket or quotation mark against a change goes with it: "(60)", not "(60" and ")".
+  for (const [index, segment] of joined.entries()) {
+    const before = joined[index - 1];
+    const after = joined[index + 1];
+    if (!("removed" in segment)) continue;
+    const lead =
+      before && "same" in before ? (/[\p{Ps}\p{Pi}"]+$/u.exec(before.same)?.[0] ?? "") : "";
+    const tail = after && "same" in after ? (/^[\p{Pe}\p{Pf}"]+/u.exec(after.same)?.[0] ?? "") : "";
+    if (before && "same" in before)
+      before.same = before.same.slice(0, before.same.length - lead.length);
+    if (after && "same" in after) after.same = after.same.slice(tail.length);
+    segment.removed = lead + segment.removed + tail;
+    segment.added = lead + segment.added + tail;
+  }
+  const first = joined[0];
+  const last = joined.at(-1);
+  if (first && "same" in first) first.same = first.same.trimStart();
+  if (last && "same" in last) last.same = last.same.trimEnd();
+  return joined.flatMap((segment): ChangedQuote["parts"] =>
+    "same" in segment
+      ? segment.same === ""
+        ? []
+        : [{ kind: "same", text: segment.same }]
+      : [
+          ...(segment.removed ? [{ kind: "removed" as const, text: segment.removed }] : []),
+          ...(segment.added ? [{ kind: "added" as const, text: segment.added }] : []),
+        ],
+  );
+}
+
+function recheckInCurrent(documents: RecheckDocuments, input: Rechecked): CitationRecheck {
   const cited = { pageFrom: input.pageFrom, pageTo: input.pageTo };
   const contentHash = documents.currentVersion(input.documentId);
   if (contentHash === null) return removedFrom(cited);
   const quote = cleanQuote(input.quote);
-  const version = currentVersion(documents, input.documentId, contentHash);
+  const version = versionOf(documents, input.documentId, contentHash);
   const { units, matching, inRange } = version;
   const result = (check: CheckResult, range: PageRange) => version.result(check, range, quote);
   if (units.every((unit) => unit.text.trim() === "")) {
@@ -563,7 +746,7 @@ export function citeSelection(
     known.length > 0 ? { pageFrom: Math.min(...known), pageTo: Math.max(...known) } : nowhere;
   const contentHash = documents.currentVersion(input.documentId);
   if (contentHash === null) return { ...removedFrom(selected), quote: all };
-  const version = currentVersion(documents, input.documentId, contentHash);
+  const version = versionOf(documents, input.documentId, contentHash);
   const { units, matching, inRange } = version;
   const refused = (check: CheckResult, range: PageRange, quote = all): CitedSelection => ({
     ...version.result(check, range, quote),
@@ -684,7 +867,7 @@ export function recheckWhereSelected(
   const contentHash = documents.currentVersion(input.documentId);
   if (contentHash === null) return { ...removedFrom(cited), quote: "" };
   const quote = cleanQuote(input.quote);
-  const version = currentVersion(documents, input.documentId, contentHash);
+  const version = versionOf(documents, input.documentId, contentHash);
   const covered = version.inRange(cited);
   const wanted = JSON.stringify(parseLocation(input.location));
   const options = { ...version.matching, numbers: numbersIn(covered) };
@@ -707,14 +890,16 @@ export function recheckWhereSelected(
  * version and it said otherwise (not found yet, or found in an older
  * version), else null. A quote the current version doesn't hold leaves the
  * Citation as it was: its check stands for the version it quotes, whose text
- * is kept.
+ * is kept. So does the User's choice to keep citing the old version
+ * (`keptOver`, ADR-0017's amendment).
  */
 export function recheckKept(
   documents: RecheckDocuments,
   attributes: Record<string, unknown>,
 ): Record<string, unknown> | null {
-  const { documentId, quote } = attributes;
+  const { documentId, quote, keptOver } = attributes;
   if (typeof documentId !== "string" || documentId === "") return null;
+  if (typeof keptOver === "string" && keptOver !== "") return null;
   const page = (value: unknown) =>
     typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
   const now = recheckCitation(documents, {
@@ -872,6 +1057,8 @@ interface Accepted {
   result: CheckResult | null;
   /** The Answer's quoted words that its sentence's Citations don't have, when they made `result` not found (#483). */
   quotedWords?: QuotedWords;
+  /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
+  kept?: true;
 }
 
 /** A record as `take` read it: accepted, with its Passage's Units; or why not. */
@@ -918,12 +1105,14 @@ export interface CitationSessionEvents {
  * as "P3", which is what the model cites), the records it gave, and the Tools
  * the Answer engine offers the model. `opening`, when the Question is asked
  * beside the working copy of a Document (#1036): that Document's opening
- * Passages, which a search that finds nothing gives instead, once.
+ * Passages, which a search that finds nothing gives instead, once. `ids`: the Citations the
+ * Question context shows, which a record names by id to keep one as it is.
  */
 export function createCitationSession(
   documents: AnswerDocuments,
   events: CitationSessionEvents,
   opening?: { documentId: string; name: string; passages(): WindowedPassage[] },
+  ids?: ContextCitations,
 ) {
   const handles = new Map<string, string>();
   const handleOf = new Map<string, string>();
@@ -939,6 +1128,8 @@ export function createCitationSession(
   let removedMarkers = 0;
   /** Markers whose Citations went into a Mind rather than the Answer's text (#202). */
   const placedElsewhere = new Set<number>();
+  /** The Question context's Citations the model wrote as ids in text, not as records (`citeWrittenIds`), each once. */
+  const idsAsText = new Set<string>();
 
   const handleFor = (passageId: string) => {
     let handle = handleOf.get(passageId);
@@ -1079,8 +1270,10 @@ export function createCitationSession(
     marker: number,
     options: CiteOptions,
   ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
-    const quote = cleanQuote(typeof input.quote === "string" ? input.quote : "");
     const named = typeof input.passage === "string" ? input.passage : "";
+    const kept = ids?.get(named);
+    if (kept) return takeKept(issuedForm(named), kept, marker);
+    const quote = cleanQuote(typeof input.quote === "string" ? input.quote : "");
     // Structured output can't be told it named no Passage (see `CiteOptions`): its id read loosely,
     // else the Passage it was given that holds its quote.
     const known = <Found extends { passageId: string }>(each: Found | null): Found | null =>
@@ -1137,6 +1330,56 @@ export function createCitationSession(
     return { ok: true, record, source, passageUnits };
   }
 
+  /**
+   * A Citation of the Question context, as it is: its Passage, the version it quotes (ADR-0010),
+   * its Units, Location and quote. The check reads that version, so a Document changed or
+   * deleted since says so, as the Citation did where it was read.
+   */
+  function takeKept(
+    id: string,
+    kept: ContextCitation,
+    marker: number,
+  ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
+    const passage = kept.passageId === null ? null : documents.citationSource(kept.passageId);
+    if (!passage) {
+      return {
+        ok: false,
+        problem: `${id} can't be kept: what it cites is no longer in the User's Documents. Keep its claim without a marker, and say its source is no longer available.`,
+      };
+    }
+    if (passage.notCited) {
+      return {
+        ok: false,
+        problem: `${id} is from the User's own working file, which is read but never cited; leave its claim without a marker.`,
+      };
+    }
+    const source: CitationSource = {
+      ...passage,
+      documentName: kept.documentName ?? passage.documentName,
+      contentHash: kept.contentHash ?? passage.contentHash,
+    };
+    const passageUnits = documents.pageTexts(
+      source.documentId,
+      source.contentHash,
+      source.pageFrom,
+      source.pageTo,
+    );
+    const record: Accepted = {
+      marker,
+      handle: id,
+      source,
+      given: { location: null, pageFrom: kept.pageFrom, pageTo: kept.pageTo },
+      range: { pageFrom: kept.pageFrom, pageTo: kept.pageTo },
+      requested: null,
+      unresolved: false,
+      quote: kept.quote,
+      location: kept.location,
+      result: null,
+      kept: true,
+    };
+    return { ok: true, record, source, passageUnits };
+  }
+
   /** Takes records; returns what to tell the model about them. */
   function cite(inputs: readonly CitationRecordInput[], options: CiteOptions = {}): string {
     const recorded: number[] = [];
@@ -1154,7 +1397,7 @@ export function createCitationSession(
       recorded.push(marker);
       events.onRecord(marker, toCitation(record, null));
       // Tell the model now what the check will find, so it can fix the record.
-      const problem = recordProblem(record, source, passageUnits);
+      const problem = record.kept ? null : recordProblem(record, source, passageUnits);
       if (problem) problems.push(`[^${marker}]: ${problem}`);
     }
     const done = recorded.length
@@ -1339,7 +1582,7 @@ export function createCitationSession(
 
     unfoundQuotes(): UnfoundQuote[] {
       return [...records.values()]
-        .filter((record) => check(record).check === "not-found")
+        .filter((record) => !record.kept && check(record).check === "not-found")
         .sort((a, b) => a.marker - b.marker)
         .map((record) => ({
           marker: record.marker,
@@ -1361,7 +1604,7 @@ export function createCitationSession(
 
     correctQuote(marker: number, quote: string): boolean {
       const earlier = records.get(marker);
-      if (!earlier) return false;
+      if (!earlier || earlier.kept) return false;
       const taken = take(
         { marker, passage: earlier.handle, ...earlier.given, quote },
         { structured: true },
@@ -1537,6 +1780,35 @@ export function createCitationSession(
       return citationNode(toCitation(record, record.result));
     },
 
+    /**
+     * `markdown` with each id of the Question context's Citations written as text (`writtenIds`,
+     * "[Tides, p. 3 · C2]") made a marker of that Citation, kept as `cite` keeps one; one the
+     * Answer can't keep is taken out, `notKept` said in its place. An id never shows (#1800).
+     */
+    citeWrittenIds(markdown: string, notKept: string): string {
+      const written = writtenIds(markdown, (id) => ids !== undefined && ids.get(id) !== null);
+      if (written.length === 0) return markdown;
+      // A write into a Mind is read again as its input grows: a Citation counts once, however often it's read.
+      for (const each of written) for (const id of each.ids) idsAsText.add(id);
+      let next = Math.max(0, ...records.keys(), ...markersIn(markdown)) + 1;
+      const markerOf = (id: string): number | null => {
+        for (const record of records.values()) if (record.handle === id) return record.marker;
+        const kept = ids?.get(id);
+        const taken = kept ? takeKept(id, kept, next) : null;
+        if (!taken?.ok) return null;
+        records.set(next, taken.record);
+        events.onRecord(next, toCitation(taken.record, null));
+        return next++;
+      };
+      return replaceWritten(markdown, written, (each) => {
+        const markers = each.ids.map(markerOf);
+        const shown = markers.flatMap((marker) => (marker === null ? [] : [`[^${marker}]`]));
+        // No space before full-width words: "（未能保留来源）" (docs/agents/zh-CN.md, rule 2).
+        const said = /^[\x20-\x7e]/.test(notKept) ? ` ${notKept}` : notKept;
+        return `${shown.join("")}${markers.includes(null) ? said : ""}`;
+      });
+    },
+
     /** The marker of a Citation recorded for a source written as its name in brackets; null for none. */
     markerFor(source: NamedSource): number | null {
       for (const record of records.values()) {
@@ -1557,6 +1829,7 @@ export function createCitationSession(
       droppedMarkers: number;
       droppedRecords: number;
       rejectedRecords: RejectedRecord[];
+      idsAsText: number;
     } {
       const citations = finalMarkers.flatMap((marker) => {
         const record = records.get(marker);
@@ -1570,6 +1843,7 @@ export function createCitationSession(
         droppedMarkers: removedMarkers,
         droppedRecords: unused + rejected.length,
         rejectedRecords: rejected,
+        idsAsText: idsAsText.size,
       };
     },
   };

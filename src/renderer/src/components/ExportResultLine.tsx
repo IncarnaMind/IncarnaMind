@@ -1,5 +1,4 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
-import { displayName } from "../../../shared/documentNames";
 import { nameInLine } from "../../../shared/naming";
 import { core, files } from "../core";
 import { CheckStateIcon } from "../editor/icons";
@@ -19,8 +18,7 @@ import {
   useExports,
 } from "../exports";
 import { showFileLabelKey } from "../fileInfo";
-import { useLanguage, useT } from "../i18n";
-import { saidInLine } from "../lineNames";
+import { useT } from "../i18n";
 import { folderName } from "../linkedFolders";
 import { enter } from "../motion";
 import {
@@ -29,7 +27,6 @@ import {
   showOutputLocationSetting,
 } from "../outputFiles";
 import { saveFailureReason } from "../problems";
-import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
 import { ExportAsks } from "./ExportAsks";
 import { CloseLineIcon, ExportLineIcon } from "./lineIcons";
@@ -302,38 +299,18 @@ function ResultBody({
   );
 }
 
-const NAMED_BEFORE_MORE = 3;
-
 /**
- * The Documents whose entries went into the file marked "[needs details]", by name, and Show,
- * which goes to the first in the Mind's References, where "Needs details" fills it in.
+ * The Documents whose reference records lack authors or a date, as one count and the way to fill
+ * them in: "2 Documents lack authors or dates · Add details", which opens the first one's
+ * "Cite as" in the Mind's References, at its first gap.
  */
 function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds: string[] }) {
   const t = useT();
-  const language = useLanguage();
-  const documents = useAppStore((state) => state.documents);
-  const names = documentIds.flatMap((id) => {
-    const document = documents.find((each) => each.id === id);
-    return document ? [displayName(document)] : [];
-  });
-  if (names.length === 0) return null;
-  const separator = language === "zh-CN" ? "、" : ", ";
-  const said = saidInLine(t, (t, cut) =>
-    names.length === 1
-      ? t("export.needsDetails.line.one", { name: names[0] ?? "" })
-      : t("export.needsDetails.line.other", {
-          count: names.length,
-          names: `${names
-            .slice(0, NAMED_BEFORE_MORE)
-            .map((name) => `“${cut(name)}”`)
-            .join(separator)}${names.length > NAMED_BEFORE_MORE ? "…" : ""}`,
-        }),
-  );
+  if (documentIds.length === 0) return null;
   return (
     <ProblemLine
       role="status"
       testId="export-needs-details"
-      title={said.fullMessage}
       action={{
         label: t("export.needsDetails.show"),
         testId: "export-needs-details-show",
@@ -344,7 +321,9 @@ function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds
         aria-hidden="true"
         className="mr-2 inline-block size-1.5 rounded-full bg-attention align-[2px]"
       />
-      {said.message}
+      {documentIds.length === 1
+        ? t("export.needsDetails.line.one")
+        : t("export.needsDetails.line.other", { count: documentIds.length })}
     </ProblemLine>
   );
 }
