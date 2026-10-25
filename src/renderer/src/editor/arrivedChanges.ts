@@ -62,7 +62,6 @@ interface BlockAnchor {
   up: number;
 }
 
-/** The Block a Block taken out stays beside, once it's gone. */
 interface Beside {
   block: BlockAnchor;
   side: "before" | "after";
@@ -128,7 +127,7 @@ function besidePlace(doc: ProseMirrorNode, { block, side }: Beside): number | nu
   return side === "before" ? found.pos : found.pos + found.node.nodeSize;
 }
 
-/** Where a Block the change takes out goes once it's gone; undefined: nowhere left. */
+/** Undefined: nothing beside it stays. */
 function besideStaying(
   doc: ProseMirrorNode,
   pos: number,
@@ -167,7 +166,12 @@ export function planChanges(state: EditorState, requests: ReadonlySet<string>): 
       if (proposal.block === "delete") {
         const node = doc.nodeAt(proposal.from);
         const beside = besideStaying(doc, proposal.from, requests);
-        if (beside === undefined) return [];
+        if (beside === undefined) {
+          console.warn(
+            `Review changes can't place Block ${proposal.id} of request ${proposal.request}, taken out with everything beside it: it won't show there.`,
+          );
+          return [];
+        }
         return [
           {
             kind: "removed",

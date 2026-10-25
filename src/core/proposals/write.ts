@@ -1957,7 +1957,6 @@ const sameShape = (element: Y.XmlElement, node: NodeJSON) =>
 const comparable = (element: Y.XmlElement, node: NodeJSON) =>
   TEXT_BLOCKS.has(element.nodeName) && sameShape(element, node);
 
-/** Two lists, list items or quotes of a kind, whose Blocks are compared one by one. */
 const nested = (element: Y.XmlElement, node: NodeJSON) =>
   WRAPPERS.has(element.nodeName) && sameShape(element, node);
 
@@ -2002,7 +2001,6 @@ function wordsIn(block: Y.XmlElement | NodeJSON): string[] {
   return words;
 }
 
-/** How many words two sorted lists of word numbers have in common, each as often as both have it. */
 function sharedIn(a: Int32Array, b: Int32Array): number {
   let shared = 0;
   for (let i = 0, j = 0; i < a.length && j < b.length; ) {
@@ -2052,7 +2050,6 @@ function pairBlocks(old: readonly Y.XmlElement[], content: readonly NodeJSON[]):
   });
 }
 
-/** What new Blocks written over old ones make their Proposals with. */
 interface BlockWriter {
   next(target: string): ProposalRef;
   newId(): string;
@@ -2073,7 +2070,6 @@ function writeBlocks(
   writer: BlockWriter,
 ): string[] {
   const ids: string[] = [];
-  /** The Block written last, which the next new one goes after. */
   let last: Y.XmlElement | null = null;
   const keep = (element: Y.XmlElement) => {
     last = element;

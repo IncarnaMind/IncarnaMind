@@ -86,7 +86,6 @@ const CASES = [
   },
 ] as const;
 
-/** The paragraphs Review marks, as changed in place, added, or left as they are. */
 async function marked(editor: Locator) {
   const marks = editor.page().locator(".applied-new, del");
   return {
@@ -99,7 +98,6 @@ async function marked(editor: Locator) {
   };
 }
 
-/** Whether the page fits its width: nothing in the Mind runs out sideways. */
 const fitsWidth = (editor: Locator) =>
   editor.evaluate((element) => element.scrollWidth <= element.clientWidth + 1);
 
@@ -194,5 +192,19 @@ test("a bulleted list given anew stays a list in Review changes: the item edited
   await expect(items.nth(3)).toHaveText("Spare socks");
   await motionSettled(window);
   await screenshot(window, "review-list-en");
+
+  const restores = editor.getByTestId("change-restore");
+  await expect(restores).toHaveCount(3);
+  await pointAndClick(window, restores.nth(1));
+  await expect(items).toHaveCount(4);
+  await expect(items.nth(2)).toHaveText("A flask of tea");
+  await expect(items.nth(2)).not.toHaveClass(/applied-old/);
+  await expect(items.nth(3)).toHaveText("Spare socks");
+  await pointAndClick(window, restores.last());
+  await expect(items).toHaveCount(3);
+  await expect(items.nth(2)).toHaveText("A flask of tea");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    "1 paragraph changed by the assistant",
+  );
   await app.close();
 });

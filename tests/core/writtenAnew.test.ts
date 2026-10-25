@@ -99,7 +99,6 @@ function shown(client: MindClient): string[] {
   return lines;
 }
 
-/** The Mind once every change is accepted, or rejected. */
 function decided(client: MindClient, outcome: "accept" | "reject"): string[] {
   client.doc.transact(() => resolveProposals(client.blocks, () => true, outcome));
   return shown(client);

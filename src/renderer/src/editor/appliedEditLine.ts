@@ -499,7 +499,6 @@ function changedBlockOf(
     : { key, pos, how: "words" };
 }
 
-/** Blocks an edit removed, as they were, struck: a list item one of its list's, a table a table. */
 function removedBlocks(schema: Schema, removed: Fragment): HTMLElement {
   const drawn = DOMSerializer.fromSchema(schema).serializeFragment(removed);
   const item = drawn.firstElementChild;
