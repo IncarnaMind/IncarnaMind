@@ -6,7 +6,14 @@ import {
   useCitationStylePicker,
   useStyleCatalogue,
 } from "../citationStylePicker";
-import { commonEntries, type StyleEntry, searchStyles, styleEntries } from "../citationStyleSearch";
+import {
+  commonEntries,
+  keepShown,
+  type StyleEntry,
+  type StyleMatches,
+  searchStyles,
+  styleEntries,
+} from "../citationStyleSearch";
 import { useGap, useLanguage, useT } from "../i18n";
 import { formatCount } from "../linkedFolders";
 import { useAppStore } from "../store";
@@ -38,6 +45,9 @@ export function CitationStylePickerHost() {
 
   const entries = useMemo(() => styleEntries(language, catalogue), [language, catalogue]);
   const byId = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
+  // Written while SearchPicker computes its options; safe, as the same query and styles always
+  // give the same options, however often they are computed.
+  const shown = useRef<{ query: string; found: StyleMatches } | null>(null);
 
   const sections = useCallback(
     (query: string): PickerSection<CitationStyleId>[] => {
@@ -53,8 +63,12 @@ export function CitationStylePickerHost() {
         };
       };
 
+      const last = shown.current;
+      shown.current = null;
       if (query) {
-        const found = searchStyles(entries, query);
+        const now = searchStyles(entries, query);
+        const found = last?.query === query ? keepShown(last.found, now) : now;
+        shown.current = { query, found };
         const styles = { title: t("citationStyle.styles"), options: found.styles.map(optionOf) };
         const journals = {
           title: t("citationStyle.journals"),
