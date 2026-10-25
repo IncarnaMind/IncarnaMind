@@ -33,7 +33,7 @@ export const runsText = (runs: readonly StyledRun[]) => runs.map((run) => run.te
 
 /**
  * A Bibliography as the clipboard takes it: a paragraph per entry, its number first, and
- * `needsDetails` after an entry too thin to cite, as an export marks it.
+ * `needsDetails` after an entry too thin to cite. Unlike an export's, a pasted list says so.
  */
 export function bibliographyClipboard(
   entries: readonly BibliographyEntry[],
