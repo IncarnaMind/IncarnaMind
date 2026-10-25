@@ -8,7 +8,9 @@ import {
   addProviderPage,
   createDataFolder,
   launchApp,
+  newMind,
   openSettings,
+  pointAndClick,
   removeDataFolder,
   setWindowSize,
 } from "./app";
@@ -94,6 +96,33 @@ const textLeft = (element: Locator) =>
 
 const label = (box: Locator) => box.locator("xpath=ancestor::label");
 
+const chatModel = (window: Page) =>
+  window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await bridge.getSettings()).user.chatModel?.modelId ?? null;
+  });
+
+async function openLocalWay(window: Page): Promise<Locator> {
+  await newMind(window);
+  await window.getByTestId("mind-editor").click();
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("What is in my Documents?");
+  await window.keyboard.press("Enter");
+  const setup = window.getByTestId("model-setup");
+  await pointAndClick(window, setup.getByTestId("setup-other"));
+  await pointAndClick(window, setup.getByTestId("way-local"));
+  return setup;
+}
+
+async function expectPrivacySwitch(window: Page): Promise<void> {
+  const settings = window.getByTestId("settings");
+  await expect(settings).toHaveAttribute("data-page", "privacy");
+  const toggle = settings.getByTestId("local-only");
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toBeChecked();
+  await expect(toggle).toBeInViewport();
+}
+
 for (const [name, locale] of [
   ["English", "en"],
   ["Chinese", "zh-CN"],
@@ -154,6 +183,116 @@ for (const [name, locale] of [
     );
     await undo.getByTestId("undo-action").click();
     await expect.poll(() => localOnly(window)).toBe(false);
+    await app.close();
+  });
+
+  test(`at setup, the local way says before the click that it keeps everything on this computer; the line then names the model and Local mode, Undo and Redo reach Local mode alone, and Change opens Privacy at its switch (${name})`, async () => {
+    const { app, window } = await launchApp(dataDir, { ollama: ollamaUrl });
+    await setWindowSize(app, window, 1100, 760);
+    if (zh) await language(window, "zh-CN");
+    const setup = await openLocalWay(window);
+
+    const use = setup.getByTestId("ollama-use");
+    const keeps = setup.getByTestId("setup-local-keeps");
+    await expect(use).toBeEnabled();
+    await expect(keeps).toHaveText(
+      zh ? "所有内容都留在这台电脑上" : "Keeps everything on this computer",
+    );
+    const [button, line] = await Promise.all([use.boundingBox(), keeps.boundingBox()]);
+    if (!button || !line) throw new Error("The local way isn't laid out.");
+    expect(line.y).toBeGreaterThanOrEqual(button.y + button.height);
+    expect(await localOnly(window)).toBe(false);
+
+    await pointAndClick(window, use);
+    await expect.poll(() => localOnly(window)).toBe(true);
+    await expect(setup.getByTestId("setup-ready-title")).toBeVisible();
+    const undo = setup.getByTestId("undo-line-here");
+    const said = zh
+      ? "使用 qwen3.5:4b · 所有内容都留在这台电脑上"
+      : "Using qwen3.5:4b · Everything stays on this computer";
+    await expect(undo.getByTestId("undo-message")).toHaveText(said);
+    await expect(undo.getByTestId("undo-change-local-mode")).toHaveText(zh ? "更改" : "Change");
+    await expect(undo.getByTestId("undo-action")).toHaveText(zh ? "撤销" : "Undo");
+    // Shown in the card, where the User is, and not again at the sidebar's foot.
+    await expect(window.getByTestId("undo-line").getByTestId("undo-message")).toHaveCount(0);
+
+    await pointAndClick(window, undo.getByTestId("undo-action"));
+    await expect.poll(() => localOnly(window)).toBe(false);
+    expect(await chatModel(window)).toBe("qwen3.5:4b");
+    // Undo took back Local mode alone, and the line after it says so.
+    await expect(undo.getByTestId("undo-note")).toHaveText(
+      zh
+        ? "已关闭“所有内容都留在这台电脑上” · 仍在使用 qwen3.5:4b"
+        : "Turned off “Keep everything on this computer” · Still using qwen3.5:4b",
+    );
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect.poll(() => localOnly(window)).toBe(true);
+    await expect(undo.getByTestId("undo-message")).toHaveText(said);
+
+    await pointAndClick(window, undo.getByTestId("undo-change-local-mode"));
+    await expectPrivacySwitch(window);
+    await app.close();
+  });
+
+  test(`at a wide window, the setup card's line, Change and Undo stay in view (${name}, 1600 px)`, async () => {
+    const { app, window } = await launchApp(dataDir, { ollama: ollamaUrl });
+    await setWindowSize(app, window, 1600, 760);
+    if (zh) await language(window, "zh-CN");
+    const setup = await openLocalWay(window);
+
+    await pointAndClick(window, setup.getByTestId("ollama-use"));
+    await expect.poll(() => localOnly(window)).toBe(true);
+    const undo = setup.getByTestId("undo-line-here");
+    await expect(undo.getByTestId("undo-message")).toHaveText(
+      zh
+        ? "使用 qwen3.5:4b · 所有内容都留在这台电脑上"
+        : "Using qwen3.5:4b · Everything stays on this computer",
+    );
+    await expect(undo).toBeInViewport();
+    await expect(undo.getByTestId("undo-change-local-mode")).toBeVisible();
+    await expect(undo.getByTestId("undo-action")).toBeVisible();
+    await app.close();
+  });
+
+  test(`with the sidebar hidden, the line is in the setup card, and the keyboard alone reaches Change and the switch (${name})`, async () => {
+    const { app, window } = await launchApp(dataDir, { ollama: ollamaUrl });
+    await setWindowSize(app, window, 900, 700);
+    if (zh) await language(window, "zh-CN");
+    const setup = await openLocalWay(window);
+    await window.keyboard.press("ControlOrMeta+Backslash");
+    await expect(window.getByTestId("sidebar-panel")).toHaveAttribute("data-hidden", "true");
+
+    await setup.getByTestId("ollama-use").focus();
+    await window.keyboard.press("Enter");
+    await expect.poll(() => localOnly(window)).toBe(true);
+    const undo = setup.getByTestId("undo-line-here");
+    await expect(undo.getByTestId("undo-message")).toHaveText(
+      zh
+        ? "使用 qwen3.5:4b · 所有内容都留在这台电脑上"
+        : "Using qwen3.5:4b · Everything stays on this computer",
+    );
+    await expect(undo).toBeInViewport();
+
+    // Back from Continue, where the focus starts: Undo, then Change.
+    const change = undo.getByTestId("undo-change-local-mode");
+    for (let tabs = 0; tabs < 6; tabs++) {
+      if (await change.evaluate((node) => node === document.activeElement)) break;
+      await window.keyboard.press("Shift+Tab");
+    }
+    await expect(change).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expectPrivacySwitch(window);
+
+    // Esc back to the card, then Undo: the note shows there once, and the pill doesn't say it again.
+    await window.keyboard.press("Escape");
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => localOnly(window)).toBe(false);
+    await expect(undo.getByTestId("undo-note")).toHaveText(
+      zh
+        ? "已关闭“所有内容都留在这台电脑上” · 仍在使用 qwen3.5:4b"
+        : "Turned off “Keep everything on this computer” · Still using qwen3.5:4b",
+    );
+    await expect(window.getByTestId("undo-note")).toHaveCount(1);
     await app.close();
   });
 }

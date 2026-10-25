@@ -15,7 +15,7 @@ import { useLanguage, useT } from "../i18n";
 import { type Said, saidInLine } from "../lineNames";
 import { useFade } from "../motion";
 import { useAppStore } from "../store";
-import { type LineAction, UNDO_SHOWN_MS, type UndoLineState, useUndo } from "../undo";
+import { type LineAction, lineShownAt, UNDO_SHOWN_MS, type UndoLineState, useUndo } from "../undo";
 import { showsUndoPill } from "../undoPill";
 import { SidebarControlContext } from "./SidebarToggle";
 
@@ -30,28 +30,35 @@ const actionClass =
  * The undo line (CONTEXT.md) at the foot of the sidebar, above Settings: what
  * the User just changed, then Undo, which does what ⌘Z does. One at a time; it
  * goes after a few seconds, with Esc or with the next change, while ⌘Z still
- * reaches the change. An undo the core refuses shows here as one problem line
- * with one action, which stays until dismissed. Read out politely. With the
- * sidebar out of sight the line is the pill instead (`UndoPill`).
+ * reaches the change. An undo the core refuses shows as one problem line with
+ * one action, which stays until dismissed: here, or where its change showed
+ * its line. Read out politely. With the sidebar out of sight the line is the
+ * pill instead (`UndoPill`).
  */
 export function UndoLine() {
-  const line = useUndo((state) => state.line);
+  const line = useUndo((state) => (lineShownAt(state) === null ? state.line : null));
   const sidebar = useContext(SidebarControlContext);
   return (
     <div role="status" aria-live="polite" data-testid="undo-line" className="flex flex-col">
-      {/* A change shown where the User made it, under an Answer in the assistant, isn't shown twice. */}
-      {!showsUndoPill(sidebar) && line && !line.change?.shownAt && (
-        <UndoLineBody key={line.id} line={line} />
-      )}
+      {!showsUndoPill(sidebar) && line && <UndoLineBody key={line.id} line={line} />}
     </div>
   );
 }
 
-/** The line of a change made in a place of its own, shown there instead of the sidebar's foot (`Undoable.shownAt`). */
-export function UndoLineAt({ place }: { place: string }) {
-  const line = useUndo((state) => (state.line?.change?.shownAt === place ? state.line : null));
+/**
+ * The line of a change made in a place of its own, shown there instead of the sidebar's foot
+ * (`Undoable.shownAt`), and so is a problem in taking it back or doing it again.
+ */
+export function UndoLineAt({ place, className }: { place: string; className?: string }) {
+  const line = useUndo((state) => (lineShownAt(state) === place ? state.line : null));
+  useEffect(() => useUndo.getState().showPlace(place), [place]);
   return (
-    <div aria-live="polite" data-testid="undo-line-here" data-undo-place={place}>
+    <div
+      aria-live="polite"
+      data-testid="undo-line-here"
+      data-undo-place={place}
+      className={className}
+    >
       {line && <UndoLineBody key={line.id} line={line} />}
     </div>
   );
@@ -154,7 +161,7 @@ export function UndoLineBody({
     // A longer line, said for the User rather than by them: all of it, its actions under it.
     return (
       <div ref={shown} className={`${lineClass(inPill)} flex-col`}>
-        <span data-testid="undo-message" className="min-w-0 break-words">
+        <span data-testid="undo-message" className="min-w-0 break-words text-balance">
           {message}
         </span>
         <span className="-ml-1 flex items-center gap-1">

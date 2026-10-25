@@ -1,7 +1,7 @@
 import { useContext, useRef } from "react";
 import { useFade } from "../motion";
 import { useQuietAssistant } from "../quietAssistant";
-import { type UndoLineState, useUndo } from "../undo";
+import { lineShownAt, type UndoLineState, useUndo } from "../undo";
 import { showsUndoPill } from "../undoPill";
 import { useHeld } from "../useHeld";
 import { SidebarControlContext } from "./SidebarToggle";
@@ -13,7 +13,7 @@ import { UndoLineBody } from "./UndoLine";
  */
 export function UndoPill() {
   const sidebar = useContext(SidebarControlContext);
-  const line = useUndo((state) => state.line);
+  const line = useUndo((state) => (lineShownAt(state) === null ? state.line : null));
   const quiet = useQuietAssistant();
   if (!showsUndoPill(sidebar)) return null;
   return (
@@ -24,7 +24,7 @@ export function UndoPill() {
       data-quiet={quiet || undefined}
       className="undo-pill-place"
     >
-      {line && !line.change?.shownAt && <Pill key={line.id} line={line} />}
+      {line && <Pill key={line.id} line={line} />}
     </div>
   );
 }

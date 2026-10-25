@@ -20,6 +20,9 @@ type Translate = (key: MessageKey, params?: MessageParams) => string;
 /** Where an undo line of a change made in Settings › Models shows: the sidebar's is behind it. */
 export const MODELS_UNDO_PLACE = "settings:models";
 
+/** Where the undo line of choosing a local model on the setup card shows: the card, as the sidebar may be hidden. */
+export const SETUP_UNDO_PLACE = "setup";
+
 /** What a failed connection test means, in words. The ChatGPT plan's own kinds live under `chatgpt.`. */
 export function testErrorKey(kind: ProviderErrorKind): MessageKey {
   switch (kind) {

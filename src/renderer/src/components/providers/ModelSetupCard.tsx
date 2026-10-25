@@ -7,6 +7,7 @@ import { useLanguage, useT } from "../../i18n";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, KeyLineIcon } from "../lineIcons";
+import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
 import { buttonStyle, hintClass } from "../ui";
 import { ChatGptMark } from "./ChatGptMark";
@@ -29,6 +30,7 @@ import {
 import { ProviderForm } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
 import { SetupReady } from "./SetupReady";
+import { SETUP_UNDO_PLACE } from "./shared";
 
 const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
@@ -51,7 +53,7 @@ function ChooseAnAi() {
   const [view, setView] = useState<View>(null);
   const [others, setOthers] = useState(false);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
-  const ollama = useOllama(() => undefined);
+  const ollama = useOllama(() => undefined, SETUP_UNDO_PLACE, { localModeUnasked: true });
   const sign = useContinueWithChatGpt({ onSignedIn: () => undefined });
   useEffect(() => {
     // Only to tell the form a key is already saved: the form works with none listed.
@@ -289,6 +291,12 @@ function LocalWay({ ollama }: { ollama: OllamaState }) {
       </p>
       <OllamaProgress ollama={ollama} />
       <OllamaAction ollama={ollama} />
+      {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
+      {ollama.status?.running && ollama.keepLocal.checked && (
+        <p data-testid="setup-local-keeps" className="text-[12px] leading-[18px]">
+          <OnThisComputer>{t("setup.way.local.keeps")}</OnThisComputer>
+        </p>
+      )}
     </div>
   );
 }
