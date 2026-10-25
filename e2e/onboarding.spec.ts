@@ -6,13 +6,13 @@ import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   addFilesLabel,
-  addToNote,
   assistantAnswers,
   continueSetup,
   createDataFolder,
   dismissChatSetup,
   examplesMenu,
   expectReadyDocuments,
+  frontMind,
   gettingStarted,
   interceptOpenDialog,
   launchApp,
@@ -290,7 +290,7 @@ test("with only the example Documents, the footer doesn't ask for a model to tag
   await app.close();
 });
 
-test("an empty Mind of one's own shows the three steps, the example's steps tick as Documents are added and a Question is asked, and it says what to try next once all are done", async () => {
+test("an empty Mind of one's own shows no second start guide, the example's steps tick as Documents are added and a Question is asked, and it says what to try next once all are done", async () => {
   await writeFile(
     join(sources, "Harbour notes.md"),
     "# Harbour notes\n\nThe harbour master publishes the tide tables every January.\n",
@@ -300,10 +300,12 @@ test("an empty Mind of one's own shows the three steps, the example's steps tick
 
   await newMind(window);
   await dismissChatSetup(window);
-  const guide = window.getByTestId("start-guide");
-  await expect(guide).toBeVisible();
-  await expect(guide.getByTestId("start-step")).toHaveCount(3);
-  await expect(guide).toContainText("without checked Citations.");
+  // The first-run card has been seen: an empty note of one's own shows no second guide (#1940).
+  await expect(window.getByTestId("first-open-steps")).toBeHidden();
+  const editor = frontMind(window).getByTestId("mind-editor");
+  await expect(window.getByTestId("start-guide")).toHaveCount(0);
+  await expect(editor).not.toContainText("Start in three steps");
+  await expect(editor).not.toContainText("Connect an app…");
 
   await window
     .getByTestId("add-documents-input")
@@ -327,7 +329,7 @@ test("an empty Mind of one's own shows the three steps, the example's steps tick
   });
   await expect.poll(() => gettingStarted(window)).toMatchObject({ askedOwn: true });
   await expect(window.getByTestId("mind-editor").getByTestId("question")).toHaveCount(0);
-  await expect(guide).toBeVisible();
+  await expect(window.getByTestId("start-guide")).toHaveCount(0);
 
   // The examples fold to one row once a Document of one's own is there (#1944).
   // Tagging finishes in the background and adds the Tags section above it: wait, so the row holds still.
@@ -399,12 +401,10 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   );
   await newMind(window);
   await dismissChatSetup(window);
-  const guide = window.getByTestId("start-guide");
-  await expect(guide).toContainText("向你的文档提问。");
-  await expectPlainWords([guide]);
+  // The first-run card has been seen: an empty note of one's own shows no guide (#1940).
+  await expect(window.getByTestId("start-guide")).toHaveCount(0);
   await setLanguage(window, "en");
-  await expect(guide).toContainText("and ask your Documents.");
-  await expectPlainWords([guide, window.getByTestId("sidebar")]);
+  await expectPlainWords([window.getByTestId("sidebar")]);
   await pointAndClick(
     window,
     window.getByTestId("mind-list-item").filter({ has: window.getByTestId("example-chip") }),
@@ -829,7 +829,7 @@ test("scrolled to the end, the example's last line sits above the Ask pill, and 
   await app.close();
 });
 
-test("the hint at the end of a Mind focuses the composer when its link is clicked once the cursor is on its line, and is otherwise the line to write on", async () => {
+test("the hint at the end of a Mind focuses the composer when its link is clicked once the cursor is on its line, and is otherwise the line to write on; Add to note asks instead of filling the example", async () => {
   const { window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await leaveFirstOpen(window);
   const editor = window.getByTestId("mind-editor");
@@ -882,25 +882,14 @@ test("the hint at the end of a Mind focuses the composer when its link is clicke
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect(editor.getByTestId("question")).toHaveCount(1);
   await expect(editor.locator('[data-origin="conversation"]')).toHaveCount(0);
-  // Added to the note, it goes on the hint's line: right after the example's Answer, before the Note.
-  await addToNote(window, answer);
-  const order = await editor
-    .locator(":scope > *")
-    .evaluateAll((all) =>
-      all.map((block) =>
-        block.matches(".node-question")
-          ? "question"
-          : block.matches(".node-answer")
-            ? "answer"
-            : block.matches('[data-origin="conversation"]')
-              ? "added"
-              : (block.textContent ?? "").trim(),
-      ),
-    );
-  const at = order.lastIndexOf("answer");
-  expect(order.slice(at - 1, at + 2)).toEqual(["question", "answer", "added"]);
-  expect(order.at(-1)).toBe("Online margin should recover once Leeds opens.");
-  expect(order.slice(at + 1, -1).every((block) => block === "added")).toBe(true);
+  // The example is never a target of Add to note (#1940): it asks which note, and nothing goes in.
+  await expect(answer.getByTestId("answer-add-label")).toHaveText("Add to note");
+  await pointAndClick(window, answer.getByTestId("answer-add"));
+  await expect(window.getByTestId("add-to-picker")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("add-to-picker")).toHaveCount(0);
+  await expect(editor.locator('[data-origin="conversation"]')).toHaveCount(0);
+  await expect(editor.getByTestId("question")).toHaveCount(1);
 });
 
 test("the Examples row's ⋯ offers the other examples in an order picked once per install; each opens in a new tab and is made once (#123)", async () => {
