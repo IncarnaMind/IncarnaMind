@@ -278,8 +278,12 @@ export function SelectionMenu({
     const dom = editor.view.dom;
     const press = () => {
       pressed.current = true;
-      // A selection the User starts opens the menu, even over words it was closed over (#1355).
-      forgetMenuClosed(editor);
+    };
+    // Only a press that changes the selection starts a new one (#1355). Forgetting the mark on the
+    // press itself reopens the menu over the old words for a right-click, a shift-click, or a click
+    // whose selection reaches ProseMirror after the button is up.
+    const selectionMoved = () => {
+      if (pressed.current) forgetMenuClosed(editor);
     };
     const release = () => {
       if (!pressed.current) return;
@@ -348,6 +352,7 @@ export function SelectionMenu({
     dom.addEventListener(FORMAT_OPEN, openFormat);
     dom.addEventListener("compositionend", afterComposition);
     dom.addEventListener("mousedown", press);
+    editor.on("selectionUpdate", selectionMoved);
     document.addEventListener("mouseup", release);
     dom.addEventListener("keydown", onKey, true);
     return () => {
@@ -356,6 +361,7 @@ export function SelectionMenu({
       dom.removeEventListener(FORMAT_OPEN, openFormat);
       dom.removeEventListener("compositionend", afterComposition);
       dom.removeEventListener("mousedown", press);
+      editor.off("selectionUpdate", selectionMoved);
       document.removeEventListener("mouseup", release);
       dom.removeEventListener("keydown", onKey, true);
     };

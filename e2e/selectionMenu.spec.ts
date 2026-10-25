@@ -6,6 +6,7 @@ import {
   newMind,
   removeDataFolder,
   slideSelect,
+  wordsBox,
 } from "./app";
 
 let dataDir: string;
@@ -133,6 +134,47 @@ test("selecting text with the mouse or the keyboard opens a menu: Turn into, for
   await window.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
   expect(await selectedText(window)).toContain("Neap");
+  await app.close();
+});
+
+test("after Esc puts the menu away, a right-click or a shift-click on the same words leaves it away, and selecting them again opens it", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  await editor.click();
+  await window.keyboard.type("Spring tides are strongest at new moon");
+  const menu = window.getByTestId("selection-menu");
+  const line = editor.locator("p").first();
+
+  await slideSelect(window, line, "strongest");
+  await expect(menu).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+
+  // The menu shows a moment after the button is up: run the page's clock past it, so "it stays
+  // away" is checked, not only "it hasn't opened yet".
+  await window.clock.install();
+  const box = await wordsBox(line, "strongest");
+  await window.mouse.move(box.left + 8, box.y, { steps: 3 });
+  await window.mouse.click(box.left + 8, box.y, { button: "right" });
+  await window.clock.runFor(500);
+  expect(await selectedText(window)).toBe("strongest");
+  await expect(menu).toHaveCount(0);
+
+  // A shift-click on the end of the words keeps the selection the same.
+  await window.mouse.move(box.right, box.y, { steps: 3 });
+  await window.keyboard.down("Shift");
+  await window.mouse.click(box.right, box.y);
+  await window.keyboard.up("Shift");
+  await window.clock.runFor(500);
+  expect(await selectedText(window)).toBe("strongest");
+  await expect(menu).toHaveCount(0);
+  await window.clock.resume();
+
+  // Selecting the same words again is the User's own selection: the menu opens.
+  await slideSelect(window, line, "strongest");
+  await expect(menu).toBeVisible();
   await app.close();
 });
 
