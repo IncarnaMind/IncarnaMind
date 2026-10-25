@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef } from "react";
 import type { CommandId } from "../../../shared/commands";
 import { showPlace } from "../commands/here";
 import { menuKeysLabel } from "../commands/keymap";
@@ -17,7 +17,7 @@ import { useAppStore } from "../store";
 import { MoreLineIcon } from "./lineIcons";
 import { rowActionButtonClass } from "./sidebarRows";
 import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "./ui";
-import { rowMenuProps, usePopoverMenu } from "./usePopoverMenu";
+import { openMenuFromRightClick, usePopoverMenu } from "./usePopoverMenu";
 
 const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   mind: "mind",
@@ -51,19 +51,56 @@ function focusRow(from: HTMLElement | null): void {
 }
 
 /**
- * What a row needs for its object's menu: `buttonProps` for the ⋯ button (so
- * the row finds it), and `rowProps` for the row, so a right-click, the
- * context-menu key or Shift+F10 on it opens the menu the ⋯ button opens.
+ * What a row needs for its menu: `buttonProps` for the ⋯ button (so the row
+ * finds it), and `rowProps` for the row, so a right-click, the context-menu
+ * key or Shift+F10 on it opens the menu the ⋯ button opens. A row without an
+ * object, the examples' (#1944), passes null and the button that finds its own.
  */
-export function useObjectMenu(target: ObjectRef) {
-  const key = keyOf(target);
+export function useObjectMenu(
+  target: ObjectRef | null,
+  buttonOf?: (row: HTMLElement) => HTMLButtonElement | null,
+) {
+  const key = target ? keyOf(target) : null;
+  const findButton = (row: HTMLElement): HTMLButtonElement | null =>
+    key !== null
+      ? row.querySelector<HTMLButtonElement>(`[data-object-menu="${CSS.escape(key)}"]`)
+      : (buttonOf?.(row) ?? null);
+  const open = (
+    row: HTMLElement,
+    buttons: number,
+    at: { x: number; y: number; above?: number },
+  ): boolean => {
+    const button = findButton(row);
+    if (!button) return false;
+    openMenuFromRightClick(button, buttons, at);
+    return true;
+  };
   return {
-    buttonProps: { "data-object-menu": key },
+    buttonProps: key !== null ? { "data-object-menu": key } : {},
     rowProps: {
       "data-object-row": "",
-      ...rowMenuProps((row) =>
-        row.querySelector<HTMLButtonElement>(`[data-object-menu="${CSS.escape(key)}"]`),
-      ),
+      onContextMenu(event: MouseEvent<HTMLElement>) {
+        const row = event.currentTarget;
+        // Not from a menu or picker drawn from this row but sitting elsewhere in the page, nor an inner row's.
+        if (!(event.target instanceof Node) || !row.contains(event.target)) return;
+        if (event.defaultPrevented || (event.target as Element).closest('[role="menu"]')) return;
+        if (open(row, event.buttons, { x: event.clientX, y: event.clientY })) {
+          event.preventDefault();
+          // The row's own menu only: not that of a row that holds this one.
+          event.stopPropagation();
+        }
+      },
+      onKeyDown(event: KeyboardEvent<HTMLElement>) {
+        const opensMenu = event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
+        if (!opensMenu || event.defaultPrevented) return;
+        const field = event.target;
+        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return;
+        const box = event.currentTarget.getBoundingClientRect();
+        if (open(event.currentTarget, 0, { x: box.left + 24, y: box.bottom, above: box.top })) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      },
     },
   };
 }

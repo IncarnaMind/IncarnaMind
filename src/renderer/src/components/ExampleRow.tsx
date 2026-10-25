@@ -5,6 +5,7 @@ import { useAppStore } from "../store";
 import { useTreeItem } from "../treeKeys";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { MindLineIcon } from "./lineIcons";
+import { useObjectMenu } from "./ObjectMenu";
 import {
   clearsActions,
   rowActionsClass,
@@ -12,7 +13,6 @@ import {
   rowClass,
   rowIconClass,
 } from "./sidebarRows";
-import { rowMenuProps } from "./usePopoverMenu";
 
 /**
  * The examples, folded to one row once the User has a Document of their own
@@ -27,16 +27,12 @@ export function ExampleRow({ mindId }: { mindId: string }) {
     return item?.kind === "mind" && item.mindId === mindId;
   });
   const treeItem = useTreeItem({ depth: 0 });
+  const examplesMenu = useObjectMenu(null, (row) =>
+    row.querySelector<HTMLButtonElement>('[data-testid="examples-menu"]'),
+  );
   if (!mind) return null;
   return (
-    <div
-      data-testid="example-row"
-      data-object-row=""
-      className={rowClass(shown)}
-      {...rowMenuProps((row) =>
-        row.querySelector<HTMLButtonElement>('[data-testid="examples-menu"]'),
-      )}
-    >
+    <div data-testid="example-row" className={rowClass(shown)} {...examplesMenu.rowProps}>
       <button
         type="button"
         {...treeItem}
