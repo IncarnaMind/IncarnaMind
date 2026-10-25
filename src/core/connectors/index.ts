@@ -50,6 +50,7 @@ import type {
 import type { Consent } from "../consent";
 import {
   ConsentDeclinedError,
+  ConsentNeededError,
   ConsentRevokedError,
   InvalidInputError,
   isRecord,
@@ -848,7 +849,15 @@ export function createConnectors(options: ConnectorsOptions) {
       if (!current()) return;
       runtime.session = null;
       runtime.client = null;
-      if (causedBy(error, HeldBackError) || auth.heldBackCount() > held) {
+      if (causedBy(error, ConsentNeededError) || causedBy(error, ConsentRevokedError)) {
+        controller.abort();
+        clearRetry(runtime);
+        runtime.state = "connecting";
+        runtime.error = null;
+        runtime.tools = null;
+        runtime.failures = 0;
+        changed();
+      } else if (causedBy(error, HeldBackError) || auth.heldBackCount() > held) {
         waitForSignIn(runtime, true);
       } else if (needsSignIn(error)) waitForSignIn(runtime);
       else

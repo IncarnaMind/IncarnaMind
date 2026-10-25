@@ -282,7 +282,10 @@ describe("Remote Connector keys and older connections", () => {
     await vi.waitFor(() => expect(server.activeStreams).toBe(0));
     const count = server.requests.length;
     await core.restartConnector(added.id);
-    await waitForState(core, added.id, "error");
+    expect((await core.listConnectors()).find((each) => each.id === added.id)).toMatchObject({
+      state: "connecting",
+      error: null,
+    });
     expect(server.requests).toHaveLength(count);
     await core.allowDataFlow("connectors", new URL(server.url).origin);
     await waitForState(core, added.id, "ready");
@@ -290,6 +293,36 @@ describe("Remote Connector keys and older connections", () => {
     await vi.waitFor(() => expect(server.activeStreams).toBe(0));
     expect([...keychain.secrets.values()].some((stored) => stored.includes(next))).toBe(false);
     await core.close();
+  });
+
+  test("reopening without consent waits without requests or prompts, then resumes when allowed", async () => {
+    const value = planted();
+    const { core, server, keychain, dataDir } = await setup({
+      legacy: true,
+      header: "X-Key",
+      value,
+    });
+    const added = await core.addConnector({
+      name: "Tides",
+      url: server.url,
+      connection: "sse",
+      headers: { "X-Key": value },
+    });
+    await waitForState(core, added.id, "ready");
+    await core.revokeConsent("connectors", new URL(server.url).origin);
+    await core.close();
+    const count = server.requests.length;
+    const restarted = startCore(dataDir, { keychain });
+    await restarted.restartConnector(added.id);
+    expect((await restarted.listConnectors()).find((each) => each.id === added.id)).toMatchObject({
+      state: "connecting",
+      error: null,
+    });
+    expect(await restarted.listConsentRequests()).toEqual([]);
+    expect(server.requests).toHaveLength(count);
+    await restarted.allowDataFlow("connectors", new URL(server.url).origin);
+    await waitForState(restarted, added.id, "ready");
+    expect(server.activeStreams).toBe(1);
   });
 
   test("unavailable key storage leaves the working SSE connection and key intact", async () => {
