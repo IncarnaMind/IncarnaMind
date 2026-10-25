@@ -391,6 +391,8 @@ describe("exporting a Mind", () => {
       questions: 1,
       fromWord: false,
       theirChanges: 0,
+      unreadFiles: 0,
+      unreadFileNames: false,
     });
   });
 

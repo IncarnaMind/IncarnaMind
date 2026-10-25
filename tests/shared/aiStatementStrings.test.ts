@@ -70,6 +70,7 @@ const everything: AiUseFigures = {
       pages: [],
     },
   ],
+  unreadNames: true,
 };
 const nothing: AiUseFigures = {
   uses: [],
@@ -80,8 +81,11 @@ const nothing: AiUseFigures = {
   sentences: { supported: 0, unsupported: 0, contradicted: 0, needsRecheck: 0, notChecked: 0 },
   checked: [],
   unread: [],
+  unreadNames: false,
 };
-const FIGURES = { everything, nothing };
+/** The same record with the Mind not naming its files: the sentence ends in a full stop, no list. */
+const unticked: AiUseFigures = { ...everything, unreadNames: false };
+const FIGURES = { everything, unticked, nothing };
 
 const statementKeys = (Object.keys(en) as MessageKey[]).filter((key) =>
   key.startsWith("aiStatement."),
