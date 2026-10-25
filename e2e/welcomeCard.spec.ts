@@ -225,6 +225,33 @@ for (const language of ["en", "zh-CN"] as const) {
   }
 }
 
+test("the example's Documents stay reachable when its Mind is deleted after the User added files (#1944)", async () => {
+  const sources = await createDataFolder();
+  const notes = join(sources, "Harbour notes.md");
+  await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await window.getByTestId("add-documents-input").setInputFiles([notes]);
+    await expect(window.getByTestId("example-open")).toBeVisible({ timeout: 20_000 });
+    const sidebar = window.getByTestId("sidebar");
+    await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
+
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { mindId } = await bridge.getExamples();
+      if (mindId) await bridge.deleteMind(mindId);
+    });
+    // The one row goes with its Mind: its Documents and its Linked folder row stay reachable.
+    await expect(window.getByTestId("example-open")).toHaveCount(0);
+    await expect(sidebar.getByTestId("document-list-item")).toHaveCount(3);
+    await expect(window.getByTestId("linked-folders-section")).toBeVisible();
+  } finally {
+    await app.close();
+    await removeDataFolder(sources);
+  }
+});
+
 test("the Welcome card keeps one height through every step, so the page's text never moves (#1195)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();

@@ -88,17 +88,18 @@ export function DocumentsSection() {
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
   );
   const quiet = firstOpen && !hasOwnDocuments;
-  // The example folds to one row once the User has a Document of their own (#1944).
+  // The example folds to one row once the User has a Document of their own (#1944), and only while
+  // there is an example Mind for that row: its Documents and folder stay reachable without one.
   const exampleMindId = useAppStore((state) => state.examples?.mindId ?? null);
   const exampleFolders = useAppStore((state) =>
     allExamples(state)
       .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
       .join(" "),
   );
+  const foldExamples = hasOwnDocuments && exampleMindId !== null;
   const folded = useMemo(
-    () =>
-      hasOwnDocuments ? new Set(exampleFolders.split(" ").filter(Boolean)) : new Set<string>(),
-    [hasOwnDocuments, exampleFolders],
+    () => (foldExamples ? new Set(exampleFolders.split(" ").filter(Boolean)) : new Set<string>()),
+    [foldExamples, exampleFolders],
   );
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
   const documents = useAppStore((state) => state.documents);
@@ -219,15 +220,15 @@ export function DocumentsSection() {
           documents={quiet ? NO_DOCUMENTS : shownDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
-          hideExamples={folded.size > 0}
+          hideExamples={foldExamples}
         />
         {!quiet && hasLinkedFolders && (
           <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
-            <LinkedFolderRows hideExamples={folded.size > 0} />
+            <LinkedFolderRows hideExamples={foldExamples} />
           </SidebarSection>
         )}
         {!quiet && <SidebarTags />}
-        {folded.size > 0 && exampleMindId && <ExampleRow mindId={exampleMindId} />}
+        {foldExamples && exampleMindId && <ExampleRow mindId={exampleMindId} />}
       </div>
       <LinkFolderDialog />
       <TagNamesTip />
