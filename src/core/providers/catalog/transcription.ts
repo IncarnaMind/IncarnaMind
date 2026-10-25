@@ -95,7 +95,7 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     },
     key: "provider",
     liveSpeakers: false,
-    checked: "2026-10-19",
+    checked: "2026-10-25",
   },
 };
 
