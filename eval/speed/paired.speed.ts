@@ -173,8 +173,20 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   let spentBefore = 0;
   let stopped: string | null = null;
 
-  run: for (const group of sets.flatMap((set) => groupsOf(set, config.cacheDir))) {
-    if (chosen(group.items, languages, ids, each).length === 0) continue;
+  const bySet = sets.map((set) => groupsOf(set, config.cacheDir));
+  // A set's items are chosen across its libraries, so EACH counts a kind once per set.
+  const asked = new Set(
+    bySet.flatMap((ofSet) =>
+      chosen(
+        ofSet.flatMap((group) => group.items),
+        languages,
+        ids,
+        each,
+      ),
+    ),
+  );
+  run: for (const group of bySet.flat()) {
+    if (!group.items.some((item) => asked.has(item))) continue;
     log(`Opening ${group.name}`);
     const opened = await group.open({
       embedder: createWorkerEmbedder(),
@@ -196,12 +208,15 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
           request.flow.id === "chat" || request.flow.id === "checks",
         );
       });
-      const items = chosen(
-        group.items.filter((item) => !opened.leftOut?.has(item.id)),
-        languages,
-        ids,
-        each,
-      );
+      // Items the library can't ask give their place to others of their kind.
+      const items = opened.leftOut
+        ? chosen(
+            group.items.filter((item) => !opened.leftOut?.has(item.id)),
+            languages,
+            ids,
+            each,
+          )
+        : group.items.filter((item) => asked.has(item));
       for (const model of models) {
         const name = `${model.kind}/${model.modelId}`;
         const provider = await core.saveChatProvider(model);
