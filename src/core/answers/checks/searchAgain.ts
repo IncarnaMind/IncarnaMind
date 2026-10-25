@@ -3,9 +3,10 @@
  * second time with other words (#1608): a first query in the sentence's own
  * words can miss a clause written another way or in another language. The
  * model writes the second query; IncarnaMind never rewrites the User's text
- * into one. A reply that names a part a Passage states, or a Run that has
- * already searched more than once, isn't asked, so a check that finds its
- * Passage sends nothing more.
+ * into one. Only a reply that would read as Not found is asked: one that says a
+ * Passage is about the sentence, or names a part one states, reads as
+ * Unsupported, and a Run that has already searched more than once has looked
+ * again. A check that finds its Passage sends nothing more.
  */
 import type { TurnCheck } from "../turnChecks";
 import { readVerdict } from "./prompt";
@@ -20,7 +21,7 @@ export function searchAgain(searches: () => number): TurnCheck {
     check(text) {
       if (searches() !== 1) return null;
       const read = readVerdict(text);
-      if (read?.verdict !== "unsupported") return null;
+      if (read?.verdict !== "unsupported" || read.topic === "found") return null;
       // The check keeps a part only for a sentence whose topic a Passage is about (./claimCheck).
       if (read.covered && read.uncovered && read.topic !== "not found") return null;
       return { claims: [], note: SEARCH_AGAIN };

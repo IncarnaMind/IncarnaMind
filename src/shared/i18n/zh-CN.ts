@@ -3493,6 +3493,8 @@ export const zhCN = {
   "export.comment.sentence.contradicted.worked":
     "与文档矛盾：根据文档算出 {shown}，句子里写的是 {stated}。",
   "export.comment.sentence.contradicted.plain": "与文档矛盾。",
+  "export.comment.sentence.unsupported.reason": "无依据：{reason}",
+  "export.comment.sentence.unsupported.plain": "无依据。",
   "export.comment.sentence.unsupported": "未找到：未在“{scope}”中找到。",
   "export.comment.sentence.unsupported.more": "未找到：未在“{scope}”等 {total} 项中找到。",
   "export.comment.sentence.citedCaseUnchecked": "所引判决尚未核对：不在文档中。",

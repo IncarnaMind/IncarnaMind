@@ -12,7 +12,12 @@ import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import type { ClaimCalculation } from "../../../core/api";
 import { shownDocumentName } from "../../../shared/citations";
-import { checkedScope, coveredPart, SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
+import {
+  checkedScope,
+  coveredPart,
+  SENTENCES_CHECKED_AT_MOST,
+  saysNotFound,
+} from "../../../shared/claimChecks";
 import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { comparableSentence } from "../../../shared/sentences";
@@ -544,8 +549,7 @@ function ClaimCard({
       savedPage.versions.find((each) => each.contentHash === evidence?.contentHash)?.fetchedAt ??
       savedPage.fetchedAt,
   };
-  const saysNotFound =
-    state === "unsupported" && !differs && !decisionMissing && !fixes && !covers && !ownWorkings;
+  const nothingFound = saysNotFound(shown, check, cited.length);
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
@@ -673,20 +677,25 @@ function ClaimCard({
               onOpen={onOpen}
             />
           )}
-          {!fixes && !covers && (
-            <p
-              data-testid={ownWorkings ? "claim-own-workings" : "claim-nothing"}
-              className="citation-card-note"
-            >
-              {ownWorkings
-                ? t("claim.unsupported.ownWorkings")
-                : looked && looked.more > 0
-                  ? t("claim.unsupported.notFound.more", {
-                      scope: lookedIn,
-                      count: looked.more,
-                      total: looked.more + 1,
-                    })
-                  : t("claim.unsupported.notFound", { scope: lookedIn })}
+          {ownWorkings && (
+            <p data-testid="claim-own-workings" className="citation-card-note">
+              {t("claim.unsupported.ownWorkings")}
+            </p>
+          )}
+          {nothingFound && (
+            <p data-testid="claim-nothing" className="citation-card-note">
+              {looked && looked.more > 0
+                ? t("claim.unsupported.notFound.more", {
+                    scope: lookedIn,
+                    count: looked.more,
+                    total: looked.more + 1,
+                  })
+                : t("claim.unsupported.notFound", { scope: lookedIn })}
+            </p>
+          )}
+          {!fixes && !covers && !ownWorkings && !nothingFound && check.unsupported?.reason && (
+            <p data-testid="claim-why" className="claim-card-says">
+              {check.unsupported.reason}
             </p>
           )}
         </>
@@ -747,7 +756,7 @@ function ClaimCard({
           />
         </div>
       )}
-      {checkedIn && !saysNotFound && (
+      {checkedIn && !nothingFound && (
         <p data-testid="claim-checked-in" className="citation-card-note">
           {looked && looked.more > 0
             ? t("claim.checkedIn.more", {

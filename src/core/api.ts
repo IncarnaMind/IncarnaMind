@@ -4894,6 +4894,12 @@ export interface UnsupportedReason {
   /** A short phrase for what they don't ("memory and robustness"); null when none. */
   uncovered: string | null;
   /**
+   * True when the check found a Passage about the sentence that doesn't back it: its card says
+   * Unsupported, never Not found (#1608). Absent when nothing in its scope was about it, and on
+   * checks made before it was kept.
+   */
+  found?: true;
+  /**
    * The Passage the check quoted for what is covered, as a Citation whose quote the
    * Citation check found; absent when it quoted none.
    */

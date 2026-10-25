@@ -244,15 +244,15 @@ A number in an Answer that is neither in a quote of its sentence's Citations nor
 _Avoid_: hallucinated number, unsupported (a claim check's result)
 
 **Quote not found**:
-The result of a Citation check when the Citation's quote, or words its sentence puts in quotation marks, are not in the text at its Location. It says nothing about whether the claim is true. Said in full, "Quote not found" (未找到引文), so it never reads as Not found, which is about a sentence.
+The result of a Citation check when the Citation's quote, or words its sentence puts in quotation marks, are not in the text at its Location. It says nothing about whether the claim is true. The interface always says what wasn't found: "Quote not found" (未找到引文) on a Citation's card, "1 Citation not found" (1 处引用未找到) in the Mind's health. "Not found" alone is a sentence's (Not found).
 _Avoid_: broken, invalid, failed
 
 **Unsupported**:
-The result for a sentence when Find support, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. Its card is headed Unsupported when Passages about it were found and don't back it, and Not found when nothing in the scope states it. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
+The result for a sentence when Find support, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. Its card is headed Unsupported when the check found a Passage about the sentence that doesn't back it: one that says something different, states only part of it, or names another party, period or duty. When nothing in the scope is about the sentence, the card is headed Not found instead. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
 _Avoid_: unverified, false
 
 **Not found**:
-The heading of an unsupported sentence's card when nothing in the check's scope states it, after the check searched a second time with other words: "I didn't find this in “{scope}”" (未在“{scope}”中找到). Absence is a fact about the search, never a finding that the sentence is wrong. Its mark is the same amber "!" as Unsupported, and the Mind's health counts both as need a look. Not the same as Quote not found, which is about a Citation's quote.
+The heading of an unsupported sentence's card when nothing in the check's scope is about the sentence, after the check searched a second time with other words: "I didn't find this in “{scope}”" (未在“{scope}”中找到). It is a fact about the search, never a finding that the sentence is wrong. Once the check finds a Passage about the sentence that doesn't back it, the card says Unsupported. The mark is the same amber "!", and the Mind's health counts both as need a look. Not the same as Quote not found, which is about a Citation's quote.
 _Avoid_: nothing says this, missing, not in your Documents
 
 **Contradicted**:

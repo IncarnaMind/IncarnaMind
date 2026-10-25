@@ -3631,6 +3631,8 @@ export const en = {
   "export.comment.sentence.contradicted.worked":
     "Contradicted: your Documents give {shown}, and the sentence says {stated}.",
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
+  "export.comment.sentence.unsupported.reason": "Unsupported: {reason}",
+  "export.comment.sentence.unsupported.plain": "Unsupported by your Documents.",
   "export.comment.sentence.unsupported": "Not found: I didn’t find this in “{scope}”.",
   "export.comment.sentence.unsupported.more":
     "Not found: I didn’t find this in “{scope}” or {count} more.",

@@ -259,9 +259,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const { amount } = found;
       if (found.kind === "unit") {
         const reason = t("claim.unsupported.unit", { amount, figure: found.figure });
-        return { reason, covered: null, uncovered: null };
+        return { reason, covered: null, uncovered: null, found: true };
       }
       return {
+        found: true,
         reason: t("claim.unsupported.currency.reason", { amount }),
         covered: t("claim.unsupported.currency.covered", { amount }),
         uncovered: t("claim.unsupported.currency.uncovered", { currency: found.currency }),
@@ -433,6 +434,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         reason: verdict.says,
         covered: onTopic ? verdict.covered : null,
         uncovered: onTopic ? verdict.uncovered : null,
+        ...(verdict.topic === "found" && { found: true }),
       });
     }
     const evidence =
@@ -466,8 +468,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // The Passage the check cited states the term's own value, so no nearest line is asked about.
       const nearest = differs ? undefined : null;
       if (part.covered && part.uncovered)
-        return unsupported({ reason: verdict.says, ...part }, evidence, nearest);
-      if (differs) return unsupported();
+        return unsupported({ reason: verdict.says, ...part, found: true }, evidence, nearest);
+      if (differs) return unsupported({ ...UNBACKED, reason: verdict.says });
     }
     if (verdict.verdict === "contradicted") {
       // The judgements disagree with the check: the card shows the part the quote states
@@ -478,16 +480,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         if (verdict.topic === "not found") return unsupported();
         const part = await parts(evidence);
         if (signal.aborted) return notChecked("stopped");
-        if (!part.covered || !part.uncovered) return unsupported();
+        if (!part.covered || !part.uncovered) return unsupported(UNBACKED);
         // A judgement has just compared this very quote with the sentence: no nearest line.
-        return unsupported({ reason: verdict.says, ...part }, evidence, null);
+        return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
       };
       const first = await compare(request, evidence, session, signal, CONFIRM_INSTRUCTIONS);
       if (signal.aborted) return notChecked("stopped");
       if ("failed" in first) return failedCheck(first.failed);
       const judged = readJudgement(first.reply);
       // The Passage is about something else: what is nearest may still say something different.
-      if (judged === "neither") return byCalculation ?? unsupported();
+      if (judged === "neither") {
+        return byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED);
+      }
       // Never Supported: in one word it called the parties the other way round the same (#1668).
       if (judged === "same") return inDoubt();
       // A false contradiction is the worst verdict a check gives, and one judgement upheld near
@@ -697,6 +701,12 @@ async function nearestDifferent(
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * A Passage the check found and judged that doesn't back the sentence, with nothing to quote from it:
+ * Unsupported, never Not found (#1608).
+ */
+const UNBACKED: UnsupportedReason = { reason: null, covered: null, uncovered: null, found: true };
 
 /** The marker the nearest line is recorded under: apart from the model's and the evidence's. */
 const NEAREST_MARKER = 98;

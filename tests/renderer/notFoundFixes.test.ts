@@ -235,6 +235,9 @@ describe("The heading of a sentence's check (#1608)", () => {
       claimOn(editor, 0, 0),
       claimOn(editor, 1, 0, { evidence: quoted }),
       claimOn(editor, 1, 0, { unsupported: { covered: "pets", uncovered: "cats", quoted } }),
+      claimOn(editor, 1, 0, {
+        unsupported: { reason: "Pets up to 15 kg.", covered: null, uncovered: null, found: true },
+      }),
       claimOn(editor, 1, 0, { excluded: [{ reason: "own-workings" }] }),
       claimOn(editor, 1, 0, { citedCaseUnchecked: true }),
     ];

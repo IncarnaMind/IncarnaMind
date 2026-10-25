@@ -79,6 +79,11 @@ export function exportLabels(language: Language): ExportLabels {
           part,
         );
       }
+      if (!sentence.notFound) {
+        return sentence.reason
+          ? t("export.comment.sentence.unsupported.reason", { reason: sentence.reason })
+          : t("export.comment.sentence.unsupported.plain");
+      }
       const { scope } = sentence;
       const name = scope
         ? (scope.name ?? t(`scope.chip.deleted.${scope.kind}`))

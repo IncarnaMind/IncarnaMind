@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { SEARCH_AGAIN, searchAgain } from "../../src/core/answers/checks/searchAgain";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { saysNotFound } from "../../src/shared/claimChecks";
 import { checkingModel, isCheckRun, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
@@ -55,8 +56,11 @@ async function check(plan: Plan) {
         )
       : [],
   );
+  const checked = claimSpans(readMind(client))[0]?.check;
   return {
-    check: claimSpans(readMind(client))[0]?.check,
+    check: checked,
+    notFound:
+      checked?.state === "unsupported" && saysNotFound({ state: "unsupported" }, checked, 0),
     queries,
     askedAgain: runs.filter((call) => call.prompt.includes(SEARCH_AGAIN)).length,
     runs: runs.length,
@@ -85,6 +89,7 @@ describe("Before a check says a sentence isn't found (#1608)", () => {
     expect(checked.queries).toEqual([SENTENCE, "lunar month tide size"]);
     expect(checked.check?.state).toBe("unsupported");
     expect(checked.check?.evidence).toBeNull();
+    expect(checked.notFound).toBe(true);
     // The ask is the last message of every request after it: one ask, two requests that carry it.
     expect(checked.runs).toBe(checked.askedAgain + 2);
   });
@@ -111,5 +116,65 @@ describe("Before a check says a sentence isn't found (#1608)", () => {
     expect(searchAgain(() => 1).check(offTopic)?.note).toBe(SEARCH_AGAIN);
     expect(searchAgain(() => 2).check(reply)).toBeNull();
     expect(searchAgain(() => 0).check(reply)).toBeNull();
+  });
+});
+
+describe("Not found only when nothing in the scope was about the sentence (#1608)", () => {
+  const UNSUPPORTED_ON_TOPIC =
+    "Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: none, same\nTides says spring tides come at new and full moon, not how often.";
+
+  test("a reply that says a Passage is about the sentence is Unsupported, with its words, and isn't asked to search again", async () => {
+    const checked = await check({ reply: { text: UNSUPPORTED_ON_TOPIC } });
+
+    expect(checked.check?.state).toBe("unsupported");
+    expect(checked.check?.unsupported).toMatchObject({
+      found: true,
+      reason: "Tides says spring tides come at new and full moon, not how often.",
+    });
+    expect(checked.notFound).toBe(false);
+    expect(checked.askedAgain).toBe(0);
+  });
+
+  test("must for may, with no part to show, is Unsupported with the check's words", async () => {
+    const checked = await check({
+      ...FOUND,
+      says: "Roles: big tides must come twice / spring tides happen, differs\nTides says spring tides happen at new and full moon.",
+    });
+
+    expect(checked.check?.state).toBe("unsupported");
+    expect(checked.check?.unsupported).toMatchObject({
+      found: true,
+      reason: "Tides says spring tides happen at new and full moon.",
+    });
+    expect(checked.notFound).toBe(false);
+  });
+
+  test.each(["same", "neither"] as const)(
+    "a contradiction the judgement calls %s is Unsupported: the check found the Passage it quoted",
+    async (judgement) => {
+      const checked = await check({
+        verdict: "contradicted",
+        quote: FOUND.quote,
+        says: "Tides says spring tides come twice a month, at new and full moon.",
+        judgement,
+      });
+
+      expect(checked.check?.state).toBe("unsupported");
+      expect(checked.check?.unsupported?.found).toBe(true);
+      expect(checked.notFound).toBe(false);
+    },
+  );
+
+  test("a contradiction whose reply says no Passage is about the sentence is Not found", async () => {
+    const checked = await check({
+      verdict: "contradicted",
+      quote: FOUND.quote,
+      says: "Topic: not found\nTides says nothing of how often tides come.",
+      judgement: "neither",
+    });
+
+    expect(checked.check?.state).toBe("unsupported");
+    expect(checked.check?.unsupported?.found).toBeUndefined();
+    expect(checked.notFound).toBe(true);
   });
 });

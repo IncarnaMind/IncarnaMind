@@ -687,6 +687,79 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
     },
   );
 
+  test.each([
+    {
+      language: "en" as const,
+      cited: "Unsupported: Tides doesn’t mention the harbour.",
+      found: "Unsupported: The report gives no margins.",
+      nothing: "Not found: I didn’t find this in “All Documents”.",
+    },
+    {
+      language: "zh-CN" as const,
+      cited: "无依据：Tides doesn’t mention the harbour.",
+      found: "无依据：The report gives no margins.",
+      nothing: "未找到：未在“全部文档”中找到。",
+    },
+  ])(
+    "$language: a cited sentence with no part named, and one whose check found a Passage, say Unsupported with the check's words, as their cards do; only one nothing in scope was about says Not found",
+    async ({ language, cited, found, nothing }) => {
+      const { core, mindId, client } = await setUp({
+        body:
+          paragraph("Spring tides rise in the harbour.") +
+          paragraph("Margins widened in 2026.") +
+          paragraph("Costs fell in 2025."),
+      });
+      const tides = await tidesDocument(core);
+      await core.updateSettings({ user: { language } });
+      const reason = (why: string, more: { found?: true } = {}) => ({
+        reason: why,
+        covered: null,
+        uncovered: null,
+        ...more,
+      });
+      editMind(client, ([first, second, third]) => [
+        {
+          ...(first as JSONContent),
+          content: [
+            checked(
+              "Spring tides rise in the harbour",
+              "unsupported",
+              null,
+              reason("Tides doesn’t mention the harbour."),
+              { text: "Spring tides rise in the harbour\uFFFC." },
+            ),
+            citation(tides),
+            text("."),
+          ],
+        },
+        {
+          ...(second as JSONContent),
+          content: [
+            checked(
+              "Margins widened in 2026.",
+              "unsupported",
+              null,
+              reason("The report gives no margins.", { found: true }),
+            ),
+          ],
+        },
+        {
+          ...(third as JSONContent),
+          content: [checked("Costs fell in 2025.", "unsupported", null)],
+        },
+      ]);
+      await client.settled();
+
+      const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+      const comments = textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
+
+      expect(comments).toContain(cited);
+      expect(comments).toContain(found);
+      expect(comments).toContain(nothing);
+      expect(comments.match(/Not found|未找到/g)).toHaveLength(1);
+    },
+  );
+
   test("each gets a comment on its own words, written into its paragraph; the others stay as they were", async () => {
     const { core, bytes, mindId, client } = await setUp({
       body:
