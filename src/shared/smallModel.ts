@@ -3,7 +3,7 @@ export const SMALL_JUDGE_PARAMETERS = 20_000_000_000;
 
 /**
  * Whether the verdicts of a check run on this model carry the notice that
- * they may be wrong: Find support, Check against Documents, Verify and
+ * they may be wrong: Check against Documents, Verify and
  * contradiction watch all ask it. Only a model on this computer whose size the
  * runtime reported counts: a cloud model, or one of unknown size, never does.
  */

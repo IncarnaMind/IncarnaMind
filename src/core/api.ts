@@ -353,8 +353,8 @@ export const PROPOSAL_ATTRIBUTE = "proposal";
 export const GENERATED_MARK = "generated";
 
 /**
- * A check of a sentence the User wrote (#96): Find support or Check against
- * Documents put this mark on the sentence's text, with the result as its
+ * A check of a sentence the User wrote (#96): Check against Documents puts
+ * this mark on the sentence's text, with the result as its
  * attributes (`ClaimCheckAttributes`). It isn't inclusive, so words typed
  * after the sentence aren't under it. Whether it still holds is worked out
  * from what it records (`claimCheckShown` in src/shared/claimChecks.ts).
@@ -4840,13 +4840,13 @@ export type EditWithAiResult =
   | { kind: "failed"; error: ProviderError };
 
 /**
- * The checks of the User's own sentences (#96). Each checks a sentence's
- * claim against the Documents: Find support looks for a Passage that backs
- * it; Check against Documents does the same for a sentence that already has
- * Citations, telling the model what they quote, so the claim is checked and
- * not only the quote. Contradiction watch (#112) checks a cited sentence
- * against the other Documents in its Mind's Folder, the ones it cites left
- * out, and keeps a mark only where one contradicts it.
+ * The checks of the User's own sentences (#96). Check against Documents
+ * checks a sentence's claim against the Documents, telling the model what
+ * the sentence already cites, so the claim is checked and not only the
+ * quote. "find-support" is that check as an older version named it, and
+ * runs as Check against Documents does. Contradiction watch (#112) checks a
+ * cited sentence against the other Documents in its Mind's Folder, the ones
+ * it cites left out, and keeps a mark only where one contradicts it.
  */
 export const claimCheckActions = [
   "find-support",
@@ -6456,9 +6456,9 @@ export type DataKind = (typeof dataKinds)[number];
  *   local mode.
  * - "edits": when the User asks Edit with AI (#93), the text they selected
  *   and the paragraphs it is in, to the chat model's provider. None in local mode.
- * - "checks": when the User asks Find support or Check against Documents
- *   (#96), each sentence they selected, with its paragraph and what it cites,
- *   and the Passages the check's searches find, to the chat model's provider;
+ * - "checks": when the User asks Check against Documents (#96), each sentence
+ *   they selected, with its paragraph and what it cites, and the Passages the
+ *   check's searches find, to the chat model's provider;
  *   when they verify a document (#97), its sentences, to find its claims, then
  *   each claim with its paragraph and the Passages found. None in local mode.
  * - "agents": what an outside agent reads (#351), to that agent, which sends
@@ -9194,6 +9194,12 @@ export interface CoreApi {
   createExamples(group?: ExampleGroup): Promise<Examples>;
   /** Deletes the example Mind, and unlinks the example Documents and deletes their copies. */
   removeExamples(group?: ExampleGroup): Promise<void>;
+  /**
+   * Brings back an example removed in this session, as Undo does: the same Mind
+   * from Recently deleted, and its Documents as the same Documents with their
+   * files copied again, so its Citations still open them. The credit paper by default.
+   */
+  restoreExamples(group?: ExampleGroup): Promise<Examples>;
   /** Shows a Linked folder as a tree of Folders or as a flat list. Returns it. */
   setLinkedFolderLayout(linkedFolderId: string, layout: LinkedFolderLayout): Promise<LinkedFolder>;
   /**
@@ -9492,7 +9498,7 @@ export interface CoreApi {
   /** Stops an Edit with AI request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelEdit(requestId: string): Promise<void>;
   /**
-   * Find support and Check against Documents (#96): checks each sentence the
+   * Check against Documents (#96): checks each sentence the
    * selection touches against the Mind's Folder (or every Document), one at a
    * time, with `checkClaim`. Each sentence gets a `CLAIM_CHECK_MARK` at once,
    * "checking", then its result, pushed as a "mind.update" like any edit.
@@ -10682,6 +10688,7 @@ const methods: Record<CoreApiMethod, true> = {
   offerExamples: true,
   createExamples: true,
   removeExamples: true,
+  restoreExamples: true,
   editConnector: true,
   setConnectorEnabled: true,
   restartConnector: true,

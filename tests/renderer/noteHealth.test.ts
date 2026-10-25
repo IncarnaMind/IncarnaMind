@@ -56,7 +56,7 @@ function checked(
   const check: ClaimCheckAttributes = {
     id: `check-${sentence.length}-${state}`,
     request: "r1",
-    action: "find-support",
+    action: "check-against-documents",
     state,
     reason,
     detail: null,

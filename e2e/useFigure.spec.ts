@@ -105,7 +105,7 @@ for (const [language, width] of [
       // sentences, the one written twice doesn't.
       await slideSelect(window, line, "Net debt", { line, words: "in 2024." });
       const menu = window.getByTestId("selection-menu");
-      await pointAndClick(window, menu.getByTestId("selection-action-find-support"));
+      await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
       const marks = window.getByTestId("claim-mark");
       await expect(marks).toHaveCount(3, { timeout: 30_000 });
       await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");

@@ -1675,11 +1675,11 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     const ids = minds.edit(mind.id, (note) => {
       const asked =
         over.kind === "own" ? ownAsked(note, over) : remade === undefined || !remade.typedSince;
-      const revised = blocks.map(createElement);
+      // `settle` writes Citations recorded later into the Blocks written, which only Blocks added whole can take.
       const written =
         over.kind === "own"
-          ? replaceOwn(note, over, revised, request)
-          : replaceApplied(note, over, revised, request);
+          ? replaceOwn(note, over, blocks.map(createElement), request)
+          : replaceApplied(note, over, blocks, request, { whole: unrecorded > 0 });
       const doc = note.doc;
       if (!written || !doc) return written;
       setOrigins(doc, written, options.origin);
