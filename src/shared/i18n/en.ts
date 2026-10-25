@@ -4187,6 +4187,8 @@ export const en = {
   "command.proposal.regenerate": "Regenerate change",
   "command.tab.next": "Next Tab",
   "command.tab.previous": "Previous Tab",
+  "command.tab.show": "Go to Tab {n}",
+  "command.tab.showLast": "Go to Last Tab",
   "command.tab.keep": "Keep Tab Open",
   "command.tab.pin": "Pin Tab",
   "command.tab.unpin": "Unpin Tab",

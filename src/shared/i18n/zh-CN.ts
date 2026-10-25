@@ -4001,6 +4001,8 @@ export const zhCN = {
   "command.proposal.regenerate": "重新生成修订",
   "command.tab.next": "下一个标签页",
   "command.tab.previous": "上一个标签页",
+  "command.tab.show": "转到第 {n} 个标签页",
+  "command.tab.showLast": "转到最后一个标签页",
   "command.tab.keep": "保持标签页打开",
   "command.tab.pin": "置顶标签页",
   "command.tab.unpin": "取消置顶标签页",
