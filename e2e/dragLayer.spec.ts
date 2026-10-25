@@ -245,9 +245,16 @@ for (const [language, width] of [
           await expect(label).toHaveText(
             t("drop.moveTo.documents", { count: 2, folder: "Finance" }),
           );
+          // Every row the drag carries looks carried, not only the one grabbed.
+          for (const name of ["Budget", "Ledger"]) {
+            await expect(libraryRow(library, name)).toHaveAttribute("data-dragging", "true");
+          }
           await screenshot(window, `drag-library-rows-${language}-${width}`);
         },
       );
+      for (const name of ["Budget", "Ledger"]) {
+        await expect(libraryRow(library, name)).not.toHaveAttribute("data-dragging", "true");
+      }
       expect(await dragPictures(window)).toEqual([
         { name: t("library.count", { count: 2 }), count: "2" },
       ]);
