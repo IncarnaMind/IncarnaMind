@@ -67,6 +67,15 @@ for (const language of ["en", "zh-CN"] as const)
           throw new Error("Could not enter the synthetic key.");
         });
         await acceptPlainTextKeys(window, form);
+        const oauth = form.getByText(t("remoteConnectors.form.client"), { exact: true });
+        await oauth.click();
+        const clientId = form.getByLabel(t("remoteConnectors.client.id"), { exact: true });
+        await clientId.fill("synthetic-client");
+        await form.getByRole("button", { name: t("connectors.form.add"), exact: true }).click();
+        await expect(form).toContainText(t("error.connector.authChoice"));
+        expect(server.requests).toHaveLength(0);
+        await clientId.fill("");
+        await oauth.click();
         await form.getByRole("button", { name: t("connectors.form.add"), exact: true }).focus();
         await window.keyboard.press("Enter");
         const connector = page.getByTestId("connector");

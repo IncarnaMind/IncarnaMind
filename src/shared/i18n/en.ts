@@ -4407,7 +4407,7 @@ export const en = {
   "connectors.error.key-refused": "The server refused this key",
   "error.connector.headersInvalid":
     "Check the header names and values. Each name must be unique, and values must stay on one line.",
-  "error.connector.authChoice": "Use an API key or an OAuth app for this Connector.",
+  "error.connector.authChoice": "Choose an API key or an OAuth app.",
   "error.connector.changeKeyInstead": "Change this Connector’s key instead.",
   "error.connector.keyChangeCancelled":
     "The Connector stopped before the key was saved. Try again.",

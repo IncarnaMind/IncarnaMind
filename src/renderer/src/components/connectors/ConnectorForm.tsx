@@ -94,6 +94,10 @@ export function ConnectorForm({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (invalid) return;
+    if (remote && key.trim() && clientId.trim()) {
+      setError(t("error.connector.authChoice"));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {

@@ -292,6 +292,81 @@ describe("Remote Connector keys and older connections", () => {
     await core.close();
   });
 
+  test("unavailable key storage leaves the working SSE connection and key intact", async () => {
+    const value = planted();
+    const { core, server, keychain } = await setup({ legacy: true, header: "X-Key", value });
+    const added = await core.addConnector({
+      name: "Tides",
+      url: server.url,
+      connection: "sse",
+      headers: { "X-Key": value },
+    });
+    await waitForState(core, added.id, "ready");
+    const count = server.requests.length;
+    const protection = vi.spyOn(keychain, "protection").mockReturnValue("unavailable");
+    onTestFinished(() => protection.mockRestore());
+    await expect(core.setConnectorHeaders(added.id, { "X-Key": planted() })).rejects.toMatchObject({
+      name: "SecretStorageError",
+    });
+    expect((await core.listConnectors()).find((each) => each.id === added.id)?.state).toBe("ready");
+    expect(server.activeStreams).toBe(1);
+    expect(server.requests).toHaveLength(count);
+    expect([...keychain.secrets.values()].some((stored) => stored.includes(value))).toBe(true);
+  });
+
+  test("unrelated consent changes do not retry a refused key", async () => {
+    const { core, server } = await setup({ refusal: 401 });
+    const added = await core.addConnector({
+      name: "Tides",
+      url: server.url,
+      headers: { "X-Key": planted() },
+    });
+    await waitForState(core, added.id, "error");
+    const count = server.requests.length;
+    const revoked = await core.revokeConsent("chat", "https://example.test");
+    if (revoked) await core.restoreConsent("chat", "https://example.test", revoked);
+    await core.allowDataFlow("connectors", new URL(server.url).origin);
+    expect((await core.listConnectors()).find((each) => each.id === added.id)?.error).toMatchObject(
+      {
+        kind: "key-refused",
+        retrying: false,
+      },
+    );
+    expect(server.requests).toHaveLength(count);
+  });
+
+  test("an unrelated consent change leaves the in-progress opening request alone", async () => {
+    const server = await startHeaderMcp();
+    onTestFinished(() => server.close());
+    let entered = () => {};
+    let release = () => {};
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    onTestFinished(() => release());
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const core = startCore(await createTempDataFolder(), {
+      connectorFetch: async (input, init) => {
+        signals.push(init?.signal);
+        if (signals.length === 1) {
+          entered();
+          await waiting;
+        }
+        return fetch(input, init);
+      },
+    });
+    const added = await core.addConnector({ name: "Tides", url: server.url });
+    await started;
+    await core.revokeConsent("chat", "https://example.test");
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(false);
+    release();
+    await waitForState(core, added.id, "ready");
+  });
+
   test("closing and reopening loads device-only keys once, then deletion removes them and the socket", async () => {
     const value = planted();
     const { core, server, keychain, dataDir } = await setup({

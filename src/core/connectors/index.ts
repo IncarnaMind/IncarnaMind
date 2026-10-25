@@ -1387,6 +1387,10 @@ export function createConnectors(options: ConnectorsOptions) {
     async setHeaders(id: unknown, input: unknown): Promise<Connector> {
       const { row, config } = requireRemote(id);
       const headers = parseHeaders(input);
+      if (Object.keys(headers).length > 0) {
+        const { canSave, protection } = secrets.status();
+        if (!canSave) throw new SecretStorageError(protection);
+      }
       const runtime = runtimeOf(row.id);
       await cancelSignIn(runtime);
       stop(row.id);
@@ -1448,11 +1452,13 @@ export function createConnectors(options: ConnectorsOptions) {
     anyEnabled: () => liveRows().some((row) => row.enabled === 1 && !paused(row)),
 
     consentChanged(): void {
+      const resume: ConnectorRow[] = [];
       for (const row of liveRows()) {
         if (row.transport !== "http" || row.enabled !== 1) continue;
         if (!consent.allows("connectors", serviceOf(row))) stop(row.id);
-        else if (!runtimes.get(row.id)?.session && !paused(row)) start(row.id);
+        else if (!paused(row)) resume.push(row);
       }
+      startIdle(resume);
       changed();
     },
 
