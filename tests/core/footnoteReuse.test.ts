@@ -299,6 +299,23 @@ describe("the writer's notes", () => {
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([3]);
   });
 
+  test("a Citation in a to-do a change still waiting adds or removes shares no note either", () => {
+    const change = { id: "t1", at: null };
+    const { footnotes } = render([
+      {
+        kind: "list",
+        ordered: false,
+        start: 1,
+        checked: [false, false],
+        items: [
+          [{ ...paragraph(cited("Tides, p. 2")), inserted: change }],
+          [paragraph(cited("Tides, p. 2"))],
+        ],
+      },
+    ]);
+    expect(Object.values(footnotes)).toEqual(["Tides, p. 2", "Tides, p. 2"]);
+  });
+
   test("a Citation of another version of a Document has a note of its own", () => {
     const first = { ...work("Tides, p. 2"), contentHash: "h1" };
     const later = { ...work("Tides, p. 2"), contentHash: "h2" };

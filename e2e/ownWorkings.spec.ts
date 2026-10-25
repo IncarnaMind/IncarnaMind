@@ -275,7 +275,7 @@ test("A sentence only the marked file states is Unsupported, and its card says s
   await expect(line).toHaveText(FIGURE);
   await slideSelect(window, line, "Penguins", { line, words: "cliffs." });
   const menu = window.getByTestId("selection-menu");
-  await pointAndClick(window, menu.getByTestId("selection-action-find-support"));
+  await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
 
   const mark = window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "unsupported");

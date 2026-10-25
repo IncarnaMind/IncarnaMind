@@ -247,7 +247,7 @@ async function expectReasons(
 const SENTENCE = "Spring tides happen at new and full moon.";
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Find support says which files in its scope couldn't be read, and why (${language})`, async () => {
+  test(`Check against Documents says which files in its scope couldn't be read, and why (${language})`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await start(language);
     const editor = window.getByTestId("mind-editor");
@@ -261,7 +261,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "Spring tides", { line, words: "full moon." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     await expect(window.getByTestId("claim-mark")).not.toHaveAttribute("data-check", "checking");
     await expect(window.getByTestId("badge-stop")).toHaveCount(0);
@@ -421,7 +421,7 @@ test("nothing shows when everything in scope was read", async () => {
   await slideSelect(window, line, "Spring tides", { line, words: "full moon." });
   await pointAndClick(
     window,
-    window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   await expect(window.getByTestId("claim-mark")).toHaveCount(1);
   await expect((await checkCard(window)).getByTestId("mind-health")).toBeVisible();
