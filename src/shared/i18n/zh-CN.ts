@@ -1109,6 +1109,7 @@ export const zhCN = {
   "viewer.label": "文档查看器",
   "viewer.keep": "保持打开",
   "viewer.keepTip": "保留这个标签页（或双击它的标签）",
+  "viewer.pdf.failed": "无法打开这个 PDF。",
   "viewer.loading": "正在打开文档…",
   "viewer.failed": "无法显示这个文档：{message}",
   "viewer.locked.title": "这个 PDF 已加密",
