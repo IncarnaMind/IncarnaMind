@@ -217,6 +217,8 @@ describe("Mind content", () => {
     const deleted = await core.createMind({ title: "Deleted" });
     await core.applyMindUpdate(written.id, paragraphUpdate("Tides at the harbour"));
     await core.deleteMind(deleted.id);
+    // Closed first: Home usually asks about a Mind no window has open, read from storage.
+    await core.closeMind(written.id);
 
     const snapshots = await core.readMindContents([written.id, empty.id, deleted.id, randomUUID()]);
 

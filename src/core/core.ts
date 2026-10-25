@@ -3608,10 +3608,12 @@ export function createCore(adapters: CoreAdapters): Core {
         }
         try {
           minds.get(mindId);
-          found.push({ mindId, state: content.storedState(mindId) });
-        } catch {
-          // A Mind deleted since Home listed it has no state to show.
+        } catch (error) {
+          // A Mind deleted since Home listed it has no state to show; anything else is real.
+          if (error instanceof NotFoundError) continue;
+          throw error;
         }
+        found.push({ mindId, state: content.storedState(mindId) });
       }
       return found;
     },
