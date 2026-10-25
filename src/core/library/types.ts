@@ -1,4 +1,4 @@
-import type { ChatModelChoice, ProviderError } from "../api";
+import type { ChatModelChoice, ExternalService, ProviderError } from "../api";
 
 /** An in-app folder. The legacy Group API name keeps saved assignments compatible. */
 export interface LibraryGroup {
@@ -89,6 +89,16 @@ export interface TaggingModels {
   /** Tagging on the ChatGPT plan waits for its limit to reset, until this time (ISO 8601, UTC); null when it doesn't. */
   planPausedUntil: string | null;
 }
+
+/**
+ * Where automatic tagging sends now, from its model alone: a service, a model
+ * on this computer, or none it can tag with. The flows say whether the User
+ * allowed it (#1890).
+ */
+export type TaggingRoute =
+  | { where: "none" }
+  | { where: "local" }
+  | { where: "cloud"; service: ExternalService };
 
 export interface ClassificationModel {
   id: string;

@@ -1,41 +1,47 @@
-import { useEffect, useState } from "react";
-import type { DataFlowId } from "../../../core/api";
+import { useEffect, useRef, useState } from "react";
+import type { DataFlowId, RegisteredDataFlow, TaggingRoute } from "../../../core/api";
 import { core } from "../core";
 import { useAppStore } from "../store";
-import {
-  destinationFrom,
-  type TaggingDestination,
-  unknownDestination,
-} from "../taggingDestination";
+import { serviceOf, type TaggingService, unknownService } from "../taggingDestination";
 
 /**
- * The service automatic tagging, or Organize, sends to now, and whether the
- * User has allowed it; a model on this computer; or not known yet, until the
- * flows have been read. Tagging is background work and never asks (ADR-0022):
- * where its Documents wait says so, and offers Allow in place. Read only while
- * `watching`.
+ * Where automatic tagging, or Organize, sends now, and whether the User allowed
+ * it; read while `watching`. The model's route and the flows are read apart, so
+ * the row can name the service before the flows are known; a failed read keeps
+ * the last answer, and the flows alone never say a model is on this computer.
  */
-export function useTaggingService(flow: DataFlowId, watching: boolean): TaggingDestination {
-  const [destination, setDestination] = useState<TaggingDestination>(unknownDestination);
+export function useTaggingService(flow: DataFlowId, watching: boolean): TaggingService {
+  const [service, setService] = useState<TaggingService>(unknownService);
+  const route = useRef<TaggingRoute | null>(null);
+  const flows = useRef<RegisteredDataFlow[] | null>(null);
 
   useEffect(() => {
-    if (!watching) {
-      setDestination(unknownDestination);
-      return;
-    }
+    route.current = null;
+    flows.current = null;
+    setService(unknownService);
+    if (!watching) return;
     let stopped = false;
+    const settle = () => {
+      if (!stopped)
+        setService(serviceOf(flow, flow === "tagging" ? route.current : null, flows.current));
+    };
     const load = () => {
-      // Say nothing while a new answer is read: the last one may name the wrong service (#1021).
-      setDestination(unknownDestination);
-      destinationFrom(
-        () => core.listRegisteredDataFlows(),
-        flow,
-        (error) => {
-          if (!stopped) useAppStore.getState().reportError(error);
+      if (flow === "tagging") {
+        core.getTaggingRoute().then(
+          (next) => {
+            route.current = next;
+            settle();
+          },
+          (error: unknown) => useAppStore.getState().reportError(error),
+        );
+      }
+      core.listRegisteredDataFlows().then(
+        (next) => {
+          flows.current = next;
+          settle();
         },
-      ).then((next) => {
-        if (!stopped) setDestination(next);
-      });
+        (error: unknown) => useAppStore.getState().reportError(error),
+      );
     };
     load();
     const stops = [
@@ -50,5 +56,5 @@ export function useTaggingService(flow: DataFlowId, watching: boolean): TaggingD
     };
   }, [flow, watching]);
 
-  return destination;
+  return service;
 }

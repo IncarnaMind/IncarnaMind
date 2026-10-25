@@ -227,7 +227,7 @@
   "tagPickerWhy.spec.ts": 4,
   "tagging.spec.ts": 4,
   "taggingFailed.spec.ts": 17,
-  "taggingStop.spec.ts": 50,
+  "taggingStop.spec.ts": 65,
   "tags.spec.ts": 13,
   "taskTrayBottom.spec.ts": 15,
   "tasks.spec.ts": 48,

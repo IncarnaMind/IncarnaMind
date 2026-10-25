@@ -97,6 +97,7 @@ import {
   type ScannedQuoteInput,
   type SearchScope,
   type SelectedPart,
+  type TaggingRoute,
   type Task,
   type UnlockDocumentInput,
   type UnreadFile,
@@ -4164,6 +4165,12 @@ export function createCore(adapters: CoreAdapters): Core {
         library.resume();
       }
       return models;
+    },
+    getTaggingRoute: async (): Promise<TaggingRoute> => {
+      const classifier = await tagging.resolve();
+      if (!classifier) return { where: "none" };
+      const service = tagging.service(classifier);
+      return service ? { where: "cloud", service } : { where: "local" };
     },
     classifyDocuments: async (ids) => {
       library.classify(ids);

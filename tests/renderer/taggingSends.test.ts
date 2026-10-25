@@ -1,23 +1,24 @@
 import { expect, test } from "vitest";
-import type { TaggingDestination } from "../../src/renderer/src/taggingDestination";
+import type { TaggingRoute } from "../../src/core/api";
+import type { FlowRoute } from "../../src/renderer/src/taggingDestination";
 import { taggingSends } from "../../src/renderer/src/taggingSends";
 import { translate } from "../../src/shared/i18n";
 
-const ANTHROPIC: TaggingDestination = {
+const ANTHROPIC: FlowRoute = {
   where: "cloud",
   service: { id: "https://api.anthropic.com", name: "Anthropic" },
-  allowed: true,
 };
-const LOCAL: TaggingDestination = { where: "local" };
-const UNKNOWN: TaggingDestination = { where: "unknown" };
+const LOCAL: FlowRoute = { where: "local" };
+const UNKNOWN: FlowRoute = { where: "unknown" };
+const NONE: FlowRoute = { where: "none" };
 
 const say = (
-  destination: TaggingDestination,
+  route: FlowRoute,
   language: "en" | "zh-CN",
   options?: { folders?: boolean; scans?: boolean },
-) => taggingSends(destination, (key, params) => translate(language, key, params), options);
+) => taggingSends(route, (key, params) => translate(language, key, params), options);
 
-test("a service is named, a model on this computer says so, and nothing is said before the flows are read", () => {
+test("a service is named, a model on this computer says so, and nothing is said otherwise", () => {
   expect(say(ANTHROPIC, "en")).toBe(
     "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, go to Anthropic.",
   );
@@ -31,7 +32,7 @@ test("a service is named, a model on this computer says so, and nothing is said 
     "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。",
   );
   expect(say(UNKNOWN, "en")).toBeNull();
-  expect(say(UNKNOWN, "zh-CN")).toBeNull();
+  expect(say(NONE, "zh-CN")).toBeNull();
 });
 
 test("Organize adds the Folders it files by, and page images when it reads scans", () => {
@@ -56,14 +57,11 @@ test("Organize adds the Folders it files by, and page images when it reads scans
 });
 
 test("a server named by its address is spaced from the Chinese around it", () => {
-  expect(
-    say(
-      {
-        where: "cloud",
-        service: { id: "https://api.deepseek.com", name: "api.deepseek.com" },
-        allowed: true,
-      },
-      "zh-CN",
-    ),
-  ).toBe("标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 api.deepseek.com。");
+  const route: TaggingRoute = {
+    where: "cloud",
+    service: { id: "https://api.deepseek.com", name: "api.deepseek.com" },
+  };
+  expect(say(route, "zh-CN")).toBe(
+    "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 api.deepseek.com。",
+  );
 });

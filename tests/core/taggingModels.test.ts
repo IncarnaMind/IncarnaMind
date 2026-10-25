@@ -767,3 +767,29 @@ describe("Moving to one Tagging setting", () => {
     });
   });
 });
+
+describe("Where tagging sends, before the flows are read", () => {
+  test("no model at all: nowhere", async () => {
+    const { core } = await start();
+    expect(await core.getTaggingRoute()).toEqual({ where: "none" });
+  });
+
+  test("a cloud model: its service", async () => {
+    const { core } = await start();
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-sonnet-5-5",
+    });
+    expect(await core.getTaggingRoute()).toEqual({
+      where: "cloud",
+      service: { id: ANTHROPIC, name: "Anthropic" },
+    });
+  });
+
+  test("a model on this computer: local", async () => {
+    const { core } = await start({ localModels: async () => ["qwen3.5:4b"] });
+    await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    expect(await core.getTaggingRoute()).toEqual({ where: "local" });
+  });
+});

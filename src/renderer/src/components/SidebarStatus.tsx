@@ -19,6 +19,7 @@ import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
 import { useSettled } from "../settling";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { useTaggingAlert } from "../taggingAlert";
+import { pageImagesSent } from "../taggingDestination";
 import { taggingProblem } from "../taggingProblem";
 import { failedTagging, retryTagging } from "../taggingRetry";
 import { taggingSends } from "../taggingSends";
@@ -40,14 +41,12 @@ import { rowActionButtonClass } from "./sidebarRows";
 import { useTaggingService } from "./useTaggingService";
 import { useTip } from "./useTip";
 
-/** The status row's button: 28px square, the row's height, its pill painted 24px inside it (#1021). */
 const statusActionClass =
   "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold text-ink-secondary focus-visible:outline-offset-0";
 
 const statusActionPillClass =
   "inline-flex h-6 items-center rounded-md px-2 group-hover:bg-rule group-hover:text-ink";
 
-/** The pill while what it opens is open. */
 const statusActionPillOpenClass = "bg-rule text-ink";
 
 /** The gap between the "+N" button and the list of the other statuses above it. */
@@ -518,11 +517,11 @@ function useStatuses(): Status[] {
     !!library?.assignments.some(
       (item) => item.status === "pending" || item.status === "classifying",
     );
-  const taggingFlow = useTaggingService("tagging", taggingWaits || tagging);
-  const organizingFlow = useTaggingService("classification", organizingNow);
+  const taggingService = useTaggingService("tagging", taggingWaits || tagging);
+  const organizingService = useTaggingService("classification", organizingNow);
   const taggingNeedsOk =
-    taggingWaits && taggingFlow.where === "cloud" && !taggingFlow.allowed
-      ? taggingFlow.service
+    taggingWaits && taggingService.route.where === "cloud" && taggingService.allowed === false
+      ? taggingService.route.service
       : null;
   const refusedService = useTaggingService(
     organizesNew ? "classification" : "tagging",
@@ -542,7 +541,7 @@ function useStatuses(): Status[] {
     ),
   );
   // A scan without text goes to Organize as pictures of its pages.
-  const scans = useAppStore(
+  const readingScans = useAppStore(
     (state) =>
       organizingNow &&
       state.documents.some(
@@ -555,6 +554,8 @@ function useStatuses(): Status[] {
           ),
       ),
   );
+  const pageReader = useTaggingService("scan-images", readingScans);
+  const pageImages = pageImagesSent(readingScans, pageReader);
   const stop = {
     label: t("tagging.stop"),
     testId: "tagging-stop",
@@ -801,7 +802,9 @@ function useStatuses(): Status[] {
         run: () =>
           void useKeyRefusals
             .getState()
-            .checkService(refusedService.where === "cloud" ? refusedService.service.id : null),
+            .checkService(
+              refusedService.route.where === "cloud" ? refusedService.route.service.id : null,
+            ),
       },
     });
   }
@@ -930,7 +933,8 @@ function useStatuses(): Status[] {
   }
 
   if (!capturing && tagging) {
-    const service = taggingFlow.where === "cloud" ? taggingFlow.service.name : null;
+    const service =
+      taggingService.route.where === "cloud" ? taggingService.route.service.name : null;
     const text = service
       ? counts.tagging === 1
         ? t("status.taggingWith.one", { service })
@@ -943,7 +947,9 @@ function useStatuses(): Status[] {
       tone: "progress",
       short: text,
       full: text,
-      sends: taggingSends(taggingFlow, t) ?? undefined,
+      sends: taggingService.known
+        ? (taggingSends(taggingService.route, t) ?? undefined)
+        : undefined,
       action: stop,
     });
   }
@@ -969,7 +975,8 @@ function useStatuses(): Status[] {
         action: { label: t("library.review"), run: () => useAppStore.getState().openLibrary() },
       });
     if (pending) {
-      const service = organizingFlow.where === "cloud" ? organizingFlow.service.name : null;
+      const service =
+        organizingService.route.where === "cloud" ? organizingService.route.service.name : null;
       const text = service
         ? pending === 1
           ? t("library.progressWith.one", { service })
@@ -982,7 +989,10 @@ function useStatuses(): Status[] {
         tone: "progress",
         short: text,
         full: text,
-        sends: taggingSends(organizingFlow, t, { folders: true, scans }) ?? undefined,
+        sends: organizingService.known
+          ? (taggingSends(organizingService.route, t, { folders: true, scans: pageImages }) ??
+            undefined)
+          : undefined,
         action: stop,
       });
     }

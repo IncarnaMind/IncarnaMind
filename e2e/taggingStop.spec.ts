@@ -389,8 +389,8 @@ interface Box {
 
 async function boxOf(locator: Locator): Promise<Box> {
   const box = await locator.boundingBox();
-  expect(box).not.toBeNull();
-  return box as Box;
+  if (!box) throw new Error("The element has no box.");
+  return box;
 }
 
 const sameBox = (before: Box, during: Box) => {
@@ -419,7 +419,7 @@ const LINES = {
 
 const FLOW_LIST = channelFor("listRegisteredDataFlows");
 
-/** Holds the flow list's answer, as a core busy enough to be slow would: nothing is known until it is let go. */
+/** Holds the flow list's answer, as a core busy enough to be slow would: nothing is said about what is sent until it is let go. */
 async function holdFlowList(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ ipcMain }, channel) => {
     // Electron keeps invoked handlers here; it has no public way to hold one for a test.
@@ -427,17 +427,20 @@ async function holdFlowList(app: ElectronApplication): Promise<void> {
       ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
     )._invokeHandlers;
     const answer = handlers.get(channel);
+    if (!answer) throw new Error(`Electron has no ${channel} handler to hold.`);
     const held = globalThis as unknown as { releaseFlows?: () => void };
+    const waiting: (() => void)[] = [];
     handlers.set(
       channel,
       (...args) =>
         new Promise((resolve) => {
-          held.releaseFlows = () => {
-            if (answer) handlers.set(channel, answer);
-            resolve(answer?.(...args));
-          };
+          waiting.push(() => resolve(answer(...args)));
         }),
     );
+    held.releaseFlows = () => {
+      handlers.set(channel, answer);
+      for (const resolve of waiting.splice(0)) resolve();
+    };
   }, FLOW_LIST);
 }
 
@@ -447,27 +450,39 @@ async function releaseFlowList(app: ElectronApplication): Promise<void> {
   });
 }
 
-test("nothing is said about where Documents go until the flows are read", async () => {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await setWindowSize(app, window, 1280, 800);
-  await saveAnthropicKey(window);
-  await holdFlowList(app);
-  await window.getByTestId("add-documents-input").setInputFiles([await slowFile("Field notes")]);
-  const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
-  const label = status.getByTestId("status-label");
+for (const cloud of [true, false] as const) {
+  test(`the line names the service before the flows are read, and says nothing more until they are (${cloud ? "a service" : "this computer"})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, 1280, 800);
+    if (cloud) await saveAnthropicKey(window);
+    else await saveLocalTagger(window);
+    await holdFlowList(app);
+    await window
+      .getByTestId("add-documents-input")
+      .setInputFiles(
+        await Promise.all(
+          ["Supply contract", "Purchase order", "Delivery log", "Draft brief"].map(slowFile),
+        ),
+      );
+    const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
+    const label = status.getByTestId("status-label");
 
-  // Not known yet: the row says what it is doing, and its label opens nothing.
-  await expect(label).toHaveText(LINES.en.local);
-  await label.hover();
-  await expect(window.getByTestId("status-sends")).toHaveCount(0);
+    // The flows aren't known: the line names the service, or none on this computer, and opens no popover.
+    await expect(label).toHaveText(cloud ? LINES.en.cloud : LINES.en.local);
+    await label.hover();
+    await expect(window.getByTestId("status-sends")).toHaveCount(0);
 
-  await releaseFlowList(app);
-  await expect(label).toHaveText(LINES.en.cloud);
-  await window.mouse.move(600, 300);
-  await label.hover();
-  await expect(window.getByTestId("status-sends")).toHaveText(LINES.en.cloudSends);
-  await app.close();
-});
+    await releaseFlowList(app);
+    // Once the flows are read, the label opens what is sent; the pointer has to move onto it then.
+    await expect(label).toHaveAttribute("type", "button");
+    await window.mouse.move(600, 300);
+    await label.hover();
+    await expect(window.getByTestId("status-sends")).toHaveText(
+      cloud ? LINES.en.cloudSends : LINES.en.localSends,
+    );
+    await app.close();
+  });
+}
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const cloud of [true, false] as const) {
