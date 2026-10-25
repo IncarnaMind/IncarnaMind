@@ -32,7 +32,7 @@ async function askReady(window: Page): Promise<Locator> {
   for (const chip of await checks.all()) {
     await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
   }
-  await markSteps(window, { mistakeSeen: true });
+  await markSteps(window, { indexed: true });
   await pointAndClick(window, step(window, "question").getByTestId("first-open-ready"));
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done");

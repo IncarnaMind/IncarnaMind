@@ -124,9 +124,10 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await expect(mark).toHaveCount(1);
   await expect(mark).toHaveAttribute("data-check", "contradicted");
 
-  // Step 1 rings the red mark; its card says what the results say, and quotes them where they say it.
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
-  await expect(mark).toHaveAttribute("data-guided");
+  // The example's red ≠: its card says what the results say, and quotes them where they say it.
+  await expect(step(window, "files")).toHaveAttribute("data-state", "open");
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
+  await expect(mark).not.toHaveAttribute("data-guided");
   await pointAndClick(window, mark);
   const card = window.getByTestId("claim-card");
   await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "contradicted");
@@ -139,14 +140,9 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await expect(card.getByTestId("claim-quote")).toHaveText(
     "Group gross margin was 38.6%, down from 40.3% a year earlier, with online the main drag.",
   );
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
-  await expect(step(window, "citation")).toContainText("Saw a mistake it caught");
-  await expect(step(window, "citation").locator("span").last()).toHaveCSS(
-    "text-decoration-line",
-    "none",
-  );
-  await expect(mark).not.toHaveAttribute("data-guided");
-  await expect(step(window, "question")).toHaveAttribute("data-state", "open");
+  // A claim the check caught is not a Citation checked: the steps don't tick.
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
+  await expect(step(window, "question")).toHaveAttribute("data-state", "later");
   await window.keyboard.press("Escape");
 
   // A Citation opens the results at the page it quotes, the quote highlighted.
@@ -162,9 +158,13 @@ test("a first run opens on the credit paper with no model set up: its Citations 
     .poll(async () => (await highlight.allTextContents()).join(""))
     .toContain("Net debt to EBITDA was 3.1 times");
   await window.keyboard.press("Escape");
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
 
   // Step 2's ready Question brings the assistant with its Answer, written in advance with no
   // model, its Citations found, and ticks the step.
+  await markSteps(window, { indexed: true });
+  await expect(step(window, "files")).toHaveAttribute("data-state", "done");
+  await expect(step(window, "question")).toHaveAttribute("data-state", "open");
   const assistant = window.getByTestId("assistant");
   await expect(assistant).toBeHidden();
   const ready = step(window, "question").getByTestId("first-open-ready");
@@ -186,7 +186,11 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   for (const chip of await chips.all()) await expect(chip).toHaveAttribute("data-check", "found");
   await expect(step(window, "question")).toHaveAttribute("data-state", "done");
   await expect(step(window, "question")).toContainText("Asked a question");
-  await expect(step(window, "files")).toHaveAttribute("data-state", "open");
+  // All three are done, and there is no model: the card asks for one (#1027).
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
+  await expect(pane.getByTestId("first-open-steps")).toContainText(
+    "Choose an AI model to ask about your own files.",
+  );
   await expect(window.getByTestId("chat-setup")).toHaveCount(0);
 
   await leaveFirstOpen(window);
@@ -291,7 +295,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
     "# Harbour notes\n\nThe harbour master publishes the tide tables every January.\n",
   );
   const { window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+  await expect(step(window, "files")).toHaveAttribute("data-state", "open");
 
   await newMind(window);
   await dismissChatSetup(window);
@@ -326,10 +330,12 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   await expect(window.getByTestId("mind-editor").getByTestId("question")).toHaveCount(0);
   await expect(window.getByTestId("start-guide")).toHaveCount(0);
 
-  await pointAndClick(
-    window,
-    window.getByTestId("mind-list-item").filter({ has: window.getByTestId("example-chip") }),
-  );
+  // The examples fold to one row once a Document of one's own is there (#1944).
+  // Tagging finishes in the background and adds the Tags section above it: wait, so the row holds still.
+  await expect(window.getByTestId("sidebar").getByTestId("sidebar-tags")).toBeVisible({
+    timeout: 30_000,
+  });
+  await pointAndClick(window, window.getByTestId("example-open"));
   const checks = window
     .getByTestId("mind-pane")
     .getByTestId("mind-editor")
@@ -337,22 +343,22 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   await expect(checks.nth(0)).toHaveAttribute("data-check", "found", { timeout: 20_000 });
   await expect(step(window, "files")).toHaveAttribute("data-state", "done");
   await pointAndClick(window, checks.nth(0));
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
   await window.keyboard.press("Escape");
   await pointAndClick(window, window.getByTestId("mind-pane").getByTestId("claim-mark"));
   const steps = window.getByTestId("first-open-steps");
   await expect(steps).toContainText("You’re set up.");
   await expect(steps.locator('[data-testid="first-open-step"][data-state="done"]')).toHaveText([
-    /Saw a mistake it caught/,
-    /Asked a question/,
     /Added your files/,
+    /Asked a question/,
+    /Checked a Citation/,
   ]);
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
   await pointAndClick(window, steps.getByTestId("first-open-hide"));
   await expect(steps).toHaveCount(0);
 });
 
-test("the steps card's last step offers Add files… and Link a folder… at once, and the first screens speak plainly, in English and Chinese (#766)", async () => {
+test("the steps card's first step offers Add files… and Link a folder… at once, and the first screens and the start guide speak plainly, in English and Chinese (#766)", async () => {
   const notes = join(sources, "Harbour notes.md");
   await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true });
@@ -369,7 +375,7 @@ test("the steps card's last step offers Add files… and Link a folder… at onc
 
   await pointAndClick(window, checks.nth(0));
   await window.keyboard.press("Escape");
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
   await pointAndClick(window, pane.getByTestId("claim-mark"));
   await window.keyboard.press("Escape");
   await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
@@ -418,11 +424,11 @@ test("the steps card's last step offers Add files… and Link a folder… at onc
   await continueSetup(window);
 });
 
-test('"Ask a question" is ticked by an Answer that arrives, not by one that fails (#766)', async () => {
+test('"Ask" is ticked by an Answer that arrives, not by one that fails (#766)', async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await useLocalChatModel(window);
-  await markSteps(window, { mistakeSeen: true });
+  await markSteps(window, { indexed: true });
   const asked = step(window, "question");
   await expect(asked).toHaveAttribute("data-state", "open");
 
@@ -461,7 +467,7 @@ test("in Chinese, the ready Question is the Chinese example's, answered with no 
     .getByTestId("citation-chip");
   await expect(checks).toHaveCount(2);
   await expect(checks.nth(1)).toHaveAttribute("data-check", "found", { timeout: 30_000 });
-  await markSteps(window, { mistakeSeen: true });
+  await markSteps(window, { indexed: true });
 
   const ready = step(window, "question").getByTestId("first-open-ready");
   await expect(ready).toHaveText("提问：“贷款协议对杠杆率上限是怎么规定的？”");
@@ -482,11 +488,10 @@ test("in Chinese, the ready Question is the Chinese example's, answered with no 
   await app.close();
 });
 
-test("Add files… with only a file it can't take says why in step 3, which stays open (#123)", async () => {
+test("Add files… with only a file it can't take says why in step 1, which stays open (#123)", async () => {
   const picture = join(sources, "Picture.png");
   await writeFile(picture, "not a document");
   const { app, window } = await launchApp(dataDir, { examples: true });
-  await markSteps(window, { mistakeSeen: true, askedReady: true });
   const files = step(window, "files");
   await expect(files).toHaveAttribute("data-state", "open");
   await interceptOpenDialog(app, picture);
@@ -498,7 +503,7 @@ test("Add files… with only a file it can't take says why in step 3, which stay
   await app.close();
 });
 
-test("a damaged PDF as the only file of one's own leaves step 3 open, says which and why there, and never You're set up; a file it reads finishes it (#1457)", async () => {
+test("a damaged PDF as the only file of one's own leaves step 1 open, says which and why there, and never You're set up; a file it reads finishes it (#1457)", async () => {
   const damaged = join(sources, "damaged.pdf");
   await writeFile(damaged, "%PDF-1.4 this is not a PDF");
   const notes = join(sources, "Harbour notes.md");
@@ -506,7 +511,7 @@ test("a damaged PDF as the only file of one's own leaves step 3 open, says which
   const { app, window } = await launchApp(dataDir, { examples: true });
   await setWindowSize(app, window, 1440, 900);
   await useLocalChatModel(window);
-  await markSteps(window, { mistakeSeen: true, askedReady: true });
+  await markSteps(window, { askedReady: true, citationChecked: true });
   const steps = window.getByTestId("first-open-steps");
   const files = step(window, "files");
   await expect(files).toHaveAttribute("data-state", "open");
@@ -551,7 +556,7 @@ test("✕ ends the first open at any step, and so does Remove the examples or a 
   };
   const first = await launchApp(dataDir, { examples: true });
   const hide = first.window.getByTestId("first-open-hide");
-  await expect(step(first.window, "citation")).toHaveAttribute("data-state", "open");
+  await expect(step(first.window, "files")).toHaveAttribute("data-state", "open");
   await pointAndClick(first.window, hide);
   await expect(first.window.getByTestId("first-open-steps")).toHaveCount(0);
   await expect(first.window.getByTestId("tab-list")).toBeVisible();
@@ -596,7 +601,7 @@ test("a double-click on the ready Question asks it once, and Enter on it moves t
   await expect(pane.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted", {
     timeout: 20_000,
   });
-  await markSteps(first.window, { mistakeSeen: true });
+  await markSteps(first.window, { indexed: true });
   await step(first.window, "question").getByTestId("first-open-ready").dblclick();
   await expect(assistantAnswers(first.window).last()).toHaveAttribute("data-status", "done");
   await expect
@@ -620,10 +625,10 @@ test("a double-click on the ready Question asks it once, and Enter on it moves t
     "contradicted",
     { timeout: 20_000 },
   );
-  await markSteps(second.window, { mistakeSeen: true });
+  await markSteps(second.window, { indexed: true });
   await step(second.window, "question").getByTestId("first-open-ready").focus();
   await second.window.keyboard.press("Enter");
-  await expect(step(second.window, "files").getByTestId("first-open-add-files")).toBeFocused();
+  await expect(step(second.window, "citation").getByTestId("first-open-step-do")).toBeFocused();
   await second.app.close();
   await removeDataFolder(keyboard);
 });
@@ -682,7 +687,7 @@ test("on a fresh install, a first checked Citation from the User's own file take
 test("the steps can be hidden once all are done, and stay hidden", async () => {
   const first = await launchApp(dataDir, { examples: true });
   await useLocalChatModel(first.window);
-  await markSteps(first.window, { mistakeSeen: true, askedOwn: true, indexed: true });
+  await markSteps(first.window, { citationChecked: true, askedOwn: true, indexed: true });
   const steps = first.window.getByTestId("first-open-steps");
   await expect(steps).toContainText("You’re set up.");
   await pointAndClick(first.window, steps.getByTestId("first-open-hide"));
@@ -706,7 +711,7 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(pane.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted", {
     timeout: 20_000,
   });
-  await markSteps(window, { mistakeSeen: true, askedReady: true });
+  await markSteps(window, { askedReady: true, citationChecked: true });
   await window.getByTestId("add-documents-input").setInputFiles([notes]);
 
   const steps = pane.getByTestId("first-open-steps");
@@ -740,7 +745,7 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await acceptPlainTextKeys(window);
-  await markSteps(window, { mistakeSeen: true, askedReady: true, indexed: true });
+  await markSteps(window, { citationChecked: true, askedReady: true, indexed: true });
   const choose = window.getByTestId("first-open-steps").getByTestId("first-open-choose-model");
   await choose.focus();
   await window.keyboard.press("Enter");
