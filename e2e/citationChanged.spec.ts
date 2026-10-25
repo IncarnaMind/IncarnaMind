@@ -24,7 +24,8 @@ import {
  * A Citation made before its Document changed (#99, first slice): its card and
  * the viewer that opens from it say the Document changed after it was cited,
  * and look for its quote in the new version without presenting the new text as
- * the old. Where the text at the Location is unchanged, the Citation stays quiet.
+ * the old. Where the text at the Location is unchanged, it says so, and is
+ * never silent about the change.
  */
 
 const VERSION_A = [
@@ -214,18 +215,21 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await window.getByRole("tab", { name: "Versioned note" }).click();
     await expect(viewer.getByTestId("viewer-text")).toBeVisible();
 
-    // The quoted line back at its Location, with only another line changed: the text at the
-    // Location is unchanged, so neither the card nor the viewer says anything.
+    // The quoted line back at its Location, with only another line changed: the Document
+    // changed, so both still say it, and the quote is still where it was.
     await writeFile(note, VERSION_D);
     await expect.poll(() => contentHashOf(window, note), { timeout: 15_000 }).not.toBe(versionC);
     await expect(viewer.getByTestId("viewer-text")).toContainText("Reviewed on 1 November 2026");
     await expect(viewer.locator("[data-quote-highlight]")).toHaveText(
       "Version A: the approved refurbishment budget is GBP 80,000.",
     );
+    await expect(notice).toContainText(
+      "The Document changed after this was cited. The quote is still here.",
+    );
     await showCard();
-    await expect(card.getByTestId("citation-badge")).toContainText("§ Versioned source");
-    await expect(changed).toHaveCount(0);
-    await expect(notice).toHaveCount(0);
+    await expect(changed).toContainText("The Document changed after this was cited.");
+    await expect(changedQuote).toHaveText("The quote is still here.");
+    await screenshot(window, "card-still-here-en");
   } finally {
     await app.close();
   }

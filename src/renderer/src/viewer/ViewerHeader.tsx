@@ -79,8 +79,8 @@ export function ViewerHeader({
               documentId: target.documentId,
               contentHash: cited.contentHash ?? null,
               check: cited.check,
-              pageFrom: target.pageFrom ?? null,
-              pageTo: target.pageTo ?? null,
+              pageFrom: cited.pageFrom ?? target.pageFrom ?? null,
+              pageTo: cited.pageTo ?? target.pageTo ?? null,
             },
             documents,
           )
@@ -93,8 +93,8 @@ export function ViewerHeader({
       ? {
           documentId: target.documentId,
           contentHash: cited.contentHash ?? null,
-          pageFrom: target.pageFrom ?? null,
-          pageTo: target.pageTo ?? null,
+          pageFrom: cited.pageFrom ?? target.pageFrom ?? null,
+          pageTo: cited.pageTo ?? target.pageTo ?? null,
           quote: target.quote,
         }
       : null,
@@ -105,8 +105,8 @@ export function ViewerHeader({
     ? changedSourceNote(
         changedState,
         {
-          pageFrom: target?.pageFrom ?? null,
-          pageTo: target?.pageTo ?? null,
+          pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
+          pageTo: cited?.pageTo ?? target?.pageTo ?? null,
           location: cited?.location ?? null,
         },
         recheck,

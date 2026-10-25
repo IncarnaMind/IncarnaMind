@@ -25,14 +25,16 @@ export function openCited(
     label?: string | null;
     from?: string;
     keep?: boolean;
+    /** Where to open it, when that isn't where the Citation points: its quote moved in the new version. */
+    place?: { pageFrom: number | null; pageTo: number | null };
   },
 ): void {
   useAppStore.getState().openDocument(
     {
       documentId: citation.documentId,
       // A whole TXT or Markdown file cited before Locations, whose quote wasn't found, opens at the top.
-      pageFrom: citation.pageFrom ?? undefined,
-      pageTo: citation.pageTo ?? undefined,
+      pageFrom: (how.place ? how.place.pageFrom : citation.pageFrom) ?? undefined,
+      pageTo: (how.place ? how.place.pageTo : citation.pageTo) ?? undefined,
       quote: how.withQuote && citation.quote ? citation.quote : undefined,
       ...(citation.location?.kind === "section" && citation.location.figure
         ? { figure: citation.location.figure }
@@ -43,6 +45,8 @@ export function openCited(
         ...(how.label ? { label: how.label } : {}),
         ...(citation.contentHash ? { contentHash: citation.contentHash } : {}),
         ...(citation.location ? { location: citation.location } : {}),
+        ...(citation.pageFrom !== null && { pageFrom: citation.pageFrom }),
+        ...(citation.pageTo !== null && { pageTo: citation.pageTo }),
       },
     },
     { as: "citation", ...(how.from && { from: how.from }), ...(how.keep && { keep: true }) },

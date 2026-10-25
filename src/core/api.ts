@@ -2270,6 +2270,9 @@ export interface TabCitation {
   contentHash?: string;
   /** Where in the Document it points, as it shows ("Revenue, rows 12–14"): its label, narrower than the Units. */
   location?: CitationLocation;
+  /** The Units the Citation itself cites, when the tab was opened at another place: a quote that moved. */
+  pageFrom?: number;
+  pageTo?: number;
 }
 
 /** Where in its Document a Document tab was opened: a Citation's Units and quote. */

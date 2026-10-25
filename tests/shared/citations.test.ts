@@ -708,8 +708,15 @@ describe("A Citation whose Document changed after it was cited", () => {
   test("says the Document changed and how the quote stands, in English and Chinese", () => {
     const note = (patch: Partial<CitationRecheck>, language: Language) =>
       changedSourceNote(true, found, rechecked(patch), in_(language));
-    expect(note({}, "en")).toBeNull();
-    expect(note({}, "zh-CN")).toBeNull();
+    // The quote still at the Location it cites: said, and quiet about a move.
+    expect(note({}, "en")).toEqual({
+      notice: "The Document changed after this was cited.",
+      quote: "The quote is still here.",
+    });
+    expect(note({}, "zh-CN")).toEqual({
+      notice: "此文档在被引用后有改动。",
+      quote: "引文仍在原处。",
+    });
     expect(
       note({ pageFrom: 14, pageTo: 14, location: { kind: "section", heading: "Budget" } }, "en"),
     ).toEqual({
@@ -742,10 +749,13 @@ describe("A Citation whose Document changed after it was cited", () => {
     });
   });
 
-  test("says nothing while the Document is unchanged, while the quote is still at its Location, and until it is checked", () => {
+  test("says the Document changed at once, and says nothing while it is unchanged", () => {
     expect(changedSourceNote(false, found, rechecked({}), in_("en"))).toBeNull();
-    expect(changedSourceNote(true, found, null, in_("en"))).toBeNull();
-    expect(changedSourceNote(true, found, rechecked({}), in_("en"))).toBeNull();
+    // The new version isn't looked for yet: the Document changed, so say it now.
+    expect(changedSourceNote(true, found, null, in_("en"))).toEqual({
+      notice: "The Document changed after this was cited.",
+      quote: null,
+    });
   });
 });
 

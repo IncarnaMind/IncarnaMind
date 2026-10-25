@@ -247,19 +247,15 @@ export function quoteStanding(
 
 /** What a Citation's card and the viewer say once its Document changed after it was cited. */
 export interface ChangedSource {
-  /** "The Document changed after this was cited." */
   notice: string;
-  /** How the quote stands in the new version; null when that couldn't be checked. */
+  /** How the quote stands in the new version; null while that is looked for, and when it can't be. */
   quote: string | null;
 }
 
 /**
  * What a Citation's card and its viewer say when its Document changed after
  * it was cited: that it changed, and where its quote stands in the new
- * version. Null while the Document is unchanged, and while the quote is still
- * at its Location in the new version: the text it quotes didn't change, so
- * nothing is said. A re-check that couldn't run still says the Document
- * changed, with no result.
+ * version once it is looked for. Null only while the Document is unchanged.
  */
 export function changedSourceNote(
   changed: boolean,
@@ -269,11 +265,9 @@ export function changedSourceNote(
 ): ChangedSource | null {
   if (!changed) return null;
   const notice = t("citation.changedAfterCited");
-  // The Document changed, but where the quote stands couldn't be read: the notice alone.
-  if (recheck === "failed") return { notice, quote: null };
-  if (recheck === null) return null;
+  if (recheck === "failed" || recheck === null) return { notice, quote: null };
   const standing = quoteStanding(cited, recheck);
-  if (standing === "found") return null;
+  if (standing === "found") return { notice, quote: t("citation.changed.still") };
   if (standing === "gone") return { notice, quote: t("citation.changed.gone") };
   if (standing === null) return { notice, quote: null };
   const where = recheck.location ? formatLocation(recheck.location, t) : null;

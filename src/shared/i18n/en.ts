@@ -3137,6 +3137,7 @@ export const en = {
   "command.citation.open": "Open cited page",
   "citation.regenerate": "Regenerate the Answer",
   "citation.changedAfterCited": "The Document changed after this was cited.",
+  "citation.changed.still": "The quote is still here.",
   "citation.changed.gone": "Its quote is no longer in the new version.",
   "citation.changed.moved": "Its quote is now at {location}.",
   "citation.changed.moved.anywhere": "Its quote is in another place in the new version.",
