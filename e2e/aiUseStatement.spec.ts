@@ -62,7 +62,7 @@ const TEXTS = {
     unsupported: "Unsupported",
     noRecord: "has no record of AI writing",
     checkedIntro:
-      "Sentences the author had checked against the Documents, with Find support or Check against Documents, by result:",
+      "Sentences the author had checked against the Documents, with Check against Documents, by result:",
   },
   "zh-CN": {
     heading: "第一章 绪论",
@@ -84,7 +84,7 @@ const TEXTS = {
     supported: "有依据",
     unsupported: "无依据",
     noRecord: "中没有本文档使用 AI 撰写",
-    checkedIntro: "以下是“查找出处”或“对照文档核对”的结果：",
+    checkedIntro: "以下是“对照文档核对”的结果：",
   },
 } as const;
 
@@ -296,7 +296,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "Spring tides", { line, words: "harbour cliffs." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     const marks = window.getByTestId("claim-mark");
     await expect(marks.and(window.locator("[data-check=supported]"))).toHaveCount(1);

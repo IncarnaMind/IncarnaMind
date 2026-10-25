@@ -34,7 +34,7 @@ import {
  * Linked folders in the sidebar (ADR-0010): "Add folder…" previews what
  * linking takes before anything is read, the folder's row says how it is
  * (indexing, paused, unavailable, online-only files, nothing in it), its
- * menu pauses, re-lays out, shows and unlinks it (its Citations still
+ * menu pauses, shows and unlinks it (its Citations still
  * check), and its Documents say when their file is missing or can't be
  * reached. Set INCARNAMIND_SCREENSHOTS
  * to a folder to also save screenshots of each there.
@@ -187,13 +187,12 @@ test("Add folder… shows what linking would take, then the folder's row shows i
   await interceptShowItemInFolder(app);
   const dialog = await previewLink(app, window, library);
 
-  // The folder, what it holds and how long indexing takes, the files it skips, and how it shows.
+  // The folder, what it holds, the files it skips, and how it shows. Not how long reading takes:
+  // nothing has been read on this computer yet.
   await expect(dialog.getByTestId("link-folder-name")).toHaveText("Library");
   await expect(dialog.getByTestId("link-folder-path")).toHaveText(library);
   await expect(dialog.getByTestId("link-folder-files")).toHaveText(/^4 supported files, 1\.\d MB$/);
-  await expect(dialog.getByTestId("link-folder-time")).toContainText(
-    /Reading takes (under a minute|about .+), newest first/,
-  );
+  await expect(dialog.getByTestId("link-folder-time")).toHaveCount(0);
   await expect(dialog.getByTestId("link-folder-online-only")).toContainText(
     "2 online-only files are skipped for now",
   );
@@ -218,6 +217,17 @@ test("Add folder… shows what linking would take, then the folder's row shows i
   await expect(row.getByTestId("folder-status")).toContainText("2 online-only");
   await expect(row.getByTestId("folder-progress")).toHaveCount(0);
   await expect(linkedRows(window)).toHaveCount(4);
+
+  // Text files have been read here now, so linking another folder of them says how long it takes.
+  const more = join(sources, "More");
+  await writeTree(more, ["Gopher.txt", "Llama.txt"], LONG_TEXT);
+  const next = await previewLink(app, window, more);
+  await expect(next.getByTestId("link-folder-time")).toHaveText(
+    "Reading takes under a minute, newest first.",
+  );
+  await screenshot(window, "link-dialog-time");
+  await next.getByRole("button", { name: "Cancel" }).click();
+  await expect(next).toBeHidden();
 
   // Its menu offers to download and index them (not done here: it would ask iCloud Drive).
   const menu = await openLinkedFolderMenu(row);
@@ -324,7 +334,6 @@ test("two files with one name show where each is, and a Linked folder's row open
   ).toHaveCount(0);
   await screenshot(window.getByTestId("sidebar"), "same-name-rows");
 
-  // The row opens the Library on that Linked folder's Documents alone.
   await linkedFolderRow(window, "awkward").getByTestId("linked-folder-open").click();
   const library = window.getByTestId("library-document");
   await expect(library).toHaveCount(4);
@@ -352,7 +361,6 @@ test("two files with one name show where each is, and a Linked folder's row open
     };
   });
 
-  // The 2026 row opens the 2026 Document, not the twin its name matches.
   await pointAndClick(
     window,
     window.locator(
@@ -363,7 +371,6 @@ test("two files with one name show where each is, and a Linked folder's row open
     window.locator(`[data-testid="document-tab"][data-document-id="${twins.report2026}"]`),
   ).toHaveCount(1);
 
-  // ⌘K names each with its folder, and the row opens the Document it names.
   await window.keyboard.press("ControlOrMeta+k");
   await window.getByTestId("palette-search").fill("Annual-Report");
   const found = window.getByTestId("palette").getByTestId("palette-item");

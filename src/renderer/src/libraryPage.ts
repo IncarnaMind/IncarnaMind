@@ -275,10 +275,6 @@ export const OTHER_DOCUMENTS = "other";
 /** What the Library asks for to show one Linked folder's Documents: its row's click (#1507). */
 export const sourceRequest = (linkedFolderId: string) => `source:${linkedFolderId}`;
 
-/**
- * Each Linked folder's name, with enough of the path above it to tell apart folders whose names
- * are alike, as two "Reading" folders are.
- */
 function sourceNames(
   linkedFolders: readonly Pick<LinkedFolder, "id" | "path">[],
 ): Map<string, string> {

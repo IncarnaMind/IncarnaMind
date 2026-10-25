@@ -4,7 +4,7 @@ import { displayName, sourceOf } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
 import { useDocumentPlace } from "../documentPlaces";
 import { documentStatusText, isProcessing } from "../documentStatus";
-import { useDragSource } from "../dragDrop";
+import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
@@ -264,6 +264,7 @@ const DocumentRow = memo(function DocumentRow({
   const muted = !lit && (isProcessing(item.status) || item.fileStatus !== "available");
   const treeItem = useTreeItem({ depth, selected: select.selected });
   const dragSource = useDragSource(() => rowDrag(object, "sidebar"));
+  const dragged = useDraggedRef(object);
 
   return (
     <li
@@ -274,12 +275,13 @@ const DocumentRow = memo(function DocumentRow({
       data-status={item.status}
       data-file-status={item.fileStatus}
       data-tagging={item.tagging}
+      data-dragging={dragged || undefined}
       role="none"
       {...select.refProps}
       {...peek.rowProps}
       {...(rename.renaming ? {} : objectMenu.rowProps)}
       ref={row}
-      className={rowClass(lit, muted ? "muted" : "item", several)}
+      className={rowClass(lit, muted ? "muted" : "item", several, dragged)}
     >
       {rename.renaming ? (
         <div
@@ -319,7 +321,6 @@ const DocumentRow = memo(function DocumentRow({
           <DocumentLineIcon kind={item.kind} className={rowIconClass(lit)} />
           {/* Takes what the status leaves; in it, the name gives way before the colours. */}
           <span className="flex min-w-0 flex-1 items-center gap-2">
-            {/* The place gives way before the name does. */}
             <span className="flex min-w-0 items-center gap-2">
               <span data-testid="row-text" className="max-w-full shrink-0 truncate">
                 {shownName}

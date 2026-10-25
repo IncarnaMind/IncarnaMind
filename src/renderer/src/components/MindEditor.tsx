@@ -40,6 +40,7 @@ import { CitationView } from "../editor/CitationView";
 import { CodeBlockView } from "../editor/CodeBlockView";
 import { ComparisonTableView } from "../editor/ComparisonTableView";
 import { checklistLabel } from "../editor/checklistLabel";
+import { useCardPlace } from "../editor/checkPlace";
 import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
 import { ClaimChecks, setClaimContext } from "../editor/claimChecks";
@@ -130,7 +131,7 @@ import { resumeTabCloseFocus } from "../tabFocus";
 import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
 import { CompareSheet } from "./CompareSheet";
 import { StartGuide, useIsExample } from "./GettingStarted";
-import { CheckLineIcon, MineLineIcon, SearchLineIcon } from "./lineIcons";
+import { CheckLineIcon, MineLineIcon } from "./lineIcons";
 import { MindNotice } from "./MindNotice";
 
 /** Stands in for the hint's button in its translated words, which are split around it. */
@@ -280,6 +281,7 @@ function MindEditorView({
 }) {
   const t = useT();
   const isExample = useIsExample(mindId);
+  const place = useCardPlace(mindId);
   const dock = useContext(ComposerDockContext);
   const slots = useContext(PageSlotsContext);
   const sheetSlot = useContext(CompareSheetSlotContext);
@@ -482,7 +484,7 @@ function MindEditorView({
   useEffect(() => {
     if (readOnly) return;
     const lend = () => {
-      noteHandle.current = { editor, mindId, doc };
+      noteHandle.current = { editor, mindId, doc, place };
     };
     if (!noteHandle.current || noteHandle.current.editor.isDestroyed) lend();
     editor.on("focus", lend);
@@ -490,7 +492,7 @@ function MindEditorView({
       editor.off("focus", lend);
       if (noteHandle.current?.editor === editor) noteHandle.current = null;
     };
-  }, [editor, mindId, doc, readOnly]);
+  }, [editor, mindId, doc, place, readOnly]);
 
   // The Mind the assistant reads (it draws this Mind's composer): Add to note puts an Answer
   // here through this editor, and a second Esc in the assistant comes back here.
@@ -545,16 +547,6 @@ function MindEditorView({
         run: () => undefined,
       },
       { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
-      {
-        id: "find-support",
-        label: hasDocuments ? "editor.ai.findSupport" : "editor.ai.addDocumentsToFindSupport",
-        icon: <SearchLineIcon className="size-3.5" />,
-        available,
-        run: (current) =>
-          hasDocuments
-            ? void checkSentences(current, mindId, doc, "find-support")
-            : void useAppStore.getState().pickDocuments(),
-      },
       {
         id: "check-against-documents",
         label: hasDocuments ? "editor.ai.checkAgainstDocuments" : "editor.ai.addDocumentsToCheck",

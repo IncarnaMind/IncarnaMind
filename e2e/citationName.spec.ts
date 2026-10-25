@@ -257,13 +257,14 @@ test("a Citation card names the place of a Document that shares its name, and Op
     await chip.focus();
     const card = window.getByTestId("citation-card");
     await expect(card).toBeVisible();
-    // The name alone doesn't say which Document: the card names its place too.
     await expect(card).toContainText("Annual-Report · 2026");
 
     const cited = await window.evaluate(async () => {
       const api = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const documents = await api.listDocuments();
-      return documents.find((document) => document.path.endsWith("2026/Annual-Report.txt"))?.id;
+      return documents.find((document) =>
+        document.path.replace(/\\/g, "/").endsWith("2026/Annual-Report.txt"),
+      )?.id;
     });
     await card.getByTestId("citation-open").click();
     await expect(card).toHaveCount(0);

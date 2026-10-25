@@ -114,6 +114,32 @@ test("the words inside a Mind are found as soon as they are typed", async () => 
   await expect(group(window, "notes").locator("b")).toHaveText("Ålesund");
 });
 
+test("a press on the dimmed area closes ⌘K, and one inside it doesn't", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1280, 660);
+    await dismissChatSetup(window);
+    await writeMind(window, ["Harbour log", "Tides in Bergen"]);
+
+    await openPalette(window);
+    // Inside: the press lands in the field and the palette stays.
+    await window.getByTestId("palette-search").click();
+    await window.keyboard.type("Bergen");
+    await expect(palette(window)).toBeVisible();
+    await expect(group(window, "notes")).toContainText("Harbour log");
+
+    // Outside: the press lands on the dimmed area, clear of the palette, and closes it.
+    const box = await palette(window).boundingBox();
+    if (!box) throw new Error("The palette isn't on the page.");
+    expect(box.x).toBeGreaterThan(24);
+    await window.mouse.click(box.x - 24, box.y + box.height / 2);
+    await expect(palette(window)).toBeHidden();
+    await expect.poll(() => focusInNote(window)).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
+
 test("names, commands and the words in Documents, all by keyboard; Esc closes and gives the focus back", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1280, 660);
@@ -354,6 +380,88 @@ test("runs a command on the Documents selected in the sidebar, taken back with U
   await expect(rows).toHaveCount(3);
 });
 
+test("with a sentence selected, ⌘K finds the one check by check, find support, 核对 and 出处, and the checks say what each is for", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await writeMind(window, ["Harbours publish the times of high water every year."]);
+  const line = window.locator(".ProseMirror p").filter({ hasText: "Harbours publish" });
+  const row = (key: string) => palette(window).locator(`[data-key="command:${key}"]`);
+
+  // The selection stays in the Mind while the palette opens from the sidebar.
+  const search = async (query: string) => {
+    await slideSelect(window, line, "Harbours publish");
+    await pointAndClick(window, window.getByTestId("sidebar-search"));
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(query);
+  };
+
+  for (const query of ["check", "find support"]) {
+    await search(query);
+    await expect(row("check.againstDocuments")).toHaveText("Check against Documents");
+    await expect(palette(window).locator('[data-key^="command:check."]')).toHaveCount(1);
+    if (query === "check") {
+      await expect(row("mind.check").getByTestId("palette-purpose")).toHaveText(
+        "Whether each claim has support in your Documents",
+      );
+      await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
+        "Where your Documents disagree with this Mind’s Citations",
+      );
+    }
+    await window.keyboard.press("Escape");
+    await expect(palette(window)).toBeHidden();
+  }
+
+  // Words that belong to other commands don't list it.
+  for (const query of ["verify", "cite", "find sources"]) {
+    await search(query);
+    await expect(row("check.againstDocuments")).toHaveCount(0);
+    if (query === "verify") {
+      const verify = row("verify.document");
+      await expect(verify.getByTestId("palette-purpose")).toHaveText(
+        "Check the claims in a PDF someone else wrote",
+      );
+      // The hint sits under the name and inside the row.
+      const rowBox = await verify.boundingBox();
+      const purposeBox = await verify.getByTestId("palette-purpose").boundingBox();
+      const nameBox = await verify.locator("span.truncate").first().boundingBox();
+      expect(purposeBox?.y ?? 0).toBeGreaterThanOrEqual((nameBox?.y ?? 0) + (nameBox?.height ?? 0));
+      expect((purposeBox?.x ?? 0) + (purposeBox?.width ?? 0)).toBeLessThanOrEqual(
+        (rowBox?.x ?? 0) + (rowBox?.width ?? 0),
+      );
+    }
+    await window.keyboard.press("Escape");
+    await expect(palette(window)).toBeHidden();
+  }
+
+  await setLanguage(window, "zh-CN");
+  for (const query of ["核对", "出处"]) {
+    await search(query);
+    await expect(row("check.againstDocuments")).toHaveText("对照文档核对");
+    await expect(palette(window).locator('[data-key^="command:check."]')).toHaveCount(1);
+    if (query === "核对") {
+      await expect(row("mind.check").getByTestId("palette-purpose")).toHaveText(
+        "每条说法在你的文档里有没有依据",
+      );
+    }
+    await window.keyboard.press("Escape");
+    await expect(palette(window)).toBeHidden();
+  }
+
+  await search("核对文档");
+  await expect(row("verify.document").getByTestId("palette-purpose")).toHaveText(
+    "核对别人写的 PDF 里的说法",
+  );
+  await window.keyboard.press("Escape");
+  await expect(palette(window)).toBeHidden();
+
+  await search("矛盾");
+  await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
+    "你的文档与这个 Mind 的引用不一致的地方",
+  );
+});
+
 test("with nothing named so, “Ask …” asks in the assistant; the assistant's commands are in the list", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 760);
@@ -542,6 +650,33 @@ test('with words typed, the last row is Ask “words”: Enter opens the first m
   await window.keyboard.press("ControlOrMeta+a");
   await window.keyboard.type(">rename");
   await expect(group(window, "ask")).toHaveCount(0);
+  await app.close();
+});
+
+test("a word is never matched across words, and a name read two ways is found by either (#1372, #1416)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+  await (await coreOf(window)).evaluate(async (core) => {
+    await core.createMind({ title: "重命名" });
+  });
+
+  await openPalette(window);
+  // The action is offered by its own name, so the failure is the match, not a missing command.
+  await window.keyboard.type("> remove the examples");
+  await expect(group(window, "actions")).toContainText("Remove the examples");
+  // "theme" is not "the e" of "the examples": nothing is highlighted, and the row says so.
+  await window.keyboard.press("ControlOrMeta+a");
+  await window.keyboard.type("> theme");
+  await expect(window.getByTestId("palette-empty")).toHaveText("No actions match");
+  await expect(palette(window).getByTestId("palette-item")).toHaveCount(0);
+
+  // 重命名 is found by the reading people say ("chong") and by the collation's ("zhong").
+  for (const typed of ["chongming", "zhongming"]) {
+    await window.keyboard.press("ControlOrMeta+a");
+    await window.keyboard.type(typed);
+    await expect(group(window, "minds")).toContainText("重命名");
+  }
   await app.close();
 });
 

@@ -9,9 +9,12 @@ export const ANCHORED = "data-anchored";
 
 /** Where the thread scrolls from, so an eased scroll can replace the jump in one place (#1685). */
 export function scrollThreadTo(scroller: HTMLElement, top: number): void {
+  const was = scroller.scrollTop;
   scroller.scrollTop = top;
-  // What keeps the thread in view as it resizes learns of this move now, not a frame later.
-  scroller.dispatchEvent(new Event("scroll"));
+  if (scroller.scrollTop !== was) {
+    // What keeps the thread in view as it resizes learns of this move now, not a frame later.
+    scroller.dispatchEvent(new Event("scroll"));
+  }
 }
 
 const paddingOf = (scroller: HTMLElement, side: "Top" | "Bottom"): number =>
@@ -28,7 +31,7 @@ function release(turn: { current: unknown }, scroller: HTMLElement): void {
 // The room the newest Question needs under its turn to stay at the top of the panel: what the
 // panel holds under it, less what its Answer fills so far.
 function roomUnder(scroller: HTMLElement, log: HTMLElement): number {
-  const last = log.lastElementChild;
+  const last = [...log.children].filter((child) => !child.matches(".add-to-picker")).at(-1);
   const question = newestQuestion(log);
   if (!last || !question) return 0;
   const filled = last.getBoundingClientRect().bottom - question.getBoundingClientRect().top;
@@ -65,7 +68,7 @@ export function useThreadScroll(
   const settle = () => {
     const element = log.current;
     const scroller = element?.parentElement;
-    if (!element || !scroller || scroller.clientHeight === 0) return;
+    if (!element || !scroller || scroller.clientHeight === 0 || holdOff) return;
     if (turn.current) {
       const room = roomUnder(scroller, element);
       element.style.paddingBottom = `${room}px`;
@@ -91,9 +94,13 @@ export function useThreadScroll(
     const scroller = element?.parentElement;
     if (!element || !scroller) return;
     const onScroll = () => {
-      atFoot.current =
-        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= AT_FOOT_PX;
-      if (turn.current && scroller.scrollTop < turn.current.top - MOVED_BY_USER_PX) {
+      const fromFoot = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      atFoot.current = fromFoot <= AT_FOOT_PX;
+      if (
+        fromFoot > AT_FOOT_PX &&
+        turn.current &&
+        scroller.scrollTop < turn.current.top - MOVED_BY_USER_PX
+      ) {
         release(turn, scroller);
       }
     };
@@ -110,13 +117,16 @@ export function useThreadScroll(
   useLayoutEffect(() => {
     const element = log.current;
     const scroller = element?.parentElement;
-    if (!element || !scroller || holdOff) return;
+    if (!element || !scroller) return;
     if (where.current !== conversationId) {
       where.current = conversationId;
       release(turn, scroller);
       element.style.paddingBottom = "";
-      atFoot.current = true;
+      atFoot.current = holdOff
+        ? scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= AT_FOOT_PX
+        : true;
     }
+    if (holdOff) return;
     const sent = asking && !wasAsking.current;
     wasAsking.current = asking;
     if (!sent) {

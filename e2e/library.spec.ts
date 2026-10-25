@@ -20,6 +20,7 @@ import {
   expectReadyDocuments,
   launchApp,
   leaveText,
+  openAdvancedModels,
   openFolderInLibrary,
   openSettings,
   placeAssistant,
@@ -43,10 +44,16 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-/** The Tagging section in Settings → Models. */
-async function taggingSettings(window: Page) {
+/**
+ * The Tagging section in Settings → Models → Advanced: opened by hand on the defaults, or open by
+ * itself once a model was chosen.
+ */
+async function taggingSettings(window: Page, { chosen = false } = {}) {
   const settings = await openSettings(window, "models");
-  const section = settings.getByTestId("tagging-settings");
+  if (chosen) await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
+  const section = chosen
+    ? settings.getByTestId("tagging-settings")
+    : await openAdvancedModels(settings);
   await section.scrollIntoViewIfNeeded();
   return section;
 }
@@ -279,7 +286,7 @@ test("Organize suggests a Folder and Tags, keeps corrections and survives reopen
     const library = reopened.window.getByTestId("library");
     const row = rowOf(section(library, "Not in a Folder"), "Research notes");
     await expect(row.getByTestId("document-tags")).toContainText("Membrane");
-    const settings = await taggingSettings(reopened.window);
+    const settings = await taggingSettings(reopened.window, { chosen: true });
     await expect(settings.getByTestId("tagging-other")).toContainText("small-classifier");
     await expect(settings.getByLabel("Model name", { exact: true })).toHaveValue(
       "small-classifier",
@@ -373,6 +380,78 @@ test("⌘Z takes Organize's suggestions back and ⇧⌘Z brings them back in one
     await expect(suggested).toHaveCount(2);
   } finally {
     await app.close();
+  }
+});
+
+test("Undo of an Organize that began with no model leaves the Documents unfiled with nothing waiting, ⇧⌘Z files them again, and the next start organizes nothing (#1391)", async () => {
+  const names = ["Research notes A", "Research notes B", "Research notes C"];
+  const paths: string[] = [];
+  for (const name of names) {
+    const path = join(sources, `${name}.txt`);
+    await writeFile(path, `Research report about membrane separation, part ${name.slice(-1)}.`);
+    paths.push(path);
+  }
+  const first = await launchApp(dataDir, { fakeChat: true });
+  try {
+    const { window } = first;
+    await dismissChatSetup(window);
+    await makeFolders(window, [{ name: "Research", description: "Research papers and reports" }]);
+    await addDocuments(window, paths);
+    await connectLocalChatModel(window, "main-chat");
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    await pointAndClick(window, organize(library));
+    await pointAndClick(window, library.getByTestId("library-organize-use"));
+
+    const research = section(library, "Research");
+    const suggested = research.getByTestId("library-suggested");
+    await expect(suggested).toHaveCount(3);
+    await expect(window.getByTestId("undo-line")).toContainText(
+      "Organize suggested a Folder for 3 Documents",
+    );
+    const assignments = async () =>
+      (await coreOf(window)).evaluate(async (core) => (await core.getLibrary()).assignments);
+
+    // ⌘Z puts the three back unfiled, with no assignment left to wait or to organize.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(research.getByTestId("library-document")).toHaveCount(0);
+    await expect(section(library, "Not in a Folder").getByTestId("library-document")).toHaveCount(
+      3,
+    );
+    expect(await assignments()).toEqual([]);
+    await expect(window.getByTestId("organization-attention")).toHaveCount(0);
+
+    // ⇧⌘Z gives the Folders back.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(research.getByTestId("library-document")).toHaveCount(3);
+    await expect(suggested).toHaveCount(3);
+
+    // Undone again, the next start finds nothing to organize.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(research.getByTestId("library-document")).toHaveCount(0);
+    expect(await assignments()).toEqual([]);
+  } finally {
+    await first.app.close();
+  }
+  const reopened = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await reopened.window.getByTestId("open-library").click();
+    await expect(
+      section(reopened.window.getByTestId("library"), "Not in a Folder").getByTestId(
+        "library-document",
+      ),
+    ).toHaveCount(3);
+    expect(
+      await (await coreOf(reopened.window)).evaluate(
+        async (core) => (await core.getLibrary()).assignments,
+      ),
+    ).toEqual([]);
+    await expect(reopened.window.getByTestId("organization-attention")).toHaveCount(0);
+  } finally {
+    await reopened.app.close();
   }
 });
 
@@ -578,7 +657,7 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
     );
     await organized(scan, /clef-flash/);
     // Explicit Clef override can include or omit PDF images; the choice persists.
-    settings = await taggingSettings(window);
+    settings = await taggingSettings(window, { chosen: true });
     const form = settings.getByTestId("tagging-other-form");
     await expect(form.getByLabel("Connection", { exact: true })).toHaveValue("auto");
     const images = form.getByRole("checkbox", { name: /Up to 3 PDF page images/ });
@@ -588,11 +667,11 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
       await images.check();
     });
     await closeSettings(window);
-    settings = await taggingSettings(window);
+    settings = await taggingSettings(window, { chosen: true });
     await expect(images).toBeChecked();
     await chooseOtherModel(settings, () => images.uncheck());
     await closeSettings(window);
-    settings = await taggingSettings(window);
+    settings = await taggingSettings(window, { chosen: true });
     await expect(images).not.toBeChecked();
     await closeSettings(window);
   } finally {

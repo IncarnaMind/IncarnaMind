@@ -961,6 +961,53 @@ test("Remove the examples removes every example Mind made, and Undo brings them 
   await app.close();
 });
 
+test("Undo after Remove the examples brings back the same Minds and Documents, and leaves nothing of them in Recently deleted (#1292)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  const menu = await examplesMenu(window);
+  await pointAndClick(window, menu.locator('[data-group="papers"]'));
+  await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
+  await expectReadyDocuments(window, 5);
+
+  const held = () =>
+    window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [minds, linkedFolders, documents, deleted] = await Promise.all([
+        core.listMinds(),
+        core.listLinkedFolders(),
+        core.listDocuments(),
+        core.listDeleted(),
+      ]);
+      return {
+        minds: minds.map((each) => each.id).sort(),
+        linkedFolders: linkedFolders.map((each) => each.id).sort(),
+        documents: documents.map((each) => each.id).sort(),
+        deleted: deleted.map((each) => `${each.kind}:${each.id}`),
+      };
+    });
+  const before = await held();
+  expect(before.minds).toHaveLength(2);
+  expect(before.documents).toHaveLength(5);
+
+  await pointAndClick(window, (await examplesMenu(window)).getByTestId("examples-remove"));
+  await expect(window.getByTestId("mind-list-item")).toHaveCount(0);
+  // What Undo has to take back: the Minds wait in Recently deleted, until it does.
+  expect((await held()).deleted).toHaveLength(2);
+
+  await dismissChatSetup(window);
+  await leaveText(window);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
+  // Settled first: an embedding or a scan still running after Undo could change what is held.
+  await expectReadyDocuments(window, 5);
+  await expect.poll(held).toEqual({ ...before, deleted: [] });
+  const back = await held();
+  expect(back.minds).toHaveLength(before.minds.length);
+  expect(back.linkedFolders).toHaveLength(before.linkedFolders.length);
+  expect(back.documents).toHaveLength(before.documents.length);
+  expect(back.deleted).toEqual([]);
+  await app.close();
+});
+
 const paletteItems = paletteFound;
 
 async function askPalette(window: Page, text: string): Promise<void> {

@@ -3,7 +3,9 @@
  * each Citation as it was, so it pastes back into IncarnaMind as a Citation, and shows it as
  * Word writes a footnote: a numbered marker in the text and a footnote list after it. Word
  * pastes those as footnotes; where footnotes can't be pasted, they read as numbered markers with
- * a list of Sources. The plain text has the same markers and a Sources list.
+ * a list of Sources. The plain text has the same markers and a Sources list. A source and place
+ * cited again takes the first note's number and has no note of its own (#1552), as in a Word
+ * export.
  */
 import { getTextBetween, getTextSerializersFromSchema, type TextSerializer } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode, type Schema } from "@tiptap/pm/model";
@@ -16,7 +18,7 @@ import {
 } from "../../../core/api";
 import { readChart } from "../../../shared/charts";
 import { translate } from "../../../shared/i18n";
-import { type SourceContext, sourceText } from "../../../shared/sources";
+import { type SourceContext, sourceKeyOf, sourceText } from "../../../shared/sources";
 import { tableText } from "./tableText";
 
 type Cited = Partial<CitationAttributes>;
@@ -33,6 +35,19 @@ export function citationsIn(fragment: Fragment): Cited[] {
     return true;
   });
   return found;
+}
+
+/** The number of each Citation's note: a source and place cited again has the first one's. */
+export function noteNumbers(citations: readonly Cited[], context: SourceContext): number[] {
+  const numbered = new Map<string, number>();
+  return citations.map((citation) => {
+    const { text, link } = sourceText(citation, context);
+    const key = `${sourceKeyOf(citation, context)}\n${citation.documentId ?? ""}\n${citation.contentHash ?? ""}\n${text}\n${link ?? ""}`;
+    const known = numbered.get(key);
+    if (known !== undefined) return known;
+    numbered.set(key, numbered.size + 1);
+    return numbered.size;
+  });
 }
 
 /** What marks the visible "[n]" to other apps, as comments until `wordFootnoteHtml` writes Word's own. */
@@ -77,6 +92,25 @@ export const wordFootnoteHtml = (html: string): string =>
     .replaceAll(`<!--${FALLBACK_START}-->`, `<!${FALLBACK_START}>`)
     .replaceAll(`<!--${FALLBACK_END}-->`, `<!${FALLBACK_END}>`);
 
+/** Not a footnote of its own, so Word can't number it: the first note's number, linked to it. */
+function repeatMarker(document: Document, number: number): HTMLElement {
+  const mark = document.createElement("sup");
+  mark.setAttribute("class", "MsoFootnoteReference");
+  const anchor = document.createElement("a");
+  anchor.setAttribute("href", `#_ftn${number}`);
+  anchor.append(
+    document.createComment(FALLBACK_START),
+    document.createTextNode("["),
+    document.createComment(FALLBACK_END),
+    document.createTextNode(String(number)),
+    document.createComment(FALLBACK_START),
+    document.createTextNode("]"),
+    document.createComment(FALLBACK_END),
+  );
+  mark.append(anchor);
+  return mark;
+}
+
 /** A footnote's text, its address a link when it has one. */
 function noteText(document: Document, text: string, link: string | null): Node[] {
   const at = link === null ? -1 : text.indexOf(link);
@@ -109,8 +143,16 @@ export function addFootnotes(
   const list = document.createElement("div");
   list.setAttribute("style", "mso-element:footnote-list");
   list.setAttribute(NOTES_ATTRIBUTE, "");
+  const numbers = noteNumbers(citations, context);
+  let listed = 0;
   spans.forEach((span, index) => {
-    const number = index + 1;
+    const number = numbers[index];
+    if (number === undefined) return;
+    if (number <= listed) {
+      span.replaceChildren(repeatMarker(document, number));
+      return;
+    }
+    listed = number;
     const citation = citations[index] ?? {};
     span.replaceChildren(marker(document, number, "reference"));
     const { text, link } = sourceText(citation, context);
@@ -162,10 +204,11 @@ export function copiedText(copy: Fragment, schema: Schema, context: SourceContex
   const citations = citationsIn(fragment);
   const tables = tablesIn(fragment);
   if (citations.length === 0 && tables.size === 0) return "";
-  let number = 0;
+  const numbers = noteNumbers(citations, context);
+  let next = 0;
   const textSerializers: Record<string, TextSerializer> = {
     ...getTextSerializersFromSchema(schema),
-    [CITATION_NODE]: () => `[${++number}]`,
+    [CITATION_NODE]: () => `[${numbers[next++]}]`,
   };
   textSerializers[TABLE_NODE] = ({ node }) => tableText(node, textSerializers);
   const copied = schema.topNodeType.create(null, withoutChartsOf(fragment, tables));
@@ -176,8 +219,14 @@ export function copiedText(copy: Fragment, schema: Schema, context: SourceContex
     { textSerializers },
   ).replace(/^\n+|\n+$/g, "");
   if (citations.length === 0) return body;
+  let highest = 0;
   const sources = citations
-    .map((citation, index) => `[${index + 1}] ${sourceText(citation, context).text}`)
+    .flatMap((citation, index) => {
+      const number = numbers[index];
+      if (number !== highest + 1) return [];
+      highest = number;
+      return [`[${number}] ${sourceText(citation, context).text}`];
+    })
     .join("\n");
   return `${body}\n\n${translate(context.language, "citedSource.title")}\n${sources}`;
 }

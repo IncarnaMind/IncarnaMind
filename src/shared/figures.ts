@@ -416,6 +416,25 @@ function separatorsIn(s: string): Separators | null {
 const CNY_WORDS = /人民币|RMB|Rmb|CNY|[Rr]enminbi|\byuan\b/;
 const JPY_WORDS = /日元|円|JPY|\byen\b/;
 
+/** The languages a Document may be in, as their BCP 47 tags, by the name `detectLanguage` gives them. */
+const LANGUAGE_TAGS: Readonly<Record<string, string>> = {
+  English: "en",
+  Chinese: "zh",
+  Japanese: "ja",
+  Korean: "ko",
+  French: "fr",
+  German: "de",
+  Spanish: "es",
+  Italian: "it",
+  Portuguese: "pt",
+  Dutch: "nl",
+};
+
+/** A text's language as the figure reader takes it, from the name `detectLanguage` gives it (src/core/documents/textLanguage). */
+export function figureLanguageTag(name: string | null): string | null {
+  return name === null ? null : (LANGUAGE_TAGS[name] ?? null);
+}
+
 /**
  * What a Document's own text settles for reading its figures: the
  * separators its numbers use, and what its "¥" stands for when only yuan

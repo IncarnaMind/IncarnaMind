@@ -50,6 +50,7 @@ import {
 import { Marked } from "./Marked";
 import { ProblemMark } from "./ProblemLine";
 import { errorTextClass } from "./ui";
+import { useBackdropClose } from "./useModal";
 
 /** How long typing pauses before the words inside are searched for. */
 const WORDS_DELAY_MS = 120;
@@ -205,6 +206,7 @@ function Palette() {
     // Now, not on the dialog's close event a task later: ⌘K pressed meanwhile opens it again.
     usePalette.getState().hide();
   };
+  useBackdropClose(dialog, close);
 
   const choose = (item: PaletteItem, inTab = false) => {
     // Closed first, so the focus is back where it was before what was chosen moves it.
@@ -308,7 +310,13 @@ function Palette() {
               data-testid={waiting ? "palette-searching" : "palette-empty"}
               className="px-2 pt-4 pb-2 text-[13px] leading-5 text-ink-meta"
             >
-              {t(waiting ? "palette.searching" : "palette.empty")}
+              {t(
+                waiting
+                  ? "palette.searching"
+                  : actionsOnly
+                    ? "palette.empty.actions"
+                    : "palette.empty",
+              )}
             </p>
           )
         )}
@@ -404,6 +412,8 @@ function Option({
 }) {
   const words = item.kind === "note" || item.kind === "passage" || item.kind === "said";
   const ranges = item.kind === "object" || item.kind === "command" ? item.ranges : [];
+  const purpose = item.kind === "command" ? item.purpose : "";
+  const twoLines = words || purpose !== "";
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: the field owns the keys (aria-activedescendant).
     <div
@@ -419,10 +429,10 @@ function Option({
       onMouseMove={onPoint}
       onClick={(event) => onChoose(event.metaKey || event.ctrlKey)}
       className={`flex cursor-default gap-2.5 rounded-md px-2 ${
-        words ? "items-start py-1.5" : "h-9 items-center"
+        twoLines ? "items-start py-1.5" : "h-9 items-center"
       } ${active ? "bg-hover" : ""}`}
     >
-      <span className={`flex shrink-0 ${words ? "pt-0.5" : ""}`}>
+      <span className={`flex shrink-0 ${twoLines ? "pt-0.5" : ""}`}>
         <ItemIcon item={item} />
       </span>
       <span className="min-w-0 flex-1">
@@ -439,6 +449,15 @@ function Option({
         {words && (
           <span className="block truncate text-[13px] leading-5 text-ink-secondary">
             <Marked text={item.excerpt} ranges={item.highlights} />
+          </span>
+        )}
+        {purpose !== "" && (
+          <span
+            data-testid="palette-purpose"
+            className="block truncate text-[12px] leading-4 text-ink-meta"
+            title={purpose}
+          >
+            {purpose}
           </span>
         )}
       </span>

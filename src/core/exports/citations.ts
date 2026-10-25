@@ -8,7 +8,6 @@ import type { ResolvedCitationStyle } from "../../shared/citationStyles";
 import { citedLocation } from "../../shared/citations";
 import { translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
-import { withNeedsDetailsMark } from "../../shared/references";
 import { type SourceContext, sourceEntry, sourceKeyOf, sourcesOf } from "../../shared/sources";
 import type { CitationFormatRequest, CitedWork, FormattedCitations, StyledRun } from "../api";
 import { type Block, type Inline, type Pendings, trimTrailingSpace } from "../mindText";
@@ -112,14 +111,14 @@ function runsOf(runs: FormattedCitations["clusters"][number]["runs"]): StyledRun
 
 /**
  * The Blocks with their Citations in `style`, and its Bibliography at the end: `format` is the
- * core's `formatCitations`, and `needsDetails` the mark after an entry too thin to cite
- * ("[needs details]"). Blocks with no Citation come back as they were.
+ * core's `formatCitations`. An entry too thin to cite is written with the details it has, never
+ * a placeholder the User would send (#1910); the Saved line counts them instead. Blocks with no
+ * Citation come back as they were.
  */
 export async function styleCitations(
   blocks: readonly Block[],
   style: ResolvedCitationStyle,
   format: (request: CitationFormatRequest) => Promise<FormattedCitations>,
-  needsDetails: string,
 ): Promise<Block[]> {
   const works: CitedWork[][] = [];
   mapInlines(blocks, (content) => {
@@ -156,6 +155,15 @@ export async function styleCitations(
         runs,
         note,
         unverified: cluster.citations.some((citation) => citation.footnote.unverified),
+        of: cluster.citations
+          .map((citation) =>
+            [
+              citation.work.documentId ?? "",
+              citation.work.contentHash ?? "",
+              citation.footnote.source,
+            ].join("\n"),
+          )
+          .join("\n"),
         ...(failed.length > 0 && { failed }),
         ...(first?.inserted && { inserted: first.inserted }),
         ...(first?.deleted && { deleted: first.deleted }),
@@ -173,7 +181,7 @@ export async function styleCitations(
       heading: style.heading,
       items: formatted.bibliography.map((entry) => ({
         label: entry.label,
-        runs: entry.needsDetails ? withNeedsDetailsMark(entry.runs, needsDetails) : entry.runs,
+        runs: entry.runs,
       })),
       hangingIndent: formatted.hangingIndent,
     },

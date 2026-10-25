@@ -365,7 +365,7 @@ export const folderCommands: readonly Command[] = [
     // Suggestions are reviewed and taken back from the Library.
     reversible: true,
     async run(ctx) {
-      if (!store().library?.settings.classifier) return store().openSettings("models");
+      if (!store().library?.settings.classifier) return store().openSettings("models", "tagging");
       await core.classifyDocuments(folderDocumentIds(ctx));
     },
   },

@@ -6,15 +6,20 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type CitationAttributes,
   type CitationCheck,
+  type CitationRecheck,
   type FormattedCluster,
   type StyledRun,
 } from "../../../core/api";
 import {
   badgeMessage,
   type CitationState,
+  changedOnMessage,
+  changedSourceNote,
   citationSource,
   citationState,
   parseQuotedWords,
+  quoteStanding,
+  versionMoment,
   withShownName,
 } from "../../../shared/citations";
 import {
@@ -26,6 +31,7 @@ import {
 } from "../../../shared/locations";
 import { useAnswers } from "../answers";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
+import { useCitationRecheck } from "../citationVersion";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
@@ -126,6 +132,14 @@ export function CitationView({
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const state = citationState(attributes, documents, kept);
+  const liveVersion = useAppStore(
+    (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
+  );
+  const recheck = useCitationRecheck(
+    state.changedAfterCited ? attributes : null,
+    state.changedAfterCited,
+    liveVersion,
+  );
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;
@@ -198,9 +212,22 @@ export function CitationView({
     const documentId = state.documentId ?? attributes.documentId;
     if (!documentId) return;
     recordUsage({ event: "citation_opened", fields: { check: state.check } });
+    // The quote is somewhere else in the new version: open there, so the viewer can wash it.
+    const moved =
+      recheck !== null && recheck !== "failed" && quoteStanding(attributes, recheck) === "moved"
+        ? recheck
+        : null;
     openCitedPlace(
       { ...attributes, documentId },
-      { check: state.check, withQuote, number, label: where, from: place?.groupId, keep },
+      {
+        check: state.check,
+        withQuote,
+        number,
+        label: moved?.location ? formatLocation(moved.location, t) : where,
+        from: place?.groupId,
+        keep,
+        ...(moved && { place: { pageFrom: moved.pageFrom, pageTo: moved.pageTo } }),
+      },
     );
   };
 
@@ -375,6 +402,7 @@ export function CitationView({
             <CitationCard
               state={state}
               attributes={shown}
+              recheck={recheck}
               badgeText={badgeText}
               onOpen={openFromCard}
               onRemove={
@@ -515,6 +543,7 @@ function ClusterRuns({
 function CitationCard({
   state,
   attributes,
+  recheck,
   badgeText,
   inAnswer,
   note,
@@ -527,6 +556,7 @@ function CitationCard({
   menu: { target: ObjectRef; here: CommandContext["here"] };
   state: CitationState;
   attributes: CitationAttributes;
+  recheck: CitationRecheck | "failed" | null;
   badgeText: string;
   inAnswer: boolean;
   /** In a note style, the note the Citation is written in, as an export will write it. */
@@ -539,9 +569,8 @@ function CitationCard({
   const t = useT();
   const language = useLanguage();
   const gap = useGap();
-  const web = useAppStore(
-    (store) => store.documents.find((each) => each.id === state.documentId)?.web ?? null,
-  );
+  const live = useAppStore((store) => store.documents.find((each) => each.id === state.documentId));
+  const web = live?.web ?? null;
   const place = useDocumentPlace(state.documentId ?? null);
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;
@@ -573,6 +602,13 @@ function CitationCard({
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
   const quote = useReadableQuote(attributes);
+  const changed = changedSourceNote(state.changedAfterCited, attributes, recheck, t);
+  const changedOn = changedOnMessage(
+    state.changedAfterCited,
+    live ? versionMoment(live) : null,
+    language,
+    t,
+  );
   return (
     <div className={`citation-card citation-card--${state.check}`} contentEditable={false}>
       <div className="citation-card-head">
@@ -592,6 +628,11 @@ function CitationCard({
             {web.siteName} · {t("webPages.fetched", { date: pageDate(fetchedAt, language) })}
           </p>
         )}
+        {changedOn && (
+          <p data-testid="citation-changed-date" className="citation-card-note">
+            {changedOn}
+          </p>
+        )}
       </div>
       {attributes.quote && state.check !== "not-found" && (
         <figure className="citation-card-quote">
@@ -604,6 +645,16 @@ function CitationCard({
         </figure>
       )}
       {state.check === "not-found" && <CitationQuotedWords attributes={attributes} />}
+      {changed && (
+        <div data-testid="citation-changed" className="citation-card-changed">
+          <p className="citation-card-note">{changed.notice}</p>
+          {changed.quote && (
+            <p data-testid="citation-changed-quote" className="citation-card-note">
+              {changed.quote}
+            </p>
+          )}
+        </div>
+      )}
       {attributes.verdict && (
         <p data-testid="citation-verdict" className="citation-card-verdict">
           {attributes.verdict}

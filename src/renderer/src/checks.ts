@@ -1,5 +1,5 @@
 /**
- * Find support and Check against Documents (#96), the window's side: which
+ * Check against Documents (#96), the window's side: which
  * sentences a selection is (as the core reads them, `TextPlace`), asking
  * the core to check them, Stop, what went wrong where the Mind's health is,
  * and a check's card actions: Check again, Search all Documents and Add as
@@ -48,7 +48,7 @@ export type CheckProblem =
 
 export interface CheckRunning {
   requestId: string;
-  action: ClaimCheckAction | "whole-mind";
+  action: Exclude<ClaimCheckAction, "find-support"> | "whole-mind";
 }
 
 /**
@@ -75,6 +75,8 @@ interface ChecksState {
   cardOpen: Readonly<Record<string, true>>;
   /** By tab, else by Mind: the id of the sentence check whose card the User keeps open. */
   openClaim: Readonly<Record<string, string>>;
+  /** By tab, else by Mind: the card the keyboard opened, whose first action takes the focus (#1762). */
+  focusClaim: Readonly<Record<string, string>>;
 }
 
 export const useChecks = create<ChecksState>()(() => ({
@@ -83,6 +85,7 @@ export const useChecks = create<ChecksState>()(() => ({
   smallModel: {},
   cardOpen: {},
   openClaim: {},
+  focusClaim: {},
 }));
 
 function setFor<K extends keyof ChecksState>(
@@ -114,6 +117,8 @@ export const setCheckCardOpen = (place: string, open: boolean) =>
 
 export const setOpenClaim = (place: string, id: string | null) => setFor("openClaim", place, id);
 
+export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
+
 /** Only if `id` is still the open one: a card that closes late must not close its successor. */
 export function closeOpenClaim(place: string, id: string): void {
   if (useChecks.getState().openClaim[place] === id) setOpenClaim(place, null);
@@ -137,12 +142,14 @@ export async function checkSentences(
   editor: Editor,
   mindId: string,
   doc: Y.Doc,
-  action: ClaimCheckAction,
+  asked: ClaimCheckAction,
   {
     ranges,
     allDocuments = false,
   }: { ranges?: readonly { from: number; to: number }[]; allDocuments?: boolean } = {},
 ): Promise<void> {
+  // An older version's mark says "find-support": it is Check against Documents now.
+  const action = asked === "find-support" ? "check-against-documents" : asked;
   if (editor.isDestroyed || useChecks.getState().running[mindId]) return;
   const stretches = (ranges ?? [editor.state.selection]).flatMap((range) => {
     const read = selectionForEdit(editor.state, range);

@@ -164,26 +164,6 @@ const FOLDER_COLUMNS = "id, path, layout, paused, ignore_patterns, created_at, u
 /** Statuses of a Document once processing has finished with it. */
 const PROCESSED = "('ready', 'no-text', 'failed')";
 
-/**
- * A rough guess at indexing speed with the built-in model on a laptop CPU
- * (ADR-0009: about 25 Passages a second): a PDF holds about 3 seconds of work
- * per megabyte, plain text, which is much denser, about 30, and every file
- * costs a little on top. Office files are zipped, with images: a guess from
- * the samples' text per megabyte (unmeasured).
- */
-const SECONDS_PER_FILE = 0.2;
-const SECONDS_PER_MEGABYTE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 3,
-  text: 30,
-  markdown: 30,
-  docx: 10,
-  pptx: 2,
-  xlsx: 20,
-  csv: 30,
-  web: 30,
-  transcript: 30,
-};
-
 /** A folder is laid out flat when this share of its folders with files hold exactly one. */
 const FLAT_SHARE = 0.9;
 /**
@@ -257,6 +237,8 @@ export interface LibraryOptions {
   stat: StatIdentity;
   retryMs: number;
   detectDataless: boolean;
+  /** How long reading these files takes on this computer, in seconds (./readingSpeed). */
+  readingSeconds(files: readonly FoundFile[]): number | null;
 }
 
 /** What one pass looks at. */
@@ -311,6 +293,14 @@ const insideRange = (prefix: string) => {
   const next = String.fromCharCode(sep.charCodeAt(0) + 1);
   return [folder, `${folder.slice(0, -1)}${next}`] as const;
 };
+
+/** A Linked folder's id, as the API takes it. */
+function parseLinkedFolderId(idInput: unknown): string {
+  if (typeof idInput !== "string" || idInput === "") {
+    throw new InvalidInputError("A Linked folder id is required.");
+  }
+  return idInput;
+}
 
 export function createLibrary(options: LibraryOptions) {
   const { db, now, folders, hooks } = options;
@@ -1427,10 +1417,7 @@ export function createLibrary(options: LibraryOptions) {
   }
 
   const getRow = (idInput: unknown): LinkedFolderRow => {
-    if (typeof idInput !== "string" || idInput === "") {
-      throw new InvalidInputError("A Linked folder id is required.");
-    }
-    const row = folderRow(idInput);
+    const row = folderRow(parseLinkedFolderId(idInput));
     if (!row) throw new NotFoundError({ key: "error.linkedFolder.notFound" });
     return row;
   };
@@ -1497,21 +1484,16 @@ export function createLibrary(options: LibraryOptions) {
       });
       const local = files.filter((file) => !file.onlineOnly);
       const placeholders = files.filter((file) => file.onlineOnly);
-      let bytes = 0;
-      let seconds = 0;
-      for (const file of local) {
-        bytes += file.size;
-        seconds += SECONDS_PER_FILE + (file.size / 1_000_000) * SECONDS_PER_MEGABYTE[file.kind];
-      }
+      const seconds = options.readingSeconds(local);
       return {
         path,
         files: local.length,
-        bytes,
+        bytes: local.reduce((sum, file) => sum + file.size, 0),
         onlineOnly: {
           files: placeholders.length,
           bytes: placeholders.reduce((sum, file) => sum + file.size, 0),
         },
-        estimatedSeconds: Math.ceil(seconds),
+        estimatedSeconds: seconds === null ? null : Math.ceil(seconds),
         layout: suggestLayout(local.map((file) => relativePath(path, file.path))),
         insideLinkedFolderId: outer?.id ?? null,
         containsLinkedFolderIds: linked
@@ -1619,6 +1601,37 @@ export function createLibrary(options: LibraryOptions) {
       watchSingles(); // a file added on its own inside it is watched by itself now
       if (foldersChanged) hooks.foldersChanged();
       announceFolders();
+    },
+
+    /**
+     * Brings back a Linked folder the User unlinked, as Undo after Remove the examples
+     * does (#1292), and reads its files again: the Documents that left the index with
+     * it, which the caller restores, and the folder. Refused when there is no such folder.
+     */
+    restore(idInput: unknown): { folder: LinkedFolder; went: string[] } {
+      const row = db.get<LinkedFolderRow & { deleted_at: string | null }>(
+        `SELECT ${FOLDER_COLUMNS}, deleted_at FROM linked_folders WHERE id = ?`,
+        [parseLinkedFolderId(idInput)],
+      );
+      if (!row) throw new NotFoundError({ key: "error.linkedFolder.notFound" });
+      if (row.deleted_at === null) return { folder: toLinkedFolder(row), went: [] };
+      // The Documents that went with it, by the unlink's own moment: one deleted earlier stays deleted.
+      const went = db
+        .all<{ id: string }>(
+          "SELECT id FROM documents WHERE linked_folder_id = ? AND deleted_at = ?",
+          [row.id, row.deleted_at],
+        )
+        .map((each) => each.id);
+      db.run("UPDATE linked_folders SET deleted_at = NULL, updated_at = ? WHERE id = ?", [
+        now(),
+        row.id,
+      ]);
+      statuses.set(row.id, "scanning");
+      request({ folders: [row.id] });
+      announceFolders();
+      const live = folderRow(row.id);
+      if (!live) throw new Error("The Linked folder wasn't saved.");
+      return { folder: toLinkedFolder(live), went };
     },
 
     /**

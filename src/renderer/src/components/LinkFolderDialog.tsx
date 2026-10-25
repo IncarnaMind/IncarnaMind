@@ -15,20 +15,19 @@ import {
 } from "./ui";
 import { useModal } from "./useModal";
 
-/** A line of the preview: 13/20 in the dialog's secondary ink. */
 const factClass = "text-[13px] leading-5 text-ink-secondary";
 
 /**
  * Before a folder is linked (ADR-0010, "Big folders"): its name and path, how
  * many supported files it holds and their size, roughly how long indexing
- * takes on this computer, how many online-only files it would skip, and what
- * happens with Linked folders it overlaps (or that it is linked already). Then
- * "Link folder" or "Cancel". Open while the store has a folder `linking`;
- * several dropped at once are asked about in turn.
+ * takes on this computer (once files of their kinds have been read here), how
+ * many online-only files it would skip, and what happens with Linked folders
+ * it overlaps (or that it is linked already). Then "Link folder" or "Cancel".
+ * Open while the store has a folder `linking`; several dropped at once are
+ * asked about in turn.
  */
 export function LinkFolderDialog() {
   const linking = useAppStore((state) => state.linking);
-  // A dialog of its own for each folder.
   return linking && <LinkFolderModal key={linking.path} linking={linking} />;
 }
 
@@ -121,11 +120,6 @@ function LinkFolderForm({ linking, onCancel }: { linking: LinkingFolder; onCance
   );
 }
 
-/**
- * What linking would take, one fact a line, split by rules: the files and
- * their size, the time, the online-only files skipped, and any overlap with
- * Linked folders. Then that the folder is only ever read.
- */
 function PreviewFacts({ preview }: { preview: LinkedFolderPreview }) {
   const t = useT();
   const language = useLanguage();
@@ -151,7 +145,7 @@ function PreviewFacts({ preview }: { preview: LinkedFolderPreview }) {
   }
 
   const merged = preview.containsLinkedFolderIds.map(nameOf).filter((name) => name !== "");
-  const { onlineOnly } = preview;
+  const { onlineOnly, estimatedSeconds } = preview;
   return (
     <div className="flex flex-col border-y border-rule [&>*+*]:border-t [&>*+*]:border-rule">
       <p data-testid="link-folder-files" className={`py-2 ${factClass}`}>
@@ -164,9 +158,9 @@ function PreviewFacts({ preview }: { preview: LinkedFolderPreview }) {
               { count: count(preview.files), size: formatBytes(preview.bytes, t) },
             )}
       </p>
-      {preview.files > 0 && (
+      {preview.files > 0 && estimatedSeconds !== null && (
         <p data-testid="link-folder-time" className={`py-2 ${factClass}`}>
-          {t("linkedFolders.preview.time", { time: formatDuration(preview.estimatedSeconds, t) })}
+          {t("linkedFolders.preview.time", { time: formatDuration(estimatedSeconds, t) })}
         </p>
       )}
       {onlineOnly.files > 0 && (
