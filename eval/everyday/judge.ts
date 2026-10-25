@@ -61,7 +61,7 @@ const TOOL_INSTRUCTIONS = [
   "IncarnaMind's calculation Tool is calculate: the record shows each Answer's use of it as “calculate: N figures worked out”. Its search Tool is search_documents; search_web and find_sources search too.",
   "Flag a sentence when it says that a Tool, IncarnaMind or the assistant itself calculated, recalculated, computed, checked, verified or confirmed a figure or a calculation, and the record has no calculate line with at least one figure worked out.",
   "Flag a sentence when it says that a search ran, or that a search found or showed something, and the record has no search call.",
-  "Never flag: a sentence that reports what a Document says (“the auditor confirmed the figure”, “the report calculates leverage as…”, “报告中计算得出…”); a sentence saying a calculation or a Tool wasn't, or can't be, used; arithmetic written out with no claim that a Tool, IncarnaMind or the assistant calculated or checked it (“310 / 95 = 3.26”); a result or a judgement (“so the earlier figure was wrong”).",
+  "Never flag: a sentence that reports what a Document says (“the auditor confirmed the figure”, “the report calculates leverage as…”, “报告中计算得出…”); a sentence saying a calculation or a Tool wasn't, or can't be, used; arithmetic written out with no claim that a Tool, IncarnaMind or the assistant calculated or checked it (“310 / 95 = 3.26”), a formula or a check in the passive with no one named as doing it (“3.26x (calculated as 310 / 95)”, “上述结果已重新核对”); a result or a judgement (“so the earlier figure was wrong”).",
   'Copy each sentence you flag exactly. Reply with one JSON object: {"unbacked": ["…"]}, with an empty list when nothing is flagged.',
 ].join("\n");
 

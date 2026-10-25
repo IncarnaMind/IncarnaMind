@@ -16,14 +16,14 @@ import { sentencesOf, thisAnswersRecord, UNSEEN_REPLY } from "./claimedChanges";
 import type { ChangeStates, MindNames } from "./toolRecord";
 
 const CALCULATION_TOOL =
-  /\b(?:calculat(?:ion|e|ing|or)|comput(?:ation|e|ing)|math|maths|arithmetic)\s+(?:tool|function)s?\b|\b(?:the|a|my|IncarnaMind['’]s)\s+calculator\b/gi;
+  /\b(?:calculat(?:ion|e|ing|or)|comput(?:ation|e|ing)|math|maths|arithmetic)\s+(?:tool|function)s?\b|\b(?:the|a|my|IncarnaMind['’]s)\s+calculator\b|\bIncarnaMind['’]s\s+calculations?\b/gi;
 // "Northbank's covenant calculator", "the vendor calculation tool": someone else's.
 const NAMED_OWNER =
   /\b(?!(?:IncarnaMind|That|It|What|There|Here|Who|He|She|Let)['’]s)[A-Z][\w&.-]*['’]s\s+(?:[\w-]+\s+){0,3}$/;
 const OWNER =
   /\b(?:their|its|his|her|the\s+(?:lenders?|banks?|borrowers?|vendors?|company|auditors?|agent|client|report|spreadsheet|model|workbook|agreement|document|firm|team)(?:['’]s)?)\s+(?:[\w-]+\s+){0,3}$/i;
 const NOT_BEFORE =
-  /(?:\b(?:not|no|never|without|nor|instead of|rather than)\b|n['’]t\b)[^.;:,]{0,30}$/i;
+  /(?:\b(?:not|no|never|without|nor|cannot|unable|instead of|rather than)\b|n['’]t\b)[^.;:,]{0,30}$/i;
 const NOT_AFTER =
   /^\s*(?:(?:is|was|are|were|has|had|does|did|do|can|could)\s+(?:not|never)\b|(?:isn|wasn|aren|weren|doesn|didn|can|couldn|hasn)['’]t\b|cannot\b|(?:is|was|are|were)\s+(?:unavailable|not available)\b)/i;
 const UNREAL_BEFORE =
@@ -45,7 +45,6 @@ const INCARNAMIND_DID = new RegExp(
   `\\bIncarnaMind(?:\\s+(?:has|have|just|also))*\\s+(${CALCULATED}|${CHECKED}|worked out)\\b|\\b(${CALCULATED}|${CHECKED}|worked out)\\s+by\\s+IncarnaMind\\b`,
   "gi",
 );
-const INCARNAMIND_CALCULATION = /\bIncarnaMind['’]s\s+calculations?\b/i;
 const FIGURES =
   /^\s+[\d£$€¥(]|^\s+(?:(?:the|these|this|those|that|your|my|both|each|all|its|their)\s+)?(?:[\w-]+\s+){0,3}?(?:figures?|numbers?|calculations?|arithmetic|maths?|ratios?|headroom|results?|sums?|totals?|amounts?|values?|computations?|leverage|percentages?|differences?)\b/i;
 const RAN_CALCULATION =
@@ -56,7 +55,7 @@ const SEARCH_DID =
 
 const ZH_TOOL = /计算工具|计算器|计算功能/g;
 const ZH_NOT_BEFORE =
-  /(?:没有|没|未|无法|不能|不可|并未|尚未|不是|不用|不使用|未使用|无|不)[^，。！？；：]{0,6}$/;
+  /(?:没有|没|未|无法|不能|不可|并未|尚未|不是|不用|不使用|未使用|无|不)[^，。！？；：]{0,16}$/;
 const ZH_NOT_AFTER = /^(?:不可用|暂不可用|无法|不能|未|没有|并未|尚未|不可)/;
 const ZH_UNREAL_BEFORE =
   /(?:可以|可|能|将|会|如果|若|需要|建议|请|是否|要不要|你(?:要求|希望|让|请))[^，。！？；：]{0,8}$/;
@@ -128,7 +127,6 @@ function sentenceClaims(sentence: string): ClaimedTool[] {
       }
     }
   }
-  if (now && INCARNAMIND_CALCULATION.test(own)) tools.add("calculate");
   if (now && !ZH_REPORTS.test(own)) {
     for (const match of own.matchAll(ZH_DID)) {
       const verb = match[1] ?? "";
