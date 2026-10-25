@@ -722,7 +722,7 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
     });
     expect([...comments.matchAll(/<w:comment /g)]).toHaveLength(2);
     expect(textOf(comments)).toContain("Contradicted: The report says £182.9m.");
-    expect(textOf(comments)).toContain("Unsupported: I didn’t find this in “All Documents”.");
+    expect(textOf(comments)).toContain("Not found: I didn’t find this in “All Documents”.");
     const [first, second, third] = paragraphsIn(document);
     expect(first).toMatch(
       /<w:commentRangeStart w:id="(\d+)"\/>[\s\S]*Halden held cash of £192\.9m\.[\s\S]*<w:commentRangeEnd w:id="\1"\/>/,
@@ -754,14 +754,14 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       covered: "home working two days a week",
       uncovered: "staff in general",
       covers: `Unsupported: your Documents support home working two days a week, not the parts about staff in general (“${CLAUSE}”, Employment Agreement, p. 1)`,
-      nothing: "Unsupported: I didn’t find this in “All Documents”.",
+      nothing: "Not found: I didn’t find this in “All Documents”.",
     },
     {
       language: "zh-CN" as const,
       covered: "每周在家工作两天",
       uncovered: "全体员工",
       covers: `无依据：你的文档支持每周在家工作两天，但不支持全体员工的部分（“${CLAUSE}”，Employment Agreement，第 1 页）`,
-      nothing: "无依据：未在“全部文档”中找到。",
+      nothing: "未找到：未在“全部文档”中找到。",
     },
   ])(
     "$language: a sentence the check quoted a Passage for part of says what it supports, as its card does; one nothing backs keeps its words",
@@ -796,14 +796,14 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
   test.each([
     {
       language: "en" as const,
-      one: "Unsupported: I didn’t find this in “Okoro agreement”.",
-      two: "Unsupported: I didn’t find this in “Okoro agreement” or 1 more.",
+      one: "Not found: I didn’t find this in “Okoro agreement”.",
+      two: "Not found: I didn’t find this in “Okoro agreement” or 1 more.",
       changed: "Needs re-check: the Mind’s Search scope has changed since.",
     },
     {
       language: "zh-CN" as const,
-      one: "无依据：未在“Okoro agreement”中找到。",
-      two: "无依据：未在“Okoro agreement”等 2 项中找到。",
+      one: "未找到：未在“Okoro agreement”中找到。",
+      two: "未找到：未在“Okoro agreement”等 2 项中找到。",
       changed: "需重新核对：这个 Mind 的搜索范围已更改。",
     },
   ])(
@@ -875,9 +875,9 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       return textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
     };
 
-    expect(await commentsIn(linked.id)).toContain("Unsupported: I didn’t find this in “Notes”.");
+    expect(await commentsIn(linked.id)).toContain("Not found: I didn’t find this in “Notes”.");
     expect(await commentsIn(gone.id)).toContain(
-      "Unsupported: I didn’t find this in “Deleted Folder”.",
+      "Not found: I didn’t find this in “Deleted Folder”.",
     );
   });
 

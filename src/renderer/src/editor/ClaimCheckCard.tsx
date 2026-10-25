@@ -491,9 +491,7 @@ function ClaimCard({
       <div className="citation-card-head">
         <p data-testid="claim-badge" data-check={state} className="citation-badge">
           <ClaimMarkIcon state={state} className="citation-badge-icon" />
-          <span>
-            {decisionMissing ? t("claim.courtDecision.title") : heading}
-          </span>
+          <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
         </p>
         {sentence && (
           <p data-testid="claim-sentence" className="claim-card-sentence">

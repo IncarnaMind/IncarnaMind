@@ -109,7 +109,7 @@ test("Find support on two sentences: one is supported and its Citation is added,
   const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
   await expect(supported).toHaveAttribute("data-addable", "true");
   await expect(supported).toHaveAccessibleName("Sentence check: Supported");
-  await expect(unsupported).toHaveAccessibleName("Sentence check: Unsupported");
+  await expect(unsupported).toHaveAccessibleName("Sentence check: Not found");
   // Each mark sits in the margin, right of the text, the first above the second.
   const lineBox = await line.boundingBox();
   const supportedBox = await supported.boundingBox();
@@ -119,7 +119,7 @@ test("Find support on two sentences: one is supported and its Citation is added,
   // The unsupported sentence is washed; the badge's card counts both.
   await expect(line.locator(".claim-wash--unsupported")).toHaveText(UNSUPPORTED);
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
-    "1 unsupported",
+    "1 needs a look",
   );
   await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
     "1 with no Citation",
@@ -129,7 +129,7 @@ test("Find support on two sentences: one is supported and its Citation is added,
   // The unsupported sentence's card says where it looked.
   await pointAndClick(window, unsupported);
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Not found");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “All Documents”.",
   );
@@ -176,7 +176,7 @@ test("Find support on two sentences: one is supported and its Citation is added,
   await pointAndClick(window, card.getByTestId("claim-check-again"));
   await expect(marks(window)).toHaveAttribute("data-check", "unsupported");
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
-    "1 unsupported",
+    "1 needs a look",
   );
   await expect(editor).toContainText("Gulls nest on the harbour cliffs.");
 });
