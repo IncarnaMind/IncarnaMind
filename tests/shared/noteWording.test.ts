@@ -22,8 +22,8 @@ const YOUR_TEXT = /\byour text\b/i;
  * Counts, not a key list, keep the slices that run in parallel to one line each.
  */
 const MIND_LEFT: readonly { readonly name: string; readonly left: number }[] = [
-  { name: "en", left: 174 },
-  { name: "zh-CN", left: 173 },
+  { name: "en", left: 172 },
+  { name: "zh-CN", left: 171 },
   { name: "CONTEXT.md", left: 52 },
   { name: "docs/agents/zh-CN.md", left: 12 },
   { name: "README.md", left: 12 },
