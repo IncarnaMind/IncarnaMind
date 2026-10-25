@@ -70,6 +70,12 @@ async function moveTabTo(tabId: string, place: number): Promise<void> {
   });
 }
 
+/** The tab next to this one in the same run of pinned or unpinned tabs: none across that line. */
+export function neighbourInRun(tabs: LayoutTab[], tab: LayoutTab, step: -1 | 1): LayoutTab | null {
+  const neighbour = tabs[tabs.indexOf(tab) + step];
+  return neighbour && neighbour.pinned === tab.pinned ? neighbour : null;
+}
+
 /**
  * Moves a tab one place earlier or later among its group's tabs, only among those pinned as it
  * is, shows it and offers Undo.
@@ -81,8 +87,8 @@ export async function moveWithinGroup(tabId: string, step: -1 | 1): Promise<Undo
   if (!at || !tab) return;
   const tabs = at.group.tabs;
   const place = tabs.indexOf(tab);
-  const neighbour = tabs[place + step];
-  if (!neighbour || neighbour.pinned !== tab.pinned) return;
+  const neighbour = neighbourInRun(tabs, tab, step);
+  if (!neighbour) return;
   const before = step === -1 ? neighbour.id : (tabs[place + 2]?.id ?? null);
   const next = await store.changeLayout({ type: "move", tabId, groupId: at.group.id, before });
   if (!next) return;
@@ -120,4 +126,22 @@ export function cycleTabs(step: 1 | -1): void {
   const index = group.tabs.findIndex((tab) => tab.id === group.activeTabId);
   const next = group.tabs[(index + step + group.tabs.length) % group.tabs.length];
   if (next) void store.changeLayout({ type: "show", tabId: next.id });
+}
+
+/**
+ * The focused group's tab at this place from 1, or its last for 9 (⌃1–⌃9); null where there is
+ * none. With the groups merged, their one strip holds every group's tabs, as the User sees them.
+ */
+export function tabByNumber(number: number): LayoutTab | null {
+  const { layout } = useAppStore.getState();
+  if (!layout) return null;
+  const tabs = groupsMerged()
+    ? layout.groups.flatMap((group) => group.tabs)
+    : focusedGroupOf(layout).tabs;
+  return (number === 9 ? tabs.at(-1) : tabs[number - 1]) ?? null;
+}
+
+export async function showTabByNumber(number: number): Promise<void> {
+  const tab = tabByNumber(number);
+  if (tab) await useAppStore.getState().changeLayout({ type: "show", tabId: tab.id });
 }

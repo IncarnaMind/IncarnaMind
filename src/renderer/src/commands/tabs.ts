@@ -5,7 +5,10 @@ import {
   focusGroup,
   moveToGroup,
   moveWithinGroup,
+  neighbourInRun,
+  showTabByNumber,
   splitToTheRight,
+  tabByNumber,
 } from "../components/tabs/tabActions";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../layoutSlice";
 import { useAppStore } from "../store";
@@ -42,13 +45,6 @@ function targetOf(ctx: CommandContext): Target | null {
 
 const groupCount = () => useAppStore.getState().layout?.groups.length ?? 0;
 
-/** The tab next to this one in the same run of pinned or unpinned tabs: none across that line. */
-function neighbourOf(target: Target, step: -1 | 1): LayoutTab | null {
-  const tabs = target.group.tabs;
-  const neighbour = tabs[tabs.findIndex((tab) => tab.id === target.tab.id) + step];
-  return neighbour && neighbour.pinned === target.tab.pinned ? neighbour : null;
-}
-
 /** Whether a tab moves right into a group that is there, rather than into a new one. */
 const groupOnTheRight = (target: Target | null) =>
   target !== null && target.index < groupCount() - 1;
@@ -73,6 +69,23 @@ const focusGroupCommands = [1, 2, 3].map(
     group: "open",
     reversible: true,
     run: () => focusGroup(number),
+  }),
+);
+
+/**
+ * ⌃1–⌃8 show a tab of the focused group by its place, ⌃9 its last, as in VS Code: Alt on Windows
+ * and Linux, where Ctrl+1–3 go to a group.
+ */
+const showTabCommands = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(
+  (number): Command => ({
+    id: number === 9 ? "tab.showLast" : `tab.show${number}`,
+    label:
+      number === 9 ? "command.tab.showLast" : (_ctx, t) => t("command.tab.show", { n: number }),
+    shortcut: { keys: { mac: `Ctrl+${number}`, other: `Alt+${number}` } },
+    group: "open",
+    reversible: true,
+    when: () => tabByNumber(number) !== null,
+    run: () => showTabByNumber(number),
   }),
 );
 
@@ -123,6 +136,7 @@ export const tabCommands: readonly Command[] = [
     reversible: true,
     run: () => cycleTabs(-1),
   },
+  ...showTabCommands,
   ...focusGroupCommands,
   {
     id: "tab.keep",
@@ -155,7 +169,7 @@ export const tabCommands: readonly Command[] = [
     reversible: true,
     when: (ctx) => {
       const target = targetOf(ctx);
-      return target !== null && neighbourOf(target, -1) !== null;
+      return target !== null && neighbourInRun(target.group.tabs, target.tab, -1) !== null;
     },
     run: onTarget(({ tab }) => moveWithinGroup(tab.id, -1)),
   },
@@ -167,7 +181,7 @@ export const tabCommands: readonly Command[] = [
     reversible: true,
     when: (ctx) => {
       const target = targetOf(ctx);
-      return target !== null && neighbourOf(target, 1) !== null;
+      return target !== null && neighbourInRun(target.group.tabs, target.tab, 1) !== null;
     },
     run: onTarget(({ tab }) => moveWithinGroup(tab.id, 1)),
   },

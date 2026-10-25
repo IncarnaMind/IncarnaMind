@@ -561,6 +561,10 @@ test("a tab moves a place earlier or later in its group from its menu, its keys 
   await expect(window.getByTestId("undo-message")).toHaveText("Moved “Beta” right");
   await window.keyboard.press("ControlOrMeta+z");
   await expect(titlesIn(first)).toHaveText(titles);
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta", "Epsilon"]);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(first)).toHaveText(titles);
 
   // The first tab has no Move Left, the last no Move Right.
   const alpha = await openTabMenu(window, tabNamed(window, "Alpha"));

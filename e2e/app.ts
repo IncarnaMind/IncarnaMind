@@ -2121,6 +2121,13 @@ export async function nameMind(window: Page, name: string): Promise<void> {
   await expect(frontMindName(window)).toHaveText(name);
 }
 
+/** Hides or shows the sidebar with its button, as a person does: in the sidebar's header or the tab strip. */
+export async function setSidebarShown(window: Page, shown: boolean): Promise<void> {
+  const toggle = window.getByTestId("sidebar-toggle");
+  await pointAndClick(window, toggle);
+  await expect(toggle).toHaveAttribute("aria-expanded", shown ? "true" : "false");
+}
+
 /** Moves the cursor to the start of the text as the system does: ⌘↑ on macOS, where ⌘Home doesn't. */
 export const pressTextStart = (window: Page) =>
   window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");

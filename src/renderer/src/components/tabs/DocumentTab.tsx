@@ -75,6 +75,7 @@ function useKeepOnReading(section: HTMLElement | null, tabId: string, preview: b
       intent = Date.now();
     };
     const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (SCROLL_KEYS.includes(event.key)) moves();
     };
     // A press on a scrollbar (a scroller's edge), not on a button that moves the page.
@@ -151,8 +152,9 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
       document,
       preview,
       keep: () => void useAppStore.getState().changeLayout({ type: "keep", tabId }),
+      target,
     }),
-    [document, preview, tabId],
+    [document, preview, tabId, target],
   );
   const fileKey = useFileKey(document);
   const places = usePlaceMemory(target);
