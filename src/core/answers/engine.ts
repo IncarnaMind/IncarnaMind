@@ -476,6 +476,12 @@ export type AnswerEngineEvent =
    */
   | { type: "text-retracted"; length: number }
   /**
+   * The texts the model wrote beside `cite` or `calculate` alone, after a search, with no marker
+   * in them, that the Answer doesn't show, in the order written. Once, before "finished", when
+   * there is any.
+   */
+  | { type: "text-set-aside"; texts: string[] }
+  /**
    * A Tool call started, for its Tool-call card: any Tool but `cite` and `calculate`, or the
    * search the engine makes for a model without Tools. `tool` is its name at
    * its `provider` (a Connector's "create_issue"); `input`, what the card
@@ -1660,10 +1666,12 @@ async function* toolLoop(
   /** An earlier step wrote the Answer and recorded its Citations: text with markers after that is a second copy. */
   let answered = false;
   /**
-   * The last text written beside `cite` or `calculate` alone, with no marker
-   * in it, and taken back: the Answer, if the model never writes another.
+   * Texts written beside `cite` or `calculate` alone, with no marker in them,
+   * and taken back: the last is the Answer if the model never writes another,
+   * and a check whose reply has no verdict reads it from those written after
+   * a search.
    */
-  let unmarked = "";
+  let setAside: { text: string; searched: boolean }[] = [];
   /** The Tool of each call, by its id. */
   const calls = new Map<string, Tool>();
   /** Searches running now: the Answer is "searching" while there are any. */
@@ -1850,7 +1858,7 @@ async function* toolLoop(
           if (shown > 0) yield { type: "text-retracted", length: shown };
           released = Math.min(released, keptText.length);
           if (recorded && !stepTools.some((each) => !recording(each)) && !again)
-            unmarked = stepText;
+            setAside.push({ text: stepText, searched });
         } else {
           keptText += stepText;
           if (recorded && MARKER.test(stepText)) answered = true;
@@ -1888,7 +1896,8 @@ async function* toolLoop(
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        if (keptText.trim() === "" && unmarked.trim() !== "") keptText = unmarked;
+        if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
+          keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
           const records = parseRecords(taken.records).filter(
@@ -1911,10 +1920,12 @@ async function* toolLoop(
           keptText = "";
           stepText = "";
           answered = false;
-          unmarked = "";
+          setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
           break;
         }
+        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
+        if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
         if (taken.text !== keptText) {
           yield* textEdits(keptText.slice(0, released), taken.text);
           keptText = taken.text;
