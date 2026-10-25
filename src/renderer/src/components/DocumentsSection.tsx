@@ -2,6 +2,7 @@ import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, us
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
+import { useDocumentPlace } from "../documentPlaces";
 import { documentStatusText, isProcessing } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useFirstOpen } from "../firstOpen";
@@ -25,6 +26,7 @@ import { isMoveToKey, moveThroughRows, TREE_ROW, useTreeItem } from "../treeKeys
 import { useRename } from "../useRename";
 import { useTreeKeyboard } from "../useTreeKeyboard";
 import { DocumentTagMenu } from "./DocumentTags";
+import { ExampleRow } from "./ExampleRow";
 import { InlineName } from "./InlineName";
 import { LibraryFolders } from "./LibraryFolders";
 import { LinkedFolderRows } from "./LinkedFolderRows";
@@ -87,9 +89,36 @@ export function DocumentsSection() {
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
   );
   const quiet = firstOpen && !hasOwnDocuments;
+  // The example folds to one row once the User has a Document of their own (#1944), and only while
+  // its Mind is there for that row to open: its Documents and folder stay reachable without one.
+  const exampleMindId = useAppStore((state) => {
+    const id = state.examples?.mindId;
+    return id !== null && id !== undefined && state.minds.some((each) => each.id === id)
+      ? id
+      : null;
+  });
+  const exampleFolders = useAppStore((state) =>
+    allExamples(state)
+      .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
+      .join(" "),
+  );
+  const foldExamples = hasOwnDocuments && exampleMindId !== null;
+  const folded = useMemo(
+    () => (foldExamples ? new Set(exampleFolders.split(" ").filter(Boolean)) : new Set<string>()),
+    [foldExamples, exampleFolders],
+  );
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
   const documents = useAppStore((state) => state.documents);
-  const hasLinkedFolders = useAppStore((state) => state.linkedFolders.length > 0);
+  const shownDocuments = useMemo(
+    () =>
+      folded.size === 0
+        ? documents
+        : documents.filter((each) => !folded.has(each.linkedFolderId ?? "")),
+    [documents, folded],
+  );
+  const hasLinkedFolders = useAppStore((state) =>
+    state.linkedFolders.some((each) => !folded.has(each.id)),
+  );
   const addDocuments = useAppStore((state) => state.addDocuments);
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
@@ -194,16 +223,18 @@ export function DocumentsSection() {
       )}
       <div ref={tree} data-testid="sidebar-sections" {...treeKeys}>
         <LibraryFolders
-          documents={quiet ? NO_DOCUMENTS : documents}
+          documents={quiet ? NO_DOCUMENTS : shownDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
+          hideExamples={foldExamples}
         />
         {!quiet && hasLinkedFolders && (
           <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
-            <LinkedFolderRows />
+            <LinkedFolderRows hideExamples={foldExamples} />
           </SidebarSection>
         )}
         {!quiet && <SidebarTags />}
+        {foldExamples && exampleMindId && <ExampleRow mindId={exampleMindId} />}
       </div>
       <LinkFolderDialog />
       <TagNamesTip />
@@ -236,6 +267,7 @@ const DocumentRow = memo(function DocumentRow({
   const rename = useRename<HTMLButtonElement>(`sidebar-document:${item.id}`);
   const renameDocument = useAppStore((state) => state.renameDocument);
   const shownName = displayName(item);
+  const place = useDocumentPlace(item.id);
   const source = sourceOf(item);
   const chips = chipsOf(item.tags, tagsById);
   const tagNames =
@@ -302,7 +334,7 @@ const DocumentRow = memo(function DocumentRow({
           data-testid="open-document"
           aria-current={isOpen ? "true" : undefined}
           aria-description={tagNames}
-          title={[shownName === source ? shownName : `${shownName}\n${source}`, tagNames]
+          title={[shownName === source ? shownName : `${shownName}\n${source}`, place, tagNames]
             .filter(Boolean)
             .join("\n")}
           // A click opens it, in a preview beside the Mind or in the group already showing a Document;
@@ -319,8 +351,15 @@ const DocumentRow = memo(function DocumentRow({
           <DocumentLineIcon kind={item.kind} className={rowIconClass(lit)} />
           {/* Takes what the status leaves; in it, the name gives way before the colours. */}
           <span className="flex min-w-0 flex-1 items-center gap-2">
-            <span data-testid="row-text" className="min-w-0 truncate">
-              {shownName}
+            <span className="flex min-w-0 items-center gap-2">
+              <span data-testid="row-text" className="max-w-full shrink-0 truncate">
+                {shownName}
+              </span>
+              {place && (
+                <span data-testid="row-place" className="min-w-0 truncate text-ink-meta">
+                  {place}
+                </span>
+              )}
             </span>
             <NotCitedLabel item={item} />
             <TagMarks

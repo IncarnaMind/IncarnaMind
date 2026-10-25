@@ -34,6 +34,10 @@
  * "Retell the summary" (重述总结) gives edit_mind the whole new text of the summary page, three
  * paragraphs for the two, as a model does to make it longer (#1335).
  * "Say you added the risks" (说你加了风险部分) claims a write and makes none.
+ * "Write the tide report" (写一份潮汐报告) makes a report of eight paragraphs, and "Make the tide
+ * report longer" (把潮汐报告写长一点) gives edit_mind its whole new text, four paragraphs changed and
+ * one added, as a model does (#1488). "Write the packing list" makes a bulleted list, and "Update
+ * the packing list" gives its new text, one item changed, one left out and one added.
  */
 
 import { answerReply, CITED_ANSWER } from "./answers";
@@ -103,8 +107,10 @@ const RETOLD = [
   "Both follow the Moon's cycle.",
 ].join("\n\n");
 const REVENUE_CHART = /\bchart of revenue by quarter\b|各季度收入的(?:柱状图|折线图)/i;
-const QUARTER_REVENUE = /Revenue in (Q\d) was (€\d+ million)/g;
+const QUARTER_REVENUE = /Revenue in (Q\d+) was (€\d+ million)/g;
 const RENT_CHART = /\bchart of rent by lease\b/i;
+/** A table whose every cell is a claim, for the one check count (#1909). */
+const CHECK_TABLE = /\brevenue table for checking\b|核对用的收入表格/iu;
 const UNIT_RENT = /The monthly rent for (unit \d+) is (€[\d,]+)/g;
 const LEASES_SUMMARY = /\bwrite a summary of my leases\b|根据我的租约写一份总结/i;
 const BRIEF_SUMMARY = /\bbrief summary\b|简要总结/i;
@@ -115,6 +121,64 @@ const SUMMARY = [
   "Spring tides come at new and full moon, when the Sun and the Moon pull together.",
   "Neap tides come in between, at the quarter moons.",
 ].join("\n\n");
+
+const TIDE_REPORT = /\bthe tide report\b|潮汐报告/i;
+const report = (title: string, paragraphs: readonly string[]) =>
+  [`## ${title}`, ...paragraphs].join("\n\n");
+const REPORT = {
+  en: {
+    title: "Tide report",
+    written: [
+      "Spring tides come at new and full moon.",
+      "Neap tides come at the quarter moons.",
+      "The harbour office posts the times each week.",
+      "Boats rest on the mud at low water.",
+      "Gulls wheel over the quay at dawn.",
+      "The ferry runs twice a day in summer.",
+      "Storms can raise the water by a metre.",
+      "The lifeboat station opens on Sundays.",
+    ],
+    longer: [
+      "Spring tides come at new and full moon, when the Sun and the Moon pull together.",
+      "Twice a month, between the big tides, the range is smallest and the water barely turns.",
+      "The harbour office posts the times each week.",
+      "Boats rest on the soft mud at low water.",
+      "Gulls wheel over the quay at dawn.",
+      "Fishing boats leave on the first of the ebb.",
+      "The ferry runs twice a day in summer.",
+      "Storms from the west can raise the water by a metre.",
+      "The lifeboat station opens on Sundays.",
+    ],
+  },
+  zh: {
+    title: "潮汐报告",
+    written: [
+      "大潮出现在新月和满月前后。",
+      "小潮出现在上弦月和下弦月。",
+      "港务处每周公布潮汐时间。",
+      "退潮时船只停在泥滩上。",
+      "黎明时海鸥在码头上空盘旋。",
+      "夏季渡轮每天往返两次。",
+      "风暴会让水位升高一米。",
+      "救生艇站周日开放。",
+    ],
+    longer: [
+      "大潮出现在新月和满月前后，这时太阳和月亮的引力叠加。",
+      "每月有两次潮差最小的日子，海水几乎不涨不落。",
+      "港务处每周公布潮汐时间。",
+      "退潮时船只停在松软的泥滩上。",
+      "黎明时海鸥在码头上空盘旋。",
+      "渔船在退潮开始时出海。",
+      "夏季渡轮每天往返两次。",
+      "西来的风暴会让水位升高一米。",
+      "救生艇站周日开放。",
+    ],
+  },
+};
+const PACKING_LIST = /\bthe packing list\b/i;
+const PACKING = "## Packing list\n\n- A warm coat\n- Tide tables for May\n- A flask of tea";
+const PACKING_UPDATED =
+  "## Packing list\n\n- A warm coat with a hood\n- Tide tables for May\n- Spare socks";
 
 /** The newcomer's first request (#1174): a short summary of "this agreement", written into the Mind in focus. */
 const SUMMARY_HERE = /\bwrite a short summary of this agreement\b|为这份协议写一份简短摘要/i;
@@ -194,6 +258,7 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   }
   if (REVENUE_CHART.test(question)) return revenueChart(prompt, question);
   if (RENT_CHART.test(question)) return tableChart(prompt, RENT);
+  if (CHECK_TABLE.test(question)) return checkTable(prompt, question);
   if (LEASES_SUMMARY.test(question)) {
     const made = lastResult(prompt, "create_mind") ?? lastResult(prompt, "add_to_mind");
     if (made !== undefined) return { text: firstSentence(made) };
@@ -236,6 +301,19 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     const added = lastResult(prompt, "add_to_mind");
     if (added === undefined) return { tool: "add_to_mind", input: { content: SUMMARY } };
     return { text: firstSentence(added) };
+  }
+  if (TIDE_REPORT.test(question) || PACKING_LIST.test(question)) {
+    const done = lastResult(prompt, "create_mind") ?? lastResult(prompt, "edit_mind");
+    if (done !== undefined) return { text: firstSentence(done) };
+    const { title, written, longer } = /\p{Script=Han}/u.test(question) ? REPORT.zh : REPORT.en;
+    if (PACKING_LIST.test(question)) {
+      return /^write\b/i.test(question)
+        ? { tool: "create_mind", input: { title: "Packing list", content: PACKING } }
+        : { tool: "edit_mind", input: { content: PACKING_UPDATED } };
+    }
+    return LONGER.test(question)
+      ? { tool: "edit_mind", input: { content: report(title, longer) } }
+      : { tool: "create_mind", input: { title, content: report(title, written) } };
   }
   if (RETELL.test(question)) {
     const result = lastResult(prompt, "edit_mind");
@@ -301,6 +379,48 @@ const RENT: ChartedFigures = {
   title: "Rent by lease",
   kind: "bar",
 };
+
+/** A table of the Document's revenue lines, each cell a claim that cites the line (#1909). */
+function checkTable(prompt: Prompt, question: string): Reply {
+  const added = lastResult(prompt, "add_to_mind");
+  if (added !== undefined) return { text: firstSentence(added) };
+  const [searched] = toolResults(prompt, "search_documents");
+  if (searched === undefined) {
+    return { tool: "search_documents", input: { query: "revenue by quarter" } };
+  }
+  const found = passagesIn(searched)
+    .flatMap((passage) =>
+      [...passage.text.matchAll(QUARTER_REVENUE)].map((match) => ({
+        passage: passage.id,
+        label: match[1] ?? "",
+        figure: match[2] ?? "",
+        quote: match[0],
+      })),
+    )
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  if (toolResults(prompt, "cite").length === 0) {
+    return {
+      tool: "cite",
+      input: {
+        citations: found.map((each, index) => ({
+          marker: index + 1,
+          passage: each.passage,
+          quote: each.quote,
+        })),
+      },
+    };
+  }
+  const chinese = /\p{Script=Han}/u.test(question);
+  const table = [
+    chinese ? "| 季度 | 收入 |" : "| Quarter | Revenue |",
+    "|---|---|",
+    ...found.map(
+      (each, index) =>
+        `| ${each.label} | Revenue in ${each.label} was ${each.figure} [^${index + 1}] |`,
+    ),
+  ].join("\n");
+  return { tool: "add_to_mind", input: { content: table } };
+}
 
 function revenueChart(prompt: Prompt, question: string): Reply {
   const chinese = /\p{Script=Han}/u.test(question);

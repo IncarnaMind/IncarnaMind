@@ -53,7 +53,7 @@ export interface CorpusEntry {
   originalSha256?: string;
   sha256: string;
   features: Features;
-  /** Why the file is known not to pass a check, when it is. */
+  /** Why the input package is known not to pass inspection, when it is. */
   known?: string;
 }
 
@@ -72,7 +72,7 @@ export interface ExtendedEntry {
   language: CorpusEntry["language"];
   domain: CorpusEntry["domain"];
   features: Features;
-  /** Why the file is known not to pass a check, when it is. */
+  /** Why the input package is known not to pass inspection, when it is. */
   known?: string;
 }
 
@@ -87,6 +87,23 @@ export function readExtended(): ExtendedEntry[] {
 /** Where `npm run eval:word:fetch` puts the extended set. */
 export function extendedCache(): string {
   return process.env.INCARNAMIND_WORD_CACHE ?? join(evalCache(), "word-extended");
+}
+
+export interface CorpusOutcome {
+  ok: boolean;
+  detail: string;
+  inspectionProblem?: true;
+}
+
+export function corpusFailure(
+  subject: { name: string; known?: string },
+  step: string,
+  outcome: Pick<CorpusOutcome, "detail" | "inspectionProblem">,
+): { known?: string; failure?: string } {
+  const line = `${subject.name}: ${step}: ${outcome.detail}`;
+  return step === "package" && outcome.inspectionProblem && subject.known
+    ? { known: `  (known: ${subject.known}) ${line}` }
+    : { failure: line };
 }
 
 export interface PackageReport {
@@ -171,4 +188,22 @@ export async function inspectPackage(bytes: Uint8Array): Promise<PackageReport> 
     }
   }
   return { features: countFeatures(parts, names), problems };
+}
+
+function driftIn(listed: Features, found: Features): string | undefined {
+  const keys = Object.keys(found) as (keyof Features)[];
+  const wrong = keys.filter((key) => JSON.stringify(listed[key]) !== JSON.stringify(found[key]));
+  return wrong.length > 0 ? wrong.join(", ") : undefined;
+}
+
+export async function checkInputPackage(
+  bytes: Uint8Array,
+  listed: Features,
+): Promise<CorpusOutcome> {
+  const { features, problems } = await inspectPackage(bytes);
+  const drift = driftIn(listed, features);
+  if (drift) return { ok: false, detail: `its listed features are out of date: ${drift}` };
+  return problems.length > 0
+    ? { ok: false, detail: problems.slice(0, 3).join("; "), inspectionProblem: true }
+    : { ok: true, detail: "" };
 }

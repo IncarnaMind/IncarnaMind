@@ -62,6 +62,8 @@ describe("the right-click", () => {
   const KNOWN: Record<string, string> = {
     "src/renderer/src/editor/tableCommands.ts":
       "a table's right-click opens the Block's menu from the note's own listener (#608)",
+    "src/renderer/src/editor/numbering.ts":
+      "a list item's right-click opens its menu from the note's own listener, as a table's does (#1419)",
   };
 
   const handlers = (files: readonly Source[]) =>

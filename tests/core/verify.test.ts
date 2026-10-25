@@ -2,7 +2,7 @@
  * Verify (#97): a PDF someone else wrote becomes a Mind of its text, its
  * claims are found, and each is checked against the User's Documents, the
  * PDF and its copies never evidence, with marks that go "needs re-check" as
- * Find support's do (#96).
+ * Check against Documents' do (#96).
  */
 import { copyFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -313,7 +313,7 @@ describe("Verify a document", () => {
     expect(calls).toEqual([]);
   });
 
-  test("results go “needs re-check” as Find support's do: an edited claim", async () => {
+  test("results go “needs re-check” as Check against Documents' do: an edited claim", async () => {
     const { core, report } = await setUp();
     const { mind, client } = await verified(core, report);
     await core.findClaims(request(mind.id));
