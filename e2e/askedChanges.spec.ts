@@ -500,6 +500,9 @@ test("a summary written with no Citation after a search is refused once, and wri
     await expect(line).toHaveText("“Lease summary”中写入的内容没有引用，未与文档核对 · 重试");
     await screenshot(window, "uncited-write-zh");
     await setLanguage(window, "en");
+    await setWindowSize(app, window, 900, 760);
+    await expect(line.getByTestId("answer-uncited-retry")).toBeInViewport();
+    await screenshot(window, "uncited-write-narrow");
 
     await pointAndClick(window, line.getByTestId("answer-uncited-retry"));
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
