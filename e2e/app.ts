@@ -1460,6 +1460,9 @@ export function setLanguage(window: Page, language: "en" | "zh-CN"): Promise<unk
   );
 }
 
+/** The scale a copy's transform says, 1 with none. */
+export const scaleOf = (transform: string) => Number(/^matrix\(([^,]+),/.exec(transform)?.[1] ?? 1);
+
 /** How many animations are running (src/renderer/src/motion.ts), leaving copies included. */
 export function motionRunning(window: Page): Promise<number> {
   return window.evaluate(
