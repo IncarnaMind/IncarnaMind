@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, test } from "vitest";
 import type { Language } from "../../src/core/language";
 import { saidInLine } from "../../src/renderer/src/lineNames";
 import {
+  makeInTurn,
   nextToRedo,
   nextToUndo,
   type Undoable,
   UndoRefused,
+  undoReady,
   useUndo,
 } from "../../src/renderer/src/undo";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
@@ -39,7 +41,7 @@ const noWords = (key: MessageKey) => key;
 const names = (changes: readonly Undoable[]) => changes.map((each) => each.name?.(noWords));
 
 beforeEach(() => {
-  useUndo.setState({ done: [], undone: [], line: null, running: null });
+  useUndo.setState({ done: [], undone: [], line: null, running: null, making: 0 });
 });
 
 describe("the undo stack", () => {
@@ -125,6 +127,31 @@ describe("the undo stack", () => {
     expect(log).toEqual(["undo Slow", "redo Slow"]);
     expect(nextToUndo(useUndo.getState())).toBe(slow);
     expect(useUndo.getState().running).toBeNull();
+  });
+
+  // protects=⌘Z pressed while the first change is still being made is offered, waits for it and takes it, never an older change (#1886); fails_when=an empty stack disables ⌘Z while a change is queued, or the undo runs before the change lands; no_claim=the keymap's own binding.
+  test("a ⌘Z pressed while a change is still being made is offered, and waits for it", async () => {
+    const log: string[] = [];
+    const moved = change("Move", log);
+    let land: () => void = () => undefined;
+    const held = new Promise<Undoable>((resolve) => {
+      land = () => resolve(moved);
+    });
+    const making = makeInTurn(() => held);
+    try {
+      // Nothing on the stack yet, but ⌘Z has something coming.
+      expect(undoReady(useUndo.getState())).toBe(true);
+      const back = undo();
+      land();
+      // As the command registry does once what a command made lands.
+      push(await making);
+      await back;
+    } finally {
+      land();
+    }
+    expect(log).toEqual(["undo Move"]);
+    expect(names(useUndo.getState().undone)).toEqual(["Move"]);
+    expect(undoReady(useUndo.getState())).toBe(false);
   });
 
   test("a new change ends what can be redone", async () => {
