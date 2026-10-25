@@ -1,4 +1,5 @@
 import { type RefObject, useContext, useLayoutEffect, useRef } from "react";
+import { visibleGroupsOf } from "../layoutSlice";
 import { useFade } from "../motion";
 import { useAppStore } from "../store";
 import { type UndoLineState, useUndo } from "../undo";
@@ -10,6 +11,7 @@ import {
   useUndoPillBand,
 } from "../undoPill";
 import { useHeld } from "../useHeld";
+import { useGroupsMerged } from "../useWindowWidth";
 import { SidebarControlContext } from "./SidebarToggle";
 import { UndoLineBody } from "./UndoLine";
 
@@ -21,8 +23,11 @@ export function UndoPill() {
   const sidebar = useContext(SidebarControlContext);
   const line = useUndo((state) => state.line);
   const place = useRef<HTMLDivElement>(null);
-  // The pill is at the card's left, over the first group: its page is the one it must clear.
-  const tabId = useAppStore((state) => state.layout?.groups[0]?.activeTabId ?? null);
+  const merged = useGroupsMerged();
+  // The leftmost group on screen (the focused one, merged) is the page the pill must clear.
+  const tabId = useAppStore((state) =>
+    state.layout ? (visibleGroupsOf(state.layout, merged)[0]?.activeTabId ?? null) : null,
+  );
   const shown = showsUndoPill(sidebar) && line !== null && !line.change?.shownAt;
   usePillBand(place, shown, shown && line ? line.id : null, tabId);
   if (!showsUndoPill(sidebar)) return null;

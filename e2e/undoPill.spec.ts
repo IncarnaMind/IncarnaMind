@@ -404,6 +404,48 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+test("with groups merged, the band follows the page the focus moves to, not the first group's", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1600, 900);
+    await newMind(window);
+    await nameMind(window, "Tides");
+    await fillPage(window, WORDS.en.page);
+    await setSidebarShown(window, false);
+    // A copy of the Mind in a second group, which the split focuses.
+    await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+    await expect(window.getByTestId("tab-group")).toHaveCount(2);
+    // Narrowed, the groups merge: one strip, and only the focused group's page is drawn.
+    await setWindowSize(app, window, 900, 700);
+    await motionSettled(window);
+    await expect(window.getByTestId("tab-group")).toHaveCount(1);
+    await window.keyboard.press("ControlOrMeta+1");
+    const pill = window.getByTestId("undo-pill");
+    await window.clock.install();
+    await renameInTab(window, "Reef");
+    await expect(pill).toBeVisible();
+    const pillBox = await boxOf(pill);
+    /** How far the page in view ends above the pill's top: 0 or a pixel with the band, ~33 without. */
+    const abovePill = async () => {
+      const scroller = await boxOf(scrollerOf(window));
+      return Math.abs(scroller.y + scroller.height - pillBox.y);
+    };
+    await expect.poll(abovePill).toBeLessThanOrEqual(1);
+    // The merged strip lists both groups' tabs: the second moves the focus to a non-first group.
+    const tabs = window.getByTestId("mind-tab");
+    await expect(tabs).toHaveCount(2);
+    await tabs.nth(1).click();
+    await expect.poll(abovePill).toBeLessThanOrEqual(1);
+    // Back to the first group: its page is measured again, never the band left on the other.
+    await window.keyboard.press("ControlOrMeta+1");
+    await expect.poll(abovePill).toBeLessThanOrEqual(1);
+  } finally {
+    await app.close();
+  }
+});
+
 test("the pill stays clear of the assistant's composer docked on the left", async () => {
   test.setTimeout(180_000);
   const { app, window } = await launchApp(dataDir);
