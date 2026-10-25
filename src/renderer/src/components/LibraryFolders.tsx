@@ -8,6 +8,7 @@ import { useFolderContents } from "../folderContents";
 import { folderTarget, useDraggedOutOfFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
+import { formatCount } from "../linkedFolders";
 import { useRequests } from "../requests";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
@@ -324,10 +325,22 @@ function FolderGroup({
     return first ? nameNewFolder(folder.id, name) : renameFolder(folder.id, name);
   });
   const t = useT();
+  const language = useLanguage();
   const objectMenu = useObjectMenu(object);
   const treeItem = useTreeItem({ depth: 0, expanded, selected: lit });
   const fold = foldKeys(expanded, toggle);
   const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
+  const assignments = useAppStore((state) => state.library?.assignments);
+  // How many of the Folder's Documents are only suggested: they count here until the User accepts them.
+  const suggested = useMemo(() => {
+    if (!assignments) return 0;
+    const waiting = new Set(
+      assignments.flatMap((item) =>
+        item.suggested && item.groupId === folder.id ? [item.documentId] : [],
+      ),
+    );
+    return documents.reduce((count, doc) => count + (waiting.has(doc.id) ? 1 : 0), 0);
+  }, [assignments, documents, folder.id]);
 
   return (
     <li
@@ -385,9 +398,11 @@ function FolderGroup({
             </span>
             <span
               data-testid="browse-count"
-              className="text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
+              className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
             >
               {minds.length + documents.length}
+              {suggested > 0 &&
+                ` · ${t("sidebar.folder.suggested", { count: formatCount(suggested, language) })}`}
             </span>
             <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
           </button>

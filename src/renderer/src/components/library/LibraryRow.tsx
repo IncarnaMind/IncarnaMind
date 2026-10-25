@@ -311,9 +311,9 @@ export const LibraryRow = memo(function LibraryRow({
                   <span
                     data-testid="library-not-sorted"
                     title={t("library.notSorted.title", { reason: notSorted })}
-                    className="shrink-0 text-label font-semibold text-ink-meta"
+                    className="min-w-0 max-w-60 shrink truncate text-label font-semibold text-ink-meta"
                   >
-                    {t("library.notSorted")}
+                    {t("library.notSorted.reason", { reason: notSorted })}
                   </span>
                 )}
                 {suggestedIn !== null && !review && (
