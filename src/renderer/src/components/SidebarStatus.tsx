@@ -826,8 +826,7 @@ function useStatuses(): Status[] {
   }
 
   if (counts.waitingForPlan > 0) {
-    const planTo =
-      planService.route.where === "cloud" ? planService.route.service : null;
+    const planTo = planService.route.where === "cloud" ? planService.route.service : null;
     const line = planLimitLine(planTo, counts.planResetsAt, t, language);
     statuses.push({
       testId: "tagging-paused",
