@@ -1274,7 +1274,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     updateGettingStarted(patch) {
       const { settings } = get();
       const current = settings?.device.gettingStarted;
-      if (!settings || !current?.started) return;
+      if (!settings || !current || (!current.started && patch.askedOwn !== true)) return;
       const next = { ...current, ...patch };
       if (
         Object.entries(next).every(([key, value]) => current[key as keyof GettingStarted] === value)
@@ -1283,7 +1283,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       }
       // At once, so ticks made together don't undo each other; the core's event confirms it.
       set({ settings: { ...settings, device: { ...settings.device, gettingStarted: next } } });
-      core.updateSettings({ device: { gettingStarted: next } }).catch(() => undefined);
+      core.updateSettings({ device: { gettingStarted: next } }).catch(get().reportError);
     },
 
     openMind(id, options) {

@@ -139,14 +139,14 @@ test("by the keyboard: Tab reaches New Mind, which an empty Mind in front doesn'
     .locator('[data-key="command:assistant.lastToNewMind"]');
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("New Mind from");
-  await expect(entry).toHaveText(/New Mind from the Answer/);
+  await window.keyboard.type("Write the Answer");
+  await expect(entry).toHaveText(/Write the Answer as a note/);
   await expect(entry).toHaveAttribute("aria-selected", "true");
   await window.keyboard.press("Enter");
   await expect(tabs).toHaveCount(4);
   await setLanguage(window, "zh-CN");
   await window.keyboard.press("ControlOrMeta+k");
-  await window.keyboard.type("新建 Mind");
-  await expect(entry).toHaveText(/用回答新建 Mind/);
+  await window.keyboard.type("把回答写成笔记");
+  await expect(entry).toHaveText(/把回答写成笔记/);
   await window.keyboard.press("Escape");
 });

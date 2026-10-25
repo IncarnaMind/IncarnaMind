@@ -17,6 +17,7 @@ import { core } from "./core";
 import { useT } from "./i18n";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
+import { closeTip } from "./tips";
 
 interface PickerState {
   /** The Mind whose style is being chosen, and what the picker opens beside; null: closed. */
@@ -140,6 +141,7 @@ export async function chooseCitationStyle(
     const previous = before ?? (await core.getMindCitationStyle(mindId));
     if (previous.chosen && previous.style === style) return true;
     await core.setMindCitationStyle(mindId, style);
+    closeTip("citation-style");
     useUndo.getState().push({
       said: (t) => t("citationStyle.changed", { style: styleLabel(style, t) }),
       undo: async () => {

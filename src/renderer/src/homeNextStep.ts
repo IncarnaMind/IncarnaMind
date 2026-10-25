@@ -27,10 +27,15 @@ export type HomeNextStep =
   | { kind: "check" | "look" | "export"; note: HomeNote; count: number }
   | { kind: "exported"; note: HomeNote; saved: HomeSavedWord };
 
+export const isExampleAnswer = (
+  answer: Pick<ConversationAnswer, "id" | "steps">,
+  examples: ReadonlySet<string>,
+): boolean => answer.steps?.example === true || examples.has(answer.id);
+
 export const ownAnswer = (
   answer: Pick<ConversationAnswer, "id" | "status" | "steps">,
   examples: ReadonlySet<string>,
-): boolean => answer.status === "done" && !answer.steps?.example && !examples.has(answer.id);
+): boolean => answer.status === "done" && !isExampleAnswer(answer, examples);
 
 export function chooseHomeNextStep({
   hasDocuments,

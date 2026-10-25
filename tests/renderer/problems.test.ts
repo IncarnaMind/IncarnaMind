@@ -271,7 +271,7 @@ describe("a failed Answer's problem line", () => {
       "Choose another model",
     ]);
     expect(shown("out-of-credit", "en")).toEqual([
-      "Anthropic says the credit balance is too low",
+      "No credit on this key",
       "Choose another model",
     ]);
     expect(shown("region", "en")).toEqual([
@@ -286,7 +286,7 @@ describe("a failed Answer's problem line", () => {
     expect(shown("rate-limit", "zh-CN")).toEqual(["Anthropic 暂时限制了请求", "重试"]);
     expect(shown("auth", "zh-CN")).toEqual(["claude-haiku-5-5 的密钥被拒绝了", "检查密钥"]);
     expect(shown("refused", "zh-CN")).toEqual(["Anthropic 拒绝了这个请求", "换一个模型"]);
-    expect(shown("out-of-credit", "zh-CN")).toEqual(["Anthropic 提示余额不足", "换一个模型"]);
+    expect(shown("out-of-credit", "zh-CN")).toEqual(["这个密钥没有额度", "换一个模型"]);
     expect(shown("region", "zh-CN")).toEqual([
       "Anthropic 不接受来自你所在地区的请求",
       "换一个模型",

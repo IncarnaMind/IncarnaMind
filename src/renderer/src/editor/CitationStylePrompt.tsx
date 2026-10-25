@@ -8,6 +8,8 @@ import { useCitesWorks } from "../citationFormatting";
 import { chooseCitationStyle, useCitationStylePicker } from "../citationStylePicker";
 import { CloseLineIcon } from "../components/lineIcons";
 import { useLanguage, useT } from "../i18n";
+import { useLaterPromptsAllowed } from "../laterPrompts";
+import { closeTip, restoreTip, useFeatureTip } from "../tips";
 import { useUndo } from "../undo";
 
 /** The prompt's short names: the styles a Chinese and an English academic would pick first. */
@@ -38,7 +40,9 @@ export function CitationStylePrompt({
   const t = useT();
   const language = useLanguage();
   const citesWorks = useCitesWorks(editor);
-  if (!citesWorks) return null;
+  const allowed = useLaterPromptsAllowed();
+  const shown = useFeatureTip("citation-style", mindId, citesWorks && allowed);
+  if (!shown) return null;
 
   const backToNote = () => {
     if (!editor.isDestroyed) editor.view.focus();
@@ -46,10 +50,11 @@ export function CitationStylePrompt({
   const settings = doc.getMap<unknown>(MIND_SETTINGS_FIELD);
   const dismiss = () => {
     doc.transact(() => dismissCitationStylePrompt(settings));
+    closeTip("citation-style");
     useUndo.getState().push({
       said: (t) => t("citationStyle.prompt.dismissed"),
-      undo: async () => doc.transact(() => dismissCitationStylePrompt(settings, false)),
-      redo: async () => doc.transact(() => dismissCitationStylePrompt(settings)),
+      undo: async () => { doc.transact(() => dismissCitationStylePrompt(settings, false)); restoreTip("citation-style", mindId); },
+      redo: async () => { doc.transact(() => dismissCitationStylePrompt(settings)); closeTip("citation-style"); },
     });
     backToNote();
   };

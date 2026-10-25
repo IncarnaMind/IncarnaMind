@@ -806,7 +806,7 @@ function MindEditorView({
         comparing &&
         !readOnly &&
         createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
-      {guide && <StartGuide />}
+      {guide && <StartGuide mindId={mindId} />}
       {!readOnly && <BlockHandle editor={editor} />}
       {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
       {!readOnly && <LinkBubble editor={editor} />}

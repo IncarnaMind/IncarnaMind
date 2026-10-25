@@ -419,6 +419,7 @@ export function HealthCard({
         problem.kind !== "find-failed" && (
           <ProblemLine
             testId="checks-problem"
+            title={problem.kind === "failed" ? errorMessage(problem.error, t) : undefined}
             className="mind-health-line"
             action={
               problem.kind === "failed" && problem.retry
@@ -437,7 +438,7 @@ export function HealthCard({
             {problem.kind === "only-cited"
               ? t("checks.problem.only-cited.folder", { folder: folderName ?? "" })
               : problem.kind === "failed"
-                ? t("checks.problem.failed", { message: errorMessage(problem.error, t) })
+                ? t("checks.problem.failed")
                 : t(`checks.problem.${problem.kind}`)}
           </ProblemLine>
         )}

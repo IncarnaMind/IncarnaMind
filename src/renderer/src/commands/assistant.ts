@@ -1,8 +1,10 @@
 import type { AssistantDock, ConversationAnswer } from "../../../core/api";
+import { billingUrlOf, catalogProviderOf } from "../../../core/providers/catalog/providers";
 import { answerBlocks, hasText } from "../../../shared/answerBlocks";
 import type { MessageKey } from "../../../shared/i18n";
 import { addAnswer } from "../addToNote";
 import { copyAnswer, notesToAdd } from "../answerEditors";
+import { useAnswers } from "../answers";
 import { shownDock } from "../assistantPlace";
 import { useComposer } from "../composer";
 import {
@@ -17,6 +19,7 @@ import {
 } from "../conversations";
 import { requestEditField } from "../editor/selectionCommands";
 import { startEditing } from "../editWithAi";
+import { useKeyRefusals } from "../keyRefusals";
 import { assistantTabOf, groupsMerged } from "../layoutSlice";
 import { useAppStore } from "../store";
 import { assistantHandle, noteHandle, viewerSelectionHandle } from "./handles";
@@ -106,6 +109,15 @@ const keepable = (answer: ConversationAnswer | undefined): answer is Conversatio
 
 const noAnswer = (): true | { reason: MessageKey } =>
   keepable(answerInFocus()) ? true : { reason: "assistant.lastToNewMind.unavailable" };
+
+function creditInFocus() {
+  const answer = answerInFocus();
+  if (answer?.status !== "failed" || answer.errorKind !== "out-of-credit") return null;
+  const provider = useAnswers.getState().models?.find((group) => group.provider.id === answer.model?.providerId)?.provider;
+  const catalog = provider && catalogProviderOf(provider.kind, provider.catalogId);
+  const url = catalog && billingUrlOf(catalog, provider.endpoint);
+  return url ? { answer, url } : null;
+}
 
 /**
  * ⌘⇧A: adds the Answer in focus, or the newest, to the Mind in focus, as its
@@ -260,6 +272,16 @@ export const assistantCommands: readonly Command[] = [
     when: isThere,
     enabled: noAnswer,
     run: lastToNewMind,
+  },
+  {
+    id: "answer.addCredit", label: "answer.error.addCredit", group: "main", reversible: true,
+    when: () => isThere() && creditInFocus() !== null,
+    run: () => { const credit = creditInFocus(); if (credit) useKeyRefusals.getState().openBilling(credit.answer.model?.providerId ?? null, credit.url); },
+  },
+  {
+    id: "answer.useAnotherKey", label: "answer.error.useAnotherKey", group: "main", reversible: true,
+    when: () => isThere() && answerInFocus()?.errorKind === "out-of-credit",
+    run: () => { const answer = answerInFocus(); if (answer) return useKeyRefusals.getState().check(answer.model?.providerId ?? null, answer.model?.modelId ?? "", answer.updatedAt, "out-of-credit"); },
   },
   {
     id: "assistant.clear",

@@ -1345,4 +1345,15 @@ describe("Get started's Ask a question", () => {
     emit("answer.failed", { answerId: "again" } as CoreEvents["answer.failed"]);
     expect(asked()).toBe(true);
   });
+
+  test("the first own Answer is recorded even when this device has no first-run checklist", () => {
+    const state = useAppStore.getState();
+    const settings = state.settings;
+    if (!settings) throw new Error("Settings have not loaded.");
+    useAppStore.setState({ settings: { ...settings, device: { ...settings.device, gettingStarted: { ...settings.device.gettingStarted, started: false } } } });
+    finished("example", "done");
+    expect(asked()).toBe(false);
+    finished("own", "done");
+    expect(asked()).toBe(true);
+  });
 });

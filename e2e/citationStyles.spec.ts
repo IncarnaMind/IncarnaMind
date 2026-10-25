@@ -12,6 +12,7 @@ import {
   addToNote,
   askInAssistant,
   createDataFolder,
+  coreOf,
   dismissChatSetup,
   documentIdOf,
   exportFromMenu,
@@ -555,7 +556,8 @@ test("in Chinese, a Mind that takes GB/T 7714 by default says so once on the und
   }
 });
 
-test("a Mind citing files with no details isn't offered a style until one is a paper; closed, the offer stays closed there, with Undo; More… opens the picker", async () => {
+for (const release of ["a second own note", "an own export"] as const) {
+test(`a citation style prompt waits for a paper and ${release}; closing has Undo and More opens the picker`, async () => {
   await writeFile(join(sources, "Lease agreement.txt"), "Spring rent is due at the new moon.");
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -581,13 +583,25 @@ test("a Mind citing files with no details isn't offered a style until one is a p
   await expect(prompt).toHaveCount(0);
   await expect(window.getByTestId("references")).toHaveCount(0);
 
-  // Once its record says it is a paper, the offer shows at the Mind's end.
   await setRecord(window, lease, {
     type: "article-journal",
     title: "Rent and the Moon",
     authors: [{ family: "Oke", given: "T. R." }],
     issued: "1982",
   });
+  await expect(prompt).toHaveCount(0);
+  await (await coreOf(window)).evaluate(async (core) => {
+    const { exportOptions } = (await core.getSettings()).user;
+    await core.updateSettings({ user: { exportOptions: { ...exportOptions, citationPlace: "footnotes" } } });
+  });
+  await expect(prompt).toHaveCount(0);
+  if (release === "a second own note") {
+    await (await coreOf(window)).evaluate((core) => core.createMind({ title: "Second note" }));
+  } else {
+    await useOutputLocation(window, sources);
+    await exportFromMenu(window, "markdown");
+    await expect(window.getByTestId("export-done")).toBeVisible();
+  }
   await expect(prompt).toBeVisible();
 
   // Closed, it doesn't come back in this Mind; Undo brings it back.
@@ -607,6 +621,7 @@ test("a Mind citing files with no details isn't offered a style until one is a p
   await expect(answer.getByTestId("citation-chip")).toHaveText("(Oke, 1982, l. 1)");
   await app.close();
 });
+}
 
 test("the style chosen for a Mind in a Folder, from its menu, is the one a new Mind there starts in", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });

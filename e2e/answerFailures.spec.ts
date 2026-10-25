@@ -6,6 +6,8 @@ import {
   acceptPlainTextKeys,
   assistantAnswers,
   createDataFolder,
+  closeSettings,
+  runCommand,
   dismissChatSetup,
   interceptOpenExternal,
   launchApp,
@@ -135,23 +137,37 @@ test("an account out of credit, a refused key, a rate limit and no connection ea
   const noCredit = credit.getByTestId("answer-error");
   await expect(noCredit).toHaveAttribute("data-error-kind", "out-of-credit");
   const creditLine = noCredit.getByRole("alert");
-  await expect(creditLine).toContainText("OpenAI says the credit balance is too low");
-  await expect(creditLine.getByRole("button")).toHaveText("Add credit ↗");
+  const creditAction = noCredit.getByTestId("answer-error-action");
+  const changeKey = noCredit.getByTestId("answer-error-key");
+  await expect(changeKey).toHaveText("Use another key");
+  await expect(creditLine).toContainText("No credit on this key");
+  await expect(creditAction).toHaveText("Add credit ↗");
   await screenshot(noCredit, "out-of-credit-en");
   await setLanguage(window, "zh-CN");
-  await expect(creditLine).toContainText("OpenAI 提示余额不足");
-  await expect(creditLine.getByRole("button")).toHaveText("充值 ↗");
+  await expect(creditLine).toContainText("这个密钥没有额度");
+  await expect(creditAction).toHaveText("充值 ↗");
+  await expect(changeKey).toHaveText("换一个密钥");
   await screenshot(noCredit, "out-of-credit-zh");
-  await creditLine.getByRole("button").focus();
+  await creditAction.focus();
   await window.keyboard.press("Enter");
   await expect
     .poll(() => urlsOpened(app))
     .toEqual(["https://platform.openai.com/settings/organization/billing/overview"]);
   await setLanguage(window, "en");
   // Sent to add credit, the User's next step is asking again: still no credit, the page is offered again.
-  await expect(creditLine.getByRole("button")).toHaveText("Try again");
-  await pointAndClick(window, creditLine.getByRole("button"));
-  await expect(creditLine.getByRole("button")).toHaveText("Add credit ↗");
+  await expect(creditAction).toHaveText("Try again");
+  await pointAndClick(window, creditAction);
+  await expect(creditAction).toHaveText("Add credit ↗");
+
+  await runCommand(window, "answer.useAnotherKey", "Use another key");
+  const settings = window.getByTestId("settings");
+  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings.getByTestId("provider-page-title")).toHaveText("OpenAI");
+  await expect(settings.getByTestId("provider-page-key")).toBeFocused();
+  await expect(settings.getByTestId("provider-key-refused")).toHaveText("No credit on this key");
+  await closeSettings(window);
+  await runCommand(window, "answer.addCredit", "Add credit");
+  await expect.poll(() => urlsOpened(app)).toHaveLength(2);
 
   // A key the provider doesn't know: the fix is the key.
   const key = (await askFailing(window, "Is this the wrong key?")).getByTestId("answer-error");
@@ -181,7 +197,7 @@ test("an account out of credit, a refused key, a rate limit and no connection ea
   for (const failure of [noCredit, limit, offline]) {
     await failure.scrollIntoViewIfNeeded();
     const line = failure.getByRole("alert");
-    const button = line.getByRole("button");
+    const button = line.getByRole("button").first();
     await expect(button).toBeVisible();
     const [lineBox, buttonBox, size] = await Promise.all([
       line.boundingBox(),
