@@ -521,6 +521,10 @@ for (const language of ["en", "zh-CN"] as const) {
         sameBox(before.tree, await boxOf(tree));
         sameBox(before.footer, await boxOf(window.getByTestId("sidebar-footer")));
         sameBox(before.folder, await boxOf(folderRow));
+        await screenshot(
+          window,
+          cloud ? `after-${language}-${width}` : `after-${language}-${width}-local`,
+        );
 
         // Cut with an ellipsis before Stop, never after it.
         expect(await label.evaluate((element) => getComputedStyle(element).textOverflow)).toBe(
@@ -545,6 +549,11 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(tip).toBeVisible();
         await expect(tip).toHaveText(
           cloud ? LINES[language].cloudSends : LINES[language].localSends,
+        );
+        await motionSettled(window);
+        await screenshot(
+          window,
+          cloud ? `after-${language}-${width}-popover` : `after-${language}-${width}-local-popover`,
         );
         await window.mouse.move(600, 300);
         await expect(tip).toBeHidden();
