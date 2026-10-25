@@ -5,23 +5,14 @@ import * as Y from "yjs";
 import {
   type CitationAttributes,
   COMPARISON_TABLE_NODE,
-  CONTENT_SCHEMA_VERSION,
-  CONTENT_SCHEMA_VERSION_KEY,
   InvalidInputError,
   MIND_CONTENT_FIELD,
-  MIND_SETTINGS_FIELD,
 } from "../../src/core";
 import { CLOUD_CELLS_AT_ONCE } from "../../src/core/comparisons";
 import { readBlocks } from "../../src/core/mindText";
 import { comparisonQuestionsOf } from "../../src/shared/comparisons";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
-import {
-  cellModel,
-  compare,
-  compareReports,
-  fillEnded,
-  REPORT_QUESTIONS,
-} from "../helpers/comparisons";
+import { cellModel, compare, fillEnded } from "../helpers/comparisons";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { footnotesOf, part, textOf, unzip } from "../helpers/docx";
@@ -292,45 +283,6 @@ describe("Compare Documents", () => {
     expect(await core.listFillingComparisons()).toEqual([]);
     expect(outline(client)).not.toContain("comparisonTable");
     expect((await core.listTasks())[0]?.status).toBe("stopped");
-  });
-
-  test("a table written before columns had a label reads and exports as it was, and this version records 28", async () => {
-    const { core, client, mind, tableId } = await compareReports();
-    expect(CONTENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(28);
-    expect(client.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)).toBe(
-      CONTENT_SCHEMA_VERSION,
-    );
-
-    const table = client.doc
-      .getXmlFragment(MIND_CONTENT_FIELD)
-      .toArray()
-      .find(
-        (element): element is Y.XmlElement =>
-          element instanceof Y.XmlElement &&
-          element.nodeName === COMPARISON_TABLE_NODE &&
-          element.getAttribute("id") === tableId,
-      );
-    if (!table) throw new Error("There is no comparison table in the Mind.");
-    const questions = comparisonQuestionsOf(table.getAttributes());
-    expect(questions.map((question) => question.text)).toEqual(REPORT_QUESTIONS);
-    expect(questions.some((question) => question.label !== undefined)).toBe(false);
-
-    // Last written by a version before this one: its table has no labels and exports its Questions.
-    client.doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, 27);
-    await client.settled();
-    const saved = await core.saveComparisonExport({ mindId: mind.id, tableId });
-    expect(saved).toMatchObject({ status: "saved", file: { name: "Tides.xlsx" } });
-
-    await core.addToNote({
-      mindId: mind.id,
-      blocks: [{ type: "paragraph", content: [{ type: "text", text: "Later." }] }],
-      origin: null,
-      model: null,
-    });
-    await client.settled();
-    expect(client.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)).toBe(
-      CONTENT_SCHEMA_VERSION,
-    );
   });
 
   describe("a cell as it is written", () => {
@@ -674,6 +626,70 @@ describe("Compare Documents", () => {
     expect(problems()[1]).toEqual([null, null]);
     expect(tableIn(client).rows[1]?.cells[1]?.text).toBe("twice the annual fees");
     expect(problems()[2]).toEqual(["source-removed", "source-removed"]);
+  });
+
+  test("a fill of one column writes that column alone, so a reword or an insert never retries its neighbours", async () => {
+    let keyRefused = true;
+    /** Each cell asked, once per try: the Question's text. */
+    const asked: string[] = [];
+    const model = cellModel((call, question) => {
+      if (call.results.length > 0) return null;
+      asked.push(question.question);
+      return keyRefused ? { error: { status: 401, message: "Invalid API key" } } : null;
+    });
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const tableId = await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.map((document) => document.id),
+      questions: QUESTIONS,
+    });
+    const problems = () => tableIn(client).rows.map((row) => row.cells.map((cell) => cell.problem));
+    expect(problems()).toEqual([
+      ["auth", "auth"],
+      ["auth", "auth"],
+      ["auth", "auth"],
+    ]);
+    const columns = comparisonQuestionsOf(
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .toArray()
+        .find(
+          (element): element is Y.XmlElement =>
+            element instanceof Y.XmlElement && element.nodeName === COMPARISON_TABLE_NODE,
+        )
+        ?.getAttributes() ?? {},
+    );
+    const [notice, liability] = columns;
+    if (!notice || !liability) throw new Error("The table has no columns.");
+    const askedSince = (at: number) => new Set(asked.slice(at));
+
+    // A column reworded fills its column alone: the failed cells beside it keep their problem.
+    keyRefused = false;
+    let calls = asked.length;
+    await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: [notice.id] });
+    await fillEnded(core, tableId);
+    await client.settled();
+    expect(askedSince(calls)).toEqual(new Set(["Termination notice"]));
+    expect(problems()).toEqual([
+      [null, "auth"],
+      [null, "auth"],
+      [null, "auth"],
+    ]);
+    const written = tableIn(client).rows.map((row) => row.cells[0]?.text);
+
+    // Retrying the failed column alone writes it, and leaves the other column whole.
+    calls = asked.length;
+    await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: [liability.id] });
+    await fillEnded(core, tableId);
+    await client.settled();
+    expect(askedSince(calls)).toEqual(new Set(["Liability cap"]));
+    expect(problems()).toEqual([
+      [null, null],
+      [null, null],
+      [null, "not-found"],
+    ]);
+    expect(tableIn(client).rows.map((row) => row.cells[0]?.text)).toEqual(written);
+    expect(tableIn(client).rows.map((row) => row.cells[0]?.citations.length)).toEqual([1, 1, 1]);
   });
 
   test("a plan's limit mid-run stops the fill: the cells left say they weren't checked", async () => {

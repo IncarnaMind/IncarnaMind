@@ -153,7 +153,8 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
 
   const addQuestion = (text: string) => {
     setAdding(false);
-    if (addComparisonColumn(editor, tableId, text)) void fillComparisonTable(ref);
+    const id = addComparisonColumn(editor, tableId, text);
+    if (id) void fillComparisonTable({ ...ref, questionIds: [id] });
   };
 
   const canAdd = editable && questions.length < MAX_COMPARISON_QUESTIONS;

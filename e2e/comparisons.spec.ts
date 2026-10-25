@@ -953,11 +953,14 @@ test("a label alone refills nothing; F2 edits in place and Esc cancels; its undo
   const table = await filledSuppliersTable(window);
   const before = await answersIn(table);
 
-  await headingAt(table, 0).focus();
+  const heading = headingAt(table, 0);
+  await heading.focus();
   await window.keyboard.press("F2");
   await expect(window.getByTestId("comparison-edit-label")).toBeFocused();
   await window.keyboard.press("Escape");
   await expect(window.getByTestId("comparison-edit-label")).toHaveCount(0);
+  // Esc leaves the heading focused, so F2 or Delete act on the column again at once.
+  await expect(heading).toBeFocused();
 
   const fields = await editColumn(window, headingAt(table, 0));
   await fields.label.fill("Notice");
@@ -986,6 +989,9 @@ test("insert adds a column that fills alone, duplicate copies its Answers, and b
   const menu = heading.locator('[role="menu"]');
   await expect(menu).toBeVisible();
   await expect(menu.getByTestId("comparison.column.insertRight")).toContainText("Insert right");
+  // Its items show the heading's own keys, as every menu shows its row's.
+  await expect(menu.getByTestId("comparison.column.edit")).toContainText("F2");
+  await expect(menu.getByTestId("comparison.column.remove")).toContainText(/Delete|⌦/);
   await pointAndClick(window, menu.getByTestId("comparison.column.insertRight"));
   const field = window.getByTestId("comparison-insert-question");
   await expect(field).toBeFocused();

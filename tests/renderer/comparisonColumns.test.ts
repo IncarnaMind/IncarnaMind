@@ -1,8 +1,13 @@
 import { Editor, type JSONContent } from "@tiptap/core";
-import { describe, expect, onTestFinished, test } from "vitest";
+import { describe, expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
 import { type ComparisonProblem, MIND_CONTENT_FIELD } from "../../src/core";
 import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
+import {
+  duplicateColumn,
+  saveColumnEdit,
+  saveColumnInsert,
+} from "../../src/renderer/src/comparisonColumns";
 import {
   duplicateComparisonColumn,
   editComparisonColumn,
@@ -23,6 +28,26 @@ import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor } from "../helpers/editor";
 import { connectToMind } from "../helpers/mindClient";
+
+/** Each fill the window asked the core for, as the column commands ask it. */
+const fills = vi.hoisted(() => ({
+  calls: [] as { mindId: string; tableId: string; questionIds?: readonly string[] }[],
+}));
+
+vi.mock("../../src/renderer/src/core", () => ({
+  core: {
+    on: () => () => undefined,
+    fillComparisonTable: async (input: {
+      mindId: string;
+      tableId: string;
+      questionIds?: readonly string[];
+    }) => {
+      fills.calls.push(input);
+      return { started: true, tableId: input.tableId };
+    },
+  },
+  files: {},
+}));
 
 const paragraph = (text: string): NodeJSON => ({
   type: "paragraph",
@@ -313,5 +338,28 @@ describe("A comparison table's columns", () => {
         "Notice",
       );
     }
+  });
+
+  test("a reworded, added or duplicated column fills that column alone; a new label alone fills nothing", async () => {
+    fills.calls.length = 0;
+    const { editor } = await boundTable("network");
+    const handle = { editor, mindId: "mind-1", tableId: "table-1" };
+
+    duplicateColumn(handle, "q1");
+    expect(fills.calls.at(-1)).toMatchObject({ mindId: "mind-1", tableId: "table-1" });
+    expect(fills.calls.at(-1)?.questionIds).toEqual([questionsOf(editor)[1]?.id]);
+
+    saveColumnEdit(handle, "q1", { text: "Termination notice, in days?", label: "Notice" });
+    expect(fills.calls.at(-1)?.questionIds).toEqual([questionsOf(editor)[0]?.id]);
+    const [edited] = questionsOf(editor);
+    if (!edited) throw new Error("The column is gone.");
+
+    const count = fills.calls.length;
+    saveColumnEdit(handle, edited.id, { text: edited.text, label: "Terms" });
+    expect(fills.calls).toHaveLength(count);
+
+    saveColumnInsert(handle, edited.id, "right", "Governing law");
+    const inserted = questionsOf(editor).find((question) => question.text === "Governing law");
+    expect(fills.calls.at(-1)?.questionIds).toEqual([inserted?.id]);
   });
 });

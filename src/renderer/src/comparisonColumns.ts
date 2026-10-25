@@ -18,8 +18,12 @@ import { offerEditorUndo } from "./editor/editorUndo";
 export type { ComparisonColumnField, ComparisonColumnHandle } from "./comparisonColumnState";
 export { comparisonColumnHandles, useComparisonColumns } from "./comparisonColumnState";
 
-const fill = (handle: ComparisonColumnHandle) =>
-  void fillComparisonTable({ mindId: handle.mindId, tableId: handle.tableId });
+const fill = (handle: ComparisonColumnHandle, questionIds: readonly string[]) =>
+  void fillComparisonTable({
+    mindId: handle.mindId,
+    tableId: handle.tableId,
+    questionIds,
+  });
 
 /** The heading opens the label and Question in place. */
 export function startColumnEdit(handle: ComparisonColumnHandle, questionId: string): void {
@@ -57,7 +61,7 @@ export function saveColumnEdit(
   if (!done?.changed) return;
   offerEditorUndo(handle.editor, (t) => t("comparison.column.edited", { label: done.label }));
   useComparisonColumns.getState().focusColumn(handle.tableId, done.questionId);
-  if (done.refilled) fill(handle);
+  if (done.refilled) fill(handle, [done.questionId]);
 }
 
 /** Saves the column an insert asked for, beside the one it was opened on. */
@@ -73,7 +77,7 @@ export function saveColumnInsert(
   const label = comparisonLabelOf({ text: questionLine(text) });
   offerEditorUndo(handle.editor, (t) => t("comparison.column.inserted", { label }));
   useComparisonColumns.getState().focusColumn(handle.tableId, id);
-  fill(handle);
+  fill(handle, [id]);
 }
 
 /** A column copied beside itself: its Answers come along, so no model is asked for them again. */
@@ -82,7 +86,7 @@ export function duplicateColumn(handle: ComparisonColumnHandle, questionId: stri
   if (!done) return;
   offerEditorUndo(handle.editor, (t) => t("comparison.column.duplicated", { label: done.label }));
   useComparisonColumns.getState().focusColumn(handle.tableId, done.questionId);
-  if (done.fill) fill(handle);
+  if (done.fill) fill(handle, [done.questionId]);
 }
 
 /** Removes a column whole; the last column can't be removed, so it isn't offered. */

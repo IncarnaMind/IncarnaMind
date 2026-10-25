@@ -14,13 +14,18 @@ export function comparisonTableAt(editor: Editor, tableId: string): number | nul
 
 /**
  * "+ Question" (#98): a column for `question` at the table's end, and in each
- * row a cell waiting to be filled, as one change ⌘Z takes back. False when
- * the table is gone or has as many columns as a table holds.
+ * row a cell waiting to be filled, as one change ⌘Z takes back; its id, for
+ * the fill of its cells alone. Null when the table is gone or has as many
+ * columns as a table holds.
  */
-export function addComparisonColumn(editor: Editor, tableId: string, question: string): boolean {
+export function addComparisonColumn(
+  editor: Editor,
+  tableId: string,
+  question: string,
+): string | null {
   const pos = comparisonTableAt(editor, tableId);
   const table = pos === null ? null : editor.state.doc.nodeAt(pos);
-  if (!table) return false;
+  if (!table) return null;
   const count = comparisonQuestionsOf(table.attrs).length;
-  return insertComparisonColumnAt(editor, tableId, count, question) !== null;
+  return insertComparisonColumnAt(editor, tableId, count, question);
 }

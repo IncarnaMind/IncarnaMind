@@ -104,6 +104,7 @@ export const comparisonCommands: readonly Command[] = [
   {
     id: "comparison.column.edit",
     label: "comparison.column.edit",
+    rowKeys: "F2",
     group: "main",
     appliesTo: ["comparisonColumn"],
     reversible: true,
@@ -142,6 +143,7 @@ export const comparisonCommands: readonly Command[] = [
   {
     id: "comparison.column.remove",
     label: "comparison.column.remove",
+    rowKeys: "Delete",
     group: "danger",
     appliesTo: ["comparisonColumn"],
     reversible: true,

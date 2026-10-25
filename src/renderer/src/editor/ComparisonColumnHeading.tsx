@@ -88,6 +88,10 @@ export function ComparisonColumnHeading({
   };
 
   const showMenu = editable && !editing && !inserting;
+  const close = () => {
+    closeColumnField();
+    useComparisonColumns.getState().focusColumn(tableId, question.id);
+  };
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: a heading cell of the table's grid, focusable for F2 and Delete.
@@ -111,13 +115,13 @@ export function ComparisonColumnHeading({
         <ColumnQuestionField
           testId="comparison-insert-question"
           onDone={(text) => saveColumnInsert(handle, question.id, open.side, text)}
-          onCancel={closeColumnField}
+          onCancel={close}
         />
       ) : editing ? (
         <ColumnFields
           question={question}
           onDone={(next) => saveColumnEdit(handle, question.id, next)}
-          onCancel={closeColumnField}
+          onCancel={close}
         />
       ) : (
         <>

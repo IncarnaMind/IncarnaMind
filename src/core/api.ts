@@ -4274,6 +4274,15 @@ export interface ComparisonTableRef {
 }
 
 /**
+ * A comparison table to fill: the whole table, or some of its columns alone,
+ * so a column just added or reworded never writes its neighbours again.
+ */
+export interface ComparisonFillRequest extends ComparisonTableRef {
+  /** The columns to fill, by their Questions' ids; absent: every cell to fill in the table. */
+  questionIds?: readonly string[];
+}
+
+/**
  * What asking for a comparison table, or for its cells to be filled, did: it
  * is in the Mind (a change to accept, the first time) and its cells are being
  * filled; or nothing was written or sent, because the model can't be used yet
@@ -9401,10 +9410,12 @@ export interface CoreApi {
   compareDocuments(input: CompareDocumentsInput): Promise<ComparisonResult>;
   /**
    * Fills a comparison table's cells that have no Answer (`cellToFill`): a
-   * column the editor just added, or cells a fill left (a quit, the monthly
-   * cap, a failure). A fill already going takes them up once its cells are done.
+   * column the editor just added or reworded, or cells a fill left (a quit,
+   * the monthly cap, a failure). Given `questionIds`, it fills those columns
+   * alone, so the others' Answers and problems stay as they are. A fill
+   * already going takes them up once its cells are done.
    */
-  fillComparisonTable(input: ComparisonTableRef): Promise<ComparisonResult>;
+  fillComparisonTable(input: ComparisonFillRequest): Promise<ComparisonResult>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
