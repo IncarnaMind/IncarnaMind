@@ -2,9 +2,9 @@
  * GB/T 7714 for a Chinese thesis, through the core: a page raised after the number, or after
  * the author and year, as the standard's own examples print it (GB/T 7714—2015 10.1.3 and
  * 10.2.5, citing 《现代汉语词典》 at pp. 1194 and 354); a work cited twice in one cluster numbered
- * once; an entry too thin to cite flagged in the file and named after the export, never with
- * the day it was added; and GB/T 7714 as the style of a Chinese Mind in a Chinese interface that
- * cites papers or books.
+ * once; an entry too thin to cite written with the details it has, never a placeholder, and
+ * counted after the export; and GB/T 7714 as the style of a Chinese Mind in a Chinese interface
+ * that cites papers or books, never a report or a page.
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
@@ -232,7 +232,7 @@ describe("a work cited twice in one cluster", () => {
 });
 
 describe("an entry too thin to cite", () => {
-  test("is flagged in the file and named after the export, never with the day it was added", async () => {
+  test("is written with the details it has, never a placeholder in Markdown or Word (#1910)", async () => {
     const { core, mind, client, dictionary, blank, titled } = await setUp();
     await core.updateSettings({ user: { language: "zh-CN" } });
     await core.setMindCitationStyle(mind.id, "gb-t-7714-2015-numeric");
@@ -251,32 +251,68 @@ describe("an entry too thin to cite", () => {
 
     const exported = await core.exportMind(mind.id, { format: "markdown" });
     const markdown = new TextDecoder().decode(exported.data);
-    // Ended as the style ends the rest of its entries, ". ".
-    expect(markdown).toContain("\\[1\\] 城市绿地与夏季降温调查. \\[信息待补充\\]");
-    expect(markdown).toContain("\\[2\\] 城市热岛效应研究\\[J\\]. \\[信息待补充\\]");
+    // Ended as the style ends the rest of its entries, ". ", and nothing the User would send.
+    expect(markdown).toContain("\\[1\\] 城市绿地与夏季降温调查.");
+    expect(markdown).toContain("\\[2\\] 城市热岛效应研究\\[J\\].");
     expect(markdown).toContain(
       "\\[3\\] 中国社会科学院语言研究所词典编辑室. 现代汉语词典\\[M\\]. 商务印书馆, 1996.\n",
     );
     expect(markdown).not.toContain("添加于");
+    expect(markdown).not.toContain("信息待补充");
     expect([...exported.needsDetails].sort()).toEqual([blank.id, titled.id].sort());
 
     const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
     const entries = paragraphsOf(part(files, "word/document.xml")).map((each) => each.text);
-    expect(entries.some((entry) => entry.endsWith("城市绿地与夏季降温调查. [信息待补充]"))).toBe(
-      true,
-    );
+    expect(entries.some((entry) => entry.endsWith("城市绿地与夏季降温调查."))).toBe(true);
+    expect(entries.join("\n")).not.toContain("信息待补充");
   });
 
-  test("in English, the mark is in English, after a space", async () => {
-    const { core, mind, client, blank } = await setUp();
+  test("in English too: a report, an agreement and a paper written with what they have, no placeholder", async () => {
+    const { core, mind, client, blank, titled, prospect } = await setUp();
     await core.setMindCitationStyle(mind.id, "apa");
-    writeMind(client, [paragraph(text("Parks cool the night "), citation(blank, null), text("."))]);
+    // A report and an agreement with only their titles, and a paper missing its authors and date.
+    const report = await core.updateReference(blank.id, {
+      type: "report",
+      title: "Facilities report",
+    });
+    const agreement = await core.updateReference(titled.id, {
+      type: "document",
+      title: "Lease agreement",
+    });
+    const paper = await core.updateReference(prospect.id, {
+      type: "article-journal",
+      title: "Tides and the Moon",
+      authors: [],
+      issued: "",
+    });
+    writeMind(client, [
+      paragraph(
+        text("Parks cool the night"),
+        citation(report, null),
+        text(" "),
+        citation(agreement, null),
+        text(" "),
+        citation(paper, null),
+        text("."),
+      ),
+    ]);
     await client.settled();
     const exported = await core.exportMind(mind.id, { format: "markdown" });
-    expect(new TextDecoder().decode(exported.data)).toContain(
-      "城市绿地与夏季降温调查. \\[needs details\\]",
-    );
-    expect(exported.needsDetails).toEqual([blank.id]);
+    const markdown = new TextDecoder().decode(exported.data);
+    expect(markdown).toContain("Facilities report");
+    expect(markdown).toContain("Lease agreement");
+    expect(markdown).toContain("Tides and the Moon");
+    expect(markdown).not.toContain("needs details");
+    expect([...exported.needsDetails].sort()).toEqual([report.id, agreement.id, paper.id].sort());
+
+    // The Word file, opened and read.
+    const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+    const entries = paragraphsOf(part(files, "word/document.xml")).map((each) => each.text);
+    const word = entries.join("\n");
+    expect(word).toContain("Facilities report");
+    expect(word).toContain("Lease agreement");
+    expect(word).toContain("Tides and the Moon");
+    expect(word).not.toContain("needs details");
   });
 });
 
@@ -334,5 +370,87 @@ describe("the style of a Mind that hasn't chosen one", () => {
     });
     // Forgetting the choice, as Undo does, brings back the default.
     expect(await core.setMindCitationStyle(mind.id, null)).toEqual(gbt);
+  });
+
+  test("a report, a web page or an agreement with authors and dates never sets GB/T 7714; a paper or a book does", async () => {
+    const { core, mind, client, blank } = await setUp();
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const numbered = { style: "numbered", chosen: false, folderDefault: null };
+    const gbt = { style: "gb-t-7714-2015-numeric", chosen: false, folderDefault: null };
+    const cite = async (patch: ReferencePatch) => {
+      const document = await core.updateReference(blank.id, patch);
+      writeMind(client, [paragraph(text("设施的状况如下"), citation(document, page(1)))]);
+      await client.settled();
+      return core.getMindCitationStyle(mind.id);
+    };
+    const authors = [{ literal: "物业管理处" }];
+
+    expect(
+      await cite({ type: "report", title: "2026 年设施检查报告", authors, issued: "2026" }),
+    ).toEqual(numbered);
+    expect(await cite({ type: "webpage", title: "设施概况", authors, issued: "2026" })).toEqual(
+      numbered,
+    );
+    expect(await cite({ type: "document", title: "租赁合同", authors, issued: "2024" })).toEqual(
+      numbered,
+    );
+    // A paper with only a title isn't one yet: no authors, no year.
+    expect(
+      await cite({ type: "article-journal", title: "城市热岛效应研究", authors: [], issued: "" }),
+    ).toEqual(numbered);
+
+    expect(await cite({ type: "book", title: "工程控制论", authors, issued: "1958" })).toEqual(gbt);
+    expect(
+      await cite({ type: "article-journal", title: "一个科学新领域", authors, issued: "1990" }),
+    ).toEqual(gbt);
+  });
+
+  test("in Chinese, a report and an agreement beside a paper: GB/T 7714, and the Word and Markdown files write what they have, never a placeholder", async () => {
+    const { core, mind, client, qian, blank, titled } = await setUp();
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    // Only their titles: the report and the agreement lack authors and dates.
+    const report = await core.updateReference(blank.id, {
+      type: "report",
+      title: "2026 年设施检查报告",
+    });
+    const agreement = await core.updateReference(titled.id, {
+      type: "document",
+      title: "租赁合同",
+    });
+    writeMind(client, [
+      paragraph(
+        text("报告说明设施状况"),
+        citation(report, page(2)),
+        text("，合同约定租金"),
+        citation(agreement, page(1)),
+        text("，见钱学森的研究"),
+        citation(qian, page(5)),
+        text("。"),
+      ),
+    ]);
+    await client.settled();
+    expect(await core.getMindCitationStyle(mind.id)).toEqual({
+      style: "gb-t-7714-2015-numeric",
+      chosen: false,
+      folderDefault: null,
+    });
+
+    const exported = await core.exportMind(mind.id, { format: "markdown" });
+    const markdown = new TextDecoder().decode(exported.data);
+    expect(markdown).toContain("## 参考文献");
+    expect(markdown).toContain("2026 年设施检查报告");
+    expect(markdown).toContain("租赁合同");
+    expect(markdown).not.toContain("信息待补充");
+    expect([...exported.needsDetails].sort()).toEqual([report.id, agreement.id].sort());
+
+    // The Word file, opened and read.
+    const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+    const word = paragraphsOf(part(files, "word/document.xml"))
+      .map((each) => each.text)
+      .join("\n");
+    expect(word).toContain("2026 年设施检查报告");
+    expect(word).toContain("租赁合同");
+    expect(word).toContain("钱学森");
+    expect(word).not.toContain("信息待补充");
   });
 });

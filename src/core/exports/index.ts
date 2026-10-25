@@ -543,7 +543,7 @@ export function createExports(deps: ExportsDependencies) {
             labels.unverified,
           )
         : style.form !== "numbered"
-          ? await styleCitations(prepared.blocks, style, thin.format, labels.needsDetails)
+          ? await styleCitations(prepared.blocks, style, thin.format)
           : prepared.bibliography
             ? addSources(
                 prepared.blocks,

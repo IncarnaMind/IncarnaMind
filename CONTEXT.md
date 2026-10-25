@@ -111,7 +111,7 @@ How a Mind's Citations read, in its text and its exports, and how its Bibliograp
 _Avoid_: citation format, reference style
 
 **Bibliography**:
-Every Document a Mind cites, once each, in its citation style: the References at the Mind's end, kept up to date, and the end of its exports. A Mind in Numbered shows none. A Document whose reference record is too thin to cite is listed by its name, marked "needs details", in the Mind and in its exports.
+Every Document a Mind cites, once each, in its citation style: the References at the Mind's end, kept up to date, and the end of its exports. A Mind in Numbered shows none. A Document whose reference record is too thin to cite is listed by its name in the Mind, marked "needs details"; an export writes the details it has, never a placeholder, and the Saved line counts the Documents that lack authors or dates.
 _Avoid_: works cited (except as a style's own heading), sources list
 
 **Source provider**:
