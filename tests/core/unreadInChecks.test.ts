@@ -20,7 +20,7 @@ import { buildPdf } from "../helpers/pdf";
 
 /*
  * Checks say which files in their scope couldn't be read, and why (#740):
- * Find support, Check against Documents, Check this Mind and Verify keep, with the request
+ * Check against Documents, Check this Mind and Verify keep, with the request
  * that made their marks, the files their scope couldn't read as it started,
  * which the line beside them and the AI use statement read back.
  */
@@ -87,7 +87,7 @@ async function mindOf(core: Core, folderId: string | null, sentences: readonly s
     core.checkSentences({
       requestId: randomUUID(),
       mindId: mind.id,
-      action: "find-support",
+      action: "check-against-documents",
       from: { blockId, offset: 0 },
       to: { blockId, offset: body.length },
       allDocuments,
@@ -107,7 +107,7 @@ const named = (files: readonly UnreadFile[]) =>
     .sort((a, b) => a.name.localeCompare(b.name));
 
 describe("What a check couldn't read", () => {
-  test("Find support in a Folder with a .doc, a locked PDF and a scan names the three, with their reasons", async () => {
+  test("Check against Documents in a Folder with a .doc, a locked PDF and a scan names the three, with their reasons", async () => {
     const { core, folderId } = await withUnreadFiles();
     const { client, check } = await mindOf(core, folderId, [SUPPORTED, UNSUPPORTED]);
 

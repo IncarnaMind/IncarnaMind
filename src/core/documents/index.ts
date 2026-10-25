@@ -1556,7 +1556,7 @@ export function createDocuments(options: DocumentsOptions) {
    * Documents already embedded with it stay ready. `thorough` also finds ready
    * Documents with a Passage that has no vector yet, as one can after a time
    * with embeddings off: their vectors from the model are kept, and only the
-   * missing ones made.
+   * missing ones made. `only` leaves the other Documents as they are.
    *
    * While embeddings are off, the other way round: a Document being embedded,
    * or waiting for the model, is ready, since its keyword index is; any
@@ -1564,13 +1564,16 @@ export function createDocuments(options: DocumentsOptions) {
    *
    * Returns the Documents whose status changed.
    */
-  function embedWithCurrentModel(thorough = false): string[] {
+  function embedWithCurrentModel(thorough = false, only?: readonly string[]): string[] {
+    const filter = only === undefined ? "" : " AND id IN (SELECT value FROM json_each(?))";
+    const ids = only === undefined ? [] : [JSON.stringify(only)];
     if (!model.enabled()) {
       const readied = db.transaction(() => {
         const rows = db.all<{ id: string }>(
           `SELECT id FROM documents
-           WHERE deleted_at IS NULL AND status IN ('embedding', 'waiting-for-model')
+           WHERE deleted_at IS NULL AND status IN ('embedding', 'waiting-for-model')${filter}
            ORDER BY created_at, rowid`,
+          ids,
         );
         for (const { id } of rows) setStatus(id, "ready");
         return rows.map((row) => row.id);
@@ -1595,8 +1598,9 @@ export function createDocuments(options: DocumentsOptions) {
                      AND p.deleted_at IS NULL AND p.embedding IS NULL)`
                : ""
            })
+           ${only === undefined ? "" : "AND d.id IN (SELECT value FROM json_each(?))"}
          ORDER BY d.created_at, d.rowid`,
-        [model.id],
+        [model.id, ...ids],
       );
       const target = ready ? "embedding" : "waiting-for-model";
       return rows.filter((row) => {
@@ -2548,6 +2552,9 @@ export function createDocuments(options: DocumentsOptions) {
         if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id);
         if (row.status === "waiting-for-model") model.ensure();
       }
+      // A Document back from an unlinked Linked folder lost its vectors with it: they are embedded again (#1292).
+      for (const id of embedWithCurrentModel(true, ids))
+        if (!embedding.isEmbedding(id)) announce(id);
       for (const linkedFolderId of linkedFolders) library.documentsChanged(linkedFolderId);
       const copies = db
         .all<{ path: string; relative_path: string }>(
