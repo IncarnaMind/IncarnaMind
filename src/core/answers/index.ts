@@ -118,7 +118,7 @@ import {
   type WebPageCall,
 } from "../api";
 import type { CallToDecide, ToolCallToApprove } from "../approvals";
-import type { AnswerRead, AnswerWrite, QuestionInput, Turn } from "../conversations";
+import type { AddedTurn, AnswerRead, AnswerWrite, QuestionInput, Turn } from "../conversations";
 import type { WindowedPassage } from "../documents/search";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
@@ -350,11 +350,11 @@ export interface AnswerConversations {
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
     emit?: boolean,
-  ): Turn;
+  ): AddedTurn;
   /** Emits a turn added with `emit: false`, once its Question can be asked. */
   publish(turn: Turn): void;
   /** Discards a turn added with `emit: false` when its Question can't be asked. */
-  discard(turn: Turn): void;
+  discard(added: AddedTurn): void;
   /** The Question of an Answer, and the Tool calls it made, to write the Answer again; what is on screen now. */
   questionOf(input: unknown): {
     answerId: string;
@@ -2904,27 +2904,30 @@ export function createAnswers(options: AnswersOptions) {
      */
     async askInConversation(question: QuestionInput): Promise<ConversationAskResult> {
       const scope = options.searchedScope(question.scope, question.mind?.id ?? null);
-      const { documentIds, emptyScope } = scopeNow(scope, question.mind?.id ?? null);
       const mind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
       const quotes = checkQuotes(question.quotes);
       const answerModel =
         question.model && options.providerExists(question.model.providerId)
           ? question.model
           : options.defaultModel();
-      const turn = options.conversations.add(
+      const added = options.conversations.add(
         { ...question, scope, quotes: quotes.quoted.map((each) => each.quote) },
         answerModel,
         readOf(mind),
         false,
       );
+      const { turn } = added;
       let published = false;
       try {
         const ready = await readyModel(question.model, question.forcedSkill);
         if ("asked" in ready) {
-          options.conversations.discard(turn);
+          options.conversations.discard(added);
           return ready;
         }
         const readyMind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
+        // The Documents can change while readiness waits: search and quote them as they are now.
+        const { documentIds, emptyScope } = scopeNow(scope, question.mind?.id ?? null);
+        const checked = checkQuotes(question.quotes);
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
           ready.model,
@@ -2940,10 +2943,10 @@ export function createAnswers(options: AnswersOptions) {
           emptyScope,
           readyMind,
           question.onScreen,
-          quotes,
+          checked,
         );
       } catch (error) {
-        if (!published) options.conversations.discard(turn);
+        if (!published) options.conversations.discard(added);
         throw error;
       }
     },

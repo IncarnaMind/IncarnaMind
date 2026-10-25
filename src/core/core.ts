@@ -1585,12 +1585,12 @@ export function createCore(adapters: CoreAdapters): Core {
     // Every window hears of each message as it is added or written.
     conversations: {
       add: (input, answerModel, read, emit = true) => {
-        const turn = conversations.add(input, answerModel, read);
-        if (emit) publishConversation(turn);
-        return turn;
+        const added = conversations.add(input, answerModel, read);
+        if (emit) publishConversation(added.turn);
+        return added;
       },
       publish: publishConversation,
-      discard: (turn) => conversations.discard(turn),
+      discard: (added) => conversations.discard(added),
       questionOf: (input) => conversations.questionOf(input),
       clearScope: (questionId) => {
         const question = conversations.clearScope(questionId);
@@ -3496,7 +3496,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!ready) {
         throw new InvalidInputError({ key: "error.examples.reading" });
       }
-      const turn = conversations.add(
+      const { turn } = conversations.add(
         {
           conversationId: null,
           text: ready.question,

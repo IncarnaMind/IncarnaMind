@@ -373,14 +373,31 @@ test("a Question waiting for model readiness survives a force-quit, is stopped o
     await expect(
       restarted.window.getByTestId("assistant-history-row").filter({ hasText: question }),
     ).toHaveCount(1);
-    const retry = await restarted.window.evaluate(
-      async ({ conversationId, answerId }) => {
-        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        return core.regenerateConversationAnswer({ conversationId, answerId });
-      },
-      { conversationId: content.conversation.id, answerId: storedAnswer.id },
-    );
-    expect(retry).toMatchObject({ asked: true, answerId: storedAnswer.id });
+    await restarted.window.keyboard.press("Escape");
+
+    // Opened as a person does, by its words in ⌘K.
+    await restarted.window.keyboard.press("ControlOrMeta+k");
+    const palette = restarted.window.getByTestId("palette");
+    await expect(palette).toBeVisible();
+    await restarted.window.keyboard.type(question);
+    const found = palette
+      .locator('[data-testid="palette-group"][data-group="conversations"]')
+      .getByTestId("palette-item")
+      .first();
+    await expect(found).toBeVisible();
+    await pointAndClick(restarted.window, found);
+    await expect(palette).toBeHidden();
+
+    // Recovered, it says it was stopped where the User looks, and its own retry writes it again.
+    const answer = assistantAnswers(restarted.window).first();
+    await expect(answer).toHaveAttribute("data-status", "stopped");
+    await restarted.window.mouse.move(10, 10);
+    await expect(answer.getByTestId("answer-stopped")).toHaveText("Stopped");
+    await expect.poll(() => opacityOf(answer.getByTestId("answer-actions"))).toBe(1);
+    await openSteps(restarted.window, answer);
+    await pointAndClick(restarted.window, answer.getByTestId("answer-regenerate"));
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+    await expect(answer).toContainText("scripted");
     await expect
       .poll(async () => (await bridge(restarted.window).storedAnswer())?.status)
       .toBe("done");

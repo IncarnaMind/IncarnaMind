@@ -100,6 +100,37 @@ const answerOf = (content: ConversationContent, answerId: string): ConversationA
 const rowCount = (dataDir: string, table: string) =>
   queryDatabase<{ count: number }>(dataDir, `SELECT count(*) AS count FROM ${table}`)[0]?.count;
 
+/** Model readiness that waits until the test releases it, saying when it has begun. */
+function heldReadiness() {
+  let holding = false;
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let began = () => {};
+  const beginning = new Promise<void>((resolve) => {
+    began = resolve;
+  });
+  return {
+    hold: () => {
+      holding = true;
+    },
+    beginning,
+    release: () => release(),
+    ollamaModels: {
+      describe: async () => {
+        if (holding) {
+          began();
+          await released;
+        }
+        return null;
+      },
+      loaded: async () => null,
+      running: async () => true,
+    },
+  };
+}
+
 describe("Which Folder a conversation belongs to", { timeout: 30_000 }, () => {
   test("the Folder of the Mind its first Question was asked from; a Question from a Mind in another Folder leaves it there, and each Question names its Mind", async () => {
     const model = streamingModel([
@@ -686,42 +717,22 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
   });
 
   test("a Mind edited while model readiness waits is read after the wait", async () => {
+    const ready = heldReadiness();
     const model = streamingModel("Noted.");
-    let hold = false;
-    let release = () => {};
-    const readiness = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let began = () => {};
-    const readinessBegan = new Promise<void>((resolve) => {
-      began = resolve;
-    });
-    const { core, ended } = await setUp(model, {
-      ollamaModels: {
-        describe: async () => {
-          if (hold) {
-            began();
-            await readiness;
-          }
-          return null;
-        },
-        loaded: async () => null,
-        running: async () => true,
-      },
-    });
+    const { core, ended } = await setUp(model, { ollamaModels: ready.ollamaModels });
     const mind = await core.createMind({ title: "Tides" });
     const client = await connectToMind(core, mind.id);
     writeMind(client, [note("Before the wait.")]);
     await client.settled();
 
-    hold = true;
+    ready.hold();
     const asking = core.askInConversation({ text: "Summarise my notes", mindId: mind.id });
     try {
-      await readinessBegan;
+      await ready.beginning;
       writeMind(client, [note("After the wait.")]);
       await client.settled();
     } finally {
-      release();
+      ready.release();
     }
     const result = await asking;
     if (!result.asked) throw new Error("Not asked.");
@@ -731,6 +742,81 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
     expect(sent).toContain("After the wait.");
     expect(sent).not.toContain("Before the wait.");
   });
+
+  test("its Question and Answer are in its conversation while model readiness waits", async () => {
+    const ready = heldReadiness();
+    const { core, ended } = await setUp(streamingModel("Noted."), {
+      ollamaModels: ready.ollamaModels,
+    });
+    ready.hold();
+
+    const asking = core.askInConversation({ text: "Keep this Question" });
+    try {
+      await ready.beginning;
+      const [conversation] = await core.listConversations();
+      if (!conversation) throw new Error("The conversation wasn't kept.");
+      const { messages } = await core.getConversation(conversation.id);
+      expect(messages.map((message) => message.kind)).toEqual(["question", "answer"]);
+      expect(messages[1]).toMatchObject({ kind: "answer", status: "streaming", text: "" });
+    } finally {
+      ready.release();
+    }
+    const result = await asking;
+    if (!result.asked) throw new Error("Not asked.");
+    expect(await ended(result.answerId)).toBe("finished");
+  });
+
+  test("a Search scope and quotes changed while model readiness waits are used as they are after it", async () => {
+    const ready = heldReadiness();
+    const model = streamingModel("Noted.");
+    const { core, ended } = await setUp(model, { ollamaModels: ready.ollamaModels });
+    const folder = await core.createLibraryGroup({ name: "Harbour", description: "" });
+    const sources = await createSourceFolder();
+    const quote = "Margins recover within two quarters of each cut.";
+    const path = await writeSourceFile(sources, "Chain survey.txt", quote);
+    const [survey] = await addAndProcess(core, [path]);
+    if (!survey) throw new Error("The Document wasn't added.");
+    await core.moveToFolder({ documentIds: [survey.id], folderId: folder.id });
+    const cited = await core.citeSelection({
+      documentId: survey.id,
+      parts: [{ unit: null, text: quote }],
+    });
+    expect(cited.check).toBe("found");
+
+    ready.hold();
+    const asking = core.askInConversation({
+      text: "How do margins recover?",
+      scope: { folderIds: [folder.id], tagIds: [], documentIds: [] },
+      quotes: [
+        {
+          documentId: survey.id,
+          documentName: survey.name,
+          quote: cited.quote,
+          pageFrom: cited.pageFrom,
+          pageTo: cited.pageTo,
+          location: cited.location,
+        },
+      ],
+    });
+    try {
+      await ready.beginning;
+      // Out of the Folder, and a version of its file without the quoted words.
+      await core.moveToFolder({ documentIds: [survey.id], folderId: null });
+      await writeFile(path, "The panel ends in March.");
+      await core.reconcileDocuments();
+      await waitForProcessing(core, [survey.id]);
+    } finally {
+      ready.release();
+    }
+    const result = await asking;
+    if (!result.asked) throw new Error("Not asked.");
+    expect(await ended(result.answerId)).toBe("finished");
+
+    expect(result.leftOut).toMatchObject([{ documentId: survey.id, quote: cited.quote }]);
+    const sent = promptOf(model).at(-1)?.text ?? "";
+    expect(sent).not.toContain("Chain survey");
+    expect(sent).not.toContain(quote);
+  }, 60_000);
 
   test("stopped, or with its conversation deleted, keeps what it has; regenerated, it is written again in place", async () => {
     const controlled = controlledModel();

@@ -100,8 +100,12 @@ export interface Turn {
   question: ConversationQuestion;
   answer: ConversationAnswer;
   earlier: ConversationMessage[];
-  /** Before this turn was added, for discarding it before it is published. */
-  previousConversationUpdatedAt?: string;
+}
+
+/** A Turn as `add` made it, with its conversation's `updated_at` from before it. */
+export interface AddedTurn {
+  turn: Turn;
+  previousConversationUpdatedAt: string | null;
 }
 
 interface ConversationRow {
@@ -834,9 +838,9 @@ export function createConversations(db: Database, now: () => string) {
       input: Omit<QuestionInput, "onScreen">,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
-    ): Turn {
+    ): AddedTurn {
       const previousConversationUpdatedAt =
-        input.conversationId === null ? undefined : liveRow(input.conversationId).updated_at;
+        input.conversationId === null ? null : liveRow(input.conversationId).updated_at;
       return db.transaction(() => {
         const at = now();
         let conversationId = input.conversationId;
@@ -884,14 +888,12 @@ export function createConversations(db: Database, now: () => string) {
           at,
         );
         const turn = turnOf(question, answer.id);
-        return previousConversationUpdatedAt === undefined
-          ? turn
-          : { ...turn, previousConversationUpdatedAt };
+        return { turn, previousConversationUpdatedAt };
       });
     },
 
     /** Removes an unpublished turn whose model or Skill couldn't be asked. */
-    discard(turn: Turn): void {
+    discard({ turn, previousConversationUpdatedAt }: AddedTurn): void {
       const questionId = turn.question.id;
       const answerId = turn.answer.id;
       db.transaction(() => {
@@ -917,7 +919,7 @@ export function createConversations(db: Database, now: () => string) {
           [question.conversation_id],
         );
         if (remaining?.count !== 0) {
-          if (turn.previousConversationUpdatedAt !== undefined) {
+          if (previousConversationUpdatedAt !== null) {
             db.run(
               `UPDATE conversations SET updated_at = ?
                WHERE id = ? AND updated_at = ?
@@ -926,7 +928,7 @@ export function createConversations(db: Database, now: () => string) {
                    WHERE conversation_id = ? AND position > ? AND deleted_at IS NULL
                  )`,
               [
-                turn.previousConversationUpdatedAt,
+                previousConversationUpdatedAt,
                 question.conversation_id,
                 turn.conversation.updatedAt,
                 question.conversation_id,
