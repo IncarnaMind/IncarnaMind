@@ -96,6 +96,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
     const figures = planned.map(({ inputs, ...figure }, index) => ({
       marker: index + 1,
       label: "The sentence's figure",
+      relation: "equals",
       ...figure,
       inputs: inputs.map((input) => ({ ...input, passage: passageOf(input.quote) })),
     }));

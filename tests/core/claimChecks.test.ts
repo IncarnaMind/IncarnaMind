@@ -1348,7 +1348,7 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     expect(result.verdict).toBe("contradicted");
   });
 
-  // protects=a check is offered relation, saying when to give it; fails_when=the model is never told a limit can be named; no_claim=none beyond protects.
+  // protects=a check is offered relation, which it must give, saying when it is a limit; fails_when=the model is never told a limit can be named, or may leave relation out; no_claim=none beyond protects.
   test("the check's calculate takes relation for a limit", async () => {
     const calls: ModelCall[] = [];
     const claim = INSIDE("3.25x");
@@ -1366,6 +1366,7 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     expect(offered).toContain('"at most"');
     expect(offered).toContain("give relation");
     expect(offered).toContain("bracketedCost");
+    expect(offered).toMatch(/"required":\[[^\]]*"stated","relation"\]/);
   });
 });
 
