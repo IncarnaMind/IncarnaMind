@@ -28,6 +28,8 @@ import {
 import { keywordTerms, keywordText } from "../documents/keywords";
 import { type ReviewReading, reviewReading } from "../mindText";
 import { attribute, contentMarkdown, textAttribute, toMarkdown } from "./blocks";
+import { eachCitation } from "./citedVersions";
+import type { ContextCitations } from "./contextCitations";
 import { answerMarkdown } from "./contextText";
 import type { AnswerMessage } from "./engine";
 import { askedAbout, onScreenLine } from "./prompt";
@@ -147,23 +149,34 @@ function tail(text: string, tokens: number): string {
  */
 type Documents = readonly LiveDocument[] | null;
 
+/** Whether a Block above the Question is read: not a failed Answer, nor a Note the User excluded. */
+const readsAbove = (block: Y.XmlElement) =>
+  block.nodeName === ANSWER_BLOCK
+    ? textAttribute(block, "status") !== "failed"
+    : block.nodeName === QUESTION_BLOCK || attribute(block, INCLUDE_IN_CONTEXT_ATTRIBUTE) !== false;
+
 /**
  * What a Block above the Question contributes, if anything. `review`: the changes still
  * waiting to read as changes (see `ReadOptions.review`).
  */
-function pieceOf(block: Y.XmlElement, documents: Documents, review?: ReviewReading): Piece | null {
+function pieceOf(
+  block: Y.XmlElement,
+  documents: Documents,
+  review?: ReviewReading,
+  ids?: ContextCitations,
+): Piece | null {
   if (block.nodeName === QUESTION_BLOCK) {
-    const text = toMarkdown(block, documents, review);
+    const text = toMarkdown(block, documents, review, ids);
     return text ? { role: "user", text } : null;
   }
   if (block.nodeName === ANSWER_BLOCK) {
     if (textAttribute(block, "status") === "failed") return null;
-    const text = contentMarkdown(block, documents, review);
+    const text = contentMarkdown(block, documents, review, ids);
     return text ? { role: "assistant", text } : null;
   }
   // A Note.
   if (attribute(block, INCLUDE_IN_CONTEXT_ATTRIBUTE) === false) return null;
-  const text = toMarkdown(block, documents, review);
+  const text = toMarkdown(block, documents, review, ids);
   return text ? { role: "user", text } : null;
 }
 
@@ -222,13 +235,14 @@ export function buildQuestionContext(
 /**
  * `buildQuestionContext`, with where the third-party text in the Blocks it
  * keeps came from, as the Mind's `textOrigins` records it, and its Citations
- * naming their Documents as `documents` names them now.
+ * naming their Documents as `documents` names them now, each with its id in `ids`.
  */
 export function questionContextOf(
   blocks: Y.XmlFragment,
   index: number,
   budget = QUESTION_CONTEXT_TOKEN_BUDGET,
   documents: Documents = null,
+  ids?: ContextCitations,
 ): QuestionContextWithOrigins {
   const children = blocks.toArray();
   const question = children[index];
@@ -236,11 +250,21 @@ export function questionContextOf(
   const questionText = toMarkdown(question, documents);
   const origins = blocks.doc?.getMap<unknown>(MIND_TEXT_ORIGINS_FIELD);
   const recorded = origins && origins.size > 0 ? origins : null;
+  // Read newest first, the Blocks would take their ids so too: a new Answer would renumber the
+  // older ones, and every later Question would miss the prompt cache (#1800).
+  if (ids) {
+    for (const block of children.slice(0, index)) {
+      if (block instanceof Y.XmlElement && readsAbove(block)) {
+        eachCitation(block, (citation) => ids.idOf(citation), { charts: true });
+      }
+    }
+  }
   /** What the Blocks above contribute, newest first, read only as far as the budget goes. */
   const newestFirst = function* (): Generator<Piece> {
     for (let at = index - 1; at >= 0; at--) {
       const block = children[at];
-      const piece = block instanceof Y.XmlElement ? pieceOf(block, documents) : null;
+      const piece =
+        block instanceof Y.XmlElement ? pieceOf(block, documents, undefined, ids) : null;
       if (!piece) continue;
       yield recorded && block instanceof Y.XmlElement
         ? { ...piece, origins: originsIn(block, recorded) }
@@ -319,13 +343,14 @@ function readText(block: Y.XmlElement, piece: Piece): string {
  * made it (#734), so the assistant knows what it has proposed. `focus` is
  * where the User is in it: the text they selected is read first, unless it
  * is in a Note they excluded. Its Citations name their Documents as
- * `documents` names them now.
+ * `documents` names them now, each with its id in `ids`.
  */
 export function readMind(
   blocks: Y.XmlFragment,
   name: string,
   focus: MindFocus | null,
   documents: Documents = null,
+  ids?: ContextCitations,
 ): MindReading {
   const recordedOrigins = blocks.doc?.getMap<unknown>(MIND_TEXT_ORIGINS_FIELD);
   const recorded = recordedOrigins && recordedOrigins.size > 0 ? recordedOrigins : null;
@@ -338,7 +363,7 @@ export function readMind(
   const review = reviewReading(blocks);
   for (const block of blocks.toArray()) {
     if (!(block instanceof Y.XmlElement)) continue;
-    const piece = pieceOf(block, documents, review);
+    const piece = pieceOf(block, documents, review, ids);
     const id = textAttribute(block, BLOCK_ID_ATTRIBUTE);
     if (id) {
       byId.set(id, {
@@ -568,6 +593,7 @@ interface ConversationContextOptions {
   changeStates?: ChangeStates;
   /** The names of the Documents open on screen, the focused group's first. */
   onScreen?: readonly string[];
+  ids?: ContextCitations;
 }
 
 /**
@@ -587,6 +613,7 @@ export function conversationContextOf(
     mindNames = () => null,
     changeStates,
     onScreen = [],
+    ids,
   }: ConversationContextOptions = {},
 ): QuestionContextWithOrigins {
   const pieces: Piece[] = earlier.flatMap((message): Piece[] => {
@@ -601,7 +628,7 @@ export function conversationContextOf(
     const text =
       message.status === "failed"
         ? ""
-        : answerMarkdown(message.text, message.citations, message.figures, documents);
+        : answerMarkdown(message.text, message.citations, message.figures, documents, ids);
     const recorded: Piece[] = record
       ? [
           {

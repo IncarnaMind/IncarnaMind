@@ -239,10 +239,8 @@ export function ClaimMark({
           if (!isQuietFocus(event.currentTarget)) hold("focus", true);
         }}
         onBlur={() => hold("focus", false)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") setClaimFocus(place, id);
-        }}
-        onClick={() => {
+        onClick={(event) => {
+          if (event.detail === 0) setClaimFocus(place, id);
           setOpenClaim(place, id);
           // Step 1 of the first open's steps, "See a mistake it caught".
           if (state === "contradicted") {
