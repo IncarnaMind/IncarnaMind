@@ -259,7 +259,7 @@ const BUDGETS: Readonly<Record<Language, readonly SeedMind[]>> = {
     title: `Budget ${year}`,
     blocks: [
       "## Summary",
-      `The ${year} budget is €2.4 million, up 5% on the year before. Most of the increase goes to the support team, which grows by three people. Travel and office costs stay flat, and the research budget is held at €300,000.`,
+      `The ${year} budget is €2.4 million, up 5% on the year before, after a long review of every team's plans with the finance group. Most of the increase goes to the support team, which grows by three people so that customers in the Nordic region get answers on the same day. Travel and office costs stay flat, as they have for three years, and the research budget is held at €300,000. A reserve of €50,000 is kept back for the second half, to be released only if sales reach the target set in March.`,
       "## Notes",
       "Approved by the board.",
     ],
@@ -268,7 +268,7 @@ const BUDGETS: Readonly<Record<Language, readonly SeedMind[]>> = {
     title: `${year}年预算`,
     blocks: [
       "## 摘要",
-      `${year} 年预算为 240 万欧元，比上一年增长 5%。增加的部分大多用于客服团队，团队将增加三人。差旅和办公费用保持不变，研发预算维持在 30 万欧元。`,
+      `${year} 年预算为 240 万欧元，比上一年增长 5%，这是和财务组逐一审核各团队计划之后定下的。增加的部分大多用于客服团队，团队将增加三人，让北欧地区的客户当天就能得到答复。差旅和办公费用与过去三年一样保持不变，研发预算维持在 30 万欧元。另有 5 万欧元的储备留到下半年，只有销售额达到三月定下的目标才会动用。`,
       "## 备注",
       "已获董事会批准。",
     ],
