@@ -107,7 +107,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
 | Claim | 说法 | What a check looks at, in an Answer, a Mind or a document someone else wrote. Counted with 条: "核对 24 条说法". Not 论断, an argued conclusion, or 主张, a party's claim in law: neither fits a sentence in a contract or a site report. |
 | Shorten (an AI edit) | 精简 | "精简", "正在精简…". Not 缩写, which means abbreviate. The others: 润色, 翻译, 解释. |
-| Find support | 查找出处 | Finds a Passage to cite and offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
+| Find support | 查找出处 | No longer a command: only a ⌘K keyword for Check against Documents, which offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Mind's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
 | Verify (a document) | 核对文档 | The verb is 核对, as for a Citation. |

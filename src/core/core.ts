@@ -36,7 +36,7 @@ import {
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
-import { isCitableWork } from "../shared/references";
+import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
@@ -1548,9 +1548,9 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       read: (mindId, look) => content.read(mindId, look),
       edit: (mindId, change) => content.edit(mindId, change),
-      text: (mindId, name, tokens) => {
+      text: (mindId, name, tokens, ids) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null))
+          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids))
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -1869,7 +1869,7 @@ export function createCore(adapters: CoreAdapters): Core {
         cited: [...versions.keys()],
       };
     });
-    const citesWorks = cited.some((id) => isCitableWork(liveDocument(id)?.reference ?? null));
+    const citesWorks = cited.some((id) => isPaperOrBook(liveDocument(id)?.reference ?? null));
     const context = { language: settings.get().language, chineseText, citesWorks };
     const style: MindCitationStyle = content.readSettings(mindId, (mindSettings) => ({
       style: citationStyleIn(mindSettings, context),
@@ -1911,7 +1911,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now: () => adapters.now?.() ?? new Date(),
   });
 
-  // Find support and Check against Documents (#96): check Runs that can only search and cite.
+  // Check against Documents (#96): check Runs that can only search and cite.
   const startInWritingStyle = (mindId: string) => {
     const style = settings.get().user.newMindStyle;
     if (sameStyle(style, DEFAULT_MIND_STYLE)) return;
@@ -2264,7 +2264,7 @@ export function createCore(adapters: CoreAdapters): Core {
     localOnly: () => embedding.localOnly(),
     ollamaUrl: adapters.ollamaUrl ?? defaultOllamaUrl(),
     localModels: adapters.localModels ?? installedOllamaModels,
-    planPausedUntil: () => chatGptPace.pausedUntil(),
+    planPausedUntil: () => chatGptPace.pausedUntil() ?? claudePace.pausedUntil(),
     now: () => paceTimers.now(),
   });
   const tagsWith = (): TaggingClassifier | null => {
@@ -3000,9 +3000,18 @@ export function createCore(adapters: CoreAdapters): Core {
       mindsChanged();
       layouts.forgetDeletedMinds();
     },
+    restoreMind: (mindId) => recentlyDeleted.restore([{ kind: "mind", id: mindId }]),
     editMind: (mindId, change) => content.edit(mindId, change),
     linkFolder: (path) => documents.linkedFolders.add(path),
     unlinkFolder,
+    restoreFolder: (linkedFolderId) => {
+      db.transaction(() => {
+        const { went } = documents.linkedFolders.restore(linkedFolderId);
+        if (went.length > 0) {
+          recentlyDeleted.restore(went.map((id) => ({ kind: "document" as const, id })));
+        }
+      });
+    },
     linkedFolderExists: (linkedFolderId) =>
       documents.linkedFolders.list().some((folder) => folder.id === linkedFolderId),
     documentsIn: (linkedFolderId) => documents.list({ linkedFolderId }),
@@ -3795,6 +3804,7 @@ export function createCore(adapters: CoreAdapters): Core {
     offerExamples: async () => examples.offer(minds.list().length > 0),
     createExamples: async (group) => examples.create(group),
     removeExamples: async (group) => examples.remove(group),
+    restoreExamples: async (group) => examples.restore(group),
     setLinkedFolderLayout: async (linkedFolderId, layout) =>
       documents.linkedFolders.setLayout(linkedFolderId, layout),
     setLinkedFolderPaused: async (linkedFolderId, paused) =>

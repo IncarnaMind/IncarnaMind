@@ -375,7 +375,7 @@ test("in Chinese: the offer puts GB/T 7714 first; chosen, raised numbers and 参
   await app.close();
 });
 
-test("in Chinese, a thesis Mind: 引用信息 read from the PDFs waits to be checked; GB/T 7714 by default, in the Export menu; pages raised, and a thin entry flagged in the Word file and named after the export", async () => {
+test("in Chinese, a thesis Mind: 引用信息 read from the PDFs waits to be checked; GB/T 7714 by default, in the Export menu; pages raised, and a thin entry written with its name alone, named after the export", async () => {
   await writeFile(join(sources, "林小雨学位论文.pdf"), THESIS);
   await writeFile(join(sources, "绿地与热岛.pdf"), ARTICLE);
   await writeFile(join(sources, "城市绿地调查笔记.txt"), "城市绿地调查：公园比周围街道凉快。");
@@ -453,13 +453,15 @@ test("in Chinese, a thesis Mind: 引用信息 read from the PDFs waits to be che
   await window.keyboard.press("Escape");
   await expect(picker).toBeHidden();
 
-  // Exported to Word: raised pages, 参考文献, and the thin entry flagged, never "添加于".
+  // Exported to Word: raised pages, 参考文献, and the thin entry written with its name alone,
+  // never a placeholder in the file the User sends (#1910).
   await exportFromMenu(window, "docx");
   const result = window.getByTestId("export-result");
   const done = result.getByTestId("export-done");
   await expect(done).toHaveText(/\.docx/);
   const needs = result.getByTestId("export-needs-details");
-  await expect(needs).toContainText("“城市绿地调查笔记”的引用信息待补充，已在文件中标出");
+  await expect(needs).toContainText("1 个文档缺少作者或日期");
+  await expect(needs).toContainText("补充信息");
   await screenshot(window, "export-needs-details-zh");
   const saved = (await done.getAttribute("title")) ?? "";
   const paragraphs = paragraphsOf(part(unzip(await readFile(saved)), "word/document.xml")).map(
@@ -470,12 +472,15 @@ test("in Chinese, a thesis Mind: 引用信息 read from the PDFs waits to be che
   expect(
     paragraphs.some((line) => line.includes("林小雨. 城市绿地与夏季降温调查[D]. 华东师范大学")),
   ).toBe(true);
-  expect(paragraphs.some((line) => line.endsWith("城市绿地调查笔记. [信息待补充]"))).toBe(true);
+  expect(paragraphs.some((line) => line.endsWith("城市绿地调查笔记."))).toBe(true);
+  expect(paragraphs.join("\n")).not.toContain("信息待补充");
   expect(paragraphs.join("\n")).not.toContain("添加于");
 
-  // Show goes to the thin entry, whose 信息待补充 fills it in right there.
+  // Add details opens the thin entry's Cite as right there, at its first gap, its title.
   await pointAndClick(window, needs.getByTestId("export-needs-details-show"));
-  await expect(thin.getByTestId("reference-needs-details")).toBeFocused();
+  const citeAs = window.getByTestId("reference-cite-as");
+  await expect(citeAs).toBeVisible();
+  await expect(citeAs.locator("input:focus, textarea:focus")).toHaveCount(1);
   await app.close();
 });
 
@@ -565,8 +570,19 @@ test("a Mind citing files with no details isn't offered a style until one is a p
   await expect(prompt).toHaveCount(0);
   await expect(window.getByTestId("references")).toHaveCount(0);
 
+  // A report with an author and a date is still neither a paper nor a book: nothing offered (#1910).
+  const lease = await documentIdOf(window, "Lease agreement");
+  await setRecord(window, lease, {
+    type: "report",
+    title: "Rent review 2026",
+    authors: [{ literal: "Facilities" }],
+    issued: "2026",
+  });
+  await expect(prompt).toHaveCount(0);
+  await expect(window.getByTestId("references")).toHaveCount(0);
+
   // Once its record says it is a paper, the offer shows at the Mind's end.
-  await setRecord(window, await documentIdOf(window, "Lease agreement"), {
+  await setRecord(window, lease, {
     type: "article-journal",
     title: "Rent and the Moon",
     authors: [{ family: "Oke", given: "T. R." }],

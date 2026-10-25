@@ -10,6 +10,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  openAdvancedModels,
   openDocumentTags,
   openSettings,
   removeDataFolder,
@@ -76,9 +77,9 @@ test("with a Jev key, Jev tags Documents instead of the chat model, and an unsur
   await dismissChatSetup(window);
   await useLocalChatModel(window);
 
-  // Settings → Models → Tagging: a key and a Jev-compatible server, tested, then used.
-  await openSettings(window, "models");
-  const section = window.getByTestId("jev-settings");
+  // Settings → Models → Advanced → Tagging: a key and a Jev-compatible server, tested, then used.
+  const tagging = await openAdvancedModels(await openSettings(window, "models"));
+  const section = tagging.getByTestId("jev-settings");
   await section.getByTestId("jev-set-up").click();
   const form = section.getByTestId("jev-form");
   await form.getByLabel("Jev API key").fill(JEV_KEY);
@@ -96,6 +97,12 @@ test("with a Jev key, Jev tags Documents instead of the chat model, and an unsur
     "Using TypeSafe Jev, with your Jev key",
   );
   await expect(section).toContainText(`Server: ${jev.url}`);
+  await closeSettings(window);
+
+  // A saved Jev setup is a choice of the User's under Advanced: it opens by itself.
+  const reopened = await openSettings(window, "models");
+  await expect(reopened.getByTestId("models-advanced")).toHaveAttribute("open", "");
+  await expect(reopened.getByTestId("jev-settings")).toContainText("Your Jev key is saved.");
   await closeSettings(window);
 
   await addDocuments(window, [summary]);

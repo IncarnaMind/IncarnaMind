@@ -29,8 +29,6 @@ export interface CitationOptions {
   heading: string;
   sources: SourceContext;
   format(request: CitationFormatRequest): Promise<FormattedCitations>;
-  /** The mark after an entry too thin to cite (`ExportLabels.needsDetails`). */
-  needsDetails: string;
   /** The mark after a Location whose quote wasn't found (`ExportLabels.unverified`). */
   unverified: string;
 }
@@ -131,7 +129,7 @@ export async function styleWritten(
   }
   styled = options.listed
     ? listCitations(blocks, options.sources, options.heading, options.unverified)
-    : await styleCitations(blocks, options.style, options.format, options.needsDetails);
+    : await styleCitations(blocks, options.style, options.format);
 
   let at = 0;
   for (const each of written) {

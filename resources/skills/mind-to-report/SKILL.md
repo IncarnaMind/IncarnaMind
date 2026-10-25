@@ -13,7 +13,7 @@ Turn the User's Mind into a draft report. The material is what came above this Q
 ## Read the material
 
 - Read all of it before writing. The Question may say what the report is for, who will read it, how long it should be, or what to leave out: follow that.
-- Citations in the Mind appear as references in square brackets after a claim, such as [Attention Is All You Need, p. 3]. Note which claim each one belongs to.
+- Citations in the Mind appear in square brackets after a claim, as their source and an id, such as [Attention Is All You Need, p. 3 · C1]. Note which claim each one belongs to.
 - The report drafts what the Mind already says. Don't add new topics, findings or facts. Leave out earlier Questions as questions, but use what their Answers found.
 
 ## Structure
@@ -29,10 +29,10 @@ Write connected paragraphs; use lists only where the material is a list. Don't u
 
 ## Keep the Citations
 
-- Every claim that carried a Citation in the Mind keeps one in the report, attached to the same claim.
-- Where you can, cite it again the way your instructions for citing say: search the Documents (search_documents) for the claim, and cite the Passage that supports it with a marker.
-- Where you can't find that Passage again, or can't search, keep the reference exactly as it appears in the Mind, such as [Attention Is All You Need, p. 3], right after the claim.
-- Never invent a source, a page or a quote, never attach a reference to a claim it wasn't attached to, and don't write a list of sources or a bibliography.
+- Every claim that carried a Citation in the Mind keeps that Citation in the report, attached to the same claim. Keep it by its id, the way your instructions for citing say: record it with cite, giving its id (such as C1) as the passage, and put that record's marker, such as [^1], right after the claim. Do this for every claim you keep, never searching or citing a Passage for it again, even when the Documents' text is given with the Question.
+- Never write a source or an id in brackets as text, such as [Attention Is All You Need, p. 3] or [C1]: that opens nothing.
+- If cite says a Citation can't be kept, keep its claim without a marker and say plainly, in the language of the report, that its source is no longer available.
+- Never invent a source, a page or a quote, never attach a Citation to a claim it wasn't attached to, and don't write a list of sources or a bibliography.
 - Claims that had no Citation stay without one. If one of them is an important factual claim, you may mark it "(source needed)", in the language of the report, so the User can check it.
 
 ## Say what is missing
