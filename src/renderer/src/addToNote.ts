@@ -10,11 +10,11 @@
  * - Into another Mind: at its end, through the core. With no Mind in focus
  *   (`openIt`), it is shown too, in a new tab beside the focused one if it isn't open,
  *   never replacing it.
- * - Into a new Mind (New Mind under the Answer, #1559): the empty Mind the
- *   assistant reads, when it is empty, as at its cursor; else a new Mind in the
- *   conversation's Folder, named by its first line (" 2" after a name another
- *   Mind has), with the Answer in it at once, opened in a new tab beside the
- *   focused one.
+ * - Into a new Mind ("Write as a note" under the Answer, #1940): the empty Mind the
+ *   User's own that the assistant reads, when there is one, as at its cursor; else a new
+ *   Mind in the conversation's Folder, named by its first line (" 2" after a name another
+ *   Mind has), with the Answer in it at once, opened in a new tab beside the focused one.
+ *   The example is never filled.
  *
  * Each says what it did under the Answer, with Undo (and ⌘Z), and what went
  * in at once is recorded as AI use (#292); a change, once it is accepted.
@@ -51,7 +51,7 @@ import { core } from "./core";
 import { flashBlocks } from "./editor/blockOrigins";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { notePlace } from "./editor/notePlace";
-import { useAppStore } from "./store";
+import { exampleMindIds, useAppStore } from "./store";
 import { answerUndoPlace, useUndo } from "./undo";
 
 /** Where Add to note puts an Answer: a Mind, by id, or a new Mind made from it. */
@@ -210,22 +210,30 @@ const putIn = (mindId: string, added: AddedAnswer) =>
   });
 
 /**
- * Into a new Mind: the empty Mind the assistant reads, when there is one; else one in its
- * conversation's Folder, the Answer in it at once, in a new tab beside the focused one. Like any
- * Mind made, it says nothing, and Delete takes it back.
+ * Into a new Mind: the empty Mind of the User's own the assistant reads, when there is one;
+ * else one in its conversation's Folder, the Answer in it at once, in a new tab beside the
+ * focused one, with Undo for what went in. The example is never filled (#1940). Making the
+ * Mind itself says nothing, as for any Mind made: Delete takes it back.
  */
 async function addToNewMind(added: AddedAnswer): Promise<void> {
   const read = readMindHandle.current;
+  const own = read && !exampleMindIds(useAppStore.getState()).includes(read.mindId) ? read : null;
   const empty =
-    read && !read.editor.isDestroyed && holdsNothing(read.doc.getXmlFragment(MIND_CONTENT_FIELD));
-  if (read && empty && (await addToReadMind(added, read.mindId))) return;
+    own && !own.editor.isDestroyed && holdsNothing(own.doc.getXmlFragment(MIND_CONTENT_FIELD));
+  if (own && empty && (await addToReadMind(added, own.mindId))) return;
   // A name another Mind has gets a number, so a second Mind of the same Answer reads apart.
   const given = added.conversation?.title ?? "";
   const named = given || cutTitle(firstLineOfBlocks(added.blocks));
   const taken = useAppStore.getState().minds.map((mind) => mindName(mind));
   const mind = await newMindFor(added, numberedName(named, taken) ?? given);
-  await putIn(mind.id, added);
+  const { blockIds } = await putIn(mind.id, added);
   await openBeside(mind.id);
+  const name = nameOfMind(mind.id, added.blocks);
+  useUndo.getState().push({
+    said: (t) => t("answer.added", { mind: name || t("mind.untitled") }),
+    undo: () => core.undoAddToNote({ mindId: mind.id, blockIds }),
+    shownAt: answerUndoPlace(added.answer.id),
+  });
 }
 
 let openingTable = false;

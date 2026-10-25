@@ -3068,11 +3068,6 @@
       color: var(--color-ink-placeholder);
     }
   }
-  /* An empty Mind showing the three steps under its line: no room kept for writing between them. */
-  .mind-editor-frame--guide .mind-editor {
-    min-height: 0;
-  }
-
   /* A code block's language picker, top right. */
   .code-language {
     position: absolute;
@@ -7370,7 +7365,7 @@
   .assistant-answer:has(> .assistant-answer-tip-room):not(:has(~ .assistant-question)) {
     margin-bottom: 28px;
   }
-  /* A narrow assistant keeps room for the named Add to note: Copy and New Mind drop their words and keep their icons and names. */
+  /* A narrow assistant keeps the words of Write as a note and the named Add to note: Copy drops its words and keeps its icon and name. */
   @container assistant (max-width: 320px) {
     .assistant-answer .assistant-answer-action--collapses {
       justify-content: center;

@@ -121,7 +121,6 @@ import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPlaceOf } from "../mindWriting";
-import { firstOpenOf } from "../nudges";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
 import { skillDescription, skillTitle } from "../skills";
@@ -130,7 +129,7 @@ import { askForSuggestion, describeSuggestion } from "../suggestions";
 import { resumeTabCloseFocus } from "../tabFocus";
 import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
 import { CompareSheet } from "./CompareSheet";
-import { StartGuide, useIsExample } from "./GettingStarted";
+import { useIsExample } from "./GettingStarted";
 import { CheckLineIcon, MineLineIcon } from "./lineIcons";
 import { MindNotice } from "./MindNotice";
 
@@ -699,8 +698,6 @@ function MindEditorView({
   const findShown = useMindTools((state) => state.findMindId === mindId);
   const outlineShown = useMindTools((state) => state.outlineMindId === mindId);
   const firstOpen = useFirstOpen();
-  const stepsUnderWay = useAppStore((state) => firstOpenOf(state.settings?.device.gettingStarted));
-  const guide = stepsUnderWay && empty && !isExample && !readOnly;
   const verification = useVerification(doc);
   const countShown = useCountSettings(doc).shown;
   const frame = useRef<HTMLDivElement>(null);
@@ -773,10 +770,7 @@ function MindEditorView({
           slots.badge,
         )}
       {readOnly && <MindNotice kind="read-only" />}
-      <div
-        ref={frame}
-        className={`mind-editor-frame ${guide ? "mind-editor-frame--guide" : ""} ${wordLook?.className ?? ""}`}
-      >
+      <div ref={frame} className={`mind-editor-frame ${wordLook?.className ?? ""}`}>
         {wordLook && <style>{wordLook.css}</style>}
         {wordLook && <WordTableFades frame={frame} />}
         {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
@@ -804,7 +798,6 @@ function MindEditorView({
         comparing &&
         !readOnly &&
         createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
-      {guide && <StartGuide />}
       {!readOnly && <BlockHandle editor={editor} />}
       {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
       {!readOnly && <LinkBubble editor={editor} />}

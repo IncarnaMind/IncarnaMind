@@ -1,23 +1,41 @@
 import { flip, offset, shift } from "@floating-ui/dom";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
+import { allOrigins, conversationOrigin } from "../../../../shared/blockOrigins";
 import { formatDateTime } from "../../../../shared/dates";
-import { conversationName } from "../../../../shared/naming";
+import { conversationName, mindName } from "../../../../shared/naming";
 import { useConversations } from "../../conversations";
 import { Popover } from "../../editor/Popover";
 import { useLanguage, useT } from "../../i18n";
+import { useShownPages } from "../../shownPages";
+import { useAppStore } from "../../store";
 import { CloseLineIcon, HistoryLineIcon } from "../lineIcons";
 import { iconButtonClass } from "../ui";
 
 /**
  * The assistant's History, from its title's ▾ or "Conversation history" in ⌘K: the assistant's
- * conversations (#300), newest first, each with its name and when it was last asked in. Opening
- * one, this Folder's first, All Folders, search and each row's menu come with #258.
+ * conversations (#300), newest first, each with its name and when it was last asked in. A chat
+ * a note was made from (#1940) is listed under the note's title, its own name being the first
+ * Question it came from. Opening one, this Folder's first, All Folders, search and each row's
+ * menu come with #258.
  */
 export function HistoryPopover({ anchor, onClose }: { anchor: Element; onClose(): void }) {
   const t = useT();
   const language = useLanguage();
   const close = useRef<HTMLButtonElement>(null);
   const conversations = useConversations((state) => state.list);
+  const pages = useShownPages((state) => state);
+  const minds = useAppStore((state) => state.minds);
+  /** The note each chat made, for the notes open in this window: their links back are in their copies. */
+  const noteOf = useMemo(() => {
+    const notes = new Map<string, string>();
+    for (const [mindId, doc] of Object.entries(pages)) {
+      const origin = conversationOrigin(allOrigins(doc));
+      const chat =
+        origin?.from.artifactKind === "conversation" ? origin.from.artifactId : undefined;
+      if (chat && !notes.has(chat)) notes.set(chat, mindId);
+    }
+    return notes;
+  }, [pages]);
   return (
     <Popover
       anchor={anchor}
@@ -52,7 +70,12 @@ export function HistoryPopover({ anchor, onClose }: { anchor: Element; onClose()
         ) : (
           <ul aria-label={t("assistant.history")} className="assistant-history-list">
             {conversations.map((conversation) => {
-              const name = conversationName(conversation) || t("conversation.untitled");
+              const noteId = noteOf.get(conversation.id);
+              const note = noteId ? minds.find((each) => each.id === noteId) : undefined;
+              const name =
+                (note && mindName(note)) ||
+                conversationName(conversation) ||
+                t("conversation.untitled");
               return (
                 <li
                   key={conversation.id}

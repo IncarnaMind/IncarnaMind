@@ -176,7 +176,7 @@ test("a Citation copied from the example's Answer into a Mind opens its original
   const { app, window } = await launchApp(dataDir, { examples: true });
   await setWindowSize(app, window, 1440, 900);
   const answer = await askReady(window);
-  await pointAndClick(window, answer.getByTestId("answer-new-mind"));
+  await pointAndClick(window, answer.getByTestId("answer-write-note"));
   const copy = frontMind(window).getByTestId("mind-editor");
   await expect(copy.getByTestId("citation-chip")).toHaveCount(2);
   await expect(copy.getByTestId("citation-chip").first()).toHaveAttribute("data-check", "found");
