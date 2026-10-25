@@ -2742,6 +2742,7 @@ export const zhCN = {
   "comparison.cell.readingText": "正在阅读…",
   "comparison.cell.stopped": "已停止",
   "comparison.cell.notFound": "未找到",
+  "comparison.cell.scaleChanged": "金额单位与文档不符，文档写的是 {amount}",
   "comparison.cell.nothingToSearch": "没有可搜索的文字",
   "comparison.cell.sourceRemoved": "来源已删除",
   "comparison.cell.leftOut": "已排除：由 IncarnaMind 生成",
