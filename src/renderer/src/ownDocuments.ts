@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Document, LinkedFolder } from "../../core/api";
+import type { Document } from "../../core/api";
 import { useFirstOpen } from "./firstOpen";
 import { type AppState, allExamples, isOwnDocument, useAppStore } from "./store";
 
@@ -28,19 +28,6 @@ export function useLibraryDocuments(): readonly Document[] {
   const own = useOwnDocuments();
   const all = useAppStore((state) => state.documents);
   return own.length > 0 ? own : all;
-}
-
-/** The User's own Linked folders: the examples' left out. */
-export function useOwnLinkedFolders(): readonly LinkedFolder[] {
-  const linkedFolders = useAppStore((state) => state.linkedFolders);
-  const examples = useAppStore((state) => state.examples);
-  const otherExamples = useAppStore((state) => state.otherExamples);
-  return useMemo(() => {
-    const made = allExamples({ examples, otherExamples }).flatMap((each) =>
-      each.linkedFolderId === null ? [] : [each.linkedFolderId],
-    );
-    return linkedFolders.filter((linked) => !made.includes(linked.id));
-  }, [linkedFolders, examples, otherExamples]);
 }
 
 /**

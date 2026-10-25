@@ -9,7 +9,7 @@ import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
-import { useDayOne, useOwnDocuments, useOwnLinkedFolders } from "../ownDocuments";
+import { useDayOne, useOwnDocuments } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -85,7 +85,6 @@ export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
   const ownDocuments = useOwnDocuments();
-  const ownLinkedFolders = useOwnLinkedFolders();
   const dayOne = useDayOne();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
@@ -119,6 +118,14 @@ export function DocumentsSection() {
         : documents.filter((each) => !folded.has(each.linkedFolderId ?? "")),
     [documents, folded],
   );
+  // The example's own folder is no Linked folder of the User's while its Mind is there to reach its
+  // Documents (#1942); once the fold's Mind is deleted, its row is the way back to them (#1944).
+  const hasLinkedFolders = useAppStore((state) => {
+    const shown = state.linkedFolders.filter((each) => !folded.has(each.id));
+    const exampleIds = new Set(exampleFolders.split(" ").filter(Boolean));
+    const onlyExamples = shown.length > 0 && shown.every((each) => exampleIds.has(each.id));
+    return shown.length > 0 && !(onlyExamples && exampleMindId !== null);
+  });
   const addDocuments = useAppStore((state) => state.addDocuments);
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
@@ -229,7 +236,7 @@ export function DocumentsSection() {
           hideExamples={foldExamples}
           dayOne={dayOne}
         />
-        {!quiet && ownLinkedFolders.length > 0 && (
+        {!quiet && hasLinkedFolders && (
           <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
             <LinkedFolderRows hideExamples={foldExamples} />
           </SidebarSection>
