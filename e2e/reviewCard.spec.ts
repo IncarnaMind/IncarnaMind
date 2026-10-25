@@ -87,7 +87,10 @@ const screenshot = async (window: Page, name: string) => {
 const scrolled = (window: Page) =>
   window.evaluate(() => document.querySelector(".mind-scroller")?.scrollTop ?? 0);
 
-/** A long redline: the last clause carries a whole paragraph Dana added, too wide to sit beside. */
+/**
+ * A long redline: one paragraph-wide change Dana added near the end, too wide
+ * to sit beside, and one short change just under it.
+ */
 function longRedline(): Buffer {
   const dana = 'w:author="Dana Kim" w:date="2026-10-03T10:00:00Z"';
   const clause = (index: number) =>
@@ -100,8 +103,12 @@ function longRedline(): Buffer {
           "The Tenant must tell the Landlord of any damage at once, in writing, and the Landlord may inspect the works within ten working days.",
         )}</w:ins>`,
       ),
-      clause(25),
-      clause(26),
+      paragraph(
+        `${run("Clause 25: the parties keep the schedule")}<w:ins w:id="10" ${dana}>${run(
+          " with written notice",
+        )}</w:ins>${run(" for the works.")}`,
+      ),
+      ...Array.from({ length: 9 }, (_, index) => clause(index + 26)),
     ].join(""),
   });
 }
@@ -182,8 +189,8 @@ test("a docked card scrolls its change above it only while the cursor is in the 
     await dismissChatSetup(window);
     await importWordFile(app, window, files, "Long redline.docx", longRedline());
     const editor = window.getByTestId("mind-editor");
-    const change = editor.locator("ins.proposal-theirs");
-    await expect(change).toHaveCount(1);
+    const change = editor.locator("ins.proposal-theirs", { hasText: "ten working days" });
+    await expect(editor.locator("ins.proposal-theirs")).toHaveCount(2);
 
     // The change at the page's foot: its card has nowhere to go but the foot, over it.
     await change.scrollIntoViewIfNeeded();
@@ -208,6 +215,41 @@ test("a docked card scrolls its change above it only while the cursor is in the 
     await expect.poll(async () => bottom(await boxOf(change)) <= (await boxOf(card)).y).toBe(true);
     expect(await scrolled(window)).toBeGreaterThan(before);
     expect(overlaps(await boxOf(card), await boxOf(change))).toBe(false);
+  } finally {
+    await removeDataFolder(files);
+  }
+});
+
+test("the card keeps its change while the pointer crosses another change to reach it", async () => {
+  const files = await createDataFolder();
+  try {
+    const { app, window } = await launchApp(dataDir, { home: files });
+    await setWindowSize(app, window, 900, 900);
+    await dismissChatSetup(window);
+    await importWordFile(app, window, files, "Long redline.docx", longRedline());
+    const editor = window.getByTestId("mind-editor");
+    const wide = editor.locator("ins.proposal-theirs", { hasText: "ten working days" });
+    const short = editor.locator("ins.proposal-theirs", { hasText: "with written notice" });
+    await expect(short).toHaveCount(1);
+
+    // The wide change in the page's upper half, its docked card at the foot, the short
+    // change between them: reaching the card means crossing it.
+    await wide.scrollIntoViewIfNeeded();
+    const page = await boxOf(window.locator(".mind-tab-page:visible"));
+    const middle = await boxOf(wide);
+    await window.mouse.move(page.x + page.width / 2, page.y + page.height / 2);
+    await window.mouse.wheel(0, middle.y + middle.height / 2 - (page.y + 140));
+    await expect.poll(async () => (await boxOf(wide)).y).toBeLessThanOrEqual(page.y + 200);
+    const between = await boxOf(short);
+    const card = window.getByTestId("change-bar");
+    await wide.hover();
+    await expect(card).toHaveAccessibleName("Change 1 of 2");
+    expect(bottom(between)).toBeLessThan((await boxOf(card)).y);
+
+    // Its Accept, reached past the other change, applies the change the card opened on.
+    await pointAndClick(window, card.getByTestId("change-accept"));
+    await expect(editor.locator("ins.proposal-theirs")).toHaveText([" with written notice"]);
+    await expect(window.getByTestId("their-changes-count")).toHaveText("1 change from Dana Kim");
   } finally {
     await removeDataFolder(files);
   }
