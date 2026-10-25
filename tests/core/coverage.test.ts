@@ -230,7 +230,7 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
       namedCoverage(
         "劳动合同-王芳的年假是几天？会议纪要里说的对吗？",
         ["contract", "minutes"],
-        [],
+        ["contract", "minutes"],
         zh,
       ),
     ).toEqual({
@@ -242,7 +242,7 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
       namedCoverage(
         "How many days of annual leave does Wang Fang's contract give? Is what the meeting minutes say right?",
         ["contract", "minutes"],
-        [],
+        ["contract", "minutes"],
         en,
       ),
     ).toEqual({
@@ -254,37 +254,39 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
 
   // protects=a Document read by a machine-made file name is named by its title, as the User sees it; fails_when=the line shows "people-policy-sync-2026-10-14"; no_claim=none beyond protects.
   test("names one with a machine-made name by its title", () => {
-    expect(namedCoverage("会议纪要里说的对吗？", ["sync"], [], zh)).toEqual({
+    expect(namedCoverage("会议纪要里说的对吗？", ["sync"], ["sync"], zh)).toEqual({
       kind: "named",
       used: [{ id: "sync", name: "人事政策同步会 会议纪要" }],
       rest: ["minutes"],
     });
   });
 
-  // protects=the Document the Answer cited or got Passages from is the one named, and one it only searched by name is not offered; fails_when=a Document it never used is named or offered; no_claim=which Document the model should have read.
+  // protects=the Document the Answer cited is the one named, and one it only searched by name is not offered; fails_when=a Document it never used is named or offered; no_claim=which Document the model should have read.
   test("names the Document it used, not one it only searched by name", () => {
     const question = "劳动合同-王芳的年假是几天？会议纪要里说的对吗？";
-    expect(namedCoverage(question, ["contract", "sync"], [], zh)).toEqual({
+    expect(namedCoverage(question, ["contract", "sync"], ["contract", "sync"], zh)).toEqual({
       kind: "named",
       used: [{ id: "sync", name: "人事政策同步会 会议纪要" }],
       rest: ["minutes"],
     });
-    expect(namedCoverage(question, ["sync"], ["minutes"], zh)).toBeNull();
+    expect(namedCoverage(question, ["sync"], ["sync", "minutes"], zh)).toBeNull();
   });
 
   // protects=a name that fits only the Document read, or Documents all read, says nothing; fails_when=a line shows for a plain name; no_claim=none beyond protects.
   test("says nothing when the name fits only what it read", () => {
     const question = "劳动合同-王芳的年假是几天？会议纪要里说的对吗？";
-    expect(namedCoverage(question, ["contract"], [], zh)).toBeNull();
-    expect(namedCoverage(question, ["minutes", "sync"], [], zh)).toBeNull();
+    expect(namedCoverage(question, ["contract"], ["contract"], zh)).toBeNull();
+    expect(namedCoverage(question, ["minutes", "sync"], ["minutes", "sync"], zh)).toBeNull();
     expect(namedCoverage(question, [], [], zh)).toBeNull();
-    expect(namedCoverage("What do the Q3 meeting minutes say?", ["minutes"], [], en)).toBeNull();
+    expect(
+      namedCoverage("What do the Q3 meeting minutes say?", ["minutes"], ["minutes"], en),
+    ).toBeNull();
     const contracts = [
       { id: "alder", name: "Alder supply contract" },
       { id: "birch", name: "Birch supply contract" },
     ];
     expect(
-      namedCoverage("What notice does the Alder contract give?", ["alder"], [], contracts),
+      namedCoverage("What notice does the Alder contract give?", ["alder"], ["alder"], contracts),
     ).toBeNull();
   });
 
@@ -294,17 +296,17 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
       { id: "plan", name: "Plan 2026" },
       { id: "budget", name: "Budget 2026" },
     ];
-    expect(namedCoverage("What does the 2026 one say?", ["plan"], [], plans)).toBeNull();
+    expect(namedCoverage("What does the 2026 one say?", ["plan"], ["plan"], plans)).toBeNull();
     const documents = [
       { id: "design", name: "Design document" },
       { id: "spec", name: "Requirements document" },
     ];
-    expect(namedCoverage("Summarise this document", ["design"], [], documents)).toBeNull();
+    expect(namedCoverage("Summarise this document", ["design"], ["design"], documents)).toBeNull();
     const files = [
       { id: "design", name: "设计文件" },
       { id: "spec", name: "需求文件" },
     ];
-    expect(namedCoverage("总结这个文件", ["design"], [], files)).toBeNull();
+    expect(namedCoverage("总结这个文件", ["design"], ["design"], files)).toBeNull();
   });
 
   // protects=a name that several Documents share offers all those it didn't read; fails_when=only one is counted, or one the name doesn't fit is; no_claim=none beyond protects.
@@ -315,7 +317,7 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
       { id: "zhao", name: "劳动合同-赵敏" },
       { id: "lease", name: "租赁合同" },
     ];
-    expect(namedCoverage("劳动合同里年假是几天？", ["wang"], [], contracts)?.rest).toEqual([
+    expect(namedCoverage("劳动合同里年假是几天？", ["wang"], ["wang"], contracts)?.rest).toEqual([
       "li",
       "zhao",
     ]);
@@ -323,7 +325,7 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
 });
 
 describe("A name that fits two Documents, through the core (#1512)", { timeout: 60_000 }, () => {
-  // Ten unrelated Documents, past the twelve sent whole: the assistant searches instead, as it does for the reviewer's Library.
+  // Ten unrelated Documents, past the twelve the assistant sends whole, so the Answer searches.
   const fillers: [string, string][] = [
     ["差旅报销制度.md", "# 差旅报销制度\n\n员工出差前需填写申请单。\n"],
     ["采购流程.md", "# 采购流程\n\n采购申请由部门负责人审批。\n"],

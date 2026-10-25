@@ -1074,16 +1074,16 @@ export function createAnswers(options: AnswersOptions) {
       }
       return stillReadingAtEnd;
     };
-    let namedAtEnd: AnswerSteps["coverage"] | null;
+    let namedAtEnd: AnswerSteps["coverage"] | null | undefined;
     const covered = () => {
       if (coverage || outside || finishedAt === null) return coverage;
       if (namedAtEnd === undefined) {
-        const { used, searched } = session.documentsRead();
+        const { cited, passages, searched } = session.documentsRead();
         const titles = new Map(options.documents.names().map((each) => [each.id, each.title]));
         namedAtEnd = namedCoverage(
           context.question,
-          used,
-          searched,
+          cited.length > 0 ? cited : passages,
+          [...new Set([...cited, ...passages, ...searched])],
           options.documents
             .searchableBySize(documentIds)
             .map((each) => ({ ...each, title: titles.get(each.id) })),

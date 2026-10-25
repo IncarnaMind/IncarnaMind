@@ -104,7 +104,7 @@ test("“the two main documents” names the two it took, and Use others asks ag
 
 /**
  * The issue's Library (#1512): a contract, and two minutes, one called so only by its heading,
- * and ten unrelated Documents, so the assistant searches rather than sending every Document whole.
+ * and ten unrelated Documents, so the Library is past the twelve the assistant sends whole.
  */
 async function contractAndMinutes(): Promise<string[]> {
   const documents: [string, string][] = [

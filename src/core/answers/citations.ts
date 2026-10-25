@@ -1504,12 +1504,10 @@ export function createCitationSession(
   return {
     tools,
 
-    /**
-     * The Documents the Answer used — those its Citations name, then those its Passages came
-     * from — and those it searched by name (even when nothing was found).
-     */
+    /** The Documents its Citations name, those its Passages came from, and those it searched by name. */
     documentsRead: () => ({
-      used: [...citedDocuments, ...passageDocuments.filter((id) => !citedDocuments.includes(id))],
+      cited: [...citedDocuments],
+      passages: [...passageDocuments],
       searched: [...searchedDocuments],
     }),
 

@@ -132,15 +132,16 @@ const canName = (term: string) =>
   /\p{L}/u.test(term) && compact(term).length >= (HAN.test(term) ? 2 : 3);
 
 /**
- * A Document the Answer used (cited or got Passages from) that the Question's words name, when
- * they name others of `documents` (those in scope) too (#1512): the first of `used`, in order,
- * whose name or title has the Question's words that some other Document's has as well, named as
- * the User sees it, with those others it neither used nor `searched` by name; null when there is none.
+ * A Document the Answer used that the Question's words name, when they name others of `documents`
+ * (those in scope) too (#1512): the first of `used` (the Documents it cited, or those its Passages
+ * came from when it cited none, in order) whose name or title has the Question's words that some
+ * other Document's has as well, named as the User sees it, with those others in `excluded` — every
+ * Document it used or searched by name — left out; null when there is none.
  */
 export function namedCoverage(
   question: string,
   used: readonly string[],
-  searched: readonly string[],
+  excluded: readonly string[],
   documents: readonly TitledDocument[],
 ): AnswerCoverage | null {
   const terms = keywordTerms(question).filter(
@@ -163,10 +164,7 @@ export function namedCoverage(
     const said = terms.filter((term) => namedBy(document, term));
     if (!said.some(canName)) continue;
     const rest = documents.filter(
-      (each) =>
-        !used.includes(each.id) &&
-        !searched.includes(each.id) &&
-        said.every((term) => namedBy(each, term)),
+      (each) => !excluded.includes(each.id) && said.every((term) => namedBy(each, term)),
     );
     if (rest.length > 0) {
       return {
