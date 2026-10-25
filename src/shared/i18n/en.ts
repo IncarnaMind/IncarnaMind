@@ -5683,7 +5683,7 @@ export const en = {
   "analysis.command.keywords": "analysis analyze python pandas data sheet csv calculate table",
   "analysis.chip": "Analyse data",
   "analysis.chip.hint": "The next Question may run an Analysis in Python over the data it finds",
-  "analysis.chip.remove": "Don't analyse data",
+  "analysis.chip.remove": "Don’t analyse data",
   "analysis.call.running": "Running the analysis…",
   "analysis.call.ran": "Ran an analysis on {document}",
   "analysis.call.ran.none": "Ran an analysis",
