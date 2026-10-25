@@ -10,7 +10,7 @@ import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../../lay
 import { useAppStore } from "../../store";
 import { focusTab } from "../../tabFocus";
 import { tabTitle } from "../../tabs";
-import { type Undoable, UndoRefused } from "../../undo";
+import { makeInTurn, type Undoable, UndoRefused } from "../../undo";
 
 /*
  * What the tab commands and buttons do beyond one change to the layout: they
@@ -101,7 +101,10 @@ async function moveTabBetween(tabId: string, place: TabPlace): Promise<void> {
   if (tab.pinned ? index > pinnedCount : index < pinnedCount) {
     throw new UndoRefused((t) => t("undo.tabPinnedSince"), null);
   }
-  const next = await store.changeLayout({ type: "move", tabId, groupId: at.group.id, before });
+  const next = await store.changeLayout(
+    { type: "move", tabId, groupId: at.group.id, before },
+    { quiet: true },
+  );
   if (!next) throw new UndoRefused((t) => t("undo.tabMoveRefused"), null);
 }
 
@@ -113,9 +116,14 @@ export function neighbourInRun(tabs: LayoutTab[], tab: LayoutTab, step: -1 | 1):
 
 /**
  * Moves a tab one place earlier or later among its group's tabs, only among those pinned as it
- * is, shows it and offers Undo.
+ * is, shows it and offers Undo. Held down, its key's presses make one move each, and a ⌘Z pressed
+ * meanwhile waits for them.
  */
-export async function moveWithinGroup(tabId: string, step: -1 | 1): Promise<Undoable | undefined> {
+export function moveWithinGroup(tabId: string, step: -1 | 1): Promise<Undoable | undefined> {
+  return makeInTurn(() => moveOnePlace(tabId, step));
+}
+
+async function moveOnePlace(tabId: string, step: -1 | 1): Promise<Undoable | undefined> {
   const store = useAppStore.getState();
   const at = groupOfTab(store.layout, tabId);
   const tab = at?.group.tabs.find((each) => each.id === tabId);

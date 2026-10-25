@@ -30,9 +30,11 @@ const bridge = new Proxy(
 type Store = typeof import("../../src/renderer/src/store");
 type Actions = typeof import("../../src/renderer/src/components/tabs/tabActions");
 type Undo = typeof import("../../src/renderer/src/undo");
+type Notices = typeof import("../../src/renderer/src/notices");
 let store: Store;
 let actions: Actions;
 let undo: Undo;
+let notices: Notices;
 
 beforeAll(async () => {
   (globalThis as unknown as { window: unknown }).window = {
@@ -46,10 +48,12 @@ beforeAll(async () => {
   store = await import("../../src/renderer/src/store");
   actions = await import("../../src/renderer/src/components/tabs/tabActions");
   undo = await import("../../src/renderer/src/undo");
+  notices = await import("../../src/renderer/src/notices");
 });
 
 beforeEach(() => {
   undo.useUndo.setState({ done: [], undone: [], line: null, running: null });
+  notices.useNotices.setState({ errors: [] });
 });
 
 afterEach(() => {
@@ -180,6 +184,28 @@ test("Undo the core turns down is refused, saying so, rather than counted as don
   expect(problem()?.step).toBe("undo");
   expect(problem()?.reason(english)).toBe("the tabs couldn’t be changed");
   expect(undo.useUndo.getState().done).toEqual([]);
+  expect(notices.useNotices.getState().errors).toEqual([]);
+});
+
+test("Two moves at once make two moves, which Undo and Redo then take one at a time", async () => {
+  const window = await windowOf(["Alpha", "Beta", "Gamma", "Delta"]);
+  const [first, second] = await Promise.all([
+    actions.moveWithinGroup(window.idOf("Beta"), 1),
+    actions.moveWithinGroup(window.idOf("Beta"), 1),
+  ]);
+  if (!first || !second) throw new Error("A move offers no Undo.");
+  expect(window.order()).toEqual(["Alpha", "Gamma", "Delta", "Beta"]);
+
+  undo.useUndo.getState().push(first);
+  undo.useUndo.getState().push(second);
+  await undo.useUndo.getState().undo();
+  expect(window.order()).toEqual(["Alpha", "Gamma", "Beta", "Delta"]);
+  await undo.useUndo.getState().undo();
+  expect(window.order()).toEqual(["Alpha", "Beta", "Gamma", "Delta"]);
+  await undo.useUndo.getState().redo();
+  expect(window.order()).toEqual(["Alpha", "Gamma", "Beta", "Delta"]);
+  await undo.useUndo.getState().redo();
+  expect(window.order()).toEqual(["Alpha", "Gamma", "Delta", "Beta"]);
 });
 
 test("Undo refuses when the tabs either side of the moved one have both closed", async () => {

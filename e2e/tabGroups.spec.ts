@@ -616,8 +616,9 @@ test("a tab moves a place earlier or later in its group from its menu, its keys 
   await expect(pinnedAlpha.getByTestId("tab.moveEarlier")).toHaveCount(0);
   await expect(pinnedAlpha.getByTestId("tab.moveLater")).toBeVisible();
   await pinnedAlpha.getByTestId("tab.moveLater").click();
-  const moved = await tabIdOrder(window);
-  expect(moved.slice(0, 2)).toEqual([pinnedOrder[1], pinnedOrder[0]]);
+  await expect
+    .poll(async () => (await tabIdOrder(window)).slice(0, 2))
+    .toEqual([pinnedOrder[1], pinnedOrder[0]]);
   await expect(tabNamed(window, "Alpha")).toHaveAttribute("data-pinned", "true");
   await expect(tabNamed(window, "Beta")).toHaveAttribute("data-pinned", "true");
   await expect(window.getByRole("tab").nth(2)).not.toHaveAttribute("data-pinned");
@@ -691,6 +692,29 @@ test("Undo says why it can't put back a move of a tab that has gone to another g
   await window.keyboard.press("ControlOrMeta+z");
   await expect(window.getByTestId("undo-problem")).toContainText("the tab is in another group now");
   await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Delta"]);
+  await app.close();
+});
+
+test("a key held down moves the tab once per press, and Undo takes back one press at a time", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  await pointAndClick(window, tabNamed(window, "Alpha"));
+  await window.keyboard.down("Control");
+  await window.keyboard.down("Shift");
+  for (let press = 0; press < 3; press++) {
+    await window.keyboard.down("PageDown");
+    await window.keyboard.up("PageDown");
+  }
+  await window.keyboard.up("Shift");
+  await window.keyboard.up("Control");
+  await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Delta", "Alpha", "Epsilon"]);
+
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Alpha", "Delta", "Epsilon"]);
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Delta", "Alpha", "Epsilon"]);
   await app.close();
 });
 
