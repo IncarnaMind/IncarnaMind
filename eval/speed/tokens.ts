@@ -468,16 +468,25 @@ export function measurePrompt(params: CallParams): MeasuredPrompt {
   };
 }
 
+/**
+ * The provider's counts to use, or null when it gave no input count or a count that isn't a
+ * non-negative finite number: a malformed count makes its usage unusable, never a zero.
+ */
 const countedOf = (usage: {
   inputTokens: { total?: number | undefined; cacheRead?: number | undefined };
   outputTokens: { total?: number | undefined };
 }): CountedUsage | null => {
+  const raw = [usage.inputTokens.total, usage.inputTokens.cacheRead, usage.outputTokens.total];
+  if (raw.some((value) => typeof value === "number" && (!Number.isFinite(value) || value < 0))) {
+    return null;
+  }
   const input = usage.inputTokens.total;
   if (input === undefined) return null;
+  const known = (value: number | undefined) => (typeof value === "number" ? value : null);
   return {
     input,
-    cached: usage.inputTokens.cacheRead ?? null,
-    output: usage.outputTokens.total ?? null,
+    cached: known(usage.inputTokens.cacheRead),
+    output: known(usage.outputTokens.total),
   };
 };
 
@@ -524,33 +533,39 @@ export function createTokenAuditor(): TokenAudit {
         throw error;
       }
       const reader = result.stream.getReader();
+      // The terminal state, settled once: a finish with no usage is still finished, an error part
+      // that closes after it is still failed, and a later close never overwrites either.
+      let settled: AuditedRequest["outcome"] | null = null;
+      const settle = (state: AuditedRequest["outcome"]) => {
+        if (settled !== null) return;
+        settled = state;
+        if (request) request.outcome = state;
+      };
       const stream = new ReadableStream<StreamPart>({
         async pull(controller) {
           try {
             const { done, value } = await reader.read();
             if (done) {
-              if (request && request.counted === null) request.outcome = "stopped";
+              settle("stopped");
               controller.close();
               return;
             }
             if (value.type === "finish") {
-              if (request) {
-                request.counted = countedOf(value.usage);
-                request.outcome = "finished";
-              }
+              if (request) request.counted = countedOf(value.usage);
+              settle("finished");
             } else if (value.type === "tool-call" && request) {
               request.called.push(value.toolName);
-            } else if (value.type === "error" && request) {
-              request.outcome = "failed";
+            } else if (value.type === "error") {
+              settle("failed");
             }
             controller.enqueue(value);
           } catch (error) {
-            if (request) request.outcome = "failed";
+            settle(outcomeOf(error));
             controller.error(error);
           }
         },
         async cancel(reason) {
-          if (request && request.counted === null) request.outcome = "stopped";
+          settle("stopped");
           await reader.cancel(reason);
         },
       });
@@ -606,8 +621,8 @@ export function kindOf(request: AuditedRequest): string {
   return KINDS.find((each) => each.flows.includes(request.flow))?.kind ?? "Other flows";
 }
 
-const mean = (values: readonly number[]): number =>
-  values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
+const mean = (values: readonly number[]): number | null =>
+  values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
 
 /** One kind's requests, as means per request: the parts scaled to the provider's count. */
 export interface TokenRow {
@@ -615,19 +630,23 @@ export interface TokenRow {
   flows: string;
   /** False: no flow of this kind ran in this report, so its numbers are not measured (not zero). */
   measured: boolean;
+  /** The finished calls of the kind. */
+  calls: number;
+  /** The finished calls with a usable provider count: the ones the parts are scaled to. */
   requests: number;
   failed: number;
-  parts: PromptParts;
-  /** How many `<passage>` blocks a request carries. */
+  /** Null: no finished call had a usable count, so no part can be placed in the provider's frame. */
+  parts: PromptParts | null;
+  /** How many `<passage>` blocks a request carries, mean over the counted calls. */
   passages: number;
-  /** What the provider counted, mean per request. */
-  input: number;
-  cached: number;
-  /** The share of the input the provider read from its cache. */
-  cachedShare: number;
-  output: number;
+  /** What the provider counted, mean per request; null when any counted call left it unknown. */
+  input: number | null;
+  cached: number | null;
+  /** The share of the input the provider read from its cache; null when either is unknown. */
+  cachedShare: number | null;
+  output: number | null;
   /** The local estimate before scaling, mean per request. */
-  estimated: number;
+  estimated: number | null;
 }
 
 function rowOf(
@@ -636,34 +655,44 @@ function rowOf(
   requests: readonly AuditedRequest[],
   measured: boolean,
 ): TokenRow {
-  const finished = requests.filter((each) => each.outcome === "finished" && each.counted !== null);
+  const finished = requests.filter((each) => each.outcome === "finished");
+  const counted = finished.filter((each) => each.counted !== null);
   const parts = emptyParts();
-  for (const request of finished) {
-    const counted = request.counted;
-    if (!counted) continue;
-    const scale = request.estimated > 0 ? counted.input / request.estimated : 0;
-    for (const key of PART_KEYS) parts[key] += (request.parts[key] * scale) / finished.length;
+  for (const request of counted) {
+    const usage = request.counted;
+    if (!usage) continue;
+    const scale = request.estimated > 0 ? usage.input / request.estimated : 0;
+    for (const key of PART_KEYS) parts[key] += (request.parts[key] * scale) / counted.length;
   }
-  const input = mean(finished.map((each) => each.counted?.input ?? 0));
-  const cached = mean(finished.map((each) => each.counted?.cached ?? 0));
+  /**
+   * A column is a mean only when every counted call gave it: one unknown leaves it unknown, never
+   * a mean of the rest (which would read as the whole kind) and never a zero.
+   */
+  const column = (pick: (usage: CountedUsage) => number | null): number | null => {
+    const values = counted.map((request) => (request.counted ? pick(request.counted) : null));
+    return values.every((value): value is number => value !== null) ? mean(values) : null;
+  };
+  const input = column((usage) => usage.input);
+  const cached = column((usage) => usage.cached);
   return {
     kind,
     flows,
     measured,
-    requests: finished.length,
+    calls: finished.length,
+    requests: counted.length,
     failed: requests.length - finished.length,
-    parts,
-    passages: mean(finished.map((each) => each.passages)),
+    parts: counted.length === 0 ? null : parts,
+    passages: mean(counted.map((each) => each.passages)) ?? 0,
     input,
     cached,
-    cachedShare: input > 0 ? cached / input : 0,
-    output: mean(finished.map((each) => each.counted?.output ?? 0)),
-    estimated: mean(finished.map((each) => each.estimated)),
+    cachedShare: input !== null && cached !== null && input > 0 ? cached / input : null,
+    output: column((usage) => usage.output),
+    estimated: mean(counted.map((each) => each.estimated)),
   };
 }
 
-const anythingElse = (row: TokenRow): number =>
-  row.parts.question + row.parts.toolCalls + row.parts.toolResults + row.parts.other;
+const anythingElse = (parts: PromptParts): number =>
+  parts.question + parts.toolCalls + parts.toolResults + parts.other;
 
 /**
  * The tokens of each part of a kind's requests, mean per request. `ran`: the harness flows that
@@ -692,10 +721,26 @@ const shown = (value: number): string =>
 
 const shownShare = (value: number): string => `${Math.round(value * 100)}%`;
 
-const rowLine = (row: TokenRow): string =>
-  row.measured
-    ? `| ${row.kind} | ${row.flows} | ${row.requests} | ${shown(row.parts.instructions)} | ${shown(row.parts.tools)} | ${Math.round(row.passages)} | ${shown(row.parts.passages + row.parts.passageNotes)} | ${shown(row.parts.history)} | ${shown(anythingElse(row))} | ${shown(row.input)} | ${shown(row.cached)} (${shownShare(row.cachedShare)}) | ${shown(row.output)} |`
-    : `| ${row.kind} | ${row.flows} | not run (flow not selected) | – | – | – | – | – | – | – | – | – |`;
+/** A count the provider didn't give, or one that isn't a usable number, is a dash, never a zero. */
+const cell = (value: number | null): string =>
+  value === null || !Number.isFinite(value) ? "–" : shown(value);
+
+const rowLine = (row: TokenRow): string => {
+  const requests =
+    row.calls === row.requests ? `${row.calls}` : `${row.calls} (${row.requests} counted)`;
+  if (!row.measured) {
+    return `| ${row.kind} | ${row.flows} | not run (flow not selected) | – | – | – | – | – | – | – | – | – |`;
+  }
+  const parts = row.parts;
+  if (parts === null) {
+    return `| ${row.kind} | ${row.flows} | ${requests} | – | – | – | – | – | – | – | – | – |`;
+  }
+  const cached =
+    row.cached !== null && row.cachedShare !== null
+      ? `${cell(row.cached)} (${shownShare(row.cachedShare)})`
+      : "–";
+  return `| ${row.kind} | ${row.flows} | ${requests} | ${cell(parts.instructions)} | ${cell(parts.tools)} | ${cell(row.passages)} | ${cell(parts.passages + parts.passageNotes)} | ${cell(parts.history)} | ${cell(anythingElse(parts))} | ${cell(row.input)} | ${cached} | ${cell(row.output)} |`;
+};
 
 export const COUNTED_NOTE =
   "Input, cached input and output are what the provider counted. Every other number is estimated locally from the exact prompt the core assembled, with the core's own estimator, and scaled per request so the parts sum to the counted input.";

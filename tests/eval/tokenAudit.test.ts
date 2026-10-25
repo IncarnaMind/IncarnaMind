@@ -1,4 +1,5 @@
-import { jsonSchema, streamText, tool } from "ai";
+import { generateText, jsonSchema, streamText, tool } from "ai";
+import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import {
   type AuditedRequest,
@@ -21,6 +22,7 @@ import {
 } from "../../eval/speed/tokens";
 import type { ChatModelSpec } from "../../src/core";
 import { estimateTokens } from "../../src/core/answers/context";
+import type { ChatLanguageModel } from "../../src/core/providers/models";
 import { scriptedModel } from "../helpers/models";
 
 const empty = (): PromptParts => ({
@@ -262,10 +264,10 @@ describe("the tables", () => {
     expect(answers?.cached).toBe(30);
     expect(answers?.cachedShare).toBeCloseTo(0.3);
     expect(answers?.output).toBe(15);
-    expect(answers?.parts.instructions).toBeCloseTo(40);
-    expect(answers?.parts.tools).toBeCloseTo(30);
-    expect(answers?.parts.history).toBeCloseTo(20);
-    expect(answers?.parts.question).toBeCloseTo(10);
+    expect(answers?.parts?.instructions).toBeCloseTo(40);
+    expect(answers?.parts?.tools).toBeCloseTo(30);
+    expect(answers?.parts?.history).toBeCloseTo(20);
+    expect(answers?.parts?.question).toBeCloseTo(10);
     expect(sumParts(answers?.parts ?? empty())).toBeCloseTo(100);
   });
 
@@ -436,5 +438,173 @@ describe("a kind whose flows did not run", () => {
     expect(report).toContain(
       "| Other flows | suggestion, comparison, research | not run (flow not selected) |",
     );
+  });
+});
+
+describe("a provider count that is not usable", () => {
+  const spec: ChatModelSpec = {
+    kind: "anthropic",
+    baseUrl: null,
+    apiKey: "test",
+    modelId: "claude-haiku-5-5",
+  };
+  const params: CallToMeasure = {
+    prompt: [{ role: "user", content: [{ type: "text", text: "What does it say?" }] }],
+  };
+  const usageOf = (input?: number, cached?: number, output?: number) => ({
+    inputTokens: { total: input, noCache: undefined, cacheRead: cached, cacheWrite: undefined },
+    outputTokens: { total: output, text: undefined, reasoning: undefined },
+  });
+  type Part =
+    | {
+        type: "finish";
+        finishReason: { unified: "stop"; raw: undefined };
+        usage: ReturnType<typeof usageOf>;
+      }
+    | { type: "error"; error: unknown };
+  const generated = (usage: ReturnType<typeof usageOf>) =>
+    new MockLanguageModelV4({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "An answer." }],
+        finishReason: { unified: "stop", raw: undefined },
+        usage,
+        warnings: [],
+      }),
+    });
+  const streamOf = (parts: readonly Part[]) =>
+    new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: new ReadableStream({
+          start(controller) {
+            for (const part of parts) controller.enqueue(part);
+            controller.close();
+          },
+        }),
+      }),
+    });
+  const asV4 = (model: ChatLanguageModel) => {
+    if (model.specificationVersion !== "v4") throw new Error("The audit wraps a v4 model.");
+    return model;
+  };
+  const audited = (model: MockLanguageModelV4) => {
+    const audit = createTokenAuditor();
+    const create = audit.chatModels(() => model);
+    audit.begin({ flow: "question", model: "anthropic/claude-haiku-5-5", language: "en" });
+    return { audit, model: asV4(create(spec)) };
+  };
+  const consumed = async (stream: ReadableStream<unknown>) => {
+    const reader = stream.getReader();
+    const parts: unknown[] = [];
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      parts.push(next.value);
+    }
+    return parts;
+  };
+
+  it("keeps a missing cached or output count unknown, never zero", async () => {
+    const { audit, model } = audited(generated(usageOf(100, undefined, undefined)));
+    await generateText({ model, instructions: "Answer in English.", prompt: "What does it say?" });
+    const requests = audit.end();
+    const row = tokenRows(requests, new Set(["question"]))[0];
+    expect(row?.input).toBe(100);
+    expect(row?.cached).toBeNull();
+    expect(row?.cachedShare).toBeNull();
+    expect(row?.output).toBeNull();
+    const table = kindTable(requests, new Set(["question"]));
+    expect(table).not.toContain("0 (0%)");
+    expect(table).toContain("–");
+  });
+
+  it("leaves a group's cached count unknown when one request's is", async () => {
+    let call = 0;
+    const model = new MockLanguageModelV4({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "An answer." }],
+        finishReason: { unified: "stop", raw: undefined },
+        usage: call++ === 0 ? usageOf(100, 40, 7) : usageOf(100, undefined, 7),
+        warnings: [],
+      }),
+    });
+    const { audit, model: wrapped } = audited(model);
+    for (let each = 0; each < 2; each++) {
+      await generateText({ model: wrapped, instructions: "Answer.", prompt: "What does it say?" });
+    }
+    const row = tokenRows(audit.end())[0];
+    expect(row?.requests).toBe(2);
+    expect(row?.cached).toBeNull();
+    expect(row?.cachedShare).toBeNull();
+  });
+
+  it("rejects a malformed usage: no zero row and no NaN", async () => {
+    const { audit, model } = audited(generated(usageOf(Number.NaN, 40, 7)));
+    await generateText({ model, instructions: "Answer.", prompt: "What does it say?" });
+    const requests = audit.end();
+    expect(requests[0]?.counted).toBeNull();
+    const row = tokenRows(requests, new Set(["question"]))[0];
+    expect(row?.calls).toBe(1);
+    expect(row?.requests).toBe(0);
+    expect(row?.parts).toBeNull();
+    const table = kindTable(requests, new Set(["question"]));
+    expect(table).toContain("1 (0 counted)");
+    expect(table).not.toContain("NaN");
+    expect(table).not.toContain("| 0 |");
+  });
+
+  it("keeps a normal finish without a usable usage finished", async () => {
+    const { audit, model } = audited(
+      streamOf([
+        {
+          type: "finish",
+          finishReason: { unified: "stop", raw: undefined },
+          usage: usageOf(undefined, 40, 7),
+        },
+      ]),
+    );
+    const parts = await consumed((await model.doStream(params)).stream);
+    expect(parts).toHaveLength(1);
+    const requests = audit.end();
+    expect(requests[0]?.outcome).toBe("finished");
+    expect(requests[0]?.counted).toBeNull();
+  });
+
+  it("records an AbortError while reading as stopped, keeping the error", async () => {
+    const error = new DOMException("User stopped", "AbortError");
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: new ReadableStream({ pull: (controller) => controller.error(error) }),
+      }),
+    });
+    const { audit, model: wrapped } = audited(model);
+    await expect(consumed((await wrapped.doStream(params)).stream)).rejects.toBe(error);
+    expect(audit.end()[0]?.outcome).toBe("stopped");
+  });
+
+  it("keeps an error part's stream failed after it closes, and its part", async () => {
+    const error = new Error("provider failed");
+    const { audit, model } = audited(streamOf([{ type: "error", error }]));
+    const parts = await consumed((await model.doStream(params)).stream);
+    expect(parts).toEqual([{ type: "error", error }]);
+    expect(audit.end()[0]?.outcome).toBe("failed");
+  });
+
+  it("records a cancelled read as stopped and forwards its reason", async () => {
+    const reason = { stopped: "by User" };
+    let received: unknown;
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: new ReadableStream({
+          cancel(value) {
+            received = value;
+          },
+        }),
+      }),
+    });
+    const { audit, model: wrapped } = audited(model);
+    const reader = (await wrapped.doStream(params)).stream.getReader();
+    await reader.cancel(reason);
+    expect(received).toBe(reason);
+    expect(audit.end()[0]?.outcome).toBe("stopped");
   });
 });
