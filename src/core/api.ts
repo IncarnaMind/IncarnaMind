@@ -7797,7 +7797,7 @@ export interface MindExport extends MindExportPreview {
   trackedChanges: number;
   /**
    * The Documents whose Bibliography entries are too thin to cite (`BibliographyEntry.needsDetails`),
-   * each marked so in the file. None in Numbered, which lists Documents by name.
+   * for the result line's count. None in Numbered, which lists Documents by name.
    */
   needsDetails: string[];
 }
