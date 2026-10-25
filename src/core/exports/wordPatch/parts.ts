@@ -17,7 +17,14 @@ import {
   type StyleBases,
   type StyleRole,
 } from "../docx";
-import { commentsPart, footnotesPart, W_NAMESPACE, WordIds, XML_DECLARATION } from "../wordml";
+import {
+  commentsPart,
+  footnotesPart,
+  noteBookmark,
+  W_NAMESPACE,
+  WordIds,
+  XML_DECLARATION,
+} from "../wordml";
 import {
   CONTENT_TYPES,
   type PartRelationships,
@@ -392,7 +399,11 @@ const STORY_PART = /^word\/(?:document\d*|header\d*|footer\d*|footnotes|endnotes
  * own, and every `w:id` its stories have (their changes, comments and
  * bookmarks), so a new tracked change's or comment's is its own.
  */
-export async function reserveIds(pkg: WordPackageWriter, ids: WordIds): Promise<void> {
+export async function reserveIds(
+  pkg: WordPackageWriter,
+  ids: WordIds,
+  bookmarks: Set<string>,
+): Promise<void> {
   for (const name of pkg.zip.names()) {
     if (!STORY_PART.test(name)) continue;
     const text = (await pkg.text(name)) ?? "";
@@ -402,6 +413,8 @@ export async function reserveIds(pkg: WordPackageWriter, ids: WordIds): Promise<
     for (const match of text.matchAll(/\bw:id\s*=\s*"(-?\d+)"/g)) {
       ids.reserve("annotation", Number(match[1]));
     }
+    for (const match of text.matchAll(/<w:bookmarkStart\b[^>]*\bw:name="([^"]+)"/g))
+      bookmarks.add(match[1] ?? "");
   }
 }
 
@@ -420,6 +433,8 @@ export class PatchTarget implements DocxTarget {
   readonly styles: DocxStyles;
   private readonly links = new Map<string, string>();
   private readonly noteLinks = new Map<string, string>();
+  private readonly bookmarkNames = new Set<string>();
+  private readonly noteBookmarks = new Map<number, string>();
   private readonly contentTypes: Promise<void>[] = [];
 
   constructor(
@@ -458,6 +473,23 @@ export class PatchTarget implements DocxTarget {
 
   list(ordered: boolean, level: number, start: number): number {
     return this.numbering.list(ordered, level, start);
+  }
+
+  /** A note's bookmark, named so it can't resolve to one the file already has. */
+  noteBookmark(note: number): string {
+    const known = this.noteBookmarks.get(note);
+    if (known) return known;
+    let name = noteBookmark(note);
+    for (let again = 2; this.bookmarkNames.has(name); again++)
+      name = `${noteBookmark(note)}_${again}`;
+    this.bookmarkNames.add(name);
+    this.noteBookmarks.set(note, name);
+    return name;
+  }
+
+  /** The bookmark names the file's parts have, which a note's must not take. */
+  reserveBookmarks(names: Iterable<string>): void {
+    for (const name of names) this.bookmarkNames.add(name);
   }
 
   async flush(): Promise<void> {

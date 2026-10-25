@@ -126,6 +126,9 @@ export function Popover({
     // Document viewer's own Esc sees it; inside, `onKeyDown` handles it.
     const dismissOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || inLater(event.target)) return;
+      // Esc in a dialog on top closes that dialog, the innermost thing open, not this popover behind it.
+      const dialog = event.target instanceof Element ? event.target.closest("dialog[open]") : null;
+      if (dialog && !dialog.contains(element)) return;
       if (event.target instanceof Node && element.contains(event.target)) return;
       event.preventDefault();
       dismissByEscape.current(anchor);
