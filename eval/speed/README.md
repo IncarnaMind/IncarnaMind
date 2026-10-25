@@ -23,3 +23,15 @@ npm run eval:speed
 - `INCARNAMIND_EVAL_SPEED_FLOWS` runs only the flows named, `_LANGUAGES` only `en` or `zh-CN`, and `_RUNS` sets how many times each runs per model and language (3 by default).
 - The ChatGPT plan signs in through a browser, which a run can't do: time it by hand in the app.
 - Run it on a quiet computer and say the load: the log gives each run's load average.
+
+## The token audit (#1634)
+
+`INCARNAMIND_EVAL_SPEED_AUDIT=1` adds the token audit to the same run, or `npm run eval:speed:tokens`. For each model call it measures the exact prompt the core assembled and writes, per request kind and per flow:
+
+- the tokens of the instructions, each Tool's description and schema, the Passages and their windows, the conversation history, and anything else, with the provider's counted input, cached input and output;
+- the Tools each kind is offered and how often it called each one, so a Tool it never calls is named;
+- the instruction blocks each kind carries, and whether a step of that kind relied on each block (its Tool was called) or no step used it.
+
+The input, cached input and output are what the provider counted, from the same finish part the core's timing records keep. Every other number is estimated locally with the core's own estimator (`src/core/answers/context` `estimateTokens`) from the exact prompt text, and scaled per request by `counted input / local estimate`, so the parts sum to the counted input. The report says how far the local estimate was from the counted total before scaling; the split between the parts is as good as that estimator, and a part the prompt doesn't let apart (a selection before the Question, the provider's own framing) is named rather than guessed. Only numbers and Tool names are kept, never a prompt's or a reply's text.
+
+The tables are in the run's report and in `tokens.json` beside it.
