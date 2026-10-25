@@ -58,3 +58,11 @@ It checks that each route works in both languages, not which is best: 8 clips pe
 
 - OpenAI varies most from run to run. Another run of the same code gave 6.4%, 4.8% and 6.7%.
 - Before its turns started 1.2 s ahead of the detector, OpenAI cut first words, and Chinese was 7.8%.
+
+2026-10-25, the refreshed Qwen branch's local-only control on the same clips:
+
+| Route | English (WER) | Chinese (CER) | Both taking turns |
+|---|---|---|---|
+| This computer, Qwen3-ASR 0.6B | 12.8% (18 of 141) | 1.3% (3 of 231) | 4.0% (15 of 372) |
+
+The Qwen rows remain pending until a real key is available; no cloud result is inferred from the fixtures.
