@@ -2742,6 +2742,7 @@ export const zhCN = {
   "comparison.cell.readingText": "正在阅读…",
   "comparison.cell.stopped": "已停止",
   "comparison.cell.notFound": "未找到",
+  "comparison.cell.scaleChanged": "金额单位与文档不符，文档写的是 {amount}",
   "comparison.cell.nothingToSearch": "没有可搜索的文字",
   "comparison.cell.sourceRemoved": "来源已删除",
   "comparison.cell.leftOut": "已排除：由 IncarnaMind 生成",
@@ -3567,6 +3568,8 @@ export const zhCN = {
   "error.startup.title": "IncarnaMind 无法启动",
   "error.startup.body": "无法打开你的数据文件夹。\n\n{message}",
   "error.startup.busy": "IncarnaMind 无法打开数据文件夹。可能另一个副本仍在启动，请稍后再试。",
+  "error.startup.stalled":
+    "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。",
   "error.startup.newer.title": "更新 IncarnaMind 才能打开你的数据",
   "error.startup.newer.body": "较新版本的 IncarnaMind 保存了这些数据。更新后即可打开，数据未改动。",
   "error.startup.newer.download": "下载最新版本",
