@@ -18,7 +18,7 @@ import {
 } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { readClaimCheck } from "../../src/shared/claimChecks";
-import { askAssistant, changesIn } from "../helpers/assistant";
+import { askAssistant } from "../helpers/assistant";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -313,15 +313,12 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
         const client = await connectToMind(core, mind.id);
         writeMind(client, [note(each.language === "en" ? "Budget notes." : "预算要点。")]);
         await client.settled();
-        const answer = await askAssistant(core, {
+        await askAssistant(core, {
           text: each.ask,
           mindId: mind.id,
           scope: { folderIds: [folder.id], tagIds: [], documentIds: [] },
         });
         await client.settled();
-        // A cell lands unmarked when it is Supported, or when its write was never checked.
-        const receipts = changesIn(answer).map((change) => change.selfCheck);
-        const checked = receipts.every((receipt) => receipt && receipt.sent === receipt.cited);
         const found: { text: string; check: ClaimCheckAttributes | null }[] = [];
         readMind(client).descendants((node) => {
           if (node.type.name !== "tableCell") return true;
@@ -344,7 +341,7 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
           verdicts.push({
             cell: text === written.text ? written.text : `${written.text} (now ${text})`,
             right: written.right,
-            verdict: check ? check.state : checked ? "supported" : "not-checked",
+            verdict: check?.state ?? "not-checked",
             why: check ? (check.unsupported?.reason ?? check.says ?? check.reason ?? "") : "",
           });
         });

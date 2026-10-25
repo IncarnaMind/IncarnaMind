@@ -96,6 +96,14 @@ const BUDGETS: Budget[] = [
   },
 ];
 
+/** How a written table's cells land: each with its check's mark, Supported included (#1909). */
+const LANDED = [
+  ["100", "supported"],
+  ["210", "contradicted"],
+  ["30", "supported"],
+  ["42", "supported"],
+];
+
 /** What a cell's check is told of its table: the line before it, its headings, and its row with the other values left out. */
 const tableOf = (budget: Budget, row: string) =>
   ["<table>", budget.caption, budget.headings.join(" | "), row, "</table>"].join("\n");
@@ -274,19 +282,19 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
       const confirmed = judged.filter((call) => call.system.startsWith("Compare a sentence"));
       expect(confirmed.length).toBeGreaterThan(0);
       for (const call of confirmed) expect(call.prompt).toContain(tableOf(budget, wrongRow));
-      expect(marksIn(client)).toEqual([[budget.wrong, "contradicted"]]);
+      expect(marksIn(client)).toEqual(LANDED);
       expect(changesIn(answer)[0]?.selfCheck).toMatchObject({ cited: 4, sent: 4, checked: 4 });
       const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });
       await resolveChanges(client, "accept");
-      expect(marksIn(client)).toEqual([[budget.wrong, "contradicted"]]);
+      expect(marksIn(client)).toEqual(LANDED);
       undo.undo();
       await client.settled();
       expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
-      expect(marksIn(client)).toEqual([[budget.wrong, "contradicted"]]);
+      expect(marksIn(client)).toEqual(LANDED);
       undo.redo();
       await client.settled();
       expect(pendingProposals(client.blocks)).toHaveLength(0);
-      expect(marksIn(await reopen())).toEqual([[budget.wrong, "contradicted"]]);
+      expect(marksIn(await reopen())).toEqual(LANDED);
     },
   );
 });
@@ -319,10 +327,7 @@ describe("A written table's cell its Citations don't support", () => {
     expect(checks.some((call) => call.prompt.includes('<task action="cut-unsupported">'))).toBe(
       false,
     );
-    expect(marksIn(client)).toEqual([
-      [budget.wrong, "contradicted"],
-      ["42", "unsupported"],
-    ]);
+    expect(marksIn(client)).toEqual([...LANDED.slice(0, 3), ["42", "unsupported"]]);
   });
 });
 
