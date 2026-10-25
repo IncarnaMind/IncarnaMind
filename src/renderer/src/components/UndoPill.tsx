@@ -4,11 +4,11 @@ import { useFade } from "../motion";
 import { useAppStore } from "../store";
 import { type UndoLineState, useUndo } from "../undo";
 import {
-  fitsLeftOfText,
-  setUndoPillBand,
+  bandsUnderPill,
+  type PageUnderPill,
+  setUndoPillBands,
   showsUndoPill,
-  undoBandHeight,
-  useUndoPillBand,
+  useUndoPillBands,
 } from "../undoPill";
 import { useHeld } from "../useHeld";
 import { useGroupsMerged } from "../useWindowWidth";
@@ -24,12 +24,16 @@ export function UndoPill() {
   const line = useUndo((state) => state.line);
   const place = useRef<HTMLDivElement>(null);
   const merged = useGroupsMerged();
-  // The leftmost group on screen (the focused one, merged) is the page the pill must clear.
-  const tabId = useAppStore((state) =>
-    state.layout ? (visibleGroupsOf(state.layout, merged)[0]?.activeTabId ?? null) : null,
+  // Every page on screen, by the tab in front of it: a page brought forward is when to measure again.
+  const onScreen = useAppStore((state) =>
+    state.layout
+      ? visibleGroupsOf(state.layout, merged)
+          .map((group) => `${group.id}:${group.activeTabId ?? ""}`)
+          .join("|")
+      : "",
   );
   const shown = showsUndoPill(sidebar) && line !== null && !line.change?.shownAt;
-  usePillBand(place, shown, shown && line ? line.id : null, tabId);
+  usePillBands(place, shown, shown && line ? line.id : null, onScreen);
   if (!showsUndoPill(sidebar)) return null;
   return (
     <div
@@ -44,61 +48,53 @@ export function UndoPill() {
   );
 }
 
-function usePillBand(
+function usePillBands(
   place: RefObject<HTMLDivElement | null>,
   shown: boolean,
   lineId: number | null,
-  tabId: string | null,
+  onScreen: string,
 ) {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the page under the pill is when to measure again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the pages on screen are when to measure again.
   useLayoutEffect(() => {
     const anchor = place.current;
     const card = anchor?.parentElement;
     if (!shown || lineId === null || !anchor || !card) {
-      setUndoPillBand(null, 0);
+      setUndoPillBands({});
       return;
     }
     const measure = () => {
       const pill = anchor.getBoundingClientRect();
-      const group = groupUnder(card, pill);
-      const scroller = group?.querySelector<HTMLElement>(".mind-scroller");
-      const column = group?.querySelector<HTMLElement>(".mind-measure");
-      const groupId = group?.dataset.groupId ?? null;
-      if (!group || !scroller || !column) {
-        setUndoPillBand(null, 0);
-        return;
-      }
       const cardLeft = card.getBoundingClientRect().left;
-      if (fitsLeftOfText(column.getBoundingClientRect().left - cardLeft, pill.width)) {
-        setUndoPillBand(groupId, 0);
-        return;
+      const kept = useUndoPillBands.getState().bands;
+      const pages: PageUnderPill[] = [];
+      for (const group of card.querySelectorAll<HTMLElement>(".tab-group")) {
+        const groupId = group.dataset.groupId;
+        const scroller = group.querySelector<HTMLElement>(".mind-scroller");
+        const column = group.querySelector<HTMLElement>(".mind-measure");
+        if (groupId === undefined || !scroller || !column) continue;
+        const box = group.getBoundingClientRect();
+        pages.push({
+          groupId,
+          left: box.left,
+          right: box.right,
+          columnLeft: column.getBoundingClientRect().left,
+          scrollerBottom: scroller.getBoundingClientRect().bottom,
+          applied: kept[groupId] ?? 0,
+        });
       }
-      // The page's own foot each time, which the band it has already given doesn't move.
-      const applied = useUndoPillBand.getState();
-      const kept = applied.groupId === groupId ? applied.height : 0;
-      setUndoPillBand(
-        groupId,
-        undoBandHeight(scroller.getBoundingClientRect().bottom, kept, pill.top),
-      );
+      setUndoPillBands(bandsUnderPill(pill, cardLeft, pages));
     };
     measure();
     const watch = new ResizeObserver(measure);
     watch.observe(card);
     watch.observe(anchor);
-    const group = groupUnder(card, anchor.getBoundingClientRect());
-    if (group) watch.observe(group);
-    const scroller = group?.querySelector<HTMLElement>(".mind-scroller");
-    if (scroller) watch.observe(scroller);
+    for (const group of card.querySelectorAll<HTMLElement>(".tab-group")) {
+      watch.observe(group);
+      const scroller = group.querySelector<HTMLElement>(".mind-scroller");
+      if (scroller) watch.observe(scroller);
+    }
     return () => watch.disconnect();
-  }, [shown, lineId, tabId, place.current]);
-}
-
-function groupUnder(card: HTMLElement, pill: DOMRect): HTMLElement | null {
-  for (const group of card.querySelectorAll<HTMLElement>(".tab-group")) {
-    const box = group.getBoundingClientRect();
-    if (box.left <= pill.left + 1 && pill.left + 1 < box.right) return group;
-  }
-  return null;
+  }, [shown, lineId, onScreen, place.current]);
 }
 
 /** The pill fades as a whole: its background and shadow with its words, never the words alone. */

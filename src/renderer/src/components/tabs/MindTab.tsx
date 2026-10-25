@@ -14,7 +14,7 @@ import { useWritingProperties } from "../../mindStyles";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
 import { useAppStore } from "../../store";
-import { undoBandFor, useUndoPillBand } from "../../undoPill";
+import { undoBandFor, useUndoPillBands } from "../../undoPill";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { useWordImport } from "../../wordImport";
 import { ExportResultLine } from "../ExportResultLine";
@@ -46,7 +46,7 @@ export function MindTab({ mindId }: { mindId: string }) {
   const assistantSlot = useContext(ComposerDockContext);
   const place = useTabPlace();
   const tabId = place?.tabId;
-  const band = useUndoPillBand((state) => undoBandFor(state, place?.groupId));
+  const band = useUndoPillBands((state) => undoBandFor(state.bands, place?.groupId));
   const merged = useGroupsMerged();
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
   const wordDrop = useWordFileDrop();

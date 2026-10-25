@@ -24,28 +24,64 @@ export const fitsLeftOfText = (columnLeft: number, pillWidth: number): boolean =
   columnLeft >= pillWidth + PILL_INSET_PX;
 
 /**
- * How much the page's scroll area gives up for the pill's band: from its foot, as the page would
- * draw it, up to the pill's top. `applied` is the band it has now, which its measured foot
- * already excludes.
+ * How much a page's scroll area gives up for a pill's band: from its foot, as the page would draw
+ * it, up to the pill's top. `applied` is the band it has now, which its measured foot already
+ * excludes.
  */
 export const undoBandHeight = (scrollerBottom: number, applied: number, pillTop: number): number =>
   Math.max(0, Math.ceil(scrollerBottom + applied - pillTop));
 
-export interface UndoPillBand {
-  /** The group whose page gives up the band, or null for none. */
-  groupId: string | null;
-  height: number;
+/** A page the pill can reach: its group's box and its page's text column and scroll area. */
+export interface PageUnderPill {
+  groupId: string;
+  /** The group's left and right, in the window. */
+  left: number;
+  right: number;
+  /** The text column's left, in the window. */
+  columnLeft: number;
+  /** The scroll area's bottom, as the band it has already moved it. */
+  scrollerBottom: number;
+  /** The band the page gives up already. */
+  applied: number;
 }
 
-/** The band the page under the pill gives up while the pill shows, so no text lies under it. */
-export const useUndoPillBand = create<UndoPillBand>(() => ({ groupId: null, height: 0 }));
+/**
+ * The band each page under the pill gives up, by group. The pill is placed against the card, so a
+ * wide one reaches past its own group into the next: every page its span covers keeps its text
+ * clear of it, not only the page under the pill's left edge (#1914).
+ */
+export const bandsUnderPill = (
+  pill: { left: number; right: number; width: number; top: number },
+  cardLeft: number,
+  pages: readonly PageUnderPill[],
+): Record<string, number> => {
+  const bands: Record<string, number> = {};
+  for (const page of pages) {
+    if (pill.right <= page.left || page.right <= pill.left) continue;
+    if (fitsLeftOfText(page.columnLeft - cardLeft, pill.width)) continue;
+    bands[page.groupId] = undoBandHeight(page.scrollerBottom, page.applied, pill.top);
+  }
+  return bands;
+};
 
-export const setUndoPillBand = (groupId: string | null, height: number): void => {
-  const now = useUndoPillBand.getState();
-  if (now.groupId === groupId && now.height === height) return;
-  useUndoPillBand.setState({ groupId, height });
+/** The bands the pages under the pill give up while it shows, so no text lies under it. */
+export const useUndoPillBands = create<{ bands: Readonly<Record<string, number>> }>(() => ({
+  bands: {},
+}));
+
+export const setUndoPillBands = (bands: Readonly<Record<string, number>>): void => {
+  const now = useUndoPillBands.getState().bands;
+  const kept = Object.keys(bands);
+  if (
+    kept.length === Object.keys(now).length &&
+    kept.every((groupId) => now[groupId] === bands[groupId])
+  )
+    return;
+  useUndoPillBands.setState({ bands });
 };
 
 /** The band `groupId`'s page gives up; 0 for a page the pill isn't over. */
-export const undoBandFor = (band: UndoPillBand, groupId: string | undefined): number =>
-  band.groupId !== null && band.groupId === groupId ? band.height : 0;
+export const undoBandFor = (
+  bands: Readonly<Record<string, number>>,
+  groupId: string | undefined,
+): number => (groupId === undefined ? 0 : (bands[groupId] ?? 0));
