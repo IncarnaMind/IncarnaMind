@@ -93,7 +93,7 @@ export interface TaggingModels {
 /**
  * Where automatic tagging sends now, from its model alone: a service, a model
  * on this computer, or none it can tag with. The flows say whether the User
- * allowed it (#1890).
+ * allowed it.
  */
 export type TaggingRoute =
   | { where: "none" }

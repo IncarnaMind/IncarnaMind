@@ -8596,7 +8596,7 @@ export interface CoreApi {
   /**
    * Where automatic tagging sends now, before the flows are read: a service, a
    * model on this computer, or none it can tag with. The flows say whether the
-   * User allowed the service (#1890).
+   * User allowed the service.
    */
   getTaggingRoute(): Promise<TaggingRoute>;
   /**

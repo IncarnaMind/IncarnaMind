@@ -22,7 +22,7 @@ export const unknownService: TaggingService = {
  * from the flows. `known` is true only once the flows agree, so nothing about
  * what is sent is said before they are read. A flow with no services in the
  * flows is on this computer for Organize and page images; tagging says that
- * only when its model is (§1890).
+ * only when its model is.
  */
 export function serviceOf(
   flow: DataFlowId,

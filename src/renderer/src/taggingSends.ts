@@ -3,9 +3,7 @@ import type { FlowRoute } from "./taggingDestination";
 
 /**
  * Why six whole sentences rather than pieces joined with a space: each
- * dictionary joins its own (Chinese puts no space after its full stop). Its
- * status row says it in a popover, so the row stays one line; nothing is said
- * while where it sends isn't known.
+ * dictionary joins its own (Chinese puts no space after its full stop).
  */
 const SENDS = {
   tags: { service: "status.sends", computer: "status.sends.onThisComputer" },
