@@ -400,4 +400,41 @@ describe("a kind whose flows did not run", () => {
     expect(report).toContain("| Other flows | suggestion, comparison, research | 0 |");
     expect(report).toContain("| Answers | question | not run (flow not selected) |");
   });
+
+  it("measures a kind whose requests a run made, though none of its own flows ran", () => {
+    const write = request({ flow: "assistant-write" });
+    const check = request({
+      flow: "assistant-write",
+      tag: { flow: "question", step: "written-check" },
+      parts: {
+        ...empty(),
+        instructions: 20,
+        tools: 40,
+        passages: 50,
+        passageNotes: 10,
+        history: 5,
+        question: 5,
+      },
+      counted: { input: 140, cached: 60, output: 10 },
+    });
+    const report = tokenReport([
+      {
+        flow: "assistant-write",
+        model: "anthropic/claude-haiku-5-5",
+        language: "en",
+        requests: [write, check],
+      },
+    ]);
+    expect(report).toContain(
+      "| Assistant runs | assistant-write, assistant-edit, assistant-longer | 1 |",
+    );
+    expect(report).toContain("| Checks | find-support, check-mind | 1 |");
+    expect(report).not.toContain("| Checks | find-support, check-mind | not run");
+    expect(report).toContain("| 140 | 60 (43%) | 10 |");
+    expect(report).toContain("| Answers | question | not run (flow not selected) |");
+    expect(report).toContain("| Edits | edit-with-ai | not run (flow not selected) |");
+    expect(report).toContain(
+      "| Other flows | suggestion, comparison, research | not run (flow not selected) |",
+    );
+  });
 });

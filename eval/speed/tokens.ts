@@ -673,14 +673,16 @@ export function tokenRows(
   requests: readonly AuditedRequest[],
   ran?: ReadonlySet<string>,
 ): TokenRow[] {
-  return KINDS.map(({ kind, flows }) =>
-    rowOf(
+  return KINDS.map(({ kind, flows }) => {
+    const of = requests.filter((request) => kindOf(request) === kind);
+    return rowOf(
       kind,
       flows.join(", "),
-      requests.filter((request) => kindOf(request) === kind),
-      ran === undefined || flows.some((flow) => ran.has(flow)),
-    ),
-  );
+      of,
+      // A written check made inside a write is a Check though no check flow ran.
+      ran === undefined || of.length > 0 || flows.some((flow) => ran.has(flow)),
+    );
+  });
 }
 
 const shown = (value: number): string =>
