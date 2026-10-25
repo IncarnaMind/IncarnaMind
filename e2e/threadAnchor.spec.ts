@@ -52,17 +52,35 @@ const whereIs = (window: Page): Promise<Where> =>
     };
   });
 
-/** Every frame from now on, where the Question at `index` is under the thread's top, once it shows. */
+/** One frame's place for the sampled Question, in px: its place among the messages, and what shows. */
+interface Place {
+  /** Under the conversation's top, which no scroll or resize of the panel changes. */
+  inConversation: number;
+  /** Under the panel's top: where the User sees it. */
+  seen: number;
+  /** How far the conversation reaches past the panel. */
+  past: number;
+}
+
+/** Every frame from now on, where the Question at `index` is, once it shows. */
 const followQuestion = (window: Page, index: number) =>
   window.evaluate((at) => {
-    const holder = globalThis as unknown as { tops: number[]; following: boolean };
-    holder.tops = [];
+    const holder = globalThis as unknown as { places: Place[]; following: boolean };
+    holder.places = [];
     holder.following = true;
     const sample = () => {
-      const thread = document.querySelector('[data-testid="assistant-thread"]');
+      const thread = document.querySelector<HTMLElement>('[data-testid="assistant-thread"]');
+      const log = document.querySelector<HTMLElement>('[data-testid="assistant-log"]');
       const question = document.querySelectorAll('[data-testid="assistant-question"]').item(at);
-      if (thread && question) {
-        holder.tops.push(question.getBoundingClientRect().top - thread.getBoundingClientRect().top);
+      if (thread && log && question) {
+        const panel = thread.getBoundingClientRect();
+        const conversation = log.getBoundingClientRect();
+        const top = question.getBoundingClientRect().top;
+        holder.places.push({
+          inConversation: top - conversation.top,
+          seen: top - panel.top,
+          past: thread.scrollHeight - thread.clientHeight,
+        });
       }
       if (holder.following) requestAnimationFrame(sample);
     };
@@ -71,10 +89,25 @@ const followQuestion = (window: Page, index: number) =>
 
 const stopFollowing = (window: Page) =>
   window.evaluate(() => {
-    const holder = globalThis as unknown as { tops: number[]; following: boolean };
+    const holder = globalThis as unknown as { places: Place[]; following: boolean };
     holder.following = false;
-    return holder.tops;
+    return holder.places;
   });
+
+/** Each place the Question was in, and the panel it was seen in, for a failure that says what moved (#1824). */
+const whereItMoved = (places: Place[]): string => {
+  const states = new Map<string, number[]>();
+  for (const { inConversation, seen, past } of places) {
+    const at = Math.round(inConversation * 100) / 100;
+    const state = `${seen} px under the panel's top, ${past} px past it`;
+    const counts = states.get(state) ?? [];
+    counts.push(at);
+    states.set(state, counts);
+  }
+  return `the Question moved: ${[...states]
+    .map(([state, at]) => `${Math.min(...at)}–${Math.max(...at)} px in the conversation (${state})`)
+    .join("; ")}`;
+};
 
 /** From now on, the layout shifts the User didn't cause that move a Question. */
 const watchQuestionShifts = (window: Page) =>
@@ -120,11 +153,12 @@ for (const language of ["en", "zh-CN"] as const) {
     for (const question of QUESTIONS[language]) {
       await followQuestion(window, asked);
       const answer = await askInAssistant(window, question);
-      const tops = await stopFollowing(window);
-      // The same place from the first frame it shows to the Answer's last word.
-      expect(tops.length).toBeGreaterThan(30);
+      const places = await stopFollowing(window);
+      // The same place in the conversation from the first frame it shows to the Answer's last word.
+      expect(places.length).toBeGreaterThan(30);
+      const tops = places.map((each) => each.inConversation);
       const spread = Math.max(...tops) - Math.min(...tops);
-      expect(spread, `the Question moved: ${[...new Set(tops)].join(", ")}`).toBeLessThan(1);
+      expect(spread, whereItMoved(places)).toBeLessThan(1);
       const here = await whereIs(window);
       expect(here.scrollTop).toBe(0);
       expect(here.answerBelowFoot).toBeLessThan(0);
