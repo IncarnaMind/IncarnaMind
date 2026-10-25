@@ -48,6 +48,12 @@ const FIRST_PERSON = new RegExp(
   `(?:^(?:[-*•]\\s+)?|[,;:—–(]\\s*|\\b(?:and|then|so|now|ok|okay|sure|done|yes|here)\\b[,:!]?\\s+)I(?:['’]ve|\\s+have|['’]d|\\s+had)?(?:\\s+(?:just|also|now|then|already|carefully|again|quickly|first|independently))*\\s+(${CALCULATED}|${CHECKED}|ran|re-ran|reran|searched|looked\\s+up)\\b`,
   "gi",
 );
+// "Let me re-calculate carefully:", "让我重新计算": the assistant says it works the figures out.
+const LET_ME_CALCULATE =
+  /\blet(?:\s+me|['’]s|\s+us)\s+(?:re-?)?(?:calculate|compute|recalculate|recompute)\b|(?:让我|我来|下面我)(?:重新)?(?:计算|算一下|核算)/i;
+// Working said to be the assistant's own is what its instructions ask for, not a claim of a check.
+const OWN_WORKING =
+  /\b(?:my own (?:working|arithmetic|calculations?|maths?)|myself|mental(?:ly)?(?: arithmetic)?|in my head|by hand)\b|我自己|自己算|心算|手算|人工计算/i;
 const INCARNAMIND_DID = new RegExp(
   `\\bIncarnaMind(?:\\s+(?:has|have|just|also))*\\s+(${CALCULATED}|${CHECKED}|worked out)\\b|\\b(${CALCULATED}|${CHECKED}|worked out)\\s+by\\s+IncarnaMind\\b`,
   "gi",
@@ -157,7 +163,7 @@ function sentenceClaims(sentence: string): ClaimedTool[] {
   }
   if (!ZH_REPORTS.test(own) && mentionsOurTool(own, ZH_TOOL, oursInChinese)) tools.add("calculate");
   // "I calculated 3.37x earlier": the earlier Answer's own record holds it.
-  const now = !EARLIER.test(own);
+  const now = !EARLIER.test(own) && !OWN_WORKING.test(own);
   for (const pattern of now ? [FIRST_PERSON, INCARNAMIND_DID] : []) {
     for (const match of own.matchAll(pattern)) {
       const verb = (match[1] ?? match[2] ?? "").toLocaleLowerCase();
@@ -183,6 +189,7 @@ function sentenceClaims(sentence: string): ClaimedTool[] {
       }
     }
   }
+  if (now && LET_ME_CALCULATE.test(own)) tools.add("calculate");
   if (now && (SEARCH_DID.test(own) || ZH_SEARCH_DID.test(own))) tools.add("search");
   return [...tools];
 }
