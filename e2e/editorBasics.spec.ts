@@ -379,10 +379,13 @@ test("a link: added with the button or ⌘K on a selection, edited, opened and r
   await expect(field).toHaveCount(0);
 });
 
-test("the link field opens once each time Edit is pressed, though the editor loses the focus to it (#1705)", async () => {
+test("the link field opens once beside the link each time Edit is pressed, though the editor loses the focus to it (#1705)", async () => {
   const { window, editor } = await startMind();
+  await window.keyboard.type("Notes on the tides");
+  // The link sits well below the first line, so a field anchored there would show it.
+  for (let line = 0; line < 5; line++) await window.keyboard.press("Enter");
   await window.keyboard.type("Read the Tides paper today");
-  const line = editor.locator("p").first();
+  const line = editor.locator("p").last();
   await slideSelect(window, line, "Tides paper");
   await window.keyboard.press("ControlOrMeta+K");
   const field = window.getByTestId("link-field");
@@ -407,11 +410,19 @@ test("the link field opens once each time Edit is pressed, though the editor los
       () => (globalThis as { linkFieldOpens?: { opens: number } }).linkFieldOpens?.opens ?? 0,
     );
 
-  // Edit from the bubble, then close and edit again: two openings, not four.
+  // Edit from the bubble: the field opens beside the link, in the window.
+  await clickEndOf(window, line);
   await link.click();
   await window.getByTestId("link-edit").hover();
   await window.getByTestId("link-edit").click();
   await expect(field).toBeFocused();
+  const panel = await window.locator('[popover]:has([data-testid="link-field"])').boundingBox();
+  const lineBox = await line.boundingBox();
+  if (!panel || !lineBox) throw new Error("The field or the line isn't on the page.");
+  expect(panel.y).toBeGreaterThanOrEqual(lineBox.y - 2 * lineBox.height);
+  expect(panel.y).toBeLessThanOrEqual(lineBox.y + 3 * lineBox.height);
+
+  // Closed and edited again: two openings, not four.
   await window.keyboard.press("Escape");
   await expect(field).toHaveCount(0);
   await window.getByTestId("link-edit").hover();

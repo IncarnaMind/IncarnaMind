@@ -278,6 +278,8 @@ export function SelectionMenu({
     const dom = editor.view.dom;
     const press = () => {
       pressed.current = true;
+      // A selection the User starts opens the menu, even over words it was closed over (#1355).
+      forgetMenuClosed(editor);
     };
     const release = () => {
       if (!pressed.current) return;

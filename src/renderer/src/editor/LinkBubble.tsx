@@ -55,8 +55,10 @@ export function LinkBubble({ editor }: { editor: Editor }) {
     }
   }, [link]);
 
-  // A new anchor each render would open the popover again and take the focus from the field (#1705).
-  const anchor = useMemo(() => caretAnchor(editor), [editor]);
+  // Taken when the field opens, so it sits beside the link being edited; and the same one on every
+  // render of the session, since a new anchor would open the popover again (#1705).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `editing` is when a new anchor is taken.
+  const anchor = useMemo(() => caretAnchor(editor), [editor, editing]);
 
   if (!link) return null;
   if (editing) {
