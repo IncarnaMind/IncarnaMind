@@ -542,6 +542,37 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+test("Review changes of Improve writing at a paragraph's start shows its marks and restores them, in a two-paragraph edit (#1411)", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1280, 820);
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  await editor.click();
+  await window.keyboard.type(TIDE_LINE);
+  await window.keyboard.press("Enter");
+  await window.keyboard.type("the wind is calm");
+  const note = editor.locator(":scope > p").first();
+  await slideSelect(window, note, TIDES);
+  await pointAndClick(window, window.getByTestId("selection-action-improve"));
+  const applied = editor.getByTestId("applied-line");
+  await expect(applied).toBeVisible({ timeout: 40_000 });
+  await expect(note).toHaveText("The tide turns very slowly in the harbour today.");
+
+  await pointAndClick(window, applied.getByTestId("applied-review"));
+  // The change is the paragraph's first word: its old words struck, its new ones marked.
+  await expect(note.locator("del.applied-old")).toHaveText(/^t(he)?$/);
+  await expect(note.locator(".applied-new")).toHaveText(/^T(he)?$/);
+  const restores = note.getByTestId("change-restore");
+  await expect(restores).toHaveText("Restore original");
+  await pointAndClick(window, restores.first());
+  await expect(note).toHaveText(TIDE_LINE);
+  // With its only change restored, Review has nothing left to show.
+  await expect(applied).toHaveCount(0);
+  await app.close();
+});
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`a failed Improve writing, Shorten or Translate shows a problem line with Try again where its Undo line would land, in ${language} (#1411)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });

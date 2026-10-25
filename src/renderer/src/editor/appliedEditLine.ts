@@ -76,6 +76,12 @@ export interface ChangePlace {
    * paragraph's text, as the positions before its old words went with them.
    */
   paragraph?: string;
+  /**
+   * How many characters it wrote, for a change inside a paragraph: 0 for one
+   * that only took words out. Its start may hold to the words it took out,
+   * which go; its end and this say where its own words begin (#1411).
+   */
+  writtenSize?: number;
 }
 
 /** One change an applied edit made, and what it wrote: Restore original puts the old words back only over those, as they were (#1795). */
@@ -252,11 +258,12 @@ interface Place {
   to: number;
 }
 
-function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
-  if (change.paragraph) {
-    const found = blockAt(state.doc, change.paragraph);
-    return found ? { from: found.pos + 1, to: found.pos + found.node.nodeSize - 1 } : null;
-  }
+interface Ends {
+  from: number | null;
+  to: number | null;
+}
+
+function endsOf(state: EditorState, change: ChangePlace): Ends | null {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return null;
   const at = (relative: unknown): number | null =>
@@ -265,9 +272,21 @@ function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
   const inside = at(change.to);
   const end = inside === null || inside > state.doc.content.size ? null : state.doc.resolve(inside);
   const to = change.block !== "added" ? inside : end && end.depth > 0 ? end.after() : null;
-  return from === null || to === null || to < from || to > state.doc.content.size
-    ? null
-    : { from, to };
+  return { from, to };
+}
+
+function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
+  if (change.paragraph) {
+    const found = blockAt(state.doc, change.paragraph);
+    return found ? { from: found.pos + 1, to: found.pos + found.node.nodeSize - 1 } : null;
+  }
+  const ends = endsOf(state, change);
+  if (!ends) return null;
+  const { from, to } = ends;
+  if (to === null || to > state.doc.content.size) return null;
+  // Its start may hold to the words its own change took out, which are gone; its end and the size it wrote say where its words begin.
+  const start = from ?? (change.block === null ? to - (change.writtenSize ?? 0) : null);
+  return start === null || start < 0 || to < start ? null : { from: start, to };
 }
 
 const textOf = (removed: Fragment) => removed.textBetween(0, removed.size, "\n", "￼");
@@ -376,8 +395,8 @@ const blockIdOf = (node: ProseMirrorNode | null | undefined): string | null => {
   return typeof id === "string" ? id : null;
 };
 
-/** A ProseMirror place's Yjs position holds to the item before it; this one holds to the item at it. */
-export function itemAt(state: EditorState, pos: number): Y.RelativePosition | null {
+// A ProseMirror place's Yjs position holds to the item before it; this one holds to the item at it.
+function itemAt(state: EditorState, pos: number): Y.RelativePosition | null {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return null;
   const before = absolutePositionToRelativePosition(pos, binding.type, binding.mapping);
