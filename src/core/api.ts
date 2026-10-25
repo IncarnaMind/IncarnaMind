@@ -185,8 +185,12 @@ export interface CreateMindInput {
  *   `chosen` in the `claimCheck` mark's `scope`. An older version would read
  *   it as made in the Mind's Folder or in every Document, and say so on its
  *   card. Older content is version 26 content as it is.
+ * - 27: a Citation the User keeps on the version it quotes though its
+ *   Document changed (#99): `keptOver` on the Citation, which an older
+ *   version's editor would strip, so it would ask again to be checked. Older
+ *   content is version 27 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 26;
+export const CONTENT_SCHEMA_VERSION = 27;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1675,6 +1679,12 @@ export interface RecheckCitationInput {
   pageFrom: number | null;
   pageTo: number | null;
   quote: string;
+  /**
+   * The version the Citation quotes. When the Document has a newer one, the result also says
+   * how the Citation stands in this version (`inQuotedVersion`) and how its words changed
+   * (`changed`).
+   */
+  contentHash?: string | null;
 }
 
 /**
@@ -1693,6 +1703,26 @@ export interface CitationRecheck {
   pageFrom: number | null;
   pageTo: number | null;
   location: CitationLocation | null;
+  /**
+   * Asked with the version the Citation quotes, which is no longer the current one: its check
+   * in that version, at the Units it cites (ADR-0017's amendment); null once that version's
+   * text is no longer kept.
+   */
+  inQuotedVersion?: Pick<CitationRecheck, "check" | "checkReason"> | null;
+  /**
+   * Asked with the version the Citation quotes, which is no longer the current one, and the
+   * quote isn't in the current one as cited: its words as they changed at its place; null
+   * when nothing there is like them any more.
+   */
+  changed?: ChangedQuote | null;
+}
+
+/** A Citation's quote as its words changed in its Document's current version (#99). */
+export interface ChangedQuote {
+  /** From the quote to the words at its place now, in order: kept, taken out or put in. */
+  parts: { kind: "same" | "removed" | "added"; text: string }[];
+  /** The words at its place now, cited in the current version: what Update the sentence… cites. */
+  now: CitedSelection;
 }
 
 /** Words the User selected in a Document's viewer, on one of its Units (`citeSelection`). */
@@ -1853,6 +1883,11 @@ export interface CitationAttributes {
   verdict?: string | null;
   /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
   quotedWords?: QuotedWords | null;
+  /**
+   * The Document's version the User chose to keep citing the old one over (Keep citing the old
+   * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
+   */
+  keptOver?: string | null;
 }
 
 /** A Citation, as the Answer event stream reports it. */
@@ -9202,8 +9237,9 @@ export interface CoreApi {
   downloadOnlineOnlyFiles(linkedFolderId: string): Promise<LinkedFolder>;
   /**
    * Checks a Citation again against its Document's current version (see
-   * `CitationRecheck`), e.g. after the Document changed. Nothing is stored:
-   * the editor writes the result onto the Citation's node.
+   * `CitationRecheck`), e.g. after the Document changed; given the version it
+   * quotes, in that version too. Nothing is stored: the editor writes the
+   * result onto the Citation's node.
    */
   recheckCitation(input: RecheckCitationInput): Promise<CitationRecheck>;
   /**
