@@ -239,7 +239,8 @@ for (const { language, lines, ask, shortened, veryBack, reallyBack, restore } of
       await window.keyboard.press("ControlOrMeta+z");
       await expect.poll(() => wordsOf(note)).toBe(shortened);
 
-      await expect(restores).toHaveCount(1);
+      // The Restore taken back shows its change again.
+      await expect(restores).toHaveCount(2);
       await pointAndClick(window, restores.first());
       await expect.poll(() => wordsOf(note)).toBe(veryBack);
       await window.keyboard.press("ControlOrMeta+z");
@@ -548,9 +549,10 @@ for (const { language, lines, ask, anew, position } of MIXED) {
       expect(await wordsOf(words)).toBe(written);
       await window.keyboard.press("ControlOrMeta+z");
       await expect.poll(() => wordsOf(whole)).toBe(anew);
+      await expect(restores).toHaveCount(3);
 
       await pointAndClick(window, restores.last());
-      await expect(restores).toHaveCount(1);
+      await expect(restores).toHaveCount(2);
       await expect(words.locator("del.applied-old")).toHaveCount(1);
       expect(await wordsOf(whole)).toBe(anew);
     }
