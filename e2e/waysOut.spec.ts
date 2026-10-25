@@ -348,12 +348,11 @@ test("signing in again to a plan clears its failure line before anything is aske
     const row = settings.getByTestId("plans-copilot");
     await row.getByTestId("plans-copilot-sign-in").focus();
     await window.keyboard.press("Enter");
-    await expect(row.getByTestId("copilot-cancel")).toBeFocused();
-    await window.keyboard.press("Shift+Tab");
+    await expect(row.getByTestId("copilot-sign-in")).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(row.getByTestId("copilot-code")).toBeVisible();
     github.approve();
-    await expect(row.getByTestId("plans-copilot-account")).toHaveText(`Copilot Pro+ · ${LOGIN}`);
+    await expect(row.getByTestId("plans-copilot-account")).toHaveText(`GitHub Copilot · ${LOGIN}`);
     await closeSettings(window);
 
     const refusal = {
