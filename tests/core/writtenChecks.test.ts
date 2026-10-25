@@ -33,9 +33,12 @@ const MOON = "Spring tides come at new and full moon.";
 const OVERSTATED = "Spring tides come at new and full moon, and they flood the harbour every year";
 const UNBACKED = "Neap tides are twice as strong";
 const FAILING = "The harbour floods at every spring tide";
+const YEARLY = "Every year the harbour floods, and spring tides come at new and full moon";
+const OVERSTATED_ZH = "大潮出现在新月和满月时，并且每年都会淹没港口";
 
 /** A sentence as a check reads it: the Citation after its words as U+FFFC. */
 const asChecked = (words: string) => `${words} ${INLINE_NODE}.`;
+const asCheckedZh = (words: string) => `${words}${INLINE_NODE}。`;
 
 const PLANS: Record<string, Plan> = {
   [asChecked(OVERSTATED)]: {
@@ -47,6 +50,16 @@ const PLANS: Record<string, Plan> = {
     reply: { text: "Verdict: unsupported\nNo Passage compares the strength of the tides." },
   },
   [asChecked(FAILING)]: { reply: { error: { status: 500, message: "The service broke." } } },
+  [asChecked(YEARLY)]: {
+    reply: {
+      text: "Verdict: unsupported\nNo Passage says the harbour floods every year.\nCovered: when spring tides come\nNot covered: the yearly floods",
+    },
+  },
+  [asCheckedZh(OVERSTATED_ZH)]: {
+    reply: {
+      text: "Verdict: unsupported\n没有段落说港口每年被淹没。\nCovered: 大潮出现的时间\nNot covered: 每年淹没港口",
+    },
+  },
 };
 
 const CUT = /<task action="cut-unsupported">/;
@@ -63,6 +76,8 @@ interface Writing {
   cloud?: { kind: "anthropic"; modelId: string } | { kind: "ollama"; modelId: string };
   /** How the Answer ends: a spending cap reached during the check stops it too. */
   ends?: "finished" | "failed";
+  /** The model's cut of a sentence, in place of its first clause and its marker. */
+  cut?: string;
 }
 
 /**
@@ -71,7 +86,13 @@ interface Writing {
  * first clause and its marker.
  */
 function writingModel(
-  { content, into = false, during, check }: Writing,
+  {
+    content,
+    into = false,
+    during,
+    check,
+    cut = "Spring tides come at new and full moon [1].",
+  }: Writing,
   calls: ModelCall[],
   coreOf: () => Core | null,
 ) {
@@ -87,9 +108,7 @@ function writingModel(
       return { ...reply, pause: { after: 0, until: waited } };
     }
     if (CUT.test(call.prompt)) {
-      return {
-        text: "Spring tides come at new and full moon [1].\n<why>Only what the source says.</why>",
-      };
+      return { text: `${cut}\n<why>Only what the source says.</why>` };
     }
     const { results } = call;
     const search = results.find((result) => result.tool === "search_documents");
@@ -172,6 +191,17 @@ async function write(
   return { core, model, calls, answer, change, client: page };
 }
 
+/** A paragraph of the Mind as checks read it: each Citation as U+FFFC. */
+function paragraphText(client: MindClient, index: number): string {
+  let text = "";
+  readMind(client)
+    .child(index)
+    .forEach((node) => {
+      text += node.isText ? (node.text ?? "") : INLINE_NODE;
+    });
+  return text;
+}
+
 /** Each check's mark in the Mind and how it shows, by its sentence. */
 async function marksIn(core: Core, client: MindClient) {
   await client.settled();
@@ -233,6 +263,75 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
     expect(runs.filter((run) => run.bold).map((run) => run.text.trim())).toEqual(["Spring tides"]);
     expect(runs.map((run) => run.text).join("")).toBe("Spring tides come at new and full moon .");
+  });
+
+  // protects=a cut that rewords the sentence, as Kimi K2.6's did ("across all tested crime categories" became "in all cases", #1397), or moves its Citation, isn't used: the sentence lands as the assistant wrote it, marked unsupported, in English and Chinese; fails_when=the cut's words land, or the model is told a part was taken out; no_claim=how often a real model rewords.
+  test.each([
+    {
+      language: "en",
+      content: `## Tides\n\n${OVERSTATED} [^1].`,
+      cut: "Spring tides come at new and full moon in all cases [1].",
+      written: asChecked(OVERSTATED),
+    },
+    {
+      language: "en, its Citation moved",
+      content: `## Tides\n\n${OVERSTATED} [^1].`,
+      cut: "Spring tides [1] come at new and full moon.",
+      written: asChecked(OVERSTATED),
+    },
+    {
+      language: "zh-CN",
+      content: `## 潮汐\n\n${OVERSTATED_ZH}[^1]。`,
+      cut: "大潮在所有情况下都出现在新月和满月时[1]。",
+      written: asCheckedZh(OVERSTATED_ZH),
+    },
+  ])(
+    "a cut that does more than take words out isn't used, and the sentence lands as written, marked ($language)",
+    async ({ content, cut, written }) => {
+      const { model, client } = await write({ content, cut });
+
+      expect(paragraphText(client, 1)).toBe(written);
+      const [mark] = claimSpans(readMind(client));
+      expect(mark?.check).toMatchObject({ state: "unsupported", text: written });
+      expect(lastResult(model)).toContain("1 sentence is still not supported by its Citations");
+      expect(lastResult(model)).not.toContain("was taken out");
+    },
+  );
+
+  // protects=only the part the cut takes out goes: every other word, mark, space and Citation lands byte for byte as the assistant wrote it, whatever spaces the model's reply has inside what it kept, in English and Chinese (#1397); fails_when=any other byte of the sentence changes; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en",
+      content: `## Tides\n\n${OVERSTATED} [^1].`,
+      cut: "Spring tides  come at new and full\nmoon [1].",
+      written: asChecked(OVERSTATED),
+      part: ", and they flood the harbour every year",
+    },
+    {
+      language: "zh-CN",
+      content: `## 潮汐\n\n${OVERSTATED_ZH}[^1]。`,
+      cut: "大潮出现在 新月和满月时[1]。",
+      written: asCheckedZh(OVERSTATED_ZH),
+      part: "，并且每年都会淹没港口",
+    },
+  ])(
+    "a cut takes out only its part, and the rest lands byte for byte ($language)",
+    async ({ content, cut, written, part }) => {
+      const { core, model, client } = await write({ content, cut });
+
+      expect(written).toContain(part);
+      expect(paragraphText(client, 1)).toBe(written.replace(part, ""));
+      const marks = await marksIn(core, client);
+      expect(marks.map(({ shown }) => shown.state)).toEqual(["needs-recheck"]);
+      expect(lastResult(model)).toContain("was taken out");
+    },
+  );
+
+  // protects=a cut that takes a sentence's first words out may start it with the next word's capital, and is used; fails_when=it is refused for the capital; no_claim=none beyond protects.
+  test("a cut that takes the first words out starts with the next word's capital", async () => {
+    const { client } = await write({ content: `## Tides\n\n${YEARLY} [^1].` });
+
+    expect(paragraphText(client, 1)).toBe(asChecked("Spring tides come at new and full moon"));
   });
 
   // protects=a written sentence its Citations don't support at all lands marked unsupported, with the check's reason, so Check this Mind has nothing more to find; fails_when=it lands unmarked, is cut, or Check this Mind sends it again; no_claim=none beyond protects.

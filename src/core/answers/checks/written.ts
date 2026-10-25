@@ -11,7 +11,8 @@
  *   with Edit with AI's own request (`cut-unsupported`); the Citations stay on
  *   what is left, each word keeps its own formatting, and the sentence shows
  *   it needs a check again, as after the card's cut. A cut that would lose
- *   every Citation, or add one, isn't used.
+ *   every Citation, or add one, isn't used, nor one that does more than take
+ *   words out (#1397): the sentence then lands as written, marked.
  * - A sentence still unsupported, or one a Document contradicts, lands with
  *   its check's mark, so Check this Mind doesn't find it again later.
  * - One that couldn't be checked (a failure, a limit, the time limit, or past
@@ -273,6 +274,44 @@ function wordsWithMarks(words: string, letters: ReturnType<typeof lettersOf>): N
   return nodes;
 }
 
+// A Citation marker, one Chinese, Japanese or Korean character, a run of letters or digits, or one mark.
+const PIECE =
+  /\[\d{1,3}\]|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[\p{L}\p{N}]+|[^\s]/gu;
+
+const capitalised = (word: string) => `${word.charAt(0).toLocaleUpperCase()}${word.slice(1)}`;
+
+/**
+ * The passage with only what the cut left out taken out (#1397): each word,
+ * mark and marker it keeps, and the spaces between them, as the passage has
+ * them; where words went, a space if the cut has one there. Null when the cut
+ * rewords, reorders or adds anything, or takes nothing out.
+ */
+function takenOut(passage: string, cut: string): string | null {
+  const pieces = [...passage.matchAll(PIECE)];
+  let kept = "";
+  let last = -1;
+  let count = 0;
+  let cutAt = 0;
+  for (const wanted of cut.matchAll(PIECE)) {
+    const [text] = wanted;
+    // With the first words gone, the sentence may start with the next one's capital.
+    const fits = (piece: string) => piece === text || (last < 0 && capitalised(piece) === text);
+    let at = last + 1;
+    while (at < pieces.length && !fits(pieces[at]?.[0] ?? "")) at++;
+    const piece = pieces[at];
+    if (!piece) return null;
+    const before = pieces[last];
+    if (before && at === last + 1) {
+      kept += passage.slice(before.index + before[0].length, piece.index);
+    } else if (before && /\s/u.test(cut.slice(cutAt, wanted.index))) kept += " ";
+    kept += text;
+    last = at;
+    count++;
+    cutAt = wanted.index + text.length;
+  }
+  return count > 0 && count < pieces.length ? kept : null;
+}
+
 /** Null when the cut keeps no Citation, adds or repeats one, or says nothing. */
 function cutNodes(
   cut: string,
@@ -448,11 +487,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       },
       signal,
     );
-    if (cut === null || cut.replace(/\s+/g, " ") === marked.passage.replace(/\s+/g, " ")) {
-      return null;
-    }
+    const kept = cut === null ? null : takenOut(marked.passage, cut);
+    if (kept === null) return null;
     const letters = lettersOf(content, sentence.from, sentence.to);
-    return cutNodes(cut.trim(), numbers, marked.citations, letters);
+    return cutNodes(kept, numbers, marked.citations, letters);
   }
 
   /** One sentence's check, given up on once it takes longer than the time limit. */

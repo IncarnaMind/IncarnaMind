@@ -122,7 +122,7 @@ function editedText(action: string, passage: string, asked: string): string {
       const markers = (passage.match(/\[\d+\]/g) ?? []).join("");
       const listed = PARTLY.find((each) => each.when.test(passage));
       if (listed) return `${listed.cut}${markers}`;
-      const part = /support this part of it: ([\s\S]*?)\. Every word/.exec(asked)?.[1] ?? "";
+      const part = /support this part of it: ([\s\S]*?)\. Take out only/.exec(asked)?.[1] ?? "";
       return part === "" ? passage : passage.split(part).join("");
     }
     case "explain": {

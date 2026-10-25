@@ -463,7 +463,7 @@ describe("Standing on its own, and the example unasked", () => {
     expect(givenToMindsOf([call("add_to_mind", { answer: true })], null)).toEqual([]);
   });
 
-  // protects=through the real guard, what each Mind tool's content loses is only pointer paragraphs, as the evaluation reads them in English and Chinese (同上, 参考上文 included), and a sentence the model or the app rewrote after the guard is counted apart, not as lost; fails_when=a correct removal reads as lost, or a later rewrite fails the guard; no_claim=none beyond protects.
+  // protects=through the real guard, what each Mind tool's content loses is only pointer paragraphs, as the evaluation reads them in English and Chinese (同上, 参考上文 included), and a sentence the model or the app changed after the guard is counted apart, not as lost, with words only taken out told from reworded (#1397); fails_when=a correct removal reads as lost, or a later rewrite fails the guard; no_claim=none beyond protects.
   test("what a call gave to write into a Mind, through the guard", () => {
     for (const pointer of [
       "See my earlier answer.",
@@ -479,7 +479,9 @@ describe("Standing on its own, and the example unasked", () => {
       writtenInMinds: ["Key results. All of them."],
     });
     expect(requestFailures(rewritten).map((failure) => failure.kind)).not.toContain("content-lost");
-    expect(rewrittenLater(rewritten)).toEqual([{ given: "Highlights are below[^8]:", now: null }]);
+    expect(rewrittenLater(rewritten)).toEqual([
+      { given: "Highlights are below[^8]:", now: null, cut: false },
+    ]);
     const cut = outcome({
       expected: { write: true, cite: false, coverAll: false },
       givenToMinds: [
@@ -492,6 +494,30 @@ describe("Standing on its own, and the example unasked", () => {
       {
         given: "It fuses mobility and POIs, which geography can miss [^2].",
         now: "It fuses mobility and POIs.",
+        cut: true,
+      },
+    ]);
+    const reworded = outcome({
+      expected: { write: true, cite: false, coverAll: false },
+      givenToMinds: [
+        {
+          content: "Crime forecasting: best results across all crime categories[^8].",
+          landed: true,
+        },
+        { content: "大潮出现在新月和满月时，并且每年都会淹没港口[^1]。", landed: true },
+      ],
+      writtenInMinds: ["Crime forecasting: best results in all cases.", "大潮出现在新月和满月时。"],
+    });
+    expect(rewrittenLater(reworded)).toEqual([
+      {
+        given: "Crime forecasting: best results across all crime categories[^8].",
+        now: "Crime forecasting: best results in all cases.",
+        cut: false,
+      },
+      {
+        given: "大潮出现在新月和满月时，并且每年都会淹没港口[^1]。",
+        now: "大潮出现在新月和满月时。",
+        cut: true,
       },
     ]);
   });
