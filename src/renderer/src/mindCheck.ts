@@ -2,11 +2,11 @@
  * Check this Mind (#737), the window's side: "Check this Mind" (the check
  * badge's card, ⌘K, the Mind's menu) checks what changed since the last
  * check; when nothing did it sends nothing and says so in the card, whose
- * "Check every sentence again" (also ⌘K) checks them all for real. When the
- * model is to name the claims, it does that first, with Stop, and the card
- * then asks with their number and, billed per token, the estimate (#973); a
- * run that only checks again asks so when it is large, and, for the
- * Documents added since (#993), whatever their number. Plans and models on
+ * "Check every sentence again" (also ⌘K) checks them all for real. The card
+ * asks with the number of sentences to check, the one count the badge and its
+ * card show (#1909), and, billed per token, the estimate; a run that only
+ * checks again asks so when it is large, and, for the Documents added since
+ * (#993), whatever their number. The model names the claims once it runs. Plans and models on
  * this computer run without asking. While it runs, the badge counts the
  * claims checked, with Stop.
  */
@@ -41,7 +41,7 @@ interface MindCheckState {
 interface Asking {
   mode: CheckMindMode;
   allDocuments: boolean;
-  /** The claims the model named and the checks to make again, or, when only checking again, the checks. */
+  /** The sentences the run will check: the one count the badge shows (#1909). */
   count: number;
   /** Checked against the Mind's Folder: the question names it. */
   inFolder: boolean;
@@ -106,28 +106,6 @@ export async function checkMind(
   } finally {
     setCheckRunning(mindId, null);
   }
-}
-
-async function findClaims(
-  mindId: string,
-  mode: CheckMindMode,
-  allDocuments: boolean,
-): Promise<number | null> {
-  const requestId = crypto.randomUUID();
-  setCheckRunning(mindId, { requestId, action: "whole-mind" });
-  try {
-    const found = await core.findMindClaims({ requestId, mindId, mode, allDocuments });
-    if (found.kind === "found") return found.claims;
-    if (found.kind === "failed") {
-      setCheckProblem(mindId, { kind: "find-failed", error: found.error, mode, allDocuments });
-    } else if (found.kind === "nothing") setCheckProblem(mindId, { kind: "no-claims" });
-    else if (found.kind !== "cancelled") setCheckProblem(mindId, everywhere(found, mindId, mode));
-  } catch (error) {
-    setCheckProblem(mindId, { kind: "failed", error });
-  } finally {
-    setCheckRunning(mindId, null);
-  }
-  return null;
 }
 
 /** What a run is to check, and what it would send. */
@@ -210,8 +188,7 @@ async function askOrCheck(
     return checkMind(mindId, mode, { allDocuments });
   dismissMindCheck(mindId);
   dismissCheckProblem(mindId);
-  const count = plan.findsClaims ? await findClaims(mindId, mode, allDocuments) : plan.sentences;
-  if (count === null) return;
+  const count = plan.sentences;
   const estimated = await core
     .estimateRun({ items: count, each: "check", ...(plan.model && { model: plan.model }) })
     .catch((error: unknown) => {
