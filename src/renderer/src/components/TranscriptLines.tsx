@@ -5,6 +5,7 @@ import { formatBytes } from "../linkedFolders";
 import { useMeetings } from "../meetings";
 import { defaultFolderLabel, showOutputLocationSetting } from "../outputFiles";
 import { showTranscript } from "../transcripts";
+import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
 
@@ -26,6 +27,11 @@ export function TranscriptLines({
   const t = useT();
   const place = useTabPlace();
   const transcript = meeting.transcript;
+  const sources = useDownloadSources(
+    transcript?.problem?.kind === "download" ? transcript.model?.error : null,
+    () => void useMeetings.getState().retryTranscript(meeting.id),
+    "meeting-transcript",
+  );
   if (!transcript) return null;
   const { problem, model, state } = transcript;
   const retry = (key: MessageKey): ProblemAction => ({
@@ -67,7 +73,9 @@ export function TranscriptLines({
       };
     } else if (problem.kind === "download") {
       line = {
-        text: t("meetings.transcript.downloadFailed", { message }),
+        text: failedEverySource(model?.error)
+          ? t("meetings.transcript.downloadFailed.everySource")
+          : t("meetings.transcript.downloadFailed", { message }),
         action: retry("meetings.transcript.retry"),
         role: "alert",
       };
@@ -138,6 +146,7 @@ export function TranscriptLines({
       className={hangs ? `${className} meeting-line-over` : className}
       action={line.action}
       also={line.also}
+      disclosure={sources.toggle ? sources : undefined}
     >
       {line.text}
     </ProblemLine>

@@ -10,6 +10,8 @@ interface MoveRequest {
   /** What the picker opens beside: the row's ⋯, or the selection bar's button. */
   anchor: HTMLElement;
   documentIds: readonly string[];
+  /** The page keeps the focus itself once they have moved, as To review does (`useReviewFocus`). */
+  keepFocus?: true;
 }
 
 /** The Documents whose "Move to…" is open on the Library page, if any. */
@@ -75,7 +77,7 @@ export function DocumentMoveTo() {
       current={folders.size === 1 ? (current ?? null) : undefined}
       onChoose={(folderId) => {
         // From a row, the focus goes with what it moved; from the selection's bar, it stays there.
-        const fromRow = request.anchor.closest("[data-document-id]") != null;
+        const fromRow = request.anchor.closest("[data-document-id]") != null && !request.keepFocus;
         void moveIntoFolder({ documentIds: [...ids] }, folderId).then(() => {
           if (fromRow) requestAnimationFrame(() => focusRowOf(only));
         });

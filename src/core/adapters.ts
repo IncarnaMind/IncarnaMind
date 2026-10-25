@@ -27,6 +27,7 @@ import type { AnswerSearchTuning } from "./documents/searchTuning";
 import type { WatchFolder } from "./documents/watcher";
 import type { FetchLimits, PageFetch } from "./documents/web/fetch";
 import type { PictureLimits } from "./documents/web/pictures";
+import type { ModelCopies } from "./embedding/modelSources";
 import type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 import type { AnthropicOAuthConfig } from "./providers/claudeAccount/config";
 import type { CopilotProfile } from "./providers/copilot/config";
@@ -100,7 +101,8 @@ export type LogFields = Readonly<Record<string, LogValue | undefined>>;
  *
  * The core logs what happened, never what the User wrote or keeps secret:
  * ids, statuses, kinds and counts. Never Document text or names, Mind
- * content, Questions, Answers, providers' messages, API keys or tokens.
+ * content, Questions, Answers, API keys or tokens, nor providers' messages
+ * but as `redactMessage` (./redact) leaves them.
  */
 export interface Logger {
   /** `event` is a short dotted name, e.g. "document.status". */
@@ -908,6 +910,18 @@ export interface CoreAdapters {
    * pinned Hugging Face revision; tests give no files for a fake that needs none.
    */
   rerankingModelSource?: EmbeddingModelSource;
+  /**
+   * How the built-in models' files are fetched from their sources (#1578). The desktop app's
+   * `fetch` follows the system proxy, and `proxy` says what it is for Hugging Face, so a change
+   * runs the sources' probe again. Defaults to Node's `fetch` and the copies the app ships with;
+   * tests give their own copies, a shorter stall, and a `fetch` that reaches no real host.
+   */
+  modelDownloads?: {
+    fetch?: typeof fetch;
+    proxy?(): Promise<string>;
+    copies?: ModelCopies;
+    stallMs?: number;
+  };
   /** Defaults to the system clock. Tests may pass a fake one. */
   now?: () => Date;
   /**

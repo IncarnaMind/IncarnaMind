@@ -23,6 +23,7 @@ import {
   type OllamaModels,
   type RerankSettings,
   type SaveEmbeddingProviderInput,
+  type TextRecognizer,
 } from "../../src/core";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
 import { openDatabase } from "../../src/core/storage";
@@ -59,6 +60,8 @@ export interface LibraryOptions {
    * checks that never search through the search Tool.
    */
   reranker?: CrossEncoder;
+  /** Reads scanned pages and pictures on this computer, as the app does; none without it. */
+  textRecognizer?: TextRecognizer;
   documents: readonly EvalDocument[];
   /** The folder of the example Documents the app ships, for a run that makes the example Mind. */
   examples?: string;
@@ -201,6 +204,7 @@ function rerankingModelReady(core: Core, modelCache: string | undefined, log: Lo
 
 /** Resolves with the Documents once each has finished processing, logging progress. */
 function processed(core: Core, ids: readonly string[], log: Log): Promise<Document[]> {
+  if (ids.length === 0) return Promise.resolve([]);
   return new Promise<Document[]>((resolve, reject) => {
     const latest = new Map<string, Document>();
     const finish = () => {
@@ -262,6 +266,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
       },
     },
     embedder: options.embedder,
+    ...(options.textRecognizer && { textRecognizer: options.textRecognizer }),
     ...(options.ollamaModels && { ollamaModels: options.ollamaModels }),
     ...(options.agents && { agents: options.agents }),
     // The core reranks by default: with the real built-in model when asked for, as in the app

@@ -106,7 +106,7 @@ export function answerText(client: MindClient, answerId: string): string {
  * {+…+}, a Citation as ⟨its check⟩, Blocks a Proposal adds or removes after
  * "+ " or "- ", one line per paragraph or heading.
  */
-export function shownWithChanges(client: MindClient): string[] {
+export function shownWithChanges(client: Pick<MindClient, "blocks">): string[] {
   const lines: string[] = [];
   readMind(client).descendants((node: ProseMirrorNode) => {
     if (!node.isTextblock) return true;

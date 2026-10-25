@@ -24,6 +24,7 @@ import {
 import type { WindowedPassage } from "../documents/search";
 import type { Language } from "../language";
 import type { MindContent } from "../mindContent";
+import { inFlow } from "../timing/flows";
 import type { StoredFill } from ".";
 import {
   citedOnly,
@@ -452,7 +453,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
 
   function start(meetingId: string): void {
     if (running.has(meetingId)) return;
-    void fill(meetingId).catch((error: unknown) => {
+    void inFlow("meeting-fill", () => fill(meetingId)).catch((error: unknown) => {
       log.error("meeting.fillCrashed", {
         meetingId,
         message: error instanceof Error ? error.message : String(error),

@@ -3,6 +3,7 @@ import type { AudioSource, CoreApiMethod } from "../core/api";
 import type { MenuCommandId } from "./commands";
 import type { GeneralHelpKind } from "./meetingHelp";
 import type { PanelCommand, PanelState } from "./meetingPanel";
+import type { PanelName } from "./panels";
 import type { GuidePlacement, PermissionGuideState } from "./permissionGuide";
 import type { TitleBar } from "./titleBar";
 
@@ -167,12 +168,18 @@ export interface EditMenuState {
 
 export type SkillPickKind = "folder" | "zip";
 
-/** An error nothing in the window caught: a thrown error, or a rejected promise nobody handled. */
+/**
+ * An error nothing in the window caught: a thrown error, or a rejected promise nobody handled.
+ * Or, with `panel`, one a panel's boundary caught while it drew (#1500): the panel that failed,
+ * and React's component stack, the components it was drawing.
+ */
 export interface RendererErrorReport {
   kind: "error" | "rejection";
   name: string;
   message: string;
   stack: string;
+  panel?: PanelName;
+  componentStack?: string;
 }
 
 /** The main process's channels for the `FilesBridge` methods that need it. */

@@ -682,8 +682,6 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   for (const index of [1, 2, 3, 4, 5]) await pointAndClick(window, boxes.nth(index));
   await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("6 of 12");
   await expect(estimate).toContainText("18 model calls");
-  await pointAndClick(window, sheet.getByTestId("compare-sheet-select-all"));
-  await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("0 of 12");
   const frames = await window.evaluate(() => {
     const { sampler } = globalThis as unknown as {
       sampler: { running: boolean; frames: { estimate: boolean; height: number }[] };
@@ -694,6 +692,10 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   expect(frames.length).toBeGreaterThan(10);
   expect(frames.every((frame) => frame.estimate)).toBe(true);
   expect(new Set(frames.map((frame) => frame.height)).size).toBe(1);
+
+  // With nothing ticked the sheet shows its hint again, so this step is outside the sampled frames.
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-select-all"));
+  await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("0 of 12");
   await expect(estimate).toBeHidden();
 });
 

@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, AskedFrom, MarkedCitation, MindRead } from "../../src/core/api";
 import {
   foldedLine,
+  type LiveStep,
+  latestReasoning,
   liveStep,
   type StepsInput,
   stepRows,
@@ -789,15 +791,17 @@ describe("the live step", () => {
   // protects=the live line moves Reading → Searching → Thinking → Writing → Checking from the Answer's state, starts at Searching when it reads no Mind, says Thinking once the model has been asked and nothing is written or running, and waiting for approval wins; fails_when=a step comes out of order, reading shows without a Mind read, Searching stays up while the model thinks, or approval is hidden; no_claim=the 1-second hold is the component's, tested end to end.
   test("reading, searching, thinking, writing, checking; waiting for approval first", () => {
     expect(live({ read: READ })).toEqual({ kind: "reading", mind: READ });
-    expect(live({ read: READ }, { phase: "writing" })).toEqual({ kind: "thinking" });
+    expect(live({ read: READ }, { phase: "writing" })).toEqual({ kind: "thinking", summary: "" });
     expect(live({ read: READ }, { phase: "searching" })).toEqual({ kind: "searching" });
     expect(live({ read: READ, toolCalls: [search("s1", "heat")] }, { phase: "writing" })).toEqual({
       kind: "thinking",
+      summary: "",
     });
     expect(live({})).toEqual({ kind: "searching" });
-    expect(live({}, { phase: "writing" })).toEqual({ kind: "thinking" });
+    expect(live({}, { phase: "writing" })).toEqual({ kind: "thinking", summary: "" });
     expect(live({ toolCalls: [search("s1", "heat")] }, { phase: "writing" })).toEqual({
       kind: "thinking",
+      summary: "",
     });
     expect(live({ toolCalls: [{ ...search("s1", "heat"), status: "running" }] })).toEqual({
       kind: "searching",
@@ -842,5 +846,173 @@ describe("the live step", () => {
       kind: "writing",
     });
     expect(live({}, { phase: "checking-figures" })).toEqual({ kind: "checking-figures" });
+  });
+});
+
+describe("the steps while the Answer is written", () => {
+  const thinking = (summary: string): LiveStep => ({ kind: "thinking", summary });
+  const running = (id: string, query: string) =>
+    search(id, query, { status: "running", resultCount: null });
+  const kinds = (rows: ReturnType<typeof stepRows>) => rows.map((row) => row.kind);
+
+  // protects=the line shows the latest of the reasoning summary as it streams: the last heading a provider titles its parts with, else the sentence being written, without Markdown; fails_when=it shows the first part, raw asterisks, or a heading that was already replaced; no_claim=how the line is cut to the panel's width.
+  test("the latest line of a reasoning summary", () => {
+    expect(latestReasoning(undefined)).toBe("");
+    expect(latestReasoning("  ")).toBe("");
+    expect(
+      latestReasoning(
+        "**Comparing the forecasts**\n\nI need to see both files.\n\n**Checking the dates**\n\nThe first is for 2025.",
+      ),
+    ).toBe("Checking the dates");
+    expect(latestReasoning("**Comparing the forecasts**")).toBe("Comparing the forecasts");
+    expect(latestReasoning("**Comparing the")).toBe("Comparing the");
+    expect(
+      latestReasoning("The user wants a summary.\nI should open the Folder first. Then read"),
+    ).toBe("Then read");
+    expect(latestReasoning("先看一下文件夹。再对比两份预测，")).toBe("再对比两份预测，");
+    expect(latestReasoning("Search for “When? Answer slowly.”.")).toBe("Answer slowly.”");
+  });
+
+  // protects=the thinking step carries the latest line of the summary so far, and none before the provider gives one; fails_when=a provider with no summary shows an empty line, or the line stays on the first part; no_claim=that the summary is shown (the component's).
+  test("thinking carries the latest line of the summary", () => {
+    const reasoning = { summary: "**Reading**\n\nOpen the Folder.", ms: 2000 };
+    const answer = input({ steps: { ...STEPS, finishedAt: null, reasoning } }).answer;
+    expect(liveStep({ answer, phase: "writing", waitingForApproval: false })).toEqual({
+      kind: "thinking",
+      summary: "Reading",
+    });
+  });
+
+  // protects=the model's row is first from the start, thinking, with the summary so far and none before it; fails_when=it appears only once the summary does, so it would be inserted above rows already shown; no_claim=none beyond protects.
+  test("the model's row is there from the start, and grows with its summary", () => {
+    const start = input({ steps: { ...STEPS, finishedAt: null } });
+    expect(stepRows(start, thinking(""))).toEqual([
+      { kind: "reasoning", model: "claude-sonnet-5-5", summary: "", seconds: 1, thinking: true },
+    ]);
+    const summary = "**Reading**\n\nOpen the";
+    const going = input({
+      steps: { ...STEPS, finishedAt: null, reasoning: { summary, ms: 1200 } },
+    });
+    expect(stepRows(going, thinking("Reading"))).toEqual([
+      { kind: "reasoning", model: "claude-sonnet-5-5", summary, seconds: 1, thinking: true },
+    ]);
+    const done = input({
+      steps: { ...STEPS, finishedAt: null, reasoning: { summary, ms: 3400 } },
+    });
+    expect(stepRows(done, { kind: "writing" })).toEqual([
+      { kind: "reasoning", model: "claude-sonnet-5-5", summary, seconds: 3 },
+    ]);
+  });
+
+  // protects=a search that is running has its row, marked running, and a finished one is not; fails_when=a running search has no row until it ends, or a finished row stays marked; no_claim=none beyond protects.
+  test("a running search is a row of its own, marked running", () => {
+    const state = (calls: AnswerToolCall[]) =>
+      stepRows(input({ toolCalls: calls, steps: { ...STEPS, finishedAt: null } }), {
+        kind: "searching",
+      });
+    expect(state([running("s1", "heat")]).at(-1)).toMatchObject({
+      kind: "search",
+      running: true,
+      found: 0,
+    });
+    const [, row] = state([search("s1", "heat")]);
+    expect(row).toMatchObject({ kind: "search" });
+    expect(row).not.toHaveProperty("running");
+    expect(state([search("s1", "heat"), running("s2", "irrigation")]).at(-1)).toMatchObject({
+      kind: "search",
+      running: true,
+      found: 4,
+    });
+  });
+
+  // protects=through a whole run the rows only ever gain rows at the end: the same rows in the same order, the Mind read and each call where it started; fails_when=a row appears above one already shown, or the check shows before it begins; no_claim=the rows after the Answer is written, where the folded line may say what a row did.
+  test("rows are added as steps start and never reordered", () => {
+    const calls = (...each: AnswerToolCall[]) => each;
+    const states: { answer: Partial<StepsInput["answer"]>; step: LiveStep }[] = [
+      { answer: { read: READ }, step: { kind: "reading", mind: READ } },
+      { answer: { read: READ }, step: thinking("") },
+      {
+        answer: {
+          read: READ,
+          steps: { ...STEPS, reasoning: { summary: "Look it up.", ms: 900 } },
+        },
+        step: thinking("Look it up."),
+      },
+      {
+        answer: { read: READ, toolCalls: calls(running("s1", "heat")) },
+        step: { kind: "searching" },
+      },
+      {
+        answer: {
+          read: READ,
+          toolCalls: calls(search("s1", "heat"), { ...connectorCall, status: "running" }),
+        },
+        step: { kind: "call", call: { ...connectorCall, status: "running" } },
+      },
+      {
+        answer: {
+          read: READ,
+          toolCalls: calls(search("s1", "heat"), connectorCall, running("s2", "parks")),
+        },
+        step: { kind: "searching" },
+      },
+      {
+        answer: {
+          read: READ,
+          text: "Parks are cooler [^1].",
+          citations: [citation(1, "a", "d1", 4)],
+          toolCalls: calls(
+            search("s1", "heat", { passages: ["a"] }),
+            connectorCall,
+            search("s2", "parks"),
+          ),
+        },
+        step: { kind: "checking", count: 1 },
+      },
+    ];
+    let before: string[] = [];
+    for (const { answer, step } of states) {
+      const now = kinds(
+        stepRows(
+          input({ steps: { ...STEPS, finishedAt: null }, ...answer }, { askedFrom: MIND }),
+          step,
+        ),
+      );
+      expect(now.slice(0, before.length)).toEqual(before);
+      before = now;
+    }
+    expect(before).toEqual(["reasoning", "read", "search", "call", "search", "check"]);
+  });
+  // protects=the model's row pulses only while the model is thinking, so a provider with no summary shows no dot beside the search or the check that runs; fails_when=it keeps its dot for the whole run; no_claim=none beyond protects.
+  test("the model's row is marked running only while the step is thinking", () => {
+    const answer = input({ steps: { ...STEPS, finishedAt: null } });
+    const [row] = stepRows(answer, { kind: "searching" });
+    expect(row).toEqual({ kind: "reasoning", model: "claude-sonnet-5-5", summary: "", seconds: 1 });
+    const [thinkingRow] = stepRows(answer, thinking(""));
+    expect(thinkingRow).toMatchObject({ thinking: true });
+  });
+
+  // protects=the Citations' check row, once shown, stays until the Answer is written, whatever the step goes back to while a word-by-word stream has more markers than Citations; fails_when=it disappears when the step turns to writing again; no_claim=how the component remembers the count.
+  test("the check row stays once it has begun", () => {
+    const answer = input({ steps: { ...STEPS, finishedAt: null } });
+    const kindsOf = (live: LiveStep, checking: number | null) =>
+      stepRows(answer, live, checking).map((row) => row.kind);
+    expect(kindsOf({ kind: "writing" }, null)).not.toContain("check");
+    expect(kindsOf({ kind: "checking", count: 3 }, null)).toContain("check");
+    expect(kindsOf({ kind: "writing" }, 3)).toContain("check");
+    const [, row] = stepRows(answer, { kind: "writing" }, 3);
+    expect(row).toEqual({ kind: "check", count: 3, notFound: 0, running: true });
+  });
+
+  // protects=a search the User stopped the Answer in is a stopped search, not a failed one; one that gave an error, or one in an Answer that wasn't stopped, still fails; fails_when=Stop leaves "Couldn't search"; no_claim=none beyond protects.
+  test("a search that Stop ended did not fail", () => {
+    const ended = search("s1", "heat", { status: "failed", resultCount: null });
+    const rowsFor = (status: "stopped" | "done", call: AnswerToolCall) =>
+      stepRows(input({ toolCalls: [call], status })).map((row) => row.kind);
+    expect(rowsFor("stopped", ended)).toContain("stopped-search");
+    expect(rowsFor("stopped", ended)).not.toContain("failed-search");
+    const refused = { ...ended, error: { kind: "auth" as const, message: "refused" } };
+    expect(rowsFor("stopped", refused)).toContain("failed-search");
+    expect(rowsFor("done", ended)).toContain("failed-search");
   });
 });
