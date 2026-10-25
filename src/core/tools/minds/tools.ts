@@ -1897,7 +1897,9 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     const { blocks, cited, notFound, unrecorded, searchTalk, ...notes } = content;
     if (blocks.some(unmadeTable)) throw noTable(mind);
     logPointersLeft(alone.left, mind.id, toolCallId);
-    const uncited = uncitedIn(mind, content, again, { answer: false, retry });
+    // Written again from every Document, it is new text from create_mind or add_to_mind (#1415).
+    const newText = remade ? alone.markdown : null;
+    const uncited = uncitedIn(mind, content, again, { answer: false, retry, markdown: newText });
     if (uncited) throw uncited;
     const dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));
     const replaced = over.kind === "own" ? replacedOwn(mind.id, over.blockIds) : {};
@@ -1944,6 +1946,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     const change: MindChange = {
       ...revision(),
       ...citedIn({ cited, unrecorded: 0 }),
+      ...(noCitation(content, newText) && { uncited: true as const }),
       ...someTableNotes(notes),
     };
     options.changed(toolCallId, change);

@@ -5442,6 +5442,11 @@ export interface AnswerSteps {
    */
   citedAfterChecking?: number;
   /**
+   * The model was asked once for the Citations its reply left out, and none came of it that
+   * could be checked (#1415). Absent: it wasn't asked, or Citations came of it.
+   */
+  notCitedAfterAsking?: true;
+  /**
    * How long, in ms, the Question was with the model before the Answer had
    * words: its text, or a Mind its Tool call began to change. Absent while
    * there are none, and for an Answer written before #899.

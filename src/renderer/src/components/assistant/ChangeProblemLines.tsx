@@ -1,6 +1,11 @@
 import type { ConversationAnswer } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
-import { unbackedClaimLine, uncitedWritesOf, waitingProblemOf } from "../../changeProblems";
+import {
+  unbackedClaimLine,
+  uncitedReply,
+  uncitedWritesOf,
+  waitingProblemOf,
+} from "../../changeProblems";
 import { useT } from "../../i18n";
 import { showWaitingChanges, useWaitingIn } from "../../mindChanges";
 import { useAppStore } from "../../store";
@@ -103,4 +108,29 @@ export function UncitedWritesLine({
       </ProblemLine>
     );
   });
+}
+
+/** Under a reply with no Citation though the model was asked for them (#1415), with Try again. */
+export function UncitedReplyLine({
+  answer,
+  onRetry,
+}: {
+  answer: Parameters<typeof uncitedReply>[0];
+  onRetry(): void;
+}) {
+  const t = useT();
+  if (!uncitedReply(answer)) return null;
+  return (
+    <ProblemLine
+      role="status"
+      testId="answer-uncited-reply"
+      action={{
+        label: t("answer.notWritten.retry"),
+        testId: "answer-uncited-reply-retry",
+        onClick: onRetry,
+      }}
+    >
+      {t("answer.uncitedReply")}
+    </ProblemLine>
+  );
 }

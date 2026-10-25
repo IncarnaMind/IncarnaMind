@@ -80,6 +80,12 @@ export function uncitedWritesOf(answer: Pick<ConversationAnswer, "toolCalls">): 
   return [...new Set(uncited)];
 }
 
+/** Whether an Answer's reply has no Citation though the model was asked for them, so nothing in it was checked (#1415). */
+export const uncitedReply = (answer: {
+  steps: Pick<AnswerSteps, "notCitedAfterAsking"> | null;
+  citations: ConversationAnswer["citations"];
+}): boolean => answer.steps?.notCitedAfterAsking === true && answer.citations.length === 0;
+
 /** Why a call of a Minds' Tool changed nothing, in its row's words; null for one of no kind it knows. */
 export function problemText(t: Translate, problem: MindProblem, mind: string): string | null {
   switch (problem.kind) {

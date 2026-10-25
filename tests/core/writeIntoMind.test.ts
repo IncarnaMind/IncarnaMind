@@ -325,6 +325,57 @@ async function useAll(core: Core, answer: Awaited<ReturnType<typeof askAssistant
   return rewritten;
 }
 
+/**
+ * Searches, then writes the rents into a Mind with no Citation; told it has none (#1415), it
+ * writes it again as it was.
+ */
+function uncitedSummary(call: ModelCall): ScriptedReply {
+  if (!called(call, "search_documents")) {
+    return { calls: [{ tool: "search_documents", input: { query: "monthly rent" } }] };
+  }
+  const writes = call.results.filter((each) => each.tool === "create_mind");
+  const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
+  if (writes.length > 0 && !refused) return { text: "Done." };
+  return {
+    calls: [{ tool: "create_mind", input: { title: "Summary", content: QUOTES.join("\n\n") } }],
+  };
+}
+
+describe("Use all of a summary with no Citation (#1415)", { timeout: 60_000 }, () => {
+  // protects=Use all writes an accepted uncited summary again in place through the same check as a new write: refused once, then, written again as it was, marked uncited, so the line under the Answer stays; fails_when=the rewrite in place is taken unchecked or unmarked, or makes a second Mind; no_claim=the line's words (tests/renderer/changeProblems.test.ts).
+  test("refused once, and written again as it was, marked uncited", async () => {
+    const model = scriptedModel(uncitedSummary);
+    const { core, mind, scope } = await inAFolderOfTwo(model);
+    const first = await askAssistant(core, {
+      text: "Based on my files, write a summary",
+      mindId: mind.id,
+      scope,
+    });
+    const writes = (answer: Awaited<ReturnType<typeof askAssistant>>) =>
+      mindCalls(answer).map((call) => [call.status, call.mindProblem?.kind ?? null]);
+    expect(writes(first)).toEqual([
+      ["failed", "uncited"],
+      ["done", null],
+    ]);
+    const made = changesIn(first)[0];
+    expect(made).toMatchObject({ created: true, uncited: true });
+    const summary = await connectToMind(core, made?.mindId ?? "");
+    await resolveChanges(summary, "accept");
+
+    const rewritten = await useAll(core, first);
+
+    expect(writes(rewritten)).toEqual([
+      ["failed", "uncited"],
+      ["done", null],
+    ]);
+    expect(changesIn(rewritten)).toEqual([
+      expect.objectContaining({ mindId: made?.mindId, created: false, uncited: true }),
+    ]);
+    const summaries = (await core.listMinds()).filter((each) => each.title === "Summary");
+    expect(summaries.map((each) => each.id)).toEqual([made?.mindId]);
+  });
+});
+
 describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () => {
   // protects=in an empty Mind, a request to write fills it, and Use all writes that same text again from every Document in its place, as one asked change, with no new Mind; rejected, it leaves the 2-Document text; fails_when=Use all makes a new Mind, or Undo leaves an empty Mind; no_claim=the window's own Undo step.
   test("in an empty Mind the request filled, Use all writes it again there", async () => {

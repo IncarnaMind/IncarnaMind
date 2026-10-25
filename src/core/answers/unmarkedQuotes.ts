@@ -27,12 +27,14 @@
  * when nothing matches, the Answer has no Citation at all and one of its
  * sentences shares at least five words with one of the Passages'. What it
  * gives is taken the same way, a Citation taking the marker its sentence has.
- * An Answer in another language than its Passages shares no words with them,
- * so it is asked whenever it has no Citation (#1415: Claude Haiku 5.5's Chinese
- * summary of English Documents stayed uncited where its English one was asked).
- * Never more than once per Answer, so an Answer in the Passages' language
- * saying the Documents don't cover the Question doesn't pay for it. In the
- * Tool loop the ask is one of the end-of-turn checks' (see ./turnChecks): `mayAsk`.
+ * An Answer in another language than its Passages shares no words with them
+ * (#1415: Claude Haiku 5.5's Chinese summary of English Documents stayed
+ * uncited where its English one was asked), so it is asked when it shares
+ * what survives translation instead: a number in Latin digits, or a name or
+ * term in Latin letters, of four or more. Never more than once per Answer, so
+ * an Answer saying the Documents don't cover the Question, a greeting or a
+ * question back doesn't pay for it. In the Tool loop the ask is one of the
+ * end-of-turn checks' (see ./turnChecks): `mayAsk`.
  */
 import { jsonSchema, Output, streamText } from "ai";
 import { answerSentences } from "../../shared/answerSentences";
@@ -277,6 +279,31 @@ function sharesWords(answer: string, passages: readonly ShownPassage[]): boolean
   });
 }
 
+const DIGITS = /\d+(?:[.,]\d+)*/g;
+const LATIN_TERM = /\p{Script=Latin}{4,}/gu;
+
+const figuresAndTerms = (text: string): Set<string> =>
+  new Set([
+    ...[...text.matchAll(DIGITS)].map((found) => found[0].replace(/,(?=\d{3}(?!\d))/g, "")),
+    ...[...text.matchAll(LATIN_TERM)].map((found) => found[0].toLowerCase()),
+  ]);
+
+function sharesFiguresOrTerms(answer: string, passages: readonly ShownPassage[]): boolean {
+  const ours = figuresAndTerms(answer);
+  if (ours.size === 0) return false;
+  return passages.some((passage) =>
+    [...figuresAndTerms(passage.text)].some((each) => ours.has(each)),
+  );
+}
+
+/** Whether an uncited `answer` may draw on the Passages, so asking the model for its Citations is worth a request. */
+export function mayDrawOn(answer: string, passages: readonly ShownPassage[]): boolean {
+  return (
+    (inAnotherLanguage(answer, passages) && sharesFiguresOrTerms(answer, passages)) ||
+    sharesWords(answer, passages)
+  );
+}
+
 /**
  * A marker without a record that a sentence took stays only there: in
  * another sentence it is that sentence's own Citation's marker, if it has
@@ -456,12 +483,7 @@ export async function* citeUnmarked(
       markers.length > 0 &&
       !markers.some((marker) => recorded(marker) || matchedMarkers.has(marker)),
   );
-  if (
-    unbacked ||
-    (matches.length === 0 &&
-      !cited &&
-      (inAnotherLanguage(answer, passages) || sharesWords(answer, passages)))
-  ) {
+  if (unbacked || (matches.length === 0 && !cited && mayDrawOn(answer, passages))) {
     const toAsk = passagesToAsk(answer, passages, budget);
     if (toAsk.length > 0 && mayAsk()) {
       asked = true;

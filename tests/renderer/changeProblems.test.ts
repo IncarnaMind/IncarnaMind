@@ -3,6 +3,7 @@ import type { AnswerToolCall, MindChange, MindProblem } from "../../src/core/api
 import {
   problemText,
   unbackedClaimLine,
+  uncitedReply,
   uncitedWritesOf,
   waitingProblemOf,
 } from "../../src/renderer/src/changeProblems";
@@ -118,6 +119,20 @@ describe("The line under an Answer that wrote uncited text into a Mind (#1415)",
     expect(zh("answer.uncitedWrite", { mind: "主要文档总结" })).toBe(
       "“主要文档总结”中写入的内容没有引用，未与文档核对",
     );
+  });
+});
+
+describe("The line under a reply with no Citation though it was asked for them (#1415)", () => {
+  // protects=the line shows only for a reply with no Citation whose steps say the model was asked and none came, in English and Chinese; fails_when=it shows for a reply that was never asked, or one that has Citations; no_claim=when the core asks (tests/core/summaryAfterSkip.test.ts).
+  test("asked and given none, with no Citation", () => {
+    const steps = { notCitedAfterAsking: true as const };
+    expect(uncitedReply({ steps, citations: [] })).toBe(true);
+    expect(uncitedReply({ steps: {}, citations: [] })).toBe(false);
+    expect(uncitedReply({ steps: null, citations: [] })).toBe(false);
+    expect(en("answer.uncitedReply")).toBe(
+      "This reply has no Citations, so none of it was checked against your Documents",
+    );
+    expect(zh("answer.uncitedReply")).toBe("这条回答没有引用，未与文档核对");
   });
 });
 

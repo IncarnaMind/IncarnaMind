@@ -84,12 +84,16 @@ const refusedUncited = (call: ModelCall) =>
  * the reply or with create_mind, its input streamed. Told its write has no Citation, it cites and
  * writes it again with markers, or (`insists`) writes it again as it was.
  */
-function afterSkip(language: Language, into: "reply" | "mind", insists = false) {
+function afterSkip(
+  language: Language,
+  into: "reply" | "mind",
+  { insists = false, givesNone = false }: { insists?: boolean; givesNone?: boolean } = {},
+) {
   const asked: ModelCall[] = [];
   const model = scriptedModel((call): ScriptedReply => {
     if (call.json) {
       if (call.system === CITE_RETRY_INSTRUCTIONS) asked.push(call);
-      return { text: JSON.stringify({ citations: citationsAsked(call) }) };
+      return { text: JSON.stringify({ citations: givesNone ? [] : citationsAsked(call) }) };
     }
     const results = (tool: string) => call.results.filter((each) => each.tool === tool);
     if (results("ask_user").length === 0) return { calls: [{ tool: "ask_user", input: WHICH }] };
@@ -175,6 +179,7 @@ describe("A summary written after a skipped question cites each Document (#1415)
       );
       if (language === "zh") expect(asked).toHaveLength(1);
       expect(answer.steps?.citedAfterChecking).toBe(3);
+      expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
     });
 
     // protects=a summary written into a Mind with no Citation, once Passages were read, is refused once with what to do, and written again cited: every paragraph of the Mind has a Citation, and no line says it is uncited; fails_when=the uncited text goes in, stays in the Mind beside the cited one, or the write is refused again; no_claim=the words a real model writes.
@@ -203,7 +208,7 @@ describe("A summary written after a skipped question cites each Document (#1415)
 
   // protects=a model that writes the uncited summary again as it was is refused only once: the Mind gets it, and its change says it has no Citation, for the line under the Answer; fails_when=it is refused twice, lost, or not marked uncited; no_claim=how the line is drawn (tests/renderer/changeProblems.test.ts).
   test("written again as it was, it goes in, marked uncited", async () => {
-    const { model } = afterSkip("zh", "mind", true);
+    const { model } = afterSkip("zh", "mind", { insists: true });
     const { core } = await setUpWithDocuments(model, DOCUMENTS);
 
     const answer = await summarise(core, "zh");
@@ -213,6 +218,43 @@ describe("A summary written after a skipped question cites each Document (#1415)
     expect(madeChanges(answer)).toEqual([
       expect.objectContaining({ created: true, uncited: true }),
     ]);
+  });
+
+  // protects=a Chinese summary of English Documents whose request for Citations gives none keeps no Citation, and its steps say it was asked and none came, for the line under it; fails_when=the steps say nothing, or a Citation is made up; no_claim=how the line is drawn (tests/renderer/changeProblems.test.ts).
+  test("asked for Citations and given none, the reply says so", async () => {
+    const { model, asked } = afterSkip("zh", "reply", { givesNone: true });
+    const { core } = await setUpWithDocuments(model, DOCUMENTS);
+
+    const answer = await summarise(core, "zh");
+
+    expect(asked).toHaveLength(1);
+    expect(answer.citations).toEqual([]);
+    expect(answer.steps?.notCitedAfterAsking).toBe(true);
+  });
+
+  // protects=a Chinese reply that states nothing from the English Documents isn't asked for Citations: a greeting with the Documents given whole, and "didn't find" after a search; fails_when=either pays a request for Citations; no_claim=what a real model writes (the replay in the pull request).
+  test.each([
+    ["a greeting, the Documents given whole", "你好！有什么可以帮你？", false],
+    ["“didn't find”, after a search", "我在你的文档中没有找到关于停车位的内容。", true],
+  ])("%s, in Chinese, isn't asked", async (_, reply, searches) => {
+    const asked: ModelCall[] = [];
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.json) {
+        if (call.system === CITE_RETRY_INSTRUCTIONS) asked.push(call);
+        return { text: JSON.stringify({ citations: [] }) };
+      }
+      if (searches && !call.results.some((each) => each.tool === "search_documents")) {
+        return { calls: [{ tool: "search_documents", input: { query: "parking space" } }] };
+      }
+      return { text: reply };
+    });
+    const { core } = await setUpWithDocuments(model, DOCUMENTS);
+
+    const answer = await askAssistant(core, { text: "你好", mindId: null });
+
+    expect(answer.text).toBe(reply);
+    expect(asked).toHaveLength(0);
+    expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
   });
 
   // protects=text written with no search before it isn't refused or marked, even with a small Library given whole with the Question; fails_when=a packing list is refused for want of Citations; no_claim=none beyond protects.
