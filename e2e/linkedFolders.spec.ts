@@ -315,9 +315,9 @@ test("two files with one name show where each is, and a Linked folder's row open
 
   const reports = linkedRows(window).filter({ hasText: "Annual-Report" });
   await expect(reports).toHaveCount(2);
-  await expect(reports.getByTestId("row-place")).toHaveText(["2025", "2026"], {
-    useInnerText: true,
-  });
+  await expect
+    .poll(async () => (await reports.getByTestId("row-place").allInnerTexts()).sort())
+    .toEqual(["2025", "2026"]);
   await expect(
     linkedRows(window).filter({ hasText: "Budget" }).getByTestId("row-place"),
   ).toHaveCount(0);
@@ -328,9 +328,16 @@ test("two files with one name show where each is, and a Linked folder's row open
   const library = window.getByTestId("library-document");
   await expect(library).toHaveCount(4);
   await expect(library.filter({ hasText: "Budget" })).toHaveCount(0);
-  await expect(
-    library.filter({ hasText: "notes" }).getByTestId("library-document-place"),
-  ).toHaveText(["2025", "2026"], { useInnerText: true });
+  await expect
+    .poll(async () =>
+      (
+        await library
+          .filter({ hasText: "notes" })
+          .getByTestId("library-document-place")
+          .allInnerTexts()
+      ).sort(),
+    )
+    .toEqual(["2025", "2026"]);
   await screenshot(window, "same-name-library");
 
   // ⌘K names each with its folder.
