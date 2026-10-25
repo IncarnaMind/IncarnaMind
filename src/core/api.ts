@@ -3670,8 +3670,12 @@ export interface LinkedFolderPreview {
   bytes: number;
   /** Cloud placeholders, left out until the User asks to download them. */
   onlineOnly: { files: number; bytes: number };
-  /** A rough guess at how long indexing takes on this computer, in seconds. */
-  estimatedSeconds: number;
+  /**
+   * Roughly how long reading them takes, in seconds, at the speed files of their kinds were
+   * read on this computer. Null until files of each of their kinds have been read here, with
+   * the embedding model in use, and when a file's size is far from the sizes read.
+   */
+  estimatedSeconds: number | null;
   /** The layout it would get. */
   layout: LinkedFolderLayout;
   /** The folder is inside a Linked folder already: linking it adds nothing. Its id, or null. */
