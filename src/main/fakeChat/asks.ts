@@ -25,7 +25,6 @@ const DESCRIPTIONS_ZH = [
   "这里最早的一份，今年没有改动。",
 ];
 
-/** The Documents' names as the instructions list them, newest first. */
 export const namesIn = (system: string): string[] => {
   const list = /names, newest first:\n((?:- .+\n?)+)/.exec(system)?.[1] ?? "";
   return [...list.matchAll(/^- (.+)$/gm)].map((match) => match[1]?.trim() ?? "");
