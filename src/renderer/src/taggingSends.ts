@@ -2,10 +2,10 @@ import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { TaggingDestination } from "./taggingDestination";
 
 /**
- * What a flow sends, in one sentence: Tags always, Folders when Organize files
- * by them, and page images when Organize reads scans. Each dictionary joins its
- * own sentences. Its status row says it in a popover, so the row stays one line.
- * Nothing is said while where it sends isn't known yet.
+ * Why six whole sentences rather than pieces joined with a space: each
+ * dictionary joins its own (Chinese puts no space after its full stop). Its
+ * status row says it in a popover, so the row stays one line; nothing is said
+ * while where it sends isn't known yet (#1021).
  */
 const SENDS = {
   tags: { service: "status.sends", computer: "status.sends.onThisComputer" },
