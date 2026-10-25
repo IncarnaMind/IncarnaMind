@@ -50,7 +50,6 @@ function withClaimAtCaret() {
   return claim ? { ...note, claim } : null;
 }
 
-/** Shows a sentence's card and gives its first action the focus, in the tab the Mind is in (#1762). */
 function showClaimCard(at: NonNullable<ReturnType<typeof withClaimAtCaret>>): void {
   setCheckCardOpen(at.place, false);
   setOpenClaim(at.place, at.claim.check.id);
