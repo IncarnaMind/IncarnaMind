@@ -61,7 +61,12 @@ export function exportLabels(language: Language): ExportLabels {
         if (sentence.says)
           return t("export.comment.sentence.contradicted", { says: sentence.says });
         return sentence.worked
-          ? t("export.comment.sentence.contradicted.worked", sentence.worked)
+          ? t(
+              sentence.worked.relation
+                ? `export.comment.sentence.contradicted.worked.${sentence.worked.relation}`
+                : "export.comment.sentence.contradicted.worked",
+              sentence.worked,
+            )
           : t("export.comment.sentence.contradicted.plain");
       }
       if (sentence.nearest)
