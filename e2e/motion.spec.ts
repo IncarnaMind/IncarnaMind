@@ -12,6 +12,7 @@ import {
   motionSettled,
   openSettings,
   removeDataFolder,
+  scaleOf,
   setMotionSpeed,
   setWindowSize,
 } from "./app";
@@ -31,9 +32,6 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
-
-/** The scale a copy's transform says, 1 with none. */
-const scaleOf = (transform: string) => Number(/^matrix\(([^,]+),/.exec(transform)?.[1] ?? 1);
 
 async function chooseLanguage(window: Page, language: "en" | "zh-CN"): Promise<void> {
   await window.evaluate(async (chosen) => {

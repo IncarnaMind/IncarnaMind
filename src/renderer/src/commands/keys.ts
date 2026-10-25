@@ -40,6 +40,8 @@ export function checkKeys(shortcut: ShortcutKeys): void {
  * there (Cyrillic, ⌥ held, a sign on another key), the physical key stands in.
  */
 function sameKey(chord: Chord, press: KeyPress): boolean {
+  // Alt and the keypad's digits type a character by its code on Windows (Alt+0169 types ©).
+  if (press.altKey && /^Numpad\d$/.test(press.code)) return false;
   if (chord.key.length === 1 && press.key.length === 1) {
     if (press.key.toUpperCase() === chord.key) return true;
     if (/^[a-z0-9]$/i.test(press.key)) return false;

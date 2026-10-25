@@ -1,4 +1,5 @@
 import { useContext, useEffect, useId, useRef, useState } from "react";
+import { isWordFile, isWordType } from "../../../../shared/wordFileTypes";
 import { files } from "../../core";
 import { useDropTarget } from "../../dragDrop";
 import {
@@ -14,7 +15,7 @@ import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
 import { useAppStore } from "../../store";
 import { useGroupsMerged } from "../../useWindowWidth";
-import { isWordFile, useWordImport } from "../../wordImport";
+import { useWordImport } from "../../wordImport";
 import { ExportResultLine } from "../ExportResultLine";
 import { ExampleIntro } from "../FirstOpenSteps";
 import { useIsExample } from "../GettingStarted";
@@ -134,19 +135,16 @@ function useReviewShown(mindId: string) {
   return { setRow, setSlot, slot, shown };
 }
 
-/**
- * A Word file dropped on a Mind, alone, opens the import screen (#104), which
- * also offers to add it as a Document, as a drop anywhere else does. Before
- * the drop only its type is known; a file with no path on this computer is
- * added as the window would.
- */
+// A Word file dropped on a Mind, alone, opens the import screen (#104), which also offers to add it
+// as a Document. Only its type is known before the drop, and a file with no path on this computer
+// is added as the window would.
 function useWordFileDrop() {
   return useDropTarget(`mind-word:${useId()}`, {
     accepts(dragged) {
       if (dragged.kind !== "files") return null;
       const count = dragged.names?.length ?? dragged.types.length;
       const [name] = dragged.names ?? [];
-      const word = name !== undefined ? isWordFile(name) : /word/i.test(dragged.types[0] ?? "");
+      const word = name !== undefined ? isWordFile(name) : isWordType(dragged.types[0] ?? "");
       return count === 1 && word ? { kind: "import", said: (t) => t("drop.importWord") } : null;
     },
     drop(dropped) {

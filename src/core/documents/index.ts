@@ -99,6 +99,7 @@ import {
   unreadMessage,
 } from "./processing";
 import { createProcessor } from "./processor";
+import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
 import { type TextRecognitionModel, TextRecognitionUnavailableError } from "./scan";
 import { MIN_PAGE_TEXT } from "./scan/pages";
 import {
@@ -435,6 +436,7 @@ export interface DocumentsOptions {
   scansAtOnce?: number;
   /** The password kept for a locked PDF (./pdfPasswords, #763); undefined when none is. */
   pdfPassword?(documentId: string): Promise<string | undefined>;
+  readingSpeed: Pick<ReadingMeterOptions, "read" | "write">;
   linkedFolders: {
     watch: WatchFolder;
     stat: StatIdentity;
@@ -717,6 +719,13 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists.
   let isPaused = (_documentId: string) => false;
 
+  const reading = createReadingMeter({
+    ...options.readingSpeed,
+    clock: () => performance.now(),
+    embedding: () => (model.enabled() ? model.id : ""),
+    reportError,
+  });
+
   const embedding = createEmbeddingQueue({
     db,
     now,
@@ -724,6 +733,7 @@ export function createDocuments(options: DocumentsOptions) {
     vectors,
     announce,
     onReady: options.onReady,
+    onEmbedded: (id, ms) => reading.embedded(id, ms),
     isPaused: (id) => isPaused(id),
   });
 
@@ -998,7 +1008,8 @@ export function createDocuments(options: DocumentsOptions) {
 
   const processor = createProcessor({
     scansAtOnce: options.scansAtOnce,
-    onStart(job) {
+    onStart(job, warm) {
+      reading.started(job.documentId, warm);
       const row = find(job.documentId);
       if (row?.status !== "queued") return undefined;
       setStatus(job.documentId, "extracting");
@@ -1043,10 +1054,13 @@ export function createDocuments(options: DocumentsOptions) {
     isUnavailable: (error) => error instanceof TextRecognitionUnavailableError,
     password: async (job) => options.pdfPassword?.(job.documentId),
     onResult(job, result) {
-      scanProgress.delete(job.documentId);
+      const scanned = scanProgress.delete(job.documentId);
       const recorded = record(job, result);
       if (recorded === undefined) return; // deleted, or queued again, while processing
       const { status, replaced } = recorded;
+      if (result.outcome === "ready" && !scanned) {
+        reading.processed(job.documentId, job.kind, result.size, status === "ready");
+      }
       // Any vectors from an earlier processing went with the old Passages.
       if (replaced) vectors.removeDocument(job.documentId);
       if (result.outcome === "file-unreadable") {
@@ -1312,6 +1326,7 @@ export function createDocuments(options: DocumentsOptions) {
     for (const id of ids) {
       vectors.removeDocument(id);
       processor.cancel(id);
+      reading.forget(id);
     }
     // Pushed first, so a Citation quoting what is kept never shows "can't check" meanwhile.
     if (keep) options.emitKept?.(keptCitationTexts());
@@ -1353,6 +1368,7 @@ export function createDocuments(options: DocumentsOptions) {
     stat: options.linkedFolders.stat,
     retryMs: options.linkedFolders.retryMs,
     detectDataless: options.linkedFolders.detectDataless,
+    readingSeconds: (files) => reading.seconds(files),
     hooks: {
       process,
       stillQueued: (id) => {
@@ -2810,6 +2826,7 @@ export function createDocuments(options: DocumentsOptions) {
       library.close();
       embedding.close();
       processor.close();
+      reading.close();
       // Closed in good order, a Document being read is read again at the next start; one
       // still "extracting" then is one whose reading stopped the app (see `unfinished`).
       db.run(

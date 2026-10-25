@@ -7,7 +7,7 @@ import {
   type Selection,
   type Transaction,
 } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
 import {
@@ -89,6 +89,25 @@ type Meta =
   | { applying: ReadonlySet<string> };
 
 export const proposalReviewKey = new PluginKey<ReviewState>("proposalReview");
+
+/**
+ * How long the pointer rests on another change before the card switches to
+ * it: a move from a change onto its card can cross other changes, and taking
+ * one over on the way would put the card's Accept on the wrong change.
+ */
+const HOVER_SWITCH_MS = 250;
+const hoverSwitches = new WeakMap<EditorView, ReturnType<typeof setTimeout>>();
+
+function clearHoverSwitch(view: EditorView): void {
+  const timer = hoverSwitches.get(view);
+  if (timer !== undefined) clearTimeout(timer);
+  hoverSwitches.delete(view);
+}
+
+/** Keeps a card's change while the pointer travels from the change onto the card. */
+export function keepShownChange(view: EditorView): void {
+  clearHoverSwitch(view);
+}
 
 /** The key that tells one Citation from another, to know whether a Proposal adds it back. */
 const citationKey = (node: ProseMirrorNode) =>
@@ -764,10 +783,25 @@ export const ProposalReview = Extension.create<{
               const target = event.target instanceof Element ? event.target : null;
               const id =
                 target?.closest("[data-proposal-id]")?.getAttribute("data-proposal-id") || null;
-              if (!id || id === proposalReviewKey.getState(view.state)?.hovered) return false;
-              view.dispatch(
-                view.state.tr.setMeta(proposalReviewKey, { hovered: id } satisfies Meta),
-              );
+              const current = proposalReviewKey.getState(view.state)?.hovered ?? null;
+              if (!id || id === current) return false;
+              clearHoverSwitch(view);
+              const show = () => {
+                hoverSwitches.delete(view);
+                if (view.isDestroyed || id === proposalReviewKey.getState(view.state)?.hovered) {
+                  return;
+                }
+                view.dispatch(
+                  view.state.tr.setMeta(proposalReviewKey, { hovered: id } satisfies Meta),
+                );
+              };
+              if (current === null) show();
+              else hoverSwitches.set(view, setTimeout(show, HOVER_SWITCH_MS));
+              return false;
+            },
+            mouseout(view, event) {
+              const to = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+              if (!to?.closest("[data-proposal-id]")) clearHoverSwitch(view);
               return false;
             },
           },
@@ -779,7 +813,9 @@ export const ProposalReview = Extension.create<{
 
 /** The pointer left the Proposal it was on, for the bar (which keeps it while it is pointed at). */
 export function clearHovered(editor: Editor): void {
-  if (editor.isDestroyed || !proposalReviewKey.getState(editor.state)?.hovered) return;
+  if (editor.isDestroyed) return;
+  clearHoverSwitch(editor.view);
+  if (!proposalReviewKey.getState(editor.state)?.hovered) return;
   editor.commands.command(({ tr }) => {
     tr.setMeta(proposalReviewKey, { hovered: null } satisfies Meta);
     return true;
