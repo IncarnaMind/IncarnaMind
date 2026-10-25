@@ -83,6 +83,9 @@ async function exampleOverFakes() {
     mindTitle: (mindId) => minds.get(mindId)?.mind.title ?? "",
     mindExists: (mindId) => minds.has(mindId),
     deleteMind: (mindId) => void minds.delete(mindId),
+    restoreMind: () => {
+      throw new Error("not used");
+    },
     editMind: (mindId, change) => {
       const held = minds.get(mindId);
       if (!held) throw new Error("No such Mind.");
@@ -110,6 +113,9 @@ async function exampleOverFakes() {
       } satisfies LinkedFolder;
     },
     unlinkFolder: (linkedFolderId) => void folders.delete(linkedFolderId),
+    restoreFolder: () => {
+      throw new Error("not used");
+    },
     linkedFolderExists: (linkedFolderId) => folders.has(linkedFolderId),
     documentsIn: (linkedFolderId) => documents.get(linkedFolderId) ?? [],
     mindFolder: () => null,

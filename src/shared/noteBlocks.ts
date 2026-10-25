@@ -80,10 +80,13 @@ const unit = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
 
 /**
- * The Blocks with each Citation in them checked again against its Document's
- * current version, where they land: its check, and where it points, as the
- * check finds them now. A Citation whose Document is gone, or that can't be
- * checked again for any reason, keeps what it had.
+ * The Blocks with each Citation in them checked again where they land: against
+ * its Document's current version, its check and where it points as the check
+ * finds them now; once its Document has a newer version than the one it quotes,
+ * in that version, where it points kept, so its card says the Document changed
+ * and only the User's choice moves it (ADR-0017's amendment). A Citation whose
+ * Document is gone, or that can't be checked again for any reason, keeps what
+ * it had.
  */
 export async function recheckCitations(
   blocks: readonly NodeJSON[],
@@ -108,9 +111,15 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
       quote: typeof quote === "string" ? quote : "",
       pageFrom,
       pageTo: unit(attrs.pageTo) ?? pageFrom,
+      contentHash: typeof attrs.contentHash === "string" ? attrs.contentHash : null,
     });
     // A deleted Document: the check made when it was cited stands, as the badge shows it.
     if (checked.contentHash === null) return node;
+    const quoted = checked.inQuotedVersion;
+    if (quoted !== undefined) {
+      if (quoted === null) return node;
+      return { ...node, attrs: { ...attrs, check: quoted.check, checkReason: quoted.checkReason } };
+    }
     return {
       ...node,
       attrs: {

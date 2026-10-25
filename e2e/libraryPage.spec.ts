@@ -274,6 +274,28 @@ test("search narrows every section and hides the empty ones; a filter chip and t
   }
 });
 
+test("the Source location filter is 文件位置 in the Chinese interface (#1507)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const library = await openFullLibrary(window, sources);
+    await setLanguage(window, "zh-CN");
+    await pointAndClick(window, library.getByTestId("library-add-filter"));
+    await pointAndClick(
+      window,
+      window.locator('[data-testid="library-filter-kind"][data-facet="source"]'),
+    );
+    await pointAndClick(
+      window,
+      window.locator('[data-testid="library-filter-option"][data-value="other"]'),
+    );
+    await window.keyboard.press("Escape");
+    await expect(library.getByTestId("library-filter")).toHaveText("文件位置：其他文档");
+  } finally {
+    await app.close();
+  }
+});
+
 test("words nothing in the Library matches are asked about in the assistant, by Enter or the line's button, in English and Chinese (#763)", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1440, 900);

@@ -63,7 +63,7 @@ Windows releases will be signed through the SignPath Foundation's free signing f
 
 **Check every answer.** Answers cite where each claim came from and carry the quote, which is checked against that place: a green check if it's there, an amber mark if it isn't, and a click opens the page with the quote highlighted. Unfold an Answer's steps to see what it searched and which sources it used.
 
-**Write and ask in one place.** A Mind is a notebook for one topic. Beside it sits the assistant: ask it about the Mind you're in or your files, and the Answer comes back there, in a conversation, with its citations checked. Your draft stays as you wrote it until you pick **Add to note**, which puts the Answer at your cursor as text you can edit, citations and all.
+**Write and ask in one place.** A Note is a notebook for one topic. Beside it sits the assistant: ask it about the Note you're in or your files, and the Answer comes back there, in a conversation, with its citations checked. Your draft stays as you wrote it until you pick **Add to note**, which puts the Answer at your cursor as text you can edit, citations and all.
 
 **Write with AI you can check.** Tell the assistant what to change ("shorten the summary", "add today's decision to the project plan", "summarise these papers into a new note") and it changes the Mind, or makes a new one, at once: its text is grey until you edit it, one Undo takes the change back, and Review changes shows what changed. A question still gets an answer. Or select text and choose Edit with AI, and each change says why it was made. Turn on suggestions as you write, and when you pause, grey text offers how the paragraph could go on, only where your Documents support it and always with a citation; Tab accepts.
 

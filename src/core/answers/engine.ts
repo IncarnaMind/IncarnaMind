@@ -269,6 +269,11 @@ export interface AnswerTools {
    * one request to fix them asks about (see ./figureRetry).
    */
   figureProblems?(): FigureProblem[];
+  /**
+   * `text` with a Citation marker for each quote a figure gave its inputs directly, where the
+   * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
+   */
+  citeFigures?(text: string): string;
 }
 
 /** A record whose quote the check doesn't find, with the text of the Passage it names (see `AnswerTools.unfoundQuotes`). */
@@ -319,8 +324,8 @@ export interface GatedCall extends RunToolCall {
  * Which Tools a Run is offered (#78):
  * - "answer": an ordinary Answer's: the Documents' search and `cite`, and
  *   every other Tool the request brings (Skills, Connectors, Find sources);
- * - "check": a check Run's (find support, verify, a comparison table's
- *   cells, contradiction watch): the Documents' search and `cite` only,
+ * - "check": a check Run's (check against documents, verify, a comparison
+ *   table's cells, contradiction watch): the Documents' search and `cite` only,
  *   whatever the request brings, so the text it checks can't steer a write or
  *   a send;
  * - "documents": the Documents' Tools as an Answer has them, and nothing the
@@ -475,6 +480,12 @@ export type AnswerEngineEvent =
    * ("Let me look that up"), or are being replaced: remove them.
    */
   | { type: "text-retracted"; length: number }
+  /**
+   * The texts the model wrote beside `cite` or `calculate` alone, after a search, with no marker
+   * in them, that the Answer doesn't show, in the order written. Once, before "finished", when
+   * there is any.
+   */
+  | { type: "text-set-aside"; texts: string[] }
   /**
    * A Tool call started, for its Tool-call card: any Tool but `cite` and `calculate`, or the
    * search the engine makes for a model without Tools. `tool` is its name at
@@ -1660,10 +1671,12 @@ async function* toolLoop(
   /** An earlier step wrote the Answer and recorded its Citations: text with markers after that is a second copy. */
   let answered = false;
   /**
-   * The last text written beside `cite` or `calculate` alone, with no marker
-   * in it, and taken back: the Answer, if the model never writes another.
+   * Texts written beside `cite` or `calculate` alone, with no marker in them,
+   * and taken back: the last is the Answer if the model never writes another,
+   * and a check whose reply has no verdict reads it from those written after
+   * a search.
    */
-  let unmarked = "";
+  let setAside: { text: string; searched: boolean }[] = [];
   /** The Tool of each call, by its id. */
   const calls = new Map<string, Tool>();
   /** Searches running now: the Answer is "searching" while there are any. */
@@ -1702,6 +1715,9 @@ async function* toolLoop(
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
     if (!request.documents.wroteIntoMind?.()) {
+      const figured = request.documents.citeFigures?.(keptText) ?? keptText;
+      yield* textEdits(keptText, figured);
+      keptText = figured;
       const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
       yield* citeUnmarked(request, placed, temperature, budget, () =>
         nudges.take("unmarked-quotes"),
@@ -1850,7 +1866,7 @@ async function* toolLoop(
           if (shown > 0) yield { type: "text-retracted", length: shown };
           released = Math.min(released, keptText.length);
           if (recorded && !stepTools.some((each) => !recording(each)) && !again)
-            unmarked = stepText;
+            setAside.push({ text: stepText, searched });
         } else {
           keptText += stepText;
           if (recorded && MARKER.test(stepText)) answered = true;
@@ -1888,7 +1904,8 @@ async function* toolLoop(
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        if (keptText.trim() === "" && unmarked.trim() !== "") keptText = unmarked;
+        if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
+          keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
           const records = parseRecords(taken.records).filter(
@@ -1911,10 +1928,12 @@ async function* toolLoop(
           keptText = "";
           stepText = "";
           answered = false;
-          unmarked = "";
+          setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
           break;
         }
+        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
+        if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
         if (taken.text !== keptText) {
           yield* textEdits(keptText.slice(0, released), taken.text);
           keptText = taken.text;
@@ -2057,6 +2076,7 @@ async function* structured(
       }
       if (budget) yield* retryFigures(request, placed, temperature, budget);
       if (signal.aborted) return;
+      yield* textEdits(placed, request.documents.citeFigures?.(placed) ?? placed);
     }
   }
   yield* flagClaims(request, emitted);

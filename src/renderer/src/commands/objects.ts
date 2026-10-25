@@ -214,18 +214,19 @@ export const documentCommands: readonly Command[] = [
         : t("documents.retryAction"),
     group: "main",
     appliesTo: ["document"],
-    // Only a failed one, or a scan with no text, whose file is there to be read again; a locked PDF
-    // is unlocked instead.
     when: (ctx) =>
       everyDocument(
         ctx,
         (document) =>
-          (document.status === "failed" || document.status === "no-text") &&
+          ((onlyOne(ctx) && ctx.here?.["document.retry"] !== undefined) ||
+            document.status === "failed" ||
+            document.status === "no-text") &&
           document.fileStatus === "available" &&
           !isLockedPdf(document),
       ),
     reversible: true,
     run: async (ctx) => {
+      if (onlyOne(ctx) && ctx.here?.["document.retry"]) return ctx.here["document.retry"]();
       await Promise.all(idsOf(ctx, "document").map((id) => store().retryDocument(id)));
     },
   },
@@ -539,25 +540,6 @@ export const linkedFolderCommands: readonly Command[] = [
     run(ctx) {
       const linked = linkedOf(ctx);
       return linked && store().setLinkedFolderPaused(linked.id, linked.status !== "paused");
-    },
-  },
-  {
-    id: "linkedFolder.layout",
-    label: (ctx, t) =>
-      t(
-        linkedOf(ctx)?.layout === "flat"
-          ? "linkedFolders.layout.tree"
-          : "linkedFolders.layout.flat",
-      ),
-    group: "main",
-    appliesTo: ["linkedFolder"],
-    reversible: true,
-    run(ctx) {
-      const linked = linkedOf(ctx);
-      return (
-        linked &&
-        store().setLinkedFolderLayout(linked.id, linked.layout === "flat" ? "tree" : "flat")
-      );
     },
   },
   {

@@ -1542,6 +1542,8 @@ export function createCore(adapters: CoreAdapters): Core {
                 {
                   id: mind.id,
                   name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+                  folderId: mind.folderId,
+                  changedAt: mind.updatedAt,
                 },
               ]
             : [],
@@ -1573,7 +1575,10 @@ export function createCore(adapters: CoreAdapters): Core {
       checkWritten: (input) => checks.checkWritten(input),
     },
     withdrawChanges: (changes) => {
-      for (const change of changes) {
+      // Last first: a revision taken back brings back what it replaced, which an earlier call of
+      // the same Answer may have written, and a Mind its first call made is empty only once the
+      // calls after it are taken back.
+      for (const change of [...changes].reverse()) {
         if (!mindExists(change.mindId)) continue;
         const { title } = minds.get(change.mindId);
         const emptied = content.edit(change.mindId, (blocks) => {
@@ -1911,7 +1916,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now: () => adapters.now?.() ?? new Date(),
   });
 
-  // Find support and Check against Documents (#96): check Runs that can only search and cite.
+  // Check against Documents (#96): check Runs that can only search and cite.
   const startInWritingStyle = (mindId: string) => {
     const style = settings.get().user.newMindStyle;
     if (sameStyle(style, DEFAULT_MIND_STYLE)) return;
@@ -3000,9 +3005,18 @@ export function createCore(adapters: CoreAdapters): Core {
       mindsChanged();
       layouts.forgetDeletedMinds();
     },
+    restoreMind: (mindId) => recentlyDeleted.restore([{ kind: "mind", id: mindId }]),
     editMind: (mindId, change) => content.edit(mindId, change),
     linkFolder: (path) => documents.linkedFolders.add(path),
     unlinkFolder,
+    restoreFolder: (linkedFolderId) => {
+      db.transaction(() => {
+        const { went } = documents.linkedFolders.restore(linkedFolderId);
+        if (went.length > 0) {
+          recentlyDeleted.restore(went.map((id) => ({ kind: "document" as const, id })));
+        }
+      });
+    },
     linkedFolderExists: (linkedFolderId) =>
       documents.linkedFolders.list().some((folder) => folder.id === linkedFolderId),
     documentsIn: (linkedFolderId) => documents.list({ linkedFolderId }),
@@ -3795,6 +3809,7 @@ export function createCore(adapters: CoreAdapters): Core {
     offerExamples: async () => examples.offer(minds.list().length > 0),
     createExamples: async (group) => examples.create(group),
     removeExamples: async (group) => examples.remove(group),
+    restoreExamples: async (group) => examples.restore(group),
     setLinkedFolderLayout: async (linkedFolderId, layout) =>
       documents.linkedFolders.setLayout(linkedFolderId, layout),
     setLinkedFolderPaused: async (linkedFolderId, paused) =>
@@ -3812,6 +3827,7 @@ export function createCore(adapters: CoreAdapters): Core {
         quote: typeof input.quote === "string" ? input.quote : "",
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
+        contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
       });
     },
     citeSelection: async (input) => {

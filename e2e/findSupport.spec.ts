@@ -25,8 +25,8 @@ import {
 } from "./app";
 
 /*
- * Checking the User's own sentences (#96): select sentences, then Find
- * support or Check against Documents in the selection menu. Each sentence
+ * Checking the User's own sentences (#96): select sentences, then Check
+ * against Documents in the selection menu. Each sentence
  * gets a mark in the margin, its card says what was found, and the check
  * badge's card counts them. The scripted model (see
  * src/main/fakeChat/checks.ts) finds a sentence supported when it shares three
@@ -93,16 +93,16 @@ async function checkAll(window: Page, line: Locator, first: string, last: string
 
 const marks = (window: Page) => window.getByTestId("claim-mark");
 
-test("Find support on two sentences: one is supported and its Citation is added, the other is marked unsupported", async () => {
+test("Check against Documents on two sentences with no Citation: one is supported and its Citation is added, the other is marked unsupported", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
   const { editor, line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
   await setWindowSize(app, window, 1440, 900);
-  await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
-    "2 with no Citation",
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "2 claims not checked yet",
   );
 
-  await checkAll(window, line, "Spring tides", "harbour cliffs.", "find-support");
+  await checkAll(window, line, "Spring tides", "harbour cliffs.", "check-against-documents");
 
   await expect(marks(window)).toHaveCount(2);
   const supported = marks(window).and(window.locator('[data-check="supported"]'));
@@ -165,8 +165,9 @@ test("Find support on two sentences: one is supported and its Citation is added,
   await slideSelect(window, line, "Penguins");
   await window.keyboard.type("Gulls");
   await expect(marks(window)).toHaveAttribute("data-check", "needs-recheck");
-  await expect((await checkCard(window)).getByTestId("health-recheck")).toContainText(
-    "1 needs re-check",
+  // Its Citation's check stands for the supported sentence, which has no mark now; the edited one is to check too.
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "2 claims not checked yet",
   );
   await screenshot(window, "check-recheck-en");
   await pointAndClick(window, marks(window));
@@ -181,13 +182,29 @@ test("Find support on two sentences: one is supported and its Citation is added,
   await expect(editor).toContainText("Gulls nest on the harbour cliffs.");
 });
 
+test("The selection menu has one check, Check against Documents, and no Find support", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const { line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
+  await setWindowSize(app, window, 1440, 900);
+
+  await slideSelect(window, line, "Spring tides", { line, words: "harbour cliffs." });
+
+  const menu = window.getByTestId("selection-menu");
+  await expect(menu.getByTestId("selection-action-check-against-documents")).toHaveText(
+    "Check against Documents",
+  );
+  await expect(menu.getByTestId("selection-action-find-support")).toHaveCount(0);
+  await app.close();
+});
+
 test("a card opened while its sentence is still checking stays open when the result arrives, until Esc, and a click after it opens it again", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
   // "slowly" makes the scripted check report slowly, so the card is opened while it checks.
   const { line } = await mindWithSentences(window, [`${UNSUPPORTED.slice(0, -1)} slowly.`]);
   await setWindowSize(app, window, 1440, 900);
-  await checkAll(window, line, "Penguins", "slowly.", "find-support");
+  await checkAll(window, line, "Penguins", "slowly.", "check-against-documents");
 
   // Clicked while it checks, its card opens.
   const checking = marks(window).and(window.locator('[data-check="checking"]'));
@@ -224,16 +241,16 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   const { line } = await mindWithSentences(window, [CONTRADICTED, BLANK]);
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
-  await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
-    "2 条没有引用",
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "2 条说法待核对",
   );
 
   await slideSelect(window, line, "Harbours publish", { line, words: "blank reply." });
   const menu = window.getByTestId("selection-menu");
-  await expect(menu.getByTestId("selection-action-find-support")).toHaveText("查找出处");
   await expect(menu.getByTestId("selection-action-check-against-documents")).toHaveText(
     "对照文档核对",
   );
+  await expect(menu.getByTestId("selection-action-find-support")).toHaveCount(0);
   await screenshot(window, "check-menu-zh-narrow");
   await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
 
@@ -249,8 +266,8 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   await expect((await checkCard(window)).getByTestId("health-contradicted")).toContainText(
     "1 条与文档矛盾",
   );
-  await expect((await checkCard(window)).getByTestId("health-notChecked")).toContainText(
-    "1 条未核对",
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
+    "1 条说法待核对",
   );
   await screenshot(window, "check-results-zh-narrow");
   // In a narrow window the card covers the margin: Esc puts it away.
@@ -275,7 +292,7 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
 
   // Each row of the badge's card moves to its sentence.
   await window.keyboard.press("Escape");
-  await pointAndClick(window, (await checkCard(window)).getByTestId("health-notChecked"));
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
   await expect(window.getByTestId("mind-editor")).toBeFocused();
 });
 
@@ -309,7 +326,7 @@ test("A figure the Documents don't state is worked out from theirs: a wrong mult
   await editor.click();
   await window.keyboard.type(`${wrong} ${right}`);
   const line = editor.locator(":scope > p").first();
-  await checkAll(window, line, "Net debt", "1.3x at the end of 2025.", "find-support");
+  await checkAll(window, line, "Net debt", "1.3x at the end of 2025.", "check-against-documents");
 
   const contradicted = marks(window).and(window.locator('[data-check="contradicted"]'));
   const supported = marks(window).and(window.locator('[data-check="supported"]'));
@@ -375,7 +392,7 @@ test("A figure worked out from an amount in brackets says the amount was counted
   await editor.click();
   await window.keyboard.type(sentence);
   const line = editor.locator(":scope > p").first();
-  await checkAll(window, line, "Net cash", "end of 2025.", "find-support");
+  await checkAll(window, line, "Net cash", "end of 2025.", "check-against-documents");
 
   const contradicted = marks(window).and(window.locator('[data-check="contradicted"]'));
   await expect(contradicted).toBeVisible({ timeout: 15_000 });
@@ -403,7 +420,7 @@ test("A supported sentence's card names the Document as it is named now, after a
   await useLocalChatModel(window);
   const { line } = await mindWithSentences(window, [SUPPORTED]);
   await setWindowSize(app, window, 1440, 900);
-  await checkAll(window, line, "Spring tides", "full moon.", "find-support");
+  await checkAll(window, line, "Spring tides", "full moon.", "check-against-documents");
   const supported = marks(window).and(window.locator('[data-check="supported"]'));
   const card = window.getByTestId("claim-card");
   await pointAt(window, supported);
@@ -462,7 +479,7 @@ test("A check reads the text as it stands and says which sentences with changes 
   const { line } = await mindWithTheirChanges(app, window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
   await setWindowSize(app, window, 1440, 900);
 
-  await checkAll(window, line, "Spring tides", "6 months.", "find-support");
+  await checkAll(window, line, "Spring tides", "6 months.", "check-against-documents");
 
   const waiting = window.getByTestId("checks-waiting");
   await expect(waiting).toContainText("2 sentences with changes waiting weren’t checked");
@@ -532,7 +549,7 @@ for (const [language, width] of [
     await setWindowSize(app, window, width, 900);
     const places = await notePlaces(window, "checks-accept-and-check");
 
-    await checkAll(window, line, "Spring tides", "at night.", "find-support");
+    await checkAll(window, line, "Spring tides", "at night.", "check-against-documents");
     await expect(window.getByTestId("checks-accept-and-check")).toBeVisible();
     await expect(window.getByTestId("check-card").getByTestId("health-unsupported")).toBeVisible();
     await motionSettled(window);
@@ -569,7 +586,7 @@ test("After the User accepts one change by hand and goes to another tab and back
   await useLocalChatModel(window);
   const { line } = await mindWithTheirChanges(app, window, [SUPPORTED, UNSUPPORTED, CONTRADICTED]);
   await setWindowSize(app, window, 1440, 900);
-  await checkAll(window, line, "Spring tides", "6 months.", "find-support");
+  await checkAll(window, line, "Spring tides", "6 months.", "check-against-documents");
   const waiting = window.getByTestId("checks-waiting");
   await expect(waiting).toContainText("2 sentences with changes waiting weren’t checked");
 
