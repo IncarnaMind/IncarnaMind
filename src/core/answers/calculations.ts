@@ -59,11 +59,12 @@ import {
   joinUnits,
   quoteInUnits,
 } from "../../shared/locations";
+import { findQuote } from "../../shared/quoteMatch";
 import { anchorsOf, cellNumber } from "../../shared/units";
 import type { CalculatedFigure, Citation, FigureInput, FigureShowOptions } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
-import type { AnswerDocuments, Quoted, QuoteInput } from "./citations";
+import type { AnswerDocuments, Matching, Quoted, QuoteInput } from "./citations";
 import type { CiteOptions } from "./engine";
 
 /** Why a formula mustn't change an amount's scale, and how to show the figure in the scale meant. */
@@ -117,6 +118,26 @@ export function quotedLines(quoted: QuotedText): string {
   const to = Math.max(...ranges.map((range) => range.end));
   const end = text.indexOf("\n", to);
   return text.slice(text.lastIndexOf("\n", from - 1) + 1, end < 0 ? text.length : end);
+}
+
+/**
+ * Where `quote` starts in `page`: the first place inside the Passage's own text, where the quote was
+ * taken from; else its first match on the page, with the check's matching; -1 when it isn't there.
+ */
+export function quoteOnPage(
+  page: string,
+  quote: string,
+  passage: string,
+  matching: Matching = {},
+): number {
+  const own = passage === "" ? null : findQuote(page, passage, matching);
+  if (own) {
+    const from = own[0]?.start ?? 0;
+    const to = own.at(-1)?.end ?? 0;
+    const [inside] = findQuote(page.slice(from, to), quote, matching) ?? [];
+    if (inside) return from + inside.start;
+  }
+  return findQuote(page, quote, matching)?.[0]?.start ?? page.indexOf(quote);
 }
 
 const writtenNumber = (reading: Reading) => reading.value / reading.scale;
@@ -501,15 +522,13 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return all.slice(Math.max(1, own.length));
   }
 
-  /** The quote's page and where the quote starts on it; the quote alone when it isn't there word for word. */
   function onPage(quoted: Quoted): { text: string; at: number } {
     const { quote } = quoted.citation;
-    const page = quoted.units.map((unit) => unit.text).join("\n");
-    const at = page.indexOf(quote);
-    return at < 0 ? { text: quote, at: 0 } : { text: page, at };
+    const { text } = joinUnits(quoted.units);
+    const at = quoteOnPage(text, quote, quoted.passageText, quoted.matching);
+    return at < 0 ? { text: quote, at: 0 } : { text, at };
   }
 
-  /** What stands before `at` on its line of `text`. */
   const lineTo = (text: string, at: number) => text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
 
   function lineBefore(quoted: Quoted, figure: Figure): string {

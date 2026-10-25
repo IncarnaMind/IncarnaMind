@@ -2433,4 +2433,115 @@ describe("A quote that starts with a figure (#1969)", () => {
     expect(replies.at(-1)?.text).toMatch(/^Recorded \[=1\] = 2\.77倍/);
     expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
   });
+
+  // protects=a quote that is a list's line reads 5% as its figure, not the list's "1.", so a right sentence is Supported by calculate; fails_when=the list's number is read as the figure and 5% is refused; no_claim=none beyond protects.
+  test("reads a list's line's figure, not its number", async () => {
+    const list = {
+      name: "Revenue.md",
+      contents: ["# Revenue", "", "1. Revenue rose 5% in 2025."].join("\n"),
+    };
+    const claim = "Revenue rose 5% in 2025.";
+    const calculation = {
+      inputs: [{ name: "rose", label: "增长", quote: "1. Revenue rose 5% in 2025.", number: "5%" }],
+      formula: "rose",
+      as: "percent",
+      stated: "5%",
+    };
+    const calls: ModelCall[] = [];
+    const plans = { [claim]: { verdict: "unsupported", calculation } } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [list]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    const result = await setup.core.checkClaim({ claim });
+    const replies = calls
+      .flatMap((call) => call.results)
+      .filter((each) => each.tool === "calculate");
+    expect(replies.at(-1)?.text).toMatch(/^Recorded \[=1\] = 5\.0%/);
+    expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+  });
+});
+
+describe("A quote whose page mentions it before its Passage (#1981)", () => {
+  const HEADING = "3.1 收入";
+  const FILLER = Array.from(
+    { length: 20 },
+    (_, index) =>
+      `第${index + 1}项说明：本期经营活动产生的现金流量净额与净利润的差异，主要来自折旧摊销、利息费用以及营运资本变动。`,
+  ).join("\n\n");
+  const REPORT = {
+    name: "雪松业绩半年报.md",
+    contents: ["# 雪松业绩", "", `详见 ${HEADING}。`, "", FILLER, "", HEADING, "收入为400.0"].join(
+      "\n",
+    ),
+  };
+
+  // protects=a quote of the real heading is read where its own Passage has it, so 3.1 stays a heading's number and calculate refuses it; fails_when=the earlier mention on the page places the quote after "详见 ", 3.1 reads as a figure, and the check is Supported on 3.1 × 400.0; no_claim=none beyond protects.
+  test("reads the heading as a heading, not as a figure from the earlier mention", async () => {
+    const claim = "2026年收入为1240.0。";
+    const calculation = {
+      inputs: [
+        { name: "base", label: "2026年收入", quote: "收入为400.0", number: "400.0" },
+        { name: "section", label: "章节号", quote: HEADING, number: "3.1" },
+      ],
+      formula: "base * section",
+      as: "number",
+      stated: "1240.0",
+    };
+    const plans = { [claim]: { verdict: "unsupported", calculation } } as const;
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        const search = call.results.filter((each) => each.tool === "search_documents").at(-1);
+        if (!search) return { calls: [{ tool: "search_documents", input: { query: claim } }] };
+        const heading = shownPassages(search.text).find((passage) =>
+          passage.text.split("\n").some((line) => line.trim() === HEADING),
+        );
+        if (!call.results.some((each) => each.tool === "calculate")) {
+          return {
+            calls: [
+              {
+                tool: "calculate",
+                input: {
+                  figures: [
+                    {
+                      marker: 1,
+                      label: "句子里的数字",
+                      relation: "equals",
+                      ...calculation,
+                      inputs: calculation.inputs.map((input) => ({
+                        ...input,
+                        passage: heading?.id,
+                      })),
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        }
+        return { text: "Verdict: unsupported" };
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const setup = await setUpWithDocuments(model, [REPORT]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    const result = await setup.core.checkClaim({ claim });
+    const replies = calls
+      .flatMap((call) => call.results)
+      .filter((each) => each.tool === "calculate");
+    expect(replies.at(-1)?.text).toMatch(/the quote has no number "3\.1"/);
+    expect(result).toMatchObject({ verdict: "unsupported" });
+  });
 });
