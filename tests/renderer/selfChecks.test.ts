@@ -84,9 +84,34 @@ describe("What a write's check left to do", () => {
       },
       {
         kind: "left",
-        text: "Checked 10 sentences · 10 left to check",
+        text: "Checked 10 sentences",
         details: [],
         action: { label: "Check the rest", does: "check" },
+      },
+    ]);
+    // The write's own live left, by the one count: the card's unit, 10 then 0 (#1909).
+    const live = (left: number) =>
+      selfCheckLines(
+        of({ request: "w", checkable: 20, cited: 13, sent: 12, checked: 10, failed: 2 }),
+        (key: MessageKey, params?: MessageParams) => translate("en", key, params),
+        "en",
+        new Date("2026-10-18T09:00:00.000Z"),
+        left,
+      ).filter((line) => line.kind === "left");
+    expect(live(10)).toEqual([
+      {
+        kind: "left",
+        text: "Checked 10 sentences · 10 claims not checked yet",
+        details: [],
+        action: { label: "Check the rest", does: "check" },
+      },
+    ]);
+    expect(live(0)).toEqual([
+      {
+        kind: "left",
+        text: "Checked 10 sentences · 0 claims not checked yet",
+        details: [],
+        action: null,
       },
     ]);
     expect(

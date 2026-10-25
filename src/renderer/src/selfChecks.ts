@@ -49,6 +49,8 @@ export function selfCheckLines(
   t: Translate,
   language: Language,
   now = new Date(),
+  /** The claims this write still has to check now, live from its Mind; null: not known (nothing is re-shown from the record). */
+  left?: number | null,
 ): SelfCheckLine[] {
   const { failed, stop, blocked } = check;
   const lines: SelfCheckLine[] = [];
@@ -92,11 +94,15 @@ export function selfCheckLines(
   }
   const checkable = checkableOf(check);
   if (check.sent < checkable) {
+    const remaining = left ?? null;
     lines.push({
       kind: "left",
-      text: t("selfCheck.left", { checked: check.checked, left: checkable - check.checked }),
+      text:
+        remaining === null
+          ? t("selfCheck.checkedOnly", { checked: check.checked })
+          : t("selfCheck.left", { checked: check.checked, left: remaining }),
       details: [],
-      action: { label: t("selfCheck.checkRest"), does: "check" },
+      action: remaining === 0 ? null : { label: t("selfCheck.checkRest"), does: "check" },
     });
   }
   return lines;

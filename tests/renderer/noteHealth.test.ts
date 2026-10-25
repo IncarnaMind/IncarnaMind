@@ -16,6 +16,7 @@ import {
   noteHealth,
 } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import type { KeptMark } from "../../src/shared/claimChecks";
 import { sentenceKey } from "../../src/shared/mindCheck";
 
 const schema = getSchema(noteExtensions());
@@ -86,7 +87,11 @@ function healthOf(
     skipped = [],
     kept,
     answered = [],
-  }: { skipped?: readonly string[]; kept?: ReadonlySet<string>; answered?: readonly string[] } = {},
+  }: {
+    skipped?: readonly string[];
+    kept?: readonly KeptMark[];
+    answered?: readonly string[];
+  } = {},
 ): NoteHealth {
   const claims = claimsOf(doc, { versions: null, folderId: null, scope: null });
   return noteHealth(doc, {
@@ -285,6 +290,18 @@ describe("A Mind's health", () => {
     expect(health.toCheck).toHaveLength(2);
     expect(health.noCitation).toHaveLength(1);
     for (const at of health.toCheck) expect(health.noCitation).not.toContain(at);
+  });
+
+  test("a kept sentence's same words elsewhere don't hide a contradicted mark (#1909)", () => {
+    const sentence = "Online sales grew 12% in the quarter.";
+    const doc = docOf(
+      paragraph(checked(sentence, "unsupported", null, { kept: true })),
+      paragraph(checked(sentence, "contradicted")),
+    );
+    const health = healthOf(doc);
+    expect(parts(health)).toEqual({ ...NOTHING, contradicted: 1 });
+    expect(health.toCheck).toHaveLength(0);
+    expect(everythingChecked(health, { running: false, problem: false })).toBe(false);
   });
 
   test("a shown verdict counts before isClaim: a contradicted figure in a table cell and a contradicted short line (#1909)", () => {

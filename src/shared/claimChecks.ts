@@ -282,17 +282,39 @@ export type CheckedSentence =
   | { kind: "kept" }
   | { kind: "not-claim" };
 
+/** A kept mark's place and the words it was made on. */
+export interface KeptMark {
+  from: number;
+  to: number;
+  text: string;
+}
+
+/**
+ * Whether a sentence is at a kept mark's place (#1909): the one rule the core
+ * and the window read, so a kept sentence elsewhere with the same words
+ * doesn't hide the margin's mark on this one.
+ */
+export function keptOn(
+  kept: readonly KeptMark[],
+  sentence: { from: number; to: number; text: string },
+): boolean {
+  const words = comparableSentence(sentence.text);
+  return kept.some(
+    (mark) =>
+      mark.from < sentence.to && mark.to > sentence.from && comparableSentence(mark.text) === words,
+  );
+}
+
 export function checkedSentence(input: {
   text: string;
   /** How its check shows now; null for none. */
   check: ClaimCheckShown | null;
   /** The last whole-Mind check found it makes no claim. */
   skipped: boolean;
-  /** The User keeps it as their own view. */
+  /** A kept mark is at this sentence's place. */
   kept: boolean;
 }): CheckedSentence {
   // A check that shows decides first: a verdict on a figure or a short line is still a verdict (#1909).
-  if (input.kept) return { kind: "kept" };
   if (input.check) {
     switch (input.check.state) {
       case "kept":
@@ -309,7 +331,8 @@ export function checkedSentence(input: {
         return { kind: "to-check", fresh: false, why: "recheck" };
     }
   }
-  if (input.kept || input.skipped || !isClaim(input.text)) return { kind: "not-claim" };
+  if (input.kept) return { kind: "kept" };
+  if (input.skipped || !isClaim(input.text)) return { kind: "not-claim" };
   return { kind: "to-check", fresh: true, why: "none" };
 }
 

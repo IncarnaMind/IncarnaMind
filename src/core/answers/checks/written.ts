@@ -112,6 +112,8 @@ export interface CheckWrittenInput {
  */
 export interface WrittenCheck {
   request: string;
+  /** The write's top-level Blocks, so Check the rest checks this write's sentences alone (#1909). */
+  blocks: string[];
   checkable: number;
   cited: number;
   sent: number;
@@ -164,7 +166,7 @@ function quoteOf(node: NodeJSON): CitedQuote | null {
   };
 }
 
-/** The sentences a check reads that the write holds (#1909): every claim, cited or not. */
+/** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
 function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
   const visit = (nodes: readonly NodeJSON[], path: number[]) => {
@@ -180,11 +182,11 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
       const layout = inlineLayout(content);
       for (const span of sentenceSpans(context)) {
         const text = context.slice(span.from, span.to);
-        if (!isClaim(text)) continue;
         const cited = layout.flatMap(({ node: inline, start }) => {
           if (inline.type !== CITATION_NODE || start < span.from || start >= span.to) return [];
           return quoteOf(inline) ?? [];
         });
+        if (cited.length === 0 && !isClaim(text)) continue;
         found.push({ path: here, from: span.from, to: span.to, text, context, cited });
       }
     });
@@ -525,6 +527,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
 
     const done: WrittenCheck = {
       request,
+      blocks: [...input.ids],
       checkable: checkable.length,
       cited: sentences.length,
       sent: sending.length,

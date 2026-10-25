@@ -48,27 +48,33 @@ const REPORT = [
 const WORDS = {
   en: {
     request: "Add a revenue table for checking",
-    line: "Checked 12 sentences · 10 left to check",
+    line: "Checked 12 sentences · 10 claims not checked yet",
+    lineAfter: "0 claims not checked yet",
     rest: "Check the rest",
     badgeWords: "to check",
-    toCheck: "10 claims not checked yet",
+    toCheck: "11 claims not checked yet",
+    badgeName: "11 claims not checked yet",
+    afterToCheck: "1 claim not checked yet",
     tableCells: "10 table cells",
     found: "22 Citations found",
     unsupported: "21 unsupported",
-    ask: "Check this Mind’s 10 claims against your Documents?",
+    ask: "Check this Mind’s 11 claims against your Documents?",
     notNow: "Not now",
     allChecked: "Everything checked",
   },
   "zh-CN": {
     request: "添加核对用的收入表格",
-    line: "已核对 12 句 · 仍有 10 句待核对",
+    line: "已核对 12 句 · 10 条说法待核对",
+    lineAfter: "0 条说法待核对",
     rest: "核对其余",
     badgeWords: "条待核对",
-    toCheck: "10 条说法待核对",
+    toCheck: "11 条说法待核对",
+    badgeName: "11 条说法待核对",
+    afterToCheck: "1 条说法待核对",
     tableCells: "10 个表格单元格",
     found: "22 处引用已找到",
     unsupported: "21 条无依据",
-    ask: "要对照你的文档，核对这个 Mind 中的 10 条说法吗？",
+    ask: "要对照你的文档，核对这个 Mind 中的 11 条说法吗？",
     notNow: "暂不",
     allChecked: "已全部核对",
   },
@@ -116,17 +122,24 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 1440, 900);
     await addDocuments(window, [join(sources, "Annual report.md")]);
     await newMind(window);
+    // The Mind's own old text, with no Citation: this write's line must not check it.
+    const editor = window.getByTestId("mind-editor");
+    await editor.click();
+    await window.keyboard.type("The harbour is quiet in winter.");
+    await expect(editor).toContainText("The harbour is quiet in winter.");
 
     const answer = await askInAssistant(window, words.request);
     // Its check ran before the reply: the 12 cited claims it checked are covered, 10 are left.
     const line = answer.getByTestId("self-check-left");
     await expect(line).toContainText(words.line, { timeout: 120_000 });
     const badge = window.getByTestId("check-badge");
-    await expect(badge).toContainText("10");
+    await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
+      new RegExp(words.badgeName),
+    );
     await expect(badge.locator(".check-badge-words")).toHaveText(words.badgeWords);
     await screenshot(window, `check-counts-line-${language}`);
 
-    // Its card counts the same 10, and says they are table cells.
+    // Its card counts the same 11 (the old text too), and says the write's 10 are table cells.
     const card = await checkCard(window);
     await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
     await expect(card.getByTestId("health-table-cells")).toContainText(words.tableCells);
@@ -140,7 +153,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 1440, 900);
     await expect(card).toBeVisible();
 
-    // The check prompt asks with the same 10; Not now leaves the work to the Answer's line.
+    // The check prompt asks with the same 11; Not now leaves the work to the Answer's line.
     await pointAndClick(window, card.getByTestId("badge-check-mind"));
     const ask = card.getByTestId("mind-check-ask");
     await expect(ask).toContainText(words.ask);
@@ -153,10 +166,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(answer.getByTestId("self-check-left-action")).toHaveText(words.rest);
     await pointAndClick(window, answer.getByTestId("self-check-left-action"));
     await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
-    await expect(window.getByTestId("self-check-left")).toHaveCount(0);
-    await expect(badge.locator(".check-badge-words")).toHaveCount(0);
+    // This write's line closes at 0; the Mind's old text is still to check in the badge (#1909).
+    await expect(answer.getByTestId("self-check-left")).toContainText(words.lineAfter);
+    await expect(answer.getByTestId("self-check-left-action")).toHaveCount(0);
     const done = await checkCard(window);
-    await expect(done.getByTestId("health-toCheck")).toHaveCount(0);
+    await expect(done.getByTestId("health-toCheck")).toContainText(words.afterToCheck);
     // The 21 unsupported cells still show, so the card never says everything is checked (#1909).
     await expect(done.getByTestId("health-unsupported")).toContainText(words.unsupported);
     await expect(done.getByTestId("health-all-checked")).toHaveCount(0);

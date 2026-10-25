@@ -3,6 +3,7 @@ import {
   type CheckedSentence,
   type ClaimCheckShown,
   checkedSentence,
+  keptOn,
   toCheckCount,
 } from "../../src/shared/claimChecks";
 
@@ -79,6 +80,17 @@ describe("The one count of sentences to check (#1909)", () => {
   test("a sentence kept as the User's own view counts as nothing, before its mark reads it", () => {
     expect(state(CLAIM, { state: "kept" })).toEqual({ kind: "kept" });
     expect(state(CLAIM, null, { kept: true })).toEqual({ kind: "kept" });
+  });
+
+  test("a shown verdict counts even beside a kept mark at its place (#1909)", () => {
+    expect(state(CLAIM, { state: "contradicted" }, { kept: true })).toEqual({ kind: "covered" });
+  });
+
+  test("kept is matched by place, so the same words elsewhere stay counted (#1909)", () => {
+    const kept = [{ from: 1, to: 11, text: "Same words." }];
+    expect(keptOn(kept, { from: 1, to: 11, text: "Same words." })).toBe(true);
+    expect(keptOn(kept, { from: 41, to: 51, text: "Same words." })).toBe(false);
+    expect(keptOn(kept, { from: 1, to: 11, text: "Other words." })).toBe(false);
   });
 
   test("a sentence that makes no claim, and one the last whole-Mind check found makes none, counts as nothing", () => {

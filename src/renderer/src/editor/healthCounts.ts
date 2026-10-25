@@ -19,11 +19,16 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
-import { type CheckedSentence, checkedSentence } from "../../../shared/claimChecks";
+import {
+  type CheckedSentence,
+  checkedSentence,
+  type KeptMark,
+  keptOn,
+} from "../../../shared/claimChecks";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { isClaim, sentenceSpans } from "../../../shared/sentences";
-import { keptSentences, paragraphPlaces, type ShownClaim, shownClaims } from "./claimChecks";
+import { keptSpans, paragraphPlaces, type ShownClaim, shownClaims } from "./claimChecks";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
 export const HEALTH_PARTS = [
@@ -74,8 +79,8 @@ export interface SentenceInput {
   claims: readonly ShownClaim[];
   /** The last whole-Mind check found these sentences make no claim, by `sentenceKey`. */
   skipped?: ReadonlySet<string>;
-  /** The sentences the User keeps as their own view, by `sentenceKey`. */
-  kept?: ReadonlySet<string>;
+  /** The marks the User keeps as their own view, at their places. */
+  kept?: readonly KeptMark[];
   /** Whether an Answer wrote the block with this id. */
   writtenByAnswer?: (blockId: unknown) => boolean;
 }
@@ -93,6 +98,8 @@ export interface SentencePlace {
   text: string;
   claim: ShownClaim | null;
   citations: { attributes: CitationAttributes; at: number; pos: number }[];
+  /** Its top-level Block's id: the one an Answer's origin names. */
+  blockId: unknown;
   /** An Answer wrote its block. */
   answered: boolean;
   /** It is in a table cell. */
@@ -114,13 +121,14 @@ function eachSentence(
   visit: (place: SentencePlace) => void,
 ): void {
   const skipped = input.skipped ?? new Set<string>();
-  const kept = input.kept ?? new Set<string>();
+  const kept = input.kept ?? [];
   const writtenByAnswer = input.writtenByAnswer ?? (() => false);
   doc.descendants((node, pos) => {
     if (UNCOUNTED.has(node.type.name) || proposed(node)) return false;
     if (!node.isTextblock) return true;
     if (node.type.name !== "paragraph") return false;
-    const answered = writtenByAnswer(doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE]);
+    const blockId = doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE];
+    const answered = writtenByAnswer(blockId);
     const { text, starts, ends, inline } = paragraphPlaces(node, pos, proposed);
     const citations = inline.flatMap(({ node: child, at, pos: place }) =>
       child.type.name === CITATION_NODE
@@ -137,7 +145,7 @@ function eachSentence(
         text: words,
         check: claim?.shown ?? null,
         skipped: skipped.has(sentenceKey(words)),
-        kept: kept.has(sentenceKey(words)),
+        kept: keptOn(kept, { from, to, text: words }),
       });
       visit({
         from,
@@ -145,6 +153,7 @@ function eachSentence(
         text: words,
         claim,
         citations: citations.filter((each) => each.at >= span.from && each.at < span.to),
+        blockId,
         answered,
         inTable: table,
         state,
@@ -204,17 +213,23 @@ export function everythingChecked(
   );
 }
 
-/** The whole sentences a check still has to make in this Mind, as ranges to check (#1909). */
+/**
+ * The whole sentences a check still has to make in this Mind, as ranges to
+ * check (#1909); `within` keeps only those a write's Blocks hold.
+ */
 export function toCheckRanges(
   state: EditorState,
   skipped: ReadonlySet<string> = new Set(),
+  within?: (place: SentencePlace) => boolean,
 ): { from: number; to: number }[] {
   const ranges: { from: number; to: number }[] = [];
   eachSentence(
     state.doc,
-    { claims: shownClaims(state), skipped, kept: keptSentences(state) },
-    ({ from, to, state: sentence }) => {
-      if (sentence.kind === "to-check") ranges.push({ from, to });
+    { claims: shownClaims(state), skipped, kept: keptSpans(state) },
+    (place) => {
+      if (place.state.kind === "to-check" && (!within || within(place))) {
+        ranges.push({ from: place.from, to: place.to });
+      }
     },
   );
   return ranges;

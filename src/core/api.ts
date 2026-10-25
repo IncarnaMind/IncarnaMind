@@ -1116,6 +1116,8 @@ export interface MindChange {
    */
   selfCheck?: {
     request: string;
+    /** The write's top-level Blocks; absent on a check recorded before #1909. */
+    blocks?: string[];
     /** Absent on a check recorded before #1909: `cited` was what it checked then. */
     checkable?: number;
     cited: number;

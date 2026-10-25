@@ -32,7 +32,7 @@ import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
 import { originOf } from "./blockOrigins";
 import { useCardPlace } from "./checkPlace";
-import { coverageOf, keptSentences, sameCoverage, shownClaims } from "./claimChecks";
+import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
   everythingChecked,
   type NoteHealth as Health,
@@ -107,7 +107,7 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
           citationCheck: (attributes: CitationAttributes) =>
             citationState(attributes, documents, kept).check,
           skipped,
-          kept: keptSentences(editor.state),
+          kept: keptSpans(editor.state),
           writtenByAnswer: (blockId) => originOf(editor.state, blockId) !== null,
         }),
       );

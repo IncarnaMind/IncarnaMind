@@ -220,6 +220,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         // The one cited claim was checked before it landed; the two with none are left to Check the rest (#1111, #1909).
         selfCheck: {
           request: expect.any(String),
+          blocks: expect.any(Array),
           checkable: 3,
           cited: 1,
           sent: 1,
