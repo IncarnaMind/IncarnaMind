@@ -8,6 +8,7 @@ import {
   documentsAsked,
   namedCoverage,
 } from "../../src/core/answers/coverage";
+import { recordsFor } from "../../src/main/fakeChat/passages";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { waitForProcessing } from "../helpers/documents";
@@ -226,7 +227,12 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
   // protects=the Document read by a name that another Document's title has too is named, with that other; fails_when=the other is missed, the contract counts, or a title isn't read; no_claim=which Document the model should have read.
   test("names the one it read and the other it fits, in Chinese and English", () => {
     expect(
-      namedCoverage("劳动合同-王芳的年假是几天？会议纪要里说的对吗？", ["contract", "minutes"], zh),
+      namedCoverage(
+        "劳动合同-王芳的年假是几天？会议纪要里说的对吗？",
+        ["contract", "minutes"],
+        [],
+        zh,
+      ),
     ).toEqual({
       kind: "named",
       used: [{ id: "minutes", name: "会议纪要（2026年第三季度）" }],
@@ -236,6 +242,7 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
       namedCoverage(
         "How many days of annual leave does Wang Fang's contract give? Is what the meeting minutes say right?",
         ["contract", "minutes"],
+        [],
         en,
       ),
     ).toEqual({
@@ -247,26 +254,37 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
 
   // protects=a Document read by a machine-made file name is named by its title, as the User sees it; fails_when=the line shows "people-policy-sync-2026-10-14"; no_claim=none beyond protects.
   test("names one with a machine-made name by its title", () => {
-    expect(namedCoverage("会议纪要里说的对吗？", ["sync"], zh)).toEqual({
+    expect(namedCoverage("会议纪要里说的对吗？", ["sync"], [], zh)).toEqual({
       kind: "named",
       used: [{ id: "sync", name: "人事政策同步会 会议纪要" }],
       rest: ["minutes"],
     });
   });
 
+  // protects=the Document the Answer cited or got Passages from is the one named, and one it only searched by name is not offered; fails_when=a Document it never used is named or offered; no_claim=which Document the model should have read.
+  test("names the Document it used, not one it only searched by name", () => {
+    const question = "劳动合同-王芳的年假是几天？会议纪要里说的对吗？";
+    expect(namedCoverage(question, ["contract", "sync"], [], zh)).toEqual({
+      kind: "named",
+      used: [{ id: "sync", name: "人事政策同步会 会议纪要" }],
+      rest: ["minutes"],
+    });
+    expect(namedCoverage(question, ["sync"], ["minutes"], zh)).toBeNull();
+  });
+
   // protects=a name that fits only the Document read, or Documents all read, says nothing; fails_when=a line shows for a plain name; no_claim=none beyond protects.
   test("says nothing when the name fits only what it read", () => {
     const question = "劳动合同-王芳的年假是几天？会议纪要里说的对吗？";
-    expect(namedCoverage(question, ["contract"], zh)).toBeNull();
-    expect(namedCoverage(question, ["minutes", "sync"], zh)).toBeNull();
-    expect(namedCoverage(question, [], zh)).toBeNull();
-    expect(namedCoverage("What do the Q3 meeting minutes say?", ["minutes"], en)).toBeNull();
+    expect(namedCoverage(question, ["contract"], [], zh)).toBeNull();
+    expect(namedCoverage(question, ["minutes", "sync"], [], zh)).toBeNull();
+    expect(namedCoverage(question, [], [], zh)).toBeNull();
+    expect(namedCoverage("What do the Q3 meeting minutes say?", ["minutes"], [], en)).toBeNull();
     const contracts = [
       { id: "alder", name: "Alder supply contract" },
       { id: "birch", name: "Birch supply contract" },
     ];
     expect(
-      namedCoverage("What notice does the Alder contract give?", ["alder"], contracts),
+      namedCoverage("What notice does the Alder contract give?", ["alder"], [], contracts),
     ).toBeNull();
   });
 
@@ -276,17 +294,17 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
       { id: "plan", name: "Plan 2026" },
       { id: "budget", name: "Budget 2026" },
     ];
-    expect(namedCoverage("What does the 2026 one say?", ["plan"], plans)).toBeNull();
+    expect(namedCoverage("What does the 2026 one say?", ["plan"], [], plans)).toBeNull();
     const documents = [
       { id: "design", name: "Design document" },
       { id: "spec", name: "Requirements document" },
     ];
-    expect(namedCoverage("Summarise this document", ["design"], documents)).toBeNull();
+    expect(namedCoverage("Summarise this document", ["design"], [], documents)).toBeNull();
     const files = [
       { id: "design", name: "设计文件" },
       { id: "spec", name: "需求文件" },
     ];
-    expect(namedCoverage("总结这个文件", ["design"], files)).toBeNull();
+    expect(namedCoverage("总结这个文件", ["design"], [], files)).toBeNull();
   });
 
   // protects=a name that several Documents share offers all those it didn't read; fails_when=only one is counted, or one the name doesn't fit is; no_claim=none beyond protects.
@@ -297,7 +315,7 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
       { id: "zhao", name: "劳动合同-赵敏" },
       { id: "lease", name: "租赁合同" },
     ];
-    expect(namedCoverage("劳动合同里年假是几天？", ["wang"], contracts)?.rest).toEqual([
+    expect(namedCoverage("劳动合同里年假是几天？", ["wang"], [], contracts)?.rest).toEqual([
       "li",
       "zhao",
     ]);
@@ -305,14 +323,29 @@ describe("A name in the Question that fits several Documents (#1512)", () => {
 });
 
 describe("A name that fits two Documents, through the core (#1512)", { timeout: 60_000 }, () => {
+  // Ten unrelated Documents, past the twelve sent whole: the assistant searches instead, as it does for the reviewer's Library.
+  const fillers: [string, string][] = [
+    ["差旅报销制度.md", "# 差旅报销制度\n\n员工出差前需填写申请单。\n"],
+    ["采购流程.md", "# 采购流程\n\n采购申请由部门负责人审批。\n"],
+    ["绩效考核说明.md", "# 绩效考核说明\n\n考核每半年一次，结果分为四档。\n"],
+    ["客户名单.md", "# 客户名单\n\n华东区客户：恒远、启明、南岭。\n"],
+    ["项目周报.md", "# 项目周报\n\n本周完成数据迁移与接口联调。\n"],
+    ["办公用品清单.md", "# 办公用品清单\n\n打印纸、签字笔、文件夹与订书机。\n"],
+    ["员工手册目录.md", "# 员工手册目录\n\n考勤、假期、培训与离职四章。\n"],
+    ["培训计划.md", "# 培训计划\n\n新员工入职培训为期两天。\n"],
+    ["费用台账.md", "# 费用台账\n\n六月办公费用合计三万二千元。\n"],
+    ["访客登记.md", "# 访客登记\n\n访客需在前台登记并领取临时证件。\n"],
+  ];
+
   // protects=an Answer that searched one Document by a name another's title has too records which it read and the other, as stored; fails_when=nothing is recorded, or the contract it also read is offered; no_claim=what the model writes.
   test("records the Document it read by name and the other the name fits", async () => {
     const folder = await mkdtemp(join(tmpdir(), "named-"));
-    const files = [
+    const files: [string, string][] = [
+      ...fillers,
       ["劳动合同-王芳.md", "# 劳动合同-王芳\n\n第五条 乙方每年享有带薪年假 10 天。\n"],
       [
         "会议纪要（2026年第三季度）.md",
-        "# 会议纪要（2026年第三季度）\n\n本季度讨论了办公室搬迁。\n",
+        "# 会议纪要（2026年第三季度）\n\n本季度讨论了办公室搬迁和年假安排。\n",
       ],
       ["people-policy-sync-2026-10-14.md", "# 人事政策同步会 会议纪要\n\n王芳的年假为 15 天。\n"],
     ];
@@ -351,6 +384,59 @@ describe("A name that fits two Documents, through the core (#1512)", { timeout: 
       kind: "named",
       used: [{ id: idOf("会议纪要（2026年第三季度）"), name: "会议纪要（2026年第三季度）" }],
       rest: [idOf("people-policy-sync-2026-10-14")],
+    });
+  });
+
+  // protects=an Answer that searched without a name and cited one of two Documents a name fits names the one it cited, and offers the other it never read; fails_when=it names nothing, or offers the Document it read; no_claim=what the model writes.
+  test("records the Document it cited after a search that named none", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "named-"));
+    const files: [string, string][] = [
+      ...fillers,
+      ["劳动合同-王芳.md", "# 劳动合同-王芳\n\n第五条 乙方每年享有带薪年假 10 天。\n"],
+      [
+        "会议纪要（2026年第三季度）.md",
+        "# 会议纪要（2026年第三季度）\n\n本季度讨论了办公室搬迁。\n",
+      ],
+      ["people-policy-sync-2026-10-14.md", "# 人事政策同步会 会议纪要\n\n王芳的年假为 15 天。\n"],
+    ];
+    const paths = await Promise.all(
+      files.map(async ([name = "", text = ""]) => {
+        const path = join(folder, name);
+        await writeFile(path, text);
+        return path;
+      }),
+    );
+    const question = "会议纪要里说王芳的年假是几天？";
+    let citing = false;
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "人事政策 同步" } }] };
+      }
+      const results = call.results.map((result) => result.text).join("\n");
+      const records = recordsFor(results, question);
+      if (!citing && records.length > 0) {
+        citing = true;
+        return { calls: [{ tool: "cite", input: { citations: records } }] };
+      }
+      return { text: "会议纪要里写道“王芳的年假为 15 天。”[^1]。" };
+    });
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const added = await core.addDocuments(paths);
+    await waitForProcessing(
+      core,
+      added.documents.map((document) => document.id),
+      30_000,
+    );
+    const idOf = (name: string) => added.documents.find((each) => each.name === name)?.id;
+
+    const answer = await askAssistant(core, { text: question });
+
+    expect(answer.steps?.coverage).toEqual({
+      kind: "named",
+      used: [{ id: idOf("people-policy-sync-2026-10-14"), name: "人事政策同步会 会议纪要" }],
+      rest: [idOf("会议纪要（2026年第三季度）")],
     });
   });
 });

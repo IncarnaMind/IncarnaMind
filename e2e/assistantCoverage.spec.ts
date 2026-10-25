@@ -102,9 +102,22 @@ test("“the two main documents” names the two it took, and Use others asks ag
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "main-pick-zh.png") });
 });
 
-/** The issue's Library (#1512): a contract, and two minutes, one called so only by its heading. */
+/**
+ * The issue's Library (#1512): a contract, and two minutes, one called so only by its heading,
+ * and ten unrelated Documents, so the assistant searches rather than sending every Document whole.
+ */
 async function contractAndMinutes(): Promise<string[]> {
-  const documents = [
+  const documents: [string, string][] = [
+    ["差旅报销制度.md", "# 差旅报销制度\n\n员工出差前需填写申请单。交通与住宿按标准报销。\n"],
+    ["采购流程.md", "# 采购流程\n\n采购申请由部门负责人审批，超过五万元报总经理。\n"],
+    ["绩效考核说明.md", "# 绩效考核说明\n\n考核每半年一次，结果分为四档。\n"],
+    ["客户名单.md", "# 客户名单\n\n华东区客户：恒远、启明、南岭。\n"],
+    ["项目周报.md", "# 项目周报\n\n本周完成数据迁移与接口联调。\n"],
+    ["办公用品清单.md", "# 办公用品清单\n\n打印纸、签字笔、文件夹与订书机。\n"],
+    ["员工手册目录.md", "# 员工手册目录\n\n考勤、假期、培训与离职四章。\n"],
+    ["培训计划.md", "# 培训计划\n\n新员工入职培训为期两天。\n"],
+    ["费用台账.md", "# 费用台账\n\n六月办公费用合计三万二千元。\n"],
+    ["访客登记.md", "# 访客登记\n\n访客需在前台登记并领取临时证件。\n"],
     ["劳动合同-王芳.md", "# 劳动合同-王芳\n\n第五条 年假：乙方每年享有带薪年假 10 天。\n"],
     [
       "会议纪要（2026年第三季度）.md",

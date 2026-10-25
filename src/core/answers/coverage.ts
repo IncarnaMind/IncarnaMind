@@ -121,7 +121,6 @@ const ANY_DOCUMENT = /^(?:documents?|docs?|files?|pdfs?|文档|文件)$/;
 
 const compact = (text: string) => text.replaceAll(" ", "");
 
-/** Whether a name or title, as `keywordText` gives it, has a word of `keywordTerms`; a Chinese one may sit inside a longer word. */
 const has = (fields: readonly string[], term: string) =>
   fields.some((words) =>
     HAN.test(term)
@@ -129,19 +128,19 @@ const has = (fields: readonly string[], term: string) =>
       : words.split(" ").some((word) => word === term || word === `${term}'s`),
   );
 
-/** A word that can name a Document on its own: not a number, a letter or a single character. */
 const canName = (term: string) =>
   /\p{L}/u.test(term) && compact(term).length >= (HAN.test(term) ? 2 : 3);
 
 /**
- * A Document the Answer read by name that the Question's words name, when they name others
- * of `documents` (those in scope) too (#1512): the first of `read` (the Documents it searched
- * by name, in order) whose name or title has the Question's words that some other Document's
- * has as well, named as the User sees it, with those others it didn't read; null when there is none.
+ * A Document the Answer used (cited or got Passages from) that the Question's words name, when
+ * they name others of `documents` (those in scope) too (#1512): the first of `used`, in order,
+ * whose name or title has the Question's words that some other Document's has as well, named as
+ * the User sees it, with those others it neither used nor `searched` by name; null when there is none.
  */
 export function namedCoverage(
   question: string,
-  read: readonly string[],
+  used: readonly string[],
+  searched: readonly string[],
   documents: readonly TitledDocument[],
 ): AnswerCoverage | null {
   const terms = keywordTerms(question).filter(
@@ -158,13 +157,16 @@ export function namedCoverage(
     }
     return has(fields, term);
   };
-  for (const id of read) {
+  for (const id of used) {
     const document = documents.find((each) => each.id === id);
     if (!document) continue;
     const said = terms.filter((term) => namedBy(document, term));
     if (!said.some(canName)) continue;
     const rest = documents.filter(
-      (each) => !read.includes(each.id) && said.every((term) => namedBy(each, term)),
+      (each) =>
+        !used.includes(each.id) &&
+        !searched.includes(each.id) &&
+        said.every((term) => namedBy(each, term)),
     );
     if (rest.length > 0) {
       return {

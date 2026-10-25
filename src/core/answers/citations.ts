@@ -933,6 +933,12 @@ export function createCitationSession(
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
+  const citedDocuments: string[] = [];
+  const passageDocuments: string[] = [];
+  const searchedDocuments: string[] = [];
+  const remember = (list: string[], id: string) => {
+    if (!list.includes(id)) list.push(id);
+  };
   let openingGiven = false;
   /** Markers in the final text, in order of first appearance, and those that had no record. */
   const finalMarkers: number[] = [];
@@ -1151,6 +1157,7 @@ export function createCitationSession(
       const { record, source, passageUnits } = taken;
       const { marker } = record;
       records.set(marker, record);
+      remember(citedDocuments, source.documentId);
       recorded.push(marker);
       events.onRecord(marker, toCitation(record, null));
       // Tell the model now what the check will find, so it can fix the record.
@@ -1239,6 +1246,7 @@ export function createCitationSession(
    * `measuring`: only to count what showing them would send, so nothing is recorded as shown.
    */
   function show(found: readonly WindowedPassage[], measuring = false): string {
+    if (!measuring) for (const passage of found) remember(passageDocuments, passage.documentId);
     let unseen = 0;
     const dates = new Map<string, DocumentDate | null>();
     const dateOf = (documentId: string) => {
@@ -1304,6 +1312,7 @@ export function createCitationSession(
             passageCount: 0,
           };
         }
+        remember(searchedDocuments, id);
         within = [id];
       }
       const found = await search(query, signal, within, options);
@@ -1429,6 +1438,15 @@ export function createCitationSession(
 
   return {
     tools,
+
+    /**
+     * The Documents the Answer used — those its Citations name, then those its Passages came
+     * from — and those it searched by name (even when nothing was found).
+     */
+    documentsRead: () => ({
+      used: [...citedDocuments, ...passageDocuments.filter((id) => !citedDocuments.includes(id))],
+      searched: [...searchedDocuments],
+    }),
 
     /**
      * Searches one Document, whatever the Answer's Search scope: a web page

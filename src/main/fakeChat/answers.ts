@@ -428,7 +428,6 @@ const IN_MILLIONS = /\bin millions\b/i;
 
 const MINUTES = /\bminutes\b|纪要/i;
 
-/** The listed name of the first Document whose own name (not its title) says it is the minutes the Question asks about. */
 function minutesNamed(prompt: Prompt, question: string): string | undefined {
   if (!MINUTES.test(question)) return undefined;
   return namesIn(systemOf(prompt)).find((name) => MINUTES.test(name.replace(/ \(“[^”]*”\)$/, "")));
