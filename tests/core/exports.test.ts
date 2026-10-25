@@ -19,10 +19,13 @@ import { heading, note, question, writeMind } from "../helpers/minds";
 import { zipFingerprint } from "../helpers/zip";
 
 /** A core with one Document ("Tides") and a Mind titled "Tides", with a client. */
-async function setUp(title = "Tides") {
+async function setUp(title = "Tides", region?: string) {
   const dataDir = await createTempDataFolder();
   const sources = await createTempDataFolder();
-  const core = startCore(dataDir, { now: manualClock().now });
+  const core = startCore(dataDir, {
+    now: manualClock().now,
+    ...(region !== undefined && { systemRegion: () => region }),
+  });
   const path = await writeSourceFile(sources, "Tides.txt", "Spring tides happen at new moon.");
   const [tides] = await addAndProcess(core, [path]);
   const mind = await core.createMind({ title });
@@ -291,9 +294,9 @@ describe("exporting a Mind", () => {
       "3753007f9f9eabf272117b41067bdd6708cfb17a2bae63e7d07b3ba17ba529b0",
     ],
     [
-      "the sample, in Chinese, on A4",
+      "the sample, in Chinese, on a computer in China (A4)",
       "sample",
-      { language: "zh-CN" },
+      { language: "zh-CN", region: "CN" },
       "d89a258688b8dbbb130669a52526768680538aa43c6b8e61390055f299a9bac2",
     ],
     [
@@ -305,7 +308,10 @@ describe("exporting a Mind", () => {
   ] as const)(
     "the bytes of a .docx export don't change either: %s",
     async (_, content, options, expected) => {
-      const { core, mind, client, tides } = await setUp();
+      const { core, mind, client, tides } = await setUp(
+        "Tides",
+        "region" in options ? options.region : undefined,
+      );
       if (content === "sample") writeSample(client, tides);
       else writeEverythingElse(client, tides);
       await client.settled();

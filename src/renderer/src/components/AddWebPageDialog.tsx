@@ -2,7 +2,14 @@ import { type FormEvent, useEffect, useId, useState } from "react";
 import { typedAddresses } from "../../../shared/webAddresses";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import { canTryAgain, reasonKey, useWebPages, type WebPageProblem } from "../webPages";
+import {
+  canTryAgain,
+  heldInLocalMode,
+  reasonKey,
+  siteOf,
+  useWebPages,
+  type WebPageProblem,
+} from "../webPages";
 import { DetailsLine } from "./DetailsLine";
 import { ProblemLine } from "./ProblemLine";
 import { TypingTextarea } from "./TypingTextarea";
@@ -203,7 +210,25 @@ function AddressResult({
           </span>
         )}
       </div>
-      {problem && reason && (
+      {problem && reason && heldInLocalMode(problem) && (
+        <ProblemLine
+          testId="add-web-page-problem"
+          action={{
+            label: t("webPages.localMode.once"),
+            testId: "add-web-page-fetch-once",
+            disabled: fetching,
+            onClick: () => void useWebPages.getState().tryAgain(problem, true),
+          }}
+          also={{
+            label: t("webPages.localMode.keep"),
+            testId: "add-web-page-keep-local",
+            onClick: () => useWebPages.getState().dismiss(problem),
+          }}
+        >
+          {t("webPages.localMode", { site: siteOf(problem.address) })}
+        </ProblemLine>
+      )}
+      {problem && reason && !heldInLocalMode(problem) && (
         <ProblemLine
           testId="add-web-page-problem"
           title={problem.message}

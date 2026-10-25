@@ -121,6 +121,48 @@ export function commandInstructions(offered: boolean): string {
   ].join("\n");
 }
 
+const ON_SCREEN = "On screen now:";
+
+/** The line just before the Question when Documents are open on screen (#1334); "" for none. */
+export function onScreenLine(names: readonly string[]): string {
+  if (names.length === 0) return "";
+  return `${ON_SCREEN} ${names.map((name) => `"${listedName(name)}"`).join(", ")}`;
+}
+
+/**
+ * What "this document" and a short piece mean in the assistant (#1334), told once: given only
+ * the Documents in scope, models summarised every one, at length.
+ */
+export const THIS_DOCUMENT_RULE = [
+  `A line "${ON_SCREEN} …" before the Question names the Documents the User has open.`,
+  '- "This document", "this contract", "这份文件", "这份合同" and the like mean the Document the User\'s selection cites, else the one on screen, else the one the words name. Answer or write about that Document alone, from its own text: don\'t mention or compare the others, even one that disagrees with it (comparing Documents that disagree is for a Question about several), unless the User asks about them too. When two or more fit, two on screen among them, and nothing tells which, ask which one with ask_user before writing anything.',
+  "- When the User asks for it short, keep it to five lines at most in all: a heading, a paragraph and each list item each count as one.",
+].join("\n");
+
+const inAttribute = (text: string) => listedName(text).replace(/"/g, "'");
+
+const selected = (quote: { documentName: string; quote: string }, place: string | null) =>
+  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.quote}\n</selected>`;
+
+/**
+ * Words the User selected in their Documents to ask about (#101), each followed by the Passages
+ * it is in as the model reads them (`shown`), to cite it from.
+ */
+export function selectedTextBlock(
+  quotes: readonly { documentName: string; quote: string; place: string | null; shown: string }[],
+): string {
+  const each = quotes.map((quote) => `${selected(quote, quote.place)}\n\n${quote.shown}`);
+  return `<selected-text>\nThe User selected these words in their Documents to ask about them, in <selected>: "this", "it", "这段", "这句" and the like in the Question mean them. Answer about them, and cite them before anything else, from the Passage that follows them, at the location their <selected> gives.\n\n${each.join("\n\n")}\n</selected-text>`;
+}
+
+/** An earlier Question as its conversation's context reads it: the words it asked about, then its text. */
+export function askedAbout(question: {
+  text: string;
+  quotes: readonly { documentName: string; quote: string }[];
+}): string {
+  return [...question.quotes.map((quote) => selected(quote, null)), question.text].join("\n\n");
+}
+
 /** The Document the Mind in focus is the working copy of (#1036), by name; empty for none. */
 export function workingCopyNote(original: string | null): string {
   if (original === null) return "";
@@ -202,7 +244,7 @@ export function mindInstructions(
     '- A chart ("make a bar chart of revenue by quarter", "画一个各季度收入的柱状图"): search and cite the figures, then write them as a table into a Mind, each cell cited, and give chart with the kind the User named and a short title from their words: IncarnaMind draws it from that table, right after it. For a table already in the Mind, call add_to_mind with chart and content empty. Chart only figures the Documents state: for a series they don\'t state, say you can chart only the figures the Documents state.',
     ...(lastAnswer
       ? [
-          '- To put your last Answer into a Mind as it is ("make it a document", "put that in this page", "做成文档"), give answer: true to create_mind, or to add_to_mind for the empty Mind in front, and nothing else: it goes in with its Citations and every Document it covered, so don\'t search again or write it anew.',
+          '- To put your last Answer into a Mind as it is ("add this to my notes", "make it a document", "put that in this page", "把这个加到我的笔记里", "做成文档"), give answer: true to add_to_mind for the Mind in <mind>, or to create_mind when there is none or the User asks for a new one, and nothing else: it goes in with its Citations and every Document it covered, so don\'t search again or write it anew. Write new notes about Documents only when the User asks for notes about them.',
         ]
       : []),
     "- If a Tool says nothing was changed, say that first, in one sentence, with why, and don't make the change another way.",

@@ -45,10 +45,25 @@ function checkedBefore<T extends object>(model: T, method: string, check: () => 
   });
 }
 
+const carriesImages = (
+  prompt: readonly { content: string | readonly { type: string; mediaType?: string }[] }[],
+) =>
+  prompt.some(
+    (message) =>
+      typeof message.content !== "string" &&
+      message.content.some(
+        (part) => part.type === "file" && part.mediaType?.startsWith("image/") === true,
+      ),
+  );
+
 export function createSendGate(consent: Consent, localOnly: () => boolean) {
+  const stopInLocalMode = (flowId: DataFlowId, service: ExternalService): void => {
+    if (localOnly() && !consent.onThisComputer(flowId, service.id)) throw new LocalModeError();
+  };
+
   /** Throws `LocalModeError`, `ConsentRevokedError` or `ConsentNeededError` when nothing may go to `service` on `flowId` now. */
   const check = (flowId: DataFlowId, service: ExternalService): void => {
-    if (localOnly() && !consent.onThisComputer(flowId, service.id)) throw new LocalModeError();
+    stopInLocalMode(flowId, service);
     if (consent.allows(flowId, service)) return;
     const flow = consent.dataFlow(flowId, service);
     throw consent.isBackground(flowId)
@@ -70,12 +85,40 @@ export function createSendGate(consent: Consent, localOnly: () => boolean) {
         model,
         middleware: {
           specificationVersion: "v4",
-          wrapGenerate: ({ doGenerate }) => {
+          wrapGenerate: ({ doGenerate, params }) => {
             check(flowId, service);
+            if (flowId === "classification" && carriesImages(params.prompt)) {
+              check("scan-images", service);
+            }
+            return doGenerate();
+          },
+          wrapStream: ({ doStream, params }) => {
+            check(flowId, service);
+            if (flowId === "classification" && carriesImages(params.prompt)) {
+              check("scan-images", service);
+            }
+            return doStream();
+          },
+        },
+      });
+    },
+
+    /**
+     * `model` stopped in Local mode, and by nothing else: a key is tested before its provider
+     * is chosen, so no consent stands yet, and a test sends nothing of the User's (ADR-0022).
+     */
+    testModel(model: ChatLanguageModel, service: ExternalService | null): ChatLanguageModel {
+      if (!service) return model;
+      return wrapLanguageModel({
+        model,
+        middleware: {
+          specificationVersion: "v4",
+          wrapGenerate: ({ doGenerate }) => {
+            stopInLocalMode("chat", service);
             return doGenerate();
           },
           wrapStream: ({ doStream }) => {
-            check(flowId, service);
+            stopInLocalMode("chat", service);
             return doStream();
           },
         },

@@ -4,6 +4,7 @@ import {
   MAX_TAB_GROUPS,
   type WindowLayout,
 } from "../../../../core/api";
+import { shortcutLabel } from "../../commands/keymap";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../../layoutSlice";
 import { useAppStore } from "../../store";
 import { focusTab } from "../../tabFocus";
@@ -35,7 +36,7 @@ export async function focusGroup(number: number): Promise<void> {
   const store = useAppStore.getState();
   const group = store.layout?.groups[number - 1];
   if (!group) {
-    store.showTabNotice({ kind: "noGroup", group: number });
+    store.showTabNotice({ kind: "noGroup", group: number, shortcut: shortcutLabel("tab.split") });
     return;
   }
   const next = await store.changeLayout({ type: "focus", groupId: group.id });

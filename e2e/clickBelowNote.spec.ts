@@ -44,6 +44,8 @@ const VIEWS = [
 
 const blocks = (editor: Locator) => editor.locator(":scope > *");
 
+const lastText = async (editor: Locator) => (await blocks(editor).last().textContent()) ?? "";
+
 /** The editor's selection is empty and sits in its last Block. */
 const cursorInLastBlock = (editor: Locator) =>
   editor.evaluate((dom) => {
@@ -134,15 +136,25 @@ for (const view of VIEWS) {
       expect(await cursorInLastBlock(editor)).toBe(true);
       await window.keyboard.type("!");
     }
+    const typed = "Neap tides are weaker.!!";
     await expect(blocks(editor)).toHaveCount(6);
-    await expect(blocks(editor).last()).toHaveText("Neap tides are weaker.!!");
+    await expect(blocks(editor).last()).toHaveText(typed);
     await expect(frontMindName(window)).toHaveText("Tides");
 
-    // How much one Undo takes depends on how far apart the words and each "!" were typed: all of
-    // them, both "!", or only the last "!", which a second Undo takes.
+    // Undo groups typing by the time between keystrokes, so how much one Undo takes depends on how
+    // far apart they were: on a slow machine it can split the text inside a word. Whatever it
+    // leaves is the beginning of what was typed; a "!" left in it is taken by a second Undo.
     await window.keyboard.press("ControlOrMeta+z");
-    await expect(blocks(editor).last()).toHaveText(/^(Neap tides are weaker\.!?)?$/);
-    if ((await blocks(editor).last().textContent())?.endsWith("!")) {
+    await expect
+      .poll(
+        async () => {
+          const text = await lastText(editor);
+          return text !== typed && typed.startsWith(text);
+        },
+        { message: "Undo leaves a shorter beginning of what was typed" },
+      )
+      .toBe(true);
+    if ((await lastText(editor)).endsWith("!")) {
       await window.keyboard.press("ControlOrMeta+z");
     }
     await expect(blocks(editor).last()).not.toHaveText(/!/);
@@ -182,8 +194,11 @@ test("a click under a table, inside the editor's own space, puts the cursor on a
   await window.keyboard.type("Low water at six.");
   await expect(blocks(editor).last()).toHaveText("Low water at six.");
 
-  await window.keyboard.press("ControlOrMeta+z");
-  await expect(blocks(editor).last()).toHaveText("");
+  // Undo groups typing by the time between keystrokes: on a slow machine the words take several.
+  for (let text = await lastText(editor); text !== ""; text = await lastText(editor)) {
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => lastText(editor)).not.toBe(text);
+  }
   await window.keyboard.press("ControlOrMeta+z");
   await expect.poll(lastIsTable).toBe(true);
   await app.close();

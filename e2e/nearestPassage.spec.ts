@@ -98,6 +98,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
     await expect(card.getByTestId("claim-search-web")).toHaveCount(0);
     await expect(card.getByTestId("claim-remove")).toBeVisible();
+    // With no Citation it can still be cut or kept.
+    await expect(card.getByTestId("claim-cut-sentence")).toBeVisible();
+    await expect(card.getByTestId("claim-keep")).toBeVisible();
     // Open the page opens the Document beside the Mind, as a Citation does.
     await pointAndClick(window, card.getByTestId("claim-open"));
     await expect(window.getByTestId("viewer")).toBeVisible();

@@ -547,6 +547,21 @@ function phrase(unit: Unit): string {
 /** Excel compares on the 15 significant digits it keeps, so 0.1 + 0.2 = 0.3 holds there and here. */
 const excelDigits = (x: number) => Number(x.toPrecision(15));
 
+/**
+ * A number with no unit or scale of its own ("3.5" in "3.5:1") times an amount in a scale is a
+ * multiplier: the product is shown as the amount is written. Its own decimals, moved into that
+ * scale, would show as noise: "£154.0000000 million" for £44 million × 3.5 (#1784).
+ */
+function productScales(a: Value, b: Value): WrittenScale[] {
+  const multiplies = (x: Value, y: Value) =>
+    x.unit.kind === "plain" &&
+    x.scales.every((each) => each.exponent === 0) &&
+    y.scales.some((each) => each.exponent > 0);
+  if (multiplies(a, b)) return b.scales;
+  if (multiplies(b, a)) return a.scales;
+  return [...a.scales, ...b.scales];
+}
+
 /** The powers of ten that scale words stand for: thousand, 万, million, 亿, billion, trillion. */
 const SCALE_STEPS: ReadonlySet<number> = new Set([3, 4, 6, 8, 9, 12]);
 
@@ -749,7 +764,7 @@ function evaluate(
             const unit = product(a.unit, b.unit) ?? mismatch("multiply", a, b);
             noteScale(node, a, b, 1);
             noteScale(node, b, a, 1);
-            return result(node, unit, a.n * b.n, [a, b], scales);
+            return result(node, unit, a.n * b.n, [a, b], productScales(a, b));
           }
           case "/": {
             const unit = quotient(a.unit, b.unit) ?? mismatch("divide", a, b);

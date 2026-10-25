@@ -60,6 +60,8 @@ export interface Endpoint {
   keyUrl?: string;
   /** This region's prices, when they aren't on the provider's `pricingUrl`. */
   pricingUrl?: string;
+  /** Where credit is added for this region, when it isn't the provider's `billingUrl`. */
+  billingUrl?: string;
 }
 
 /**
@@ -153,8 +155,6 @@ export interface CatalogProvider {
   id: string;
   name: Localized;
   support: Support;
-  /** A best-effort provider the first-run key form offers too, as its key line says (#1375). */
-  firstRun?: boolean;
   group: "international" | "china" | "local" | "other";
   /** A provider with a region in each (Kimi) is listed under the other heading too. */
   alsoListedIn?: "international" | "china";
@@ -177,6 +177,8 @@ export interface CatalogProvider {
   docsUrl?: string;
   /** Its own page of prices ("Pricing ↗" beside a model's estimate), when `docsUrl` isn't it. */
   pricingUrl?: string;
+  /** Where the User adds credit, when the provider is paid in advance and has one page for it ("Add credit ↗" on an out-of-credit refusal). */
+  billingUrl?: string;
   request?: RequestQuirks;
   /** Model ids for the roles it offers. A provider whose models the User names has none. */
   roles: Partial<Record<Role, string>>;

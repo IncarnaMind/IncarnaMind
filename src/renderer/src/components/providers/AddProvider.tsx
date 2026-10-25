@@ -23,7 +23,7 @@ export function AddProvider({
   providers: readonly ChatProvider[];
   refused: KeyRefusal | null;
   onBack(): void;
-  onAdded(provider: ChatProvider): void;
+  onAdded(provider: ChatProvider, keyNotChecked?: boolean): void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -57,7 +57,6 @@ export function AddProvider({
           providers={providers}
           refused={refused}
           onSaved={onAdded}
-          withMoreProviders
           keepDefault
         />
       )}

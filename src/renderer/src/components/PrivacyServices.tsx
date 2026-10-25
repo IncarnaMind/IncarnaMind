@@ -1,21 +1,34 @@
-import { useRef, useState } from "react";
-import type { RegisteredDataFlow } from "../../../core/api";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { DataFlowId, RegisteredDataFlow } from "../../../core/api";
 import { formatDate } from "../../../shared/dates";
 import { core } from "../core";
 import { useLanguage, useT } from "../i18n";
 import { decisionOf, groupByService, type ServiceGroup, type ServiceUse } from "../privacyServices";
 import { useAppStore } from "../store";
-import { useUndo } from "../undo";
+import { type Undoable, useUndo } from "../undo";
 import { DetailsLine } from "./DetailsLine";
-import { UndoLineAt } from "./UndoLine";
 import { buttonStyle, rowButtonsClass, rowTextClass, ruledListClass, ruledRowClass } from "./ui";
 
-const SERVICES_UNDO_PLACE = "settings:privacy:services";
+export const SERVICES_UNDO_PLACE = "settings:privacy:services";
 
 const reportError = (failure: unknown) => useAppStore.getState().reportError(failure);
 
-async function revokeAll(service: string, uses: readonly ServiceUse[]): Promise<void> {
-  for (const use of uses) await core.revokeConsent(use.flow, service);
+interface Revoked {
+  flow: DataFlowId;
+  at: string;
+}
+
+async function revokeAll(service: string, uses: readonly ServiceUse[]): Promise<Revoked[]> {
+  const revoked: Revoked[] = [];
+  for (const use of uses) {
+    const at = await core.revokeConsent(use.flow, service);
+    if (at) revoked.push({ flow: use.flow, at });
+  }
+  return revoked;
+}
+
+async function restoreAll(service: string, revoked: readonly Revoked[]): Promise<void> {
+  for (const { flow, at } of revoked) await core.restoreConsent(flow, service, at);
 }
 
 async function allowAll(service: string, uses: readonly ServiceUse[]): Promise<void> {
@@ -24,14 +37,11 @@ async function allowAll(service: string, uses: readonly ServiceUse[]): Promise<v
 
 export function PrivacyServices({ flows }: { flows: readonly RegisteredDataFlow[] }) {
   return (
-    <div className="flex flex-col">
-      <ul className={ruledListClass}>
-        {groupByService(flows).map((group) => (
-          <ServiceItem key={group.service.id} group={group} />
-        ))}
-      </ul>
-      <UndoLineAt place={SERVICES_UNDO_PLACE} />
-    </div>
+    <ul className={ruledListClass}>
+      {groupByService(flows).map((group) => (
+        <ServiceItem key={group.service.id} group={group} />
+      ))}
+    </ul>
   );
 }
 
@@ -49,10 +59,20 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
   const language = useLanguage();
   const [busy, setBusy] = useState(false);
   const item = useRef<HTMLLIElement>(null);
+  const stopping = useRef<string | null>(null);
   const { service, uses } = group;
   const decision = decisionOf(uses);
 
-  const run = async (action: () => Promise<void>) => {
+  // A use nothing else holds goes from the list once stopped, and its button with it: the focus
+  // goes to the service's own button then, not to the page, whenever the list is updated.
+  useLayoutEffect(() => {
+    if (stopping.current === null || uses.some((use) => use.flow === stopping.current)) return;
+    stopping.current = null;
+    if (document.activeElement?.isConnected && document.activeElement !== document.body) return;
+    item.current?.querySelector<HTMLElement>('button[data-testid^="data-service-"]')?.focus();
+  });
+
+  const run = async (action: () => Promise<unknown>) => {
     if (busy) return;
     setBusy(true);
     try {
@@ -65,36 +85,33 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
   };
   const withConsent = (consent: ServiceUse["status"]["consent"]) =>
     uses.filter((use) => use.status.consent === consent);
-  const stop = () =>
-    run(async () => {
-      const allowed = withConsent("accepted");
-      await revokeAll(service.id, allowed);
-      useUndo.getState().push({
-        said: (words) => words("privacy.flows.stopped", { service: service.name }),
-        undo: () => allowAll(service.id, allowed),
-        redo: () => revokeAll(service.id, allowed),
-        shownAt: SERVICES_UNDO_PLACE,
-      });
+  const stopped = async (stopping: readonly ServiceUse[], said: Undoable["said"]) => {
+    let revoked = await revokeAll(service.id, stopping);
+    if (revoked.length === 0) return;
+    useUndo.getState().push({
+      said,
+      undo: () => restoreAll(service.id, revoked),
+      redo: async () => {
+        revoked = await revokeAll(service.id, stopping);
+      },
+      shownAt: SERVICES_UNDO_PLACE,
     });
+  };
+  const stop = () =>
+    run(() =>
+      stopped(withConsent("accepted"), (words) =>
+        words("privacy.flows.stopped", { service: service.name }),
+      ),
+    );
   const stopUse = (use: ServiceUse) =>
-    run(async () => {
-      await revokeAll(service.id, [use]);
-      // A use nothing else holds goes from the list once stopped, and its button with it: the
-      // focus goes to the service's own button then, not to the page.
-      requestAnimationFrame(() => {
-        if (document.activeElement?.isConnected && document.activeElement !== document.body) return;
-        item.current?.querySelector<HTMLElement>('button[data-testid^="data-service-"]')?.focus();
-      });
-      useUndo.getState().push({
-        said: (words) =>
-          words("privacy.flows.stoppedFlow", {
-            flow: words(`consent.flow.${use.flow}`),
-            service: service.name,
-          }),
-        undo: () => allowAll(service.id, [use]),
-        redo: () => revokeAll(service.id, [use]),
-        shownAt: SERVICES_UNDO_PLACE,
-      });
+    run(() => {
+      stopping.current = use.flow;
+      return stopped([use], (words) =>
+        words("privacy.flows.stoppedFlow", {
+          flow: words(`consent.flow.${use.flow}`),
+          service: service.name,
+        }),
+      );
     });
   const allow = () =>
     run(() =>
