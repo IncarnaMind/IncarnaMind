@@ -415,6 +415,15 @@ export const MIND_PROPOSAL_REQUESTS_FIELD = "proposalRequests";
 export const MIND_REVISIONS_FIELD = "revisions";
 
 /**
+ * The name of the Y.Map, beside a Mind's Blocks, that keeps by request the origin
+ * (`MIND_ORIGINS_FIELD`) each Block had before that request's change gave it its own: a change
+ * written over Blocks keeps their ids, so rejecting it in a Block puts that origin back
+ * (`restoreOrigins`). Entries are kept for good: History can bring back a version from
+ * before any decision. An older version leaves it as it is and keeps the new origin (ADR-0003).
+ */
+export const MIND_REPLACED_ORIGINS_FIELD = "replacedOrigins";
+
+/**
  * What a change the assistant made in a Mind was (#880, #1559): text changed
  * ("make it longer") or written ("write a summary page"); such a change applies
  * at once, with Undo. Absent: one that waits for the User, such as a revision
@@ -2151,6 +2160,8 @@ export interface GettingStarted {
   askedReady: boolean;
   /** The User hid the checklist. */
   hidden: boolean;
+  /** The first-run card was shown on this device: an empty note keeps no second guide after that (#1940). */
+  seen: boolean;
 }
 
 /** Settings that belong to this device and never sync (ADR-0003). */
@@ -4967,6 +4978,9 @@ export interface LeftOutDocument {
   reason: EvidenceExclusion;
 }
 
+/** How a sentence's number bounds a figure: it is a limit the figure stays within, or above. */
+export type LimitRelation = "at most" | "at least";
+
 /**
  * How a check worked out a figure the sentence states but the Documents don't
  * (#707): the figure, calculated from numbers they state (ADR-0021), and the
@@ -4977,6 +4991,11 @@ export interface ClaimCalculation {
   figure: CalculatedFigure;
   /** The number as the sentence writes it: "1.1x". */
   stated: string;
+  /**
+   * The sentence's number is a limit the figure stays within ("inside a 3.25x covenant": at most)
+   * or above (at least), rather than the figure itself (#1908). Absent: it is the figure.
+   */
+  relation?: LimitRelation;
   /**
    * Whether they agree. One that doesn't contradicts the sentence; one that
    * does settles only that number, and a Passage may still contradict the rest.
@@ -5886,6 +5905,23 @@ export interface AddedToNote {
 export interface UndoAddToNoteInput {
   mindId: string;
   blockIds: string[];
+}
+
+/**
+ * What taking an "Add to note" back kept: the Blocks whose words the User changed
+ * since they went in, which Undo leaves rather than take away their edit (#1962).
+ */
+export interface UndoAddToNoteResult {
+  kept: number;
+}
+
+/**
+ * A Conversation a note's Blocks came from (#1940): History names that Conversation
+ * under the note's title, also while the note is closed.
+ */
+export interface NoteConversation {
+  mindId: string;
+  conversationId: string;
 }
 
 /** Where words of a search are in a piece of text: `start` to `end`, in UTF-16 code units. */
@@ -7804,6 +7840,10 @@ export interface MindExportPreview {
   fromWord: boolean;
   /** Someone's changes from that Word file still waiting (#734), shown or accepted as `theirChanges` says. */
   theirChanges: number;
+  /** The files in the Mind's Search scope that couldn't be read (#740); 0 when everything in it was read. */
+  unreadFiles: number;
+  /** Whether the export names those files, or only counts them: the Mind's choice, off until the User ticks it. */
+  unreadFileNames: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
@@ -8921,8 +8961,16 @@ export interface CoreApi {
    * Mind open in the editor adds at its cursor itself, by the same rules.
    */
   addToNote(input: AddToNoteInput): Promise<AddedToNote>;
-  /** Takes the Blocks an "Add to note" put into a Mind back out, with their links back. */
-  undoAddToNote(input: UndoAddToNoteInput): Promise<void>;
+  /**
+   * Takes the Blocks an "Add to note" put into a Mind back out, with their links back. A Block
+   * whose words the User changed since it went in stays, and is counted in `kept`.
+   */
+  undoAddToNote(input: UndoAddToNoteInput): Promise<UndoAddToNoteResult>;
+  /**
+   * The Conversation each Mind's Blocks came from, by Mind id, for History's names: read from
+   * the links back the Blocks keep, so it covers notes made before this version too.
+   */
+  listNoteConversations(): Promise<NoteConversation[]>;
 
   getSettings(): Promise<Settings>;
   /**
@@ -10122,6 +10170,12 @@ export interface CoreApi {
     options?: SetMindCitationStyleOptions,
   ): Promise<MindCitationStyle>;
   /**
+   * Whether this Mind's exports name the files in its Search scope that couldn't be read, or only
+   * count them (#740). Off until the User ticks it in the export options; the export and its
+   * preview ask this.
+   */
+  setMindUnreadFileNames(mindId: string, names: boolean): Promise<void>;
+  /**
    * Every style the app ships but the common ones, for the picker, read from the style pack the
    * first time it is asked for.
    */
@@ -10536,6 +10590,7 @@ const methods: Record<CoreApiMethod, true> = {
   resolveReference: true,
   addToNote: true,
   undoAddToNote: true,
+  listNoteConversations: true,
   getSettings: true,
   updateSettings: true,
   getLayout: true,
@@ -10783,6 +10838,7 @@ const methods: Record<CoreApiMethod, true> = {
   formatCitations: true,
   getMindCitationStyle: true,
   setMindCitationStyle: true,
+  setMindUnreadFileNames: true,
   listCitationStyles: true,
   openCitationStyleLicences: true,
   getMindStyle: true,

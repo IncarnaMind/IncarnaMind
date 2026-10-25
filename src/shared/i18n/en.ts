@@ -76,6 +76,8 @@ export const en = {
   "library.problem.show": "Show",
   "unread.count.one": "1 file couldn’t be read",
   "unread.count": "{count} files couldn’t be read",
+  "unread.heading": "What couldn’t be read",
+  "unread.more": "and {count} more",
   "unread.show": "Show",
   "unread.file.reason": ": {reason}",
   "unread.ocr": "Read with OCR",
@@ -690,6 +692,8 @@ export const en = {
   "claim.replaceCitation.doesntSupport": "Your Citation doesn’t support this sentence",
   "claim.calculated.title": "Calculated from your Documents",
   "claim.calculated.stated": "The sentence says {stated}.",
+  "claim.calculated.stated.at most": "The sentence says at most {stated}.",
+  "claim.calculated.stated.at least": "The sentence says at least {stated}.",
   "claim.calculated.inputs": "Worked out from",
   "claim.calculated.negative": "counted as negative",
   "claim.useFigure": "Use {figure}",
@@ -2610,9 +2614,9 @@ export const en = {
   "question.unfold": "Show the Answer",
   "question.context.include": "Include in Question context",
 
-  "composer.placeholder": "Ask, or say what to change…",
+  "composer.placeholder": "Ask, or say ‘write a note on…’",
   "composer.placeholder.followUp": "Ask a follow-up…",
-  "composer.label": "Ask, or say what to change ({shortcut})",
+  "composer.label": "Ask, or say ‘write a note on…’ ({shortcut})",
   "composer.ask": "Ask (Enter)",
   "composer.scope.all": "All Documents",
   "composer.scope.allLabel": "Search scope: all your Documents. Limit it (@)",
@@ -3442,6 +3446,9 @@ export const en = {
   "export.citedDocuments.other": "{count} Documents",
   "export.commentFailedChecks": "Comment on checks that failed",
   "export.commentFailedChecks.hint": "Quote not found, Contradicted, Unsupported or Needs re-check",
+  "export.unreadNames": "Name the files",
+  "export.unreadNames.hint":
+    "The section about what couldn’t be read lists the files by name. Off, it says how many.",
   "aiStatement.command": "Export AI use statement",
   "aiStatement.keywords": "AI use disclosure declaration thesis dissertation paper record",
   "aiStatement.title": "AI use statement: {name}",
@@ -3506,8 +3513,12 @@ export const en = {
   "aiStatement.sentences.column.checked": "Checked",
   "aiStatement.unread.one":
     "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it:",
+  "aiStatement.unread.one.fullStop":
+    "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it.",
   "aiStatement.unread":
     "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them:",
+  "aiStatement.unread.fullStop":
+    "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them.",
   "aiStatement.note":
     "Schools have their own forms for declaring AI use. Use these counts to fill in yours.",
   "checkRecord.command": "Export check record…",
@@ -3642,6 +3653,10 @@ export const en = {
   "export.comment.sentence.contradicted": "Contradicted: {says}",
   "export.comment.sentence.contradicted.worked":
     "Contradicted: your Documents give {shown}, and the sentence says {stated}.",
+  "export.comment.sentence.contradicted.worked.at most":
+    "Contradicted: your Documents give {shown}, and the sentence says at most {stated}.",
+  "export.comment.sentence.contradicted.worked.at least":
+    "Contradicted: your Documents give {shown}, and the sentence says at least {stated}.",
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
   "export.comment.sentence.unsupported": "Unsupported: I didn’t find this in “{scope}”.",
   "export.comment.sentence.unsupported.more":
@@ -3763,6 +3778,8 @@ export const en = {
   "error.document.nameEmpty": "A Document’s name can’t be empty.",
   "error.document.nameTooLong": "A Document’s name can’t be longer than {max} characters.",
   "error.document.notCitedChoice": "Whether a Document is cited must be true or false.",
+  "error.mind.unreadFileNames":
+    "Whether an export names the files it couldn’t read must be true or false.",
   "error.document.fileMissing": "The Document’s file is missing.",
   "error.verify.request": "That isn’t a request to verify a document that IncarnaMind can read.",
   "error.verify.notVerifying": "This Mind doesn’t verify a document.",
@@ -4467,7 +4484,7 @@ export const en = {
   "approvals.policy.off": "Off",
   "approvals.policy.alwaysRun": "Always run",
 
-  // Onboarding: the example Mind, the "Get started" checklist and the three steps.
+  // Onboarding: the example Mind and the "Get started" checklist.
   "editor.hint.empty": "Start writing, or {ask}",
   "editor.hint.empty.ask": "press {shortcut} to ask a Question…",
   "editor.hint.first": "A Mind: write here and ask your Documents, every quote checked. {ask}",
@@ -5037,8 +5054,9 @@ export const en = {
   "assistant.dock.bottom": "Dock at the bottom",
   "assistant.dock.float": "Float",
   "assistant.floatHere": "Float here",
-  "assistant.lastToNewMind": "New Mind from the Answer",
-  "assistant.lastToNewMind.unavailable": "There’s no Answer in this conversation yet",
+  "assistant.writeNote": "Write the Answer as a note",
+  "assistant.writeNote.unavailable": "There’s no Answer in this conversation yet",
+  "note.chat": "This note’s chat",
   "assistant.clear": "Clear this conversation",
   "assistant.clear.unavailable": "This conversation is empty",
   "assistant.resize.side": "Resize the assistant: ← and → move it; double-click resets",
@@ -5201,8 +5219,8 @@ export const en = {
   "answer.copy.label": "Copy the Answer ({shortcut})",
   "answer.copied": "Copied",
   "answer.add": "Add to note",
-  "answer.newMind": "New Mind",
-  "answer.newMind.label": "Put this Answer in a new Mind, or in the empty Mind in front",
+  "answer.writeNote": "Write as a note",
+  "answer.writeNote.label": "Write this Answer as a note, beside it",
   "answer.add.to": "Add to “{mind}” ({shortcut})",
   "answer.add.choose": "Choose a Mind to add it to",
   "answer.add.named": "Add to “{mind}”",
@@ -5359,6 +5377,8 @@ export const en = {
   "answer.notWritten.retry": "Try again",
   "answer.notAllDone": "The assistant didn’t make every change this reply describes",
   "answer.added": "Added to “{mind}”",
+  "answer.undoKept.one": "Kept the Block you edited",
+  "answer.undoKept": "Kept {count} Blocks you edited",
   "answer.table.open": "Open as a table",
   "answer.table.openNth": "Open table {n} as a table",
   "answer.table.label": "Table",

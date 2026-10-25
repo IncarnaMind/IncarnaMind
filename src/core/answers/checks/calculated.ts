@@ -12,7 +12,7 @@ import {
   readFigures,
 } from "../../../shared/figures";
 import type { ResultUnit } from "../../../shared/formula";
-import type { CalculatedFigure } from "../../api";
+import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
 
 /**
@@ -87,19 +87,63 @@ function tolerance(stated: Figure): number {
   return step / 2 + more + 1e-9 * Math.max(1, Math.abs(stated.value));
 }
 
+const BRACKETED = /^[^\d]*[(（]/;
+
+/** Whether `formula` only multiplies or divides its inputs: no sum, difference or function. */
+function onlyScales(formula: string, names: readonly string[]): boolean {
+  const own = new Set(names.map((name) => name.toLowerCase()));
+  const rest = formula.replace(/[\p{L}_][\p{L}\p{N}_.]*/gu, (word) =>
+    own.has(word.toLowerCase()) ? "" : word,
+  );
+  return /^[\d.\s*/()]*$/.test(rest);
+}
+
+// A minus that comes only from inputs the model marked as a cost or deduction printed in
+// brackets ("Finance costs (41.2)"), in a formula that only multiplies or divides, for a sentence
+// whose own number has none, is the cost's presentation: its size is meant (#1908). Brackets on a
+// loss are its sign, and one added or taken off in a sum keeps its sign (#978).
+function bracketsOnly(
+  stated: Figure,
+  figure: Pick<CalculatedFigure, "value" | "inputs" | "formula">,
+  costs: ReadonlySet<string>,
+): boolean {
+  const negatives = figure.inputs.filter((input) => input.number.value < 0);
+  return (
+    typeof figure.value === "number" &&
+    figure.value < 0 &&
+    stated.value > 0 &&
+    !/[-−(（]/.test(stated.chars) &&
+    negatives.length > 0 &&
+    negatives.every((input) => BRACKETED.test(input.number.chars) && costs.has(input.name)) &&
+    onlyScales(
+      figure.formula,
+      figure.inputs.map((input) => input.name),
+    )
+  );
+}
+
 /**
  * Whether the sentence's number agrees with the figure worked out for it, to
- * the sentence's rounding: a range agrees when the figure is in it. Null when
- * they measure different things, or the figure is a yes or no.
+ * the sentence's rounding: a range agrees when the figure is in it, and a
+ * limit (`relation`) when the figure stays within it. Null when they measure
+ * different things, or the figure is a yes or no.
  */
 export function agreesWith(
   stated: Figure,
-  figure: Pick<CalculatedFigure, "value" | "unit">,
+  figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
+  { relation, costs = new Set() }: { relation?: LimitRelation; costs?: ReadonlySet<string> } = {},
 ): boolean | null {
-  const { value } = figure;
-  if (typeof value === "boolean" || !comparable(stated.unit, figure.unit)) return null;
-  const within = tolerance(stated);
+  if (typeof figure.value === "boolean" || !comparable(stated.unit, figure.unit)) return null;
+  const value = bracketsOnly(stated, figure, costs) ? -figure.value : figure.value;
+  // A figure of the other sign isn't inside a limit the sentence writes as positive: a loss-making
+  // EBITDA gives a negative leverage. The model's verdict stands instead.
+  if (relation === "at most" && value < 0 && stated.value > 0 && !/[-−(（]/.test(stated.chars))
+    return null;
+  // A limit is exact: "at least 5x" isn't met by 4.6x, though 4.6 rounds to 5.
+  const within = relation ? 1e-9 * Math.max(1, Math.abs(stated.value)) : tolerance(stated);
   const low = Math.min(stated.value, stated.rangeTo ?? stated.value) - within;
   const high = Math.max(stated.value, stated.rangeTo ?? stated.value) + within;
+  if (relation === "at most") return value <= high;
+  if (relation === "at least") return value >= low;
   return value >= low && value <= high;
 }

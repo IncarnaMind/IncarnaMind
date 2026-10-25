@@ -36,7 +36,7 @@ import { noteExtensions } from "../editor/noteSchema";
 import { whenMindEditor } from "../editor/openEditors";
 import { translateNow } from "../i18n";
 import { useNotices } from "../notices";
-import { useAppStore } from "../store";
+import { exampleMindIds, useAppStore } from "../store";
 
 /** Words selected in a Document's viewer, part by part (see `ReadSelection`). */
 export interface ViewerSelection {
@@ -121,8 +121,11 @@ function putIn(
   );
 }
 
-/** Whether Add to note has a Mind to add to without asking which: the one the assistant reads. */
-export const addsWithoutAsking = (): boolean => readMindHandle.current !== null;
+/** Whether Add to note has a Mind to add to without asking which: one of the User's own, never the example (#1940). */
+export const addsWithoutAsking = (): boolean => {
+  const read = readMindHandle.current;
+  return read !== null && !exampleMindIds(useAppStore.getState()).includes(read.mindId);
+};
 
 /**
  * Adds the selection to `target` as a quote with its Citation: by default the

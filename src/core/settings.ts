@@ -197,12 +197,13 @@ const GETTING_STARTED_STEPS = [
   "askedOwn",
   "askedReady",
   "hidden",
+  "seen",
 ];
 
 // Progress kept before the ready Question (#123) has no `askedReady`; `get` reads it as not asked.
 // Progress kept before the mistake had its own step has no `mistakeSeen`; `get` takes it from
 // `citationChecked`, so a first open already finished stays finished.
-const ADDED_LATER = ["askedReady", "mistakeSeen"];
+const ADDED_LATER = ["askedReady", "mistakeSeen", "seen"];
 const isGettingStarted = (value: unknown): value is GettingStarted =>
   isRecord(value) &&
   Object.keys(value).every((key) => GETTING_STARTED_STEPS.includes(key)) &&
@@ -234,6 +235,7 @@ const deviceScope: Scope<DeviceSettings> = {
       askedOwn: false,
       askedReady: false,
       hidden: false,
+      seen: false,
     },
     skillScriptsEnabled: true,
     skillScriptTimeoutSeconds: SKILL_SCRIPT_LIMITS.defaultTimeoutSeconds,
