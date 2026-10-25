@@ -97,3 +97,10 @@ The Search scope the User sets for a Mind in its composer is where its Questions
 - **One whole value.** The key holds the scope's Folders, Tags and Documents as one value. A narrowed scope also holds where one click takes it back: `before: "all"` when it narrowed every Document, chosen; nothing when it narrowed the Mind's own. When two devices set it at once, one device's value wins whole, with its own way back, and no other key of the settings map is lost.
 - **A check records where it looked.** The `claimCheck` mark's `scope` gains `chosen`, the scope searched when it was the Mind's own choice, so the card, the Word comment and the check record name it, and a check made in another scope than the Mind's now needs a re-check. An older version's editor would strip `chosen` and read such a check as made in the Mind's Folder, and it could write over the scope key without knowing it, so the content schema version is 26: an older version opens a Mind written since read-only. Nothing older is rewritten.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: a comparison table's columns have a label (2026-10-25, #1833)
+
+A comparison table's column has a short **label**, its heading, beside its Question, the words each Document is asked. The label starts as the Question shortened: a column with none is headed by its Question shortened, so tables written before this need no migration.
+
+- **Content schema version 28** adds `label` to each column of a table's `questions`, with room for its `width` and whether it is `hidden`. An older version's editor writes the columns back as `{ id, text }` when it changes one, which would lose all three, so it opens these Minds read-only. Older content is version 28 content as it is.
+- **Every reader uses the same words.** The table's headings, the commands that name a column, and the Excel and Word exports read `label ?? shortened(text)`, so a column is named the same everywhere.

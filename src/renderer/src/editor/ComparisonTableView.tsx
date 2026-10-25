@@ -1,5 +1,5 @@
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
-import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RunStop } from "../../../core/api";
 import {
   cellStop,
@@ -26,6 +26,7 @@ import { exportComparison } from "../exports";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { tableTask, useTasks } from "../tasks";
+import { ColumnQuestionField, ComparisonColumnHeading } from "./ComparisonColumnHeading";
 import { addComparisonColumn } from "./comparisonCommands";
 import { CollapseIcon, ExpandIcon, TableIcon } from "./icons";
 import { useMindId } from "./mindContext";
@@ -95,6 +96,9 @@ function useExpandInPlace(
     if (!expanded) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
+      // A heading's own field closes on Escape first.
+      if (event.target instanceof Element && event.target.closest("[data-comparison-field]"))
+        return;
       event.preventDefault();
       event.stopPropagation();
       collapse();
@@ -329,64 +333,31 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
               {t("comparison.document")}
             </div>
             {questions.map((question) => (
-              // biome-ignore lint/a11y/useSemanticElements lint/a11y/useFocusableInteractive: a heading cell of the grid above, read with it.
-              <div
+              <ComparisonColumnHeading
                 key={question.id}
-                className="comparison-question"
-                role="columnheader"
-                data-testid="comparison-question"
-                title={question.text}
-              >
-                {question.text}
-              </div>
+                editor={editor}
+                mindId={mindId}
+                tableId={tableId}
+                question={question}
+                count={questions.length}
+                editable={editable}
+              />
             ))}
-            {adding && <NewQuestion onDone={addQuestion} onCancel={() => setAdding(false)} />}
+            {adding && (
+              // biome-ignore lint/a11y/useSemanticElements lint/a11y/useFocusableInteractive: a heading cell of the table's grid; its field takes the focus.
+              <div className="comparison-question comparison-question--new" role="columnheader">
+                <ColumnQuestionField
+                  testId="comparison-new-question"
+                  onDone={addQuestion}
+                  onCancel={() => setAdding(false)}
+                />
+              </div>
+            )}
           </div>
           <NodeViewContent className="comparison-rows" />
         </div>
         {!expanded && addButton("side")}
       </div>
     </NodeViewWrapper>
-  );
-}
-
-/** The column "+ Question" adds, written in place: Enter adds it, Esc or leaving it empty doesn't. */
-function NewQuestion({ onDone, onCancel }: { onDone(text: string): void; onCancel(): void }) {
-  const t = useT();
-  const [text, setText] = useState("");
-  const field = useRef<HTMLInputElement>(null);
-  /** Enter, Esc or leaving the field ends it, once. */
-  const ended = useRef(false);
-  useEffect(() => field.current?.focus(), []);
-  const end = (add: boolean) => {
-    if (ended.current) return;
-    ended.current = true;
-    if (add && text.trim()) onDone(text);
-    else onCancel();
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    event.stopPropagation();
-    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-      event.preventDefault();
-      end(true);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      end(false);
-    }
-  };
-  return (
-    // biome-ignore lint/a11y/useSemanticElements lint/a11y/useFocusableInteractive: a heading cell of the table's grid; its field takes the focus.
-    <div className="comparison-question comparison-question--new" role="columnheader">
-      <input
-        ref={field}
-        data-testid="comparison-new-question"
-        aria-label={t("comparison.addQuestion.label")}
-        placeholder={t("comparison.addQuestion.placeholder")}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={onKeyDown}
-        onBlur={() => end(true)}
-      />
-    </div>
   );
 }

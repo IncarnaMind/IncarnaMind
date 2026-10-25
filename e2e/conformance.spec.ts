@@ -612,6 +612,44 @@ async function mindWithChart(window: Page): Promise<string> {
   }, update);
 }
 
+/** A Mind holding a comparison table of one row and two columns, written as the editor stores one (#98). */
+async function mindWithComparison(window: Page): Promise<string> {
+  const doc = new Y.Doc();
+  const paragraph = new Y.XmlElement("paragraph");
+  paragraph.setAttribute("id", crypto.randomUUID());
+  paragraph.insert(0, [new Y.XmlText("Supplier terms.")]);
+  const questions = [
+    { id: crypto.randomUUID(), text: "Termination notice" },
+    { id: crypto.randomUUID(), text: "Liability cap" },
+  ];
+  const table = new Y.XmlElement("comparisonTable");
+  table.setAttribute("id", crypto.randomUUID());
+  table.setAttribute("questions", questions as never);
+  const row = new Y.XmlElement("comparisonRow");
+  row.setAttribute("documentId", crypto.randomUUID());
+  row.setAttribute("documentName", "Corvane Agreement.txt");
+  for (const [at, question] of questions.entries()) {
+    const cell = new Y.XmlElement("comparisonCell");
+    cell.setAttribute("questionId", question.id);
+    cell.setAttribute("status", "failed");
+    cell.setAttribute("problem", "source-removed");
+    const line = new Y.XmlElement("paragraph");
+    line.setAttribute("id", crypto.randomUUID());
+    cell.insert(0, [line]);
+    row.insert(at, [cell]);
+  }
+  table.insert(0, [row]);
+  doc.getXmlFragment("blocks").push([paragraph, table]);
+  const update = Array.from(Y.encodeStateAsUpdate(doc));
+  return window.evaluate(async (change) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const mind = await core.createMind({ title: "Suppliers" });
+    await core.applyMindUpdate(mind.id, new Uint8Array(change));
+    await core.closeMind(mind.id);
+    return mind.id;
+  }, update);
+}
+
 const TIDES = buildPdf([
   { lines: ["Tides and the Moon", "The Moon raises two bulges of water on the Earth."] },
   { lines: ["Spring and neap tides", "Spring tides happen at new moon and at full moon."] },
@@ -783,6 +821,12 @@ const STAGES: Record<Staged, Stage> = {
       doubleClick: ({ window }) => window.getByTestId("chart").getByTestId("chart-title"),
       focus: ({ window }) => window.getByTestId("chart").getByTestId("chart-show-table"),
     },
+  },
+  // The key is the Mind's; its first column's heading names the object.
+  comparisonColumn: {
+    inNote: true,
+    make: ({ window }) => mindWithComparison(window),
+    show: ({ window }, key) => showInNote(window, key, "comparisonColumn"),
   },
 };
 

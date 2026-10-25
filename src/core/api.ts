@@ -185,8 +185,13 @@ export interface CreateMindInput {
  *   `chosen` in the `claimCheck` mark's `scope`. An older version would read
  *   it as made in the Mind's Folder or in every Document, and say so on its
  *   card. Older content is version 26 content as it is.
+ * - 28: a comparison table's columns have a `label` of their own, beside
+ *   their Question (#1833), and room for their `width` and whether they are
+ *   `hidden`. An older version's editor writes the columns back without
+ *   these when it changes one, so it opens these Minds read-only. Older
+ *   content is version 28 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 26;
+export const CONTENT_SCHEMA_VERSION = 28;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -610,11 +615,17 @@ export const COMPARISON_ROW_NODE = "comparisonRow";
  */
 export const COMPARISON_CELL_NODE = "comparisonCell";
 
-/** A comparison table's column: its Question. */
+/** A comparison table's column: its Question, and its own heading when it has one. */
 export interface ComparisonQuestion {
   /** A random UUID: what each row's cell for this column names. */
   id: string;
   text: string;
+  /** Its heading, which starts as its Question shortened; absent: the Question shortened. */
+  label?: string;
+  /** Its width in the table; absent: the table's own. */
+  width?: number;
+  /** Whether the table draws it; absent: it does. */
+  hidden?: boolean;
 }
 
 /** Attributes of a comparison table's Block, as stored in the Mind's Yjs document. */

@@ -21,6 +21,7 @@ export interface UndoStack {
   lastChange: number;
   stopCapturing(): void;
   addTrackedOrigin(origin: unknown): void;
+  removeTrackedOrigin(origin: unknown): void;
   on(event: StackEvent, listener: StackListener): void;
   on(event: "stack-cleared", listener: () => void): void;
   off(event: StackEvent, listener: StackListener): void;

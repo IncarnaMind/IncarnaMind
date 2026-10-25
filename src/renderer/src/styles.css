@@ -9676,9 +9676,51 @@
     overflow-wrap: anywhere;
     word-break: normal;
   }
-  .comparison-question--new input {
+  .comparison-question {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .comparison-question:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+  .comparison-question-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .comparison-question-menu {
+    flex: none;
+    margin: -2px -4px -2px 0;
+    padding: 1px;
+    border-radius: 4px;
+    color: var(--color-ink-meta);
+    opacity: 0;
+  }
+  .comparison-question:hover .comparison-question-menu,
+  .comparison-question:focus-within .comparison-question-menu,
+  .comparison-question-menu:focus-visible {
+    opacity: 1;
+  }
+  .comparison-question-menu:hover {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+  .comparison-question-fields,
+  .comparison-question-new {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
     width: 100%;
-    margin: -3px -6px;
+  }
+  .comparison-question-fields input,
+  .comparison-question-new input {
+    width: 100%;
     padding: 2px 6px;
     border: 1px solid var(--color-accent);
     border-radius: 4px;
@@ -9773,6 +9815,22 @@
     display: flex;
     align-items: flex-start;
     gap: 6px;
+  }
+  /* A reworded column's old Answer, greyed until its new one arrives. */
+  .comparison-cell-stale {
+    display: none;
+    white-space: pre-wrap;
+    color: var(--color-ink-meta);
+  }
+  .comparison-cell[data-stale="true"] > .comparison-cell-stale {
+    display: block;
+  }
+  .comparison-cell[data-stale="true"] > .comparison-cell-content,
+  .comparison-cell[data-stale="true"] > .comparison-cell-running,
+  .comparison-cell[data-stale="true"] > .comparison-cell-reading,
+  .comparison-cell[data-stale="true"] > .comparison-cell-stopped,
+  .comparison-cell[data-stale="true"] > .comparison-cell-problem {
+    display: none;
   }
   .comparison-cell-reading::before {
     content: "";

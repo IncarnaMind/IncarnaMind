@@ -35,7 +35,12 @@
 import * as Y from "yjs";
 import { type ChartAttributes, chartSources, chosenSeries, readChart } from "../shared/charts";
 import { type RecheckReason, readClaimCheck } from "../shared/claimChecks";
-import { cellProblemMessage, comparisonCellOf, comparisonQuestionsOf } from "../shared/comparisons";
+import {
+  cellProblemMessage,
+  comparisonCellOf,
+  comparisonLabelOf,
+  comparisonQuestionsOf,
+} from "../shared/comparisons";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
@@ -704,7 +709,7 @@ function readComparison(table: Y.XmlElement, options: ReadOptions): TableCell[][
   return [
     [
       cell(words(say("comparison.document")), true),
-      ...questions.map((question) => cell(words(question.text), true)),
+      ...questions.map((question) => cell(words(comparisonLabelOf(question)), true)),
     ],
     ...rows.map((row) => [
       cell(words(row.name)),
