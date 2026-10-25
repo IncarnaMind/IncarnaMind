@@ -50,11 +50,9 @@ export function reopenAfterQuit(
 }
 
 /**
- * For a copy that found the data folder held by another and then got it, because that copy was
- * quitting. On macOS such a copy can take Electron's lock and never get `ready`: it has no window
- * and keeps the lock and the folder, so every later start quits. If `ready` hasn't come in a few
- * seconds, this copy lets go of both and starts again; a copy started again that stalls too shows
- * the problem and quits.
+ * A copy can take Electron's lock after the old copy releases its data lock but before it exits
+ * (#1448). On macOS this can stall `ready`, so every copy that takes Electron's lock watches for
+ * the stall, releases its locks and tries once more before showing a problem and quitting.
  */
 export function startAgainIfStalled(
   app: Pick<App, "whenReady" | "releaseSingleInstanceLock" | "relaunch" | "exit">,

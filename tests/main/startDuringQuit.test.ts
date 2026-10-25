@@ -87,7 +87,7 @@ describe("a start that reaches a copy while it quits", () => {
   });
 });
 
-describe("a copy that took the data folder from one that was quitting", () => {
+describe("a copy that took Electron’s single-instance lock", () => {
   const argv = process.argv;
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

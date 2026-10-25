@@ -94,7 +94,7 @@ if (instanceLock?.timedOut) {
 }
 const releaseDataFolder = () => instanceLock?.release();
 app.on("quit", releaseDataFolder);
-if (ownsDataFolder && folderHeldBefore) {
+if (instanceLock) {
   startAgainIfStalled(
     app,
     releaseDataFolder,

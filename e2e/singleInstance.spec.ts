@@ -7,7 +7,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { expect, test } from "@playwright/test";
+import { chromium, expect, type Page, test } from "@playwright/test";
+import { heldByAnotherCopy } from "../src/main/instanceLock";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 import { coreOf, createDataFolder, dismissChatSetup, launchApp, removeDataFolder } from "./app";
 
@@ -125,6 +126,7 @@ function startCopy(
       Object.entries(process.env).flatMap(([name, value]) => (value ? [[name, value]] : [])),
     ),
     ...homeEnv(home),
+    TMPDIR: home,
     INCARNAMIND_DATA_DIR: dataDir,
     INCARNAMIND_TEST_HOOKS: "1",
     INCARNAMIND_TEST_EMBEDDER: "fake",
@@ -134,6 +136,8 @@ function startCopy(
     ...extraEnv,
   };
   delete (env as Record<string, string | undefined>).ELECTRON_RUN_AS_NODE;
+  delete (env as Record<string, string | undefined>).INCARNAMIND_CHATGPT_PROFILE;
+  delete (env as Record<string, string | undefined>).ELECTRON_RENDERER_URL;
   const electronPath = require("electron") as unknown as string;
   return spawn(
     electronPath,
@@ -204,6 +208,19 @@ async function windowsOf(port: number): Promise<number> {
     return targets.filter((each) => each.type === "page" && each.url.startsWith("file://")).length;
   } catch {
     return 0;
+  }
+}
+
+async function inCopyWindow(port: number | undefined, use: (window: Page) => Promise<void>) {
+  if (port === undefined) throw new Error("The copy has no DevTools port.");
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  try {
+    const window = browser.contexts()[0]?.pages()[0];
+    if (!window) throw new Error("The copy has no window.");
+    await window.getByTestId("plus-menu").waitFor();
+    await use(window);
+  } finally {
+    await browser.close();
   }
 }
 
@@ -281,12 +298,16 @@ const killAll = (pids: number[]) => {
  * (`startDuringQuit.cjs`), and waits until one copy is left, with one window. A start after that
  * must come to that window and quit.
  */
-async function startWhileQuitting(how: "quit" | "quit-twice" | "crash", starts: number) {
+async function startWhileQuitting(
+  how: "quit" | "quit-twice" | "crash" | "after-release",
+  starts: number,
+) {
   const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
   const boxes = join(home, "error-boxes.jsonl");
   const mark = join(home, "quit-started");
   const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
   const ports: number[] = [];
+  const late = how === "after-release";
   const start = async (extraEnv: Record<string, string> = {}) => {
     const port = await freePort();
     ports.push(port);
@@ -307,28 +328,60 @@ async function startWhileQuitting(how: "quit" | "quit-twice" | "crash", starts: 
   try {
     await start({ INCARNAMIND_TEST_QUIT_MARK: mark, INCARNAMIND_TEST_QUIT_ON_START: how });
     await expect.poll(() => windowsOf(ports[0] as number), { timeout: 60_000 }).toBe(1);
+    if (late) {
+      await inCopyWindow(ports[0], async (window) => {
+        await (await coreOf(window)).evaluate((api) =>
+          api.createMind({ title: "Kept during quit" }),
+        );
+      });
+    }
     for (let index = 0; index < starts; index += 1) {
-      await start({ INCARNAMIND_TEST_QUIT_MARK: mark });
+      await start({
+        INCARNAMIND_TEST_QUIT_MARK: mark,
+        ...(late && { INCARNAMIND_TEST_QUIT_AFTER_RELEASE: "1" }),
+      });
     }
     await expect
-      .poll(left, { timeout: 90_000, message: "one copy is left, with a window" })
+      .poll(left, { timeout: late ? 20_000 : 90_000, message: "one copy is left, with a window" })
       .toEqual({ copies: 1, windows: 1 });
 
+    if (late) {
+      const winner = (await Promise.all(ports.map(windowsOf))).indexOf(1);
+      await inCopyWindow(ports[winner], async (window) => {
+        const minds = await (await coreOf(window)).evaluate((api) => api.listMinds());
+        expect(minds.map((mind) => mind.title)).toEqual(["Kept during quit"]);
+      });
+    }
     const [code] = await exited(await start());
     expect(code).toBe(0);
     await expect.poll(left, { timeout: 30_000 }).toEqual({ copies: 1, windows: 1 });
     expect(existsSync(boxes)).toBe(false);
   } finally {
-    await expect
-      .poll(
-        () => {
-          killAll(copiesWith(tag, true));
-          return copiesWith(tag, true);
-        },
-        { timeout: 30_000 },
-      )
-      .toEqual([]);
-    await rm(home, { recursive: true, force: true, maxRetries: 3 });
+    try {
+      await test.info().attach(`quit-${how}`, {
+        body: JSON.stringify({
+          state: await left(),
+          pids: copiesWith(tag),
+          dataFolderHeld: heldByAnotherCopy(dataDir, (what, error) => {
+            throw new Error(what, { cause: error });
+          }),
+          log: await logOf(dataDir),
+          events: existsSync(`${mark}.events`) ? await readFile(`${mark}.events`, "utf8") : "",
+        }),
+        contentType: "application/json",
+      });
+    } finally {
+      await expect
+        .poll(
+          () => {
+            killAll(copiesWith(tag, true));
+            return copiesWith(tag, true);
+          },
+          { timeout: 30_000 },
+        )
+        .toEqual([]);
+      await rm(home, { recursive: true, force: true, maxRetries: 3 });
+    }
   }
 }
 
@@ -349,4 +402,17 @@ test("five starts in a row while the app quits leave one window", async () => {
   test.skip(process.platform === "win32", "lists the copies with ps");
   test.setTimeout(300_000);
   await startWhileQuitting("quit", 5);
+});
+
+// protects=a start after the data lock is released but before Electron exits recovers a usable window (#1448); fails_when=the pre-lock snapshot misses the quitting copy and no recovery is armed.
+test("a start after data-lock release during quit opens a usable window with the existing data", async () => {
+  test.skip(process.platform === "win32", "lists the copies with ps");
+  await startWhileQuitting("after-release", 1);
+  const next = await launchApp(dataDir);
+  try {
+    const minds = await (await coreOf(next.window)).evaluate((api) => api.listMinds());
+    expect(minds.map((mind) => mind.title)).toEqual(["Kept during quit"]);
+  } finally {
+    await next.app.close();
+  }
 });
