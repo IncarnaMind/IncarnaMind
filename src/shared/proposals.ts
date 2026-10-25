@@ -270,6 +270,12 @@ export function resolveProposals(
     outcome,
     removedAt,
   );
+  // A revision rejected brings back what it replaced, which may be picked too: an Answer that
+  // revised the text it had just written is taken back whole. Those never waited for the User,
+  // so they aren't in what this returns.
+  if (outcome === "reject" && pendingProposals(blocks).some(picked)) {
+    resolveProposals(blocks, picked, outcome);
+  }
   // Walked from the end: the first one met is the last in the Mind.
   return order.reverse().map((id) => resolved.get(id) as ResolvedProposal);
 }

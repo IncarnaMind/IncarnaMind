@@ -1524,13 +1524,23 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         if (each.chart) options.changed(toolCallId, { ...each.sent, chartNotDrawn: "uncited" });
         continue;
       }
-      minds.edit(each.mindId, (note) => {
+      const there = minds.edit(each.mindId, (note) => {
+        let found = 0;
         for (const element of topLevelBlocks(note)) {
           const at = each.ids.indexOf(idOf(element));
           const block = blocks[at];
-          if (at >= 0 && block) syncContent(element, block.content ?? []);
+          if (at < 0 || !block) continue;
+          syncContent(element, block.content ?? []);
+          found++;
         }
+        return found;
       });
+      // A later call revised what this one wrote: counted now, it would read as having written
+      // nothing, and a chart would have no table to follow. Its card keeps what it wrote.
+      if (there < each.ids.length) {
+        options.changed(toolCallId, { ...each.sent, ...citedIn({ cited, unrecorded }) });
+        continue;
+      }
       const drawn = each.chart?.(blocks) ?? null;
       options.changed(toolCallId, {
         ...each.change(),

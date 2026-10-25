@@ -1559,7 +1559,10 @@ export function createCore(adapters: CoreAdapters): Core {
       checkWritten: (input) => checks.checkWritten(input),
     },
     withdrawChanges: (changes) => {
-      for (const change of changes) {
+      // Last first: a revision taken back brings back what it replaced, which an earlier call of
+      // the same Answer may have written, and a Mind its first call made is empty only once the
+      // calls after it are taken back.
+      for (const change of [...changes].reverse()) {
         if (!mindExists(change.mindId)) continue;
         const { title } = minds.get(change.mindId);
         const emptied = content.edit(change.mindId, (blocks) => {
