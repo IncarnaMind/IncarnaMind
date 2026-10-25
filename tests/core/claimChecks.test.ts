@@ -1509,6 +1509,128 @@ describe("When the model can't check a sentence", () => {
   });
 });
 
+describe("A reply whose verdict is written in the turn that calls cite (#1673)", () => {
+  const SPRING_QUOTE = "Spring tides happen at new moon and at full moon";
+  const SAYS = "Tides says spring tides happen at new and full moon.";
+  const LINES = "Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same";
+
+  /** A model that searches, writes `beside` in the turn that cites `quote`, with no marker in it, then `after` alone. */
+  const citesBeside = (step: { search?: string; quote: string; beside: string; after: string }) =>
+    scriptedModel(
+      (call) => {
+        const searches = call.results.filter((result) => result.tool === "search_documents");
+        if (searches.length === 0) {
+          return {
+            ...(step.search && { text: step.search }),
+            calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }],
+          };
+        }
+        if (call.results.some((result) => result.tool === "cite")) return { text: step.after };
+        const shown = shownPassages(searches.at(-1)?.text ?? "");
+        const passage = shown.find((each) => each.text.includes(step.quote));
+        const citations = [{ marker: 1, passage: passage?.id, quote: step.quote }];
+        return { text: step.beside, calls: [{ tool: "cite", input: { citations } }] };
+      },
+      { generate: checkGenerate({}) },
+    );
+
+  // protects=verdict lines written beside cite with no marker, the marked sentence or the last lines after it, give the sentence its verdict and Citation in the model's own three requests; fails_when=the lines are dropped as a preamble and the check reads "not checked"; no_claim=how often a real model writes it so.
+  test.each([
+    { shape: "the verdict lines, then the marked sentence", beside: LINES, after: `${SAYS} [^1]` },
+    {
+      shape: "the whole reply, then only its last lines",
+      beside: `${LINES}\n\n${SAYS}`,
+      after: "Covered: spring tides at new and full moon\nNot covered: none",
+    },
+  ])("$shape: the sentence is Supported, with its Citation", async ({ beside, after }) => {
+    const model = citesBeside({ quote: SPRING_QUOTE, beside, after });
+    const { core, client, check } = await mindWith([SUPPORTED], model);
+
+    expect(await check()).toEqual({ kind: "checked", sentences: 1, checked: 1, smallModel: false });
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "supported" });
+    expect(checked?.check.says).toBe(SAYS);
+    expect(checked?.check.evidence).toMatchObject({ quote: SPRING_QUOTE, check: "found" });
+    expect(model.doStreamCalls).toHaveLength(3);
+    const askedForEvidence = model.doGenerateCalls.filter((call) =>
+      JSON.stringify(call.prompt).includes("without recording the Passage"),
+    );
+    expect(askedForEvidence).toEqual([]);
+  });
+
+  // protects=a Chinese check whose verdict lines come beside cite and whose sentence or last lines come after it, as Claude Haiku 5.5 wrote them, is Contradicted with its Citation and the Chinese sentence; fails_when=it reads "not checked"; no_claim=the verdict a real model gives.
+  test.each([
+    {
+      shape: "the verdict lines, then the marked sentence",
+      sentence: "乙方自2027年2月11日起入职。",
+      quote: "乙方自2027年1月11日起入职",
+      beside:
+        "The labour contract states the start date as 2027年1月11日, not 2027年2月11日.\n\nVerdict: contradicted\nScope: 乙方, same\nTopic: found",
+      after: "劳动合同书写明乙方自2027年1月11日起入职，不是2027年2月11日。[^1]",
+      says: "劳动合同书写明乙方自2027年1月11日起入职，不是2027年2月11日。",
+    },
+    {
+      shape: "the whole reply, then only its last lines",
+      sentence: "乙方每年有15天带薪年休假。",
+      quote: "乙方每年享有带薪年休假10天",
+      beside:
+        "Verdict: contradicted\nScope: 乙方, same\nTopic: found\nRoles: none, same\n\n劳动合同书写明乙方每年享有带薪年休假10天，不是15天。",
+      after: "Covered: 乙方的年休假天数\nNot covered: 无",
+      says: "劳动合同书写明乙方每年享有带薪年休假10天，不是15天。",
+    },
+  ])("in Chinese, $shape: the sentence is Contradicted, with its Citation", async (each) => {
+    const contract = {
+      name: "劳动合同书.md",
+      contents:
+        "# 劳动合同书\n\n乙方自2027年1月11日起入职。\n\n乙方每年享有带薪年休假10天，法定节假日另计。",
+    };
+    const model = citesBeside(each);
+    const { core, client, check } = await mindWith([each.sentence], model, [contract]);
+    await core.updateSettings({ user: { language: "zh-CN" } });
+
+    await check();
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "contradicted" });
+    expect(checked?.check.says).toBe(each.says);
+    expect(checked?.check.evidence).toMatchObject({ quote: each.quote, check: "found" });
+  });
+
+  // protects=text before a search and text beside cite that holds no verdict stay a preamble: the verdict and sentence come from the reply after them; fails_when=a preamble's words become what the Document says; no_claim=none beyond protects.
+  test("a real preamble, before the search and beside cite, is still only a preamble", async () => {
+    const model = citesBeside({
+      search: "Let me search the Documents for spring tides.",
+      quote: SPRING_QUOTE,
+      beside: "I'll record the Passage that decides it.",
+      after: `${LINES}\n${SAYS} [^1]`,
+    });
+    const { core, client, check } = await mindWith([SUPPORTED], model);
+
+    await check();
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "supported" });
+    expect(checked?.check.says).toBe(SAYS);
+  });
+
+  // protects=a reply with no verdict line in any turn still reads "not checked" with its reason, though it cited; fails_when=it gets a verdict, or its Citation shows; no_claim=none beyond protects.
+  test("a reply with no verdict lines in any turn is “not checked”, malformed", async () => {
+    const model = citesBeside({
+      quote: SPRING_QUOTE,
+      beside: "I'll record the Passage that decides it.",
+      after: "It reads well to me.",
+    });
+    const { core, client, check } = await mindWith([SUPPORTED], model);
+
+    await check();
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "not-checked", reason: "malformed" });
+    expect(checked?.check.evidence).toBeNull();
+  });
+});
+
 describe("Needs re-check", () => {
   test("editing a checked sentence, inside or at its start, makes its check need a re-check", async () => {
     const { core, client, check } = await mindWith([SUPPORTED, UNSUPPORTED]);

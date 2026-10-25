@@ -314,6 +314,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     });
 
     let reply = "";
+    let setAside = "";
     let failed: ProviderError | null = null;
     let finished = false;
     for await (const event of deps.engine.generate({
@@ -345,6 +346,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     })) {
       if (event.type === "text-delta") reply += event.text;
       else if (event.type === "text-retracted") reply = reply.slice(0, -event.length);
+      else if (event.type === "text-set-aside") setAside = event.text;
       else if (event.type === "failed") failed = event.error;
       else if (event.type === "finished") finished = true;
     }
@@ -378,7 +380,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ...facts(),
     };
     if (!finished || reply.trim() === "") return byCalculation ?? notChecked("empty");
-    const verdict = readVerdict(reply);
+    // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite`, with no marker,
+    // and only the sentence after it: the Answer sets that turn aside as a preamble (#1673).
+    const verdict =
+      readVerdict(reply) ?? (setAside === "" ? null : readVerdict(`${setAside}\n\n${reply}`));
     if (!verdict) {
       return byCalculation ?? notChecked(readsAsRefusal(reply) ? "refused" : "malformed");
     }
