@@ -280,7 +280,15 @@ test("a palette Question leaves the composer's Analysis choice for its own next 
     const question = "What was revenue by region?";
     await window.keyboard.press("ControlOrMeta+k");
     await window.getByTestId("palette-search").fill(question);
-    await pointAndClick(window, window.locator('[data-testid="palette-item"][data-key="ask"]'));
+    await expect(window.getByTestId("palette-searching")).toHaveCount(0);
+    const rows = window.getByTestId("palette").getByTestId("palette-item");
+    await expect(rows.first()).toHaveAttribute("aria-selected", "true");
+    await window.keyboard.press("ArrowUp");
+    await expect(window.locator('[data-testid="palette-item"][data-key="ask"]')).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await window.keyboard.press("Enter");
     await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
       timeout: 60_000,
     });
