@@ -2679,6 +2679,7 @@ export const zhCN = {
   "answer.figures.calculated.one": "计算了 1 个数字",
   "answer.figures.uncalculated": "{count} 个数字未能计算",
   "answer.figures.uncalculated.one": "1 个数字未能计算",
+  "answer.sourceNotKept": "（未能保留来源）",
   "answer.status.stopped": "已停止",
   "answer.stop": "停止",
   "answer.wait.still": "仍在处理",

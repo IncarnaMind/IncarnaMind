@@ -1548,9 +1548,9 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       read: (mindId, look) => content.read(mindId, look),
       edit: (mindId, change) => content.edit(mindId, change),
-      text: (mindId, name, tokens) => {
+      text: (mindId, name, tokens, ids) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null))
+          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids))
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
