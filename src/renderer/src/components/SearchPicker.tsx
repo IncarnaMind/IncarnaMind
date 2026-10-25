@@ -262,7 +262,9 @@ export function SearchPicker<Id>({
         style={place}
         // Choosing with the pointer keeps the focus in the field until it closes.
         onMouseDown={(event) => event.preventDefault()}
-        onMouseEnter={() => setActive(index)}
+        // Moving, not entering: rows drawn under a resting pointer, as the list changes, would
+        // take the highlight from the first and Enter with it (#1497).
+        onMouseMove={() => setActive(index)}
         onClick={() => choose(option)}
         className={`flex h-7 cursor-default items-center gap-2 rounded-md pr-2 pl-2 ${
           index === shown ? "bg-hover" : ""

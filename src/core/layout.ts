@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { parseLocation } from "../shared/locations";
 import {
   type AssistantCorner,
   type AssistantDock,
@@ -94,6 +95,15 @@ function parseCitation(value: unknown): TabCitation {
     }
     citation[key] = text;
   }
+  for (const key of ["pageFrom", "pageTo"] as const) {
+    const unit = value[key];
+    if (unit === undefined || unit === null) continue;
+    if (!isUnit(unit)) throw new InvalidInputError({ key: "error.layout.units" });
+    citation[key] = unit;
+  }
+  // A place a version of this app doesn't know is left out: the Units still open the Document.
+  const location = value.location === undefined ? null : parseLocation(value.location);
+  if (location) citation.location = location;
   return citation;
 }
 

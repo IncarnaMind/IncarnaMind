@@ -197,6 +197,8 @@ export type Inline = (
       runs: StyledRun[];
       note: boolean;
       unverified: boolean;
+      /** What it cites, as one key: the sources and places of its Citations. */
+      of?: string;
       /** The footnotes of its Citations whose check failed. */
       failed?: Footnote[];
     }

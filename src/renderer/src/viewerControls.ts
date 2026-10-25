@@ -6,10 +6,12 @@
  * picker without the system's dialog, add files and folders by path as a drop
  * would, or wait for, slow down and look at what moves, shorten how long an Answer
  * is silent before its line says how long it takes, read the command registry
- * as data, or give Home's Coming up its meetings.
+ * as data, give Home's Coming up its meetings, or hold back the citation style
+ * picker's list of every style.
  */
 import type { TestHooks } from "../../shared/testHooks";
 import { setSilentWaitMs } from "./answerWaitWords";
+import { holdStyleCatalogue } from "./citationStylePicker";
 import { useComingUp } from "./comingUp";
 import { menuEntries, menuKinds } from "./commands/menus";
 import { COMMAND_GROUPS, commands } from "./commands/registry";
@@ -58,6 +60,7 @@ export function installTestHooks(): void {
     }),
     setSilentWaitMs,
     setComingUp: (meetings) => useComingUp.setState({ meetings }),
+    holdStyleCatalogue,
     motionRunning,
     setMotionSpeed,
     leavingCopies,

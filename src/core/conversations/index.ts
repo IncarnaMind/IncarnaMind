@@ -102,6 +102,12 @@ export interface Turn {
   earlier: ConversationMessage[];
 }
 
+/** A Turn as `add` made it, with its conversation's `updated_at` from before it. */
+export interface AddedTurn {
+  turn: Turn;
+  previousConversationUpdatedAt: string | null;
+}
+
 interface ConversationRow {
   seq: number;
   id: string;
@@ -236,6 +242,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     writtenFrom,
     stillReading,
     sent,
+    textBehind,
   } = parsed;
   const claimed = Array.isArray(unbackedClaims)
     ? unbackedClaims.filter((each): each is ClaimedChange =>
@@ -266,6 +273,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(careful === true && { careful }),
     ...(claimed.length > 0 && { unbackedClaims: claimed }),
     ...(example === true && { example }),
+    ...(textBehind === true && { textBehind }),
     ...(storedCoverage(coverage) ?? {}),
     ...(isRecord(writtenFrom) &&
       isCount(writtenFrom.documents) &&
@@ -512,6 +520,9 @@ const readColumns = (read: AnswerRead | null): [string | null, string | null, nu
 ];
 
 export function createConversations(db: Database, now: () => string) {
+  /** The state before each conversation's first unpublished turn, shared by overlapping turns. */
+  const pendingTurns = new Map<string, { updatedAt: string; answerIds: Set<string> }>();
+
   /** Each conversation's Minds asked from, each once, in the order first asked from. */
   function askedFromIn(ids: readonly string[]): Map<string, AskedFrom[]> {
     const rows = db.all<{
@@ -835,8 +846,13 @@ export function createConversations(db: Database, now: () => string) {
       input: Omit<QuestionInput, "onScreen">,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
-    ): Turn {
-      return db.transaction(() => {
+    ): AddedTurn {
+      const previousConversationUpdatedAt =
+        input.conversationId === null
+          ? null
+          : (pendingTurns.get(input.conversationId)?.updatedAt ??
+            liveRow(input.conversationId).updated_at);
+      const added = db.transaction(() => {
         const at = now();
         let conversationId = input.conversationId;
         if (conversationId === null) {
@@ -882,8 +898,96 @@ export function createConversations(db: Database, now: () => string) {
           },
           at,
         );
-        return turnOf(question, answer.id);
+        const turn = turnOf(question, answer.id);
+        return { turn, previousConversationUpdatedAt };
       });
+      if (previousConversationUpdatedAt !== null) {
+        const id = added.turn.conversation.id;
+        const pending = pendingTurns.get(id) ?? {
+          updatedAt: previousConversationUpdatedAt,
+          answerIds: new Set<string>(),
+        };
+        pending.answerIds.add(added.turn.answer.id);
+        pendingTurns.set(id, pending);
+      }
+      return added;
+    },
+
+    publish(turn: Turn): void {
+      const pending = pendingTurns.get(turn.conversation.id);
+      if (!pending) return;
+      pending.answerIds.delete(turn.answer.id);
+      // The turn's own time, not the conversation's: another pending turn may have moved that on.
+      if (pending.updatedAt < turn.question.createdAt) {
+        pending.updatedAt = turn.question.createdAt;
+      }
+      if (pending.answerIds.size === 0) pendingTurns.delete(turn.conversation.id);
+    },
+
+    /** Removes an unpublished turn whose model or Skill couldn't be asked. */
+    discard(added: AddedTurn): void {
+      const { turn } = added;
+      const questionId = turn.question.id;
+      const answerId = turn.answer.id;
+      const pending = pendingTurns.get(turn.conversation.id);
+      const lastPending = pending
+        ? pending.answerIds.size === 1 && pending.answerIds.has(answerId)
+        : true;
+      const previousConversationUpdatedAt =
+        pending?.updatedAt ?? added.previousConversationUpdatedAt;
+      const discarded = db.transaction(() => {
+        const question = db.get<{ seq: number; conversation_id: string; position: number }>(
+          `SELECT seq, conversation_id, position FROM conversation_messages
+           WHERE id = ? AND kind = 'question' AND deleted_at IS NULL`,
+          [questionId],
+        );
+        const answer = db.get<{ seq: number; conversation_id: string }>(
+          `SELECT seq, conversation_id FROM conversation_messages
+           WHERE id = ? AND kind = 'answer' AND question_id = ? AND status = 'streaming'
+             AND text = '' AND deleted_at IS NULL`,
+          [answerId, questionId],
+        );
+        if (!question || !answer || question.conversation_id !== answer.conversation_id)
+          return false;
+        db.run("DELETE FROM conversation_messages_fts WHERE rowid IN (?, ?)", [
+          BigInt(question.seq),
+          BigInt(answer.seq),
+        ]);
+        db.run("DELETE FROM conversation_messages WHERE id IN (?, ?)", [questionId, answerId]);
+        const remaining = db.get<{ count: number }>(
+          "SELECT count(*) AS count FROM conversation_messages WHERE conversation_id = ?",
+          [question.conversation_id],
+        );
+        if (remaining?.count !== 0) {
+          if (lastPending && previousConversationUpdatedAt !== null) {
+            db.run(
+              `UPDATE conversations SET updated_at = ?
+               WHERE id = ? AND updated_at = ?
+                 AND NOT EXISTS (
+                   SELECT 1 FROM conversation_messages
+                   WHERE conversation_id = ? AND position > ? AND deleted_at IS NULL
+                 )`,
+              [
+                previousConversationUpdatedAt,
+                question.conversation_id,
+                turn.conversation.updatedAt,
+                question.conversation_id,
+                question.position,
+              ],
+            );
+          }
+          return true;
+        }
+        db.run(
+          "DELETE FROM conversations_fts WHERE rowid IN (SELECT seq FROM conversations WHERE id = ?)",
+          [question.conversation_id],
+        );
+        db.run("DELETE FROM conversations WHERE id = ?", [question.conversation_id]);
+        return true;
+      });
+      if (!discarded) return;
+      pending?.answerIds.delete(answerId);
+      if (lastPending) pendingTurns.delete(turn.conversation.id);
     },
 
     /**
