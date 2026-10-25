@@ -5,7 +5,8 @@
  * IncarnaMind or to the assistant itself counts ("The calculation tool
  * confirms…", "I recalculated…", "我用计算工具核对了…"); one that reports what
  * a Document says ("the auditor confirmed", "报告中计算得出") never does, nor
- * one about an earlier Answer, which its own record holds. It reads the reply
+ * the assistant's word on an earlier Answer ("the 3.37x I calculated
+ * earlier"), which that Answer's own record holds. It reads the reply
  * alone, in English and Chinese, and misses a vague sentence rather than flag
  * an honest one.
  */
