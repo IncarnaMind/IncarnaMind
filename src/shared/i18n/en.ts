@@ -2808,8 +2808,9 @@ export const en = {
   "answer.wait.usually.minutes": "Usually about {count} minutes with {model}",
   "answer.regenerate": "Regenerate",
   "answer.more": "More for this Answer",
-  "answer.refused.noSuchMind": "There is no Mind called “{name}”. Nothing was changed.",
-  "answer.refused.noSuchMind.many": "There are no Minds called {names}. Nothing was changed.",
+  "answer.refused.noSuchMind": "There is no Mind called “{name}”, so the change wasn't made.",
+  "answer.refused.noSuchMind.many":
+    "There are no Minds called {names}, so those changes weren't made.",
   "answer.error.thisModel": "this model",
   "answer.error.auth": "The key for {model} was refused",
   "answer.error.thisService": "This service",

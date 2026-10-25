@@ -450,12 +450,12 @@ describe("A turn that ends after a refused Tool with no reply", { timeout: 30_00
     [
       "Budget forecast",
       "Shorten the summary in my Budget forecast Mind.",
-      "There is no Mind called “Budget forecast”. Nothing was changed.",
+      "There is no Mind called “Budget forecast”, so the change wasn't made.",
     ],
     [
       "预算预测",
       "把我的预算预测 Mind 里的摘要缩短一点。",
-      "没有名为“预算预测”的 Mind，因此没有做任何改动。",
+      "没有名为“预算预测”的 Mind，因此没有做这项改动。",
     ],
   ])("names “%s” and says nothing changed", async (name, request, said) => {
     let nudge = "";

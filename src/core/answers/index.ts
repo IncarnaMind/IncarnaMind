@@ -2217,7 +2217,7 @@ export function createAnswers(options: AnswersOptions) {
                 : `there are no Minds called ${missing.map((name) => `“${name}”`).join(", ")}`;
             return {
               claims: [],
-              note: `Your reply is empty. Say in the User's language that ${named}, and that nothing was changed. Don't say that you changed anything.`,
+              note: `Your reply is empty. Say in the User's language that ${named}, and that the change wasn't made. Don't say that you changed anything.`,
             };
           },
         },
