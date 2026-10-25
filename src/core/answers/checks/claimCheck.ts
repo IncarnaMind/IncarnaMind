@@ -430,11 +430,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
       const onTopic = verdict.topic !== "not found";
+      const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;
       return unsupported({
         reason: verdict.says,
         covered: onTopic ? verdict.covered : null,
         uncovered: onTopic ? verdict.uncovered : null,
-        ...(verdict.topic === "found" && { found: true }),
+        ...((verdict.topic === "found" || parts) && { found: true }),
       });
     }
     const evidence =

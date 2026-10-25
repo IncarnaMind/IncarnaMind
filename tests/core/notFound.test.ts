@@ -135,6 +135,19 @@ describe("Not found only when nothing in the scope was about the sentence (#1608
     expect(checked.askedAgain).toBe(0);
   });
 
+  test("a reply that names the part a Passage states, with no Topic line and no quote, is Unsupported and isn't asked again", async () => {
+    const checked = await check({
+      reply: {
+        text: "Verdict: unsupported\nTides doesn't say how often.\nCovered: spring tides\nNot covered: twice a lunar month",
+      },
+    });
+
+    expect(checked.check?.state).toBe("unsupported");
+    expect(checked.check?.unsupported).toMatchObject({ found: true, covered: "spring tides" });
+    expect(checked.notFound).toBe(false);
+    expect(checked.askedAgain).toBe(0);
+  });
+
   test("must for may, with no part to show, is Unsupported with the check's words", async () => {
     const checked = await check({
       ...FOUND,

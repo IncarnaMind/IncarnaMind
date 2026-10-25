@@ -1227,6 +1227,7 @@ describe("A sentence the Documents state only part of, with no Citation", () => 
       reason: null,
       covered: "spring tides at new and full moon",
       uncovered: "the staff and the harbour wall",
+      found: true,
     });
     expect(penguins?.check.unsupported).toEqual({ reason: null, covered: null, uncovered: null });
     expect(asked(model, "named the part of it that a Passage does state")).toBe(1);
@@ -1705,6 +1706,7 @@ describe("Why a sentence is unsupported", () => {
       reason: "Tides gives the moon phases, not what they cause.",
       covered: "the moon phases",
       uncovered: "the high waters",
+      found: true,
     });
   });
 
@@ -1714,7 +1716,12 @@ describe("Why a sentence is unsupported", () => {
         "Verdict: unsupported\n引用只比较了速度。\nCovered: 速度比较\nNot covered: 内存和鲁棒性",
         OWNER,
       ),
-    ).toEqual({ reason: "引用只比较了速度。", covered: "速度比较", uncovered: "内存和鲁棒性" });
+    ).toEqual({
+      reason: "引用只比较了速度。",
+      covered: "速度比较",
+      uncovered: "内存和鲁棒性",
+      found: true,
+    });
   });
 
   test("keeps the reason alone when the reply names only one side", async () => {
@@ -1761,6 +1768,7 @@ describe("Why a sentence is unsupported", () => {
       reason: "Not stated.",
       covered: "the moon phases",
       uncovered: "the high waters",
+      found: true,
     });
   });
 });
