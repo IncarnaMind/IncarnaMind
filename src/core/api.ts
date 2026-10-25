@@ -185,8 +185,13 @@ export interface CreateMindInput {
  *   `chosen` in the `claimCheck` mark's `scope`. An older version would read
  *   it as made in the Mind's Folder or in every Document, and say so on its
  *   card. Older content is version 26 content as it is.
+ * - 27: a numbered list's scheme, start level and continuation (#1419): the
+ *   `numbering`, `startLevel` and `continues` attributes on an ordered list,
+ *   which an older version's editor would strip, so it would draw the list as
+ *   a "1. a. i." list from level 0 that starts again. Older content is
+ *   version 27 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 26;
+export const CONTENT_SCHEMA_VERSION = 27;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content

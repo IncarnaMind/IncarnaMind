@@ -2819,7 +2819,13 @@
         list-style: none;
       }
       :where(ul, ol)[data-id] > li {
+        --marker-room: 0px;
         position: relative;
+        padding-left: var(--marker-room);
+      }
+      /* The room a wide marker takes moves its item's text, not the levels under it (#1419). */
+      :where(:is(ul, ol)[data-id] > li > :is(ul, ol)) {
+        margin-left: calc(-1 * var(--marker-room));
       }
       :where(ul, ol)[data-id] > li > p:first-child::before {
         position: absolute;
@@ -2828,8 +2834,15 @@
       }
       ol[data-id] > li > p:first-child::before {
         content: counter(list-item) ".";
-        right: calc(100% + 8px);
+        right: calc(100% - var(--marker-room) + 8px);
         white-space: nowrap;
+      }
+      /* Each item's marker in its list's scheme (#1419), drawn by the editor: not text, so not copied or found. */
+      ol[data-id] > li > p[data-marker]:first-child::before {
+        content: attr(data-marker);
+      }
+      ol[data-id][data-start-level] {
+        padding-left: calc(48px * (1 + var(--start-level)));
       }
       ul[data-id] > li:not([data-checked]) > p:first-child::before {
         content: "";
@@ -6039,6 +6052,26 @@
     &[role^="menuitem"]:focus-visible {
       background: var(--color-hover);
     }
+    &[aria-disabled="true"],
+    &[aria-disabled="true"]:hover {
+      background: none;
+      color: var(--color-ink-placeholder);
+      cursor: default;
+    }
+  }
+  /* Numbering ›: each scheme as its first levels draw it, its name after (#1419). */
+  .numbering-menu {
+    width: 272px;
+  }
+  .list-item-menu {
+    width: 220px;
+  }
+  .numbering-preview {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--writing-font, var(--font-system));
   }
   .editor-menu-icon {
     display: flex;

@@ -4,6 +4,7 @@
  * paragraph (`ParagraphFormat`), and the text's colour, font, size and raise. Each is one Undo
  * step. A setting is the User's over the paragraph's Word look, which says what it is until then.
  */
+
 import type { Editor } from "@tiptap/core";
 import type { MarkType, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
@@ -20,6 +21,7 @@ import {
 import { readParagraphFormat, storedFormat } from "../../../shared/paragraphFormat";
 import { mindLookOf, wordLookOf } from "../../../shared/wordLook";
 import { FORMATTED_TYPES } from "./formatSchema";
+import { deepenList, raiseFromStartLevel } from "./numbering";
 import { editorDoc } from "./proposalReview";
 import { asOwnUndoStep } from "./selectionCommands";
 
@@ -148,8 +150,8 @@ export function changeIndent(editor: Editor, direction: 1 | -1): boolean {
     if (!editor.isActive(item)) continue;
     return asOwnUndoStep(editor, () =>
       direction > 0
-        ? editor.chain().focus().sinkListItem(item).run()
-        : editor.chain().focus().liftListItem(item).run(),
+        ? editor.chain().focus().sinkListItem(item).run() || deepenList(editor)
+        : raiseFromStartLevel(editor) || editor.chain().focus().liftListItem(item).run(),
     );
   }
   return changeFormat(editor, (format, look) => {

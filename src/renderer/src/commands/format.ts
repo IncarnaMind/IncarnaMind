@@ -14,6 +14,7 @@ import {
   toggleSpaceAfter,
   toggleSpaceBefore,
 } from "../editor/formatCommands";
+import { requestNumbering } from "../editor/numbering";
 import { noteHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
@@ -76,6 +77,10 @@ export const formatCommands: readonly Command[] = [
     (editor) => changeIndent(editor, -1),
   ),
   onParagraphs({ id: "format.firstLine", label: "format.firstLine" }, toggleFirstLineIndent),
+  {
+    ...onParagraphs({ id: "format.numbering", label: "numbering.command" }, requestNumbering),
+    keywords: ["numbering.keywords"],
+  },
   ...LINE_SPACINGS.map((multiple) =>
     onParagraphs(
       {

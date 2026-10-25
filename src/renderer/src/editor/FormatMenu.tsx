@@ -1,6 +1,6 @@
 import type { VirtualElement } from "@floating-ui/dom";
 import { type Editor, useEditorState } from "@tiptap/react";
-import { type CSSProperties, type KeyboardEvent, type ReactNode, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useRef, useState } from "react";
 import { SUBSCRIPT_MARK, SUPERSCRIPT_MARK } from "../../../core/api";
 import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
@@ -12,7 +12,6 @@ import { CheckLineIcon } from "../components/lineIcons";
 import { InstalledFontPicker } from "../components/MindStyle";
 import { buttonStyle, fieldClass } from "../components/ui";
 import { useT } from "../i18n";
-import { isComposing } from "./composing";
 import {
   ALIGNS,
   type Align,
@@ -32,6 +31,9 @@ import {
   toggleSpaceAfter,
   toggleSpaceBefore,
 } from "./formatCommands";
+import { keepSelection, submenuOpensOnRight, useMenuKeys } from "./menuKeys";
+import { NumberingChoices, SCHEME_NAMES, schemePreview } from "./NumberingMenu";
+import { numberingState } from "./numbering";
 import { Popover } from "./Popover";
 
 const ALIGN_LABELS = {
@@ -95,49 +97,7 @@ function Glyph({ d, children }: { d?: string; children?: ReactNode }) {
   );
 }
 
-const itemsOf = (menu: HTMLElement | null) =>
-  Array.from(
-    menu?.querySelectorAll<HTMLElement>(':scope [role^="menuitem"]:not([aria-disabled="true"])') ??
-      [],
-  );
-
-function useMenuKeys(onClose: (refocus: boolean) => void, submenu: boolean) {
-  const menu = useRef<HTMLDivElement>(null);
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (isComposing(event)) return;
-    if (event.key === "Escape" || (submenu && event.key === "ArrowLeft")) {
-      event.preventDefault();
-      event.stopPropagation();
-      onClose(true);
-      return;
-    }
-    const all = itemsOf(menu.current);
-    const active = document.activeElement;
-    const index = active instanceof HTMLElement ? all.indexOf(active) : -1;
-    const step =
-      event.key === "ArrowDown" || event.key === "ArrowRight"
-        ? 1
-        : event.key === "ArrowUp" || event.key === "ArrowLeft"
-          ? -1
-          : 0;
-    const next =
-      event.key === "Home"
-        ? all[0]
-        : event.key === "End"
-          ? all.at(-1)
-          : step
-            ? all[(index + step + all.length) % all.length]
-            : undefined;
-    if (!next) return;
-    event.preventDefault();
-    next.focus();
-  };
-  return { menu, onKeyDown };
-}
-
-const keepSelection = (event: { preventDefault(): void }) => event.preventDefault();
-
-type Open = "spacing" | "font" | "size" | "custom" | "fonts" | null;
+type Open = "spacing" | "font" | "size" | "custom" | "fonts" | "numbering" | null;
 
 /**
  * The selection menu's Aa (DESIGN.md › Typography): the font and size of the selected text,
@@ -161,7 +121,11 @@ export function FormatMenu({
   const t = useT();
   const state = useEditorState({
     editor,
-    selector: ({ editor: current }) => ({ ...formatState(current), size: shownSize(current) }),
+    selector: ({ editor: current }) => ({
+      ...formatState(current),
+      size: shownSize(current),
+      scheme: numberingState(current).scheme,
+    }),
   });
   const [open, setOpen] = useState<{ which: Open; anchor: HTMLElement | null; focus: boolean }>({
     which: null,
@@ -210,16 +174,7 @@ export function FormatMenu({
         if (open.which === null) onClose(how === "escape");
       }}
       onKeyDown={(event) => {
-        const active = document.activeElement;
-        if (
-          event.key === "ArrowRight" &&
-          active instanceof HTMLElement &&
-          active.getAttribute("aria-haspopup")
-        ) {
-          event.preventDefault();
-          active.click();
-          return;
-        }
+        if (submenuOpensOnRight(event)) return;
         onKeyDown(event);
       }}
       className="editor-menu format-menu"
@@ -311,6 +266,23 @@ export function FormatMenu({
           checked={state.firstLineChars}
           onClick={() => act(() => toggleFirstLineIndent(editor))}
         />
+        <button
+          type="button"
+          role="menuitem"
+          aria-haspopup="menu"
+          aria-expanded={open.which === "numbering"}
+          data-testid="format-numbering"
+          onMouseDown={keepSelection}
+          onClick={(event) => openBeside("numbering", event)}
+          className="editor-menu-item format-menu-row"
+        >
+          <Glyph d="M10 6h10M10 12h10M10 18h10M4 4.5h1.5V9M4 9h3M4 14.2c.4-.9 2.6-.9 2.6.3 0 1-2.6 1.8-2.6 3.5h2.8" />
+          <span className="min-w-0 flex-1 truncate">{t("numbering.menu")}</span>
+          <span className="editor-menu-shortcut truncate">
+            {state.scheme ? t(SCHEME_NAMES[state.scheme]) : schemePreview("default")}
+          </span>
+          <ChevronIcon className="size-3 shrink-0 text-ink-meta" />
+        </button>
         <hr className="selection-rule" />
         <p aria-hidden="true" className="format-menu-section">
           {t("format.color")}
@@ -383,6 +355,21 @@ export function FormatMenu({
           onApply={(multiple) => {
             closeSub(true);
             act(() => setLineSpacing(editor, multiple));
+          }}
+          onClose={closeSub}
+        />
+      )}
+      {open.which === "numbering" && open.anchor && (
+        <NumberingChoices
+          editor={editor}
+          anchor={open.anchor}
+          placement="right-start"
+          focus={open.focus}
+          withOrder
+          submenu
+          onChosen={() => {
+            closeSub(false);
+            onClose(true);
           }}
           onClose={closeSub}
         />
