@@ -321,7 +321,7 @@ describe("the lines follow the interface language", () => {
     language = "zh-CN";
     const action = (key: MessageKey) => t(key, { name: "交易资料" });
     expect(t("menu.undo.named", { action: action("undo.name.linkFolder") })).toBe(
-      "撤销“添加同步文件夹‘交易资料’”",
+      "撤销“添加关联文件夹‘交易资料’”",
     );
     expect(t("menu.undo.named", { action: action("undo.name.move") })).toBe("撤销“移动‘交易资料’”");
     expect(t("menu.redo.named", { action: action("undo.name.delete") })).toBe(

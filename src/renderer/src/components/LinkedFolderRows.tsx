@@ -130,6 +130,15 @@ function LinkedFolderRow({
             {name}
           </span>
           {!status && isExample && <ExampleChip />}
+          {!status && !isExample && (
+            <span
+              data-testid="linked-folder-read-only"
+              title={t("linkedFolders.readOnly.full")}
+              className="shrink-0 text-label font-semibold text-ink-meta"
+            >
+              {t("linkedFolders.readOnly")}
+            </span>
+          )}
           {status && (
             <span
               data-testid="folder-status"

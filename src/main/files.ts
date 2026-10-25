@@ -9,7 +9,7 @@
  * file there before it hands the file's path to the shell adapter; only
  * this side touches dialogs.
  */
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import {
   app,
@@ -180,6 +180,41 @@ export function serveFileActions(
       return picked;
     },
   );
+
+  handle(FILES_CHANNELS.pickDocumentsOrFolder, async (event) => {
+    refuseUnknown(event);
+    const { language } = await core.getSettings();
+    const openOptions: OpenDialogOptions = {
+      title: translate(language, "documents.pick.titleOrFolder"),
+      // Windows and Linux show a folder chooser when both are asked for, so only files are offered there.
+      properties:
+        process.platform === "darwin"
+          ? ["openFile", "openDirectory", "multiSelections"]
+          : ["openFile", "multiSelections"],
+      filters: [
+        { name: translate(language, "documents.pick.filter"), extensions: DOCUMENT_EXTENSIONS },
+      ],
+      defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
+    };
+    const { canceled, filePaths } = await showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      openOptions,
+    );
+    if (canceled) return { files: [], folders: [] };
+    const folders: string[] = [];
+    const files: string[] = [];
+    for (const path of filePaths) {
+      // A path that can't be looked at goes on as a file, so adding it says why in the window.
+      const isFolder = await stat(path).then(
+        (found) => found.isDirectory(),
+        () => false,
+      );
+      (isFolder ? folders : files).push(path);
+    }
+    const first = filePaths[0];
+    if (first) rememberPick(dataDir, "documents", first);
+    return { files, folders };
+  });
 
   // A sheet on the window that starts in a folder on this computer (see pickerFolders.ts),
   // instead of the web file input, which starts wherever macOS last was, often iCloud.

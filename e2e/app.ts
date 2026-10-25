@@ -1225,8 +1225,7 @@ export async function previewLink(
   if (button) await button.click();
   else {
     await window.getByTestId("plus-menu").click();
-    await window.getByTestId("plus-more").click();
-    await window.getByTestId("plus-link-folder").click();
+    await window.getByTestId("plus-add-documents").click();
   }
   const dialog = window.getByTestId("link-folder-dialog");
   await expect(dialog).toBeVisible();

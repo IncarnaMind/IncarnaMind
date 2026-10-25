@@ -586,7 +586,7 @@ for (const [language, width] of [
 
 const NEW_MENU_ROWS: readonly MessageKey[] = [
   "menu.newMind",
-  "sidebar.plus.addDocuments",
+  "documents.add.filesOrFolder",
   "menu.newFolder",
   "sidebar.plus.more",
 ];
@@ -598,11 +598,10 @@ const MORE_ROWS: readonly MessageKey[] = [
   "folder.fromStarters",
   "sidebar.plus.addWebPage",
   "sidebar.plus.findSources",
-  "sidebar.plus.linkFolder",
 ];
 const IN_PALETTE: readonly MessageKey[] = [
   "menu.newMind",
-  "sidebar.plus.addDocuments",
+  "documents.add.filesOrFolder",
   "menu.newFolder",
   "sidebar.plus.linkFolder",
   "wordImport.command",
@@ -636,9 +635,8 @@ for (const [language, width] of [
       for (const [index, key] of NEW_MENU_ROWS.entries()) {
         await expect(rows.nth(index)).toContainText(t(key));
       }
-      await expect(window.getByTestId("plus-add-documents")).toContainText(
-        process.platform === "darwin" ? "⌘O" : "Ctrl+O",
-      );
+      // The one way in has no key of its own (⌘O still opens the file picker): ⌘K finds it.
+      await expect(window.getByTestId("plus-add-documents")).not.toContainText("⌘O");
       await pointAt(window, window.getByTestId("plus-more"));
       await expect(more).toHaveCount(MORE_ROWS.length);
       for (const [index, key] of MORE_ROWS.entries()) {

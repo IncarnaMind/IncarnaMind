@@ -13,6 +13,15 @@ export const addDocumentCommands: readonly Command[] = [
     reversible: true,
     run: () => store().pickDocuments(),
   },
+  // The one way in on day one (#1942): files and a folder are the same question.
+  {
+    id: "documents.addFilesOrFolder",
+    label: "documents.add.filesOrFolder",
+    keywords: ["documents.add.keywords"],
+    group: "main",
+    reversible: true,
+    run: () => store().pickDocumentsOrFolder(),
+  },
   {
     ...fromMenu("linkedFolder.add"),
     keywords: ["documents.add.linkFolder.keywords"],

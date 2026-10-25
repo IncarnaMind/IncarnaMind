@@ -141,8 +141,7 @@ function Step({
 export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const t = useT();
   const progress = useAppStore((state) => state.settings?.device.gettingStarted);
-  const pickDocuments = useAppStore((state) => state.pickDocuments);
-  const addLinkedFolder = useAppStore((state) => state.addLinkedFolder);
+  const pickDocumentsOrFolder = useAppStore((state) => state.pickDocumentsOrFolder);
   const updateGettingStarted = useAppStore((state) => state.updateGettingStarted);
   const ready = useAppStore((state) => state.examples?.ready ?? null);
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
@@ -254,7 +253,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             state={stateOf("files")}
             live={live}
             offered
-            onDo={() => void pickDocuments()}
+            onDo={() => void pickDocumentsOrFolder()}
           >
             {live && unread.length > 0 ? (
               <UnreadFilesLine files={unread} testId="first-open-unread" />
@@ -268,18 +267,10 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
                 ref={live ? addFiles : undefined}
                 type="button"
                 data-testid={only("first-open-add-files")}
-                onClick={() => void pickDocuments()}
+                onClick={() => void pickDocumentsOrFolder()}
                 className={buttonStyle(stateOf("files") === "open" ? "primary" : "secondary", "sm")}
               >
-                {t("startGuide.documents.addFiles")}
-              </button>
-              <button
-                type="button"
-                data-testid={only("first-open-link-folder")}
-                onClick={() => void addLinkedFolder()}
-                className={buttonStyle("secondary", "sm")}
-              >
-                {t("startGuide.documents.linkFolder")}
+                {t("documents.add.filesOrFolder")}
               </button>
             </div>
             {live && skipped.length > 0 && (
