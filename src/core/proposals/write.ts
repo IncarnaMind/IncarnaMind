@@ -2131,19 +2131,19 @@ function writeBlocks(
     const added = content.slice(hunk.newFrom, hunk.newTo);
     const paired = pairBlocks(removed, added);
     const waiting: NodeJSON[] = [];
-    let next = 0;
+    let from = 0;
     for (const [index, node] of added.entries()) {
       const pair = paired[index];
       if (pair === null || pair === undefined) {
         waiting.push(node);
         continue;
       }
-      for (; next < pair; next++) remove(removed[next] as Y.XmlElement);
+      for (; from < pair; from++) remove(removed[from] as Y.XmlElement);
       for (const each of waiting.splice(0)) add(each);
-      writeOver(removed[next] as Y.XmlElement, node);
-      next++;
+      writeOver(removed[from] as Y.XmlElement, node);
+      from++;
     }
-    for (; next < removed.length; next++) remove(removed[next] as Y.XmlElement);
+    for (; from < removed.length; from++) remove(removed[from] as Y.XmlElement);
     for (const each of waiting) add(each);
     at = hunk.oldTo;
   }
