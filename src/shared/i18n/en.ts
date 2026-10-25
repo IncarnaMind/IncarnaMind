@@ -260,6 +260,7 @@ export const en = {
   "palette.tag.count.one": "on 1 Document",
   "palette.searching": "Searching notes and Documents…",
   "palette.empty": "No matches in names or text",
+  "palette.empty.actions": "No actions match",
   "palette.ask": "Ask about “{text}”",
   "palette.askRow": "Ask “{text}”",
   "palette.ask.in": "in {conversation}",

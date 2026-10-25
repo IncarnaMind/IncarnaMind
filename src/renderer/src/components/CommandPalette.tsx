@@ -310,7 +310,13 @@ function Palette() {
               data-testid={waiting ? "palette-searching" : "palette-empty"}
               className="px-2 pt-4 pb-2 text-[13px] leading-5 text-ink-meta"
             >
-              {t(waiting ? "palette.searching" : "palette.empty")}
+              {t(
+                waiting
+                  ? "palette.searching"
+                  : actionsOnly
+                    ? "palette.empty.actions"
+                    : "palette.empty",
+              )}
             </p>
           )
         )}

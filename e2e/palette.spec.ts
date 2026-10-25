@@ -571,6 +571,33 @@ test('with words typed, the last row is Ask “words”: Enter opens the first m
   await app.close();
 });
 
+test("a word is never matched across words, and a name read two ways is found by either (#1372, #1416)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  await setWindowSize(app, window, 1280, 760);
+  await dismissChatSetup(window);
+  await (await coreOf(window)).evaluate(async (core) => {
+    await core.createMind({ title: "重命名" });
+  });
+
+  await openPalette(window);
+  // The action is offered by its own name, so the failure is the match, not a missing command.
+  await window.keyboard.type("> remove the examples");
+  await expect(group(window, "actions")).toContainText("Remove the examples");
+  // "theme" is not "the e" of "the examples": nothing is highlighted, and the row says so.
+  await window.keyboard.press("ControlOrMeta+a");
+  await window.keyboard.type("> theme");
+  await expect(window.getByTestId("palette-empty")).toHaveText("No actions match");
+  await expect(palette(window).getByTestId("palette-item")).toHaveCount(0);
+
+  // 重命名 is found by the reading people say ("chong") and by the collation's ("zhong").
+  for (const typed of ["chongming", "zhongming"]) {
+    await window.keyboard.press("ControlOrMeta+a");
+    await window.keyboard.type(typed);
+    await expect(group(window, "minds")).toContainText("重命名");
+  }
+  await app.close();
+});
+
 test("Interface language: 中文 switches the interface at once, and the Chinese one switches back", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1280, 760);

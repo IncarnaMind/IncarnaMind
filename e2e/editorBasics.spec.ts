@@ -185,7 +185,7 @@ test('"/" offers lists, a checklist, a quote and a divider, chosen by keyboard o
   await expect(editor.locator("hr")).toHaveCount(0);
 });
 
-test('"/" finds the new items by their Chinese names', async () => {
+test('"/" finds the new items by their Chinese names, their pinyin and their initials', async () => {
   const { window, editor } = await startMind("zh-CN");
   const names = [
     ["列表", ["bulleted-list", "numbered-list"]],
@@ -199,9 +199,30 @@ test('"/" finds the new items by their Chinese names', async () => {
     await window.keyboard.press("Escape");
     for (let count = 0; count <= typed.length; count++) await window.keyboard.press("Backspace");
   }
+  // The pinyin and initials ⌘K already matches a name by (#1298).
+  const pinyin = [
+    ["biaoge", "table"],
+    ["bg", "table"],
+    ["daima", "code"],
+    ["dm", "code"],
+    ["gongshi", "math"],
+    ["yinshu", "quote"],
+  ] as const;
+  for (const [typed, id] of pinyin) {
+    await window.keyboard.type(`/${typed}`);
+    await expect(window.getByTestId(`slash-item-${id}`)).toHaveAttribute("aria-selected", "true");
+    await window.keyboard.press("Escape");
+    for (let count = 0; count <= typed.length; count++) await window.keyboard.press("Backspace");
+  }
   await window.keyboard.type("/待办");
   await window.keyboard.press("Enter");
   await expect(editor.locator("ul:has(> li[data-checked])")).toHaveCount(1);
+  // Enter puts in the item its initials found.
+  await window.keyboard.press("Enter");
+  await window.keyboard.press("Enter");
+  await window.keyboard.type("/bg");
+  await window.keyboard.press("Enter");
+  await expect(editor.locator("table")).toHaveCount(1);
 });
 
 // While the selection menu isn't shown (put away with Esc, or never shown over all of the Mind),
