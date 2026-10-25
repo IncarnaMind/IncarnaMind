@@ -2,16 +2,18 @@ import { useRef } from "react";
 import type { Mind } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { timeAgo } from "../../dates";
+import { useDraggedRef, useDragSource } from "../../dragDrop";
 import { homeClick, useHomeView, useMindSnippets, useOwnMinds } from "../../home";
 import { useLanguage, useT } from "../../i18n";
 import { onMiddleClick } from "../../middleClick";
 import { useSelectable } from "../../selection";
-import { moveFromMenu } from "../../sidebarMoves";
+import { moveFromMenu, rowDrag } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { useRename } from "../../useRename";
 import { InlineName } from "../InlineName";
 import { MindLineIcon } from "../lineIcons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
+import { draggedRowClass } from "../sidebarRows";
 
 const FIRST_ROWS = 6;
 
@@ -65,6 +67,8 @@ function RecentRow({ mind, snippet, now }: { mind: Mind; snippet?: string; now: 
   const row = useRef<HTMLDivElement>(null);
   const openMind = useAppStore((state) => state.openMind);
   const select = useSelectable(object, "home", () => openMind(mind.id));
+  const dragSource = useDragSource(() => rowDrag(object, "home"));
+  const dragged = useDraggedRef(object);
   return (
     // biome-ignore lint/a11y/useSemanticElements: a row of a list that selects as the sidebar does, not a table row.
     // biome-ignore lint/a11y/useFocusableInteractive: its name's button takes the focus.
@@ -73,11 +77,17 @@ function RecentRow({ mind, snippet, now }: { mind: Mind; snippet?: string; now: 
       role="row"
       data-testid="home-recent-row"
       data-mind-id={mind.id}
+      data-dragging={dragged || undefined}
       {...select.rowProps}
       {...(rename.renaming ? {} : objectMenu.rowProps)}
+      {...(rename.renaming ? {} : dragSource)}
       className={`group relative flex min-h-[52px] items-center border-b border-rule ${
-        select.selected ? "bg-accent-wash" : "hover:bg-frame has-[:focus-visible]:bg-frame"
-      }`}
+        select.selected
+          ? "bg-accent-wash"
+          : dragged
+            ? ""
+            : "hover:bg-frame has-[:focus-visible]:bg-frame"
+      } ${dragged ? draggedRowClass : ""}`}
     >
       {rename.renaming ? (
         <span className="flex min-w-0 flex-1 items-center gap-3 px-2">
