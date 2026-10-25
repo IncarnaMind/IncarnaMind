@@ -890,14 +890,16 @@ export function recheckWhereSelected(
  * version and it said otherwise (not found yet, or found in an older
  * version), else null. A quote the current version doesn't hold leaves the
  * Citation as it was: its check stands for the version it quotes, whose text
- * is kept.
+ * is kept. So does the User's choice to keep citing the old version
+ * (`keptOver`, ADR-0017's amendment).
  */
 export function recheckKept(
   documents: RecheckDocuments,
   attributes: Record<string, unknown>,
 ): Record<string, unknown> | null {
-  const { documentId, quote } = attributes;
+  const { documentId, quote, keptOver } = attributes;
   if (typeof documentId !== "string" || documentId === "") return null;
+  if (typeof keptOver === "string" && keptOver !== "") return null;
   const page = (value: unknown) =>
     typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
   const now = recheckCitation(documents, {

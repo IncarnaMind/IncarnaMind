@@ -154,12 +154,12 @@ export function CitationView({
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;
   const recheckAsked = editor.isEditable && needsRecheck(state, attributes, recheck);
-  // Kept over only the version the card showed: a check still of an older one, or failed, isn't it.
+  // Kept over, or moved to, only the version the card showed: a check still of an older one, or failed, isn't it.
   const lookedAt =
     recheck !== null && recheck !== "failed" && recheck.contentHash === liveVersion
       ? liveVersion
       : null;
-  const newVersion = editor.isEditable ? newVersionCitation(attributes, recheck) : null;
+  const newVersion = editor.isEditable && lookedAt ? newVersionCitation(attributes, recheck) : null;
   const badge = badgeMessage(state, shown, t);
   const badgeText = recheckAsked ? t("citation.badge.recheck") : t(badge.key, badge.params);
   const number = citationNumberOf(decorations);
