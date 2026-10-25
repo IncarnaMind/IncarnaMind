@@ -682,6 +682,8 @@ export const en = {
   "claim.replaceCitation.doesntSupport": "Your Citation doesn’t support this sentence",
   "claim.calculated.title": "Calculated from your Documents",
   "claim.calculated.stated": "The sentence says {stated}.",
+  "claim.calculated.stated.at most": "The sentence says at most {stated}.",
+  "claim.calculated.stated.at least": "The sentence says at least {stated}.",
   "claim.calculated.inputs": "Worked out from",
   "claim.calculated.negative": "counted as negative",
   "claim.useFigure": "Use {figure}",
@@ -3634,6 +3636,10 @@ export const en = {
   "export.comment.sentence.contradicted": "Contradicted: {says}",
   "export.comment.sentence.contradicted.worked":
     "Contradicted: your Documents give {shown}, and the sentence says {stated}.",
+  "export.comment.sentence.contradicted.worked.at most":
+    "Contradicted: your Documents give {shown}, and the sentence says at most {stated}.",
+  "export.comment.sentence.contradicted.worked.at least":
+    "Contradicted: your Documents give {shown}, and the sentence says at least {stated}.",
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
   "export.comment.sentence.unsupported": "Unsupported: I didn’t find this in “{scope}”.",
   "export.comment.sentence.unsupported.more":
