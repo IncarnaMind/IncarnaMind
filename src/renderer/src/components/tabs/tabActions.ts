@@ -8,6 +8,8 @@ import { shortcutLabel } from "../../commands/keymap";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../../layoutSlice";
 import { useAppStore } from "../../store";
 import { focusTab } from "../../tabFocus";
+import { tabTitle } from "../../tabs";
+import type { Undoable } from "../../undo";
 
 /*
  * What the tab commands and buttons do beyond one change to the layout: they
@@ -53,6 +55,47 @@ export async function moveToGroup(tabId: string, direction: -1 | 1): Promise<voi
     ? await store.changeLayout({ type: "move", tabId, groupId: target.id, before: null })
     : await store.changeLayout({ type: "split", tabId, side: "right", copy: false });
   if (next) focusTab(tabId);
+}
+
+/** Puts a tab at a place among its group's tabs, by the id of the tab that takes the place after it. */
+async function moveTabTo(tabId: string, place: number): Promise<void> {
+  const at = groupOfTab(useAppStore.getState().layout, tabId);
+  if (!at) return;
+  const others = at.group.tabs.filter((tab) => tab.id !== tabId);
+  await useAppStore.getState().changeLayout({
+    type: "move",
+    tabId,
+    groupId: at.group.id,
+    before: others[place]?.id ?? null,
+  });
+}
+
+/**
+ * Moves a tab one place earlier or later among its group's tabs, only among those pinned as it
+ * is, shows it and offers Undo.
+ */
+export async function moveWithinGroup(tabId: string, step: -1 | 1): Promise<Undoable | undefined> {
+  const store = useAppStore.getState();
+  const at = groupOfTab(store.layout, tabId);
+  const tab = at?.group.tabs.find((each) => each.id === tabId);
+  if (!at || !tab) return;
+  const tabs = at.group.tabs;
+  const place = tabs.indexOf(tab);
+  const neighbour = tabs[place + step];
+  if (!neighbour || neighbour.pinned !== tab.pinned) return;
+  const before = step === -1 ? neighbour.id : (tabs[place + 2]?.id ?? null);
+  const next = await store.changeLayout({ type: "move", tabId, groupId: at.group.id, before });
+  if (!next) return;
+  focusTab(tabId);
+  return {
+    said: (t) =>
+      t(step === -1 ? "undo.tabMovedLeft" : "undo.tabMovedRight", {
+        name: tabTitle(useAppStore.getState(), tab.item, t),
+      }),
+    name: (t) => t("undo.name.tabMove"),
+    undo: () => moveTabTo(tabId, place),
+    redo: () => moveTabTo(tabId, place + step),
+  };
 }
 
 const openTabs = (layout: WindowLayout | null) =>

@@ -22,6 +22,8 @@ const MAC_GLYPHS: Readonly<Record<string, string>> = {
   Down: "↓",
   Left: "←",
   Right: "→",
+  PageUp: "⇞",
+  PageDown: "⇟",
 };
 
 export const keysOn = (shortcut: ShortcutKeys, mac: boolean): Keys =>

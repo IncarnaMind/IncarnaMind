@@ -4,6 +4,7 @@ import {
   cycleTabs,
   focusGroup,
   moveToGroup,
+  moveWithinGroup,
   splitToTheRight,
 } from "../components/tabs/tabActions";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../layoutSlice";
@@ -41,14 +42,21 @@ function targetOf(ctx: CommandContext): Target | null {
 
 const groupCount = () => useAppStore.getState().layout?.groups.length ?? 0;
 
+/** The tab next to this one in the same run of pinned or unpinned tabs: none across that line. */
+function neighbourOf(target: Target, step: -1 | 1): LayoutTab | null {
+  const tabs = target.group.tabs;
+  const neighbour = tabs[tabs.findIndex((tab) => tab.id === target.tab.id) + step];
+  return neighbour && neighbour.pinned === target.tab.pinned ? neighbour : null;
+}
+
 /** Whether a tab moves right into a group that is there, rather than into a new one. */
 const groupOnTheRight = (target: Target | null) =>
   target !== null && target.index < groupCount() - 1;
 
 /** Runs `act` on the command's tab, if it has one. */
 const onTarget =
-  (act: (target: Target) => void | Promise<void>) =>
-  (ctx: CommandContext): void | Promise<void> => {
+  (act: (target: Target) => ReturnType<Command["run"]>) =>
+  (ctx: CommandContext): ReturnType<Command["run"]> => {
     const target = targetOf(ctx);
     if (target) return act(target);
   };
@@ -137,6 +145,31 @@ export const tabCommands: readonly Command[] = [
     run: onTarget(async ({ tab }) => {
       await store().changeLayout({ type: "pin", tabId: tab.id, pinned: !tab.pinned });
     }),
+  },
+  {
+    id: "tab.moveEarlier",
+    label: "command.tab.moveEarlier",
+    // Chrome's and VS Code's key for moving a tab or editor left among its neighbours.
+    shortcut: { keys: "Ctrl+Shift+PageUp" },
+    group: "move",
+    reversible: true,
+    when: (ctx) => {
+      const target = targetOf(ctx);
+      return target !== null && neighbourOf(target, -1) !== null;
+    },
+    run: onTarget(({ tab }) => moveWithinGroup(tab.id, -1)),
+  },
+  {
+    id: "tab.moveLater",
+    label: "command.tab.moveLater",
+    shortcut: { keys: "Ctrl+Shift+PageDown" },
+    group: "move",
+    reversible: true,
+    when: (ctx) => {
+      const target = targetOf(ctx);
+      return target !== null && neighbourOf(target, 1) !== null;
+    },
+    run: onTarget(({ tab }) => moveWithinGroup(tab.id, 1)),
   },
   {
     id: "tab.moveLeft",

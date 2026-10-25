@@ -110,6 +110,8 @@ registerMenu(
     "tab.split",
     "tab.keep",
     "tab.pin",
+    "tab.moveEarlier",
+    "tab.moveLater",
     "tab.moveLeft",
     "tab.moveRight",
     "tab.rename",

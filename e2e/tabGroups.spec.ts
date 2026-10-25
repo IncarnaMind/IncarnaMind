@@ -16,6 +16,7 @@ import {
   launchApp,
   nameMind,
   openDocumentAt,
+  pointAndClick,
   removeDataFolder,
   setWindowSize,
   WINDOW_SIZE,
@@ -100,15 +101,36 @@ async function newMind(window: Page, title: string): Promise<void> {
   await expect(window.getByRole("tab", { selected: true }).last()).toContainText(title);
 }
 
-/** Opens a tab's right-click menu and chooses an item. */
-async function chooseFromTabMenu(window: Page, tab: Locator, item: string): Promise<void> {
+/** Opens a tab's right-click menu, as a person does. */
+async function openTabMenu(window: Page, tab: Locator): Promise<Locator> {
   const box = await boxOf(tab);
   await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 });
   await window.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "right" });
   const menu = tab.getByTestId("tab-actions");
   await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** Opens a tab's right-click menu and chooses an item. */
+async function chooseFromTabMenu(window: Page, tab: Locator, item: string): Promise<void> {
+  const menu = await openTabMenu(window, tab);
   await menu.getByRole("menuitem", { name: item, exact: true }).click();
   await expect(menu).toBeHidden();
+}
+
+/** A group's tabs' IDs, in order, from the core. */
+const tabIdOrder = (window: Page) =>
+  window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const layout = await bridge.getLayout("main");
+    return layout.groups[0]?.tabs.map((tab) => tab.id) ?? [];
+  });
+
+/** Whether a tab is drawn whole inside its strip's visible part. */
+async function wholeInStrip(window: Page, tab: Locator): Promise<boolean> {
+  const list = await boxOf(window.getByTestId("tab-list"));
+  const box = await boxOf(tab);
+  return box.x >= list.x - 1 && box.x + box.width <= list.x + list.width + 1;
 }
 
 test("a Citation opens its Document as a preview in the group to the right, the focus staying in the Mind; three in a row leave one tab, and reading it keeps it", async () => {
@@ -497,4 +519,123 @@ test("the groups, their buttons and the tab's menu are in Chinese too", async ()
   await window.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(tab).toBeFocused();
+
+  // A second tab there: its menu says it can move, in Chinese, with its keys.
+  await newMind(window, "第二篇");
+  const second = groupAt(window, 1).getByRole("tab").last();
+  const moves = await openTabMenu(window, second);
+  await expect(moves.getByTestId("tab.moveEarlier")).toContainText("将标签页左移");
+  await expect(moves.getByTestId("tab.moveEarlier")).toContainText(/⇞|PageUp/);
+  // The last tab of its group has no Move Tab Right.
+  await expect(moves.getByTestId("tab.moveLater")).toHaveCount(0);
+  await moves.getByTestId("tab.moveEarlier").click();
+  await expect(titlesIn(groupAt(window, 1))).toHaveText(["第二篇", "潮汐笔记"]);
+  await expect(window.getByTestId("undo-message")).toHaveText("已将“第二篇”左移");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(groupAt(window, 1))).toHaveText(["潮汐笔记", "第二篇"]);
 });
+
+test("a tab moves a place earlier or later in its group from its menu, its keys and ⌘K, among tabs pinned as it is, with Undo, and stays whole in view", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  const titles = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"];
+  for (const title of titles) await newMind(window, title);
+  const first = groupAt(window, 0);
+
+  // Right after Pin: Move Tab Left, then Move Tab Right, each with its keys; then the group moves.
+  const beta = await openTabMenu(window, tabNamed(window, "Beta"));
+  const items = await beta
+    .getByRole("menuitem")
+    .evaluateAll((each) => each.map((item) => item.getAttribute("data-testid")));
+  const at = (id: string) => items.indexOf(id);
+  expect(at("tab.pin")).toBeGreaterThan(-1);
+  expect(at("tab.pin")).toBeLessThan(at("tab.moveEarlier"));
+  expect(at("tab.moveEarlier")).toBeLessThan(at("tab.moveLater"));
+  expect(at("tab.moveLater")).toBeLessThan(at("tab.rename"));
+  await expect(beta.getByTestId("tab.moveEarlier")).toContainText(/⇞|PageUp/);
+  await expect(beta.getByTestId("tab.moveLater")).toContainText(/⇟|PageDown/);
+
+  // Moved later, it swaps with the tab after it, and Undo puts it back.
+  await beta.getByTestId("tab.moveLater").click();
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta", "Epsilon"]);
+  await expect(window.getByTestId("undo-message")).toHaveText("Moved “Beta” right");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(first)).toHaveText(titles);
+
+  // The first tab has no Move Left, the last no Move Right.
+  const alpha = await openTabMenu(window, tabNamed(window, "Alpha"));
+  await expect(alpha.getByTestId("tab.moveEarlier")).toHaveCount(0);
+  await expect(alpha.getByTestId("tab.moveLater")).toBeVisible();
+  await window.keyboard.press("Escape");
+  const last = await openTabMenu(window, tabNamed(window, "Epsilon"));
+  await expect(last.getByTestId("tab.moveEarlier")).toBeVisible();
+  await expect(last.getByTestId("tab.moveLater")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+
+  // Its keys move it the same way, as Chrome and VS Code move a tab or editor among its neighbours.
+  await pointAndClick(window, tabNamed(window, "Beta"));
+  await window.keyboard.press("Control+Shift+PageDown");
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta", "Epsilon"]);
+  await window.keyboard.press("Control+Shift+PageUp");
+  await expect(titlesIn(first)).toHaveText(titles);
+  // ⌘1–⌘3 stay the groups' keys, and ⌃Tab still walks the tabs.
+  await window.keyboard.press("ControlOrMeta+1");
+  await expect(first).toHaveAttribute("data-focused", "true");
+  await window.keyboard.press("Control+Tab");
+  await expect.poll(() => titleNamedShown(window)).toBe("Gamma");
+  await pointAndClick(window, tabNamed(window, "Gamma"));
+
+  // ⌘K finds them, with their keys, and runs them on the tab the keyboard is on.
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Move Tab Right");
+  const item = window.getByTestId("palette").locator('[data-key="command:tab.moveLater"]');
+  await expect(item).toContainText(/⇟|PageDown/);
+  await pointAndClick(window, item);
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Beta", "Delta", "Gamma", "Epsilon"]);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(first)).toHaveText(titles);
+
+  // Out of sight in a narrow strip, a tab moved later is scrolled whole into view.
+  await setWindowSize(app, window, 1100, 760);
+  for (let index = 0; index < 9; index++) await window.getByTestId("new-tab").click();
+  await expect(window.getByRole("tab")).toHaveCount(14);
+  const list = window.getByTestId("tab-list");
+  expect(await list.evaluate((each) => each.scrollWidth > each.clientWidth)).toBe(true);
+  await pointAndClick(window, window.getByTestId("mind-list-item").filter({ hasText: "Alpha" }));
+  await expect(window.getByRole("tab", { selected: true })).toContainText("Alpha");
+  const alphaId = await tabNamed(window, "Alpha").getAttribute("data-tab-id");
+  const shown = window.getByRole("tab", { selected: true });
+  for (let place = 1; place <= 10; place++) {
+    await window.keyboard.press("Control+Shift+PageDown");
+    await expect.poll(() => tabIdOrder(window).then((ids) => ids.indexOf(alphaId ?? ""))).toBe(place);
+    await expect.poll(() => wholeInStrip(window, shown)).toBe(true);
+  }
+
+  // A pinned tab stays among the pinned ones, and an unpinned one among the unpinned.
+  await chooseFromTabMenu(window, tabNamed(window, "Alpha"), "Pin");
+  await chooseFromTabMenu(window, tabNamed(window, "Beta"), "Pin");
+  const pinnedOrder = await tabIdOrder(window);
+  const pinnedBeta = await openTabMenu(window, tabNamed(window, "Beta"));
+  await expect(pinnedBeta.getByTestId("tab.moveEarlier")).toBeVisible();
+  await expect(pinnedBeta.getByTestId("tab.moveLater")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  const pinnedAlpha = await openTabMenu(window, tabNamed(window, "Alpha"));
+  await expect(pinnedAlpha.getByTestId("tab.moveEarlier")).toHaveCount(0);
+  await expect(pinnedAlpha.getByTestId("tab.moveLater")).toBeVisible();
+  await pinnedAlpha.getByTestId("tab.moveLater").click();
+  const moved = await tabIdOrder(window);
+  expect(moved.slice(0, 2)).toEqual([pinnedOrder[1], pinnedOrder[0]]);
+  await expect(tabNamed(window, "Alpha")).toHaveAttribute("data-pinned", "true");
+  await expect(tabNamed(window, "Beta")).toHaveAttribute("data-pinned", "true");
+  await expect(window.getByRole("tab").nth(2)).not.toHaveAttribute("data-pinned");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => tabIdOrder(window)).toEqual(pinnedOrder);
+  await app.close();
+});
+
+/** The title of the tab shown in the focused group. */
+async function titleNamedShown(window: Page): Promise<string> {
+  const shown = window.getByRole("tab", { selected: true });
+  return (await shown.getByTestId("tab-title").textContent()) ?? "";
+}
