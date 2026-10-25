@@ -1,7 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { readWorkbook } from "../src/core/documents/formats/xlsx";
 import {
   acceptPlainTextKeys,
   addDocuments,
@@ -13,6 +14,7 @@ import {
   removeDataFolder,
   setWindowSize,
   useLocalChatModel,
+  useOutputLocation,
 } from "./app";
 
 /*
@@ -750,4 +752,89 @@ test("the Documents selected in the Library are offered as the scope, and start 
   await pointAndClick(window, sheet.getByTestId("compare-sheet-source-selected"));
   await expect(counted).toHaveText("3 of 3");
   await expect(source).toContainText(WORDS.en.selectedFromLibrary);
+});
+
+test("a cell whose amount changed scale says what the Document gives, offers Fill, and exports as it reads, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 860);
+  await useLocalChatModel(window);
+  const files = {
+    "Cedar final.txt": "Cedar Q3 2026 final.\nNet debt: 310,000 (GBP thousands).\n",
+    "Cedar draft.txt": "Cedar Q3 2026 draft.\nAll amounts in GBP million.\nNet debt: 340.\n",
+  };
+  const paths: string[] = [];
+  for (const [name, text] of Object.entries(files)) {
+    paths.push(join(sources, name));
+    await writeFile(join(sources, name), text);
+  }
+  await addDocuments(window, paths);
+
+  const sheet = await openSheetFromSlash(window);
+  // The scripted model writes the final's GBP thousands as GBP million, even when told.
+  await typeQuestions(window, ["Net debt (rescaled)"]);
+  await window.keyboard.press("ControlOrMeta+Enter");
+  const table = window.getByTestId("comparison-table");
+  await expect(sheet).toHaveCount(0);
+  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  const rows = await table.getByTestId("comparison-row").allInnerTexts();
+  const final = rows.findIndex((row) => row.includes("Cedar final"));
+  const shownRows = await cellTexts(table);
+  expect(shownRows[final]).toEqual([
+    "! scale differs from the Document, which gives 310,000 GBP thousands",
+  ]);
+  expect(shownRows[1 - final]).toEqual(["340 1"]);
+  await expect(table.getByTestId("comparison-fill")).toHaveText("Fill 1 cell");
+  await screenshot(window, "compare-scale-en-1440");
+
+  // Fill writes it again; the model changes the scale again, and the cell says so again.
+  await pointAndClick(window, table.getByTestId("comparison-fill"));
+  const progress = table.getByTestId("comparison-progress");
+  await expect(progress).toBeVisible();
+  await expect(progress).toHaveCount(0, { timeout: 30_000 });
+  await expect(table.getByTestId("comparison-fill")).toHaveText("Fill 1 cell");
+  expect((await cellTexts(table))[final]?.[0]).toContain("310,000 GBP thousands");
+
+  // The Excel file holds what the table shows, and no Source for the flagged cell.
+  await pointAndClick(window, table.getByTestId("comparison-accept-all"));
+  await useOutputLocation(window, sources);
+  await pointAndClick(window, table.getByTestId("comparison-expand"));
+  await pointAndClick(window, table.getByTestId("comparison-export-excel"));
+  await expect(window.getByTestId("export-result")).toHaveAttribute("data-state", "saved", {
+    timeout: 20_000,
+  });
+  const [book, evidence] = (
+    await readWorkbook(
+      new Uint8Array(await readFile(join(sources, "Shortlist contract terms.xlsx"))),
+    )
+  ).sheets;
+  const at = (cells: { row: number; column: number; value: string }[] | undefined, row: number) =>
+    cells?.find((cell) => cell.row === row && cell.column === 1)?.value;
+  expect(at(book?.cells, final + 2)).toBe(
+    "scale differs from the Document, which gives 310,000 GBP thousands",
+  );
+  expect(evidence?.rowCount).toBe(2);
+  expect(evidence?.cells.find((cell) => cell.row === 2 && cell.column === 0)?.value).toBe(
+    "Cedar draft · Net debt (rescaled)",
+  );
+  await window.keyboard.press("Escape");
+
+  await bridge(window).language("zh-CN");
+  await expect
+    .poll(async () => (await cellTexts(table))[final]?.[0])
+    .toBe("! 金额单位与文档不符，文档写的是 310,000 GBP thousands");
+  await expect(table.getByTestId("comparison-fill")).toHaveText("补全 1 个单元格");
+  await screenshot(window, "compare-scale-zh-1440");
+
+  // At a narrow width the line wraps inside its cell.
+  await setWindowSize(app, window, 900, 860);
+  const cell = table.getByTestId("comparison-row").nth(final).getByTestId("comparison-cell");
+  const [line, box] = [
+    await cell.getByTestId("comparison-cell-problem").boundingBox(),
+    await cell.boundingBox(),
+  ];
+  if (!line || !box) throw new Error("The cell isn't on screen.");
+  expect(line.x).toBeGreaterThanOrEqual(box.x - 1);
+  expect(line.x + line.width).toBeLessThanOrEqual(box.x + box.width + 1);
+  await screenshot(window, "compare-scale-zh-900");
 });
