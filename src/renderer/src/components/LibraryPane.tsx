@@ -31,7 +31,7 @@ import {
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
-import { useLibraryDocuments } from "../ownDocuments";
+import { ownsATag, useLibraryDocuments } from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
@@ -109,9 +109,17 @@ export function LibraryPane() {
     () => sorted(groups, sidebarSort, folderFields, language),
     [groups, sidebarSort, language],
   );
+  // Tags are named only once a Document of the User's own carries one (#1942), then they are a filter.
+  const tagsShown = useAppStore(ownsATag);
   const facets = useMemo<LibraryFacet<Document>[]>(
-    () => [tagFacet(tags), formatFacet, yearFacet, statusFacet, folderFacet(folders, folderOf)],
-    [tags, folders, folderOf],
+    () => [
+      ...(tagsShown ? [tagFacet(tags)] : []),
+      formatFacet,
+      yearFacet,
+      statusFacet,
+      folderFacet(folders, folderOf),
+    ],
+    [tags, tagsShown, folders, folderOf],
   );
   const selection = useMemo<FilterSelection>(
     () => (tagFilter.length ? { ...facetFilter, tag: tagFilter } : facetFilter),

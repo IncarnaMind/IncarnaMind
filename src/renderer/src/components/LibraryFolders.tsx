@@ -456,6 +456,9 @@ function NotInAFolder({
     : dayOne
       ? t("sidebar.documents")
       : t("library.unsorted");
+  // In the tree's keys, as the rows are: one Tab stop, and ↑ ↓ reach it (#1942).
+  const offerItem = useTreeItem({ depth: 0 });
+
   /** A Folder, offered where one helps: the User's 8th loose Document and no Folder yet. */
   const offerFolder = !examplesOnly && !hasFolders && ownCount >= DAY_ONE_DOCUMENTS;
   return (
@@ -482,12 +485,14 @@ function NotInAFolder({
             <li role="none" className="flex h-7 items-center">
               <button
                 type="button"
+                {...offerItem}
                 data-testid="offer-folder"
                 title={t("sidebar.newFolderKeys", { keys: shortcutLabel("folder.new") })}
                 onClick={() =>
                   void commands.run("folder.new").catch(useAppStore.getState().reportError)
                 }
-                className="flex min-w-0 items-center gap-2 rounded-sm pl-2 text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
+                style={{ marginLeft: rowPadding(0).paddingLeft + 24 }}
+                className="flex min-w-0 items-center gap-2 rounded-sm text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
               >
                 <PlusLineIcon className="size-3.5 shrink-0" />
                 <span className="truncate">{t("menu.newFolder")}</span>

@@ -382,18 +382,23 @@ function useStatuses(): Status[] {
         }
       }
       // Before a Document of the User's own carries a Tag, nothing names Tags and no model is
-      // asked for one (#1942): the examples' Tags, if any, aren't the User's.
-      if (!ownsATag(state)) {
+      // asked for one (#1942): the examples' Tags, if any, aren't the User's. Organize's own
+      // problems stay: its pause, key and plan lines are the User's to act on, Tag or no Tag.
+      const tagsShown = ownsATag(state);
+      const organizeRuns = organizesNewDocuments(state.library) || organizes(state.library);
+      if (!tagsShown) {
         tagging = 0;
         waitingForTagger = 0;
-        waitingForPlan = 0;
-        organizeWaitsForPlan = false;
-        planResetsAt = null;
-        rateLimited = 0;
-        keyRefused = 0;
-        rateLimitEnds = null;
         failedTagging = 0;
         unreached = 0;
+        if (!organizeRuns) {
+          waitingForPlan = 0;
+          organizeWaitsForPlan = false;
+          planResetsAt = null;
+          rateLimited = 0;
+          keyRefused = 0;
+          rateLimitEnds = null;
+        }
       }
       return {
         processing,

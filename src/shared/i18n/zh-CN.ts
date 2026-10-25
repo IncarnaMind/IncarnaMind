@@ -3696,7 +3696,7 @@ export const zhCN = {
   "error.commands.noIds": "命令缺少要处理的文档或 Mind。",
   "error.commands.noDocument": "没有 id 为 {id} 的文档。",
   "error.commands.exampleDocument":
-    "那个文件属于示例，保持原样。添加你自己的文件，就可以把它放进文件夹。",
+    "那个文档属于示例，保持原样。添加你自己的文档，就可以把它放进文件夹。",
   "error.commands.noMind": "没有 id 为 {id} 的 Mind。",
   "error.commands.oneOnly": "这个命令一次只能处理一个文档或 Mind。",
   "error.commands.notAbsolute": "“{folder}”不是完整的文件夹路径。",

@@ -3847,7 +3847,7 @@ export const en = {
   "error.commands.noIds": "The command needs the Documents or Minds it acts on.",
   "error.commands.noDocument": "There is no Document with the id {id}.",
   "error.commands.exampleDocument":
-    "That file is part of the example, so it stays as it is. Add a file of your own to file it in a Folder.",
+    "That Document belongs to the example and stays as it is. Add one of your own to put it in a Folder.",
   "error.commands.noMind": "There is no Mind with the id {id}.",
   "error.commands.oneOnly": "This command acts on one Document or Mind at a time.",
   "error.commands.notAbsolute": "“{folder}” isn’t a full folder path.",

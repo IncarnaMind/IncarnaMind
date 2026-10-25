@@ -53,20 +53,14 @@ export const ownsATag = (state: Pick<AppState, "documents" | "examples" | "other
 
 /**
  * Day one: the first open's steps still show, and the User has a few
- * Documents of their own, no Folder of their own and no Linked folder of their
- * own. The sidebar then shows one flat list called Documents, and the Library,
- * Folders and Linked folders stay out of the way until one of them helps
- * (#1942). A User who has put the steps away gets the sidebar as it was.
+ * Documents of their own and no Folder of their own. The sidebar then shows one
+ * flat list called Documents, and the Library and Folders stay out of the way
+ * until one of them helps (#1942). A User who has put the steps away gets the
+ * sidebar as it was.
  */
 export function useDayOne(): boolean {
   const firstOpen = useFirstOpen();
   const own = useOwnDocuments();
-  const ownLinkedFolders = useOwnLinkedFolders();
   const groups = useAppStore((state) => state.library)?.groups ?? NO_GROUPS;
-  return (
-    firstOpen &&
-    own.length <= DAY_ONE_DOCUMENTS &&
-    groups.length === 0 &&
-    ownLinkedFolders.length === 0
-  );
+  return firstOpen && own.length <= DAY_ONE_DOCUMENTS && groups.length === 0;
 }

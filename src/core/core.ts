@@ -2544,7 +2544,6 @@ export function createCore(adapters: CoreAdapters): Core {
     },
   });
   libraryDocumentChanged = (id) => library.documentChanged(id);
-  library.start();
 
   // Reference records (#286): read from files as they're processed, edited by the User, and
   // filled by Look up, which sends a DOI or an arXiv id only, with consent, never in local mode.
@@ -3033,6 +3032,9 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("document.status", () => examples.documentChanged());
   isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
+  // Started here, not with the rest of the Library, so a Document an earlier version filed as an
+  // example's is never worked on again (#1942).
+  library.start();
   // A new version of a Document in a Folder: its Minds' cited claims are checked for contradictions (#112).
   checks.startWatching();
   events.on("document.status", (document) => checks.documentChanged(document));
@@ -3588,19 +3590,13 @@ export function createCore(adapters: CoreAdapters): Core {
         return text ? [{ mindId: mind.id, text }] : [];
       });
     },
-    // The examples are found in the example, never among the User's own Documents (#1942). A
-    // search of theirs that filled its places is asked again for theirs back, so the User's are
-    // as many as asked for.
-    searchDocumentText: async (query, options) => {
-      const found = documents.searchText(query, options);
-      const kept = found.filter((each) => !isExampleDocument(each.documentId));
-      if (kept.length === found.length) return kept;
-      const wanted = found.length - kept.length;
-      return documents
-        .searchText(query, { ...options, limit: found.length + wanted })
-        .filter((each) => !isExampleDocument(each.documentId))
-        .slice(0, found.length);
-    },
+    // The examples are found in the example, never among the User's own Documents (#1942): left
+    // out before the search's limit, so they never take one of its places.
+    searchDocumentText: async (query, options) =>
+      documents.searchText(query, {
+        ...options,
+        excludeDocumentIds: examples.made().documentIds,
+      }),
     renameConversation: async (conversationId, title) => {
       const conversation = conversations.rename(conversationId, title);
       conversationsChanged();

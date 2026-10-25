@@ -328,6 +328,15 @@ function parseSearchOptions(options: unknown): {
 }
 
 /** A search's `limit`, checked: a whole number from 1 to 200, 20 when not given. */
+/** Documents a text search leaves out, as the core asks (the examples', see #1942). */
+function excludedIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id !== "")) {
+    throw new InvalidInputError("The Documents left out of a search must be ids.");
+  }
+  return value as string[];
+}
+
 function searchLimit(limit: unknown = DEFAULT_SEARCH_LIMIT): number {
   if (
     typeof limit !== "number" ||
@@ -2708,7 +2717,12 @@ export function createDocuments(options: DocumentsOptions) {
       if (options !== undefined && !isRecord(options)) {
         throw new InvalidInputError({ key: "error.search.options" });
       }
-      return textSearch(db, query, searchLimit(options?.limit));
+      return textSearch(
+        db,
+        query,
+        searchLimit(options?.limit),
+        excludedIds(options?.excludeDocumentIds),
+      );
     },
 
     /** Linked folders (see ./library). */

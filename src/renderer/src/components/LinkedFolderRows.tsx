@@ -3,6 +3,7 @@ import type { LinkedFolder } from "../../../core/api";
 import { buildFolderTree } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { indexingShare, linkedFolderRowState, rowStateLabel } from "../linkedFolders";
+import { useOwnLinkedFolders } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { sorted } from "../sort";
 import { useSort } from "../sortChoices";
@@ -33,6 +34,7 @@ const LINKED_WASH_MS = 1600;
 export function LinkedFolderRows() {
   const folders = useAppStore((state) => state.folders);
   const linkedFolders = useAppStore((state) => state.linkedFolders);
+  const ownLinkedFolders = useOwnLinkedFolders();
   const documents = useAppStore((state) => state.documents);
   const filled = useMemo(() => new Set(documents.map((each) => each.linkedFolderId)), [documents]);
   const language = useLanguage();
@@ -48,11 +50,13 @@ export function LinkedFolderRows() {
     [folders, sidebarSort, language],
   );
   const linkedById = new Map(linkedFolders.map((linked) => [linked.id, linked]));
+  // The examples' own folder is never shown as a Linked folder of the User's (#1942).
+  const own = new Set(ownLinkedFolders.map((linked) => linked.id));
   return (
     <ul role="none" data-testid="linked-folder-rows">
       {roots.map(({ folder }) => {
         const linked = linkedById.get(folder.linkedFolderId);
-        return linked ? (
+        return linked && own.has(linked.id) ? (
           <LinkedFolderRow
             key={folder.id}
             linked={linked}

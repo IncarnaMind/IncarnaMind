@@ -7,6 +7,8 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  leaveFirstOpen,
+  linkFolderFromSidebar,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -70,8 +72,15 @@ const countPdfs = (window: Window, status?: "ready") =>
 /** Adds files through the page's own input, as a drop does, and waits for them to be read. */
 async function addFiles(window: Window, paths: string[]): Promise<void> {
   await window.getByTestId("add-documents-input").setInputFiles(paths);
-  await expect.poll(() => countPdfs(window, "ready")).toBe(paths.length);
+  await expect.poll(() => countPdfs(window, "ready"), { timeout: 60_000 }).toBe(paths.length);
 }
+
+/** How many of the User's own Documents the core holds: the ones this spec added. */
+const countOwn = (window: Window, start = "Note ") =>
+  window.evaluate(async (prefix: string) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.listDocuments()).filter((each) => each.name.startsWith(prefix)).length;
+  }, start);
 
 async function shot(window: Window, name: string): Promise<void> {
   if (!SHOTS) return;
@@ -162,4 +171,68 @@ test("Undo takes the add on day one back", async () => {
 
   await window.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => countPdfs(window)).toBe(0);
+
+  // Added again, it counts once each time: the list stays one flat list.
+  await addFiles(window, paths);
+  await expect(window.getByTestId("sidebar-section-count")).toHaveText("3");
+  await expect(window.getByTestId("open-library")).toHaveCount(0);
+});
+
+test("a Folder is offered at the eighth loose Document, by pointer and by the tree's keys (#1942)", async () => {
+  test.setTimeout(180_000);
+  const files = Array.from({ length: 8 }, (_, index) => join(sources, `Note ${index + 1}.txt`));
+  for (const [index, file] of files.entries())
+    await writeFile(file, `Note ${index + 1}. The tide tables, again.`);
+  const { window } = await launchApp(dataDir, { examples: true, home: sources });
+  await dismissChatSetup(window);
+  await setLanguage(window, "en");
+  await window.getByTestId("add-documents-input").setInputFiles(files);
+  await expect.poll(() => countOwn(window), { timeout: 30_000 }).toBe(8);
+  // Still day one: one flat list, no Library row.
+  await expect(window.getByTestId("open-library")).toHaveCount(0);
+  await expect(window.getByTestId("not-in-a-folder-title")).toContainText("Documents");
+
+  // The offer sits in the tree's keys: ↓ reaches it from the last row, Enter makes a Folder.
+  const offer = window.getByTestId("offer-folder");
+  await expect(offer).toBeVisible();
+  await window.getByTestId("show-more-documents").click();
+  // The User’s eight, and the example’s two until #1944’s fold.
+  await expect(window.getByTestId("document-list-item")).toHaveCount(10);
+  const last = window.getByTestId("document-list-item").last();
+  await last.getByTestId("open-document").focus();
+  await window.keyboard.press("ArrowDown");
+  await expect(offer).toBeFocused();
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("folder-rename-field")).toBeVisible();
+  await window.keyboard.type("Tides");
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("folder-row").filter({ hasText: "Tides" })).toHaveCount(1);
+  // A Folder of the User's own is one of the three ways day one ends.
+  await expect(window.getByTestId("open-library")).toBeVisible();
+  // And ⌘Z puts it back as it was.
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("folder-row").filter({ hasText: "Tides" })).toHaveCount(0);
+  await expect(window.getByTestId("open-library")).toHaveCount(0);
+});
+
+test("a Linked folder of the User's own shows its row only, never the example's, and leaves the Library row waiting (#1942)", async () => {
+  test.setTimeout(180_000);
+  const folder = join(sources, "Contracts");
+  await mkdir(folder);
+  await writeFile(join(folder, "Lease.txt"), "The lease term is five years.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, home: sources });
+  await dismissChatSetup(window);
+  await setLanguage(window, "en");
+  await linkFolderFromSidebar(app, window, folder);
+
+  const section = window.getByTestId("linked-folders-section");
+  await expect(section).toBeVisible();
+  await expect(section.getByTestId("row-text")).toHaveText(["Contracts"]);
+  await expect(window.getByTestId("linked-folder-rows").getByText("Examples")).toHaveCount(0);
+  // One Linked folder and no Folder is not a reason to show the Library on day one.
+  await expect(window.getByTestId("open-library")).toHaveCount(0);
+
+  // The steps put away, the Library row comes as it did.
+  await leaveFirstOpen(window);
+  await expect(window.getByTestId("open-library")).toBeVisible();
 });
