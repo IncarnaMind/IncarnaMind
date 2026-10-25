@@ -618,15 +618,18 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           />
         )}
 
-        {format !== "source-pack" && (counts?.unreadFiles ?? 0) > 0 && (
-          <SwitchRow
-            label={t("export.unreadNames")}
-            hint={t("export.unreadNames.hint")}
-            checked={nameUnreadFiles ?? false}
-            onChange={setNameUnreadFiles}
-            testId="export-unread-names"
-          />
-        )}
+        {/* A Word round trip writes back into the imported file, which gets no unread section. */}
+        {format !== "source-pack" &&
+          !(format === "docx" && counts?.fromWord) &&
+          (counts?.unreadFiles ?? 0) > 0 && (
+            <SwitchRow
+              label={t("export.unreadNames")}
+              hint={t("export.unreadNames.hint")}
+              checked={nameUnreadFiles ?? false}
+              onChange={setNameUnreadFiles}
+              testId="export-unread-names"
+            />
+          )}
 
         {hasCitationPlace(format) && citationStyle && (
           <CitationPlaceRow
