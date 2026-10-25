@@ -1137,6 +1137,7 @@ export const en = {
   "viewer.label": "Document viewer",
   "viewer.keep": "Keep open",
   "viewer.keepTip": "Keep this tab open (or double-click its tab)",
+  "viewer.pdf.failed": "This PDF couldn’t be opened.",
   "viewer.loading": "Opening the Document…",
   "viewer.failed": "This Document couldn’t be shown: {message}",
   "viewer.locked.title": "This PDF is locked",
