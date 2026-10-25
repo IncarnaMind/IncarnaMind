@@ -69,14 +69,17 @@ export function reopenAfterQuit(
 /**
  * A copy can take Electron's lock after the old copy releases its data lock but before it exits
  * (#1448). On macOS this can stall `ready`: the new copy releases its locks and tries once more
- * before showing a problem and quitting. Ordinary launches without a previous owner are left alone.
+ * before showing a problem and quitting. The retry watches even after the old locks are gone;
+ * ordinary launches without a previous owner are left alone.
  */
 export function startAgainIfStalled(
   app: Pick<App, "whenReady" | "releaseSingleInstanceLock" | "relaunch" | "exit">,
   letGoOfFolder: () => void,
   showProblem: () => void,
   logger: Pick<Logger, "error">,
+  previousOwner: boolean,
 ): void {
+  if (!previousOwner && !process.argv.includes(STARTED_AGAIN)) return;
   const timer = setTimeout(() => {
     const again = process.argv.includes(STARTED_AGAIN);
     logger.error("app.startStalled", { again });

@@ -15,9 +15,16 @@ const { app } = require("electron");
 const mark = process.env.INCARNAMIND_TEST_QUIT_MARK;
 const how = process.env.INCARNAMIND_TEST_QUIT_ON_START;
 const late = process.env.INCARNAMIND_TEST_QUIT_AFTER_RELEASE === "1";
+const stalled = process.env.INCARNAMIND_TEST_STALL_STARTUP;
 delete process.env.INCARNAMIND_TEST_QUIT_MARK;
 delete process.env.INCARNAMIND_TEST_QUIT_ON_START;
 delete process.env.INCARNAMIND_TEST_QUIT_AFTER_RELEASE;
+
+if (stalled) {
+  // The clean retry has no previous owner; hold its ready Promise to exercise that stall (#1448).
+  appendFileSync(stalled, `${JSON.stringify({ pid: process.pid, args: process.argv })}\n`);
+  app.whenReady = () => new Promise(() => undefined);
+}
 
 const waitFor = (file) => {
   const pause = new Int32Array(new SharedArrayBuffer(4));

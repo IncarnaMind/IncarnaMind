@@ -46,7 +46,7 @@ import { DOWNLOAD_BUTTON, RELEASES_PAGE, startupDialog, startupProblem } from ".
 import { realHomeProblem } from "./testHome";
 import { reportFullScreen, titleBarOptions } from "./titleBar";
 import { guardQuit } from "./unsavedChanges";
-import { registerUpdateCheck, startAutoUpdates, updateInstallsOnQuit } from "./updater";
+import { canReopenAfterUpdate, registerUpdateCheck, startAutoUpdates } from "./updater";
 import { keepWindowPlace, windowPlace } from "./windowState";
 
 // A test build refuses the real home folder before anything is written. It says why on stderr and
@@ -99,7 +99,7 @@ if (instanceLock?.timedOut) {
 }
 const releaseDataFolder = () => instanceLock?.release();
 app.on("quit", releaseDataFolder);
-if (instanceLock && (folderHeldBefore || electronInstanceBefore)) {
+if (instanceLock) {
   startAgainIfStalled(
     app,
     releaseDataFolder,
@@ -108,9 +108,10 @@ if (instanceLock && (folderHeldBefore || electronInstanceBefore)) {
       dialog.showErrorBox(title, detail);
     },
     logger,
+    folderHeldBefore || electronInstanceBefore,
   );
 }
-const startWaitsForQuit = reopenAfterQuit(app, () => !updateInstallsOnQuit(), logger);
+const startWaitsForQuit = reopenAfterQuit(app, canReopenAfterUpdate, logger);
 
 // Whether Skill scripts run in the OS sandbox, found out while Electron starts.
 const scriptExecutor = ownsDataFolder ? chooseExecutor(logger) : Promise.resolve(undefined);

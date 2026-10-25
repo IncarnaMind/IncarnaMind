@@ -109,7 +109,7 @@ describe("a copy that took Electron’s single-instance lock", () => {
     vi.useRealTimers();
   });
 
-  const startingApp = (ready: boolean) => {
+  const startingApp = (ready: boolean, previousOwner = true) => {
     const calls: unknown[][] = [];
     const app = {
       whenReady: () => (ready ? Promise.resolve() : new Promise<void>(() => undefined)),
@@ -123,6 +123,7 @@ describe("a copy that took Electron’s single-instance lock", () => {
       () => calls.push(["letGoOfFolder"]),
       () => calls.push(["showProblem"]),
       { error: (...entry: unknown[]) => logged.push(entry) },
+      previousOwner,
     );
     return { calls, logged };
   };
@@ -130,6 +131,13 @@ describe("a copy that took Electron’s single-instance lock", () => {
   test("goes on as usual once it is ready", async () => {
     const { calls, logged } = startingApp(true);
     await Promise.resolve();
+    vi.runAllTimers();
+    expect(calls).toEqual([]);
+    expect(logged).toEqual([]);
+  });
+
+  test("an ordinary start with no previous owner does not arm recovery", () => {
+    const { calls, logged } = startingApp(false, false);
     vi.runAllTimers();
     expect(calls).toEqual([]);
     expect(logged).toEqual([]);
@@ -149,7 +157,7 @@ describe("a copy that took Electron’s single-instance lock", () => {
 
   test("started again and stalled again, it shows the problem and quits", () => {
     process.argv = [...argv, "--started-again-after-stall"];
-    const { calls, logged } = startingApp(false);
+    const { calls, logged } = startingApp(false, false);
     vi.runAllTimers();
     expect(calls).toEqual([
       ["releaseSingleInstanceLock"],

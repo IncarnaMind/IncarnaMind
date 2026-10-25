@@ -18,7 +18,7 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { app, BrowserWindow } from "electron";
-import type { Core, CoreApi, ExternalService, Language } from "../core";
+import type { Core, ExternalService, Language, PrivacySettings, Settings } from "../core";
 import { translate } from "../shared/i18n";
 import { systemBrowser } from "./platform";
 import { RELEASES_PAGE } from "./startupError";
@@ -31,12 +31,22 @@ const GITHUB_RELEASES: Readonly<ExternalService> = {
   name: "GitHub Releases",
 };
 
-type SettingsSource = Pick<CoreApi, "getSettings" | "getPrivacySettings">;
+interface SettingsSource {
+  getSettings(): Promise<Pick<Settings, "language">>;
+  getPrivacySettings(): Promise<Pick<PrivacySettings, "automaticUpdateChecks">>;
+}
 
-let installsOnQuit = false;
+let installing = false;
+let reopening = false;
+let updaterOnQuit: { autoInstallOnAppQuit: boolean } | undefined;
 
-/** Whether a downloaded update installs when the app quits: the updater then starts the app itself, if at all. */
-export const updateInstallsOnQuit = () => installsOnQuit;
+export function canReopenAfterUpdate(): boolean {
+  if (installing) return false;
+  reopening = true;
+  // An ordinary AppImage install does not run the app afterwards (#1448).
+  if (updaterOnQuit) updaterOnQuit.autoInstallOnAppQuit = false;
+  return true;
+}
 
 /** Lists the update check on the Privacy page, on or off as the User chose. */
 export function registerUpdateCheck(core: Pick<Core, "networkTraffic" | "getPrivacySettings">) {
@@ -70,9 +80,10 @@ async function checkForUpdates(
 ): Promise<void> {
   if (!(await core.getPrivacySettings()).automaticUpdateChecks) return;
   const { autoUpdater } = await import("./autoUpdater");
+  updaterOnQuit = autoUpdater;
   const installable = await canInstallUpdates();
   autoUpdater.autoDownload = installable;
-  autoUpdater.autoInstallOnAppQuit = installable;
+  autoUpdater.autoInstallOnAppQuit = installable && !reopening;
 
   // Null when the updater is inactive, e.g. on Linux outside an AppImage and a .deb.
   const result = await autoUpdater.checkForUpdates();
@@ -88,10 +99,28 @@ async function checkForUpdates(
   }
 
   await result.downloadPromise;
-  installsOnQuit = true;
   const { language } = await core.getSettings();
   if (await ask(language, "ready", version)) {
-    await restartToInstall(autoUpdater, settleQuit, releaseDataFolder);
+    await restartToInstall(
+      {
+        quitAndInstall() {
+          installing = true;
+          const failed = () => {
+            installing = false;
+          };
+          autoUpdater.once("error", failed);
+          try {
+            autoUpdater.quitAndInstall();
+          } catch (error) {
+            autoUpdater.removeListener("error", failed);
+            failed();
+            throw error;
+          }
+        },
+      },
+      settleQuit,
+      releaseDataFolder,
+    );
   }
 }
 
