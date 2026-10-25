@@ -247,6 +247,24 @@ const dialogsAsked = (app: ElectronApplication) =>
 const answerDialog = (app: ElectronApplication) =>
   app.evaluate(() => (globalThis as { heldDialog?: { answer(): void } }).heldDialog?.answer());
 
+/**
+ * Stands in for the first responder a system dialog takes on macOS: records the actions the menu
+ * sends it, and carries none of them out.
+ */
+const holdFirstResponder = (app: ElectronApplication) =>
+  app.evaluate(({ Menu }) => {
+    const sent: string[] = [];
+    (globalThis as { firstResponderActions?: string[] }).firstResponderActions = sent;
+    Menu.sendActionToFirstResponder = ((action: string) => {
+      sent.push(action);
+    }) as typeof Menu.sendActionToFirstResponder;
+  });
+
+const responderActions = (app: ElectronApplication) =>
+  app.evaluate(
+    () => (globalThis as { firstResponderActions?: string[] }).firstResponderActions ?? [],
+  );
+
 // The system keeps a key from the window behind its dialog (Playwright's keys go round it), but
 // macOS still runs the menu's items: there ⌘A is the Edit menu's Select All (#1515).
 test("while a system file dialog is open, the menu's Select All doesn't reach the window behind it", async () => {
@@ -269,6 +287,7 @@ test("while a system file dialog is open, the menu's Select All doesn't reach th
     const picked = join(sources, "Lagoons.txt");
     await writeFile(picked, "Lagoons are a part of the sea.\n");
     await holdOpenDialog(app, picked);
+    await holdFirstResponder(app);
 
     await window.keyboard.press("ControlOrMeta+o");
     await expect.poll(() => dialogsAsked(app)).toBe(1);
@@ -284,6 +303,56 @@ test("while a system file dialog is open, the menu's Select All doesn't reach th
     await clickEditItem(app, "edit.selectAll");
     await expect(selected).toHaveCount(await rows.count());
     await expect(footer).toHaveText(`${await rows.count()} selected · Esc clears`);
+  } finally {
+    await app.close();
+  }
+});
+
+// macOS sends ⌘A in an Open sheet to the sheet's own file list, as any Mac app does. The held
+// dialog stands in for the sheet: the action is recorded, and the window behind stays as it was (#1707).
+test("on macOS, Select All while a system file dialog is open goes to the first responder", async () => {
+  test.skip(
+    process.platform !== "darwin",
+    "Only macOS sends the menu's Select All to the first responder.",
+  );
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1400, 800);
+    await dismissChatSetup(window);
+    await addFiveDocuments(window);
+    const [sidebar] = PLACES;
+    if (!sidebar) throw new Error("The sidebar is missing.");
+    const rows = sidebar.rows(window);
+    const chosen = rows.nth(1);
+    await pointAndClick(window, sidebar.target(chosen));
+    const name = (await chosen.getByTestId("row-text").textContent()) ?? "";
+    const selected = window
+      .getByTestId("sidebar")
+      .getByRole("treeitem", { selected: true })
+      .getByTestId("row-text");
+    await expect(selected).toHaveText([name]);
+
+    const picked = join(sources, "Lagoons.txt");
+    await writeFile(picked, "Lagoons are a part of the sea.\n");
+    await holdOpenDialog(app, picked);
+    await holdFirstResponder(app);
+    await window.keyboard.press("ControlOrMeta+o");
+    await expect.poll(() => dialogsAsked(app)).toBe(1);
+
+    await clickEditItem(app, "edit.selectAll");
+    await expect.poll(() => responderActions(app)).toEqual(["selectAll:"]);
+    // The window behind the sheet keeps its selection and says nothing.
+    await answerDialog(app);
+    await expect(window.getByTestId("library-row-count")).toHaveText(String(NAMES.length + 1));
+    await expect(selected).toHaveText([name]);
+    await expect(window.getByTestId("sidebar-selection")).toHaveText("");
+
+    // Once the sheet is gone, Select All is the window's own again.
+    await clickEditItem(app, "edit.selectAll");
+    await expect(selected).toHaveCount(await rows.count());
+    await expect(window.getByTestId("sidebar-selection")).toHaveText(
+      `${await rows.count()} selected · Esc clears`,
+    );
   } finally {
     await app.close();
   }

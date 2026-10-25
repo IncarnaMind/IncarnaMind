@@ -1,13 +1,14 @@
 import type { TextRange } from "../../core/api";
 import { SIMPLIFIED } from "../../shared/hanVariants";
-import { pinyinOf } from "./pinyin";
+import { pinyinReadings } from "./pinyin";
 
 /**
  * Matching what the User types against names: Minds, conversations,
  * Documents, Folders, Tags and commands, in ⌘K and the Library. Case and
  * accents don't count, traditional Chinese reads as simplified, a Chinese
  * name is found by its pinyin ("caiwu" for 财务) or the pinyin's initials
- * ("cw"), and a word of four letters or more may have one typo ("contarct").
+ * ("cw"), in any reading a character commonly has ("chongming" for 重命名),
+ * and a word of four letters or more may have one typo ("contarct").
  * Every word typed must be in the name; a name that is the words typed,
  * starts with them or has them at the start of its words ranks above one that
  * only holds them, and a match with a typo below all of those.
@@ -17,6 +18,10 @@ import { pinyinOf } from "./pinyin";
 export interface NameMatch {
   score: number;
   ranges: TextRange[];
+  /** Whether what was typed is the name or starts one of its words, rather than being inside one. */
+  atWordStart: boolean;
+  /** Whether the name holds what was typed with one typo, inside one word, rather than as it was typed. */
+  typo: boolean;
 }
 
 /** A spelling of the name, each of its units pointing at the folded name's. */
@@ -32,9 +37,9 @@ interface Folded extends Spelling {
   /** For each unit of `text`, where the character it came from starts and ends in the name. */
   from: number[];
   to: number[];
-  /** Its Chinese characters by their pinyin, and by the pinyin's initials; null without any. */
-  pinyin: Spelling | null;
-  initials: Spelling | null;
+  /** Its Chinese characters by their pinyin, and by the pinyin's initials, in each common reading (#1416); null without any. */
+  pinyin: readonly Spelling[] | null;
+  initials: readonly Spelling[] | null;
 }
 
 const MARKS = /\p{Mn}/gu;
@@ -53,6 +58,28 @@ function startsWord(text: string, at: number): boolean {
   if (at === 0) return true;
   if (HAN.test(text[at] ?? "")) return true;
   return !WORD_CHARACTER.test(text[at - 1] ?? "");
+}
+
+/** How many ways one name is spelled, so a name of several polyphonic characters stays cheap to fold. */
+const MOST_WAYS = 8;
+
+/** Every way the name's characters can be read, the collation's reading of each first. */
+function readingWays(readings: readonly (readonly (string | null)[])[]): (string | null)[][] {
+  const ways: (string | null)[][] = [];
+  const walk = (at: number, way: (string | null)[]) => {
+    if (ways.length >= MOST_WAYS) return;
+    if (at === readings.length) {
+      ways.push([...way]);
+      return;
+    }
+    for (const reading of readings[at] ?? [null]) {
+      way.push(reading);
+      walk(at + 1, way);
+      way.pop();
+    }
+  };
+  walk(0, []);
+  return ways;
 }
 
 function spell(text: string, syllables: (string | null)[], initialsOnly: boolean): Spelling {
@@ -90,16 +117,20 @@ function fold(name: string): Folded {
   }
   // By UTF-16 unit, as every offset here is: a Chinese character is one, an emoji two.
   const units = Array.from({ length: text.length }, (_, index) => index);
-  const syllables = units.map((index) => pinyinOf(text[index] ?? ""));
-  const chinese = syllables.some((syllable) => syllable !== null);
+  const readings = units.map((index) => {
+    const found = pinyinReadings(text[index] ?? "");
+    return found.length > 0 ? found : [null];
+  });
+  const chinese = readings.some((each) => each[0] !== null);
+  const ways = readingWays(readings);
   const folded: Folded = {
     text,
     of: units,
     starts: units.map((index) => startsWord(text, index)),
     from,
     to,
-    pinyin: chinese ? spell(text, syllables, false) : null,
-    initials: chinese ? spell(text, syllables, true) : null,
+    pinyin: chinese ? ways.map((way) => spell(text, way, false)) : null,
+    initials: chinese ? ways.map((way) => spell(text, way, true)) : null,
   };
   if (folds.size >= MOST_FOLDS) folds.clear();
   folds.set(name, folded);
@@ -150,7 +181,15 @@ function oneEditApart(a: string, b: string): boolean {
   );
 }
 
-/** A word typed with one typo, at the start of one of the name's words: "contarct" in "Contracts". */
+function findSpelled(spellings: readonly Spelling[], word: string): Found | null {
+  for (const spelling of spellings) {
+    const found = findIn(spelling, word, true);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** A word typed with one typo, inside one of the name's words: "contarct" in "Contracts". */
 function findWithTypo(folded: Folded, word: string): Found | null {
   if (word.length < TYPO_FROM || !LETTERS.test(word)) return null;
   const { text } = folded;
@@ -160,7 +199,10 @@ function findWithTypo(folded: Folded, word: string): Found | null {
     // Longest first: "contrat" is "contract" with a letter dropped, not "contra".
     for (const length of [word.length + 1, word.length, word.length - 1]) {
       const part = text.slice(at, at + length);
-      if (part.length === length && oneEditApart(word, part)) {
+      // One word, not letters across a boundary: "theme" isn't "the e" of "the examples" (#1372).
+      if (part.length !== length || !LETTERS.test(part)) continue;
+      if (folded.starts.slice(at + 1, at + length).some(Boolean)) continue;
+      if (oneEditApart(word, part)) {
         return { start: at, end: at + length, atStart: true, typo: true };
       }
     }
@@ -173,8 +215,8 @@ function find(folded: Folded, word: string): Found | null {
   if (exact?.atStart) return exact;
   const latin = LETTERS.test(word);
   const spelled =
-    (latin && folded.pinyin && findIn(folded.pinyin, word, true)) ||
-    (latin && folded.initials && findIn(folded.initials, word, true)) ||
+    (latin && folded.pinyin && findSpelled(folded.pinyin, word)) ||
+    (latin && folded.initials && findSpelled(folded.initials, word)) ||
     null;
   return spelled ?? exact ?? findWithTypo(folded, word);
 }
@@ -200,8 +242,8 @@ export function startsWith(typed: string, name: string): boolean {
   const wanted = fold(typed).text;
   if (wanted === "") return false;
   const folded = fold(name);
-  return [folded, folded.pinyin, folded.initials].some((spelling) =>
-    spelling?.text.startsWith(wanted),
+  return [folded, ...(folded.pinyin ?? []), ...(folded.initials ?? [])].some((spelling) =>
+    spelling.text.startsWith(wanted),
   );
 }
 
@@ -234,5 +276,10 @@ export function matchName(words: readonly string[], name: string): NameMatch | n
     end: folded.to[end - 1] ?? name.length,
   }));
   // Of names that match alike, the shorter is the closer match.
-  return { score: kind * 1000 - Math.min(folded.text.length, 999), ranges: joinRanges(ranges) };
+  return {
+    score: kind * 1000 - Math.min(folded.text.length, 999),
+    ranges: joinRanges(ranges),
+    atWordStart: kind >= 2,
+    typo: kind === 0,
+  };
 }

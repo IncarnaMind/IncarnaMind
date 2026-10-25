@@ -50,6 +50,7 @@ import {
 import { Marked } from "./Marked";
 import { ProblemMark } from "./ProblemLine";
 import { errorTextClass } from "./ui";
+import { useBackdropClose } from "./useModal";
 
 /** How long typing pauses before the words inside are searched for. */
 const WORDS_DELAY_MS = 120;
@@ -205,6 +206,7 @@ function Palette() {
     // Now, not on the dialog's close event a task later: ⌘K pressed meanwhile opens it again.
     usePalette.getState().hide();
   };
+  useBackdropClose(dialog, close);
 
   const choose = (item: PaletteItem, inTab = false) => {
     // Closed first, so the focus is back where it was before what was chosen moves it.
@@ -308,7 +310,13 @@ function Palette() {
               data-testid={waiting ? "palette-searching" : "palette-empty"}
               className="px-2 pt-4 pb-2 text-[13px] leading-5 text-ink-meta"
             >
-              {t(waiting ? "palette.searching" : "palette.empty")}
+              {t(
+                waiting
+                  ? "palette.searching"
+                  : actionsOnly
+                    ? "palette.empty.actions"
+                    : "palette.empty",
+              )}
             </p>
           )
         )}

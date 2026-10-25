@@ -622,15 +622,49 @@ export function conversationContextOf(
       ...recorded,
     ];
   });
-  const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(question));
-  // With the Question, not the Mind: opening another Document then never changes what a prompt cache keeps.
-  const asked = [onScreenLine(onScreen), mind?.selection ?? "", question]
-    .filter((part) => part !== "")
-    .join("\n\n");
+  const asked = askedText(onScreen, mind?.selection ?? "", question);
+  const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(asked));
   return {
     context: { messages: withMind(mind?.text ?? "", kept, asked), question },
     origins: originsOf(kept),
   };
+}
+
+/**
+ * The end of the Question's message: the Documents on screen, the selection, then the Question.
+ * With the Question, not the Mind: opening another Document then never changes what a prompt
+ * cache keeps.
+ */
+export function askedText(
+  onScreen: readonly string[],
+  selection: string,
+  question: string,
+): string {
+  return [onScreenLine(onScreen), selection, question].filter((part) => part !== "").join("\n\n");
+}
+
+/**
+ * The messages with `line` just before `asked`, where the last message ends with it, else just
+ * before the Question; as they are when it ends with neither.
+ */
+export function withLineBefore(
+  messages: readonly AnswerMessage[],
+  line: string,
+  asked: string,
+  question: string,
+): AnswerMessage[] {
+  const last = messages.at(-1);
+  const at =
+    last?.role !== "user"
+      ? -1
+      : last.content.endsWith(asked)
+        ? last.content.length - asked.length
+        : last.content.endsWith(question)
+          ? last.content.length - question.length
+          : -1;
+  if (!last || at < 0 || !line) return [...messages];
+  const content = `${last.content.slice(0, at)}${line}\n\n${last.content.slice(at)}`;
+  return [...messages.slice(0, -1), { ...last, content }];
 }
 
 /**

@@ -249,7 +249,10 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
         : edit
           ? editParts(edit.text)
           : replyParts(prompt, tools ?? []);
-      const slow = edit ? edit.slow : !search && SLOWLY.test(lastQuestion(prompt));
+      // A check of a sentence that says "slowly" reports slowly too, as a Question asked slowly
+      // does, so a spec can open its card while the check still runs.
+      const checked = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(lastUserText(prompt))?.[1] ?? "";
+      const slow = edit ? edit.slow : !search && SLOWLY.test(`${lastQuestion(prompt)} ${checked}`);
       const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
       const stream = new ReadableStream<StreamPart>({
         async pull(controller) {
