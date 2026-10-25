@@ -75,7 +75,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "Staff may", { line, words: "cliffs." });
     await pointAndClick(
       window,
-      window.getByTestId("selection-menu").getByTestId("selection-action-find-support"),
+      window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     const marks = window.getByTestId("claim-mark");
     await expect(marks).toHaveCount(2);

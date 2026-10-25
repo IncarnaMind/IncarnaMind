@@ -27,6 +27,7 @@ import {
   type ProposalRequest,
   type RecordAiUseInput,
 } from "../core/api";
+import { originOf } from "./blockOrigins";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
 
@@ -202,6 +203,7 @@ export function resolveProposals(
   const order: string[] = [];
   /** Where each request's first top-level Block removed by a reject was: what it revised goes back there. */
   const removedAt = new Map<string, number>();
+  const removedFrom = new Map<string, string | null>();
   const note = (ref: ProposalRef, characters: number, blockId: string | null) => {
     let entry = resolved.get(ref.id);
     if (!entry) {
@@ -253,7 +255,10 @@ export function resolveProposals(
         const written = keep && attribute.kind === "insert" && !footnote;
         note(attribute, written ? textLength(child) : 0, own);
         if (!keep) {
-          if (parent === blocks) removedAt.set(attribute.request, index);
+          if (parent === blocks) {
+            removedAt.set(attribute.request, index);
+            removedFrom.set(attribute.request, answerOf(child));
+          }
           parent.delete(index, 1);
           continue;
         }
@@ -264,18 +269,37 @@ export function resolveProposals(
   };
 
   visit(blocks, null);
-  settleRevisions(
+  const restored = settleRevisions(
     blocks,
     new Set([...resolved.values()].map((each) => each.request)),
     outcome,
     removedAt,
   );
+  // What a rejected revision brings back that the same Answer wrote goes too, so an Answer that
+  // revised the text it had just written is taken back whole, while an earlier Answer's text
+  // comes back waiting. It never waited for the User, so it isn't in what this returns.
+  const sameAnswer = new Set<string>();
+  for (const [request, kept] of restored) {
+    const answer = removedFrom.get(request);
+    for (const { element, from } of kept) {
+      const ref = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+      if (ref && answer && from === answer) sameAnswer.add(ref.id);
+    }
+  }
+  if (sameAnswer.size > 0) resolveProposals(blocks, (ref) => sameAnswer.has(ref.id), "reject");
   // Walked from the end: the first one met is the last in the Mind.
   return order.reverse().map((id) => resolved.get(id) as ResolvedProposal);
 }
 
+function answerOf(element: Y.XmlElement): string | null {
+  const id = idOf(element);
+  const from = element.doc && id ? originOf(element.doc, id)?.from : null;
+  return from ? JSON.stringify(from) : null;
+}
+
 const REVISED_BLOCKS = "blocks";
 const REVISED_AFTER = "after";
+const REVISED_FROM = "from";
 
 const revisionsOf = (blocks: Y.XmlFragment) =>
   blocks.doc?.getMap<Y.Map<unknown>>(MIND_REVISIONS_FIELD) ?? null;
@@ -302,19 +326,26 @@ export function keepRevised(
   const revision = new Y.Map<unknown>();
   revision.set(REVISED_BLOCKS, kept);
   revision.set(REVISED_AFTER, before instanceof Y.XmlElement ? idOf(before) : null);
+  // Read now: a revision that rewrites Blocks in place keeps their ids, which then take its origin.
+  revision.set(REVISED_FROM, replaced.map(answerOf));
   revisions.set(request, revision);
 }
 
 /**
  * Puts back what a revision by `request` replaced, after the Block that was
  * before it, unless a change of it still waits or they are back already: a
- * reject undone and done again puts them back once.
+ * reject undone and done again puts them back once. Returns what it put back,
+ * each with the Answer it came from when it was replaced.
  */
-export function restoreRevised(blocks: Y.XmlFragment, request: string, fallback?: number): void {
+export function restoreRevised(
+  blocks: Y.XmlFragment,
+  request: string,
+  fallback?: number,
+): { element: Y.XmlElement; from: string | null }[] {
   const revision = revisionsOf(blocks)?.get(request);
   const kept = revision?.get(REVISED_BLOCKS);
-  if (!revision || !(kept instanceof Y.Array)) return;
-  if (pendingProposals(blocks).some((each) => each.request === request)) return;
+  if (!revision || !(kept instanceof Y.Array)) return [];
+  if (pendingProposals(blocks).some((each) => each.request === request)) return [];
   const elements = kept
     .toArray()
     .filter((each): each is Y.XmlElement => each instanceof Y.XmlElement);
@@ -322,7 +353,7 @@ export function restoreRevised(blocks: Y.XmlFragment, request: string, fallback?
   const ids = new Set(
     children.flatMap((child) => (child instanceof Y.XmlElement ? (idOf(child) ?? []) : [])),
   );
-  if (elements.some((element) => ids.has(idOf(element) ?? ""))) return;
+  if (elements.some((element) => ids.has(idOf(element) ?? ""))) return [];
   const after = revision.get(REVISED_AFTER);
   const anchor =
     typeof after === "string"
@@ -338,22 +369,32 @@ export function restoreRevised(blocks: Y.XmlFragment, request: string, fallback?
     at,
     elements.map((element) => element.clone()),
   );
+  const from = revision.get(REVISED_FROM);
+  return elements.map((element, index) => {
+    const answer = Array.isArray(from) ? from[index] : null;
+    return { element, from: typeof answer === "string" ? answer : null };
+  });
 }
 
-/** What revisions of the resolved requests replaced: back once all their new Blocks are rejected, gone once any is accepted. */
+/**
+ * What revisions of the resolved requests replaced: back once all their new Blocks are rejected,
+ * gone once any is accepted. Returns what came back, by the request whose revision it was.
+ */
 function settleRevisions(
   blocks: Y.XmlFragment,
   requests: ReadonlySet<string>,
   outcome: "accept" | "reject",
   removedAt: ReadonlyMap<string, number>,
-): void {
+): Map<string, ReturnType<typeof restoreRevised>> {
+  const restored = new Map<string, ReturnType<typeof restoreRevised>>();
   const revisions = revisionsOf(blocks);
-  if (!revisions || revisions.size === 0) return;
+  if (!revisions || revisions.size === 0) return restored;
   for (const request of requests) {
     if (!revisions.has(request)) continue;
     if (outcome === "accept") revisions.delete(request);
-    else restoreRevised(blocks, request, removedAt.get(request));
+    else restored.set(request, restoreRevised(blocks, request, removedAt.get(request)));
   }
+  return restored;
 }
 
 /** The Proposals waiting in the Mind's Blocks, each once, in the order they start. */
