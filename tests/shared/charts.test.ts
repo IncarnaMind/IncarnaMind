@@ -21,6 +21,7 @@ import {
   seriesName,
   switchedChart,
   switchedData,
+  unitGroups,
   unitlessRows,
 } from "../../src/shared/charts";
 
@@ -418,6 +419,55 @@ describe("a number with no unit (#579)", () => {
     const older = readChart(stored as unknown as Record<string, unknown>);
     expect(older.data.rows[0]?.values[1]?.scale).toBeNull();
     expect([...unitlessRows(older.data, 1)]).toEqual([4]);
+  });
+});
+
+describe("series of different units (#1392)", () => {
+  const MIXED: SourceGrid = [
+    [head("Quarter"), head("Gross margin"), head("Net debt / EBITDA")],
+    [cell("Q1"), cell("41.2%"), cell("2.8x")],
+    [cell("Q2"), cell("42.0%"), cell("2.5x")],
+  ];
+
+  test("series that share a unit still share one chart", () => {
+    expect(unitGroups(fromTable(QUARTERS) as ChartAttributes)).toEqual([
+      { series: [0, 1], unit: null },
+    ]);
+    const dollars = fromTable([
+      [head("Quarter"), head("2024"), head("2025")],
+      [cell("Q1"), cell("$289.4 million"), cell("$341.5 million")],
+      [cell("Q2"), cell("$301.2 million"), cell("$362.0 million")],
+    ]) as ChartAttributes;
+    expect(unitGroups(dollars)).toEqual([
+      { series: [0, 1], unit: { kind: "currency", code: "USD" } },
+    ]);
+  });
+
+  test("two units make two charts, each naming its unit", () => {
+    expect(unitGroups(fromTable(MIXED) as ChartAttributes)).toEqual([
+      { series: [0], unit: { kind: "percent" } },
+      { series: [1], unit: { kind: "times" } },
+    ]);
+  });
+
+  test("three units make a chart each", () => {
+    const chart = fromTable([
+      [head("Quarter"), head("Gross margin"), head("Leverage"), head("Revenue")],
+      [cell("Q1"), cell("41.2%"), cell("2.8x"), cell("$1.2 million")],
+      [cell("Q2"), cell("42.0%"), cell("2.5x"), cell("$1.4 million")],
+    ]) as ChartAttributes;
+    expect(unitGroups(chart)).toEqual([
+      { series: [0], unit: { kind: "percent" } },
+      { series: [1], unit: { kind: "times" } },
+      { series: [2], unit: { kind: "currency", code: "USD" } },
+    ]);
+  });
+
+  test("a pie or a scatter chart is one chart, its series read together", () => {
+    const pie = { ...(fromTable(MIXED) as ChartAttributes), kind: "pie" as const };
+    expect(unitGroups(pie)).toEqual([{ series: [1], unit: null }]);
+    const scatter = { ...(fromTable(MIXED) as ChartAttributes), kind: "scatter" as const };
+    expect(unitGroups(scatter)).toEqual([{ series: [0, 1], unit: null }]);
   });
 });
 

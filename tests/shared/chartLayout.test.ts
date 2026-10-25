@@ -166,6 +166,37 @@ describe("a chart's layout", () => {
     expect(tickFormat("en", 0.5, 4, false)(2.5)).toBe("2.5");
   });
 
+  test("one unit's series alone, on its own scale (#1392)", () => {
+    const chart = chartFromTable(
+      grid([
+        ["Quarter", "Gross margin", "Leverage"],
+        ["Q1", "41.2%", "2.8x"],
+        ["Q2", "42.0%", "2.5x"],
+      ]),
+      { blockId: null, title: "", language: "en" },
+    ) as ChartAttributes;
+    const names = (index: number) => chart.data.series[index] ?? "";
+    const percent = layoutChart(chart, {
+      width: 640,
+      language: "en",
+      seriesName: names,
+      series: [0],
+    });
+    const times = layoutChart(chart, {
+      width: 640,
+      language: "en",
+      seriesName: names,
+      series: [1],
+    });
+    expect(percent.points.map((point) => point.series)).toEqual([0, 0]);
+    expect(times.points.map((point) => point.series)).toEqual([1, 1]);
+    const axis = (layout: ChartLayout) =>
+      layout.texts.filter((text) => text.role === "axis").map((text) => text.text);
+    expect(axis(percent)).toContain("40%");
+    expect(axis(times)).not.toContain("40%");
+    expect(axis(times)).toContain("2");
+  });
+
   test("with nothing to draw, it has no marks", () => {
     expect(lay("bar", 640, { ...QUARTERS, drawn: [] }).points).toEqual([]);
     expect(lay("scatter", 640, { ...QUARTERS, drawn: [0] }).points).toEqual([]);

@@ -4,6 +4,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  motionSettled,
   newMind,
   pointAndClick,
   removeDataFolder,
@@ -41,13 +42,26 @@ const WORDS = {
         ["C", "2100"],
       ],
     },
+    mixed: {
+      head: ["Quarter", "Gross margin", "Net debt / EBITDA"],
+      rows: [
+        ["Q1", "41.2%", "2.8 times"],
+        ["Q2", "43.5%", "2.5 times"],
+        ["Q3", "40.8%", "3.1 times"],
+        ["Q4", "44.1%", "2.9 times"],
+      ],
+    },
     firstMetric: "Revenue",
     metrics: ["Revenue", "Net income"],
     years2: ["2023", "2024", "2025"],
+    quarters: ["Q1", "Q2", "Q3", "Q4"],
     chartFromTable: "Chart from table",
     switch: "Switch rows and columns",
     rows: "Rows",
     lead: "Revenue by year",
+    mixedLead: "Margin and leverage by quarter",
+    unitPercent: "%",
+    unitTimes: "times",
   },
   "zh-CN": {
     years: {
@@ -72,13 +86,26 @@ const WORDS = {
         ["丙", "2100"],
       ],
     },
+    mixed: {
+      head: ["季度", "毛利率", "净负债 / EBITDA"],
+      rows: [
+        ["一季度", "41.2%", "2.8倍"],
+        ["二季度", "43.5%", "2.5倍"],
+        ["三季度", "40.8%", "3.1倍"],
+        ["四季度", "44.1%", "2.9倍"],
+      ],
+    },
     firstMetric: "营业收入",
     metrics: ["营业收入", "净利润"],
     years2: ["2023年", "2024年", "2025年"],
+    quarters: ["一季度", "二季度", "三季度", "四季度"],
     chartFromTable: "用表格生成图表",
     switch: "行列互换",
     rows: "数据行",
     lead: "按年度列出的营业收入",
+    mixedLead: "各季度毛利率与杠杆",
+    unitPercent: "%",
+    unitTimes: "倍",
   },
 } as const;
 
@@ -153,6 +180,8 @@ for (const [language, width] of [
     const chart = editor.getByTestId("chart");
     await expect(chart).toHaveCount(1);
     await expect(chart.getByTestId("chart-point")).toHaveCount(6);
+    // Columns of one unit share one chart.
+    await expect(chart.getByTestId("chart-panel")).toHaveCount(1);
 
     expect(await axisLabels(chart)).toEqual(expect.arrayContaining([...words.years2]));
     await expect(chart.getByTestId("chart-legend")).toContainText(words.metrics[0]);
@@ -231,6 +260,60 @@ for (const [language, width] of [
     expect(copied.text).toContain(words.lead);
     expect(copied.html).toContain("<table");
     expect(copied.html).toContain('data-type="chart"');
+    await app.close();
+  });
+
+  test(`a table of percents beside times charts as two stacked charts on one x axis, each labelled with its unit (${language}, ${width}px)`, async () => {
+    const words = WORDS[language];
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, width, 900);
+    const { editor, grid } = await mindWithTable(window, words.mixedLead, words.mixed);
+
+    await pointAndClick(window, grid.locator("td").first());
+    await pointAndClick(window, window.getByTestId("table-menu"));
+    await pointAndClick(window, window.getByTestId("table-chart"));
+    await expect(window.getByTestId("table-actions")).toBeHidden();
+    const chart = editor.getByTestId("chart");
+    await expect(chart).toHaveCount(1);
+    await expect(chart.getByTestId("chart-point")).toHaveCount(8);
+    await chart.scrollIntoViewIfNeeded();
+    // Its copy shrinks away first, or the picture keeps it over the chart.
+    await motionSettled(window);
+    await screenshot(window, `table-chart-units-${language}-${width}`);
+
+    const panels = chart.getByTestId("chart-panel");
+    await expect(panels).toHaveCount(2);
+    await expect(chart.getByTestId("chart-unit")).toHaveText([words.unitPercent, words.unitTimes]);
+    await expect(panels.nth(0).getByTestId("chart-point")).toHaveCount(4);
+    await expect(panels.nth(1).getByTestId("chart-point")).toHaveCount(4);
+
+    for (const panel of [panels.nth(0), panels.nth(1)]) {
+      expect(await axisLabels(panel)).toEqual(expect.arrayContaining([...words.quarters]));
+    }
+
+    // The quarters sit at the same x in both charts: they share one x axis.
+    const quarterX = async (panel: Locator, label: string) => {
+      const text = panel.locator(".chart-axis").filter({ hasText: label }).first();
+      return (await text.boundingBox())?.x ?? null;
+    };
+    const [across, up] = await Promise.all([
+      quarterX(panels.nth(0), words.quarters[0] ?? ""),
+      quarterX(panels.nth(1), words.quarters[0] ?? ""),
+    ]);
+    expect(across).not.toBeNull();
+    expect(across !== null && up !== null && Math.abs(across - up) <= 1).toBe(true);
+
+    // Each chart has its own scale: percents above, times below.
+    expect((await axisLabels(panels.nth(0))).some((text) => text.endsWith("%"))).toBe(true);
+    expect((await axisLabels(panels.nth(1))).some((text) => text.endsWith("%"))).toBe(false);
+
+    const [first, second] = await Promise.all([
+      panels.nth(0).boundingBox(),
+      panels.nth(1).boundingBox(),
+    ]);
+    expect(first && second && first.y + first.height <= second.y).toBe(true);
     await app.close();
   });
 

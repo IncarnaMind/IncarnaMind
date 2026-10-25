@@ -79,6 +79,10 @@ export interface LayoutOptions {
   seriesName(index: number): string;
   measure?: (text: string) => number;
   legendInside?: boolean;
+  /** Draw only these series, by their place in the data: one chart of a stack (#1392). */
+  series?: readonly number[];
+  /** At least this left margin, so charts stacked on one x axis line up. */
+  left?: number;
 }
 
 /** Wide characters (Chinese, Japanese, Korean, full-width forms) take a whole em; others about 0.6. */
@@ -229,8 +233,9 @@ function layoutBarsOrLines(
   const { width, measure } = options;
   const layout = emptyLayout(chart.kind, width);
   const drawn = drawnSeries(chart);
+  const shown = options.series ?? drawn;
   const inks = seriesInks(drawn.length);
-  const points = chartPoints(chart);
+  const points = chartPoints(chart).filter((point) => shown.includes(point.series));
   layout.legend = chartLegend(chart, options.seriesName);
   const { rows } = chart.data;
   if (rows.length === 0) return layout;
@@ -245,7 +250,7 @@ function layoutBarsOrLines(
   );
   const ticks = ticksOf(low, high, step);
   const tickLabels = ticks.map(format);
-  const left = Math.ceil(Math.max(...tickLabels.map(measure)) + 16);
+  const left = Math.max(Math.ceil(Math.max(...tickLabels.map(measure)) + 16), options.left ?? 0);
   const right = width - PLOT_RIGHT;
   const bottom = CHART_HEIGHT - AXIS_BOTTOM;
   const y = (value: number) => PLOT_TOP + ((high - value) / (high - low)) * (bottom - PLOT_TOP);
@@ -279,7 +284,7 @@ function layoutBarsOrLines(
   const placeOf = new Map(drawn.map((series, place) => [series, place]));
   if (chart.kind === "line") {
     const r = rows.length > 40 ? 3 : 4.5;
-    for (const [place, series] of drawn.entries()) {
+    for (const series of shown) {
       const runs: [number, number][][] = [];
       let run: [number, number][] = [];
       rows.forEach((row, index) => {
@@ -292,7 +297,7 @@ function layoutBarsOrLines(
         run.push([centre(index), y(value)]);
       });
       if (run.length > 0) runs.push(run);
-      layout.lines.push({ series, ink: inks[place] ?? "now", runs });
+      layout.lines.push({ series, ink: inks[placeOf.get(series) ?? 0] ?? "now", runs });
     }
     layout.points = points.map((point) => ({
       ...point,
@@ -303,18 +308,19 @@ function layoutBarsOrLines(
     return layout;
   }
 
-  const count = Math.max(1, drawn.length);
+  const count = Math.max(1, shown.length);
   const gap = count > 1 ? Math.min(4, slot * 0.04) : 0;
   const bar = Math.max(1, Math.min(30, (slot * 0.7 - gap * (count - 1)) / count));
   const group = bar * count + gap * (count - 1);
   const zero = y(0);
+  const barPlace = new Map(shown.map((series, place) => [series, place]));
   layout.points = points.map((point) => {
-    const place = placeOf.get(point.series) ?? 0;
+    const place = barPlace.get(point.series) ?? 0;
     const x = centre(point.row) - group / 2 + place * (bar + gap);
     const top = Math.min(y(point.value.value), zero);
     return {
       ...point,
-      ink: inks[place] ?? "now",
+      ink: inks[placeOf.get(point.series) ?? 0] ?? "now",
       mark: {
         shape: "bar",
         x,
