@@ -50,6 +50,8 @@ export interface FakeAnthropic {
   refuseRefresh: string | null;
   /** The next replies of the Messages API, then answers. */
   replies: MessagesReply[];
+  /** What an answer says. */
+  answer: string;
   /** Refresh tokens revoked at sign-out, in order. */
   revoked: string[];
   /** A refresh is answered only once this resolves. */
@@ -187,7 +189,11 @@ export async function createFakeAnthropic(): Promise<FakeAnthropic> {
         ],
         [
           "content_block_delta",
-          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: ANSWER } },
+          {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: fake.answer },
+          },
         ],
         ["content_block_stop", { type: "content_block_stop", index: 0 }],
         [
@@ -211,7 +217,7 @@ export async function createFakeAnthropic(): Promise<FakeAnthropic> {
       type: "message",
       role: "assistant",
       model,
-      content: [{ type: "text", text: ANSWER }],
+      content: [{ type: "text", text: fake.answer }],
       stop_reason: "end_turn",
       stop_sequence: null,
       usage: { input_tokens: 12, output_tokens: 6 },
@@ -228,6 +234,7 @@ export async function createFakeAnthropic(): Promise<FakeAnthropic> {
     expiresIn: 3600,
     refuseRefresh: null,
     replies: [],
+    answer: ANSWER,
     revoked: [],
     holdRefresh: null,
     redirects: false,

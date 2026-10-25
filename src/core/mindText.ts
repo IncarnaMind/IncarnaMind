@@ -52,6 +52,7 @@ import {
   readProposalAttribute,
   readProposalRef,
 } from "../shared/proposals";
+import type { ScopeKind } from "../shared/searchScope";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
@@ -127,11 +128,16 @@ export type FailedSentence = { id: string } & (
   | { check: "contradicted"; says: string | null; worked: { shown: string; stated: string } | null }
   | {
       check: "unsupported";
-      folder: string | null;
+      /** Where it looked, as `scopeName` names it; null for every Document. */
+      scope: { kind: ScopeKind; name: string | null; more: number } | null;
       nearest: { quote: string; source: string } | null;
+      covers: { covered: string; uncovered: string; quote: string; source: string } | null;
+      /** What the sentence's own Citations support and don't, as its card says. */
+      citations: { count: number; covered: string; uncovered: string } | null;
     }
+  | { check: "own-workings" }
   | { check: "needs-recheck"; why: RecheckReason }
-  | { check: "cited-case-unchecked" }
+  | { check: "cited-case-unchecked"; unsupported: boolean }
 );
 
 /** Part of a change still waiting to be accepted (a Proposal), read for review (#107). */

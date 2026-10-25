@@ -62,6 +62,9 @@ describe("What a reply claims it changed", () => {
     ["我把总结加长了。", ["changed"]],
     ["我把四份文档的摘要都写长了一些", ["changed"]],
     ["我完善了“周报”的结论。", ["changed"]],
+    // Kimi K2.6's, in the 2026-10-21 runs.
+    ["已经把教程的主要观点整理后加进了你的笔记。", ["added"]],
+    ["我已经把风险部分放进了“周报”。", ["added"]],
     ["总结现在更长了。", ["changed"]],
   ])("%s", (reply, expected) => {
     expect(kinds(reply)).toEqual(expected);

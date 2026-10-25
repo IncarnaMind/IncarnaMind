@@ -5,7 +5,8 @@
  * this window's own page as the video, stopped at once). Each track runs
  * through a 16 kHz AudioContext and the "pcm-frames" worklet, and its frames
  * go to the main process as 16-bit PCM. The microphone is opened again when
- * the default input changes or its device goes.
+ * the default input changes or its device goes, and closed while the User has
+ * paused it, so nothing opens or hears it then.
  */
 import type { AudioSource } from "../../core/api";
 import {
@@ -15,6 +16,7 @@ import {
   type CaptureWindowState,
   toPcm16,
 } from "../../shared/capture";
+import { createMicrophone, startMicrophone } from "./microphone";
 import pcmFramesUrl from "./pcmFrames.ts?worker&url";
 
 const found = (window as unknown as Partial<Record<string, CaptureBridge>>)[CAPTURE_BRIDGE_KEY];
@@ -31,14 +33,14 @@ interface Open {
   heard: boolean;
   /** Resolves once the worklet has sent what it held. */
   flushed: Promise<void>;
+  /** When its track was stopped: what the worklet sends after that was captured by then. */
+  stoppedAt: number | null;
 }
 
 let context: Promise<AudioContext> | null = null;
 let sink: GainNode | null = null;
 const open = new Map<AudioSource, Open>();
 let running = false;
-/** The microphone is being opened again; another change waits for it. */
-let reopening: Promise<void> | null = null;
 
 function audioContext(): Promise<AudioContext> {
   context ??= (async () => {
@@ -78,6 +80,7 @@ async function connect(source: AudioSource, stream: MediaStream): Promise<Open> 
     node,
     worklet,
     heard: false,
+    stoppedAt: null,
     flushed: new Promise((resolve) => {
       flushed = resolve;
     }),
@@ -88,7 +91,7 @@ async function connect(source: AudioSource, stream: MediaStream): Promise<Open> 
       return;
     }
     if (!entry.heard) entry.heard = event.data.some((sample) => sample !== 0);
-    bridge.audio(source, toPcm16(event.data));
+    bridge.audio(source, toPcm16(event.data), entry.stoppedAt ?? Date.now());
   };
   node.connect(worklet);
   if (sink) worklet.connect(sink);
@@ -101,6 +104,7 @@ async function close(source: AudioSource): Promise<void> {
   const entry = open.get(source);
   if (!entry) return;
   open.delete(source);
+  entry.stoppedAt = Date.now();
   for (const track of entry.stream.getTracks()) {
     track.onended = null;
     track.stop();
@@ -111,7 +115,8 @@ async function close(source: AudioSource): Promise<void> {
   entry.worklet.disconnect();
 }
 
-async function openMicrophone(): Promise<void> {
+async function openMicrophone(stillWanted: () => boolean): Promise<void> {
+  if (!stillWanted()) return;
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -122,28 +127,27 @@ async function openMicrophone(): Promise<void> {
     report("microphone", stateOf(error));
     return;
   }
-  if (!running) {
+  // A pause can arrive while the User is still being asked, or the page is starting.
+  if (!stillWanted()) {
     for (const track of stream.getTracks()) track.stop();
     return;
   }
-  await connect("microphone", stream);
+  try {
+    await connect("microphone", stream);
+  } catch (error) {
+    for (const track of stream.getTracks()) track.stop();
+    throw error;
+  }
   report("microphone", "recording");
   const [track] = stream.getAudioTracks();
-  if (track) track.onended = () => void reopenMicrophone();
+  if (track) track.onended = () => void microphone.reopen();
 }
 
-/** The default input changed, or the microphone's device went: open whichever is the default now. */
-function reopenMicrophone(): Promise<void> {
-  const next = (reopening ?? Promise.resolve()).then(async () => {
-    if (!running || !open.has("microphone")) return;
-    await close("microphone");
-    await openMicrophone();
-  });
-  reopening = next.finally(() => {
-    if (reopening === next) reopening = null;
-  });
-  return next;
-}
+const microphone = createMicrophone({
+  isOpen: () => open.has("microphone"),
+  open: openMicrophone,
+  close: () => close("microphone"),
+});
 
 async function openSystemAudio(): Promise<void> {
   let stream: MediaStream;
@@ -172,23 +176,28 @@ async function openSystemAudio(): Promise<void> {
 
 async function start(request: CaptureStart): Promise<void> {
   running = true;
+  // Queued before anything is awaited: a pause that follows is never behind this open.
+  const microphoneOpened = startMicrophone(microphone, request);
   await audioContext();
-  if (request.microphone) await openMicrophone();
+  await microphoneOpened;
   if (request.systemAudio) await openSystemAudio();
 }
 
 async function stop(): Promise<void> {
   running = false;
-  await reopening;
+  await microphone.stop();
   await Promise.all([close("microphone"), close("system")]);
   if (context) await (await context).close();
   bridge.stopped();
 }
 
 navigator.mediaDevices.addEventListener("devicechange", () => {
-  if (running && open.has("microphone")) void reopenMicrophone();
+  void microphone.reopen();
 });
 
+bridge.onMicrophone((on) => {
+  void microphone.set(on);
+});
 bridge.onStart((request) => {
   start(request).catch((error: unknown) => {
     console.error(error);

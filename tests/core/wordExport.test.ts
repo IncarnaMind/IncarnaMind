@@ -10,12 +10,22 @@ import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import { type Core, type Document, MIND_WORD_FIELD, WORD_ATOM_NODE } from "../../src/core";
+import {
+  type CitationAttributes,
+  type Core,
+  type Document,
+  MIND_WORD_FIELD,
+  type UnsupportedReason,
+  WORD_ATOM_NODE,
+} from "../../src/core";
 import { elements, parseXml, type XmlElement } from "../../src/core/documents/formats/xml";
+import { quitCopyOptions } from "../../src/shared/exportOptions";
+import { setMindScope } from "../../src/shared/mindScope";
 import { recordProposalRequest } from "../../src/shared/proposals";
+import { folderScope } from "../../src/shared/searchScope";
 import { wordFileOf, wordImportProgressOf } from "../../src/shared/wordFiles";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { addAndProcess, linkAndProcess, writeSourceFile } from "../helpers/documents";
 import { acceptedParagraphs, textOf, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind } from "../helpers/minds";
@@ -168,6 +178,34 @@ describe("what the Mind didn't change", () => {
     expect(word?.unknownParts).toEqual(["vendor/settings.vendor"]);
     expect(files.get("vendor/settings.vendor")?.toString("utf8")).toBe("<vendor>kept</vendor>");
   });
+
+  // protects=the export keeps the page the imported file has, its size and margins, whatever the computer's region; fails_when=the export takes the region's paper, as a native Mind's does; no_claim=Page view, which pageSetup.test.ts covers.
+  test.each([
+    [
+      "GB",
+      "Letter",
+      '<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1000" w:right="1000" w:bottom="1000" w:left="1000" w:header="500" w:footer="500" w:gutter="0"/>',
+    ],
+    [
+      "US",
+      "A4",
+      '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/>',
+    ],
+  ] as const)(
+    "on a computer in %s, a Mind imported from a %s file exports on that page",
+    async (region, _paper, sectPr) => {
+      const core = startCore(await createTempDataFolder(), { systemRegion: () => region });
+      const { mindId, client } = await importFile(
+        core,
+        wordFile({ body: paragraph("Text."), sectPr }),
+      );
+      editText(client, (value) => `${value} Edited.`);
+      await client.settled();
+
+      const { document } = await exported(core, mindId);
+      expect(document).toContain(`<w:sectPr>${sectPr}</w:sectPr>`);
+    },
+  );
 });
 
 describe("an edited paragraph", () => {
@@ -522,14 +560,54 @@ describe("IncarnaMind's comments in an imported file (#107)", () => {
   });
 });
 
+describe("The Word copy offered when quitting follows the User's answer about marking (#1536)", () => {
+  // protects=the quit-time copy of a Mind with text IncarnaMind wrote carries the comment on it only when the User chose Mark it, and none with Leave it out or no answer yet; fails_when=it marks for an answer of "leave" or none, or leaves out the mark for "mark"; no_claim=the save dialog.
+  test.each([
+    { answer: "mark" as const, marked: true },
+    { answer: "leave" as const, marked: false },
+    { answer: null, marked: false },
+  ])("with the answer $answer, the copy marked is $marked", async ({ answer, marked }) => {
+    const { core, mindId, client } = await setUp({ body: paragraph(run("Due in May.")) });
+    editMind(client, (blocks) => [
+      ...blocks,
+      {
+        type: "paragraph",
+        content: [{ ...text("Rent rises with inflation."), marks: [{ type: "generated" }] }],
+      },
+    ]);
+    await client.settled();
+    const { user } = await core.getSettings();
+    await core.updateSettings({
+      user: {
+        exportOptions: {
+          ...user.exportOptions,
+          docx: { ...user.exportOptions.docx, markAiText: answer },
+        },
+      },
+    });
+
+    const preferences = (await core.getSettings()).user.exportOptions;
+    const files = unzip((await core.exportMind(mindId, quitCopyOptions(preferences))).data);
+    const comments = files.get("word/comments.xml")?.toString("utf8") ?? "";
+
+    expect(comments.includes("Written by IncarnaMind")).toBe(marked);
+  });
+});
+
 describe("sentences whose check isn't good, in an imported file (#900)", () => {
-  const checked = (value: string, state: "contradicted" | "unsupported", says: string | null) => ({
+  const checked = (
+    value: string,
+    state: "contradicted" | "unsupported",
+    says: string | null,
+    unsupported: UnsupportedReason | null = null,
+    more: Record<string, unknown> = {},
+  ) => ({
     ...text(value),
     marks: [
       {
         type: "claimCheck",
         attrs: {
-          id: `check-${state}`,
+          id: `check-${state}-${value.length}`,
           request: "r1",
           action: "check-against-documents",
           state,
@@ -538,15 +616,76 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
           text: value,
           evidence: null,
           says,
+          unsupported,
           calculation: null,
           scope: { folderId: null, widened: false },
           versions: [],
           excluded: [],
           checkedAt: "2026-10-12T14:30:00.000Z",
+          ...more,
         },
       },
     ],
   });
+
+  test.each([
+    {
+      language: "en" as const,
+      cited:
+        "Unsupported: your Citation supports the moon phases, not the parts about the harbour.",
+      own: "Unsupported: only your own working file says this.",
+    },
+    {
+      language: "zh-CN" as const,
+      cited: "无依据：引用支持the moon phases，但不支持the harbour的部分。",
+      own: "无依据：只有你自己的工作文件这样写。",
+    },
+  ])(
+    "$language: a cited sentence's comment says what its Citation supports, and one only the User's workings say says so, as their cards do",
+    async ({ language, cited, own }) => {
+      const { core, mindId, client } = await setUp({
+        body:
+          paragraph("Spring tides rise in the harbour.") + paragraph("Margins widened in 2026."),
+      });
+      const tides = await tidesDocument(core);
+      await core.updateSettings({ user: { language } });
+      editMind(client, ([first, second]) => [
+        {
+          ...(first as JSONContent),
+          content: [
+            checked(
+              "Spring tides rise in the harbour",
+              "unsupported",
+              null,
+              { reason: null, covered: "the moon phases", uncovered: "the harbour" },
+              // The sentence as checked holds its Citation, as an inline node.
+              { text: "Spring tides rise in the harbour\uFFFC." },
+            ),
+            citation(tides),
+            text("."),
+          ],
+        },
+        {
+          ...(second as JSONContent),
+          content: [
+            checked("Margins widened in 2026.", "unsupported", null, null, {
+              excluded: [
+                { documentId: "workings", documentName: "Workings", reason: "own-workings" },
+              ],
+            }),
+          ],
+        },
+      ]);
+      await client.settled();
+
+      const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+      const comments = textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
+
+      expect(result.sentenceChecks).toMatchObject({ unsupported: 2, commented: true });
+      expect(comments).toContain(cited);
+      expect(comments).toContain(own);
+    },
+  );
 
   test("each gets a comment on its own words, written into its paragraph; the others stay as they were", async () => {
     const { core, bytes, mindId, client } = await setUp({
@@ -583,7 +722,7 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
     });
     expect([...comments.matchAll(/<w:comment /g)]).toHaveLength(2);
     expect(textOf(comments)).toContain("Contradicted: The report says £182.9m.");
-    expect(textOf(comments)).toContain("Unsupported: nothing in your Documents says this.");
+    expect(textOf(comments)).toContain("Unsupported: I didn’t find this in “All Documents”.");
     const [first, second, third] = paragraphsIn(document);
     expect(first).toMatch(
       /<w:commentRangeStart w:id="(\d+)"\/>[\s\S]*Halden held cash of £192\.9m\.[\s\S]*<w:commentRangeEnd w:id="\1"\/>/,
@@ -593,6 +732,153 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
     );
     const before = paragraphsIn(unzip(bytes).get("word/document.xml")?.toString("utf8") ?? "");
     expect(second).toBe(before[1]);
+  });
+
+  const STAFF = "Staff may work from home two days a week.";
+  const CLAUSE = "The Employee may work from home two days a week";
+  const quoted: CitationAttributes = {
+    passageId: "passage-1",
+    documentId: "agreement",
+    documentName: "Employment Agreement",
+    contentHash: "hash-1",
+    pageFrom: 1,
+    pageTo: 1,
+    location: null,
+    quote: CLAUSE,
+    check: "found",
+    checkReason: null,
+  };
+  test.each([
+    {
+      language: "en" as const,
+      covered: "home working two days a week",
+      uncovered: "staff in general",
+      covers: `Unsupported: your Documents support home working two days a week, not the parts about staff in general (“${CLAUSE}”, Employment Agreement, p. 1)`,
+      nothing: "Unsupported: I didn’t find this in “All Documents”.",
+    },
+    {
+      language: "zh-CN" as const,
+      covered: "每周在家工作两天",
+      uncovered: "全体员工",
+      covers: `无依据：你的文档支持每周在家工作两天，但不支持全体员工的部分（“${CLAUSE}”，Employment Agreement，第 1 页）`,
+      nothing: "无依据：未在“全部文档”中找到。",
+    },
+  ])(
+    "$language: a sentence the check quoted a Passage for part of says what it supports, as its card does; one nothing backs keeps its words",
+    async ({ language, covered, uncovered, covers, nothing }) => {
+      const { core, mindId, client } = await setUp({
+        body: paragraph(STAFF) + paragraph("Margins widened in 2026."),
+      });
+      await core.updateSettings({ user: { language } });
+      editMind(client, ([first, second]) => [
+        {
+          ...(first as JSONContent),
+          content: [
+            checked(STAFF, "unsupported", null, { reason: null, covered, uncovered, quoted }),
+          ],
+        },
+        {
+          ...(second as JSONContent),
+          content: [checked("Margins widened in 2026.", "unsupported", null)],
+        },
+      ]);
+      await client.settled();
+
+      const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+      const comments = textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
+
+      expect(result.sentenceChecks).toMatchObject({ unsupported: 2, commented: true });
+      expect(comments).toContain(covers);
+      expect(comments).toContain(nothing);
+    },
+  );
+
+  test.each([
+    {
+      language: "en" as const,
+      one: "Unsupported: I didn’t find this in “Okoro agreement”.",
+      two: "Unsupported: I didn’t find this in “Okoro agreement” or 1 more.",
+      changed: "Needs re-check: the Mind’s Search scope has changed since.",
+    },
+    {
+      language: "zh-CN" as const,
+      one: "无依据：未在“Okoro agreement”中找到。",
+      two: "无依据：未在“Okoro agreement”等 2 项中找到。",
+      changed: "需重新核对：这个 Mind 的搜索范围已更改。",
+    },
+  ])(
+    // protects=the Word comment of a sentence checked in the Mind's chosen scope names that scope, as its card does, and one checked in another scope than the Mind's now needs a re-check (#1623); fails_when=it says All Documents, another wording than the card's, or keeps a verdict made elsewhere; no_claim=the card itself (e2e).
+    "$language: a sentence checked in the Mind's chosen scope says where it looked, as its card does",
+    async ({ language, one, two, changed }) => {
+      const { core, mindId, client } = await setUp({
+        body: paragraph("Margins widened in 2026.") + paragraph("Costs fell in 2025."),
+      });
+      await core.updateSettings({ user: { language } });
+      const okoro = await core.saveTextAsDocument({ name: "Okoro agreement", text: "Notice." });
+      const adeyemi = await core.saveTextAsDocument({ name: "Adeyemi agreement", text: "Leave." });
+      const scopeOf = (documentIds: string[]) => ({ folderIds: [], tagIds: [], documentIds });
+      const inScope = (value: string, documentIds: string[]) => {
+        const marked = checked(value, "unsupported", null);
+        const [mark] = marked.marks;
+        if (!mark) throw new Error("No mark.");
+        const scope = { folderId: null, widened: false, chosen: scopeOf(documentIds) };
+        return { ...marked, marks: [{ ...mark, attrs: { ...mark.attrs, scope } }] };
+      };
+      editMind(client, ([first, second]) => [
+        { ...(first as JSONContent), content: [inScope("Margins widened in 2026.", [okoro.id])] },
+        {
+          ...(second as JSONContent),
+          content: [inScope("Costs fell in 2025.", [okoro.id, adeyemi.id])],
+        },
+      ]);
+      const commentsWith = async (documentIds: string[]) => {
+        setMindScope(client.doc, scopeOf(documentIds));
+        await client.settled();
+        const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+        return textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
+      };
+
+      const inOkoro = await commentsWith([okoro.id]);
+      expect(inOkoro).toContain(one);
+      expect(inOkoro).toContain(changed);
+      const inBoth = await commentsWith([okoro.id, adeyemi.id]);
+      expect(inBoth).toContain(two);
+      expect(inBoth).toContain(changed);
+      expect(inBoth).not.toContain(one);
+    },
+  );
+
+  // protects=a Linked folder chosen as the Mind's scope is named by its own name in the Word comment, and a Folder deleted since still reads as deleted; fails_when=the Linked folder reads as a deleted Folder; no_claim=the card, which names it from the window's Folders.
+  test("a sentence checked in a Linked folder chosen as the scope names that folder, and one in a Folder since deleted says it was deleted", async () => {
+    const { core, mindId, client } = await setUp({
+      body: paragraph("Leave is 30 days.") + paragraph("Margins widened in 2026."),
+    });
+    const notes = join(await createTempDataFolder(), "Notes");
+    await writeSourceFile(notes, "Holiday.md", "# Holiday\n\nLeave is 25 days.\n");
+    await linkAndProcess(core, notes);
+    const linked = (await core.listFolders()).find((folder) => folder.name === "Notes");
+    if (!linked) throw new Error("The Linked folder has no Folder.");
+    const gone = await core.createLibraryGroup({ name: "Old harbours", description: "" });
+    const inFolder = (value: string, folderId: string) => {
+      const scope = { folderId: null, widened: false, chosen: folderScope(folderId) };
+      return checked(value, "unsupported", null, null, { scope });
+    };
+    editMind(client, ([first, second]) => [
+      { ...(first as JSONContent), content: [inFolder("Leave is 30 days.", linked.id)] },
+      { ...(second as JSONContent), content: [inFolder("Margins widened in 2026.", gone.id)] },
+    ]);
+    await core.deleteLibraryGroup(gone.id);
+    const commentsIn = async (folderId: string) => {
+      setMindScope(client.doc, folderScope(folderId));
+      await client.settled();
+      const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+      return textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
+    };
+
+    expect(await commentsIn(linked.id)).toContain("Unsupported: I didn’t find this in “Notes”.");
+    expect(await commentsIn(gone.id)).toContain(
+      "Unsupported: I didn’t find this in “Deleted Folder”.",
+    );
   });
 
   test("with the option off the file is the one it was", async () => {
@@ -661,6 +947,64 @@ describe("Blocks added, deleted and moved", () => {
     expect(textOf(paragraphs.at(-1) ?? "")).toContain("Tides");
     expect(document).toMatch(/<\/w:p><w:sectPr>/);
     expect(files.has("word/footnotes.xml")).toBe(false);
+  });
+
+  test("with the list at the end, a new Citation is [1] in the text and the file's own footnote stays", async () => {
+    const footnoteMark =
+      '<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="1"/></w:r>';
+    const { core, mindId, client } = await setUp({
+      body: paragraph(`${run("Noted")}${footnoteMark}${run(".")}`),
+      footnotes: `<w:footnote w:id="1"><w:p><w:r><w:footnoteRef/></w:r>${run(" A note.")}</w:p></w:footnote>`,
+    });
+    const tides = await tidesDocument(core);
+    editMind(client, (blocks) => [
+      ...blocks,
+      {
+        type: "paragraph",
+        content: [text("Tides are strongest at new moon "), citation(tides), text(".")],
+      },
+    ]);
+    await client.settled();
+    const result = await core.exportMind(mindId, { format: "docx", citationPlace: "list" });
+    const files = unzip(result.data);
+    const part = (name: string) => files.get(name)?.toString("utf8") ?? "";
+    const written = paragraphsIn(part("word/document.xml"));
+    const paragraphs = written.map(textOf);
+
+    expect(written[0]).toContain(footnoteMark);
+    expect(paragraphs[1]).toBe("Tides are strongest at new moon [1].");
+    expect(paragraphs.slice(-2)).toEqual(["Bibliography", "[1]\tTides"]);
+    expect(part("word/document.xml").match(/<w:footnoteReference/g)).toHaveLength(1);
+    expect(part("word/footnotes.xml")).toContain("A note.");
+    expect(part("word/footnotes.xml")).not.toContain("Tides");
+  });
+
+  test("with the list at the end, Citations in changes still waiting are markers in the tracked insertion and deletion, and each has its entry", async () => {
+    const { core, mindId, client } = await setUp({ body: paragraph("Intro.") });
+    const tides = await tidesDocument(core);
+    editMind(client, (blocks) => [
+      ...blocks,
+      {
+        type: "paragraph",
+        attrs: { proposal: { id: "c1", request: "r1", kind: "insert" } },
+        content: [text("Proposed "), citation(tides)],
+      },
+      {
+        type: "paragraph",
+        attrs: { proposal: { id: "c2", request: "r1", kind: "delete" } },
+        content: [text("Removed "), citation(tides)],
+      },
+    ]);
+    await client.settled();
+
+    const result = await core.exportMind(mindId, { format: "docx", citationPlace: "list" });
+    const document = unzip(result.data).get("word/document.xml")?.toString("utf8") ?? "";
+
+    expect(document.match(/<w:ins [^>]*>[\s\S]*?<\/w:ins>/g)?.join("")).toContain("[1]");
+    expect(document.match(/<w:del [^>]*>[\s\S]*?<\/w:del>/g)?.join("")).toContain("[1]");
+    const paragraphs = paragraphsIn(document).map(textOf);
+    expect(paragraphs.slice(-2)).toEqual(["Bibliography", "[1]\tTides"]);
+    expect(document).not.toContain("w:footnoteReference");
   });
 
   test("an empty document takes new paragraphs before its section's properties", async () => {

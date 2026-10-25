@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
@@ -14,6 +14,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   slideSelect,
@@ -53,7 +54,7 @@ const LANGUAGES = {
     searchAll: "Search all Documents",
     keep: "Keep as my view",
     keepCommand: "Keep as my view",
-    nothing: "Nothing in “Tutorials” says this.",
+    nothing: "I didn’t find this in “Tutorials”.",
   },
   "zh-CN": {
     tutorial:
@@ -64,7 +65,7 @@ const LANGUAGES = {
     searchAll: "搜索全部文档",
     keep: "保留为我的观点",
     keepCommand: "保留为我的观点",
-    nothing: "“Tutorials”中没有内容提到这一点。",
+    nothing: "未在“Tutorials”中找到。",
   },
 } as const;
 
@@ -190,14 +191,14 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(marks.nth(1)).toHaveAttribute("data-check", "unsupported");
     await expectFoundMarkers();
 
-    // No Citation: today's card, with no fixes.
+    // No Citation: its own card, with nothing of a Citation's part to cut (e2e/notFoundCard.spec.ts).
     await openCard(marks.nth(1));
     await expect(card.getByTestId("claim-nothing")).toHaveText(words.nothing);
     await expect(card.getByTestId("claim-find-sources")).toBeVisible();
     await expect(card.getByTestId("claim-remove")).toBeVisible();
-    for (const fix of ["claim-cut", "claim-keep"]) {
-      await expect(card.getByTestId(fix)).toHaveCount(0);
-    }
+    await expect(card.getByTestId("claim-cut")).toHaveCount(0);
+    await expect(card.getByTestId("claim-cut-sentence")).toBeVisible();
+    await expect(card.getByTestId("claim-keep")).toBeVisible();
     await window.keyboard.press("Escape");
 
     // With Citations: the three fixes, the first the primary one, inside the card at both widths.
@@ -215,7 +216,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(fixes[2] as Locator).toHaveText(words.keep);
       await expect(fixes[0] as Locator).toHaveClass(/citation-card-action--primary/);
       for (const fix of fixes) expect(await inside(fix, card)).toBe(true);
-      for (const gone of ["claim-find-sources", "claim-search-web", "claim-remove"]) {
+      for (const gone of [
+        "claim-cut-sentence",
+        "claim-find-sources",
+        "claim-search-web",
+        "claim-remove",
+      ]) {
         await expect(card.getByTestId(gone)).toHaveCount(0);
       }
       await window.keyboard.press("Escape");
@@ -268,16 +274,6 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(() => wordsOf(tutorial)).toBe(words.cut);
     await app.close();
   });
-}
-
-/** Runs a command from ⌘K, as a person does. */
-async function runCommand(window: Page, id: string, label: string): Promise<void> {
-  await window.keyboard.press("ControlOrMeta+k");
-  await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type(label);
-  const item = window.getByTestId("palette").locator(`[data-key="command:${id}"]`);
-  await expect(item).toContainText(label);
-  await pointAndClick(window, item);
 }
 
 test("a sentence past the most one write checks says why, in English and Chinese, and Check now checks it alone", async () => {

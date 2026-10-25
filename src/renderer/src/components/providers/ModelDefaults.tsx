@@ -13,6 +13,7 @@ import { useAppStore } from "../../store";
 import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { fieldClass, ruledListClass, sectionTitleClass } from "../ui";
+import { ModelHealthLine } from "./ModelHealthLine";
 import { providerName } from "./ProviderPage";
 
 export type Role = "chatModel" | "quickTasksModel" | "imageModel";
@@ -145,6 +146,7 @@ export function ModelDefaults({
               providers={providers}
               roles={roles}
             />
+            {row.role === "chatModel" && <ModelHealthLine />}
           </JobRow>
         ))}
         <JobRow

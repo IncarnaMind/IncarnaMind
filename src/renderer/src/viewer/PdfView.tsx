@@ -32,6 +32,7 @@ import { isMissingDocumentError, isPasswordError, loadPdfJs, openPdf, type PdfJs
 import { PlaceMemoryContext } from "./place";
 import { CitationMark, type QuoteMark, quoteMarkOf, quoteTone } from "./quoteMark";
 import { type ScannedPage, scannedTextLayer, useScannedPages } from "./scannedText";
+import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
 import { HeaderDivider, ViewerHeader } from "./ViewerHeader";
 import { FileGone, ViewerMessage } from "./ViewerMessage";
@@ -280,6 +281,12 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
   const [outlineOpen, setOutlineOpen] = useState(false);
 
   const scroller = useRef<HTMLDivElement>(null);
+  useSelectionReader(
+    useCallback(
+      (range) => (scroller.current ? pdfSelection(range, scroller.current) : { parts: [] }),
+      [],
+    ),
+  );
   const pageElements = useRef<(HTMLElement | null)[]>([]);
   /** The page at the top edge of the view, and how far into it: kept through zooms and resizes. */
   const anchor = useRef({ page: 1, fraction: 0 });

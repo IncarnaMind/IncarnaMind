@@ -6,6 +6,7 @@ import {
   fitName,
   mindName,
   NAME_LENGTH,
+  numberedName,
   shortenMiddle,
 } from "../../src/shared/naming";
 
@@ -201,5 +202,15 @@ describe("the name of a Mind", () => {
     expect(mindName({ title: "Reading list", autoTitle: "Notes on tides" })).toBe("Reading list");
     expect(mindName({ title: "", autoTitle: "Notes on tides" })).toBe("Notes on tides");
     expect(mindName({ title: "", autoTitle: "" })).toBe("");
+  });
+});
+
+describe("a name another Mind has", () => {
+  // protects=a second Mind made from the same Answer reads apart, " 2" then " 3", whatever the case of the name; fails_when=it takes the same name, or numbers a free one; no_claim=none beyond protects.
+  test("gets the next free number", () => {
+    expect(numberedName("Lease summary", ["Q3 review"])).toBeNull();
+    expect(numberedName("Lease summary", ["lease summary"])).toBe("Lease summary 2");
+    expect(numberedName("租约总结", ["租约总结", "租约总结 2"])).toBe("租约总结 3");
+    expect(numberedName("", [""])).toBeNull();
   });
 });

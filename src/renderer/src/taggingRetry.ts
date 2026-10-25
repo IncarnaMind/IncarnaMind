@@ -1,16 +1,28 @@
 import type { Document } from "../../core/api";
-import { useAppStore } from "./store";
+import { organizeHeld } from "../../shared/libraryModels";
+import { core } from "./core";
+import { type AppState, allExamples, isOwnDocument, useAppStore } from "./store";
 
-/** The Documents whose tagging failed because the AI model couldn't be reached. */
-export const unreachedDocuments = (documents: readonly Document[]): string[] =>
-  documents.flatMap((each) =>
-    each.tagging === "failed" && each.taggingError?.kind === "network" ? [each.id] : [],
+/** The User's own Documents whose tagging failed, outside Organize's hold: what Retry tags again. */
+export const failedTagging = (state: AppState): Document[] => {
+  const held = organizeHeld(state.library);
+  return state.documents.filter(
+    (each) =>
+      each.status === "ready" &&
+      each.tagging === "failed" &&
+      !held.has(each.id) &&
+      isOwnDocument(each, allExamples(state)),
   );
+};
 
-/** Once the computer is back online, the Documents that couldn't reach the AI model are tagged again. */
+export async function retryTagging(): Promise<void> {
+  const state = useAppStore.getState();
+  const ids = failedTagging(state).map((each) => each.id);
+  if (ids.length > 0) await state.retagDocuments(ids);
+}
+
 export function retryTaggingWhenOnline(): void {
   window.addEventListener("online", () => {
-    const ids = unreachedDocuments(useAppStore.getState().documents);
-    if (ids.length > 0) void useAppStore.getState().retagDocuments(ids);
+    core.backOnline().catch(useAppStore.getState().reportError);
   });
 }

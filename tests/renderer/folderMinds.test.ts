@@ -6,7 +6,7 @@ import type {
   LibrarySnapshot,
   Mind,
 } from "../../src/core/api";
-import { chosenScope, composerScope, NO_SCOPE } from "../../src/renderer/src/composer";
+import { composerScope } from "../../src/renderer/src/composer";
 import {
   movedLocally,
   moveMessage,
@@ -17,7 +17,13 @@ import {
 } from "../../src/renderer/src/moves";
 import { scopeChips, scopeCounts } from "../../src/renderer/src/scope";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
-import { filingFolder, hasSearchScope, mindSearchScope } from "../../src/shared/searchScope";
+import {
+  chosenScope,
+  filingFolder,
+  hasSearchScope,
+  mindSearchScope,
+  NO_SCOPE,
+} from "../../src/shared/searchScope";
 
 /**
  * Folders are projects (#111), as the window shows them: the composer's

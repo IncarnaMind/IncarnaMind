@@ -23,6 +23,8 @@
  * recordings (see ./runs/tasks).
  */
 
+import { outsideFlows } from "./timing/flows";
+
 /** One piece of background work: as a rule, one model call. */
 export interface BackgroundJob {
   /** What kind of work it is, e.g. "tagging" or "classification". */
@@ -112,7 +114,8 @@ export function createBackgroundQueue(options: {
     };
     let done: Promise<void>;
     try {
-      done = job.run(call);
+      // A job often starts as an Answer ends, from inside its flow: it isn't that Answer's work.
+      done = outsideFlows(() => job.run(call));
     } catch (error) {
       done = Promise.reject(error);
     }

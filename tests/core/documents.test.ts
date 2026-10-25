@@ -140,6 +140,25 @@ describe("Documents", { timeout: 30_000 }, () => {
     );
   });
 
+  test("an add says which Documents it made: a file in the Library already is not among them", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const core = startCore(dataDir);
+    const first = await writeSourceFile(sources, "first.txt", CHINESE_NOTES);
+    const second = await writeSourceFile(sources, "second.txt", ENGLISH_NOTES);
+    const missing = join(sources, "missing.txt");
+
+    const one = await core.addDocuments([first]);
+    const both = await core.addDocuments([first, second, missing]);
+    const none = await core.addDocuments([first, second]);
+
+    expect(one.added).toEqual([one.documents[0]?.id]);
+    expect(both.documents).toHaveLength(2);
+    expect(both.added).toEqual([both.documents[1]?.id]);
+    expect(both.skipped).toHaveLength(1);
+    expect(none.added).toEqual([]);
+  });
+
   test("processing reports queued, extracting, then ready: embeddings are off by default", async () => {
     const sources = await createTempDataFolder();
     const core = startCore(await createTempDataFolder());
@@ -442,6 +461,7 @@ describe("Documents", { timeout: 30_000 }, () => {
         { path: missing, reason: "unreadable" },
         { path: sources, reason: "unsupported-type" },
       ],
+      added: [],
       batchId: expect.any(String),
     });
     expect(await core.listDocuments()).toEqual([]);

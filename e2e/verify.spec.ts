@@ -158,6 +158,21 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(claimCard.getByTestId("claim-reason")).toHaveText("The model declined to check it.");
   await window.keyboard.press("Escape");
 
+  // The PDF being verified holds every claim of it: no card calls it a copy that was left out.
+  await pointAndClick(window, marks(window).and(window.locator('[data-check="unsupported"]')));
+  await expect(claimCard).toBeVisible();
+  await expect(claimCard.getByTestId("claim-left-out")).toHaveCount(0);
+  // Someone else's words: the claim can be kept as the User's view, never cut.
+  await expect(claimCard.getByTestId("claim-keep")).toBeVisible();
+  await expect(claimCard.getByTestId("claim-cut-sentence")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+
+  // A contradicted claim can be kept as the User's view too.
+  await pointAndClick(window, marks(window).and(window.locator('[data-check="contradicted"]')));
+  await expect(claimCard).toBeVisible();
+  await expect(claimCard.getByTestId("claim-keep")).toBeVisible();
+  await window.keyboard.press("Escape");
+
   // Each row goes to the next claim of its kind.
   const caretIn = () =>
     editor.evaluate(() => getSelection()?.anchorNode?.parentElement?.closest("p")?.textContent);
@@ -401,5 +416,36 @@ test("a provider failure while finding the claims is worded like an Answer's, wi
   await expect(failure).toContainText("doesn’t know");
   await expect(failure.getByTestId("answer-error-action")).toBeVisible();
   await expect(window.getByTestId("verify-problem")).toHaveCount(0);
+  await app.close();
+});
+
+test("a check that fails says why in the interface language, and again in the other after a switch (#627)", async () => {
+  const running = await launch();
+  const { app, window } = running;
+  await useLocalChatModel(window);
+  await readyToVerify(running);
+  await setWindowSize(app, window, 1440, 900);
+  await verifyFromPlusMenu(window, "Verify a document…");
+  const card = window.getByTestId("check-card");
+  await expect(card.getByTestId("verify-ask")).toBeVisible();
+
+  // The core refuses the check as it does a Mind that verifies nothing: its sentence, and its wording after it.
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("core:verifyClaims");
+    ipcMain.handle("core:verifyClaims", () => {
+      const refused = new Error(
+        `This Mind doesn't verify a document.\n\u2063wording:${JSON.stringify({ key: "error.verify.notVerifying" })}`,
+      );
+      refused.name = "InvalidInputError";
+      throw refused;
+    });
+  });
+  await pointAndClick(window, card.getByTestId("verify-check"));
+  const problem = window.getByTestId("verify-problem");
+  await expect(problem).toContainText("Couldn’t check: This Mind doesn’t verify a document.");
+  await setLanguage(window, "zh-CN");
+  await expect(problem).toContainText("无法核对：这个 Mind 没有在核对文档。");
+  await setLanguage(window, "en");
+  await expect(problem).toContainText("Couldn’t check: This Mind doesn’t verify a document.");
   await app.close();
 });

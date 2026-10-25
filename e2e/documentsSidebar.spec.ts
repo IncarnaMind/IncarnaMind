@@ -6,6 +6,7 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
   clickNow,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   interceptOpenDialog,
@@ -14,6 +15,7 @@ import {
   linkFolderFromSidebar,
   openDocumentMenu,
   removeDataFolder,
+  setWindowSize,
   showSourceLocations,
 } from "./app";
 
@@ -265,5 +267,41 @@ test("Add Documents opens a sheet on the window in a folder on this computer, th
   await window.getByTestId("plus-add-documents").click();
   await expect.poll(async () => (await asked()).length).toBe(2);
   expect((await asked())[1]?.options.defaultPath).toBe(sources);
+  await app.close();
+});
+
+test("the Library's count keeps its place and width as Documents are added", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  const count = window.getByTestId("library-row-count");
+  const placeOf = async () => {
+    const box = await count.boundingBox();
+    if (!box) throw new Error("The Library's count isn't showing.");
+    return { left: box.x, width: box.width };
+  };
+
+  let added = 0;
+  const addUpTo = async (total: number) => {
+    const files = Array.from({ length: total - added }, (_, index) =>
+      join(sources, `Report ${String(added + index + 1).padStart(4, "0")}.txt`),
+    );
+    await Promise.all(files.map((file) => writeFile(file, `${file}.\n`)));
+    await (await coreOf(window)).evaluate((core, paths) => core.addDocuments(paths), files);
+    added = total;
+  };
+
+  await addUpTo(1);
+  await expect(count).toHaveText("1");
+  const first = await placeOf();
+  for (const [total, shown] of [
+    [12, "12"],
+    [123, "123"],
+    [1234, "1,234"],
+  ] as const) {
+    await addUpTo(total);
+    await expect(count).toHaveText(shown);
+    expect(await placeOf()).toEqual(first);
+  }
   await app.close();
 });

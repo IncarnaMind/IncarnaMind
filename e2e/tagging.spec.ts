@@ -83,7 +83,10 @@ test("Automatic says which model it uses; another one is chosen from the list an
       "Uncertain Tags are marked for review.",
     );
     await expect(
-      section.getByRole("checkbox", { name: "Move new Documents into Folders automatically" }),
+      section.getByRole("checkbox", {
+        name: "Tag and sort new Documents automatically",
+        description: "Runs on this computer.",
+      }),
     ).toBeChecked();
 
     // The list: the models on this computer, labelled, and what they cost.
@@ -149,7 +152,12 @@ test("in Chinese: 自动打标签, with the model Automatic uses and the list's 
       "正在使用本地分类模型（Tev1, Clef-Flash）",
     );
     await expect(section.getByText("在本机运行", { exact: true })).toBeVisible();
-    await expect(section.getByRole("checkbox", { name: "自动把新文档移入文件夹" })).toBeChecked();
+    await expect(
+      section.getByRole("checkbox", {
+        name: "自动为新文档打标签并整理",
+        description: "在这台电脑上运行。",
+      }),
+    ).toBeChecked();
     await expect(option(section, "Tev1 0.8B")).toContainText("本地分类模型");
     await expect(option(section, "Tev1 0.8B")).toContainText("免费，在本机运行");
     await option(section, "fake-model").click();

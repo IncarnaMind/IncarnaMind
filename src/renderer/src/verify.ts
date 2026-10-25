@@ -9,7 +9,6 @@ import type * as Y from "yjs";
 import { create } from "zustand";
 import type { DocumentPlace, FindClaimsResult, VerifyClaimsResult } from "../../core/api";
 import { core, files } from "./core";
-import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
 import { modelInUseOf } from "./modelInUse";
@@ -19,7 +18,8 @@ import { useAppStore } from "./store";
 export type VerifyOutcome =
   | Exclude<FindClaimsResult, { kind: "found" | "cancelled" | "busy" }>
   | Extract<VerifyClaimsResult, { kind: "checked" }>
-  | { kind: "error"; message: string };
+  /** Worded when shown, so it reads in the interface language even after a switch (#627). */
+  | { kind: "error"; error: unknown };
 
 interface VerifyState {
   /** The run going: in which Mind, and whether it finds or checks the claims. */
@@ -66,7 +66,7 @@ async function runStep<R extends FindClaimsResult | VerifyClaimsResult>(
   try {
     result = await step(requestId);
   } catch (error) {
-    settle(mindId, { kind: "error", message: errorMessage(error, translateNow) });
+    settle(mindId, { kind: "error", error });
     return;
   }
   if (result.kind === "busy") {

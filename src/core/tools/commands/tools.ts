@@ -18,6 +18,8 @@ import {
   type CommandProblem,
   type CommandsFound,
   type CommandTarget,
+  type UserAnswer,
+  type UserQuestion,
 } from "../../api";
 import { TranslatableError } from "../../errors";
 import { COMMAND_TOOLS, type Tool, type ToolProviderInfo } from "../index";
@@ -46,7 +48,7 @@ const ARGUMENTS: Readonly<Record<AssistantCommandId, string>> = {
   "mind.rename": "ids: one Mind; name: its new name",
   "mind.moveTo": "ids; folder: a Folder's name, made if there is none",
   "mind.delete": "ids: sent to Recently deleted, where the User can restore them",
-  "mind.export": `ids: one Mind; format: ${COMMAND_EXPORT_FORMATS.join(", ")}; folder: an absolute path, or none for the Output location`,
+  "mind.export": `ids: one Mind; format: ${COMMAND_EXPORT_FORMATS.join(", ")}; folder: an absolute path, or none for the Output location; marks: "mark" or "leave", only when the User's request says whether a Word file marks the text IncarnaMind wrote`,
   "documents.addFromFolder":
     "folder: an absolute path or ~/…; kinds: file extensions such as pdf, or none for every kind",
 };
@@ -79,6 +81,8 @@ export interface CommandToolsOptions {
   /** The Run the calls are part of: its changes are one step of Undo in `steps`. */
   runId: string;
   steps: CommandSteps;
+  /** Asks the User in the tray for a command that needs an answer to go on; none: it can't ask. */
+  ask?: (toolCallId: string, question: UserQuestion, signal: AbortSignal) => Promise<UserAnswer>;
   found(toolCallId: string, found: CommandsFound): void;
   ran(toolCallId: string, done: CommandDone): void;
   failed(toolCallId: string, problem: CommandProblem): void;
@@ -182,6 +186,12 @@ export function commandTools(options: CommandToolsOptions): {
         folder: { type: "string" },
         tag: { type: "string" },
         format: { type: "string", enum: [...COMMAND_EXPORT_FORMATS] },
+        marks: {
+          type: "string",
+          enum: ["mark", "leave"],
+          description:
+            'For a Word export: set only when the User\'s request says whether to mark the text IncarnaMind wrote ("without the AI marks"). Never choose for them: with none given, the app asks.',
+        },
         kinds: { type: "array", items: { type: "string" } },
       },
       required: ["command"],
@@ -191,13 +201,16 @@ export function commandTools(options: CommandToolsOptions): {
     providerTool: COMMAND_TOOLS.run,
     effects: commandEffects,
     untrustedResult: false,
-    async call(_input, { toolCallId }) {
+    async call(_input, { toolCallId, signal }) {
       const command = checked.get(toolCallId);
       checked.delete(toolCallId);
       if (!command) throw new Error("The command wasn't checked before it ran.");
+      const ask = options.ask;
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
       try {
-        ran = await inTurn(() => command.run());
+        ran = await inTurn(() =>
+          command.run(ask ? (question) => ask(toolCallId, question, signal) : null),
+        );
       } catch (error) {
         changed -= counted.get(toolCallId) ?? 0;
         options.failed(toolCallId, problemOf(command.command, error));

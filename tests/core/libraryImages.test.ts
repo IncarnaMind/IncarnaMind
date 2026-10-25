@@ -278,6 +278,9 @@ describe("Library PDF page images", () => {
           ? []
           : message.content.filter((part) => part.type === "file"),
       );
+    /** Whether one call was Organize's, not Automatic Tags'. */
+    const organizing = (call: LanguageModelV4CallOptions) =>
+      JSON.stringify(call.prompt).includes("You organise one Document");
     /** Whether one call was about the Document named `name`. */
     const about = (name: string) => (call: LanguageModelV4CallOptions) =>
       JSON.stringify(call.prompt).includes(name);
@@ -285,7 +288,10 @@ describe("Library PDF page images", () => {
       (await core.getLibrary()).assignments.find((each) => each.documentId === id);
 
     /** A scan and a Document with text, to be organized with `modelId` on the provider `kind`. */
-    async function setup(provider: { kind: "anthropic" | "ollama"; modelId: string }) {
+    async function setup(
+      provider: { kind: "anthropic" | "ollama"; modelId: string },
+      automatic = false,
+    ) {
       const fake = chatModel();
       const core = startCore(await createTempDataFolder(), { createChatModel: () => fake.model });
       const saved = await core.saveChatProvider({
@@ -295,7 +301,7 @@ describe("Library PDF page images", () => {
       await core.createLibraryGroup({ name: "Finance", description: "Invoices and receipts" });
       await core.saveLibrarySettings({
         classifier: { kind: "chat", choice: { providerId: saved.id, modelId: provider.modelId } },
-        automatic: false,
+        automatic,
       });
       const folder = await createTempDataFolder();
       const [scan, text] = await addAndProcess(core, [
@@ -311,41 +317,98 @@ describe("Library PDF page images", () => {
       return { core, fake, scan, text };
     }
 
-    test("a cloud model that reads images gets a scan's page images, which choosing it allowed; text goes as text", async () => {
+    test("a cloud model that reads images gets a scan no page images until the User allows them; text goes as text", async () => {
       const { core, fake, scan, text } = await setup({
         kind: "anthropic",
         modelId: "claude-sonnet-5-5",
       });
-      // Choosing the model allowed organizing to send to it, page images included (ADR-0022).
+      // Choosing the model allowed organizing to send its text to it; page images are a flow of their own (ADR-0022).
       expect(await core.listDataFlows()).toContainEqual(
         expect.objectContaining({
           flow: expect.objectContaining({
             id: "classification",
-            sends: ["groups", "tags", "document-excerpts", "page-images"],
+            sends: ["groups", "tags", "document-excerpts"],
           }),
           consent: "accepted",
         }),
       );
+      expect(await core.listDataFlows()).toContainEqual(
+        expect.objectContaining({
+          flow: expect.objectContaining({ id: "scan-images", sends: ["page-images"] }),
+          consent: "not-asked",
+        }),
+      );
       await core.classifyDocuments([scan.id, text.id]);
-      // Rendering the scan's pages takes a while on a busy machine, as in the tests above.
+      await vi.waitFor(async () => {
+        expect((await assignment(core, text.id))?.status).toBe("classified");
+        expect(await assignment(core, scan.id)).toMatchObject({
+          status: "waiting",
+          error: {
+            wording: { key: "error.library.scanImagesOff", values: { service: "Anthropic" } },
+          },
+        });
+      });
+      // Nothing of the scan was sent, and no picture went at all.
+      expect(fake.calls.filter(organizing)).toHaveLength(1);
+      expect(fake.calls.some(about("scan_0042"))).toBe(false);
+      expect(fake.calls.flatMap(imagesIn)).toEqual([]);
+
+      // Allowed in Settings › Privacy, the waiting scan goes on, with its two pages as JPEGs.
+      await core.allowDataFlow("scan-images", "https://api.anthropic.com");
       await vi.waitFor(
-        async () => {
-          expect((await assignment(core, scan.id))?.status).toBe("classified");
-          expect((await assignment(core, text.id))?.status).toBe("classified");
+        async () => expect((await assignment(core, scan.id))?.status).toBe("classified"),
+        {
+          timeout: 10_000,
         },
-        { timeout: 10_000 },
       );
       const scanCall = fake.calls.find(about("scan_0042"));
-      const textCall = fake.calls.find(about("invoice"));
-      if (!scanCall || !textCall) throw new Error("A Document wasn't sent.");
-      // The scan's two pages, as JPEGs; the Document with text, without images.
+      if (!scanCall) throw new Error("The scan wasn't sent.");
       expect(imagesIn(scanCall).map((part) => part.mediaType)).toEqual([
         "image/jpeg",
         "image/jpeg",
       ]);
-      expect(imagesIn(textCall)).toEqual([]);
+      expect(fake.calls.filter((call) => !about("scan_0042")(call)).flatMap(imagesIn)).toEqual([]);
       expect((await assignment(core, scan.id))?.model).toMatchObject({ images: true });
       expect((await assignment(core, text.id))?.model).toMatchObject({ images: false });
+      expect((await assignment(core, scan.id))?.error).toBeNull();
+    });
+
+    test("automatic grouping leaves a scan unsorted and says why, then sorts it once the page images are allowed", async () => {
+      const { core, fake, scan } = await setup(
+        { kind: "anthropic", modelId: "claude-sonnet-5-5" },
+        true,
+      );
+      await vi.waitFor(async () =>
+        expect(await assignment(core, scan.id)).toMatchObject({
+          status: "waiting",
+          error: { wording: { key: "error.library.scanImagesOff" } },
+        }),
+      );
+      expect(fake.calls.flatMap(imagesIn)).toEqual([]);
+
+      await core.allowDataFlow("scan-images", "https://api.anthropic.com");
+      await vi.waitFor(
+        async () => expect((await assignment(core, scan.id))?.status).toBe("classified"),
+        {
+          timeout: 10_000,
+        },
+      );
+      expect(fake.calls.flatMap(imagesIn)).toHaveLength(2);
+    });
+
+    test("stopping the page images alone leaves the rest of Organize working", async () => {
+      const { core, fake, scan, text } = await setup({
+        kind: "anthropic",
+        modelId: "claude-sonnet-5-5",
+      });
+      await core.allowDataFlow("scan-images", "https://api.anthropic.com");
+      await core.revokeConsent("scan-images", "https://api.anthropic.com");
+      await core.classifyDocuments([scan.id, text.id]);
+      await vi.waitFor(async () =>
+        expect((await assignment(core, text.id))?.status).toBe("classified"),
+      );
+      expect((await assignment(core, scan.id))?.status).toBe("waiting");
+      expect(fake.calls.flatMap(imagesIn)).toEqual([]);
     });
 
     test("a model that can't read images leaves a scan waiting, as before, and gets no images", async () => {

@@ -12,6 +12,7 @@ import {
   DEFAULT_FOLDER_ZH,
   dismissChatSetup,
   enterContent,
+  expectBarOneRow,
   frontMindName,
   launchApp,
   motionSettled,
@@ -820,8 +821,7 @@ test("recording details: a slow engine, a fallback and a part that can't be save
 
   await setWindowSize(app, window, 900, 700);
   await expect(details).toBeVisible();
-  const controls = await bar.getByTestId("meeting-controls").boundingBox();
-  expect(controls?.height).toBeLessThanOrEqual(28);
+  await expectBarOneRow(bar);
   const barBox = await bar.boundingBox();
   const detailsBox = await details.boundingBox();
   if (!barBox || !detailsBox) throw new Error("The bar isn't drawn.");
