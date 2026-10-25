@@ -26,10 +26,10 @@ import {
  * The assistant makes a new Mind and revises its own text there in the same
  * Answer, as Claude Haiku 5.5 did in the Minds evaluation: two read_mind calls,
  * a cite the app refuses beside create_mind, so its markers stay unrecorded,
- * then edit_mind with the whole text again. Then the User takes the Answer
- * back or keeps it: on its card (with the card's functions, as the Minds
- * evaluation applies them), on the Mind's own bar, applied at once as asked,
- * or with Regenerate.
+ * then edit_mind with the whole text again. Its card counts that text once.
+ * Then the User takes the Answer back or keeps it: on its card (with the
+ * card's functions, as the Minds evaluation applies them), on the Mind's own
+ * bar, applied at once as asked, or with Regenerate.
  */
 
 const BRIEF = "Launch brief";
@@ -163,6 +163,27 @@ describe("A new Mind the assistant revised in the same Answer", { timeout: 30_00
       "Hire a part-time designer.",
     ]);
     expect(await waitingAnywhere(core)).toBe(0);
+  });
+
+  // protects=the card counts the text the Mind holds once, though create_mind wrote it and edit_mind wrote it again, once or twice, with markers cite recorded or not; fails_when=it counts each version, or none; no_claim=how the card words it.
+  test.each([
+    ["once", [UNMARKED], MARKED],
+    ["twice", [UNMARKED, LONGER], MARKED],
+    ["with no markers", [LONGER], UNMARKED],
+  ] as const)("the card counts its paragraphs once, revised %s", async (_, revisions, made) => {
+    const revise = madeThenRevised(revisions);
+    const core = await setUp((call) => {
+      const reply = revise(call);
+      if (!("calls" in reply) || !reply.calls) return reply;
+      return {
+        calls: reply.calls.map((each) =>
+          each.tool === "create_mind" ? { ...each, input: { title: BRIEF, content: made } } : each,
+        ),
+      };
+    });
+    const answer = await askAssistant(core, ASKED);
+
+    expect(changedMinds(answer)).toMatchObject([{ created: true, wrote: 3, tables: 0 }]);
   });
 
   // protects=the record of the Tools the next Question reads says what create_mind wrote, though edit_mind revised it and cite recorded none of its markers; fails_when=it reads as an empty Mind; no_claim=how the card counts it.
