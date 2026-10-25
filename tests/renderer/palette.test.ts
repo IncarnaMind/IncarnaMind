@@ -157,6 +157,12 @@ describe("⌘K's actions", () => {
     expect(actions("zzqx")).toEqual([]);
   });
 
+  test("a word inside another word, or one typo across two, doesn't find an action (#1372)", () => {
+    expect(actions("ew mind")).toEqual([]);
+    expect(actions("theme")).toEqual([]);
+    expect(actions("new mind")).toEqual([["actions", ["New Mind"]]]);
+  });
+
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {
     const [withTwo] = palette.actionGroup(
       ["new", "folder"],
