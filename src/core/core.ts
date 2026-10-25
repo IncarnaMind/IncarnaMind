@@ -2091,7 +2091,6 @@ export function createCore(adapters: CoreAdapters): Core {
         : null,
     language: () => settings.get().language,
     scopeItemName,
-    unread: (mindId, scope) => unreadIn(searchedScope(scope, mindId)),
     citationStyle: (mindId) => {
       const { style, textLanguage } = mindStyleAndText(mindId);
       return { style: citationStyles.resolve(style.style, textLanguage), textLanguage };

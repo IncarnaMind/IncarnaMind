@@ -23,9 +23,10 @@ import { readableQuoteText } from "../../shared/readableQuote";
 import type { ScopeKind } from "../../shared/searchScope";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
-import { unreadCountText, unreadFileNamesOf, unreadFileText } from "../../shared/unreadFiles";
+import { checkUnreadOf, unreadFileNamesOf, unreadSection } from "../../shared/unreadFiles";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
+import { checkRequests } from "../answers/checks/sentences";
 import {
   CITATION_PLACES,
   type CitationAttributes,
@@ -41,7 +42,6 @@ import {
   type Mind,
   type MindExport,
   type MindExportPreview,
-  type SearchScope,
   type SharedDocument,
   type SharePagePreview,
   type UnreadFile,
@@ -104,11 +104,6 @@ export interface ExportsDependencies {
   language(): Language;
   /** A Folder's, Tag's or Document's name; null for one that isn't there. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
-  /**
-   * The files in a Mind's Search scope that couldn't be read, and why (#740), so the file
-   * says what it was made without. None: everything in scope was read.
-   */
-  unread(mindId: string, scope: SearchScope | null): UnreadFile[];
   /** The Mind's citation style (#289), and the language its text is in, which a style may take. */
   citationStyle(mindId: string): { style: ResolvedCitationStyle; textLanguage: Language };
   /** The family the Mind's font is written as in Word and HTML; null: the default. */
@@ -170,17 +165,18 @@ function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: 
   if (unread.length === 0) return [];
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const line = (text: string) => ({ kind: "text" as const, text, marks: NO_MARKS });
+  const section = unreadSection(unread, t, names);
   return [
-    { kind: "heading", level: 2, content: [line(t("unread.heading"))] },
-    { kind: "paragraph", content: [line(unreadCountText(unread, t))] },
+    { kind: "heading", level: 2, content: [line(section.heading)] },
+    { kind: "paragraph", content: [line(section.count)] },
     ...(names
       ? [
           {
             kind: "list" as const,
             ordered: false,
             start: 1,
-            items: unread.map((file) => [
-              { kind: "paragraph" as const, content: [line(unreadFileText(file, t))] },
+            items: section.items.map((item) => [
+              { kind: "paragraph" as const, content: [line(item)] },
             ]),
           },
         ]
@@ -198,6 +194,9 @@ interface Prepared {
   /** For a Mind imported from a Word file: whether its import is still going. */
   word: { importing: boolean } | null;
   blocks: Block[];
+  /** What the Mind's checks couldn't read when they ran (#740); empty when all was read. */
+  unread: readonly UnreadFile[];
+  unreadNames: boolean;
   preview: MindExportPreview;
   failedSentences: FailedSentence[];
   trackedChanges: number;
@@ -273,7 +272,7 @@ export function createExports(deps: ExportsDependencies) {
         const waiting = pendingProposals(fragment);
         return {
           read: readBlocks(fragment, readOptions),
-          unread: deps.unread(mind.id, doc ? mindScopeOf(doc) : null),
+          unread: doc ? checkUnreadOf(doc, checkRequests(fragment)) : [],
           unreadNames: doc ? unreadFileNamesOf(doc.getMap(MIND_SETTINGS_FIELD)) : false,
           questions: countQuestions(fragment),
           word: doc && fromWord ? { importing: wordImportProgressOf(doc) !== null } : null,
@@ -324,6 +323,8 @@ export function createExports(deps: ExportsDependencies) {
       readOptions,
       word,
       blocks,
+      unread,
+      unreadNames,
       preview,
       failedSentences: [...failed.values()],
       trackedChanges,
@@ -341,7 +342,7 @@ export function createExports(deps: ExportsDependencies) {
 
   /** The source pack's PDF: the Mind's cited pages, as saved, with their quotes marked. */
   const sourcePack = async (prepared: Prepared): Promise<MindExport> => {
-    const { title, blocks, style, language, attributesOf, preview } = prepared;
+    const { title, blocks, style, language, attributesOf, preview, unread, unreadNames } = prepared;
     const citations = numberCitations(blocks, style.form, attributesOf);
     if (citations.length === 0) throw new Error(translate(language, "export.pack.empty"));
     const pages = await packPages(citations, deps.citedPage);
@@ -349,7 +350,7 @@ export function createExports(deps: ExportsDependencies) {
       language,
       paper: deps.paper(),
       title: preview.fileName.slice(0, -".pdf".length),
-      body: renderSourcePack(title, pages, language),
+      body: renderSourcePack(title, pages, language, unread, unreadNames),
       notes: [],
     });
     return {

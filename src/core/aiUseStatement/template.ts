@@ -7,9 +7,8 @@
 import type { SentenceResult } from "../../shared/claimChecks";
 import { formatDate } from "../../shared/dates";
 import { type MessageKey, translate } from "../../shared/i18n";
-import { UNREAD_REASON_KEYS } from "../../shared/unreadFiles";
+import { unreadFileText } from "../../shared/unreadFiles";
 import type { NodeJSON } from "../answers/blocks";
-import type { UnreadFile } from "../api";
 import type { Language } from "../language";
 import {
   type AiUseFigures,
@@ -99,7 +98,7 @@ export function statementBlocks(
   const t = (key: MessageKey, params?: Record<string, string | number>) =>
     translate(language, key, params);
   const number = new Intl.NumberFormat(language === "zh-CN" ? "zh-CN" : "en").format;
-  const { uses, sections, removed, citations, sentences, checked, unread } = figures;
+  const { uses, sections, removed, citations, sentences, checked, unread, unreadNames } = figures;
   const citationTotal = totalCitations(citations);
   const sentenceTotal = totalSentences(sentences);
   const intro = paragraph(t("aiStatement.intro", { date: formatDate(date, language) }));
@@ -185,10 +184,6 @@ export function statementBlocks(
     rows
       .filter(([key]) => counts[key] > 0 || always.includes(key))
       .map(([key, label]) => [t(label), number(counts[key])]);
-  const unreadRow = (file: UnreadFile) =>
-    `${file.name}${t("unread.file.reason", {
-      reason: t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" }),
-    })}`;
   const unreadPart =
     unread.length === 0
       ? []
@@ -198,7 +193,7 @@ export function statementBlocks(
               ? t("aiStatement.unread.one")
               : t("aiStatement.unread", { count: number(unread.length) }),
           ),
-          bulletList(unread.map(unreadRow)),
+          ...(unreadNames ? [bulletList(unread.map((file) => unreadFileText(file, t)))] : []),
         ];
   const checksPart =
     citationTotal === 0 && sentenceTotal === 0

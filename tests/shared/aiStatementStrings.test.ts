@@ -70,6 +70,7 @@ const everything: AiUseFigures = {
       pages: [],
     },
   ],
+  unreadNames: true,
 };
 const nothing: AiUseFigures = {
   uses: [],
@@ -80,6 +81,7 @@ const nothing: AiUseFigures = {
   sentences: { supported: 0, unsupported: 0, contradicted: 0, needsRecheck: 0, notChecked: 0 },
   checked: [],
   unread: [],
+  unreadNames: false,
 };
 const FIGURES = { everything, nothing };
 

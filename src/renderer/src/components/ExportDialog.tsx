@@ -619,9 +619,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
         )}
 
         {/* A Word round trip writes back into the imported file, which gets no unread section. */}
-        {format !== "source-pack" &&
-          !(format === "docx" && counts?.fromWord) &&
-          (counts?.unreadFiles ?? 0) > 0 && (
+        {!(format === "docx" && counts?.fromWord) && (counts?.unreadFiles ?? 0) > 0 && (
             <SwitchRow
               label={t("export.unreadNames")}
               hint={t("export.unreadNames.hint")}
