@@ -185,6 +185,9 @@ const ERROR_KINDS: Record<ProviderErrorKind, true> = {
   "rate-limit": true,
   network: true,
   provider: true,
+  refused: true,
+  "out-of-credit": true,
+  region: true,
   "consent-declined": true,
   "consent-revoked": true,
   "local-mode": true,
@@ -1251,19 +1254,6 @@ export function createConversations(db: Database, now: () => string) {
     /** Adds the Units the Citations of conversations point to in these Documents to `cited`. */
     addCitedUnits(documentIds: ReadonlySet<string>, cited: CitedUnits[]): void {
       eachCitation((citation) => addCitedUnit(citation, documentIds, cited));
-    },
-
-    /** Whether an Answer of a conversation not deleted permanently cites one of these Documents. */
-    citationsRelyOn(documentIds: readonly string[]): boolean {
-      if (documentIds.length === 0) return false;
-      const wanted = new Set(documentIds);
-      let found = false;
-      eachCitation((citation) => {
-        if (typeof citation.documentId === "string" && wanted.has(citation.documentId)) {
-          found = true;
-        }
-      });
-      return found;
     },
 
     /** Calls `visit` with the attributes of each Citation in the Answers of conversations. */

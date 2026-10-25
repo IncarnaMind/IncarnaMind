@@ -44,6 +44,7 @@ const FAILURES: readonly ClaimCheckFailure[] = [
   "rate-limit",
   "cost-cap",
   "plan-limit",
+  "out-of-credit",
   "failed",
   "stopped",
   "too-many",

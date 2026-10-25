@@ -13,14 +13,16 @@ import type { EvalDocument } from "../lib/evaluationSet";
  * What the Documents make of a sentence: "contradicted-or-unsupported" for a wrong figure,
  * which either verdict flags; "partly" for a general word for the agreement's own term, which
  * is judged on the term with the wider group not covered (DESIGN.md › Checks); "contradicted"
- * for a genuine conflict, which a judgement must never lose.
+ * for a genuine conflict, which a judgement must never lose; "absent" for a figure for a period
+ * the agreement doesn't cover, which is another claim, so its card says nothing was found.
  */
 export type Expected =
   | "supported"
   | "partly"
   | "contradicted-or-unsupported"
   | "contradicted"
-  | "unsupported";
+  | "unsupported"
+  | "absent";
 
 export interface RepeatSentence {
   /** The same for the same kind of sentence in each language, so the two read side by side. */
@@ -75,7 +77,7 @@ export const DOCUMENTS: readonly RepeatDocument[] = [
           "The Employee may work from home two days a week, agreed in advance with the manager.",
           "The Company may ask the Employee to attend the office on a working-from-home day with 24 hours' notice.",
           "4. Holiday",
-          "The Employee is entitled to 27 working days of paid holiday per year, in addition to public holidays.",
+          "From 1 January 2025 the Employee is entitled to 27 working days of paid holiday per year, in addition to public holidays.",
           "Up to 5 unused days may be carried over into the next year and must be taken by 31 March.",
         ],
       },
@@ -114,7 +116,7 @@ export const DOCUMENTS: readonly RepeatDocument[] = [
           "第三条　工作时间和地点：工作时间为周一至周五9:00至17:30，午休一小时。",
           "乙方每周可在家工作两天，须事先与主管商定。",
           "甲方可提前24小时通知乙方在居家工作日到岗。",
-          "第四条　带薪年休假：乙方每年享有带薪年休假10天，法定节假日另计。",
+          "第四条　带薪年休假：自2025年1月1日起，乙方每年享有带薪年休假10天，法定节假日另计。",
         ],
       },
       {
@@ -174,9 +176,10 @@ export const DOCUMENTS: readonly RepeatDocument[] = [
  * contradictions of the agreement, of a kind each, so a change to a verdict or
  * a judgement is measured against the conflicts it loses (#1647). The near
  * misses give a figure or a detail of another person or role than the
- * agreement's, or add one to its own, each expected not Contradicted. The
- * paraphrases say a clause's duty or permission in other words, each expected
- * Supported.
+ * agreement's, or add one to its own, each expected not Contradicted, and a
+ * holiday figure for the year before the agreement starts, expected "I didn't
+ * find this". The paraphrases say a clause's duty or permission in other
+ * words, each expected Supported.
  */
 const sentencesOf =
   (kind: RepeatSentence["kind"], expected: Expected) =>
@@ -191,6 +194,7 @@ const sentencesOf =
 
 const conflicts = sentencesOf("conflict", "contradicted");
 const nearMisses = sentencesOf("near-miss", "unsupported");
+const notCovered = sentencesOf("near-miss", "absent");
 const paraphrases = sentencesOf("paraphrase", "supported");
 
 export const SETS: readonly RepeatSet[] = [
@@ -480,32 +484,43 @@ export const SETS: readonly RepeatSet[] = [
     id: "en-near-misses",
     language: "en",
     mind: "Other people and details",
-    sentences: nearMisses([
-      ["staff-days", "Staff may work from home on Mondays and Fridays."],
-      [
-        "staff-condition",
-        "Staff may carry over up to 5 unused days into the next year if their manager agrees.",
-        1718,
-      ],
-      ["role-home", "Managers may work from home three days a week.", 1718],
-      ["role-holiday", "Managers are entitled to 30 days of paid holiday per year."],
-      ["person-holiday", "The Director of People is entitled to 30 days of paid holiday per year."],
-      ["person-home", "The Director of People may work from home three days a week.", 1718],
-    ]),
+    sentences: [
+      ...nearMisses([
+        ["staff-days", "Staff may work from home on Mondays and Fridays."],
+        [
+          "staff-condition",
+          "Staff may carry over up to 5 unused days into the next year if their manager agrees.",
+          1718,
+        ],
+        ["role-home", "Managers may work from home three days a week.", 1718],
+        ["role-holiday", "Managers are entitled to 30 days of paid holiday per year."],
+        [
+          "person-holiday",
+          "The Director of People is entitled to 30 days of paid holiday per year.",
+        ],
+        ["person-home", "The Director of People may work from home three days a week.", 1718],
+      ]),
+      ...notCovered([
+        ["period-not-covered", "In 2024 the Employee was entitled to 25 days of paid holiday."],
+      ]),
+    ],
   },
   {
     id: "zh-near-misses",
     language: "zh-CN",
     mind: "他人与细节",
-    sentences: nearMisses([
-      ["staff-days", "员工每周可在家工作两天，具体为周一和周五。", 1718],
-      ["staff-detail", "员工的工资于每月最后一个工作日通过银行转账发放。"],
-      ["role-home", "经理每周可在家工作三天。", 1718],
-      ["role-holiday", "经理每年享有带薪年休假15天。", 1718],
-      ["person-holiday", "人力资源总监每年享有带薪年休假15天。"],
-      ["person-home", "人力资源总监每周可在家工作三天。", 1718],
-      ["added-detail", "乙方月工资为人民币一万八千元，通过银行转账发放。"],
-    ]),
+    sentences: [
+      ...nearMisses([
+        ["staff-days", "员工每周可在家工作两天，具体为周一和周五。", 1718],
+        ["staff-detail", "员工的工资于每月最后一个工作日通过银行转账发放。"],
+        ["role-home", "经理每周可在家工作三天。", 1718],
+        ["role-holiday", "经理每年享有带薪年休假15天。", 1718],
+        ["person-holiday", "人力资源总监每年享有带薪年休假15天。"],
+        ["person-home", "人力资源总监每周可在家工作三天。", 1718],
+        ["added-detail", "乙方月工资为人民币一万八千元，通过银行转账发放。"],
+      ]),
+      ...notCovered([["period-not-covered", "2024年乙方享有带薪年休假15天。"]]),
+    ],
   },
 ];
 

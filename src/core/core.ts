@@ -486,8 +486,9 @@ export function createCore(adapters: CoreAdapters): Core {
     throw error;
   }
   const events = createEventHub();
+  const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
-  const activity = logActivity(events, adapters.log ?? silentLogger);
+  const activity = logActivity(events, adapters.log ?? silentLogger, knownSecrets);
   /** Logs a failed test of a provider's settings, by the kind of error. */
   const loggingTest =
     (what: Parameters<typeof activity.testFailed>[0]) =>
@@ -544,6 +545,16 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     { unsaved: unsaved.mindUnsaved },
   );
+  // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
+  const eachCitingMind = (visit: (blocks: Y.XmlFragment) => void, exceptMindId?: string) => {
+    for (const mind of db.all<{ id: string; deleted_at: string | null }>(
+      "SELECT id, deleted_at FROM minds WHERE purged_at IS NULL",
+    )) {
+      if (mind.id === exceptMindId) continue;
+      if (mind.deleted_at === null) content.peek(mind.id, visit);
+      else content.peekDeleted(mind.id, visit);
+    }
+  };
   const mindIndex = createMindIndex({
     db,
     now,
@@ -603,7 +614,10 @@ export function createCore(adapters: CoreAdapters): Core {
     emit: (batch) => events.emit("documents.batch", batch),
     file: (documentId, groupId) => library.file(documentId, groupId),
   });
-  const secrets = createSecrets(adapters.keychain, settings);
+  const rememberSecret = (secret: string) => {
+    knownSecrets.add(secret);
+  };
+  const secrets = createSecrets(adapters.keychain, settings, rememberSecret);
   const pdfPasswords = createPdfPasswords(secrets, settings);
   const viewing = createViewing();
   /** Forgets the passwords of Documents gone from the Library (#763), and says which are kept. */
@@ -773,9 +787,7 @@ export function createCore(adapters: CoreAdapters): Core {
       citedUnits: (documentIds) => {
         const wanted = new Set(documentIds);
         const cited: CitedUnits[] = [];
-        for (const mind of minds.list()) {
-          content.peek(mind.id, (fragment) => addCitedUnits(fragment, wanted, cited));
-        }
+        eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
         conversations.addCitedUnits(wanted, cited);
         retention.addRetainedUnits(wanted, cited);
         return cited;
@@ -819,12 +831,10 @@ export function createCore(adapters: CoreAdapters): Core {
     const pagesCited = citedPages.collector();
     if (collectVersions || pagesCited) {
       const cited: CitedVersions = new Map();
-      for (const mind of minds.list()) {
-        content.peek(mind.id, (fragment) => {
-          if (collectVersions) addCitedVersions(fragment, cited);
-          if (pagesCited) eachCitation(fragment, pagesCited.cite);
-        });
-      }
+      eachCitingMind((fragment) => {
+        if (collectVersions) addCitedVersions(fragment, cited);
+        if (pagesCited) eachCitation(fragment, pagesCited.cite);
+      });
       // First, so a version only a page that went retained goes now too.
       if (pagesCited) {
         conversations.eachCitation(pagesCited.cite);
@@ -1016,7 +1026,7 @@ export function createCore(adapters: CoreAdapters): Core {
     secrets,
     ...(chatGptStore && {
       sharedStore: {
-        secrets: createSecrets(chatGptStore.keychain, settings),
+        secrets: createSecrets(chatGptStore.keychain, settings, rememberSecret),
         refreshLock: createFileLock(chatGptStore.lockFile),
       },
     }),
@@ -2594,13 +2604,10 @@ export function createCore(adapters: CoreAdapters): Core {
   const recentlyDeleted = createRecentlyDeleted({
     db,
     now,
-    // A Mind still waiting in Recently deleted comes back with its Citations, so they count too.
     documentText: (documentIds) => {
       const wanted = new Set(documentIds);
       const cited: CitedUnits[] = [];
-      for (const { id } of db.all<{ id: string }>("SELECT id FROM minds WHERE purged_at IS NULL")) {
-        content.peek(id, (fragment) => addCitedUnits(fragment, wanted, cited));
-      }
+      eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
       conversations.addCitedUnits(wanted, cited);
       retention.addRetainedUnits(wanted, cited);
       documents.purgeText(documentIds, cited);
@@ -2989,7 +2996,13 @@ export function createCore(adapters: CoreAdapters): Core {
     mindFolder: (mindId) => minds.get(mindId).folderId,
     now,
     checksRelyOn: (documentIds) => retention.isRetained("check-result", documentIds),
-    conversationCitationsRelyOn: (documentIds) => conversations.citationsRelyOn(documentIds),
+    citationsRelyOn: (documentIds, exceptMindId) => {
+      const wanted = new Set(documentIds);
+      const cited: CitedUnits[] = [];
+      eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited), exceptMindId);
+      conversations.addCitedUnits(wanted, cited);
+      return cited.length > 0;
+    },
     recheck: (input) => recheckCitation(documents, input),
     changed: (value) => events.emit("examples.changed", value),
   });

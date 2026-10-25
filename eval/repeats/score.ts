@@ -34,6 +34,7 @@ export function meetsExpected(row: Pick<RepeatRow, "outcome" | "expected">): boo
   const verdict = verdictOf(row.outcome);
   if (row.expected === "supported") return verdict === "supported";
   if (row.expected === "partly") return row.outcome === "partly";
+  if (row.expected === "absent") return row.outcome === "absent";
   if (row.expected === "unsupported") return verdict === "unsupported";
   if (row.expected === "contradicted") return verdict === "contradicted";
   return verdict === "unsupported" || verdict === "contradicted";

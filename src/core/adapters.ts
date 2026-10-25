@@ -101,7 +101,8 @@ export type LogFields = Readonly<Record<string, LogValue | undefined>>;
  *
  * The core logs what happened, never what the User wrote or keeps secret:
  * ids, statuses, kinds and counts. Never Document text or names, Mind
- * content, Questions, Answers, providers' messages, API keys or tokens.
+ * content, Questions, Answers, API keys or tokens, nor providers' messages
+ * but as `redactMessage` (./redact) leaves them.
  */
 export interface Logger {
   /** `event` is a short dotted name, e.g. "document.status". */

@@ -37,6 +37,7 @@ import {
   cutUnsupported,
   keepAsView,
   offersFixes,
+  offersKeepAsView,
   offersNotFound,
   searchedLess,
   uncoveredOf,
@@ -228,6 +229,7 @@ export function ClaimMark({
               cited={citationsOf(editor.state, claim)}
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
+              keep={offersKeepAsView(editor, claim)}
               decision={decision}
               added={added}
               onAdd={() => {
@@ -361,8 +363,8 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
  * those words, or Widen the Citation when the whole clause says more of the
  * sentence than the Citation quotes, or Replace the Citation when the one the
  * sentence has doesn't hold (#1620); for a contradiction, what the Document
- * says; for a figure worked out, its working and inputs; for nothing found,
- * where it looked, with
+ * says and Keep as my view; for a figure worked out, its working and inputs;
+ * for nothing found, where it looked, with
  * Search all Documents, Cut it (the whole sentence, never in a Verify Mind) and
  * Keep as my view, or, for a court decision no Document holds, that it
  * can't be checked here, with Remove the mark only; for a sentence with a
@@ -379,6 +381,7 @@ function ClaimCard({
   cited,
   fixes,
   notFound,
+  keep,
   decision,
   added,
   onAdd,
@@ -401,6 +404,7 @@ function ClaimCard({
   cited: readonly NumberedCitation[];
   fixes: boolean;
   notFound: boolean;
+  keep: boolean;
   decision: CitationDecision;
   added: number;
   onAdd(): void;
@@ -787,7 +791,7 @@ function ClaimCard({
             {t("claim.cutSentence")}
           </button>
         )}
-        {(fixes || notFound) && (
+        {(fixes || notFound || keep) && (
           <button
             type="button"
             data-testid="claim-keep"

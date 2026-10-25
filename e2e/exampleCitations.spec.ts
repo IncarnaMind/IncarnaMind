@@ -1,7 +1,9 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
   assistantAnswers,
+  coreOf,
   createDataFolder,
+  frontMind,
   launchApp,
   markSteps,
   pointAndClick,
@@ -168,4 +170,44 @@ test("a Chinese Conversation's Citations open their original pages after the int
     "季末净债务与 EBITDA 之比为 3.1 倍",
   );
   await again.app.close();
+});
+
+test("a Citation copied from the example's Answer into a Mind opens its original page after the interface language becomes Chinese (#1830)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  await setWindowSize(app, window, 1440, 900);
+  const answer = await askReady(window);
+  await pointAndClick(window, answer.getByTestId("answer-new-mind"));
+  const copy = frontMind(window).getByTestId("mind-editor");
+  await expect(copy.getByTestId("citation-chip")).toHaveCount(2);
+  await expect(copy.getByTestId("citation-chip").first()).toHaveAttribute("data-check", "found");
+
+  // The Conversation's Citations would keep the example as it is: only the copy is to.
+  await (await coreOf(window)).evaluate(async (core) => {
+    for (const { id } of await core.listConversations()) {
+      await core.deleteConversation(id);
+      await core.deletePermanently([{ kind: "conversation", id }]);
+    }
+  });
+
+  await setLanguage(window, "zh-CN");
+  const titles = await (await coreOf(window)).evaluate(async (core) =>
+    (await core.listMinds()).map((mind) => mind.title),
+  );
+  expect(titles).toContain("Draft: credit committee paper");
+
+  await expectCitedPage(
+    window,
+    copy,
+    0,
+    "Northwind Retail · Senior facilities agreement (excerpt)",
+    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
+  );
+  await expectCitedPage(
+    window,
+    copy,
+    1,
+    "Northwind Retail · Q3 2026 results",
+    "Net debt to EBITDA was 3.1 times at the end of the quarter",
+  );
+  await app.close();
 });

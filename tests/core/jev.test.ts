@@ -503,13 +503,13 @@ describe("Testing the Jev connection", { timeout: 30_000 }, () => {
 
     expect(await core.testJevConnection({ ...local, apiKey: "wrong-key" })).toEqual({
       ok: false,
-      error: { kind: "auth", message: "Invalid API key." },
+      error: { kind: "auth", message: "Invalid API key.", status: 401 },
     });
 
     jev.fail({ status: 429, message: "Rate limit exceeded.", headers: { "retry-after": "0" } });
     expect(await core.testJevConnection({ ...local, apiKey: JEV_KEY })).toEqual({
       ok: false,
-      error: { kind: "rate-limit", message: "Rate limit exceeded." },
+      error: { kind: "rate-limit", message: "Rate limit exceeded.", status: 429 },
     });
     jev.fail({ status: 529, message: "Overloaded." });
     expect(await core.testJevConnection({ ...local, apiKey: JEV_KEY })).toMatchObject({

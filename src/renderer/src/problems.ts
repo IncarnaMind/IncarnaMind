@@ -35,6 +35,11 @@ export interface AnswerProblem {
 }
 
 export const retry: AnswerFix = { kind: "retry", label: "answer.error.retry" };
+const chooseModel: AnswerFix = {
+  kind: "settings",
+  page: "models",
+  label: "answer.error.chooseModel",
+};
 
 export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   auth: {
@@ -69,6 +74,12 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   "rate-limit": { line: "answer.error.rate-limit", fix: retry },
   network: { line: "answer.error.network", fix: retry },
   provider: { line: "answer.error.provider", fix: retry },
+  // Asked again, the same request is refused again: another model may take it.
+  refused: { line: "answer.error.refused", fix: chooseModel },
+  // Where the provider has a page to add credit, `answerProblem` offers it.
+  "out-of-credit": { line: "answer.error.out-of-credit", fix: chooseModel },
+  // Nothing the User changes here lifts it: another provider may serve them.
+  region: { line: "answer.error.region", fix: chooseModel },
   // A local model's context window: trying again can't help, shortening the Question does.
   "too-long": { line: "answer.error.too-long", fix: { kind: "none" } },
   "no-answer": { line: "answer.error.no-answer", fix: retry },
@@ -102,15 +113,34 @@ const CHATGPT_ONLY: ReadonlySet<ProviderErrorKind> = new Set([
   "blocked",
 ]);
 
+/** What the line needs to know of the model's provider beyond its kind. */
+export interface FailureWhere {
+  /** Where credit is added, when the provider's catalog entry has a page for it. */
+  billingUrl?: string;
+  /** Whether the model runs on this computer; left out until its provider is known. */
+  local?: boolean;
+}
+
 /**
  * A failed Answer's problem, for the provider that wrote it: an Ollama Cloud allowance is Ollama's
- * to manage, and an Answer of a sign-in route without its own words never gets ChatGPT's.
+ * to manage, credit is added on the provider's `billingUrl` when it has one, a model on this
+ * computer has no credit nor region to refuse it, and an Answer of a sign-in route without its own
+ * words never gets ChatGPT's.
  */
 export function answerProblem(
   kind: ProviderErrorKind,
   provider: ChatProviderKind | undefined,
   onSignInRoute = isSignInRoute(provider),
+  where: FailureWhere = {},
 ): AnswerProblem {
+  if (where.local && (kind === "out-of-credit" || kind === "region")) {
+    return ANSWER_PROBLEMS.refused;
+  }
+  // A hosted model's window is filled by more than the Question (its context, the Passages), so
+  // shortening the Question is not what helps.
+  if (kind === "too-long" && where.local === false) {
+    return { line: "answer.error.too-long.hosted", fix: chooseModel };
+  }
   if (onSignInRoute && CHATGPT_ONLY.has(kind)) {
     return {
       line: "answer.error.provider",
@@ -121,6 +151,12 @@ export function answerProblem(
     return {
       line: "answer.error.plan-limit.ollama",
       fix: { kind: "link", url: OLLAMA_USAGE_URL, label: "answer.error.manageUsage" },
+    };
+  }
+  if (kind === "out-of-credit" && where.billingUrl) {
+    return {
+      line: "answer.error.out-of-credit",
+      fix: { kind: "link", url: where.billingUrl, label: "answer.error.addCredit" },
     };
   }
   return ANSWER_PROBLEMS[kind];
@@ -140,11 +176,15 @@ export function failedAnswerLine(
   provider: ChatProviderKind | undefined,
   signInRoute: SignInRouteProblem | null,
   offered: boolean,
+  where?: FailureWhere,
 ): FailedAnswerLine {
   const route = isSignInRoute(provider) ? provider : null;
   const words = route && signInRoute ? SIGN_IN_ROUTES[route].problems[signInRoute] : undefined;
   if (route && words && offered) return { kind: "route", route, words };
-  return { kind: "plain", problem: answerProblem(kind, provider, route !== null || !!signInRoute) };
+  return {
+    kind: "plain",
+    problem: answerProblem(kind, provider, route !== null || !!signInRoute, where),
+  };
 }
 
 /**

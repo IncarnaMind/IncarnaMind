@@ -43,7 +43,7 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
-import { hasText, pageBlocks } from "../../shared/answerBlocks";
+import { hasText, markersIn, pageBlocks } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
 import { askedFor, waitsForUser as heldForUser } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
@@ -175,6 +175,7 @@ import {
 } from "./blocks";
 import { answerLanguage, createCalculationSession } from "./calculations";
 import { asksToCheckOrCalculate } from "./carefulIntent";
+import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
 import {
   type AnswerDocuments,
   createCitationSession,
@@ -308,6 +309,8 @@ interface WrittenAnswer {
   citations(): MarkedCitation[];
   /** Its calculated figures, in the order of their markers in the text, each once. */
   figures(): MarkedFigure[];
+  /** An amount it writes at another scale than its Citations give it (see ./changedScale). */
+  changedScale(): ChangedScale | null;
   toolCalls: AnswerToolCall[];
   support: CitationSupport | null;
   /** Where the third-party text its Run had read came from (#78); null: none. */
@@ -404,6 +407,8 @@ export interface CellAnswer {
   /** Its Blocks, each marker a Citation node, its words AI text (`GENERATED_MARK`). */
   blocks: NodeJSON[];
   citations: MarkedCitation[];
+  /** An amount it writes at another scale than its Citations give it. */
+  changedScale: ChangedScale | null;
   error: ProviderError | null;
 }
 
@@ -876,6 +881,8 @@ export function createAnswers(options: AnswersOptions) {
     outside?: boolean;
     /** Which Tools its Run is offered (see `ToolSet`); absent: every Tool. */
     toolSet?: ToolSet;
+    /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
+    checkScales?: boolean;
     /**
      * Asked from a Mind whose Meeting may be recording (#144): its live Transcript, indexed up
      * to now, to go with the Question. Absent: none.
@@ -1122,6 +1129,12 @@ export function createAnswers(options: AnswersOptions) {
         writeSoon();
       },
     });
+    const scaleChangeIn = (text: string): ChangedScale | null =>
+      changedScale(
+        text,
+        [...new Set(markersIn(text))].flatMap((marker) => session.quotes.recorded(marker) ?? []),
+        answerLanguage(context.question),
+      );
     /** A Citation marker's node as the text around a figure sees it: none for a marker with no record. */
     const citedNode = (marker: number) =>
       session.streamingCitation(marker) ? citationNode(null) : null;
@@ -1191,6 +1204,7 @@ export function createAnswers(options: AnswersOptions) {
               return found;
             },
             figures: () => placedFigures(text, final).figures,
+            changedScale: () => scaleChangeIn(text),
             toolCalls,
             support,
             textOrigin,
@@ -2249,6 +2263,17 @@ export function createAnswers(options: AnswersOptions) {
           shownUpTo: heldBack,
           mayEndBlank: changedAMind,
         }),
+        ...(input.checkScales && {
+          turnChecks: [
+            {
+              name: "changed-scale",
+              check: (text: string) => {
+                const found = scaleChangeIn(text);
+                return found ? { note: changedScaleNote(found, calculating), claims: [] } : null;
+              },
+            },
+          ],
+        }),
         signal: controller.signal,
       })) {
         if (finished) break;
@@ -3086,6 +3111,7 @@ export function createAnswers(options: AnswersOptions) {
                   markdown: answer.markdown,
                   blocks: answer.blocks(),
                   citations: answer.citations(),
+                  changedScale: outcome.status === "done" ? answer.changedScale() : null,
                   error: outcome.status === "failed" ? outcome.error : null,
                 });
               } else if (answer.markdown !== "") {
@@ -3105,6 +3131,7 @@ export function createAnswers(options: AnswersOptions) {
           consentNeeded: false,
           outside: true,
           toolSet: "check",
+          checkScales: true,
           task: true,
         });
         const stop = () => active.get(answerId)?.finish({ status: "stopped" });
@@ -3137,6 +3164,7 @@ export function createAnswers(options: AnswersOptions) {
                   markdown: answer.markdown,
                   blocks: answer.blocks(),
                   citations: answer.citations(),
+                  changedScale: null,
                   error: outcome.status === "failed" ? outcome.error : null,
                 });
               }
@@ -3192,6 +3220,7 @@ export function createAnswers(options: AnswersOptions) {
                   markdown: answer.markdown,
                   blocks: answer.blocks(),
                   citations: answer.citations(),
+                  changedScale: null,
                   error: outcome.status === "failed" ? outcome.error : null,
                 });
               }
