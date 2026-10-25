@@ -91,6 +91,8 @@ export function problemText(t: Translate, problem: MindProblem, mind: string): s
       return t("mindCall.failed.notFound", { name: problem.name });
     case "several":
       return t("mindCall.failed.several", { name: problem.name });
+    case "not-picked":
+      return t("mindCall.failed.notPicked", { name: problem.name });
     case "no-heading":
       return t("mindCall.failed.noHeading", { mind, heading: problem.heading });
     case "no-place":

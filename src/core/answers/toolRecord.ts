@@ -58,6 +58,8 @@ function whyNot(problem: MindProblem | undefined): string {
       return `no Mind is called ${quoted(problem.name)}`;
     case "several":
       return `several Minds are called ${quoted(problem.name)}`;
+    case "not-picked":
+      return `other Minds have titles close to ${quoted(problem.name)}, and the User didn't pick which one was meant`;
     case "no-heading":
       return `it has no heading ${quoted(problem.heading)}`;
     case "no-place":
