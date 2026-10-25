@@ -75,7 +75,7 @@ After the files, a fixture made for it (headings, paragraphs and a table) is exp
 
 LibreOffice is found as `INCARNAMIND_SOFFICE`, then `soffice`, then `libreoffice` on the PATH. When it isn't there the LibreOffice steps are skipped and say so, unless `INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1`, which CI sets: then a missing LibreOffice fails the run.
 
-A file that is known to fail a step is marked `known` with the reason in `sources.json` (or `extended.json`); it is reported and does not fail the run.
+An input package that is known to fail inspection is marked `known` with the reason in `sources.json` (or `extended.json`); its package failure is reported and does not fail the run. Import, export and LibreOffice failures still fail the run, including for a file with a known input-package defect.
 
 **The extended set.** `npm run eval:word:fetch` downloads each real file from its pinned URL into `INCARNAMIND_WORD_CACHE` (default `~/.cache/incarnamind-eval/word-extended`), refuses one whose SHA-256 differs, and runs `generate-domains.py extended` for the generated ones (needs Python 3). Downloads are untrusted data: nothing opens them except the check. CI's pull request job runs the core set; a nightly job (`.github/workflows/nightly.yml`) runs both.
 

@@ -19,6 +19,7 @@ import {
   type CorpusEntry,
   extendedCache,
   inspectPackage,
+  knownInputProblem,
   readExtended,
   readManifest,
   WORD_DIR,
@@ -295,7 +296,8 @@ describe("the Word corpus", () => {
         cells.push(`${outcome.ok ? "ok" : "FAIL"} ${step.name}${reported}`);
         if (!outcome.ok) {
           const line = `${subject.name}: ${step.name}: ${outcome.detail}`;
-          if (subject.known) lines.push(`  (known: ${subject.known}) ${line}`);
+          const known = knownInputProblem(subject, step.name);
+          if (known) lines.push(`  (known: ${known}) ${line}`);
           else failures.push(line);
         }
       }

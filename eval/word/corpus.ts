@@ -53,7 +53,7 @@ export interface CorpusEntry {
   originalSha256?: string;
   sha256: string;
   features: Features;
-  /** Why the file is known not to pass a check, when it is. */
+  /** Why the input package is known not to pass inspection, when it is. */
   known?: string;
 }
 
@@ -72,7 +72,7 @@ export interface ExtendedEntry {
   language: CorpusEntry["language"];
   domain: CorpusEntry["domain"];
   features: Features;
-  /** Why the file is known not to pass a check, when it is. */
+  /** Why the input package is known not to pass inspection, when it is. */
   known?: string;
 }
 
@@ -88,6 +88,9 @@ export function readExtended(): ExtendedEntry[] {
 export function extendedCache(): string {
   return process.env.INCARNAMIND_WORD_CACHE ?? join(evalCache(), "word-extended");
 }
+
+export const knownInputProblem = (entry: Pick<CorpusEntry, "known">, step: string) =>
+  step === "package" ? entry.known : undefined;
 
 export interface PackageReport {
   features: Features;
