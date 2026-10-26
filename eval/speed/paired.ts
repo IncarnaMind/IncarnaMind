@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { vi } from "vitest";
 import type { ChatModelChoice, CoreEventName } from "../../src/core";
 import { DATABASE_FILE } from "../../src/core";
+import { toolTextIn } from "../../src/core/answers/toolText";
 import { openDatabase } from "../../src/core/storage";
 import { type CaseResult, fetchPapers, fetchReserves, reports, runCase } from "../everyday/asking";
 import { CASES, type LibraryName } from "../everyday/cases";
@@ -158,6 +159,8 @@ function questionItem(
             )
           : null,
         duplicate: answer.timing?.writtenTwice ?? false,
+        // A Tool's call written as text that still shows fails the Answer, whatever it is graded.
+        failures: toolTextIn(answer.text).length > 0 ? ["tool-text"] : [],
         text: answer.text,
       };
     },
