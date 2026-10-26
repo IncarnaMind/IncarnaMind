@@ -1456,11 +1456,14 @@ export function createLibrary(options: LibraryOptions) {
     /**
      * Reconciles these paths (e.g. a file about to be opened) now, and
      * resolves when done. While a pass is under way, which may take long, they
-     * are queued for the next one instead, and it resolves at once.
+     * are queued for the next one instead, and it resolves at once, unless
+     * `wait`: then it resolves after the pass that reads them, for a caller
+     * that reads what it just wrote (a Meeting's finished Transcript, #763).
      */
-    async check(paths: readonly string[]): Promise<void> {
+    async check(paths: readonly string[], wait = false): Promise<void> {
       if (passRunning) {
         request({ paths });
+        if (wait) await idle();
         return;
       }
       begin();

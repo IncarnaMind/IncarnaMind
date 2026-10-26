@@ -15,6 +15,7 @@ import {
 import type { Document } from "../../../core/api";
 import { readPdfPageText } from "../../../shared/pdfFormText";
 import { findQuoteInPages, lostLigatures, type TextPiece } from "../../../shared/quoteMatch";
+import { DocumentFix } from "../components/DocumentFix";
 import { core } from "../core";
 import { useT } from "../i18n";
 import { useAppStore, type ViewerTarget } from "../store";
@@ -213,12 +214,24 @@ export function PdfView({
         <>
           <ViewerHeader onRetry={retry} />
           {banner}
-          <ViewerMessage
-            tone="error"
-            action={{ label: t("documents.retryAction"), testId: "viewer-retry", onClick: retry }}
-          >
-            <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
-          </ViewerMessage>
+          <DocumentFix
+            document={document}
+            view
+            message={loaded.message}
+            reload={reopen}
+            fallback={
+              <ViewerMessage
+                tone="error"
+                action={{
+                  label: t("documents.retryAction"),
+                  testId: "viewer-retry",
+                  onClick: retry,
+                }}
+              >
+                <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
+              </ViewerMessage>
+            }
+          />
         </>
       );
     case "ready":

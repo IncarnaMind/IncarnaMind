@@ -3138,7 +3138,10 @@ export function createCore(adapters: CoreAdapters): Core {
         add: (id, name, file) => documents.addSnapshot(id, name, file, () => {}, "transcript"),
         file: (documentId, folderId) => library.assign(documentId, folderId),
         check: (path) => documents.check(path),
-        moveFile: (id, path) => documents.moveFile(id, path),
+        checkNow: async (documentId, path) => {
+          await documents.checkNow(path);
+          if (documentId) await processed(documentId);
+        },
         find: (id) => {
           try {
             return documents.get(id);
@@ -3147,7 +3150,6 @@ export function createCore(adapters: CoreAdapters): Core {
           }
         },
       },
-      saveFile: (file) => outputs.save(file),
       name: (meetingId) => {
         const meeting = listMeetings?.().find((each) => each.id === meetingId);
         const mind = meeting ? minds.get(meeting.mindId) : null;
@@ -3180,11 +3182,19 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
+      purgedPaths: () =>
+        db
+          .all<{ path: string }>(
+            `SELECT path FROM documents
+             WHERE kind = 'transcript' AND source_kind = 'data-folder' AND purged_at IS NOT NULL`,
+          )
+          .map((row) => row.path),
       saved: (meetingId) => transcriptSaved(meetingId),
       changed: meetingsChanged,
       log: adapters.log ?? silentLogger,
     });
 
+  transcripts?.dropPurged();
   // Meetings (#135): while audio is being captured, background model work holds back.
   const meetings = createMeetings({
     db,
@@ -3285,8 +3295,8 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return result;
   };
-  /** Resolves once a Document's newest version has its Passages, or after `ms` with the last version's. */
-  const extracted = (documentId: string, ms: number) =>
+  /** Resolves once a Document is no longer queued or being read; `ms` null waits as long as it takes. */
+  const settled = (documentId: string, ms: number | null) =>
     new Promise<void>((resolve) => {
       const busy = (status: DocumentStatus | null) =>
         status === "queued" || status === "extracting";
@@ -3301,15 +3311,19 @@ export function createCore(adapters: CoreAdapters): Core {
         return;
       }
       const done = () => {
-        clearTimeout(timer);
+        if (timer !== null) clearTimeout(timer);
         stop();
         resolve();
       };
-      const timer = setTimeout(done, ms);
+      const timer = ms === null ? null : setTimeout(done, ms);
       const stop = events.on("document.status", (document) => {
         if (document.id === documentId && !busy(document.status)) done();
       });
     });
+  /** Resolves once a Document's newest version has its Passages, or after `ms` with the last version's. */
+  const extracted = (documentId: string, ms: number) => settled(documentId, ms);
+  /** Resolves once a Document's newest version is read: its Passages are then the file's text. */
+  const processed = (documentId: string) => settled(documentId, null);
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     content,
@@ -4302,6 +4316,7 @@ export function createCore(adapters: CoreAdapters): Core {
         wordImports.dropPurged(),
         documents.dropPurged(),
       ]);
+      transcripts?.dropPurged();
     },
     acceptAssignments: async (ids) => library.accept(ids),
     rejectAssignments: async (ids) => library.reject(ids),
@@ -4690,6 +4705,7 @@ export function createCore(adapters: CoreAdapters): Core {
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
     setTranscriptionKey: (input) => cloudTranscription.setKey(input),
+    getTranscriptionModel: async () => transcriptionModel?.status() ?? null,
     getTranscriptionSpeed: async () => {
       const speed = settings.readDeviceValue(TRANSCRIPTION_SPEED);
       const ratio =
