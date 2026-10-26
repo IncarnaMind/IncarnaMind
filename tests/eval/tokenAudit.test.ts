@@ -607,4 +607,29 @@ describe("a provider count that is not usable", () => {
     expect(received).toBe(reason);
     expect(audit.end()[0]?.outcome).toBe("stopped");
   });
+
+  it("leaves a cell with no counted input unknown, not a row of zero sums", async () => {
+    const { audit, model } = audited(generated(usageOf(undefined, 40, 7)));
+    await generateText({ model, instructions: "Answer.", prompt: "What does it say?" });
+    const requests = audit.end();
+    const row = tokenRows(requests, new Set(["question"]))[0];
+    expect(row?.calls).toBe(1);
+    expect(row?.requests).toBe(0);
+    expect(row?.input).toBeNull();
+    expect(row?.passages).toBeNull();
+    expect(row?.parts).toBeNull();
+    const report = tokenReport([
+      {
+        flow: "question",
+        model: "anthropic/claude-haiku-5-5",
+        language: "en",
+        requests,
+      },
+    ]);
+    expect(report).toContain("1 (0 counted)");
+    expect(report).toContain("No request gave a usable provider count");
+    expect(report).not.toContain("against 0 counted");
+    expect(report).not.toContain("was 0%");
+    expect(report).not.toContain("0 tokens a request");
+  });
 });

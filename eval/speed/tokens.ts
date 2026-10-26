@@ -637,8 +637,8 @@ export interface TokenRow {
   failed: number;
   /** Null: no finished call had a usable count, so no part can be placed in the provider's frame. */
   parts: PromptParts | null;
-  /** How many `<passage>` blocks a request carries, mean over the counted calls. */
-  passages: number;
+  /** How many `<passage>` blocks a request carries, mean over the counted calls; null without one. */
+  passages: number | null;
   /** What the provider counted, mean per request; null when any counted call left it unknown. */
   input: number | null;
   cached: number | null;
@@ -682,7 +682,7 @@ function rowOf(
     requests: counted.length,
     failed: requests.length - finished.length,
     parts: counted.length === 0 ? null : parts,
-    passages: mean(counted.map((each) => each.passages)) ?? 0,
+    passages: counted.length === 0 ? null : (mean(counted.map((each) => each.passages)) ?? 0),
     input,
     cached,
     cachedShare: input !== null && cached !== null && input > 0 ? cached / input : null,
@@ -743,7 +743,7 @@ const rowLine = (row: TokenRow): string => {
 };
 
 export const COUNTED_NOTE =
-  "Input, cached input and output are what the provider counted. Every other number is estimated locally from the exact prompt the core assembled, with the core's own estimator, and scaled per request so the parts sum to the counted input.";
+  "Input, cached input and output are what the provider counted. Every other number is estimated locally from the exact prompt the core assembled, with the core's own estimator. Only the first table's parts are scaled, per request, so they sum to the counted input; the Tools and instruction-block tables show those local estimates before scaling, so they read lower where the estimator undercounts.";
 
 /** One table of each kind of request: what a call of it carries, mean per request. */
 export function kindTable(requests: readonly AuditedRequest[], ran?: ReadonlySet<string>): string {
@@ -906,6 +906,12 @@ export function tokenReport(runs: readonly TokenAuditRun[]): string {
       const cacheable = finished.reduce((sum, each) => sum + each.cacheable, 0);
       const written = requests.filter((each) => each.tag?.step === "written-check").length;
       const files = requests.reduce((sum, each) => sum + each.files, 0);
+      const coverage = `Requests counted: ${finished.length} of ${requests.length}; ${written} of them the written check inside a write.`;
+      // A cell with no usable count has no mean to give: its numbers are unknown, not zero.
+      const scaling =
+        finished.length === 0
+          ? "No request gave a usable provider count, so no part is scaled to one."
+          : `The local estimate before scaling was ${shown(estimated / finished.length)} tokens a request, against ${shown(input / finished.length)} counted. The cacheable prefix the prompt's breakpoints mark was ${estimated > 0 ? shownShare(cacheable / estimated) : "–"} of the estimated prompt.`;
       lines.push(
         `### ${model} · ${language}`,
         "",
@@ -919,7 +925,7 @@ export function tokenReport(runs: readonly TokenAuditRun[]): string {
         "",
         instructionUseTable(requests),
         "",
-        `Requests counted: ${finished.length} of ${requests.length}; ${written} of them the written check inside a write. The local estimate before scaling was ${shown(estimated / Math.max(1, finished.length))} tokens a request, against ${shown(input / Math.max(1, finished.length))} counted. The cacheable prefix the prompt's breakpoints mark was ${shownShare(estimated > 0 ? cacheable / estimated : 0)} of the estimated prompt. ${files === 0 ? "No request carried a file part the local estimate can't size." : `${files} file parts the local estimate can't size.`}`,
+        `${coverage} ${scaling} ${files === 0 ? "No request carried a file part the local estimate can't size." : `${files} file parts the local estimate can't size.`}`,
         "",
       );
     }
