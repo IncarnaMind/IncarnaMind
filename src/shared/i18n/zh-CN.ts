@@ -3082,18 +3082,40 @@ export const zhCN = {
   "skills.settings.scripts": "{count} 个脚本",
   "skills.settings.builtIn": "内置",
   // The Built-in Skills, as Settings and the slash menu describe them; their SKILL.md, which Answers read, stays as written.
+  "skills.builtIn.chronology.title": "事件时间线",
+  "skills.builtIn.cim-red-flags.title": "信息备忘录疑点核查",
+  "skills.builtIn.covenant-summary.title": "财务约定摘要",
+  "skills.builtIn.credit-memo-outline.title": "授信报告提纲",
+  "skills.builtIn.deposition-summary.title": "证词摘要",
+  "skills.builtIn.earnings-review.title": "业绩回顾",
   "skills.builtIn.literature-review.title": "文献综述",
   "skills.builtIn.mind-to-report.title": "整理成报告",
   "skills.builtIn.summarise-document.title": "文档摘要",
+  "skills.builtIn.chronology.short": "按时间顺序列出记录中的事件，每条附引用。",
+  "skills.builtIn.cim-red-flags.short": "保密信息备忘录中数据室不支持或与之矛盾的说法。",
+  "skills.builtIn.covenant-summary.short": "每个财务约定及其测试、要求和最新数值，逐项附引用。",
+  "skills.builtIn.credit-memo-outline.short": "按信贷委员会报告的章节起草，内容取自文档。",
+  "skills.builtIn.deposition-summary.short": "按主题整理证词，每个要点注明页码和行号。",
+  "skills.builtIn.earnings-review.short": "本季度与前一期及业绩指引的对比。",
   "skills.builtIn.literature-review.short": "按主题撰写文献综述，每条论述都附引用。",
+  "skills.builtIn.mind-to-report.short": "把这个 Mind 整理成结构化的报告草稿。",
+  "skills.builtIn.summarise-document.short": "按文档类型分章节撰写摘要。",
+  "skills.builtIn.chronology": "按时间顺序列出记录中的事件，每条都附引用。",
+  "skills.builtIn.cim-red-flags":
+    "对照数据室核对保密信息备忘录中的说法，列出文档不支持或与之矛盾的地方，说法和依据都附引用。",
+  "skills.builtIn.covenant-summary":
+    "逐项摘出融资协议中的财务约定：测试什么、要求是多少，以及最新数值，每个数字都附引用。",
+  "skills.builtIn.credit-memo-outline":
+    "按信贷委员会报告的章节起草，内容只取自文档，每条填入的事实都附引用。",
+  "skills.builtIn.deposition-summary": "按主题整理证词，每个要点都注明笔录的页码和行号并附引用。",
+  "skills.builtIn.earnings-review":
+    "把本季度的业绩与前一期和已给出的业绩指引对比，每个数字都附引用。",
   "skills.builtIn.literature-review":
     "围绕问题的主题，跨你的文档撰写文献综述：按主题综合，而不是逐篇罗列，写出各文档的一致与分歧以及遗漏之处，每个说法都附引用。",
   "skills.builtIn.mind-to-report":
     "把这个 Mind（问题上方的笔记、问题和回答）整理成结构化的报告草稿，包括标题、摘要、章节和结论，保留其中的引用，不虚构来源。",
-  "skills.builtIn.mind-to-report.short": "把这个 Mind 整理成结构化的报告草稿。",
   "skills.builtIn.summarise-document":
     "为文档撰写附引用的摘要，章节依文档类型而定：论文看论点，合同看条款。",
-  "skills.builtIn.summarise-document.short": "按文档类型分章节撰写摘要。",
   "skills.settings.builtIn.hint": "随 IncarnaMind 提供。想修改，请复制一份。",
   "skills.settings.duplicate": "复制为我的技能",
   "skills.settings.restoreBuiltIns": "恢复内置技能",
