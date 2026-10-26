@@ -4,7 +4,7 @@ status: accepted (2026-10-11)
 
 # Citation styles are formatted by Hayagriva, built to wasm
 
-Citation styles and a styled Bibliography (#289) need a CSL processor: APA 7, IEEE and GB/T 7714 (2015 and 2025) for the alpha, and any CSL style a User brings. The JavaScript processors break our dependency rule (`AGENTS.md`: open source under a permissive licence, maintained, small). citeproc-js is CPAL-1.0 or AGPL-3.0, and citeproc-rs is MPL-2.0 and archived. The spike in #288 built Hayagriva, the CSL engine in Typst (MIT or Apache-2.0), to WebAssembly. It then compared Hayagriva with the citeproc-js that Zotero ships, on 30 English and Chinese references in 11 styles. The full report is [0016-citation-styles-spike-report.md](0016-citation-styles-spike-report.md).
+Citation styles and a styled Bibliography (#289) need a CSL processor: APA 7, IEEE and GB/T 7714 (2015 and 2025) for the alpha, and any CSL style a User brings. The JavaScript processors break our dependency rule (`AGENTS.md`: open source under a permissive licence, maintained, small). citeproc-js is CPAL-1.0 or AGPL-3.0, and citeproc-rs is MPL-2.0 and archived. The spike in #288 built Hayagriva, the CSL engine in Typst (MIT or Apache-2.0), to WebAssembly. It then compared Hayagriva with the citeproc-js that Zotero ships, on 30 English and Chinese references in 11 styles. The full report is [0024-citation-styles-spike-report.md](0024-citation-styles-spike-report.md).
 
 We format citations with **Hayagriva, compiled to wasm with a small binding of our own**:
 
