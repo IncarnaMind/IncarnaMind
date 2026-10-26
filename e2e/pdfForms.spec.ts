@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
@@ -137,7 +137,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(print).toHaveText(language === "zh-CN" ? "打印为 PDF…" : "Print to PDF…");
       await interceptOpenPath(app);
       await pointAndClick(window, print);
-      expect(await pathsOpened(app)).toEqual([path]);
+      expect(await pathsOpened(app)).toEqual([await realpath(path)]);
       if (process.env.INCARNAMIND_SCREENSHOTS)
         await window.screenshot({
           path: join(
