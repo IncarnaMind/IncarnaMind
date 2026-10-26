@@ -6,8 +6,8 @@ export interface DocumentFix {
   reason: MessageKey;
   /** Open its file in the system's app for it: it can be repaired, or unlocked, there. */
   open: boolean;
-  /** Read it again from its file, in the words of the button. */
-  retry: "retry" | "readAgain" | null;
+  /** Read it again, or open it in the app that can print a flattened copy. */
+  retry: "retry" | "readAgain" | "print" | null;
 }
 
 /**
@@ -38,7 +38,7 @@ export function documentFix(doc: Document): DocumentFix | null {
     case "pages-unread":
       return { reason: "library.fix.pages", open: here, retry: here ? "readAgain" : null };
     case "forms-unread":
-      return { reason: "library.fix.forms", open: here, retry: here ? "readAgain" : null };
+      return { reason: "library.fix.forms", open: here, retry: here ? "print" : null };
     case "processing-error":
       return { reason: "library.fix.processing", open: false, retry: here ? "retry" : null };
     case "app-stopped":

@@ -102,8 +102,8 @@ for (const language of ["en", "zh-CN"] as const) {
             ...(form.fields ?? []),
             {
               dictionary:
-                "/FT /Sig /T (signature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
-              appearance: pdfAppearance("Signed by inspector"),
+                "/FT /Foo /T (brokenChoice) /TU (Broken choice) /V (Fallback) /Rect [210 80 570 104] /F 4",
+              appearance: pdfAppearance("Fallback"),
             },
           ],
         },
@@ -125,7 +125,13 @@ for (const language of ["en", "zh-CN"] as const) {
         language === "zh-CN" ? "再添加该副本" : "then add that copy",
       );
       await expect(window.getByTestId("library-fix-open")).toBeVisible();
-      await expect(window.getByTestId("library-fix-retry")).toBeVisible();
+      const libraryPrint = window.getByTestId("library-fix-print");
+      await expect(libraryPrint).toHaveText(
+        language === "zh-CN" ? "打开以打印为 PDF…" : "Open to print to PDF…",
+      );
+      await interceptOpenPath(app);
+      await pointAndClick(window, libraryPrint);
+      expect(await pathsOpened(app)).toEqual([await realpath(path)]);
       if (process.env.INCARNAMIND_SCREENSHOTS)
         await window.screenshot({
           path: join(process.env.INCARNAMIND_SCREENSHOTS, `pdf-forms-partial-${language}.png`),
@@ -134,8 +140,12 @@ for (const language of ["en", "zh-CN"] as const) {
       const warning = window.getByTestId("viewer").getByTestId("forms-unread");
       await expect(warning).toContainText(language === "zh-CN" ? "打印为 PDF" : "Print to PDF");
       const print = warning.getByTestId("forms-print");
-      await expect(print).toHaveText(language === "zh-CN" ? "打印为 PDF…" : "Print to PDF…");
-      await interceptOpenPath(app);
+      await expect(print).toHaveText(
+        language === "zh-CN" ? "打开以打印为 PDF…" : "Open to print to PDF…",
+      );
+      await app.evaluate(() => {
+        globalThis.pathsOpened?.splice(0);
+      });
       await pointAndClick(window, print);
       expect(await pathsOpened(app)).toEqual([await realpath(path)]);
       if (process.env.INCARNAMIND_SCREENSHOTS)

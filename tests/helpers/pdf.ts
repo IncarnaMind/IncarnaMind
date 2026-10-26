@@ -583,7 +583,7 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
     objects[pageId] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size}] ` +
       `${page.rotation === undefined ? "" : `/Rotate ${page.rotation} `}` +
-      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${scan} >> /Contents ${pageId + 1} 0 R /Annots [${annotations.join(" ")}] >>`;
+      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${scan} >> /Contents ${pageId + 1} 0 R${annotations.length > 0 ? ` /Annots [${annotations.join(" ")}]` : ""} >>`;
     objects[pageId + 1] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
   });
   let xfa = "";
@@ -593,9 +593,12 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
     objects[id] = `<< /Length ${data.length} >>\nstream\n${data}\nendstream`;
     xfa = ` /XFA ${id} 0 R`;
   }
+  const hasSignatures = pages.some((page) =>
+    (page.fields ?? []).some((field) => field.dictionary.includes("/FT /Sig")),
+  );
   const form =
     fields.length > 0 || xfa
-      ? ` /AcroForm << /Fields [${fields.map((id) => `${id} 0 R`).join(" ")}]${xfa} /DA (/F1 11 Tf 0 g) /DR << /Font << /F1 3 0 R >> >> >>`
+      ? ` /AcroForm << /Fields [${fields.map((id) => `${id} 0 R`).join(" ")}]${xfa}${hasSignatures ? " /SigFlags 1" : ""} /DA (/F1 11 Tf 0 g) /DR << /Font << /F1 3 0 R >> >> >>`
       : "";
   objects[1] = `<< /Type /Catalog /Pages 2 0 R${outline}${metadata}${labels}${form} >>`;
 

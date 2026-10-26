@@ -1,4 +1,4 @@
-/** The technical detail of scanned pages that couldn't be read, in English, for logs and tooltips. */
+/** The technical detail of unread PDF page content, including scanned pages and form fields, in English, for logs and tooltips. */
 export const unreadMessage = (unread: { pages: number[]; message: string; forms?: true }) =>
   unread.forms
     ? unread.message

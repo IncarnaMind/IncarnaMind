@@ -3,6 +3,7 @@ import { isRecord } from "../core/errors";
 
 export const PDF_UNREAD_FIELD = "[?]";
 export const PDF_BLANK_FIELD = '""';
+export const PDF_SIGNED_FIELD = "Signed";
 
 const FORM_FONT = "incarnamindForm";
 const INVISIBLE = 1;
@@ -25,13 +26,16 @@ function numbers(value: unknown, length: number): number[] | null {
   return result;
 }
 
-function fieldValue(field: Record<string, unknown>): string | null {
-  if (field.fieldType === "Sig") return field.hasAppearance === true ? null : PDF_BLANK_FIELD;
+function fieldValue(field: Record<string, unknown>, signedIds: ReadonlySet<string>): string | null {
+  if (field.fieldType === "Sig") {
+    return typeof field.id === "string" && signedIds.has(field.id)
+      ? PDF_SIGNED_FIELD
+      : PDF_BLANK_FIELD;
+  }
   if (field.fieldType === "Btn") {
+    if (field.fieldValue == null) return "[ ]";
     const selected = field.radioButton === true ? field.buttonValue : field.exportValue;
-    if (typeof selected !== "string") return null;
-    if (field.fieldValue == null && field.hasAppearance !== true) return "[ ]";
-    if (typeof field.fieldValue !== "string") return null;
+    if (typeof selected !== "string" || typeof field.fieldValue !== "string") return null;
     return field.fieldValue === selected ? "[x]" : "[ ]";
   }
   if (field.fieldType !== "Tx" && field.fieldType !== "Ch") return null;
@@ -100,6 +104,7 @@ export function pdfFormText(
   content: TextContent,
   annotations: readonly unknown[],
   view?: readonly number[],
+  signedIds: ReadonlySet<string> = new Set(),
 ) {
   const items: TextItem[] = [];
   let unread = false;
@@ -131,7 +136,7 @@ export function pdfFormText(
       continue;
     if (field.password === true) continue;
     const label = fieldLabel(field, rect, content.items);
-    const value = fieldValue(field);
+    const value = fieldValue(field, signedIds);
     unread ||= value === null || label === "";
     if (value === null && !label) continue;
     const appearance = isRecord(field.defaultAppearanceData) ? field.defaultAppearanceData : null;
@@ -182,7 +187,14 @@ export function pdfFormText(
   };
 }
 
-export async function readPdfPageText(page: PDFPageProxy) {
+export async function readPdfPageText(page: PDFPageProxy, signatures?: readonly unknown[] | null) {
+  const signedIds = new Set(
+    (signatures ?? []).flatMap((signature) => {
+      if (!isRecord(signature) || typeof signature.id !== "string") return [];
+      const reference = signature.id.split(":")[0];
+      return reference ? [reference] : [];
+    }),
+  );
   const content = await page.getTextContent();
-  return pdfFormText(content, await page.getAnnotations(), page.view);
+  return pdfFormText(content, await page.getAnnotations(), page.view, signedIds);
 }

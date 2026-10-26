@@ -514,13 +514,14 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
     void (async () => {
       // Each page's text runs, counted as its text layer counts them.
       const pages: TextPiece[][] = [];
+      const signatures = await pdf.getSignatures();
       for (let page = from; page <= to; page++) {
         const read = scanned.get(page);
         if (read) {
           pages.push(read.pieces);
           continue;
         }
-        const { content } = await readPdfPageText(await pdf.getPage(page));
+        const { content } = await readPdfPageText(await pdf.getPage(page), signatures);
         const pieces: TextPiece[] = [];
         for (const entry of content.items) {
           if (!("str" in entry)) continue;
@@ -1157,7 +1158,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
         textDiv.replaceChildren(read.container);
         textRuns.current = read;
       } else {
-        const { content } = await readPdfPageText(proxy);
+        const { content } = await readPdfPageText(proxy, await pdf.getSignatures());
         if (cancelled) return;
         const container = document.createElement("div");
         container.className = "textLayer";

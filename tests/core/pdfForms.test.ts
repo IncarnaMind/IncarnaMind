@@ -235,7 +235,17 @@ test("an empty signature and radio group are readable states, not unsupported fi
           },
           {
             dictionary:
-              "/FT /Btn /T (emptyRadio) /TU (Release option) /Ff 32768 /Rect [210 40 234 64] /F 4",
+              "/FT /Sig /T (appearanceOnly) /TU (Appearance only) /Rect [210 120 570 144] /F 4",
+            appearance: pdfAppearance("Signed by inspector"),
+          },
+          {
+            dictionary:
+              "/FT /Sig /T (digitalSignature) /TU (Digital signature) /V << /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange [0 1 2 3] /Contents (abc) >> /Rect [210 160 570 184] /F 4",
+            appearance: "q Q",
+          },
+          {
+            dictionary:
+              "/FT /Btn /T (emptyRadio) /TU (Release option) /Ff 32768 /AS /Off /Rect [210 200 234 224] /F 4",
             appearance: { Off: "q Q", release: "0 0 300 24 re f" },
           },
         ],
@@ -246,6 +256,8 @@ test("an empty signature and radio group are readable states, not unsupported fi
   expect(document).toMatchObject({ status: "ready", failure: null });
   const text = (await core.readDocumentText(document.id)).pages[0]?.text ?? "";
   expect(text).toContain('Approval signature: ""');
+  expect(text).toContain('Appearance only: ""');
+  expect(text).toContain("Digital signature: Signed");
   expect(text).toContain("Release option: [ ]");
 });
 
@@ -264,8 +276,8 @@ test.each(["ready", "embedding", "waiting-for-model"])(
             ...(page.fields ?? []),
             {
               dictionary:
-                "/FT /Sig /T (signature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
-              appearance: pdfAppearance("Signed by inspector"),
+                "/FT /Foo /T (brokenChoice) /TU (Broken choice) /V (Fallback) /Rect [210 80 570 104] /F 4",
+              appearance: pdfAppearance("Fallback"),
             },
           ],
         },
@@ -286,8 +298,8 @@ test.each(["ready", "embedding", "waiting-for-model"])(
       expect.objectContaining({ documentId: document.id, reason: "pages", forms: true }),
     );
     const text = (await core.readDocumentText(document.id)).pages[0]?.text ?? "";
-    expect(text).toContain("Approval signature: [?]");
-    expect(text).not.toContain("Signed by inspector");
+    expect(text).toContain("Broken choice: [?]");
+    expect(text).not.toContain("Fallback");
     expect(text).toContain("Batch identifier: BIRCH-42");
     expect(
       (await core.searchPassages("BIRCH-42", { mode: "keyword" })).some(
@@ -455,8 +467,8 @@ test("a partial PDF shows reading, not its old failure, while it is read again",
           ...(page.fields ?? []),
           {
             dictionary:
-              "/FT /Sig /T (signature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
-            appearance: pdfAppearance("Signed by inspector"),
+              "/FT /Foo /T (brokenChoice) /TU (Broken choice) /V (Fallback) /Rect [210 80 570 104] /F 4",
+            appearance: pdfAppearance("Fallback"),
           },
         ],
       },

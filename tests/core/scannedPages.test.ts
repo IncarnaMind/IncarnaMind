@@ -471,8 +471,8 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
               ? [
                   {
                     dictionary:
-                      "/FT /Sig /T (signature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
-                    appearance: pdfAppearance("Signed by inspector"),
+                      "/FT /Foo /T (brokenChoice) /TU (Broken choice) /V (Fallback) /Rect [210 80 570 104] /F 4",
+                    appearance: pdfAppearance("Fallback"),
                   },
                 ]
               : undefined,

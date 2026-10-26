@@ -436,9 +436,15 @@ async function extractPdf(
     const unreadForms: number[] = [];
     const metadata = await document.getMetadata();
     const xfa = isRecord(metadata.info) && metadata.info.IsXFAPresent === true;
+    const signatures = await document.getSignatures();
     for (let number = 1; number <= document.numPages; number++) {
       const page = await document.getPage(number);
-      const { content, source, fields, unread: formUnread } = await readPdfPageText(page);
+      const {
+        content,
+        source,
+        fields,
+        unread: formUnread,
+      } = await readPdfPageText(page, signatures);
       if (formUnread || xfa) unreadForms.push(number);
       const text = pageText(content.items);
       pages.push({ page: number, kind: "page", label: null, text, anchors: null });
