@@ -34,6 +34,11 @@ export const ARMS: readonly Arm[] = [
     paths: { writesThenCites: true },
   },
   {
+    id: "loop",
+    label: "the Tool loop from its first call, whatever the lists say",
+    paths: { retrievesFirst: false },
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered in one call unless it needs more (#1633)",
