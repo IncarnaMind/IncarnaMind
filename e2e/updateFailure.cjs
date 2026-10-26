@@ -29,6 +29,24 @@ const record = (kind, extra = {}) =>
     join(folder, "events.jsonl"),
     `${JSON.stringify({ kind, pid: process.pid, native: app.hasSingleInstanceLock(), ...extra })}\n`,
   );
+const visibility = new Map();
+function sampleVisibility() {
+  const seen = new Set();
+  for (const window of BrowserWindow.getAllWindows()) {
+    const windowId = window.id;
+    const visible = window.isVisible();
+    seen.add(windowId);
+    if (visibility.get(windowId) !== visible) {
+      visibility.set(windowId, visible);
+      record("window-visibility", { windowId, visible });
+    }
+  }
+  for (const windowId of visibility.keys())
+    if (!seen.has(windowId) && visibility.get(windowId)) {
+      visibility.set(windowId, false);
+      record("window-visibility", { windowId, visible: false });
+    }
+}
 
 // Only the external updater/signature and native dialogs are fixtures; the built main owns quitting and locks.
 if (!process.env.INCARNAMIND_PACKAGED_APP) {
@@ -63,15 +81,10 @@ app.on("browser-window-created", (_event, window) => {
   const windowId = window.id;
   window.setContentSize(1280, 660);
   record("window-created", { windowId });
-  window.on("show", () => record("window-shown", { windowId }));
-  window.on("hide", () => record("window-hidden", { windowId }));
   window.on("closed", () => record("window-closed", { windowId }));
   window.on("ready-to-show", () => {
     record("window-ready-to-show", { windowId });
-    queueMicrotask(() => {
-      if (!window.isDestroyed())
-        record("window-visibility", { windowId, visible: window.isVisible() });
-    });
+    setImmediate(sampleVisibility);
   });
   window.webContents.on("did-finish-load", () => {
     record("window-loaded", { url: window.webContents.getURL() });
@@ -236,6 +249,8 @@ if (scenario === "pending" && first) {
   });
 }
 for (const kind of ["before-quit", "will-quit"]) app.on(kind, () => record(kind));
-app
-  .whenReady()
-  .then(() => record("ready", { appPath: app.getAppPath(), resourcesPath: process.resourcesPath }));
+app.whenReady().then(() => {
+  record("ready", { appPath: app.getAppPath(), resourcesPath: process.resourcesPath });
+  sampleVisibility();
+  setInterval(sampleVisibility, 250).unref();
+});

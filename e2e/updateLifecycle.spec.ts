@@ -136,8 +136,8 @@ async function expectOneSavedWindow(ports: number[]) {
       for (const entry of await entries()) {
         if (entry.kind === "window-visibility")
           visible.set(`${entry.pid}:${entry.windowId}`, entry.visible === true);
-        else if (["window-shown", "window-hidden", "window-closed"].includes(entry.kind))
-          visible.set(`${entry.pid}:${entry.windowId}`, entry.kind === "window-shown");
+        else if (entry.kind === "window-closed")
+          visible.set(`${entry.pid}:${entry.windowId}`, false);
       }
       return [...visible.values()].filter(Boolean).length;
     })
