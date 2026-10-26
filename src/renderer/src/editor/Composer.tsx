@@ -11,7 +11,6 @@ import {
 } from "react";
 import type * as Y from "yjs";
 import type { AnswerPlace, SearchScope } from "../../../core/api";
-import { setMindScope } from "../../../shared/mindScope";
 import { mindName } from "../../../shared/naming";
 import {
   chosenScope,
@@ -51,7 +50,7 @@ import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
 import { editFromComposer, stopEditing, useEdits } from "../editWithAi";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
-import { useScopeBefore } from "../keptScope";
+import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
 import { newNoteTitle } from "../newNoteRequest";
 import { useCitedSource } from "../openCited";
@@ -150,7 +149,7 @@ export function Composer({
   const citedSource = useCitedSource();
   const source = mind === null ? citedSource : null;
   const scopeKey = source?.mindId ?? key;
-  const scopeDoc = source?.doc ?? mind?.doc ?? null;
+  const { doc: scopeDoc, setScope } = useCitedScopeDocument(source, mind?.doc ?? null);
   const draft = useComposer((state) => state.drafts[key]) ?? EMPTY;
   const scopeDraft = useComposer((state) => state.drafts[scopeKey]) ?? EMPTY;
   // The Mind's Folder: its own Search scope while it holds a Document, and where its new notes go.
@@ -251,7 +250,7 @@ export function Composer({
     } else {
       composer.update(key, change);
     }
-    if (scopeDoc && change.scope !== undefined) setMindScope(scopeDoc, change.scope);
+    if (change.scope !== undefined) setScope(change.scope);
   };
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
   const updateScope = (next: SearchScope) => update({ scope: chosenScope(next, folderId) });
@@ -502,7 +501,7 @@ export function Composer({
       update({
         pastes: now.pastes.filter((each) => each.id !== paste.id),
         scope: ids.includes(saved.id)
-          ? now.scope
+          ? composer.draft(scopeKey).scope
           : chosenScope({ ...nowScope, documentIds: [...ids, saved.id] }, folderId),
       });
     } catch {
@@ -586,7 +585,7 @@ export function Composer({
       mindId,
       text,
       focus: selection.focus(),
-      scope: composerScope(currentScopeDraft, folderId),
+      scope,
       model: modelInUseOf(mind?.doc ?? null),
       forcedSkill: draft.skill,
       ...(draft.analyse && { analyse: true }),

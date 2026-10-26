@@ -128,7 +128,6 @@ export function withReloaded(
 export interface CitedSource {
   mindId: string;
   documentId: string;
-  doc: Y.Doc;
 }
 
 interface ComposerState {

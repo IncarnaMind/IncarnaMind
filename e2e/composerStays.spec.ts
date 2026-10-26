@@ -352,6 +352,25 @@ for (const language of ["en", "zh-CN"] as const) {
         everywhere,
         everywhere,
       ]);
+      await tideTab.click();
+      await expect(tideTab).toHaveAttribute("aria-selected", "true");
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const fourth = await ask(window, "When do spring tides happen, one last time?");
+      await expect(fourth.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched All Documents" : "已搜索全部文档",
+      );
+      expect(await storedScopes(window)).toEqual([
+        restricted,
+        restricted,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+      ]);
     } finally {
       await app.close();
     }
@@ -380,6 +399,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(chips).toHaveAttribute("data-id", folderId);
       await expect(chips).toHaveAttribute("data-own", "true");
       const expected = { folderIds: [folderId], tagIds: [], documentIds: [] };
+      const everywhere = { folderIds: [], tagIds: [], documentIds: [] };
 
       const first = await ask(window, "When do spring tides happen?");
       await expect(first.getByTestId("citation-chip").first()).toHaveAttribute(
@@ -393,6 +413,29 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(chips).toHaveAttribute("data-own", "true");
       await ask(window, "When do spring tides happen, again?");
       expect(await storedScopes(window)).toEqual([expected, expected]);
+
+      const emptyFolderId = await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const folder = await bridge.createLibraryGroup({ name: "Empty review", description: "" });
+        return folder.id;
+      });
+      expect(emptyFolderId).not.toBe("");
+      const emptyFolder = sidebarFolder(window, "Empty review");
+      await emptyFolder.getByTestId("folder-row").click({ button: "right" });
+      await emptyFolder.getByTestId("folder.newMind").click();
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const emptyFirst = await ask(window, "When do spring tides happen, anywhere?");
+      await openCitation(window, emptyFirst);
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const emptySecond = await ask(window, "When do spring tides happen, again?");
+      await expect(emptySecond.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched All Documents" : "已搜索全部文档",
+      );
+      expect(await storedScopes(window)).toEqual([expected, expected, everywhere, everywhere]);
     } finally {
       await app.close();
     }

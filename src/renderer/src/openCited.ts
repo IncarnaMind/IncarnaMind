@@ -52,7 +52,7 @@ export function openCited(
   const seat = composer.seat;
   const previous = composer.citedSource;
   const source = seat
-    ? { mindId: seat.mindId, documentId: citation.documentId, doc: seat.doc }
+    ? { mindId: seat.mindId, documentId: citation.documentId }
     : previous && sourceIsUsable(previous, useAppStore.getState())
       ? { ...previous, documentId: citation.documentId }
       : null;
