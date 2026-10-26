@@ -1,14 +1,16 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { dirname, join, resolve, sep } from "node:path";
-import { chromium, expect, type ElectronApplication, type Page } from "@playwright/test";
+import { chromium, type ElectronApplication, expect, type Page } from "@playwright/test";
 import { isRecord } from "../src/core/errors";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 
-export const mainExecutable = (): string =>
-  process.env.INCARNAMIND_PACKAGED_APP
-    ? resolve(process.env.INCARNAMIND_PACKAGED_APP)
-    : (require("electron") as unknown as string);
+export function mainExecutable(): string {
+  const packaged = process.env.INCARNAMIND_PACKAGED_APP;
+  if (packaged === undefined) return require("electron") as unknown as string;
+  if (!packaged.trim()) throw new Error("The packaged executable path is empty.");
+  return resolve(packaged);
+}
 
 export const mainArguments = (args: string[] = []): string[] => [
   ...KEYCHAIN_ARGS,
@@ -51,7 +53,8 @@ export function startLifecycleCopy(
 ): ChildProcess {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined && !/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(name)) env[name] = value;
+    if (value !== undefined && !/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(name))
+      env[name] = value;
   }
   Object.assign(env, lifecycleHomeEnv(home), {
     INCARNAMIND_DATA_DIR: dataDir,
@@ -111,11 +114,6 @@ export async function inCopyWindow(
   try {
     const window = browser.contexts()[0]?.pages()[0];
     if (!window) throw new Error("The copy has no window.");
-    const session = await window.context().newCDPSession(window);
-    const { windowId } = await session.send("Browser.getWindowForTarget");
-    await session.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "normal" } });
-    await session.send("Browser.setWindowBounds", { windowId, bounds: { width: 1280, height: 660 } });
-    await session.detach();
     await window.getByTestId("plus-menu").waitFor();
     await use(window);
   } finally {
@@ -142,7 +140,8 @@ ConvertTo-Json -InputObject $rows -Compress
 `;
 
 export function listedCopies(tag: string, executable = mainExecutable()): ListedCopy[] {
-  if (!tag || /\s/.test(tag)) throw new Error("A lifecycle process tag must be one nonempty argument.");
+  if (!tag || /\s/.test(tag))
+    throw new Error("A lifecycle process tag must be one nonempty argument.");
   const directory =
     process.platform === "darwin" ? dirname(dirname(executable)) : dirname(executable);
   const prefix = resolve(directory) + sep;
@@ -157,7 +156,8 @@ export function listedCopies(tag: string, executable = mainExecutable()): Listed
       },
     );
     const rows: unknown = JSON.parse(output.replace(/^\uFEFF/, ""));
-    if (!Array.isArray(rows)) throw new Error("The Windows lifecycle process inventory is not a list.");
+    if (!Array.isArray(rows))
+      throw new Error("The Windows lifecycle process inventory is not a list.");
     return rows.map((row) => {
       if (
         !isRecord(row) ||
@@ -172,7 +172,8 @@ export function listedCopies(tag: string, executable = mainExecutable()): Listed
     });
   }
   const uid = process.getuid?.();
-  if (uid === undefined) throw new Error("The lifecycle process inventory cannot identify this user.");
+  if (uid === undefined)
+    throw new Error("The lifecycle process inventory cannot identify this user.");
   const output = execFileSync("ps", ["-A", "-ww", "-o", "uid=", "-o", "pid=", "-o", "args="], {
     encoding: "utf8",
   });
