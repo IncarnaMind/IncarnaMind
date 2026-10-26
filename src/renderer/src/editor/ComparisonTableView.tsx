@@ -27,6 +27,7 @@ import { exportComparison } from "../exports";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { tableTask, useTasks } from "../tasks";
+import { typesText } from "../undo";
 import { ColumnQuestionField, ComparisonColumnHeading } from "./ComparisonColumnHeading";
 import { addComparisonColumn } from "./comparisonCommands";
 import { CollapseIcon, ExpandIcon, TableIcon } from "./icons";
@@ -52,6 +53,14 @@ function cellCounts(node: ReactNodeViewProps["node"]) {
   });
   return { total, settled, toFill, stop: stop as RunStop | null };
 }
+
+/** Whether the focus is in a field the key is typed in; the note's editor is the page Esc acts on. */
+const typingFocused = (): boolean => {
+  const active = document.activeElement;
+  if (!typesText(active)) return false;
+  // A field inside the note takes Escape; the note's own editor is what the table collapses over.
+  return !(active instanceof HTMLElement && active.matches('[data-testid="mind-editor"]'));
+};
 
 /**
  * Expand (DESIGN.md, Comparison table): the table fills the Mind's card
@@ -95,11 +104,12 @@ function useExpandInPlace(
 
   useEffect(() => {
     if (!expanded) return;
-    // Esc closes what is open in front of the page: a dialog, a menu or a text field.
-    // With none of those open, the expanded table is what Esc closes, even though the
-    // note's editor marks every Esc as handled.
+    // Esc closes what is open in front of the page: a dialog or a menu, or a field the key
+    // is typed in. With none of those open, the expanded table is what Esc closes, even
+    // though the note's editor marks every Esc as handled.
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || dialogOrMenuOpen()) return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (dialogOrMenuOpen() || typingFocused()) return;
       event.preventDefault();
       event.stopPropagation();
       collapse();
