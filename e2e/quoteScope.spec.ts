@@ -19,7 +19,7 @@ import {
 } from "./app";
 
 for (const language of ["en", "zh-CN"] as const) {
-  for (const format of ["md", "docx", "pptx", "xlsx", "web", "vtt"] as const) {
+  for (const format of ["md", "docx", "docx-notes", "pptx", "xlsx", "web", "vtt"] as const) {
     test(`${format}, ${language}: a placed quote stays in its Unit; an unplaced quote searches the file`, async () => {
       const data = await createDataFolder();
       const sources = await createDataFolder();
@@ -27,6 +27,8 @@ for (const language of ["en", "zh-CN"] as const) {
         language === "en" ? "The stored place has no quoted decision." : "指定位置没有这条决定。";
       const quote =
         language === "en" ? "The final decision is to retain the harbour." : "最终决定是保留港口。";
+      const endnote =
+        language === "en" ? "The endnote records the revised budget." : "尾注记录了修订后的预算。";
       const { app, window } = await launchApp(data);
       try {
         await setWindowSize(app, window, 1200, 850);
@@ -44,16 +46,17 @@ for (const language of ["en", "zh-CN"] as const) {
           );
           await expectReadyDocuments(window, 1);
         } else {
-          const path = join(sources, `Scope.${format}`);
+          const path = join(sources, `Scope.${format === "docx-notes" ? "docx" : format}`);
           let content =
             format === "md"
               ? `# Stored\n\n${inside}\n\n# Elsewhere\n\n${quote}\n`
-              : format === "docx"
+              : format === "docx" || format === "docx-notes"
                 ? docxOf([
                     { text: "Stored", heading: 1 },
                     { text: inside },
-                    { text: "Elsewhere", heading: 1 },
-                    { text: quote },
+                    ...(format === "docx"
+                      ? [{ text: "Elsewhere", heading: 1 }, { text: quote }]
+                      : []),
                   ])
                 : format === "pptx"
                   ? pptxOf({
@@ -70,7 +73,7 @@ for (const language of ["en", "zh-CN"] as const) {
                         { name: "Elsewhere", rows: [[quote]] },
                       ])
                     : `WEBVTT\n\n00:00:00.000 --> 00:00:10.000\n${inside.repeat(180)}\n\n00:00:20.000 --> 00:00:30.000\n${quote}\n`;
-          if (format === "docx" && typeof content !== "string") {
+          if ((format === "docx" || format === "docx-notes") && typeof content !== "string") {
             const template = unzip(
               await readFile(
                 join(__dirname, "../tests/fixtures/formats/Coastal Flood Risk Review.docx"),
@@ -80,6 +83,46 @@ for (const language of ["en", "zh-CN"] as const) {
               "word/document.xml",
               Buffer.from(part(unzip(content), "word/document.xml")),
             );
+            if (format === "docx-notes") {
+              template.set(
+                "word/document.xml",
+                Buffer.from(
+                  part(template, "word/document.xml").replace(
+                    "</w:p>",
+                    '<w:r><w:footnoteReference w:id="1"/></w:r><w:r><w:endnoteReference w:id="1"/></w:r></w:p>',
+                  ),
+                ),
+              );
+              for (const [kind, text] of [
+                ["footnote", quote],
+                ["endnote", endnote],
+              ] as const) {
+                template.set(
+                  `word/${kind}s.xml`,
+                  Buffer.from(
+                    `<w:${kind}s xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:${kind} w:id="1"><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p></w:${kind}></w:${kind}s>`,
+                  ),
+                );
+                template.set(
+                  "word/_rels/document.xml.rels",
+                  Buffer.from(
+                    part(template, "word/_rels/document.xml.rels").replace(
+                      "</Relationships>",
+                      `<Relationship Id="scope-${kind}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${kind}s" Target="${kind}s.xml"/></Relationships>`,
+                    ),
+                  ),
+                );
+                template.set(
+                  "[Content_Types].xml",
+                  Buffer.from(
+                    part(template, "[Content_Types].xml").replace(
+                      "</Types>",
+                      `<Override PartName="/word/${kind}s.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.${kind}s+xml"/></Types>`,
+                    ),
+                  ),
+                );
+              }
+            }
             content = buildZip([...template].map(([name, data]) => ({ name, data })));
           }
           await writeFile(path, content);
@@ -115,6 +158,30 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(highlights.first()).toBeVisible();
         await openAt(9999);
         await expect(highlights).toHaveCount(0);
+        if (format === "docx-notes") {
+          await openDocumentAt(window, {
+            documentId: document.id,
+            quote: inside,
+            pageFrom: last.page,
+            pageTo: last.page,
+          });
+          await expect(viewer.getByText(quote, { exact: false }).first()).toBeInViewport();
+          await expect(highlights).toHaveCount(0);
+          await openDocumentAt(window, {
+            documentId: document.id,
+            quote: endnote,
+            pageFrom: last.page,
+            pageTo: last.page,
+          });
+          await expect(highlights.first()).toBeVisible();
+          await openDocumentAt(window, {
+            documentId: document.id,
+            quote: `${inside}\n${quote}`,
+            pageFrom: first.page,
+            pageTo: last.page,
+          });
+          await expect(highlights.first()).toBeVisible();
+        }
       } finally {
         await app.close();
         await removeDataFolder(data);
