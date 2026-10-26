@@ -303,23 +303,28 @@ function BadgeFrame({
   useEffect(() => () => setCheckCardOpen(place, false), [place]);
   const close = (refocus: boolean) => {
     // Closed from inside, the card would leave the focus nowhere: it goes back to the badge.
-    if (refocus && document.activeElement?.closest(".check-card")) anchor?.focus();
+    if (refocus && document.activeElement?.closest(".check-card")) {
+      (anchor?.querySelector("button") ?? anchor)?.focus();
+    }
     setCheckCardOpen(place, false);
   };
+  // The card is placed from this box's right edge, and the badge in it keeps one width while
+  // the card is open: a card placed from the badge's own text moved with every change of it,
+  // and the pill resized under it as a check ended (#1312).
   return (
-    <div className="check-badge-place">
+    <div ref={setAnchor} className="check-badge-place">
       {badge ? (
         <BadgePill
           badge={badge}
           state={state}
           open={open}
           running={running}
+          stable={badge.running || badge.checked !== null || open}
           onToggle={() => setCheckCardOpen(place, !open)}
           onStop={onStop}
-          anchorRef={setAnchor}
         />
       ) : (
-        <span ref={setAnchor} className="check-badge-anchor" />
+        <span className="check-badge-anchor" />
       )}
       {open && anchor && (
         <Popover
@@ -394,17 +399,18 @@ function BadgePill({
   state,
   open,
   running,
+  stable,
   onToggle,
   onStop,
-  anchorRef,
 }: {
   badge: Badge;
   state: NoteState | null;
   open: boolean;
   running: ReactNode;
+  /** It keeps one width: a run is on, or its card, placed from it, is open. */
+  stable: boolean;
   onToggle(): void;
   onStop(): void;
-  anchorRef(element: HTMLElement | null): void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -502,10 +508,9 @@ function BadgePill({
       data-testid="check-badge"
       data-state={state?.kind}
       data-tone={state?.tone}
-      data-stable={badge.running || badge.checked !== null ? "" : undefined}
+      data-stable={stable ? "" : undefined}
     >
       <button
-        ref={anchorRef}
         type="button"
         data-testid="check-badge-open"
         className="check-badge-open"
