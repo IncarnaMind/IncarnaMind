@@ -1644,23 +1644,10 @@ export function createCitationSession(
 
   /** Quotes for calculated figures' inputs (./calculations). */
   const quotes = {
-    /**
-     * The quote of the record taken for a marker; null when none was. A quote
-     * that isn't where the record says is read where it is in its Passage, as
-     * structured output's records are (see `CiteOptions`): the record itself
-     * stays as it was.
-     */
+    /** An input keeps its recorded Location: moving it could substitute another revision (#1979). */
     recorded(marker: number): Quoted | null {
       const record = records.get(marker);
       if (!record) return null;
-      if (check(record).check === "not-found") {
-        const placed = takeQuote(
-          { passage: record.handle, ...record.given, quote: record.quote },
-          0,
-          { structured: true },
-        );
-        if (placed.ok && check(placed.record).check === "found") return quotedOf(placed.record);
-      }
       return quotedOf(record);
     },
 

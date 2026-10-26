@@ -498,8 +498,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     }
     if (!given.record)
       return "give citation (the marker of a record you gave cite), or passage, location and quote.";
-    // Read as structured output's records are, wherever it is in its Passage: only the number matters here.
-    const quoted = quotes.quote(given.record, { structured: true });
+    const quoted = quotes.quote(given.record);
     if ("problem" in quoted) return quoted.problem;
     return unreadable(quoted, null) ?? { quoted, source: given.record };
   }
@@ -594,6 +593,18 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // A quote from the middle of a line ("…，88.0 和 91.5") starts with no list's or heading's number.
     const quoteContext = { ...context, midLine: page.midLine };
     const figures = readFigures(quote, quoteContext);
+    const gaps = figures.map((figure, index) =>
+      quote.slice(figures[index - 1]?.end ?? 0, figure.start),
+    );
+    gaps.push(quote.slice(figures.at(-1)?.end ?? 0));
+    if (
+      quoted.units.some((unit) => (unit.kind ?? "page") === "page") &&
+      figures.length > 0 &&
+      gaps.every((gap) => gap.replaceAll("|", "").trim() === "") &&
+      quoted.units.some((unit) => unit.text.trim() !== quote.trim())
+    ) {
+      return `the quote "${quote}" gives only numbers, without their row or role; quote the labelled row or sentence at the intended location, with its period or revision context, and select the number there. Fix its cite record too if it is used in the Answer.`;
+    }
     const has =
       figures.length === 0
         ? "it has no number"
