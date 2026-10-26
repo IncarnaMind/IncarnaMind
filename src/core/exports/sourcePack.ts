@@ -9,7 +9,7 @@ import type { CitationForm } from "../../shared/citationStyles";
 import type { DrawnPage, PageBox } from "../../shared/citedPage";
 import { translate } from "../../shared/i18n";
 import { findQuoteInPieces, type MatchOptions, type PieceRange } from "../../shared/quoteMatch";
-import { unreadSection } from "../../shared/unreadFiles";
+import { unreadPartsCounts, unreadSection } from "../../shared/unreadFiles";
 import type { CitationAttributes, UnreadFile } from "../api";
 import { citedPageKey } from "../citedPages";
 import type { Language } from "../language";
@@ -280,14 +280,19 @@ export function renderSourcePack(
   const section =
     unread.length === 0
       ? null
-      : unreadSection(unread, (key, params) => translate(language, key, params), names);
+      : unreadSection(
+          unread,
+          (key, params) => translate(language, key, params),
+          names,
+          unreadPartsCounts(unread, (key, params) => translate(language, key, params)),
+        );
   const unreadHtml =
     section === null
       ? ""
       : `<section class="pack-unread"><h2>${escapeHtml(section.heading)}</h2><p>${escapeHtml(section.count)}</p>` +
-        (names
+        (section.items.length > 0
           ? `<ul>${section.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
-          : "") +
+          : section.counts.map((count) => `<p>${escapeHtml(count)}</p>`).join("")) +
         "</section>";
   return cover + sheets.join("") + unreadHtml;
 }

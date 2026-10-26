@@ -81,6 +81,7 @@ import {
   readVerdict,
   STRICT_INSTRUCTIONS,
 } from "./prompt";
+import { searchAgain } from "./searchAgain";
 import { unitNotStated } from "./units";
 
 export interface ClaimCheckDependencies {
@@ -165,7 +166,7 @@ const SEARCH_FIRST =
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
     const { scope, signal } = request;
-    let searched = false;
+    let searches = 0;
     const read = new Map<string, string>();
     const excluded = new Map<string, LeftOutDocument>();
     const decisions = caseCitations(request.claim);
@@ -218,7 +219,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
-        searched = true;
+        searches++;
         return session.tools.searchDocuments(query, searchSignal, options);
       },
       cite: (records, options) => session.tools.cite(records, options),
@@ -270,9 +271,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const { amount } = found;
       if (found.kind === "unit") {
         const reason = t("claim.unsupported.unit", { amount, figure: found.figure });
-        return { reason, covered: null, uncovered: null };
+        return { reason, covered: null, uncovered: null, found: true };
       }
       return {
+        found: true,
         reason: t("claim.unsupported.currency.reason", { amount }),
         covered: t("claim.unsupported.currency.covered", { amount }),
         uncovered: t("claim.unsupported.currency.uncovered", { currency: found.currency }),
@@ -351,8 +353,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         {
           name: "search-first",
           check: (text) =>
-            !searched && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
+            searches === 0 && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
+        searchAgain(() => searches),
       ],
       signal,
     })) {
@@ -404,7 +407,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       readVerdict(reply) ??
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return byCalculation ?? notChecked(refused ? "refused" : "malformed");
-    if (!searched) return notChecked("unread");
+    if (searches === 0) return notChecked("unread");
     if (byCalculation && verdict.verdict !== "contradicted") return byCalculation;
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (
@@ -449,10 +452,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
       const onTopic = verdict.topic !== "not found";
+      const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;
       return unsupported({
         reason: verdict.says,
         covered: onTopic ? verdict.covered : null,
         uncovered: onTopic ? verdict.uncovered : null,
+        ...((verdict.topic === "found" || parts) && { found: true }),
       });
     }
     const evidence =
@@ -486,8 +491,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // The Passage the check cited states the term's own value, so no nearest line is asked about.
       const nearest = differs ? undefined : null;
       if (part.covered && part.uncovered)
-        return unsupported({ reason: verdict.says, ...part }, evidence, nearest);
-      if (differs) return unsupported();
+        return unsupported({ reason: verdict.says, ...part, found: true }, evidence, nearest);
+      if (differs) return unsupported({ ...UNBACKED, reason: verdict.says });
     }
     if (verdict.verdict === "contradicted") {
       // The judgements disagree with the check: the card shows the part the quote states
@@ -498,16 +503,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         if (verdict.topic === "not found") return unsupported();
         const part = await parts(evidence);
         if (signal.aborted) return notChecked("stopped");
-        if (!part.covered || !part.uncovered) return unsupported();
+        if (!part.covered || !part.uncovered) return unsupported(UNBACKED);
         // A judgement has just compared this very quote with the sentence: no nearest line.
-        return unsupported({ reason: verdict.says, ...part }, evidence, null);
+        return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
       };
       const first = await compare(request, evidence, session, signal, CONFIRM_INSTRUCTIONS);
       if (signal.aborted) return notChecked("stopped");
       if ("failed" in first) return failedCheck(first.failed);
       const judged = readJudgement(first.reply);
       // The Passage is about something else: what is nearest may still say something different.
-      if (judged === "neither") return byCalculation ?? unsupported();
+      if (judged === "neither") {
+        return byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED);
+      }
       // Never Supported: in one word it called the parties the other way round the same (#1668).
       if (judged === "same") return inDoubt();
       // A false contradiction is the worst verdict a check gives, and one judgement upheld near
@@ -732,6 +739,12 @@ async function nearestDifferent(
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * A Passage the check found and judged that doesn't back the sentence, with nothing to quote from it:
+ * Unsupported, never Not found (#1608).
+ */
+const UNBACKED: UnsupportedReason = { reason: null, covered: null, uncovered: null, found: true };
 
 /** The marker the nearest line is recorded under: apart from the model's and the evidence's. */
 const NEAREST_MARKER = 98;

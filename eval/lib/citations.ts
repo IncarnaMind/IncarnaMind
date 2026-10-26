@@ -328,7 +328,7 @@ const F_LIGATURE = /f(?:f[il]?|[il])/g;
  * and only letters and digits kept, so punctuation, spacing, hyphens and
  * quote marks can't stop a match. An f-ligature's letters are read as one
  * "f" too: some PDFs' text lost the letters after it, so a page shows
- * "finance" where its stored text reads "fnance" (JP Morgan's ESG report),
+ * "finance" where its stored text reads "fnance" (Vantrell's ESG report),
  * and a quote of the page as it shows is still on it.
  */
 function looseText(text: string): string {
@@ -445,7 +445,7 @@ export function citationLine(citation: CitationRecord, unit: "p." | "Unit" = "p.
   return `${OUTCOME_WORDS[citation.outcome]}${reason}: ${citation.documentName}, cites ${cited} of a Passage on ${pagesLabel(citation.passagePages, unit)}; ${on}: "${shortQuote(citation.quote)}"`;
 }
 
-/** The records the core couldn't take, as given: '[^1] "JP Morgan…" (no such Passage)'. */
+/** The records the core couldn't take, as given: '[^1] "Vantrell…" (no such Passage)'. */
 export function rejectedLine(records: readonly RejectedRecord[]): string {
   return records
     .map(
@@ -540,7 +540,7 @@ async function readAnswer(
 type Ending = { finished: AnswerFinished } | { failed: ProviderError };
 
 /** Asks one Question in a new Mind and reads its Answer back. */
-async function askOne(
+export async function askOne(
   library: Library,
   question: EvalQuestion,
   round: number,

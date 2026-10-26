@@ -3,9 +3,17 @@ import type { Mind } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { timeAgo } from "../../dates";
 import { useDraggedRef, useDragSource } from "../../dragDrop";
-import { homeClick, useHomeView, useMindSnippets, useOwnMinds } from "../../home";
+import { useExports } from "../../exports";
+import {
+  homeClick,
+  useHomeView,
+  useMindNoteStates,
+  useMindSnippets,
+  useOwnMinds,
+} from "../../home";
 import { useLanguage, useT } from "../../i18n";
 import { onMiddleClick } from "../../middleClick";
+import { type NoteState, noteStateParts } from "../../noteState";
 import { useSelectable } from "../../selection";
 import { moveFromMenu, rowDrag } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
@@ -22,8 +30,9 @@ export function RecentMinds({ now }: { now: Date }) {
   const minds = useOwnMinds();
   const snippets = useMindSnippets();
   const all = useHomeView((state) => state.all);
-  if (minds.length === 0) return null;
   const shown = all ? minds : minds.slice(0, FIRST_ROWS);
+  const states = useMindNoteStates(shown);
+  if (minds.length === 0) return null;
   return (
     <section data-testid="home-recent" className="mb-7">
       <h2 className="mb-1.5 text-label font-semibold text-ink-meta">{t("home.recent")}</h2>
@@ -35,7 +44,13 @@ export function RecentMinds({ now }: { now: Date }) {
         className="border-t border-rule"
       >
         {shown.map((mind) => (
-          <RecentRow key={mind.id} mind={mind} snippet={snippets.get(mind.id)} now={now} />
+          <RecentRow
+            key={mind.id}
+            mind={mind}
+            snippet={snippets.get(mind.id)}
+            state={states.get(mind.id) ?? null}
+            now={now}
+          />
         ))}
       </div>
       {minds.length > FIRST_ROWS && (
@@ -53,7 +68,35 @@ export function RecentMinds({ now }: { now: Date }) {
   );
 }
 
-function RecentRow({ mind, snippet, now }: { mind: Mind; snippet?: string; now: Date }) {
+/**
+ * A note's own state (D266): "Not checked", "2 need a look", or "Checked 14:25" and, after an
+ * export of it in this session, " · exported as Word". It stands where the snippet did: the
+ * state is what Home is for.
+ */
+function stateLine(
+  state: NoteState,
+  exportedWord: boolean,
+  t: ReturnType<typeof useT>,
+  language: ReturnType<typeof useLanguage>,
+): string {
+  const parts = noteStateParts(state, t, language);
+  return [
+    ...parts,
+    ...(state.kind === "checked" && exportedWord ? [t("home.recent.exported")] : []),
+  ].join(" · ");
+}
+
+function RecentRow({
+  mind,
+  snippet,
+  state,
+  now,
+}: {
+  mind: Mind;
+  snippet?: string;
+  state: NoteState | null;
+  now: Date;
+}) {
   const t = useT();
   const language = useLanguage();
   const object = { kind: "mind", id: mind.id } as const;
@@ -65,6 +108,12 @@ function RecentRow({ mind, snippet, now }: { mind: Mind; snippet?: string; now: 
   );
   const title = mindName(mind) || t("mind.untitled");
   const row = useRef<HTMLDivElement>(null);
+  const exportedWord = useExports(
+    (state) =>
+      state.result?.state === "saved" &&
+      state.result.mindId === mind.id &&
+      state.result.format === "docx",
+  );
   const openMind = useAppStore((state) => state.openMind);
   const select = useSelectable(object, "home", () => openMind(mind.id));
   const dragSource = useDragSource(() => rowDrag(object, "home"));
@@ -117,13 +166,24 @@ function RecentRow({ mind, snippet, now }: { mind: Mind; snippet?: string; now: 
             <span data-testid="row-text" className="truncate font-semibold text-ink">
               {title}
             </span>
-            {snippet && (
+            {state ? (
               <span
-                data-testid="home-recent-snippet"
-                className="truncate text-[13px] leading-[18px] text-ink-meta"
+                data-testid="home-recent-state"
+                data-state={state.kind}
+                data-tone={state.tone}
+                className="home-recent-state truncate text-[13px] leading-[18px]"
               >
-                {snippet}
+                {stateLine(state, exportedWord, t, language)}
               </span>
+            ) : (
+              snippet && (
+                <span
+                  data-testid="home-recent-snippet"
+                  className="truncate text-[13px] leading-[18px] text-ink-meta"
+                >
+                  {snippet}
+                </span>
+              )
             )}
           </span>
           <span

@@ -23,7 +23,12 @@ import { readableQuoteText } from "../../shared/readableQuote";
 import type { ScopeKind } from "../../shared/searchScope";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
-import { checkUnreadOf, unreadFileNamesOf, unreadSection } from "../../shared/unreadFiles";
+import {
+  checkUnreadOf,
+  unreadFileNamesOf,
+  unreadPartsCounts,
+  unreadSection,
+} from "../../shared/unreadFiles";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
 import { checkRequests } from "../answers/checks/sentences";
@@ -165,7 +170,7 @@ function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: 
   if (unread.length === 0) return [];
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const line = (text: string) => ({ kind: "text" as const, text, marks: NO_MARKS });
-  const section = unreadSection(unread, t, names);
+  const section = unreadSection(unread, t, names, unreadPartsCounts(unread, t));
   return [
     { kind: "heading", level: 2, content: [line(section.heading)] },
     { kind: "paragraph", content: [line(section.count)] },
@@ -180,7 +185,10 @@ function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: 
             ]),
           },
         ]
-      : []),
+      : section.counts.map((count) => ({
+          kind: "paragraph" as const,
+          content: [line(count)],
+        }))),
   ];
 }
 
@@ -359,7 +367,13 @@ export function createExports(deps: ExportsDependencies) {
       data: unifyIdeographs(printed),
       word: null,
       needsDetails: [],
-      sentenceChecks: { contradicted: 0, unsupported: 0, needsRecheck: 0, commented: false },
+      sentenceChecks: {
+        contradicted: 0,
+        notFound: 0,
+        unsupported: 0,
+        needsRecheck: 0,
+        commented: false,
+      },
       trackedChanges: 0,
     };
   };
@@ -740,12 +754,15 @@ function reviewOf(
   const counted = asComments ? commented : prepared.failedSentences;
   const count = (check: FailedSentence["check"]) =>
     counted.filter((each) => each.check === check).length;
+  const notFound = counted.filter((each) => each.check === "unsupported" && each.notFound).length;
   return {
     sentenceChecks: {
       contradicted: count("contradicted"),
+      notFound,
       // An Unsupported sentence's comment may name its own workings or a court decision instead.
       unsupported:
-        count("unsupported") +
+        count("unsupported") -
+        notFound +
         count("own-workings") +
         counted.filter((each) => each.check === "cited-case-unchecked" && each.unsupported).length,
       needsRecheck: count("needs-recheck"),

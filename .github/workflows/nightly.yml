@@ -60,10 +60,10 @@ jobs:
           path: test-results/
           retention-days: 7
 
-  # The packaged app transcribes a meeting with its real speech engine and model (#1239), as
-  # ci.yml runs it for a pull request that changes what it covers.
+  # The packaged app reads scans with real OCR (#1819) and transcribes a meeting with its real
+  # speech engine and model (#1239), as ci.yml runs them for a pull request that changes their coverage.
   packaged-transcription:
-    name: Packaged app transcribes a meeting (macOS)
+    name: Packaged app's real engines (macOS)
     runs-on: macos-latest
     timeout-minutes: 45
     steps:

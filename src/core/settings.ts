@@ -224,7 +224,6 @@ const deviceScope: Scope<DeviceSettings> = {
     // DESIGN.md: the sidebar is 248px by default.
     sidebarWidth: 248,
     sidebarHidden: false,
-    chatSetupDismissed: false,
     sandboxNoticeDismissed: false,
     openedBefore: false,
     gettingStarted: {
@@ -254,7 +253,6 @@ const deviceScope: Scope<DeviceSettings> = {
   validators: {
     sidebarWidth: isPaneWidth,
     sidebarHidden: isBoolean,
-    chatSetupDismissed: isBoolean,
     sandboxNoticeDismissed: isBoolean,
     openedBefore: isBoolean,
     gettingStarted: isGettingStarted,
