@@ -3782,6 +3782,8 @@ export const zhCN = {
   "error.commands.noFolderPath": "命令缺少要从中添加文件的文件夹。",
   "error.commands.noIds": "命令缺少要处理的文档或 Mind。",
   "error.commands.noDocument": "没有 id 为 {id} 的文档。",
+  "error.commands.exampleDocument":
+    "那个文档属于示例，保持原样。添加你自己的文档，就可以把它放进文件夹。",
   "error.commands.noMind": "没有 id 为 {id} 的 Mind。",
   "error.commands.oneOnly": "这个命令一次只能处理一个文档或 Mind。",
   "error.commands.notAbsolute": "“{folder}”不是完整的文件夹路径。",
@@ -4396,6 +4398,7 @@ export const zhCN = {
   "firstOpen.hide": "隐藏",
   "assistant.pill": "提问",
   "sidebar.examples": "示例",
+  "sidebar.documents": "文档",
   "examples.banner.label": "关于这个示例",
   "examples.banner.title": "这是一个示例 Mind。",
   "examples.banner.body":
