@@ -301,7 +301,7 @@ test("Settings › Models shows the same three rows, editable in place, with Qui
     await expect(settings.getByTestId("model-default-quickTasksModel")).toHaveCount(0);
     await expect(settings.getByTestId("model-default-imageModel")).toHaveCount(0);
     await expect(settings.getByTestId("models-follow-answers")).toHaveText(
-      "Quick tasks and reading images follow this model.",
+      "Quick tasks and reading images are automatic.",
     );
 
     // Meeting transcription, changed where it is shown.

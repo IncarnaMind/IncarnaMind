@@ -2727,7 +2727,7 @@ export const en = {
   "models.defaults.yourAi": "Your AI",
   "models.defaults.transcription": "Meeting transcription",
   "models.defaults.sorting": "Sorting and meeting hints",
-  "models.defaults.followAnswers": "Quick tasks and reading images follow this model.",
+  "models.defaults.followAnswers": "Quick tasks and reading images are automatic.",
   "models.defaults.images.none": "No model reads images yet",
   "models.defaults.meetings": "Meetings",
   "models.defaults.meetings.tip": "Where meeting audio is turned into text.",

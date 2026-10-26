@@ -110,12 +110,13 @@ function YourAiRow({
 
 function TranscriptionRow({ id }: { id: string }) {
   const t = useT();
+  const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   return (
     <div data-testid="model-default-row-transcription" className="flex flex-col gap-0.5 py-2">
       <label htmlFor={id} className="text-ui font-semibold text-ink">
         {t("models.defaults.transcription")}
       </label>
-      <TranscriptionRouteSelect id={id} className={jobSelectClass} />
+      <TranscriptionRouteSelect id={id} className={jobSelectClass} localOnly={localOnly} />
     </div>
   );
 }

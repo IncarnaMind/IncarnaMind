@@ -356,11 +356,14 @@ function OrganizeNeedsModel() {
   const language = useLanguage();
   const ids = useOrganizeAsk((state) => state.ids);
   const hasModel = useAppStore((state) => organizeHasModel(state.library?.settings));
-  const ready = useAppStore((state) => state.chatReadiness?.ready === true);
+  // Only "no provider at all" is what first run's key field answers; every other reason has its own line.
+  const noProvider = useAppStore(
+    (state) => state.chatReadiness?.ready === false && state.chatReadiness.reason === "no-provider",
+  );
   const [automatic, setAutomatic] = useState<TaggingModelOption | null>(null);
   const asked = ids !== null && !hasModel;
   useEffect(() => {
-    if (!asked || !ready) return;
+    if (!asked || noProvider) return;
     let current = true;
     const load = () =>
       core.getTaggingModels().then(
@@ -375,7 +378,7 @@ function OrganizeNeedsModel() {
       current = false;
       stop();
     };
-  }, [asked, ready]);
+  }, [asked, noProvider]);
   if (!asked) return null;
   const close = () => useOrganizeAsk.getState().close();
   const use = async (classifier: TaggingClassifier) => {
@@ -408,7 +411,7 @@ function OrganizeNeedsModel() {
       {t("library.organize.dismiss")}
     </button>
   );
-  if (!ready) {
+  if (noProvider) {
     return (
       <div
         role="status"

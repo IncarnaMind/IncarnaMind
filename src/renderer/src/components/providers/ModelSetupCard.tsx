@@ -119,9 +119,9 @@ function ChooseAnAi() {
               <>
                 <ChatGptPlanWay sign={sign} chinese={chinese} />
                 <ClaudePlanWay onUseKey={useKeyInstead} />
-                <LocalWay ollama={ollama} running={running === true} />
               </>
             )}
+            <LocalWay ollama={ollama} running={running === true} />
             {!localOnly && (
               <details
                 open={others}

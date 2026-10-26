@@ -2606,7 +2606,7 @@ export const zhCN = {
   "models.defaults.yourAi": "你的 AI",
   "models.defaults.transcription": "会议转写",
   "models.defaults.sorting": "整理和会议提示",
-  "models.defaults.followAnswers": "快速任务和读取图片都跟随这个模型。",
+  "models.defaults.followAnswers": "快速任务和读取图片自动选择。",
   "models.defaults.images.none": "还没有能读图的模型",
   "models.defaults.meetings": "会议",
   "models.defaults.meetings.tip": "会议录音在哪里转成文字。",

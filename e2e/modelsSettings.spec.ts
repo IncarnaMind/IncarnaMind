@@ -93,7 +93,7 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     const answers = settings.getByTestId("model-default-chatModel");
     await expect(answers).toHaveValue(`${existing.id}\nfirst-model`);
     await expect(settings.getByTestId("models-follow-answers")).toHaveText(
-      "Quick tasks and reading images follow this model.",
+      "Quick tasks and reading images are automatic.",
     );
     await expect(settings.getByTestId("model-default-row-transcription")).toBeVisible();
     await expect(settings.getByTestId("model-default-row-sorting")).toBeVisible();
