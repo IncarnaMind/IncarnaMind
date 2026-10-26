@@ -22,7 +22,7 @@ export interface Arm {
 }
 
 const CITING = "Cite every claim you draw from a Passage:\n";
-const LAST_LINE = "- Write nothing before your searches: only the Answer, after them.";
+const LAST_LINE = "- Write nothing before a search: only the Answer, once you have what it needs.";
 const SAME_REPLY =
   "- Then, in the same reply, call cite once with a record for each marker: its number (1, 2, …), ";
 const QUOTED =

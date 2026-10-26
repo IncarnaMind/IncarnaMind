@@ -169,9 +169,9 @@ describe("the cite-first arm", () => {
     );
     expect(system.slice(system.indexOf("- Write nothing before your Tool calls"))).toBe(
       today
-        .slice(today.indexOf("- Write nothing before your searches"))
+        .slice(today.indexOf("- Write nothing before a search"))
         .replace(
-          "- Write nothing before your searches: only the Answer, after them.",
+          "- Write nothing before a search: only the Answer, once you have what it needs.",
           "- Write nothing before your Tool calls: only the Answer, after them.",
         ),
     );
