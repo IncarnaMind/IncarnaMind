@@ -2573,9 +2573,37 @@ export const assistantAnswers = (window: Page) =>
   window.getByTestId("assistant").getByTestId("assistant-answer");
 
 /**
+ * The assistant's own word that the next Answer in a conversation has stopped streaming: the
+ * core's `answer.finished` (done or stopped) or `answer.failed`, with the Answer's id, for one
+ * that wasn't there before (`known`), not one in a Mind (#1741). A rendered status can lag the
+ * stream on a loaded runner, so a spec waits for this, and names the Answer by the id it gives.
+ */
+const answerEnded = (window: Page, known: readonly string[]) =>
+  window.evaluate(
+    (before) =>
+      new Promise<{ answerId: string; status: string }>((ended) => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const stops: (() => void)[] = [];
+        const end = (answerId: string, status: string) => {
+          for (const stop of stops) stop();
+          ended({ answerId, status });
+        };
+        stops.push(
+          bridge.on("answer.finished", ({ answerId, mindId, status }) => {
+            if (mindId === null && !before.includes(answerId)) end(answerId, status);
+          }),
+          bridge.on("answer.failed", ({ answerId, mindId }) => {
+            if (mindId === null && !before.includes(answerId)) end(answerId, "failed");
+          }),
+        );
+      }),
+    known,
+  );
+
+/**
  * Asks a Question as a person does: ⌘J, the words, Enter. It is asked in the
- * assistant's conversation (#201); resolves with its Answer there once it is
- * written (the scripted model's, with `fakeChat`). The scripted model streams a word every
+ * assistant's conversation (#201); resolves with its Answer there once the assistant says its
+ * stream ended and the page shows it done. The scripted model streams a word every
  * 60 ms, so a wide table takes about 7 s on a quiet computer, and a loaded runner took more than
  * twice the old 15 s ceiling (#1651).
  */
@@ -2585,16 +2613,32 @@ export async function askInAssistant(
   { timeout = 45_000 }: { timeout?: number } = {},
 ): Promise<Locator> {
   const answers = assistantAnswers(window);
-  const before = await answers.count();
+  const before = await answers.evaluateAll((all) =>
+    all.map((element) => element.getAttribute("data-answer-id") ?? ""),
+  );
+  const ended = answerEnded(window, before).catch(() => ({ answerId: "", status: "closed" }));
   await window.keyboard.press("ControlOrMeta+j");
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await window.keyboard.type(question);
   await window.keyboard.press("Enter");
   const questions = window.getByTestId("assistant").getByTestId("assistant-question");
   await expect(questions.last()).toContainText(question);
-  await expect(answers).toHaveCount(before + 1);
+  await expect(answers).toHaveCount(before.length + 1);
   const answer = answers.last();
-  await expect(answer).toHaveAttribute("data-status", "done", { timeout });
+  // The assistant's own word that the stream ended, not the page's, which can lag it on a
+  // loaded runner (#1741), and the Answer that word names, by its id: a re-render, another
+  // Answer or a placeholder can't stand in for it.
+  const end = await ended;
+  const endedHere = end.answerId
+    ? window
+        .getByTestId("assistant")
+        .locator(`[data-testid="assistant-answer"][data-answer-id="${end.answerId}"]`)
+    : answer;
+  await expect(endedHere).toHaveAttribute(
+    "data-status",
+    end.status === "closed" ? "done" : end.status,
+    { timeout },
+  );
   return answer;
 }
 
@@ -2797,19 +2841,11 @@ async function closeOrKill(app: ElectronApplication): Promise<void> {
 }
 
 /**
- * The one main-process error a test-driven app may log and go on: Node 24's timer internals
- * (Electron's bundled Node) throw it whatever the test does, so no spec could pass while it is
- * not exempt. Delete this when #1244 is fixed.
- */
-const KNOWN_RUNTIME_UNCAUGHT = "timer._onTimeout is not a function";
-
-/**
  * Removes a data folder, after closing an app the test left open on it. If
  * the test failed, a screenshot of that app's window as the test left it is
  * kept first, as app-window.png with the test's results, which CI uploads
  * (Playwright's own screenshots and traces leave an Electron app's window out).
- * A test whose app logged an uncaught main-process error fails here, except for
- * the known runtime timer defect: see `KNOWN_RUNTIME_UNCAUGHT`.
+ * A test whose app logged an uncaught main-process error fails here.
  */
 export async function removeDataFolder(dataDir: string): Promise<void> {
   const info = test.info();
@@ -2833,15 +2869,7 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
     }
     // A test-driven app logs an uncaught main-process error and goes on (#1741), so the test
     // that saw one fails here: an error in product code must not pass every spec silently.
-    // The one that may go on is Node's timer defect, which the app can't prevent and no test
-    // causes; it is only said in the output. Delete the exemption when #1244 is fixed.
-    for (const line of uncaughtLogLines(dataDir)) {
-      if (line.includes(KNOWN_RUNTIME_UNCAUGHT)) {
-        console.warn(`The app's main process logged the known Node timer defect: ${line}`);
-      } else {
-        uncaught.push(line);
-      }
-    }
+    uncaught.push(...uncaughtLogLines(dataDir));
   }
   await rm(dataDir, { recursive: true, force: true, maxRetries: 3 });
   if (uncaught.length > 0) {
