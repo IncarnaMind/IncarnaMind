@@ -51,7 +51,6 @@ const RETIRED_NOTE: readonly RetiredNote[] = [
   { key: "palette.group.notes", old: 1, final: 0, englishOld: true },
   { key: "palette.searching", old: 1, final: 0, englishOld: true },
   { key: "providers.readiness.no-provider", old: 1, final: 0, englishOld: true },
-  { key: "providers.setup.body", old: 1, final: 0, englishOld: true },
   { key: "question.context.include", old: 1, final: 0, englishOld: false },
   { key: "skills.builtIn.mind-to-report", old: 1, final: 1, englishOld: true },
   { key: "skills.make.empty", old: 1, final: 1, englishOld: true },

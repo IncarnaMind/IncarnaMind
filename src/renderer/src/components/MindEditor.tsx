@@ -3,7 +3,7 @@ import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
 import { Selection } from "@tiptap/pm/state";
 import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from "@tiptap/react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
@@ -63,7 +63,7 @@ import { FootnoteArea } from "../editor/FootnoteArea";
 import { FootnotePopover } from "../editor/FootnotePopover";
 import { type FootnoteLabel, footnoteView } from "../editor/FootnoteView";
 import { FindInMind } from "../editor/findInMind";
-import { FootnoteKeys } from "../editor/footnoteSchema";
+import { FootnoteKeys, focusNow } from "../editor/footnoteSchema";
 import { HeldSelection } from "../editor/heldSelection";
 import { LinkBubble } from "../editor/LinkBubble";
 import { ListKeys } from "../editor/listKeys";
@@ -122,6 +122,7 @@ import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPlaceOf } from "../mindWriting";
+import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
@@ -146,17 +147,21 @@ const ASK = "\uE000";
  * look at: the editor's binding deletes what its schema doesn't know from the
  * copy, and nothing is ever sent from it.
  */
-function useMindDocument(mindId: string): OpenedCopy | null {
+function useMindDocument(mindId: string, whenUnavailable: () => void): OpenedCopy | null {
   const [opened, setOpened] = useState<OpenedCopy | null>(null);
   const reportError = useAppStore((state) => state.reportError);
 
   useEffect(() => {
-    const close = openMindCopy(mindId, setOpened, reportError);
+    const close = openMindCopy(mindId, setOpened, (error) => {
+      // A copy that can't open means no editor will come to take a new Mind's keys.
+      whenUnavailable();
+      reportError(error);
+    });
     return () => {
       close();
       setOpened(null);
     };
-  }, [mindId, reportError]);
+  }, [mindId, reportError, whenUnavailable]);
 
   return opened;
 }
@@ -182,7 +187,19 @@ function rememberMindExplained(): void {
 
 /** The open Mind's Blocks, edited with Tiptap and saved through the core as they change. */
 export function MindEditor({ mindId }: { mindId: string }) {
-  const opened = useMindDocument(mindId);
+  const opened = useMindDocument(mindId, forgetNewMindKeys);
+  // A copy to look at only has no editor either: the keys held for it go back where they were.
+  useEffect(() => {
+    if (opened && !opened.doc) forgetNewMindKeys();
+  }, [opened]);
+  // Its tab closed, or another shown, before its editor was drawn: no editor comes to take the
+  // keys, and the Minds the User left must not stay uneditable.
+  useEffect(
+    () => () => {
+      if (useAppStore.getState().bodyToFocus === mindId) forgetNewMindKeys();
+    },
+    [mindId],
+  );
   if (!opened) return null;
   if (!opened.doc) return <MindNotice kind="update" />;
   return (
@@ -296,13 +313,18 @@ function MindEditorView({
   const cursorPlaced = useRef(false);
   const placeholder = useRef({ body: "", title: "" });
   placeholder.current = { body: t("editor.placeholder"), title: t("editor.title") };
-  // A Meeting's empty Mind waits for the agenda (as in Granola), with no Question to ask yet.
-  const isMeeting = useMeetingOf(mindId) !== undefined;
+  // A Meeting's empty Mind waits for the agenda (as in Granola), with no Question to ask yet; a
+  // voice memo's, for its note.
+  const meetingKind = useMeetingOf(mindId)?.kind;
   // The example Mind invites a Question of one's own at its end.
   const [explained, setExplained] = useState(mindExplained);
   const hintText = (place: HintPlace): HintText => {
-    if (place === "empty" && isMeeting) {
-      return { before: t("meetings.hint.agenda"), ask: "", after: "" };
+    if (place === "empty" && meetingKind) {
+      return {
+        before: t(meetingKind === "memo" ? "memos.hint" : "meetings.hint.agenda"),
+        ask: "",
+        after: "",
+      };
     }
     const key =
       place === "empty"
@@ -601,8 +623,9 @@ function MindEditorView({
   // The cursor is where Add to note puts an Answer while the focus is in the editor, or has gone
   // from it only to the assistant the composer is in (its Answers, its menus, its header);
   // anywhere else, Answers go at the end of the Mind. A dialog that asks something on the way
-  // (consent to send, say) gives the focus back: it doesn't count.
-  useEffect(() => {
+  // (consent to send, say) gives the focus back: it doesn't count. A layout effect, so it is
+  // listening before a Mind made with ⌘T takes the focus before its first frame (#2000).
+  useLayoutEffect(() => {
     const assistant = dock?.closest("[data-assistant]") ?? dock;
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target;
@@ -643,10 +666,24 @@ function MindEditorView({
     });
   }, [editor, mindId]);
 
-  // A Mind just made: its text has the cursor, under its title when it starts with one (#908).
+  // A Mind made with ⌘T: the keys typed while it was being drawn go in first, and its text has the
+  // focus before the first frame shows it, so a fast typist loses nothing and sees no unfocused page (#2000).
   const bodyHere = useAppStore((state) => state.bodyToFocus === mindId);
-  useEffect(() => {
+  const tookTypedKeys = useRef(false);
+  useLayoutEffect(() => {
     if (!bodyHere || editor.isDestroyed) return;
+    const typed = takeNewMindKeys();
+    if (typed === null) return;
+    tookTypedKeys.current = true;
+    editor.commands.focus("end");
+    if (typed) editor.view.dispatch(editor.state.tr.insertText(typed));
+    focusNow(editor);
+    useAppStore.getState().bodyFocused();
+  }, [bodyHere, editor]);
+
+  // A Mind just made: its text has the cursor, under its title when it starts with one (#908).
+  useEffect(() => {
+    if (!bodyHere || editor.isDestroyed || tookTypedKeys.current) return;
     editor.commands.focus("end");
     useAppStore.getState().bodyFocused();
   }, [bodyHere, editor]);

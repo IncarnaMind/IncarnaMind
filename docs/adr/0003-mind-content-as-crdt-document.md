@@ -125,3 +125,7 @@ A check that can quote nothing says what it did find, so a sentence whose topic 
 
 - **Content schema version 29** adds `found` to a check's `unsupported` reason on the `claimCheck` mark: true when the check found a Passage about the sentence that doesn't back it. An older version's editor would strip it and read such a sentence as Not found, so it opens these Minds read-only. Older content is version 29 content as it is.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: the action is called Check against Documents (2026-10-26, #2004)
+
+The action the amendments above call Find support is called Check against Documents in the interface (`editor.ai.checkAgainstDocuments`). A check made now stores `check-against-documents` as its mark's action; an older stored Note carries `find-support`, which still reads and runs as Check against Documents (`claimCheckActions` in `src/core/api.ts`, `src/shared/claimChecks.ts`, `src/renderer/src/checks.ts`). The command's ⌘K keywords keep "check find support", so the old name still finds it.

@@ -231,6 +231,7 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   await expect(more.getByRole("menuitem")).toHaveText([
     /Import a Word file…/,
     /Record a meeting/,
+    /Voice memo/,
     /Compare Documents…/,
     /Verify a document…/,
     /From starter Folders…/,
@@ -317,6 +318,7 @@ test("the + menu and the shell speak Chinese too", async () => {
   await expect(window.getByRole("menu", { name: "更多" }).getByRole("menuitem")).toHaveText([
     /导入 Word 文件…/,
     /录制会议/,
+    /语音备忘/,
     /对比文档…/,
     /核对文档…/,
     /从预设文件夹新建…/,
