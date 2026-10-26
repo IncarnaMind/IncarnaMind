@@ -1903,6 +1903,15 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE conversation_messages ADD COLUMN analyse INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 110,
+    description: "Outside-agent connections need new approval for the public alpha",
+    sql: `
+      UPDATE device_settings
+      SET value = 'false', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE key = 'agentsEnabled' AND deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**
