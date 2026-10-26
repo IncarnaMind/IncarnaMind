@@ -24,7 +24,7 @@ import {
 import { useAnswers } from "../answers";
 import { shortcutLabel } from "../commands/keymap";
 import { SearchIcon, StopIcon } from "../components/icons";
-import { SearchLineIcon, SparkLineIcon, TableLineIcon } from "../components/lineIcons";
+import { SearchLineIcon, SparkLineIcon } from "../components/lineIcons";
 import { ProblemLine } from "../components/ProblemLine";
 import { answerAskFrom } from "../components/TaskTray";
 import { TypingTextarea } from "../components/TypingTextarea";
@@ -74,7 +74,7 @@ import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
 import { EditStatus } from "./EditStatus";
-import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon } from "./icons";
+import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from "./icons";
 import { ModelChip } from "./ModelChip";
 import { useMindSelection } from "./mindSelection";
 import { PasteChip, usePasteLabel } from "./PasteChip";
@@ -900,7 +900,7 @@ export function Composer({
             title={t("analysis.chip.hint")}
             className="question-skill"
           >
-            <TableLineIcon className="question-skill-icon" />
+            <TableIcon className="question-skill-icon" />
             <span className="truncate">{t("analysis.chip")}</span>
             <button
               type="button"

@@ -1,8 +1,8 @@
 import type { AnswerToolCall } from "../../../core/api";
 import { UNAVAILABLE_LINES } from "../../../shared/analysis";
 import { analysisCallText } from "../analysisCall";
-import { TableLineIcon } from "../components/lineIcons";
 import { useT } from "../i18n";
+import { TableIcon } from "./icons";
 
 export function AnalysisCall({ call }: { call: AnswerToolCall }) {
   const t = useT();
@@ -21,7 +21,7 @@ export function AnalysisCall({ call }: { call: AnswerToolCall }) {
       className="answer-call"
     >
       <span className="answer-call-summary answer-call-summary--static">
-        <TableLineIcon className={`answer-call-icon ${running ? "animate-pulse" : ""}`} />
+        <TableIcon className={`answer-call-icon ${running ? "animate-pulse" : ""}`} />
         <span className="answer-call-text" title={text}>
           {text}
         </span>
