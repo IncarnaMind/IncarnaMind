@@ -50,6 +50,7 @@ const TEXTS = {
     secondPdf: "Check record – Tides 2.pdf",
     columns: ["Kind", "Sentence", "Result"],
     supported: "Supported",
+    notFound: "Not found",
     unsupported: "Unsupported",
     sentence: "Sentence",
     model: "Model",
@@ -66,6 +67,7 @@ const TEXTS = {
     secondPdf: "核对记录 – Tides 2.pdf",
     columns: ["类型", "句子", "核对结果"],
     supported: "有依据",
+    notFound: "未找到",
     unsupported: "无依据",
     sentence: "句子",
     model: "模型",
@@ -143,7 +145,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const column = (name: string) => header.indexOf(name);
     expect(items.map((each) => [each[1], each[2]])).toEqual([
       [SENTENCES[0], text.supported],
-      [SENTENCES[1], text.unsupported],
+      [SENTENCES[1], text.notFound],
     ]);
     // The supported sentence names the Document version it rests on: the file's own fingerprint.
     const sha = createHash("sha256").update(TIDES).digest("hex");

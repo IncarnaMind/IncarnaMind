@@ -5209,6 +5209,7 @@
    * state's colour, what that means, and "Open the page".
    */
   .citation-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -5228,6 +5229,12 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+  /* The card's ⋯: at its top right, after its actions in the reading order, so the first action keeps the focus. */
+  .citation-card-menu {
+    position: absolute;
+    top: 10px;
+    right: 10px;
   }
   .citation-badge {
     display: flex;
