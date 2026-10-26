@@ -41,6 +41,26 @@ const tableOf = (rows: number, columns = 2): AnalysisTable => ({
 const running = () => new AbortController().signal;
 
 describe("an Analysis run through the runtime's port", () => {
+  test("an unavailable host keeps the sandbox remedy without starting a job", async () => {
+    const runtime = createFakeAnalysisRuntime();
+    const run = await runAnalysis(
+      {
+        ...runtime,
+        languages: [],
+        unavailable: { kind: "unavailable", reason: "no-sandbox", detail: "The sandbox is off." },
+      },
+      job("print(1)"),
+      running(),
+    );
+    expect(run.result.end).toEqual({
+      kind: "unavailable",
+      reason: "no-sandbox",
+      detail: "The sandbox is off.",
+    });
+    expect(run.versions).toBeNull();
+    expect(runtime.jobs).toEqual([]);
+  });
+
   test("a run that succeeds gives its results, and records the hashes of its code and inputs and the versions it ran with", async () => {
     const runtime = createFakeAnalysisRuntime({
       answer: () => ({
