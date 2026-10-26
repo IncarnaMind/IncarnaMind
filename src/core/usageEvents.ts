@@ -147,6 +147,7 @@ const CONNECTOR_ERRORS = [
   "timed-out",
   "stopped",
   "unreachable",
+  "key-refused",
   "failed",
 ] as const;
 
