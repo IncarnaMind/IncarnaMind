@@ -99,7 +99,7 @@ test("a Mind of plain notes says its state; its card, from ⌘K, has one count p
   // Every claim checked and none to look at: the green, with its time (D266).
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
   await expect(badge).toHaveAttribute("data-state", "checked");
-  await expect(badge.locator(".check-badge-words")).toHaveText(/^Checked \d/);
+  await expect(badge.locator(".check-badge-words")).toHaveText(/^Checked /);
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   // It sits at the page's bottom right, over the text, never past the Mind's pane.

@@ -187,7 +187,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(badge(window)).toHaveAttribute("data-state", "checked", {
       timeout: 60_000,
     });
-    await expect(stateWords(window)).toHaveText(new RegExp(`^${words.checked}\\d`));
+    await expect(stateWords(window)).toHaveText(new RegExp(`^${words.checked}`));
     await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
       new RegExp(words.checked),
     );

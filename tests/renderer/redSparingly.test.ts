@@ -27,6 +27,8 @@ const RED_RULES = [
   "src/styles.css .chart-check--contradicted",
   'src/styles.css :is(.check-row, .check-badge-mark)[data-part="contradicted"] .mind-health-icon',
   "src/styles.css .claim-wash--contradicted",
+  // A note's state when a claim is contradicted (D266); the margin's red, in words.
+  'src/styles.css .check-badge[data-tone="error"] .check-badge-words',
   // The outline of a picture a contradicted quote was read from.
   'src/viewer/viewer.css [data-quote-tone="contradicted"]',
   'src/viewer/viewer.css [data-quote-tone="contradicted"] .quote-highlight, .highlight',
@@ -37,8 +39,8 @@ const RED_RULES = [
   "src/viewer/viewer.css .viewer-grid td.viewer-cell--note::after",
 ];
 
-/** The only code that names red: the button variant the dialogs below use. */
-const RED_CODE = ["src/components/ui.ts"];
+/** The code that names red: the button variant the dialogs below use, and Home's state line (D266). */
+const RED_CODE = ["src/components/ui.ts", "src/components/home/RecentMinds.tsx"];
 
 const RED_BUTTON_DIALOGS = [
   "src/components/DeletePermanentlyDialog.tsx",
