@@ -272,8 +272,9 @@ export async function checkCitationSet(root: string): Promise<CheckReport> {
       fail(`${label}: unknown language`);
     } else {
       languages[question.language] = (languages[question.language] ?? 0) + 1;
-      const prefix = question.id.startsWith(`${question.language}-`);
-      if (!prefix) fail(`${label}: its id doesn't start with its language`);
+      if (!question.id?.startsWith(`${question.language}-`)) {
+        fail(`${label}: its id doesn't start with its language`);
+      }
     }
     if (typeof question.crossLingual !== "boolean") fail(`${label}: crossLingual isn't a boolean`);
     if (question.crossLingual) crossLingual += 1;

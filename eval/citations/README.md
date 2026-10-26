@@ -74,7 +74,7 @@ financial statements stand in for a filing.
 ## The Questions
 
 150 Questions: 75 asked in English and 75 in Simplified Chinese, 15 of them cross-lingual (9 asked in
-English about Chinese Documents, 6 asked in Chinese about English Documents). They hold 195 gold
+English about Chinese Documents, 6 asked in Chinese about English Documents). They hold 198 gold
 quotes, 170 figures and 10 decoys.
 
 | Kind | Count | What it tests |
