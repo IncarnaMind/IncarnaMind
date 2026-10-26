@@ -505,6 +505,7 @@ for (const { language, succeeds, quitDelay } of [
               native: boolean;
               dataHeld?: boolean;
               visibleWindows?: number;
+              ready?: boolean;
               first?: boolean;
               args?: string[];
               options?: { args?: string[]; message?: string; detail?: string; buttons?: string[] };
@@ -538,6 +539,12 @@ for (const { language, succeeds, quitDelay } of [
         )
         .toEqual({ copies: 1, windows: 1 });
       const recorded = await entries();
+      const busy = recorded.filter((it) => it.kind === "startup-problem");
+      expect(busy).toEqual(
+        !succeeds && process.platform === "linux"
+          ? [expect.objectContaining({ dataHeld: true, ready: true })]
+          : [],
+      );
       const install = recorded.find((it) => it.kind === "install");
       expect(install).toMatchObject({
         dataHeld: true,

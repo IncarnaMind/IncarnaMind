@@ -67,6 +67,8 @@ autoUpdater.checkForUpdates = async () => {
   };
 };
 dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false });
+dialog.showErrorBox = (title, content) =>
+  record("startup-problem", { title, content, ready: app.isReady(), dataHeld: dataHeld() });
 dialog.showMessageBoxSync = (options) => {
   record("problem", {
     options,
