@@ -1887,6 +1887,14 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE documents ADD COLUMN unread_parts TEXT;
     `,
   },
+  {
+    version: 108,
+    description: "A Meeting can be a voice memo, the User alone (#1568)",
+    sql: `
+      ALTER TABLE meetings ADD COLUMN kind TEXT NOT NULL DEFAULT 'meeting'
+        CHECK (kind IN ('meeting', 'memo'));
+    `,
+  },
 ];
 
 /**

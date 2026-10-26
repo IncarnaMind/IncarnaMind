@@ -8145,6 +8145,13 @@ export type AudioSource = "microphone" | "system";
 export type MeetingStatus = "ready" | "recording" | "paused" | "stopped";
 
 /**
+ * What is recorded: a call ("meeting"), or a voice memo (#1568), the User alone, with the
+ * microphone only, no help during the call and no Speakers, whose note after Stop is the speech
+ * tidied under a title line.
+ */
+export type MeetingKind = "meeting" | "memo";
+
+/**
  * How one source is recorded right now:
  * - "off": not asked for ("Only me"), or the Meeting isn't recording.
  * - "starting": asked for, not heard from yet.
@@ -8181,6 +8188,7 @@ export interface Meeting {
   id: string;
   /** The Mind it belongs to, where its notes are written. */
   mindId: string;
+  kind: MeetingKind;
   status: MeetingStatus;
   /** Why it is paused: the User did, or IncarnaMind closed while it was recording. Null unless paused. */
   pausedBy: "user" | "interrupted" | null;
@@ -8233,11 +8241,19 @@ export interface Meeting {
  * - "failed": nothing was written, and `problem` says why; Try again fills it in;
  * - "off": not run, and `problem` says why: "Keep everything on this computer" is on and the
  *   Mind's model isn't on this computer, or the model isn't ready or allowed yet.
+ *
+ * A voice memo's note (#1568) is its speech tidied into paragraphs under a title line, each citing
+ * its time ("memo"), at the start of a Mind with no text yet, so the title line names it. With no
+ * model to tidy it, or when the tidied note had words that weren't said, the Transcript goes in as
+ * it is instead, a line a paragraph ("transcript"), and `problem` says why.
  */
 export interface MeetingFill {
   state: "waiting" | "filling" | "filled" | "undone" | "failed" | "off";
-  /** Under the User's lines ("notes"), or in sections because they wrote none. Null before it knows. */
-  mode: "notes" | "sections" | null;
+  /**
+   * Under the User's lines ("notes"), or in sections because they wrote none; a voice memo's
+   * note tidied ("memo") or its Transcript as it is ("transcript"). Null before it knows.
+   */
+  mode: "notes" | "sections" | "memo" | "transcript" | null;
   /** The model that wrote it runs on this computer. */
   local: boolean;
   problem: MeetingFillProblem | null;
@@ -8250,10 +8266,11 @@ export interface MeetingFill {
  * - "local-mode": "Keep everything on this computer" is on and the Mind's model isn't local;
  * - "not-allowed": the User hasn't allowed sending to the model's service yet (`service`);
  * - "no-model": no model is set up, or it needs a key or a sign-in;
- * - "no-transcript": the Transcript has no lines.
+ * - "no-transcript": the Transcript has no lines;
+ * - "added": a voice memo's tidied note had words that weren't said.
  */
 export interface MeetingFillProblem {
-  kind: "model" | "stopped" | "local-mode" | "not-allowed" | "no-model" | "no-transcript";
+  kind: "model" | "stopped" | "local-mode" | "not-allowed" | "no-model" | "no-transcript" | "added";
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
@@ -8415,9 +8432,10 @@ export interface MeetingTranscript {
   lines: number;
   /**
    * The speech being transcribed now, while live: where it starts, in the Meeting's time, its
-   * words so far, and whose they are ("Me", "Them" or "Speaker ?", see src/shared/speakers.ts).
+   * words so far, and whose they are ("Me", "Them" or "Speaker ?", see src/shared/speakers.ts;
+   * null in a voice memo).
    */
-  partial: { startMs: number; text: string; speaker: string } | null;
+  partial: { startMs: number; text: string; speaker: string | null } | null;
   /** The speech-to-text model, while it is downloading or failed to. */
   model: TranscriptionModelStatus | null;
   /** The cloud service transcribing the live audio now (#141); null: this computer. */
@@ -10258,6 +10276,12 @@ export interface CoreApi {
    * no other Meeting recording.
    */
   startMeeting(input: StartMeetingInput): Promise<Meeting>;
+  /**
+   * Records a voice memo at once (#1568): the microphone alone, in the empty Mind given, else in
+   * a new Mind with no title, in the Folder given, so the note's title line names it. Needs what
+   * `startMeeting` does; nothing is made when it can't start.
+   */
+  recordMemo(input?: CreateMeetingInput): Promise<Meeting>;
   pauseMeeting(meetingId: string): Promise<Meeting>;
   /** Records again after a pause, the User's or one IncarnaMind closing made. */
   resumeMeeting(meetingId: string): Promise<Meeting>;
@@ -10885,6 +10909,7 @@ const methods: Record<CoreApiMethod, true> = {
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,
+  recordMemo: true,
   pauseMeeting: true,
   resumeMeeting: true,
   stopMeeting: true,

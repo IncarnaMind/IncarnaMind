@@ -312,7 +312,10 @@ describe("⌘K's actions", () => {
   test("the interface language is named for the other one, in either language, and found by its words", () => {
     expect(actions("interface language")).toEqual([["actions", ["Interface language: 中文"]]]);
     expect(actions("界面语言", "zh-CN")).toEqual([["actions", ["界面语言：English"]]]);
-    expect(actions("yuyan", "zh-CN")).toEqual([["actions", ["界面语言：English"]]]);
+    // One letter from 语音 (yuyin), "Record a voice memo" follows, below the exact match.
+    expect(actions("yuyan", "zh-CN")).toEqual([
+      ["actions", ["界面语言：English", "录一段语音备忘"]],
+    ]);
     expect(actions("language")).toEqual([["actions", ["Interface language: 中文"]]]);
   });
 
