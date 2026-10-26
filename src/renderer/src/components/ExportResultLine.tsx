@@ -340,8 +340,8 @@ function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds
 
 /** Where the note's checks stand (#1915), read as the corner badge reads it; null for a line that isn't the note's own export, or until its Mind is known. */
 function useExportNoteState(mindId: string | null): NoteState | null {
-  const mind = useAppStore(
-    (state) => (mindId === null ? null : (state.minds.find((each) => each.id === mindId) ?? null)),
+  const mind = useAppStore((state) =>
+    mindId === null ? null : (state.minds.find((each) => each.id === mindId) ?? null),
   );
   const states = useMindNoteStates(mind ? [mind] : []);
   return mind ? (states.get(mind.id) ?? null) : null;
