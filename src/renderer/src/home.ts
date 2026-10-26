@@ -50,11 +50,9 @@ export function useHomeChanges(): number {
       pause = setTimeout(() => setSaves((count) => count + 1), SAVED_MS);
     };
     const stop = core.on("mind.update", later);
-    const stopAnswer = core.on("conversation.message", later);
     return () => {
       clearTimeout(pause);
       stop();
-      stopAnswer();
     };
   }, []);
   return saves;

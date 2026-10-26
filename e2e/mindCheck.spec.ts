@@ -154,7 +154,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
       const problem = window.getByTestId("checks-problem");
       await expect(problem).toContainText(translate(language, "checks.problem.failed"));
-      await expect(problem).toHaveAttribute("title", /Checking is temporarily unavailable/);
+      await problem.getByTestId("checks-problem-details").click();
+      await expect(problem.getByTestId("checks-problem-details-text")).toContainText(
+        "Checking is temporarily unavailable",
+      );
       const retry = problem.getByTestId("checks-try-again");
       for (const width of [900, 1600]) {
         await setWindowSize(app, window, width, 800);

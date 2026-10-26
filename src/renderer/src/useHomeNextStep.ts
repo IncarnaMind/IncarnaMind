@@ -4,10 +4,29 @@ import { answerBlocks, hasText } from "../../shared/answerBlocks";
 import { useChecks } from "./checks";
 import { useConversations } from "./conversations";
 import { core } from "./core";
-import { useHomeChanges } from "./home";
 import { chooseHomeNextStep, type HomeAnswer, type HomeSavedWord, ownAnswer } from "./homeNextStep";
 import type { NoteReading } from "./noteState";
 import { allExamples, isOwnDocument, useAppStore } from "./store";
+
+const ANSWER_SAVED_MS = 500;
+
+/** A save in a note changes no Answer: only the conversations' own writes reload their messages. */
+function useConversationChanges(): number {
+  const [saves, setSaves] = useState(0);
+  useEffect(() => {
+    let pause: ReturnType<typeof setTimeout> | undefined;
+    const later = () => {
+      clearTimeout(pause);
+      pause = setTimeout(() => setSaves((count) => count + 1), ANSWER_SAVED_MS);
+    };
+    const stop = core.on("conversation.message", later);
+    return () => {
+      clearTimeout(pause);
+      stop();
+    };
+  }, []);
+  return saves;
+}
 
 /**
  * Home's next step from the data Home already has: the User's most recently updated own note,
@@ -25,7 +44,7 @@ export function useHomeNextStep(
       .map((each) => each.answerId ?? "")
       .join("|"),
   );
-  const revision = useHomeChanges();
+  const revision = useConversationChanges();
   const running = useChecks((state) => state.running);
   const problems = useChecks((state) => state.problems);
   const hasDocuments = useAppStore((state) =>
