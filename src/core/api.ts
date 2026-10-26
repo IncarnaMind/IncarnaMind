@@ -194,8 +194,12 @@ export interface CreateMindInput {
  *   Document changed (#99): `keptOver` on the Citation, which an older
  *   version's editor would strip, so it would ask again to be checked. Older
  *   content is version 28 content as it is.
+ * - 29: whether a check found a Passage about the sentence that doesn't back
+ *   it (#1608): `found` in the `claimCheck` mark's `unsupported` reason, which
+ *   an older version's editor would strip, so its card would say Not found.
+ *   Older content is version 29 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 28;
+export const CONTENT_SCHEMA_VERSION = 29;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -4983,6 +4987,12 @@ export interface UnsupportedReason {
   /** A short phrase for what they don't ("memory and robustness"); null when none. */
   uncovered: string | null;
   /**
+   * True when the check found a Passage about the sentence that doesn't back it: its card says
+   * Unsupported, never Not found (#1608). Absent when nothing in its scope was about it, and on
+   * checks made before it was kept.
+   */
+  found?: true;
+  /**
    * The Passage the check quoted for what is covered, as a Citation whose quote the
    * Citation check found; absent when it quoted none.
    */
@@ -7884,6 +7894,8 @@ export interface MindExportPreview {
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
 export interface SentenceChecksExported {
   contradicted: number;
+  /** Nothing in its scope was about it, as its card says (`saysNotFound`): its comment says Not found. */
+  notFound: number;
   unsupported: number;
   needsRecheck: number;
   /** They went into the file as comments: a Word file, with `commentFailedChecks` on. Otherwise they went out unmarked. */

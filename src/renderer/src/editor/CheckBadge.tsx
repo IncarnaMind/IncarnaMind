@@ -25,7 +25,7 @@ import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
 import { useCardPlace } from "./checkPlace";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
-import { HealthCard, PartMark, useHealth } from "./NoteHealth";
+import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useVerifyState, VerifyCard, verifyDone } from "./VerifyLine";
 
@@ -414,18 +414,7 @@ function BadgePill({
   const parts: ReactNode[] = [];
   const resting = state === null ? null : noteStateParts(state, t, language);
   const said = resting ?? [
-    ...badge.marks.map(({ part, count }) => {
-      const shown = { count: format(count) };
-      switch (part) {
-        case "notFound":
-          return count === 1 ? t("health.notFound.one") : t("health.notFound", shown);
-        case "notChecked":
-          // Verify's own part: the Mind folds a failed check into its sentences to check (#1909).
-          return t("verify.notChecked", shown);
-        default:
-          return t(`health.${part}`, shown);
-      }
-    }),
+    ...badge.marks.map(({ part, count }) => partLabel(t, part, count, format(count))),
     ...(badge.toCheck > 0
       ? [
           t(badge.toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {

@@ -139,6 +139,10 @@ export type FailedSentence = { id: string } & (
       covers: { covered: string; uncovered: string; quote: string; source: string } | null;
       /** What the sentence's own Citations support and don't, as its card says. */
       citations: { count: number; covered: string; uncovered: string } | null;
+      /** Nothing in its scope was about it, as its card says (`saysNotFound`): "Not found". */
+      notFound: boolean;
+      /** Why it is unsupported, in the check's words; null when it gave none. */
+      reason: string | null;
     }
   | { check: "own-workings" }
   | { check: "needs-recheck"; why: RecheckReason }

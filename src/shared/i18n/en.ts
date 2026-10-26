@@ -685,6 +685,7 @@ export const en = {
   "claim.state.contradicted": "Contradicted",
   "claim.state.not-checked": "Not checked",
   "claim.state.needs-recheck": "Needs re-check",
+  "claim.state.notFound": "Not found",
   "claim.mark.label": "Sentence check: {state}",
   "claim.card.label": "Sentence check: {state}. {sentence}",
   "claim.showCard": "Show the check for this sentence",
@@ -778,7 +779,8 @@ export const en = {
   "health.found": "{count} Citations found",
   "health.notFound.one": "1 Citation not found",
   "health.notFound": "{count} Citations not found",
-  "health.unsupported": "{count} unsupported",
+  "health.needLook.one": "1 needs a look",
+  "health.needLook": "{count} need a look",
   "health.contradicted": "{count} contradicted",
   "health.noCitation": "{count} with no Citation",
   "health.toCheck.one": "1 claim not checked yet",
@@ -3601,6 +3603,7 @@ export const en = {
   "export.parts.last": " and ",
   "export.commented": "{list}, as comments",
   "export.commented.contradicted": "{count} Contradicted",
+  "export.commented.notFound": "{count} Not found",
   "export.commented.unsupported": "{count} Unsupported",
   "export.commented.recheck": "{count} Needs re-check",
   "export.tracked.one": "1 change waiting, as tracked changes",
@@ -3608,6 +3611,7 @@ export const en = {
   "export.unmarked.one": "{list} sentence went out unmarked",
   "export.unmarked.other": "{list} sentences went out unmarked",
   "export.unmarked.contradicted": "{count} Contradicted",
+  "export.unmarked.notFound": "{count} Not found",
   "export.unmarked.unsupported": "{count} Unsupported",
   "export.unmarked.recheck": "{count} Needs re-check",
   "export.unmarked.word": "Export as Word instead",
@@ -3655,9 +3659,11 @@ export const en = {
   "export.comment.sentence.contradicted.worked.at least":
     "Contradicted: your Documents give {shown}, and the sentence says at least {stated}.",
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
-  "export.comment.sentence.unsupported": "Unsupported: I didn’t find this in “{scope}”.",
-  "export.comment.sentence.unsupported.more":
-    "Unsupported: I didn’t find this in “{scope}” or {count} more.",
+  "export.comment.sentence.unsupported.reason": "Unsupported: {reason}",
+  "export.comment.sentence.unsupported.plain": "Unsupported by your Documents.",
+  "export.comment.sentence.notFound": "Not found: I didn’t find this in “{scope}”.",
+  "export.comment.sentence.notFound.more":
+    "Not found: I didn’t find this in “{scope}” or {count} more.",
   "export.comment.sentence.citedCaseUnchecked": "Cited case not checked: not in the Documents.",
   "export.comment.sentence.ownWorkings": "Unsupported: only your own working file says this.",
   "export.comment.sentence.unsupported.citation":

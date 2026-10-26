@@ -196,6 +196,7 @@ export async function answerCitationPlace(
 
 const NO_CHECKS: SentenceChecksExported = {
   contradicted: 0,
+  notFound: 0,
   unsupported: 0,
   needsRecheck: 0,
   commented: false,

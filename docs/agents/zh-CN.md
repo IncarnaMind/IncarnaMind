@@ -102,6 +102,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Citation check | 核对 | "正在核对引文…", "无法核对". |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
+| Not found (a sentence's check) | 未找到 | The card of an unsupported sentence that nothing in the scope states: "未找到", "未在“{scope}”中找到". Never 未找到引文, which is a Citation's quote. |
 | Contradicted | 与文档矛盾 | |
 | Needs re-check | 需重新核对 | |
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
@@ -111,7 +112,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Mind's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
 | Verify (a document) | 核对文档 | The verb is 核对, as for a Citation. |
-| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意". |
+| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Note's health counts its unsupported sentences with 处: "2 处需要留意". |
 | Mark | 标记 | |
 | Run | 运行 | |
 | Task | 任务 | |
