@@ -19,9 +19,9 @@ One issue per theme, not one per finding. A theme is one screen, one flow or one
 
 - **Before filing,** search the open issues for the theme (`gh issue list --state open --search "<words> in:title"`). If one fits and has the same priority tier and difficulty, add the finding to it as a checklist line with its criteria, and say so in a comment, instead of opening a new issue.
 - **A new issue** that covers several findings has a line on the theme, then a checklist with one line per part, each with its acceptance criteria, then the criteria that hold for all of them (Undo, keyboard and ⌘K, English and Chinese, real-model numbers for AI behaviour).
-- **Split** only when parts differ in priority tier, or when a part is a different screen or flow. Size is never a reason: one feature is one pull request. Then a tracker issue lists the parts.
+- **Split** only when parts differ in who would build them (their difficulty), in priority tier, or in risk class (secrets, privacy and consent, legal, the User's stored data, which need their own reviewer), or when a part is a different screen or flow. Size and file count are never reasons: one feature is one issue and one pull request. Then a tracker issue lists the parts.
 - **P0 and a lone P1** are filed on their own the day they are found, so nothing waits for a theme to fill.
-- Issues filed before this rule stay as they are; the work items below group them for building.
+- Issues filed before this rule follow it too: an open issue that shares its theme, tier, difficulty and risk class with another is folded into that one as a part (its criteria kept under "### Part … (was #N)") and closed with a pointer. Issues with an open pull request are folded only after it merges.
 
 ## Pull requests as a triage surface
 
