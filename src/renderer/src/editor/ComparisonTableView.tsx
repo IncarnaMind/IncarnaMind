@@ -22,6 +22,7 @@ import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
 import { runStopParts } from "../cost";
 import { resolveProposalsIn } from "../editWithAi";
+import { dialogOrMenuOpen } from "../escapeDismiss";
 import { exportComparison } from "../exports";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
@@ -94,17 +95,17 @@ function useExpandInPlace(
 
   useEffect(() => {
     if (!expanded) return;
-    // Whatever has the focus handles Escape first, in the bubble phase: a menu, a
-    // field or a card there closes itself and takes the key, and only the table
-    // when nothing did.
+    // Esc closes what is open in front of the page: a dialog, a menu or a text field.
+    // With none of those open, the expanded table is what Esc closes, even though the
+    // note's editor marks every Esc as handled.
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.key !== "Escape" || event.defaultPrevented || dialogOrMenuOpen()) return;
       event.preventDefault();
       event.stopPropagation();
       collapse();
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [expanded, collapse]);
 }
 

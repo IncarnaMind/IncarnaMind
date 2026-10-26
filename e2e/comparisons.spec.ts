@@ -1131,6 +1131,18 @@ test("remove takes a column whole, its undo line brings back its Citations, and 
   await window.keyboard.press("Escape");
   await expect(last.locator('[role="menu"]')).toBeHidden();
   await expect(table).toHaveAttribute("data-expanded", "true");
+  // Clicking a cell then Escape collapses the table, as the note's editor took the key otherwise.
+  await pointAndClick(window, cellAt(table, 0, 0));
+  await window.keyboard.press("Escape");
+  await expect(table).not.toHaveAttribute("data-expanded", "true");
+  // Settings open over the table takes Escape itself; the table stays expanded.
+  await pointAndClick(window, table.getByTestId("comparison-expand"));
+  await expect(table).toHaveAttribute("data-expanded", "true");
+  await window.keyboard.press("ControlOrMeta+,");
+  await expect(window.getByTestId("settings")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("settings")).toBeHidden();
+  await expect(table).toHaveAttribute("data-expanded", "true");
   await window.keyboard.press("Escape");
   await expect(table).not.toHaveAttribute("data-expanded", "true");
   await last.focus();
@@ -1177,6 +1189,12 @@ test("⌘K edits a column by keyboard, and the Excel export follows the label", 
   await expect(window.getByTestId("comparison-edit-label")).toHaveCount(0);
   await expect(headingAt(table, 0)).toBeFocused();
   await expect(table).toHaveAttribute("data-expanded", "true");
+  // Settings open over the table takes Escape itself, leaving the table expanded.
+  await window.keyboard.press("ControlOrMeta+,");
+  await expect(window.getByTestId("settings")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("settings")).toBeHidden();
+  await expect(table).toHaveAttribute("data-expanded", "true");
   await pointAndClick(window, table.getByTestId("comparison-export-excel"));
   const result = window.getByTestId("export-result");
   await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
@@ -1189,4 +1207,9 @@ test("⌘K edits a column by keyboard, and the Excel export follows the label", 
   expect(header(0)).toBe("Document");
   expect(header(1)).toBe("Notice");
   expect(header(2)).toBe("Liability cap");
+
+  // A click on a cell puts the focus in the note; Escape still collapses the table.
+  await pointAndClick(window, cellAt(table, 0, 0));
+  await window.keyboard.press("Escape");
+  await expect(table).not.toHaveAttribute("data-expanded", "true");
 });

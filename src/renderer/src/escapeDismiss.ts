@@ -22,11 +22,15 @@ export function dismissNewest(): boolean {
 }
 
 /**
- * Whether a dialog, menu or picker is open, which closes by its own Esc before anything behind
- * it uses the key: not the copy of a closed menu still fading out, which is inert.
+ * Whether something in front of the page takes Esc first: a dialog, a menu or picker, which
+ * closes by its own Esc before anything behind it uses the key (not the copy of a closed menu
+ * still fading out, which is inert), or a text field with the focus, which the key is typed in.
  */
-export const dialogOrMenuOpen = (): boolean =>
-  document.querySelector("dialog[open], :popover-open:not([inert])") !== null;
+export const dialogOrMenuOpen = (): boolean => {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && active.matches("input, textarea, select")) return true;
+  return document.querySelector("dialog[open], :popover-open:not([inert])") !== null;
+};
 
 /** Lets Esc close this notice while it `active`ly shows: an error, a confirmation, a line about what was done. */
 export function useDismissOnEscape(active: boolean, dismiss: () => void): void {
