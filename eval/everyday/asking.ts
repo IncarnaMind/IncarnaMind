@@ -136,9 +136,12 @@ export const fetchReserves = (cacheDir: string, log: Log) =>
 
 export async function reports(): Promise<EvalDocument[]> {
   const folder = join(ROOT, "data");
-  return (await readdir(folder))
-    .filter((name) => name.endsWith(".pdf"))
-    .map((name) => ({ key: name, path: join(folder, name) }));
+  const realFolder = join(folder, "real");
+  const pdfsIn = async (directory: string) =>
+    (await readdir(directory))
+      .filter((name) => name.endsWith(".pdf"))
+      .map((name) => ({ key: name, path: join(directory, name) }));
+  return [...(await pdfsIn(folder)), ...(await pdfsIn(realFolder))];
 }
 
 export interface CaseResult {
