@@ -259,7 +259,13 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await setWindowSize(app, window, 900, 760);
       await openCitation(window, first);
+      const citedId = await window
+        .locator('[data-testid="document-tab"][aria-selected="true"]')
+        .getAttribute("data-document-id");
+      if (!citedId) throw new Error("The cited Document tab has no id.");
       await screenshot(window, `citation-scope-${language}`);
+      await expect(chips).toHaveCount(2);
+      await openCitation(window, first, true);
       await expect(chips).toHaveCount(2);
       const second = await ask(window, "And when are neap tides?");
       await expect(second.getByTestId("answer-steps")).toContainText(
@@ -280,12 +286,45 @@ for (const language of ["en", "zh-CN"] as const) {
       await ask(window, "When do spring tides happen, anywhere?");
       expect(await storedScopes(window)).toEqual([restricted, restricted, everywhere, everywhere]);
 
+      await pointAndClick(window, window.getByTestId("open-library"));
+      await pointAndClick(
+        window,
+        library.locator(`[data-document-id="${citedId}"] [data-row-main]`),
+      );
+      await expect(window.getByTestId("viewer")).toBeVisible();
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const direct = await ask(window, "When do spring tides happen, anywhere?");
+      await expect(direct.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched All Documents" : "已搜索全部文档",
+      );
+      expect(await storedScopes(window)).toEqual([
+        restricted,
+        restricted,
+        everywhere,
+        everywhere,
+        everywhere,
+      ]);
+
       await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "Tide notes" }));
       await newMind(window);
       await openCitation(window, first);
       await expect(composer.getByTestId("composer-scope-all")).toHaveText(
         language === "en" ? "All Documents" : "全部文档",
       );
+      const defaultAnswer = await ask(window, "When do spring tides happen, anywhere?");
+      await expect(defaultAnswer.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched All Documents" : "已搜索全部文档",
+      );
+      expect(await storedScopes(window)).toEqual([
+        restricted,
+        restricted,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+      ]);
       const tideTab = window.getByTestId("mind-tab").filter({ hasText: "Tide notes" });
       await pointAndClick(window, tideTab);
       await expect(tideTab).toHaveAttribute("aria-selected", "true");
@@ -307,6 +346,8 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await storedScopes(window)).toEqual([
         restricted,
         restricted,
+        everywhere,
+        everywhere,
         everywhere,
         everywhere,
         everywhere,

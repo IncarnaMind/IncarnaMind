@@ -46,6 +46,7 @@ import {
   renamed,
   retagged,
 } from "./changes";
+import { useComposer } from "./composer";
 import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
 import { isSearchable } from "./documentStatus";
@@ -1375,6 +1376,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     openDocument(location, how = { as: "list" }) {
+      // Direct navigation ends Citation-source scope; openCited records its source after this call.
+      useComposer.setState({ citedSource: null });
       const { documentId, ...place } = location;
       const item = { kind: "document", documentId } as const;
       const at = Object.keys(place).length > 0 ? { place } : {};
