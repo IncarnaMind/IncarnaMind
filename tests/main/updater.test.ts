@@ -300,7 +300,7 @@ test("native preparation releases Ready before settling quitting and invoking th
   expect(run.updater.canReopenAfterUpdate()).toBe(false);
 });
 
-test("a native preparation error stops automatic install in the background and leaves the original core callable", async () => {
+test("a native preparation error is reported in the background and leaves the original core callable", async () => {
   vi.stubGlobal("process", { ...process, platform: "darwin" });
   fixture.prepareNative = false;
   const background = Promise.withResolvers<void>();
