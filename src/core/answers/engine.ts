@@ -72,6 +72,8 @@ import {
   parsePartialJson,
   streamText,
 } from "ai";
+import { markersIn } from "../../shared/answerBlocks";
+import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import type {
   AnswerPhase,
   CitationSupport,
@@ -234,6 +236,10 @@ export interface AnswerTools {
   cite(records: readonly CitationRecordInput[], options?: CiteOptions): string;
   /** Whether a valid record was taken for this marker: the engine places its marker if the model left it out. */
   hasRecord?(marker: number): boolean;
+  /** Whether this marker's record has a problem `cite` asked the model to fix. */
+  owesFix?(marker: number): boolean;
+  /** Whether a figure was worked out for this marker ("[=1]"). Absent: the Answer offers no `calculate`. */
+  hasFigure?(marker: number): boolean;
   /** The Passages the model was given in this Answer, by the id it cites them by, as it read them. */
   shownPassages?(): readonly { id: string; text: string }[];
   /**
@@ -1693,12 +1699,8 @@ async function* toolLoop(
     thirdParty.push({ via: "read", source });
     unannounced.push(source);
   };
-  /** `cite` or `calculate` while its last reply asked the model to fix what it gave: the Run owes that fix. */
-  const owed = new Set<Tool>();
-  const owes = (tool: Tool, asks: boolean) => {
-    if (asks) owed.add(tool);
-    else owed.delete(tool);
-  };
+  /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
+  const askedForFixes = new Map<string, boolean>();
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
   /**
    * A Tool as the engine calls it: one with untrusted results taints the Run
@@ -1719,13 +1721,13 @@ async function* toolLoop(
         : result.trim() !== "";
       if (tool.untrustedResult && read) tainted = true;
       if (tool === cite) {
-        owes(cite, asksForFixes(result));
+        askedForFixes.set(context.toolCallId, asksForFixes(result));
         // Records for text a Mind will hold come first; an Answer's come with its text (#489).
         if (request.writeThenCite && !writesMinds && !MARKER.test(keptText + stepText)) {
           return result.replace(WRITE_NOW, NOTHING_SHOWN_YET);
         }
       }
-      if (tool === calculate) owes(calculate, asksForFigureFixes(result));
+      if (tool === calculate) askedForFixes.set(context.toolCallId, asksForFigureFixes(result));
       return result;
     },
   });
@@ -1800,8 +1802,18 @@ async function* toolLoop(
   let stepTools: Tool[] = [];
   /** An earlier step wrote the Answer and recorded its Citations: text with markers after that is a second copy. */
   let answered = false;
-  /** As the Run engine ends steps: a step wrote marked text beside `cite` or `calculate` alone. */
-  let writtenBesideRecords = false;
+  /** As the Run engine ends steps: the text written beside `cite` or `calculate` alone. */
+  let besideRecords = "";
+  /** Every Citation marker in `text` has its record with no fix owed, and every figure marker its figure. */
+  const allTaken = (text: string) =>
+    markersIn(text).every(
+      (marker) =>
+        (request.documents.hasRecord?.(marker) ?? true) &&
+        !(request.documents.owesFix?.(marker) ?? false),
+    ) &&
+    [...text.matchAll(FIGURE_MARKER)].every(
+      (match) => request.documents.hasFigure?.(Number(match[1])) ?? true,
+    );
   /**
    * Texts written beside `cite` or `calculate` alone, with no marker in them,
    * and taken back: the last is the Answer if the model never writes another,
@@ -1889,13 +1901,23 @@ async function* toolLoop(
       return tool !== undefined && (request.streamsInput?.(tool) ?? false);
     },
     window,
-    // The Answer written beside `cite` or `calculate` is complete once no fix they asked for is
-    // still owed, in this step or an earlier one: another call would only write it again.
+    // The Answer written beside `cite` or `calculate`, with all they were given taken, is complete:
+    // another call would only write it again. Written then cited (#489), it is complete once every
+    // marker it wrote has a record with no fix owed and every figure is worked out, whichever step
+    // took them.
     endsAfter: (step) => {
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
-      writtenBesideRecords ||= recordsOnly && MARKER.test(step.text);
-      return cite !== null && writtenBesideRecords && recordsOnly && owed.size === 0;
+      if (!request.writeThenCite) {
+        return (
+          cite !== null &&
+          MARKER.test(step.text) &&
+          recordsOnly &&
+          step.calls.every((call) => askedForFixes.get(call.id) === false)
+        );
+      }
+      if (recordsOnly) besideRecords += step.text;
+      return cite !== null && recordsOnly && MARKER.test(besideRecords) && allTaken(besideRecords);
     },
     temperature,
     signal: AbortSignal.any([signal, rambling.signal]),
@@ -2059,7 +2081,7 @@ async function* toolLoop(
           keptText = "";
           stepText = "";
           answered = false;
-          writtenBesideRecords = false;
+          besideRecords = "";
           setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
           break;

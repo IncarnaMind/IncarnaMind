@@ -1126,6 +1126,8 @@ export function createCitationSession(
   /** Each Passage's text as the model was given it, by its short id. */
   const shownTexts = new Map<string, string>();
   const records = new Map<number, Accepted>();
+  /** Markers whose record has a problem `cite` asked the model to fix. */
+  const owed = new Set<number>();
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
@@ -1405,7 +1407,10 @@ export function createCitationSession(
       events.onRecord(marker, toCitation(record, null));
       // Tell the model now what the check will find, so it can fix the record.
       const problem = record.kept ? null : recordProblem(record, source, passageUnits);
-      if (problem) problems.push(`[^${marker}]: ${problem}`);
+      if (problem) {
+        problems.push(`[^${marker}]: ${problem}`);
+        owed.add(marker);
+      } else owed.delete(marker);
     }
     const done = recorded.length
       ? `Recorded ${recorded.map((marker) => `[^${marker}]`).join(", ")}.`
@@ -1576,6 +1581,8 @@ export function createCitationSession(
 
     hasRecord: (marker) => records.has(marker),
 
+    owesFix: (marker) => owed.has(marker),
+
     shownPassages: () =>
       [...handleOf.values()].flatMap((id) => {
         const text = shownTexts.get(id);
@@ -1618,6 +1625,7 @@ export function createCitationSession(
       );
       if (!taken.ok || !taken.record.quote || check(taken.record).check !== "found") return false;
       records.set(marker, taken.record);
+      owed.delete(marker);
       events.onRecord(marker, toCitation(taken.record, null));
       return true;
     },

@@ -1,8 +1,9 @@
 /**
  * A model the lists beside the catalog don't name is sent what main sends it, word for word
- * (#489): every request of a Question, a follow-up that keeps a Citation, an assistant turn and
- * an assistant follow-up, with its system prompt, messages, Tool definitions and Tool results,
- * against the requests recorded on main. A change meant for every model records them again:
+ * (#489): every request of a Question, a follow-up that keeps a Citation, an assistant turn, an
+ * assistant follow-up, and a Question and a check whose record is fixed before the model writes on,
+ * with its system prompt, messages, Tool definitions and Tool results, against the requests
+ * recorded on main: so its Runs also end where main's do. A change meant for every model records them again:
  * `npx vitest run tests/core/unlistedRequests.test.ts -u`.
  */
 import type { MockLanguageModelV4 } from "ai/test";
@@ -40,6 +41,24 @@ const tidesModel = () =>
     };
   });
 
+/**
+ * Writes `first` beside a record whose quote the Passage doesn't hold, fixes the record in a call
+ * of its own, then writes `then`.
+ */
+const fixingModel = (first: string, then: string) =>
+  scriptedModel((call: ModelCall): ScriptedReply => {
+    const searched = call.results.find((result) => result.tool === "search_documents");
+    if (!searched) return { calls: [{ tool: "search_documents", input: { query: "tides" } }] };
+    const passage = shownPassages(searched.text).find((each) => each.text.includes(SPRING))?.id;
+    const cite = (quote: string) => ({
+      tool: "cite",
+      input: { citations: [{ marker: 1, passage, quote }] },
+    });
+    const cites = call.results.filter((result) => result.tool === "cite").length;
+    if (cites === 0) return { text: first, calls: [cite("Spring tides happen every week.")] };
+    return cites === 1 ? { calls: [cite(SPRING)] } : { text: then };
+  });
+
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
 /** The requests from the `from`th on, without what changes from run to run: ids, hashes and file dates. */
@@ -61,7 +80,7 @@ const normalised = (value: unknown) =>
     .replace(/(file-(?:created|modified)=\\")\d{4}-\d{2}-\d{2}/g, "$1<date>")}\n`;
 
 describe("A model no list names", { timeout: 60_000 }, () => {
-  test("is sent main's requests, word for word, for Questions and follow-ups in a Mind and in the assistant", async () => {
+  test("is sent main's requests, word for word, for Questions, follow-ups, fixes and checks", async () => {
     const asked = tidesModel();
     const inMind = await setUpWithDocuments(asked, [TIDES]);
     await askAndFinish(inMind.core, inMind.client, inMind.mind.id, FIRST);
@@ -92,12 +111,30 @@ describe("A model no list names", { timeout: 60_000 }, () => {
       conversationId: first.conversation.id,
     });
 
+    const fixed = fixingModel(
+      "Spring tides come at new and full moon[^1].",
+      "Neap tides come at the quarter moons.",
+    );
+    const fixing = await setUpWithDocuments(fixed, [TIDES]);
+    await askAndFinish(fixing.core, fixing.client, fixing.mind.id, FIRST);
+
+    const checked = fixingModel(
+      "Tides says spring tides follow new and full moons [^1].",
+      "Verdict: supported",
+    );
+    const checking = await setUpWithDocuments(checked, [TIDES]);
+    expect(
+      await checking.core.checkClaim({ claim: "Spring tides come at new and full moon." }),
+    ).toMatchObject({ verdict: "supported" });
+
     await expect(
       normalised({
         question: requests(asked),
         followUp: requests(followed, before),
         assistant: requests(inAssistant).slice(0, turn),
         assistantFollowUp: requests(inAssistant, turn),
+        fixedThenWritten: requests(fixed),
+        checkFixedThenVerdict: requests(checked),
       }),
     ).toMatchFileSnapshot("../fixtures/answers/unlisted-requests.json.snap");
   });
