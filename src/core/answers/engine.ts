@@ -1328,8 +1328,8 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           if (support === "tools") {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
             // the Question's own search and answers in one call unless it needs more. Not translated:
-            // the translation call cost what the one call saved, and the loop's model searches in the
-            // Documents' language when the Passages don't answer.
+            // the translation call cost most of what the one call saved, and the loop's model searches
+            // in the Documents' language when the Passages don't answer.
             const presearched = request.retrieveFirst
               ? { result: yield* searchOnce(false), query: searchedFor, read: [...read] }
               : undefined;
