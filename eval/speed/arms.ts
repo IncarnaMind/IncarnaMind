@@ -21,17 +21,19 @@ export interface Arm {
   paths?: { writesThenCites?: boolean; retrievesFirst?: boolean };
 }
 
+// An arm that compares one Answer path keeps every other as the Tool loop has it from its first
+// call: a model the retrieve-first list names would otherwise write first in both citation arms.
 export const ARMS: readonly Arm[] = [
   { id: "today", label: "today's path, as the branch runs it" },
   {
     id: "cite-first",
     label: "the Tool loop's records first, then the Answer",
-    paths: { writesThenCites: false },
+    paths: { writesThenCites: false, retrievesFirst: false },
   },
   {
     id: "write-then-cite",
     label: "the Answer, then its records in the same reply (#489)",
-    paths: { writesThenCites: true },
+    paths: { writesThenCites: true, retrievesFirst: false },
   },
   {
     id: "loop",
