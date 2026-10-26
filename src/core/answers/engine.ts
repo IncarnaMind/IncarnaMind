@@ -1232,13 +1232,14 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       // made before the Tool loop's first call (#1633) is `asAsked`, neither rewritten nor
       // translated: either is a call of its own before the first (the translation cost most of what
       // answering in one call saved), and the loop's model searches on in other words when the
-      // Passages don't answer.
+      // Passages don't answer. It is the Answer's one search too: a way of answering after a refusal
+      // reads its Passages, since searching the same words again finds nothing new.
       let searched: SearchResultForModel | undefined;
       const read = new Set<ReadThirdPartySource>();
       async function* searchOnce(
         asAsked = false,
       ): AsyncGenerator<AnswerEngineEvent, SearchResultForModel> {
-        if (!asAsked && searched !== undefined) return searched;
+        if (searched !== undefined) return searched;
         // The quick-tasks model is asked for once, and only if a call needs it.
         let small: Promise<SmallCallModel> | undefined;
         const smallModel = () => {
@@ -1315,7 +1316,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           results.length > 0
             ? mergeSearches(results)
             : { text: "The search of the User's Documents failed.", passageCount: 0 };
-        if (!asAsked) searched = merged;
+        searched = merged;
         yield { type: "phase", phase: "writing" };
         return merged;
       }
@@ -1420,6 +1421,25 @@ interface DocumentToolsHooks {
 }
 
 /**
+ * A search's result as the model reads it: the Passages that fit, then what every search's
+ * result says beside them (Documents not read, dates, the Answer's language).
+ */
+function searchResultText(
+  fitted: string,
+  documents: AnswerTools,
+  languageNote: (() => string | null) | undefined,
+): string {
+  // The dates are named from the Passages that fit, so never a Document the model wasn't handed.
+  const passages = withPassageNotes(
+    fitted,
+    documents.unreadDocuments?.() ?? [],
+    documents.readingDocuments?.() ?? [],
+  );
+  const note = languageNote?.();
+  return note ? `${passages}\n\n${note}` : passages;
+}
+
+/**
  * The Documents as a Tool provider, for one go of the Tool-calling loop:
  * `search_documents`, which reads the Documents; `cite`, whose records become
  * this Answer's Citations; and `calculate`, whose figures become its
@@ -1478,14 +1498,7 @@ export function documentTools(
         for (const source of found.thirdParty ?? []) readThirdParty?.(source);
         const result = hooks.fit(found);
         hooks.searched(toolCallId, result.passageCount, found.passageIds);
-        // The dates are named from the Passages that fit, so never a Document the model wasn't handed.
-        const passages = withPassageNotes(
-          result.text,
-          documents.unreadDocuments?.() ?? [],
-          documents.readingDocuments?.() ?? [],
-        );
-        const note = hooks.languageNote?.();
-        return note ? `${passages}\n\n${note}` : passages;
+        return searchResultText(result.text, documents, hooks.languageNote);
       },
     },
     cite: {
@@ -1564,17 +1577,29 @@ interface Presearched {
   read: readonly ReadThirdPartySource[];
 }
 
-/** The search made before the first call, as the Tool loop's own first call of it. */
+/**
+ * The search made before the first call, as the Tool loop's own first call of it: its result read
+ * as any search's is, and carried by the first request within the window.
+ */
 function presearchMessages(
   { query, result }: Presearched,
   tool: string,
+  request: AnswerRequest,
   loop: ReturnType<WindowBudget["loop"]> | null,
 ): RunMessage[] {
   const id = "question-search";
-  const fitted = loop ? loop.passages(result.text, result.passageCount, result.ranks) : result;
+  const input = { query };
+  const read = (passages: string) =>
+    `${searchResultText(passages, request.documents, request.languageNote)}\n\n${PRESEARCH_NOTE}`;
+  const fitted = loop
+    ? loop.carried(result.text, result.passageCount, result.ranks, (passages) => [
+        JSON.stringify(input),
+        read(passages),
+      ])
+    : result;
   return [
-    { role: "assistant", text: "", toolCalls: [{ id, tool, input: { query } }] },
-    { role: "tool", id, tool, result: `${fitted.text}\n\n${PRESEARCH_NOTE}`, ok: true },
+    { role: "assistant", text: "", toolCalls: [{ id, tool, input }] },
+    { role: "tool", id, tool, result: read(fitted.text), ok: true },
   ];
 }
 
@@ -1735,7 +1760,6 @@ async function* toolLoop(
           request.question,
         )
       : request.messages;
-  let estimated: number | undefined;
   let window: RunWindow | undefined;
   if (budget) {
     const fit = budget.fit({
@@ -1752,7 +1776,7 @@ async function* toolLoop(
     }
     if (fit.mindCut !== undefined) yield { type: "mind-cut", share: fit.mindCut };
     if (fit.documentsDropped) yield { type: "documents-dropped" };
-    ({ messages, estimated } = fit);
+    ({ messages } = fit);
     const account = budget.loop(fit.estimated);
     loop = account;
     window = {
@@ -1766,6 +1790,8 @@ async function* toolLoop(
         account.stepFinished({ inputTokens, outputTokens }),
     };
   }
+  const first =
+    presearched && search ? presearchMessages(presearched, search.name, request, loop) : [];
 
   /** Text of the current step, and of every step before it that was kept. */
   let stepText = "";
@@ -1833,10 +1859,7 @@ async function* toolLoop(
   }
   const runTools = tools.map(tracked);
   async function* runs(): AsyncGenerator<RunEvent> {
-    let history: readonly RunMessage[] = [
-      ...messages.map(runMessage),
-      ...(presearched && search ? presearchMessages(presearched, search.name, loop) : []),
-    ];
+    let history: readonly RunMessage[] = [...messages.map(runMessage), ...first];
     for (;;) {
       yield* engine.run(runRequest(history, maxSteps - steps));
       if (!again) return;
@@ -1998,7 +2021,7 @@ async function* toolLoop(
             : {
                 type: "overflow",
                 promptTokens: event.promptTokens ?? null,
-                estimated: estimated ?? 0,
+                estimated: loop?.firstRequest() ?? 0,
               };
         return;
       case "failed":

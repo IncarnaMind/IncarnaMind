@@ -194,6 +194,32 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     expect(listed[0]).not.toContain("question-search");
   });
 
+  test("after a refusal of Tools, the next way of answering reads the Passages searched first", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      if (call.tools.length > 0) {
+        return { error: { status: 400, message: "this model does not support tools" } };
+      }
+      const passage = shownPassages(call.system).find((each) => each.text.includes(SPRING));
+      return {
+        text: JSON.stringify({
+          answer: ANSWER,
+          citations: passage ? [{ marker: 1, passage: passage.id, quote: SPRING }] : [],
+        }),
+      };
+    });
+    const { core, client, mind } = await setUp(model, true);
+
+    const { answerId, finished } = await askAndFinish(
+      core,
+      client,
+      mind.id,
+      "When are spring tides?",
+    );
+
+    expect(finished.citationSupport).toBe("structured-output");
+    expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
+  });
+
   test("falls back to the loop when the model searches again", async () => {
     const model = answering(1);
     const { core, client, mind } = await setUp(model, true);
