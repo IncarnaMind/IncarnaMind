@@ -234,6 +234,34 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(looseNow.getByTestId("library-document")).toHaveCount(1);
     await expect(looseNow.getByTestId("library-not-sorted")).toHaveCount(0);
 
+    // A later run that fails for that Document leaves the User's choice standing: it is not
+    // suddenly one Organize couldn't sort, in its row, the title line or To review.
+    failing = true;
+    await (await coreOf(window)).evaluate(async (core) => {
+      const note = (await core.listDocuments()).find((each) => each.name === "Note 2");
+      if (!note) throw new Error("No Document named Note 2.");
+      await core.classifyDocuments([note.id]);
+    });
+    await expect
+      .poll(
+        async () =>
+          (await coreOf(window)).evaluate(async () => {
+            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const note = (await core.listDocuments()).find((each) => each.name === "Note 2");
+            const { assignments } = await core.getLibrary();
+            const held = assignments.find((each) => each.documentId === note?.id);
+            return [held?.source, held?.groupId, held?.status] as const;
+          }),
+        { timeout: 30_000 },
+      )
+      .toEqual(["user", null, "failed"]);
+    await expect(window.getByTestId("library-sorted")).toHaveText("All sorted");
+    await expect(window.getByTestId("library-not-sorted-count")).toHaveCount(0);
+    await expect(looseNow.getByTestId("library-not-sorted")).toHaveCount(0);
+    await expect(looseNow.getByTestId("library-organize-failed")).toHaveCount(0);
+    await expect(reviewOf(window)).toHaveCount(0);
+    failing = false;
+
     // One Organize stopped short of, because tagging with AI is off where it is, is neither
     // sorted nor one it couldn't sort: the line goes, and no reason is invented for it.
     await window.evaluate(async (url) => {
@@ -425,6 +453,105 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
       held: { groupId: null, suggested: false, status: "classified", error: null },
     });
     failing = false;
+  } finally {
+    server.close();
+    await app.close();
+  }
+});
+
+test("deleting the last Document Organize couldn't sort leaves no Review behind, and Undo brings it back", async () => {
+  test.setTimeout(150_000);
+  const { server } = await decisionServer(undefined, {
+    failFor: (text) => text.includes("unplaced"),
+  });
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1600, 900);
+    await writeFile(
+      join(sources, "Invoice 1.txt"),
+      "Invoice 2026-1 for consulting. Total due: 100.",
+    );
+    await writeFile(
+      join(sources, "Note 1.txt"),
+      "unplaced fragment 1: notes with no clear subject.",
+    );
+    await writeFile(
+      join(sources, "Note 2.txt"),
+      "unplaced fragment 2: notes with no clear subject.",
+    );
+    await addDocuments(window, [
+      join(sources, "Invoice 1.txt"),
+      join(sources, "Note 1.txt"),
+      join(sources, "Note 2.txt"),
+    ]);
+    const port = (server.address() as AddressInfo).port;
+    await window.evaluate(async (url) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.createLibraryGroup({ name: "Finance", description: "Finance documents" });
+      await core.saveLibrarySettings({
+        classifier: { kind: "ollama", baseUrl: url, modelId: "tev1:0.8b" },
+        automatic: false,
+      });
+    }, `http://127.0.0.1:${port}`);
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    await pointAndClick(window, library.getByTestId("library-organize"));
+    await expect(library.getByTestId("library-not-sorted-count")).toHaveText("2 not sorted", {
+      timeout: 60_000,
+    });
+    // Only Organize's failures keep To review: the Invoice's suggested Folder is accepted.
+    await pointAndClick(window, reviewOf(window).getByTestId("library-review-accept-all"));
+    await expect(library.getByTestId("library-not-sorted-count")).toHaveText("2 not sorted");
+
+    const loose = section(library, "not-in-a-folder");
+    const rowNamed = (name: string) =>
+      loose.getByTestId("library-document").filter({
+        has: window.getByRole("button", { name, exact: true }),
+      });
+    const deleteRow = async (name: string) => {
+      await pointAndClick(window, rowNamed(name).getByTestId("document-file-menu"));
+      await pointAndClick(window, window.getByTestId("document.delete"));
+    };
+
+    await deleteRow("Note 1");
+    await expect(library.getByTestId("library-not-sorted-count")).toHaveText("1 not sorted");
+    await expect(reviewOf(window)).toHaveAttribute("data-count", "1");
+    await deleteRow("Note 2");
+    // The last failure is gone: every line goes with it, including ⌘K's Show To review.
+    await expect(library.getByTestId("library-not-sorted-count")).toHaveCount(0);
+    await expect(reviewOf(window)).toHaveCount(0);
+    await expect(loose.getByTestId("library-organize-failed")).toHaveCount(0);
+    await expect(library.getByTestId("library-sorted")).toHaveText("All sorted");
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type("review");
+    await expect(
+      window.getByTestId("palette").locator('[data-key="command:library.review"]'),
+    ).toHaveCount(0);
+    await window.keyboard.press("Escape");
+
+    // The same at 900 px in Chinese, then Undo twice: each Document brings its state back.
+    await setLanguage(window, "zh-CN");
+    await setWindowSize(app, window, 900, 760);
+    await expect(library.getByTestId("library-sorted")).toHaveText("已全部整理");
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type("待确认");
+    await expect(
+      window.getByTestId("palette").locator('[data-key="command:library.review"]'),
+    ).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(library.getByTestId("library-not-sorted-count")).toHaveText("1 个未整理");
+    await expect(reviewOf(window)).toHaveAttribute("data-count", "1");
+    await expect(library.getByTestId("library-review-not-sorted")).toHaveText("查看");
+    await expect(loose.getByTestId("library-not-sorted").first()).toHaveText(
+      `未能整理：${DECISION_FAILURE}`,
+    );
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(library.getByTestId("library-not-sorted-count")).toHaveText("2 个未整理");
+    await expect(library.getByTestId("library-sorted")).toHaveCount(0);
+    await expect(loose.getByTestId("library-not-sorted")).toHaveCount(2);
   } finally {
     server.close();
     await app.close();

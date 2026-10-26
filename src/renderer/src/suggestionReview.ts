@@ -2,7 +2,7 @@ import type { AssignmentChange, DocumentGroupAssignment } from "../../core/api";
 import { displayName } from "../../shared/documentNames";
 import { core } from "./core";
 import { applyAssignments } from "./documentUpdates";
-import { isNotSorted } from "./organizeOutcome";
+import { notSortedIds, suggestedIds } from "./organizeOutcome";
 import { useAppStore } from "./store";
 import { makeInTurn, type Undoable, useUndo } from "./undo";
 
@@ -17,16 +17,16 @@ const assignmentsNow = () =>
     (useAppStore.getState().library?.assignments ?? []).map((item) => [item.documentId, item]),
   );
 
-export const waitingIds = (): string[] =>
-  (useAppStore.getState().library?.assignments ?? []).flatMap((item) =>
-    item.suggested && item.groupId !== null ? [item.documentId] : [],
-  );
+export const waitingIds = (): string[] => {
+  const { documents, library } = useAppStore.getState();
+  return suggestedIds(documents, library?.assignments ?? []);
+};
 
-/**
- * Whether Organize left a Document it couldn't sort, which To review shows with the reason.
- */
-export const hasNotSorted = (): boolean =>
-  (useAppStore.getState().library?.assignments ?? []).some((item) => isNotSorted(item));
+/** Only live Documents count: a deleted one leaves nothing for To review to show. */
+export const hasNotSorted = (): boolean => {
+  const { documents, library } = useAppStore.getState();
+  return notSortedIds(documents, library?.assignments ?? []).size > 0;
+};
 
 function showDecided(decision: Decision, ids: readonly string[]): void {
   const now = assignmentsNow();

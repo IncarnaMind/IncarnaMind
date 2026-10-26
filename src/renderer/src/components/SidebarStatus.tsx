@@ -1,4 +1,12 @@
-import { type ReactNode, type ToggleEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type ToggleEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { DocumentStatus, EmbeddingModelError } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
@@ -12,6 +20,7 @@ import { saidInLine } from "../lineNames";
 import { useCapturing, useMeetings } from "../meetings";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
+import { organizeStateOf } from "../organizeOutcome";
 import { rerankingModelStatus } from "../rerankStatus";
 import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
 import { useSettled } from "../settling";
@@ -309,6 +318,14 @@ function useStatuses(): Status[] {
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
+  const allDocuments = useAppStore((state) => state.documents);
+  const liveAssignments = useMemo(() => {
+    const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
+    return allDocuments.flatMap((doc) => {
+      const item = held.get(doc.id);
+      return item ? [[doc, item] as const] : [];
+    });
+  }, [allDocuments, library]);
   const organizing = organizes(library);
   const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();
@@ -434,9 +451,7 @@ function useStatuses(): Status[] {
   const tagging = !organizesNew && counts.tagging > 0;
   const organizingNow =
     organizing &&
-    !!library?.assignments.some(
-      (item) => item.status === "pending" || item.status === "classifying",
-    );
+    liveAssignments.some(([, item]) => item.status === "pending" || item.status === "classifying");
   const taggingService = useTaggingService(
     organizingNow ? "classification" : "tagging",
     taggingWaits || tagging || organizingNow,
@@ -897,16 +912,17 @@ function useStatuses(): Status[] {
   }
 
   if (organizing && library) {
-    const pending = library.assignments.filter(
-      (item) => item.status === "pending" || item.status === "classifying",
+    const pending = liveAssignments.filter(
+      ([, item]) => item.status === "pending" || item.status === "classifying",
     ).length;
-    const attention = library.assignments.filter(
-      (item) =>
-        (item.status === "waiting" &&
+    const attention = liveAssignments.filter(
+      ([doc, item]) =>
+        organizeStateOf(doc, item) !== "sorted" &&
+        ((item.status === "waiting" &&
           item.error?.kind !== "rate-limit" &&
           item.error?.kind !== "auth" &&
           item.error?.kind !== "plan-limit") ||
-        item.status === "failed",
+          item.status === "failed"),
     ).length;
     if (attention)
       statuses.push({

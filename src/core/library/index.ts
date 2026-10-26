@@ -1148,7 +1148,7 @@ export function createLibrary(options: {
       );
     },
     reject(input: unknown): AssignmentChange[] {
-      return review(input, (row) => {
+      const changes = review(input, (row) => {
         const at = now();
         // The User's decision settles the Document, so a run that failed before the rejection
         // doesn't outlive it: it is finished, not one Organize couldn't sort (#1928).
@@ -1156,12 +1156,22 @@ export function createLibrary(options: {
           "UPDATE document_groups SET group_id = NULL, suggested = 0, status = 'classified', error_kind = NULL, error_message = NULL, error_wording = NULL, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
           [randomUUID(), at, row.document_id],
         );
+        // Its own row moves with the assignment: the run under way is stale now, so nothing is
+        // left to take it out of "tagging" or waiting for a provider (#1955).
+        const going = db.get<{ tagging_status: string }>(
+          "SELECT tagging_status FROM documents WHERE id = ? AND deleted_at IS NULL",
+          [row.document_id],
+        )?.tagging_status;
+        if (going === "pending" || going === "tagging" || going === "waiting-for-provider")
+          tagState(row.document_id, "classified");
         if (row.group_id && !rejected(row.document_id).has(row.group_id))
           db.run(
             "INSERT INTO document_group_rejections (id, document_id, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             [randomUUID(), row.document_id, row.group_id, at, at],
           );
       });
+      if (changes.length > 0) options.tagged(changes.map((each) => each.after.documentId));
+      return changes;
     },
     target(input: unknown): string | null {
       if (input === undefined || input === null) return null;

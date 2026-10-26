@@ -237,10 +237,11 @@ export function organizeState(assignment: DocumentGroupAssignment | undefined): 
   if (assignment?.status === "pending" || assignment?.status === "classifying") {
     return "library.working";
   }
+  // The User's own place stands, even after a later run failed (#1955).
+  if (!assignment?.suggested && assignment?.source === "user") return "library.manual";
   if (assignment?.status === "waiting" || assignment?.status === "failed") {
     return "library.needsAttention";
   }
-  if (assignment?.source === "user") return "library.manual";
   if (assignment?.status === "classified") {
     return assignment.suggested ? "library.suggested" : "library.saved";
   }

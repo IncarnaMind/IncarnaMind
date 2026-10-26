@@ -32,7 +32,7 @@ import {
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
-import { isNotSorted, isSorted } from "../organizeOutcome";
+import { notSortedIds, organizeStateOf } from "../organizeOutcome";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
@@ -162,14 +162,18 @@ export function LibraryPane() {
   );
   const folded = useLibraryFolds((state) => state.folded);
   const reviewOpen = useLibraryFolds((state) => state.reviewOpen);
+  const unsortedIds = useMemo(
+    () => notSortedIds(documents, snapshot?.assignments ?? []),
+    [documents, snapshot?.assignments],
+  );
   const notSortedOf = useCallback(
     (documentId: string) => {
-      const item = assignments.get(documentId);
-      if (!isNotSorted(item)) return null;
-      const said = item?.error ? providerErrorText(item.error, t) : "";
-      return said || t("library.notSorted.noReason");
+      if (!unsortedIds.has(documentId)) return null;
+      const said = assignments.get(documentId)?.error;
+      const text = said ? providerErrorText(said, t) : "";
+      return text || t("library.notSorted.noReason");
     },
-    [assignments, t],
+    [unsortedIds, assignments, t],
   );
   const sortFailedOf = useCallback(
     (documentId: string) => {
@@ -180,26 +184,18 @@ export function LibraryPane() {
     },
     [assignments, t],
   );
-  const unsortedIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const item of snapshot?.assignments ?? []) if (isNotSorted(item)) ids.add(item.documentId);
-    return ids;
-  }, [snapshot?.assignments]);
   const notSorted = useMemo(
     () =>
       unsortedIds.size === 0 ? NO_DOCUMENTS : ordered.filter((doc) => unsortedIds.has(doc.id)),
     [ordered, unsortedIds],
   );
-  const { notSortedCount, allSorted } = useMemo(() => {
-    let count = 0;
-    let sorted = documents.length > 0;
-    for (const doc of documents) {
-      const item = assignments.get(doc.id);
-      if (isNotSorted(item)) count++;
-      if (!isSorted(item, doc.tagging)) sorted = false;
-    }
-    return { notSortedCount: count, allSorted: sorted && count === 0 };
-  }, [documents, assignments]);
+  const notSortedCount = unsortedIds.size;
+  const allSorted = useMemo(
+    () =>
+      documents.length > 0 &&
+      documents.every((doc) => organizeStateOf(doc, assignments.get(doc.id)) === "sorted"),
+    [documents, assignments],
+  );
   const review = useMemo(
     () => toReviewOf(ordered, folders, snapshot?.assignments ?? []),
     [ordered, folders, snapshot?.assignments],
