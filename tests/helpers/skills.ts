@@ -17,7 +17,17 @@ export const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 export const BUILT_IN_SKILLS_DIR = join(REPO_ROOT, BUILT_IN_SKILLS_SOURCE);
 
 /** The names of the built-in Skills, in name order. */
-export const BUILT_IN_SKILL_NAMES = ["literature-review", "mind-to-report", "summarise-document"];
+export const BUILT_IN_SKILL_NAMES = [
+  "chronology",
+  "cim-red-flags",
+  "covenant-summary",
+  "credit-memo-outline",
+  "deposition-summary",
+  "earnings-review",
+  "literature-review",
+  "mind-to-report",
+  "summarise-document",
+];
 
 /**
  * A copy of the built-in Skills in a temporary folder, deleted when the test

@@ -3198,18 +3198,44 @@ export const en = {
   "skills.settings.scripts": "{count} scripts",
   "skills.settings.builtIn": "Built-in",
   // The Built-in Skills, as Settings and the slash menu describe them; their SKILL.md, which Answers read, stays as written.
+  "skills.builtIn.chronology.title": "Chronology",
+  "skills.builtIn.cim-red-flags.title": "CIM red flags",
+  "skills.builtIn.covenant-summary.title": "Covenant summary",
+  "skills.builtIn.credit-memo-outline.title": "Credit memo outline",
+  "skills.builtIn.deposition-summary.title": "Deposition summary",
+  "skills.builtIn.earnings-review.title": "Earnings review",
   "skills.builtIn.literature-review.title": "Literature review",
   "skills.builtIn.mind-to-report.title": "Mind to report",
   "skills.builtIn.summarise-document.title": "Summarize document",
+  "skills.builtIn.chronology.short": "Dated events from the record, each cited.",
+  "skills.builtIn.cim-red-flags.short": "Claims a CIM makes that the data room doesn’t support.",
+  "skills.builtIn.covenant-summary.short": "Each covenant with its test, level and latest figure.",
+  "skills.builtIn.credit-memo-outline.short":
+    "The committee paper’s sections, filled from the Documents.",
+  "skills.builtIn.deposition-summary.short":
+    "Testimony by topic, each point cited to page and line.",
+  "skills.builtIn.earnings-review.short": "The quarter against the prior period and guidance.",
   "skills.builtIn.literature-review.short": "Writes a themed literature review, every claim cited.",
+  "skills.builtIn.mind-to-report.short": "Turns this Mind into a structured report draft.",
+  "skills.builtIn.summarise-document.short": "Summaries sectioned to fit the kind of Document.",
+  "skills.builtIn.chronology":
+    "Builds a dated chronology of the events in the record, in order, with every event cited.",
+  "skills.builtIn.cim-red-flags":
+    "Checks a confidential information memorandum against the data room and lists each claim the Documents don’t support or contradict, with the claim and the evidence cited.",
+  "skills.builtIn.covenant-summary":
+    "Summarises each financial covenant in a facility agreement, with what it tests, its level and the latest figure, every figure cited.",
+  "skills.builtIn.credit-memo-outline":
+    "Drafts a credit committee paper’s sections, filled only from the Documents, with every filled fact cited.",
+  "skills.builtIn.deposition-summary":
+    "Summarises a deposition by topic, with every point cited to the page and line of the transcript.",
+  "skills.builtIn.earnings-review":
+    "Reviews a quarter’s results against the prior period and the guidance given, with every figure cited.",
   "skills.builtIn.literature-review":
     "Writes a literature review across your Documents on the Question’s topic, by theme rather than one Document after another: where they agree and disagree and what they leave out, with every claim cited.",
   "skills.builtIn.mind-to-report":
     "Turns this Mind (the Notes, Questions and Answers above the Question) into a structured report draft with a title, a summary, sections and a conclusion, keeping their Citations and inventing no sources.",
-  "skills.builtIn.mind-to-report.short": "Turns this Mind into a structured report draft.",
   "skills.builtIn.summarise-document":
     "Writes a cited summary of a Document, with sections that fit its kind: a paper’s claims, an agreement’s terms.",
-  "skills.builtIn.summarise-document.short": "Summaries sectioned to fit the kind of Document.",
   "skills.settings.builtIn.hint": "Comes with IncarnaMind. Duplicate one to change it.",
   "skills.settings.duplicate": "Duplicate as my own",
   "skills.settings.restoreBuiltIns": "Restore built-in Skills",

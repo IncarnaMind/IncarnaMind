@@ -67,7 +67,7 @@ const storedFile = (dataDir: string, skill: Skill, path = "SKILL.md") =>
   readFile(join(dataDir, "skills", skill.id, ...path.split("/")), "utf8");
 
 describe("The built-in Skills", () => {
-  test("are three SKILL.md folders, each a valid Skill that any Skill reader would import", async () => {
+  test("are the app's SKILL.md folders, each a valid Skill that any Skill reader would import", async () => {
     const folders = (await readdir(BUILT_IN_SKILLS_DIR, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
@@ -147,6 +147,81 @@ describe("The built-in Skills", () => {
     // Citations in the Mind reach the model as plain references: keep them, invent none.
     expect(report).toContain("[Attention Is All You Need, p. 3]");
     expect(report).toContain("Never invent a source");
+  });
+
+  /**
+   * The finance and law Skills (#1938), and the instructions each matter's case
+   * turns on: the elements the note must hold, and what to say when the record
+   * lacks one. The hand run in eval/skills uses the same matters in both
+   * languages.
+   */
+  const FINANCE_AND_LAW = [
+    {
+      name: "covenant-summary",
+      terms: [
+        "financial covenant",
+        "Its level",
+        "The latest figure",
+        "Keep the level and the latest figure apart",
+        "isn't in the Documents",
+      ],
+    },
+    {
+      name: "cim-red-flags",
+      terms: [
+        "confidential information memorandum",
+        "The claim",
+        "What the Documents show",
+        "Why it is a red flag",
+        "A red flag without both Citations is not written",
+        "unsupported",
+      ],
+    },
+    {
+      name: "earnings-review",
+      terms: ["Against the prior period", "Against guidance", "percentage point"],
+    },
+    {
+      name: "credit-memo-outline",
+      terms: [
+        "Executive summary",
+        "Borrower and group",
+        "Transaction",
+        "Financial analysis",
+        "Risks and mitigants",
+        "Recommendation",
+        "left out whole",
+      ],
+    },
+    {
+      name: "deposition-summary",
+      terms: [
+        "page and line",
+        "The topic",
+        "The points",
+        "Conflicts",
+        "Never give a page or line the transcript doesn't show",
+      ],
+    },
+    {
+      name: "chronology",
+      terms: [
+        "date order",
+        "The date",
+        "The event",
+        "Undated",
+        "Never infer a date from a file's metadata",
+        "they differ",
+      ],
+    },
+  ] as const;
+
+  test.each(FINANCE_AND_LAW)("$name holds its matter's case", async ({ name, terms }) => {
+    const { body } = await shipped(name);
+    for (const term of terms) expect(body).toContain(term);
+    // A record that doesn't support part of the Question is said plainly, never filled in.
+    expect(body).toContain("say so plainly");
+    expect(body).toMatch(/Cite every (?:figure|filled fact|point|event)|Cite the CIM's claim/);
   });
 });
 
@@ -274,10 +349,9 @@ describe("Installing the built-in Skills", () => {
 
     // Restarted, then updated: still removed.
     const second = startWithBuiltIns(dataDir, builtIns);
-    expect((await second.listSkills()).map((skill) => skill.name)).toEqual([
-      "literature-review",
-      "mind-to-report",
-    ]);
+    expect((await second.listSkills()).map((skill) => skill.name)).toEqual(
+      BUILT_IN_SKILL_NAMES.filter((name) => name !== "summarise-document"),
+    );
     second.close();
     const instructions = join(builtIns, "summarise-document", "SKILL.md");
     await writeFile(
@@ -328,11 +402,9 @@ describe("Installing the built-in Skills", () => {
 
     const core = startWithBuiltIns(dataDir);
     const skills = await core.listSkills();
-    expect(skills.map((skill) => [skill.name, skill.builtIn])).toEqual([
-      ["literature-review", true],
-      ["mind-to-report", true],
-      ["summarise-document", false],
-    ]);
+    expect(skills.map((skill) => [skill.name, skill.builtIn])).toEqual(
+      BUILT_IN_SKILL_NAMES.map((name) => [name, name !== "summarise-document"]),
+    );
     expect(named(skills, "summarise-document")).toEqual(mine);
     expect(await core.listRemovedBuiltInSkills()).toEqual([]);
   });
