@@ -635,6 +635,11 @@ for (const { name, en, zh, before, after } of SWITCH_CASES) {
       const afterChart: ChartAttributes = { ...chart, ...switched };
       expect(drawnOf(afterChart)).toEqual(after.drawn);
       expect(panelUnits(afterChart)).toEqual(after.panels);
+      // An allowed Switch draws every value the rows hold: none is left out for want of a unit.
+      const hidden = afterChart.data.series.flatMap((_, series) => [
+        ...unitlessRows(afterChart.data, series),
+      ]);
+      expect(hidden).toEqual([]);
     });
   }
 }

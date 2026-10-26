@@ -694,9 +694,9 @@ const switchableData = (chart: Pick<ChartAttributes, "data" | "source">): boolea
   chart.data.rows.length * chart.data.series.length > 1;
 
 /**
- * A bare number is its own unit: `unitlessRows` would drop it beside a
- * column's unit, so a Switch that makes such a series loses it or draws it
- * on the unit's axis (#1392).
+ * A bare number is its own unit: `unitlessRows` would hide it beside a
+ * column's unit, or draw it on that unit's axis, so a Switch that makes such
+ * a series loses or misreads it (#1392).
  */
 function mixesUnits(data: ChartData, series: number): boolean {
   const keys = new Set<string>();
