@@ -35,9 +35,14 @@ import {
   useChecks,
   widenCitation,
 } from "../checks";
+import { useCitesWorks } from "../citationFormatting";
 import { CountItLine } from "../components/CountItLine";
+import { MoreLineIcon } from "../components/lineIcons";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
+import { rowActionButtonClass } from "../components/sidebarRows";
+import { menuClass, menuItemClass } from "../components/ui";
+import { usePopoverMenu } from "../components/usePopoverMenu";
 import { askInAssistant } from "../conversations";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -297,6 +302,7 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
+              editor={editor}
               decision={decision}
               added={added}
               onAdd={() => {
@@ -433,6 +439,52 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
 }
 
 /**
+ * The card's ⋯. Find sources searches papers and the web, which suits a thesis
+ * and not a contract, so it waits here, and the card also shows it as a button
+ * in a Mind that cites a paper or book (DESIGN.md, 2026-10-24).
+ */
+function ClaimCardMenu({ findSources }: { findSources(): void }) {
+  const t = useT();
+  const label = t("claim.more");
+  const menu = usePopoverMenu({ align: "end" });
+  return (
+    <>
+      <button
+        {...menu.buttonProps}
+        type="button"
+        data-testid="claim-menu"
+        aria-label={label}
+        title={label}
+        className={`${rowActionButtonClass} citation-card-menu`}
+      >
+        <MoreLineIcon className="size-4" />
+      </button>
+      <div
+        {...menu.menuProps}
+        role="menu"
+        aria-label={label}
+        data-testid="claim-actions"
+        title=""
+        className={menuClass}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="claim-find-sources-menu"
+          onClick={() => {
+            menu.close();
+            findSources();
+          }}
+          className={menuItemClass}
+        >
+          <span className="flex-1">{t("claim.findSources.menu")}</span>
+        </button>
+      </div>
+    </>
+  );
+}
+
+/**
  * A sentence check's card: its state and the sentence it is about; for a
  * Passage found, the Document and Location with the quote washed in the
  * state's colour, and Add as Citation when it isn't cited yet, or "Already
@@ -462,6 +514,7 @@ function ClaimCard({
   fixes,
   notFound,
   keep,
+  editor,
   decision,
   added,
   onAdd,
@@ -489,6 +542,7 @@ function ClaimCard({
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
+  editor: Editor;
   decision: CitationDecision;
   added: number;
   onAdd(): void;
@@ -509,6 +563,7 @@ function ClaimCard({
 }) {
   const t = useT();
   const language = useLanguage();
+  const citesWorks = useCitesWorks(editor);
   const webSearchOn = useAppStore((store) => store.settings?.user.webSearch === true);
   // Search the web with web search off says why, and where to turn it on, before anything else happens.
   const [webOffShown, setWebOffShown] = useState(false);
@@ -553,6 +608,7 @@ function ClaimCard({
       savedPage.fetchedAt,
   };
   const nothingFound = saysNotFound(shown, check, cited.length);
+  const findSourcesOffered = state === "unsupported" && !differs && !decisionMissing && !fixes;
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
@@ -904,16 +960,18 @@ function ClaimCard({
           </button>
         )}
         {/* Where the Documents say something different the card has Open the page and Fix the sentence already, so it offers no more ways to look. */}
-        {state === "unsupported" && !differs && !decisionMissing && !fixes && (
+        {findSourcesOffered && (
           <>
-            <button
-              type="button"
-              data-testid="claim-find-sources"
-              className="citation-card-action"
-              onClick={onFindSources}
-            >
-              {t("claim.findSources")}
-            </button>
+            {citesWorks && (
+              <button
+                type="button"
+                data-testid="claim-find-sources"
+                className="citation-card-action"
+                onClick={onFindSources}
+              >
+                {t("claim.findSources")}
+              </button>
+            )}
             <button
               type="button"
               data-testid="claim-search-web"
@@ -945,6 +1003,7 @@ function ClaimCard({
           </button>
         )}
       </div>
+      {findSourcesOffered && <ClaimCardMenu findSources={onFindSources} />}
     </div>
   );
 }

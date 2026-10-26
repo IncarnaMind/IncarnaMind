@@ -194,7 +194,11 @@ for (const language of ["en", "zh-CN"] as const) {
     // No Citation: its own card, with nothing of a Citation's part to cut (e2e/notFoundCard.spec.ts).
     await openCard(marks.nth(1));
     await expect(card.getByTestId("claim-nothing")).toHaveText(words.nothing);
-    await expect(card.getByTestId("claim-find-sources")).toBeVisible();
+    // Find sources waits in the card's ⋯: the Mind cites no paper or book.
+    await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
+    await pointAndClick(window, card.getByTestId("claim-menu"));
+    await expect(card.getByTestId("claim-find-sources-menu")).toBeVisible();
+    await window.keyboard.press("Escape");
     await expect(card.getByTestId("claim-remove")).toBeVisible();
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
     await expect(card.getByTestId("claim-cut-sentence")).toBeVisible();
@@ -219,8 +223,10 @@ for (const language of ["en", "zh-CN"] as const) {
       for (const gone of [
         "claim-cut-sentence",
         "claim-find-sources",
+        "claim-find-sources-menu",
         "claim-search-web",
         "claim-remove",
+        "claim-menu",
       ]) {
         await expect(card.getByTestId(gone)).toHaveCount(0);
       }

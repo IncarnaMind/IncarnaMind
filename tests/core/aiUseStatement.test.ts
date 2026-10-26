@@ -70,6 +70,7 @@ function checked(
   state: ClaimCheckAttributes["state"],
   model: { providerId: string; modelId: string },
   asked = sentence,
+  overrides: Partial<ClaimCheckAttributes> = {},
 ): ClaimCheckAttributes {
   return {
     id: randomUUID(),
@@ -90,6 +91,7 @@ function checked(
     versions: [{ documentId: document.id, contentHash: document.contentHash }],
     excluded: [],
     checkedAt: NOW,
+    ...overrides,
   };
 }
 
@@ -176,6 +178,7 @@ const SECOND = "Penguins nest above the harbour.";
 const LONG =
   "Harbours publish the times of high water on their notice boards every year without fail.";
 const FOURTH = "Nobody would say.";
+const FOUND = "Fog rolls in from the sea.";
 const EDITED = "Edited since it was checked.";
 
 const NOTE_EN =
@@ -263,6 +266,18 @@ async function writeThesis(setup: Awaited<ReturnType<typeof setUp>>) {
         text(sentence, { type: "claimCheck", attrs: checked(tides, sentence, state, model) }),
         text(" "),
       ]),
+      text(FOUND, {
+        type: "claimCheck",
+        attrs: checked(tides, FOUND, "unsupported", haikuModel, FOUND, {
+          unsupported: {
+            reason: "Tides says nothing about fog.",
+            covered: null,
+            uncovered: null,
+            found: true,
+          },
+        }),
+      }),
+      text(" "),
       text(EDITED, {
         type: "claimCheck",
         attrs: checked(tides, EDITED, "supported", haikuModel, "As it was checked."),
@@ -379,6 +394,7 @@ describe("The AI use statement", () => {
       ["Result", "Sentences"],
       ["Supported", "1"],
       ["Unsupported", "1"],
+      ["Not found", "1"],
       ["Contradicted", "1"],
       ["Needs re-check", "1"],
       ["Not checked", "1"],
@@ -387,7 +403,7 @@ describe("The AI use statement", () => {
     expect(checkedList).toEqual([
       ["Sentence", "Result", "Model", "Checked"],
       [FIRST, "Supported", haiku, on],
-      [SECOND, "Unsupported", haiku, on],
+      [SECOND, "Not found", haiku, on],
       [
         "Harbours publish the times of high water on their notice boards every…",
         "Contradicted",
@@ -395,6 +411,7 @@ describe("The AI use statement", () => {
         on,
       ],
       [FOURTH, "Not checked", "", ""],
+      [FOUND, "Unsupported", haiku, on],
       [EDITED, "Changed since checked", haiku, on],
     ]);
     expect(paragraphsOf(parts).at(-1)).toBe(NOTE_EN);
@@ -676,12 +693,12 @@ describe("Checks in the statement", () => {
     expect(sentences).toEqual([
       ["Result", "Sentences"],
       ["Supported", "1"],
-      ["Unsupported", "1"],
+      ["Not found", "1"],
     ]);
     expect(listed).toEqual([
       ["Sentence", "Result", "Model", "Checked"],
       [MOON, "Supported", "local-model", on],
-      [PENGUINS, "Unsupported", "local-model", on],
+      [PENGUINS, "Not found", "local-model", on],
     ]);
     expect(paragraphsOf(parts).filter((each) => NO_RECORD.test(each))).toEqual([]);
     expect(paragraphsOf(parts)).toContain("This document has no AI text.");

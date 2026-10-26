@@ -55,7 +55,7 @@ const LANGUAGES = {
     cut: "Cut it",
     keep: "Keep as my view",
     searchAll: "Search all Documents",
-    findSources: "Find sources",
+    findSources: "Find sources…",
     searchWeb: "Search the web",
     remove: "Remove the mark",
     cutDone: "Cut the sentence",
@@ -68,7 +68,7 @@ const LANGUAGES = {
     cut: "删除这句",
     keep: "保留为我的观点",
     searchAll: "搜索全部文档",
-    findSources: "查找资料",
+    findSources: "查找资料…",
     searchWeb: "联网搜索",
     remove: "移除标记",
     cutDone: "已删除这句",
@@ -80,13 +80,14 @@ const IDS = {
   searchAll: "claim-search-all",
   cut: "claim-cut-sentence",
   keep: "claim-keep",
-  findSources: "claim-find-sources",
   searchWeb: "claim-search-web",
   remove: "claim-remove",
+  menu: "claim-menu",
+  findSources: "claim-find-sources-menu",
 } as const;
 
-/** The card's actions, in the order they are drawn. */
-const ORDER = [IDS.searchAll, IDS.cut, IDS.keep, IDS.findSources, IDS.searchWeb, IDS.remove];
+/** The card's actions, in the order they are drawn; Find sources waits in its ⋯. */
+const ORDER = [IDS.searchAll, IDS.cut, IDS.keep, IDS.searchWeb, IDS.remove];
 
 /** Whether the first box sits inside the second. */
 const inside = async (inner: Locator, outer: Locator) => {
@@ -227,12 +228,19 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId(IDS.searchAll)).toHaveText(words.searchAll);
       await expect(card.getByTestId(IDS.cut)).toHaveText(words.cut);
       await expect(card.getByTestId(IDS.keep)).toHaveText(words.keep);
-      await expect(card.getByTestId(IDS.findSources)).toHaveText(words.findSources);
       await expect(card.getByTestId(IDS.searchWeb)).toHaveText(words.searchWeb);
       await expect(card.getByTestId(IDS.remove)).toHaveText(words.remove);
       await expect(card.getByTestId(IDS.cut)).not.toHaveClass(/citation-card-action--primary/);
       await expect(card.getByTestId("claim-cut")).toHaveCount(0);
       for (const id of ORDER) expect(await inside(card.getByTestId(id), card)).toBe(true);
+      // Find sources waits in the card's ⋯, with no button: the Mind cites no paper or book.
+      await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
+      await expect(card.getByTestId(IDS.findSources)).not.toBeVisible();
+      await pointAndClick(window, card.getByTestId(IDS.menu));
+      await expect(card.getByTestId(IDS.findSources)).toHaveText(words.findSources);
+      await expect(card.getByTestId(IDS.findSources)).toBeVisible();
+      await window.keyboard.press("Escape");
+      await expect(card.getByTestId(IDS.findSources)).not.toBeVisible();
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
     }

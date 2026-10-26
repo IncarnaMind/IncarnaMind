@@ -390,7 +390,8 @@ for (const language of ["en", "zh-CN"] as const) {
         }),
       );
 
-      const actions = card.locator("button");
+      // The buttons the User can reach: a closed menu's items are in the card but not in the Tab order.
+      const actions = card.locator("button:visible");
       const count = await actions.count();
       expect(count, "the card has an action").toBeGreaterThan(0);
       const firstName =
@@ -460,7 +461,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const caret = await caretOf(editor);
       await showCheckFromCommand(window, t("claim.showCard"));
       await expect(card).toHaveAttribute("data-check", "supported");
-      const actions = card.locator("button");
+      // The buttons the User can reach: a closed menu's items are in the card but not in the Tab order.
+      const actions = card.locator("button:visible");
       const count = await actions.count();
       await expect(actions.first()).toBeFocused();
       expect(await actions.first().getAttribute("data-testid")).toBe(variant.first);

@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import type { CoreBridge } from "../src/core/api";
+import type { CoreBridge, ReferencePatch } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import { paragraph, run, tracked, wordFile } from "../tests/helpers/word";
 import {
@@ -10,6 +10,7 @@ import {
   checkCard,
   createDataFolder,
   dismissChatSetup,
+  documentIdOf,
   importWordFromMenu,
   interceptOpenDialog,
   launchApp,
@@ -92,6 +93,26 @@ async function checkAll(window: Page, line: Locator, first: string, last: string
 }
 
 const marks = (window: Page) => window.getByTestId("claim-mark");
+
+/** A journal article's record, as its Cite as panel would set it: a paper, so the Mind cites a work. */
+const PAPER_RECORD: ReferencePatch = {
+  type: "article-journal",
+  title: "Tides and the Moon",
+  authors: [{ family: "Bowler", given: "Diana E." }],
+  issued: "2010",
+  containerTitle: "Ocean Review",
+};
+
+/** Sets a Document's reference record, as its "Cite as" panel would. */
+const setRecord = (window: Page, documentId: string, patch: ReferencePatch) =>
+  window.evaluate(
+    ([id, fields]) =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateReference(
+        id,
+        fields,
+      ),
+    [documentId, patch] as const,
+  );
 
 test("Check against Documents on two sentences with no Citation: one is supported and its Citation is added, the other is marked unsupported", async () => {
   const { app, window } = await launchWithTides();
@@ -180,6 +201,39 @@ test("Check against Documents on two sentences with no Citation: one is supporte
     "1 needs a look",
   );
   await expect(editor).toContainText("Gulls nest on the harbour cliffs.");
+});
+
+test("Find sources… waits in the card's ⋯, and is a button only in a Mind that cites a paper or book", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const { line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
+  await setRecord(window, await documentIdOf(window, "Tides"), PAPER_RECORD);
+  await setWindowSize(app, window, 1440, 900);
+  await checkAll(window, line, "Spring tides", "harbour cliffs.", "check-against-documents");
+  await expect(marks(window)).toHaveCount(2);
+  const supported = marks(window).and(window.locator('[data-check="supported"]'));
+  const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
+  const card = window.getByTestId("claim-card");
+
+  // Before the Mind cites the paper, Find sources is only in the ⋯.
+  await pointAndClick(window, unsupported);
+  await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
+  await pointAndClick(window, card.getByTestId("claim-menu"));
+  await expect(card.getByTestId("claim-find-sources-menu")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await window.keyboard.press("Escape");
+  await expect(card).toBeHidden();
+
+  // A Citation of the paper makes the Mind one that cites a work.
+  await pointAndClick(window, supported);
+  await pointAndClick(window, card.getByTestId("claim-add-citation"));
+  await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
+  await pointAndClick(window, unsupported);
+  await expect(card.getByTestId("claim-find-sources")).toBeVisible();
+  await expect(card.getByTestId("claim-find-sources")).toHaveText("Find sources");
+  await pointAndClick(window, card.getByTestId("claim-menu"));
+  await expect(card.getByTestId("claim-find-sources-menu")).toBeVisible();
+  await app.close();
 });
 
 test("The selection menu has one check, Check against Documents, and no Find support", async () => {

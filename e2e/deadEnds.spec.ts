@@ -168,7 +168,11 @@ test("most sentences unsupported says so once; an unsupported card offers its th
 
   await pointAndClick(window, marks.first());
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-find-sources")).toHaveText("Find sources");
+  // Find sources waits in the card's ⋯: the Mind cites no paper or book.
+  await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
+  await pointAndClick(window, card.getByTestId("claim-menu"));
+  await expect(card.getByTestId("claim-find-sources-menu")).toHaveText("Find sources…");
+  await window.keyboard.press("Escape");
   await expect(card.getByTestId("claim-search-web")).toHaveText("Search the web");
   await expect(card.getByTestId("claim-remove")).toHaveText("Remove the mark");
   // With web search off (the default) Search the web says why, and where to turn it on.
@@ -180,7 +184,7 @@ test("most sentences unsupported says so once; an unsupported card offers its th
   await app.close();
 });
 
-test("in Chinese, the card's button and the panel it opens have one name, 查找资料, and the AI action that shortens is 精简", async () => {
+test("in Chinese, the card's ⋯ item and the panel it opens share one name, 查找资料, and the AI action that shortens is 精简", async () => {
   test.setTimeout(120_000);
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { app, window } = await launchApp(dataDir, { fakeChat: true, home: sources });
@@ -203,12 +207,13 @@ test("in Chinese, the card's button and the panel it opens have one name, 查找
   await expect(window.locator('[data-check="unsupported"]')).toHaveCount(2);
 
   await pointAndClick(window, marks.first());
-  const button = window.getByTestId("claim-card").getByTestId("claim-find-sources");
-  await expect(button).toHaveText("查找资料");
-  await expect(window.getByTestId("claim-card").getByTestId("claim-search-web")).toHaveText(
-    "联网搜索",
-  );
-  await pointAndClick(window, button);
+  const card = window.getByTestId("claim-card");
+  await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
+  await pointAndClick(window, card.getByTestId("claim-menu"));
+  const item = card.getByTestId("claim-find-sources-menu");
+  await expect(item).toHaveText("查找资料…");
+  await expect(card.getByTestId("claim-search-web")).toHaveText("联网搜索");
+  await pointAndClick(window, item);
   await expect(window.getByTestId("find-sources").getByRole("heading")).toHaveText("查找资料");
   await app.close();
 });
