@@ -33,6 +33,7 @@ import {
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
 import { organizeStateOf } from "../organizeOutcome";
+import { ownsATag, useLibraryDocuments } from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
@@ -86,7 +87,7 @@ const SOURCE_REQUEST = /^source:(.+)$/;
 export function LibraryPane() {
   const t = useT();
   const language = useLanguage();
-  const documents = useAppStore((state) => state.documents);
+  const documents = useLibraryDocuments();
   const snapshot = useAppStore((state) => state.library);
   const tags = useAppStore((state) => state.tags);
   const linkedFolders = useAppStore((state) => state.linkedFolders);
@@ -115,16 +116,18 @@ export function LibraryPane() {
     () => sorted(groups, sidebarSort, folderFields, language),
     [groups, sidebarSort, language],
   );
+  // Tags are named only once a Document of the User's own carries one (#1942), then they are a filter.
+  const tagsShown = useAppStore(ownsATag);
   const facets = useMemo<LibraryFacet<Document>[]>(
     () => [
-      tagFacet(tags),
+      ...(tagsShown ? [tagFacet(tags)] : []),
       formatFacet,
       yearFacet,
       statusFacet,
       folderFacet(folders, folderOf),
       sourceFacet(linkedFolders),
     ],
-    [tags, folders, folderOf, linkedFolders],
+    [tags, tagsShown, folders, folderOf, linkedFolders],
   );
   const selection = useMemo<FilterSelection>(
     () => (tagFilter.length ? { ...facetFilter, tag: tagFilter } : facetFilter),

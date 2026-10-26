@@ -7,6 +7,8 @@ import {
   assistantAnswers,
   createDataFolder,
   launchApp,
+  leaveFirstOpen,
+  makeTagOnDocument,
   newMind,
   removeDataFolder,
   savedPath,
@@ -84,6 +86,11 @@ test("the tab strip comes with the second tab, and the Library with the first ow
   await window
     .getByTestId("add-documents-input")
     .setInputFiles([join(sources, "Harbour notes.md")]);
+  // On day one the Library row waits: it is one flat list called Documents (#1942).
+  await expect(sidebar.getByTestId("not-in-a-folder-title")).toContainText("Documents");
+  await expect(sidebar.getByTestId("open-library")).toHaveCount(0);
+  // It comes once the first open's steps are put away.
+  await leaveFirstOpen(window);
   await expect(sidebar.getByTestId("open-library")).toBeVisible();
   await app.close();
 });
@@ -132,6 +139,9 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
   await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(0);
 
   await window.getByTestId("add-documents-input").setInputFiles([notes]);
+  // Before a Tag exists, the footer says nothing (#1942); with one, it asks for the model.
+  await expect(line).toHaveCount(0);
+  await makeTagOnDocument(window, "Harbour notes");
   await expect(line).toBeVisible();
   await expect(line).toContainText("No AI model for Tags");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
@@ -181,6 +191,8 @@ test("Tagging stopped for the User's own files shows in the footer on the first 
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   await window.getByTestId("add-documents-input").setInputFiles([notes]);
+  // A Tag of the User's own: only then is Tags named (#1942).
+  await makeTagOnDocument(window, "Harbour notes");
   const row = sidebar.getByTestId("tagging-stopped");
   await expect(row).toContainText("Tagging stopped");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
@@ -209,6 +221,7 @@ test("Tagging paused by a rate limit shows in the footer on the first open, with
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   await window.getByTestId("add-documents-input").setInputFiles([limited]);
+  await makeTagOnDocument(window, "Harbour notes");
   const row = sidebar.getByTestId("tagging-rate-limited");
   await expect(row.getByTestId("status-label")).toContainText("Rate limit reached");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
@@ -224,8 +237,8 @@ test("a Mind of one's own made on the first open isn't listed under Examples (#1
   await expect(section).toHaveText("Examples");
   await newMind(window);
   await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
-  // "Not in a Folder", though there is no Folder yet.
-  await expect(section).toHaveText("Not in a Folder");
+  // One flat list of the User's own things on day one, called Documents (#1942).
+  await expect(section).toHaveText("Documents");
   await app.close();
 });
 

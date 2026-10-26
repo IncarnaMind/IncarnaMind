@@ -5,6 +5,7 @@ import type { Translate } from "./objects";
 const NAME_PARAMS: ReadonlySet<string> = new Set([
   "name",
   "title",
+  "label",
   "document",
   "mind",
   "folder",

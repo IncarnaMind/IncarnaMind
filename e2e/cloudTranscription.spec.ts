@@ -92,7 +92,9 @@ test("with a Soniox key, the first recording's sheet offers it under Other waysâ
   await expect(line).toContainText("Transcribe on this computer");
   await expect(line).toContainText("Private and free");
   await expect(sheet.getByTestId("meeting-route-ways")).toHaveCount(0);
-  await expect(sheet).toContainText("a 1 GB speech model downloads once");
+  // The fake engine's model is already here: no size line, and Start recording, not Download.
+  await expect(sheet.getByTestId("meeting-notice-model-size")).toHaveCount(0);
+  await expect(sheet.getByTestId("meeting-notice-start")).toHaveText("Start recording");
   await shot(window, "route-line-en-1600");
   await line.getByTestId("meeting-route-other").click();
   const ways = sheet.getByTestId("meeting-route-ways");

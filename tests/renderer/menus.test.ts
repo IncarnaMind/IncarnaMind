@@ -282,4 +282,15 @@ describe("the menus", () => {
       buildMenu("document", mixed).some((e) => e !== "rule" && e.command.id === "test.count"),
     ).toBe(false);
   });
+
+  test("a comparison column's menu shows the heading's own keys: F2 edits it and Delete removes it", async () => {
+    const { menuKeysLabel } = await import("../../src/renderer/src/commands/keymap");
+    const edit = commands.get("comparison.column.edit");
+    const remove = commands.get("comparison.column.remove");
+    expect(edit?.rowKeys).toBe("F2");
+    expect(remove?.rowKeys).toBe("Delete");
+    expect(edit && menuKeysLabel(edit)).toBe("F2");
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    expect(remove && menuKeysLabel(remove)).toBe(mac ? "⌦" : "Delete");
+  });
 });

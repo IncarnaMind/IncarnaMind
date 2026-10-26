@@ -58,9 +58,16 @@ const PASSAGES_PER_DOCUMENT = 3;
  * Document's name, which the index holds with each Passage, doesn't count.
  * See `CoreApi.searchDocumentText`.
  */
-export function textSearch(db: Database, query: string, limit: number): DocumentTextMatch[] {
+export function textSearch(
+  db: Database,
+  query: string,
+  limit: number,
+  excludeIds: readonly string[] = [],
+): DocumentTextMatch[] {
   const terms = searchTerms(query);
   if (terms.length === 0) return [];
+  // Left out before the limit is applied, so they never take one of its places.
+  const excluded = excludeIds.length > 0 ? "AND d.id NOT IN (SELECT value FROM json_each(?))" : "";
   const ranked = db.all<{
     passage_id: string;
     document_id: string;
@@ -77,7 +84,7 @@ export function textSearch(db: Database, query: string, limit: number): Document
        JOIN passages p ON p.seq = passages_fts.rowid
        JOIN documents d ON d.id = p.document_id
        WHERE passages_fts MATCH ? AND p.deleted_at IS NULL
-         AND d.deleted_at IS NULL AND d.file_status <> 'missing'),
+         AND d.deleted_at IS NULL AND d.file_status <> 'missing' ${excluded}),
      top AS (
        SELECT document_id, min(score) AS best FROM scored
        GROUP BY document_id ORDER BY best LIMIT ?),
@@ -89,7 +96,12 @@ export function textSearch(db: Database, query: string, limit: number): Document
      FROM placed JOIN passages p ON p.seq = placed.seq
      WHERE placed.place <= ?
      ORDER BY placed.best, placed.document_id, placed.place`,
-    [terms.map(termQuery).join(" AND "), BigInt(limit * 2), BigInt(PASSAGES_PER_DOCUMENT)],
+    [
+      terms.map(termQuery).join(" AND "),
+      ...(excludeIds.length > 0 ? [JSON.stringify(excludeIds)] : []),
+      BigInt(limit * 2),
+      BigInt(PASSAGES_PER_DOCUMENT),
+    ],
   );
   const matches: DocumentTextMatch[] = [];
   const seen = new Set<string>();
