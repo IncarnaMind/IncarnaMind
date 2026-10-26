@@ -6,7 +6,7 @@ Please report a vulnerability privately, not in a public issue or discussion. Op
 
 ## What to report
 
-- A way to read or change a User's Documents, Minds or settings without the User's consent, to run code on their computer, or to reach their API keys or sign-ins.
+- A way to read or change a User's Documents, Notes or settings without the User's consent, to run code on their computer, or to reach their API keys or sign-ins.
 - A request that sends a User's content somewhere they did not allow. [docs/privacy.md](docs/privacy.md) lists everything that can leave and what it sends.
 
 A wrong Answer, or a check mark that is wrong, is not a security problem: open an issue. Neither is anything that needs control of the User's computer to begin with.
