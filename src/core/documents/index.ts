@@ -2561,6 +2561,8 @@ export function createDocuments(options: DocumentsOptions) {
             reportError(error);
           }
         }
+        // Embedded again from here, before `embedWithCurrentModel` marks it below (#1433).
+        if (row.status === "embedding") reembedding.add(id);
         if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id, true);
         if (row.status === "waiting-for-model") model.ensure();
       }
