@@ -37,6 +37,7 @@ jobs:
     outputs:
       heavy: ${{ steps.diff.outputs.heavy }}
       packaged: ${{ steps.diff.outputs.packaged }}
+      startup: ${{ steps.diff.outputs.startup }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,11 +51,16 @@ jobs:
         run: |
           heavy=true
           packaged=false
+          startup=true
           if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ]; then
             heavy=false
+            startup=false
           elif [ "$EVENT" = pull_request ]; then
             files="$(git diff --name-only "$BASE...$HEAD")" || files=""
             echo "$files"
+            if [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/main/|src/shared/i18n/|e2e/|tests/main/|tests/helpers/home\.ts$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
+              startup=false
+            fi
             # Nothing listed (the diff failed, or is empty) runs everything.
             if [ -n "$files" ] && ! echo "$files" | grep -qvE '^([^/]+\.md|docs/(.+))$' \
                && ! echo "$files" | grep -qx 'docs/privacy.md'; then
@@ -67,6 +73,41 @@ jobs:
           fi
           echo "heavy=$heavy" | tee -a "$GITHUB_OUTPUT"
           echo "packaged=$packaged" | tee -a "$GITHUB_OUTPUT"
+          echo "startup=$startup" | tee -a "$GITHUB_OUTPUT"
+
+  startup-windows:
+    name: Packaged startup, quit and updates (Windows)
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true' && needs.changes.outputs.startup == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Verify the tagged process inventory
+        run: node node_modules/vitest/vitest.mjs run tests/helpers/lifecycleProcesses.test.ts --maxWorkers=1
+      - name: Package the main process and renderer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          node node_modules/electron-vite/bin/electron-vite.js build --mode test
+          Copy-Item e2e/lifecycleMain.cjs out/main/lifecycle.cjs
+          npx electron-builder --win --x64 --dir --publish never -c.extraMetadata.main=./out/main/lifecycle.cjs
+          if (-not (Test-Path dist/win-unpacked/resources/app.asar)) { throw "The packaged app has no app.asar." }
+      - name: Exercise the packaged startup and update lifecycle
+        run: |
+          $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/win-unpacked/IncarnaMind.exe"
+          node node_modules/@playwright/test/cli.js test singleInstance.spec.ts startupProgress.spec.ts Lifecycle.spec.ts --workers=1 --retries=0
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: startup-windows-results
+          path: test-results/
+          retention-days: 7
 
   # The unit tests are cut into shards that run at once: as one job they took about 13 minutes.
   # Vitest deals the files out evenly by a hash of their paths. Typecheck and lint run once, in

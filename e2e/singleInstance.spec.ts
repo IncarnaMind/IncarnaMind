@@ -1,16 +1,22 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { chromium, expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
-import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 import { coreOf, createDataFolder, dismissChatSetup, launchApp, removeDataFolder } from "./app";
+import {
+  copiesWith,
+  freePort,
+  inCopyWindow,
+  killCopies,
+  startLifecycleCopy,
+  windowsOf,
+} from "./lifecycle";
 import { startAnotherCopy } from "./secondCopy";
 
 /*
@@ -135,36 +141,8 @@ test("lock files that aren't databases are emptied, and the folder is locked all
   await app.close();
 });
 
-/** Starts a copy on `dataDir` outside Playwright, with what `launchApp` gives one; `args` go before the app's folder. */
-function startCopy(
-  home: string,
-  args: string[],
-  extraEnv: Record<string, string> = {},
-): ChildProcess {
-  const env = {
-    ...Object.fromEntries(
-      Object.entries(process.env).flatMap(([name, value]) => (value ? [[name, value]] : [])),
-    ),
-    ...homeEnv(home),
-    TMPDIR: home,
-    INCARNAMIND_DATA_DIR: dataDir,
-    INCARNAMIND_TEST_HOOKS: "1",
-    INCARNAMIND_TEST_EMBEDDER: "fake",
-    INCARNAMIND_TEST_TRANSCRIBER: "fake",
-    INCARNAMIND_TEST_AUDIO: "fake",
-    INCARNAMIND_TEST_CONNECTOR_REGISTRY: "http://127.0.0.1:9",
-    ...extraEnv,
-  };
-  delete (env as Record<string, string | undefined>).ELECTRON_RUN_AS_NODE;
-  delete (env as Record<string, string | undefined>).INCARNAMIND_CHATGPT_PROFILE;
-  delete (env as Record<string, string | undefined>).ELECTRON_RENDERER_URL;
-  const electronPath = require("electron") as unknown as string;
-  return spawn(
-    electronPath,
-    [...KEYCHAIN_ARGS, "--no-sandbox", ...args, resolve(__dirname, ".."), ...APP_ARGS],
-    { env, stdio: "ignore", detached: true },
-  );
-}
+const startCopy = (home: string, args: string[], extraEnv: Record<string, string> = {}) =>
+  startLifecycleCopy(dataDir, home, args, extraEnv);
 
 // protects=a data folder another copy keeps busy starts nothing and says so, in a box the User
 // sees on Linux too (#1493); fails_when=the box is asked for before `ready`, when Linux only
@@ -207,42 +185,6 @@ test("a data folder kept busy by a stuck copy starts nothing, and says so once t
     await rm(home, { recursive: true, force: true, maxRetries: 3 });
   }
 });
-
-const freePort = () =>
-  new Promise<number>((done, fail) => {
-    const server = createServer();
-    server.once("error", fail);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address() as { port: number };
-      server.close(() => done(port));
-    });
-  });
-
-/** How many windows the copy on this DevTools port has, 0 while it isn't listening yet. */
-async function windowsOf(port: number): Promise<number> {
-  try {
-    const targets = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as {
-      type: string;
-      url: string;
-    }[];
-    return targets.filter((each) => each.type === "page" && each.url.startsWith("file://")).length;
-  } catch {
-    return 0;
-  }
-}
-
-async function inCopyWindow(port: number | undefined, use: (window: Page) => Promise<void>) {
-  if (port === undefined) throw new Error("The copy has no DevTools port.");
-  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-  try {
-    const window = browser.contexts()[0]?.pages()[0];
-    if (!window) throw new Error("The copy has no window.");
-    await window.getByTestId("plus-menu").waitFor();
-    await use(window);
-  } finally {
-    await browser.close();
-  }
-}
 
 // protects=a double-click on the app's icon leaves one window; fails_when=a second start, arriving
 // while the first is still starting, makes a window of its own before the first makes its.
@@ -287,45 +229,6 @@ for (const gap of [0, 20, 40, 60, 80]) {
     }
   });
 }
-
-/**
- * The copies started with this switch, and those they started again: main processes only, or
- * with `relaunching` the helpers waiting to start one too.
- */
-function listedCopies(): { pid: number; args: string }[] {
-  const electron = join(dirname(require.resolve("electron/package.json")), "dist") + sep;
-  const listing = execFileSync("ps", ["-A", "-ww", "-o", "uid=", "-o", "pid=", "-o", "args="], {
-    encoding: "utf8",
-  });
-  return listing.split("\n").flatMap((line) => {
-    const [, uid, pid, args = ""] = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/) ?? [];
-    return pid && Number(uid) === process.getuid?.() && args.startsWith(electron)
-      ? [{ pid: Number(pid), args }]
-      : [];
-  });
-}
-
-function copiesWith(tag: string, relaunching = false): number[] {
-  return listedCopies().flatMap(({ pid, args }) => {
-    const main = !args.includes("--type=") || (relaunching && args.includes("--type=relauncher"));
-    return args.includes(tag) && main ? [pid] : [];
-  });
-}
-
-const copiesToClean = (tag: string) =>
-  listedCopies().flatMap(({ pid, args }) =>
-    args.includes(tag) || args.includes(dataDir) ? [pid] : [],
-  );
-
-const killAll = (pids: number[]) => {
-  for (const pid of pids) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
-  }
-};
 
 /**
  * Starts a copy, then `starts` more that ask for the data folder while it quits
@@ -453,8 +356,7 @@ async function startWhileQuitting(
       await expect
         .poll(
           () => {
-            killAll(copiesToClean(tag));
-            return copiesToClean(tag);
+            return killCopies(tag);
           },
           { timeout: 30_000 },
         )
@@ -468,7 +370,6 @@ async function startWhileQuitting(
 // fails_when=that start sits with no window and holds the data folder, so every later start
 // quits, or it hands over to the quitting copy and nothing opens.
 test("starts while the app quits, crashes or quits twice each end with one window", async () => {
-  test.skip(process.platform === "win32", "lists the copies with ps");
   test.setTimeout(600_000);
   for (const how of ["quit", "quit", "quit-twice", "crash"] as const) {
     await test.step(how, () => startWhileQuitting(how, 1));
@@ -478,14 +379,12 @@ test("starts while the app quits, crashes or quits twice each end with one windo
 // protects=a double-click storm during a quit leaves one copy with one window (#1448);
 // fails_when=one of the five starts is left with no window, or none of them opens.
 test("five starts in a row while the app quits leave one window", async () => {
-  test.skip(process.platform === "win32", "lists the copies with ps");
   test.setTimeout(300_000);
   await startWhileQuitting("quit", 5);
 });
 
 // protects=a start after the data lock is released but before Electron exits recovers a usable window (#1448); fails_when=the pre-lock snapshot misses the quitting copy and no recovery is armed.
 test("a start during the old owner's exit waits for its data gate and opens the existing data", async () => {
-  test.skip(process.platform === "win32", "lists the copies with ps");
   await startWhileQuitting("after-release", 1);
   const next = await launchApp(dataDir);
   try {
@@ -517,7 +416,6 @@ for (const { language, succeeds, quitDelay } of [
   { language: "en", succeeds: true, quitDelay: 6_000 },
 ] as const) {
   test(`an update ${succeeds ? "succeeds" : "fails after a second start"}, closes its owned core and reopens (${language}, quit delay ${quitDelay} ms)`, async () => {
-    test.skip(process.platform === "win32", "lists the copies with ps");
     test.setTimeout(120_000);
     const home = await mkdtemp(join(tmpdir(), "incarnamind-update-"));
     const events = join(home, "events.jsonl");
@@ -661,8 +559,7 @@ for (const { language, succeeds, quitDelay } of [
         await expect
           .poll(
             () => {
-              killAll(copiesWith(tag, true));
-              return copiesWith(tag, true);
+              return killCopies(tag);
             },
             { timeout: 30_000 },
           )

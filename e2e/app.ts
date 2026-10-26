@@ -29,7 +29,8 @@ import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
-import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { APP_ARGS, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { assertPackagedMain, lifecycleHomeEnv, mainExecutable } from "./lifecycle";
 
 const appDir = resolve(__dirname, "..");
 
@@ -332,7 +333,7 @@ export async function launchApp(
     if (usageData.testerBuild) env.INCARNAMIND_TEST_TESTER_BUILD = "1";
   }
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
-  Object.assign(env, homeEnv(appHome));
+  Object.assign(env, lifecycleHomeEnv(appHome));
   if (referenceLookup) env.INCARNAMIND_TEST_REFERENCE_LOOKUP = referenceLookup;
   if (sources) env.INCARNAMIND_TEST_SOURCES = sources;
   if (connectorDirectory) env.INCARNAMIND_TEST_CONNECTOR_DIRECTORY = connectorDirectory;
@@ -360,11 +361,13 @@ export async function launchApp(
   }
   if (transcriber) env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS = JSON.stringify(transcriber);
 
+  const packaged = process.env.INCARNAMIND_PACKAGED_APP !== undefined;
   const app = await electron.launch({
+    ...(packaged && { executablePath: mainExecutable() }),
     args: [
       ...KEYCHAIN_ARGS,
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
-      appDir,
+      ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
     ],
     env,
@@ -375,6 +378,7 @@ export async function launchApp(
     openApps.delete(app);
     if (!home) void rm(appHome, { recursive: true, force: true, maxRetries: 3 });
   });
+  await assertPackagedMain(app);
   const window = await app.firstWindow();
   await window.getByTestId("plus-menu").waitFor();
   if (!keepWindow) {

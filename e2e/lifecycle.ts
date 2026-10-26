@@ -12,10 +12,26 @@ export function mainExecutable(): string {
   return resolve(packaged);
 }
 
+function mainPreloads(args: string[]): { preloads: string[]; remaining: string[] } {
+  const preloads: string[] = [];
+  const remaining: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "-r" || arg === "--require") {
+      const file = args[++index];
+      if (!file) throw new Error("The lifecycle preload has no file path.");
+      preloads.push(resolve(file));
+    } else if (arg?.startsWith("--require=")) {
+      preloads.push(resolve(arg.slice("--require=".length)));
+    } else if (arg !== undefined) remaining.push(arg);
+  }
+  return { preloads, remaining };
+}
+
 export const mainArguments = (args: string[] = []): string[] => [
   ...KEYCHAIN_ARGS,
   "--no-sandbox",
-  ...args,
+  ...(process.env.INCARNAMIND_PACKAGED_APP ? mainPreloads(args).remaining : args),
   ...(process.env.INCARNAMIND_PACKAGED_APP ? [] : [resolve(__dirname, "..")]),
   ...APP_ARGS,
 ];
@@ -37,12 +53,15 @@ export async function assertPackagedMain(app: ElectronApplication): Promise<void
     appPath: app.getAppPath(),
     resourcesPath: process.resourcesPath,
     executable: process.execPath,
+    lifecycleMain: (globalThis as { incarnamindLifecycleMain?: { realMain: string } })
+      .incarnamindLifecycleMain,
   }));
   const key = (path: string) =>
     process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
   expect(actual.packaged).toBe(true);
   expect(key(actual.executable)).toBe(key(executable));
   expect(key(actual.appPath)).toBe(key(join(actual.resourcesPath, "app.asar")));
+  expect(actual.lifecycleMain?.realMain).toBe(join(actual.appPath, "out", "main", "index.js"));
 }
 
 export function startLifecycleCopy(
@@ -69,6 +88,8 @@ export function startLifecycleCopy(
   delete env.INCARNAMIND_CHATGPT_PROFILE;
   delete env.ELECTRON_RENDERER_URL;
   delete env.NODE_OPTIONS;
+  if (process.env.INCARNAMIND_PACKAGED_APP)
+    env.INCARNAMIND_TEST_MAIN_PRELOADS = JSON.stringify(mainPreloads(args).preloads);
   return spawn(mainExecutable(), mainArguments(args), { env, stdio: "ignore", detached: true });
 }
 
