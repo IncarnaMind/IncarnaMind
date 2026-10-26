@@ -22,7 +22,7 @@ npm run dist         # the installers for the current system; never published
    On macOS, before its upload, the packaged Apple silicon app also transcribes a meeting with its real speech engine (`npm run test:packaged`, #1239). If that check fails, the macOS files aren't uploaded, but the Windows and Linux legs still upload theirs. Never publish a draft without its macOS files: a failed transcription check most likely means transcription is broken on the other platforms too.
 4. Review the draft, edit its notes (ending with the code signing policy line, see below), try the installers, and click **Publish release**. Installed apps only see an update once its release is published.
 
-After the first release is published, follow the comments in `README.md` and `README.zh-CN.md`: remove the "not released yet" notes, and add the release badge.
+After the first release is published, follow the comment in `README.md` (and the one its Chinese counterpart mirrors): add the release badge.
 
 ## macOS signing and notarization
 
