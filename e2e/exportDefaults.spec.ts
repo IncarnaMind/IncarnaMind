@@ -349,6 +349,8 @@ test("Change is on a PDF's Saved line too, even for a note with no Citations, an
   await pointAndClick(window, result.getByTestId("export-place-ask-list"));
   await expect(done).toContainText(savedLine("Tides 2.pdf", out));
   await expect.poll(() => readdir(out)).toEqual(["Tides 2.pdf", "Tides.pdf"]);
-  await expect(window.getByTestId("undo-line")).toContainText("Citations now go in a list at the end");
+  await expect(window.getByTestId("undo-line")).toContainText(
+    "Citations now go in a list at the end",
+  );
   await app.close();
 });

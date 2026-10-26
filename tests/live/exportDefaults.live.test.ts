@@ -8,7 +8,7 @@
  * Set INCARNAMIND_LIVE_REPORT to a file to keep the call the model made, the reply and the Saved line.
  */
 import { appendFileSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { AnswerToolCall, CommandDone, ConversationAnswer, Core } from "../../src/core";
