@@ -2392,9 +2392,37 @@ export const assistantAnswers = (window: Page) =>
   window.getByTestId("assistant").getByTestId("assistant-answer");
 
 /**
+ * The assistant's own word that the next Answer in a conversation has stopped streaming: the
+ * core's `answer.finished` (done or stopped) or `answer.failed` for an Answer that wasn't there
+ * before (`known`), not one in a Mind (#1741). A rendered status can lag the stream on a loaded
+ * runner, so a spec waits for this before it reads the page.
+ */
+const answerEnded = (window: Page, known: readonly string[]) =>
+  window.evaluate(
+    (before) =>
+      new Promise<string>((ended) => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const stops: (() => void)[] = [];
+        const end = (status: string) => {
+          for (const stop of stops) stop();
+          ended(status);
+        };
+        stops.push(
+          bridge.on("answer.finished", ({ answerId, mindId, status }) => {
+            if (mindId === null && !before.includes(answerId)) end(status);
+          }),
+          bridge.on("answer.failed", ({ answerId, mindId }) => {
+            if (mindId === null && !before.includes(answerId)) end("failed");
+          }),
+        );
+      }),
+    known,
+  );
+
+/**
  * Asks a Question as a person does: ⌘J, the words, Enter. It is asked in the
- * assistant's conversation (#201); resolves with its Answer there once it is
- * written (the scripted model's, with `fakeChat`). The scripted model streams a word every
+ * assistant's conversation (#201); resolves with its Answer there once the assistant says its
+ * stream ended and the page shows it done. The scripted model streams a word every
  * 60 ms, so a wide table takes about 7 s on a quiet computer, and a loaded runner took more than
  * twice the old 15 s ceiling (#1651).
  */
@@ -2404,15 +2432,21 @@ export async function askInAssistant(
   { timeout = 45_000 }: { timeout?: number } = {},
 ): Promise<Locator> {
   const answers = assistantAnswers(window);
-  const before = await answers.count();
+  const before = await answers.evaluateAll((all) =>
+    all.map((element) => element.getAttribute("data-answer-id") ?? ""),
+  );
+  const ended = answerEnded(window, before).catch(() => "closed");
   await window.keyboard.press("ControlOrMeta+j");
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await window.keyboard.type(question);
   await window.keyboard.press("Enter");
   const questions = window.getByTestId("assistant").getByTestId("assistant-question");
   await expect(questions.last()).toContainText(question);
-  await expect(answers).toHaveCount(before + 1);
+  await expect(answers).toHaveCount(before.length + 1);
   const answer = answers.last();
+  // The assistant's own word that the stream ended, not the page's, which can lag it on a
+  // loaded runner (#1741); the page's done state follows, as the specs act on it.
+  await ended;
   await expect(answer).toHaveAttribute("data-status", "done", { timeout });
   return answer;
 }
