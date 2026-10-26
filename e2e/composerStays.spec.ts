@@ -326,7 +326,7 @@ for (const language of ["en", "zh-CN"] as const) {
         everywhere,
       ]);
       const tideTab = window.getByTestId("mind-tab").filter({ hasText: "Tide notes" });
-      await pointAndClick(window, tideTab);
+      await tideTab.click();
       await expect(tideTab).toHaveAttribute("aria-selected", "true");
       await expect(window.getByTestId("mind-editor")).toBeVisible();
       await expect(chips).toHaveCount(2);
