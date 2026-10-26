@@ -24,6 +24,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   toCheck: [],
   failed: [],
   recheck: [],
+  checking: [],
   kept: [],
   tableCells: [],
   noCitation: [],
@@ -106,7 +107,30 @@ describe("A note's state (D266)", () => {
       mark: "checked",
       checkedAt: CHECKED_AT,
       unread: 3,
+      unreadMatters: false,
       checkable: 2,
+    });
+  });
+
+  test("is never Checked while a check runs: a claim still checking is not done", () => {
+    const state = noteStateOf(health({ checkable: 2, checking: [6], checkedAt: CHECKED_AT }));
+    expect(state).toMatchObject({
+      kind: "not-checked",
+      look: 0,
+      tone: "neutral",
+      mark: "notChecked",
+    });
+  });
+
+  test("stays amber, and names them, when the files it couldn't read could hold the evidence", () => {
+    const state = noteStateOf(health({ checkable: 2, found: [3], checkedAt: CHECKED_AT }), 3, true);
+    expect(state).toMatchObject({
+      kind: "needs-look",
+      look: 0,
+      tone: "warning",
+      mark: "notChecked",
+      unread: 3,
+      unreadMatters: true,
     });
   });
 
@@ -138,6 +162,9 @@ describe("A note's state (D266)", () => {
     expect(zh(done)).toBe(
       `已核对 ${formatDateTime(CHECKED_AT, "zh-CN", { now })} · 3 个文件未能读取`,
     );
+    const unread = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3, true) ?? fail();
+    expect(en(unread)).toBe("3 files couldn’t be read");
+    expect(zh(unread)).toBe("3 个文件未能读取");
   });
 });
 
@@ -229,6 +256,79 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     const doc = source([paragraph([checked("Penguins nest on the cliffs.", "unsupported")])]);
     const { state } = read(doc);
     expect(state).toMatchObject({ kind: "needs-look", look: 1, tone: "warning" });
+    doc.destroy();
+  });
+
+  test("is Not checked while a check its document holds is still running", () => {
+    const doc = source([
+      paragraph([checked("Spring tides happen at new and full moon.", "checking")]),
+    ]);
+    const { health: readHealth, state } = read(doc);
+    expect(readHealth.checking).toHaveLength(1);
+    expect(state).toMatchObject({ kind: "not-checked", mark: "notChecked" });
+    doc.destroy();
+  });
+
+  test("stays amber when the note's Folder was searched and a file in it couldn't be read (D261)", () => {
+    const doc = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          scope: { folderId: "tides", widened: false },
+        }),
+      ]),
+    ]);
+    recordCheckUnread(
+      doc,
+      "r1",
+      [
+        {
+          id: "a",
+          name: "Locked.pdf",
+          reason: "password",
+          extension: null,
+          documentId: null,
+          pages: [],
+        },
+      ],
+      new Set(["r1"]),
+    );
+    const { state } = readNoteState({
+      doc,
+      documents: [],
+      keptCitationTexts: [],
+      folderId: "tides",
+    });
+    expect(state).toMatchObject({
+      kind: "needs-look",
+      look: 0,
+      tone: "warning",
+      unread: 1,
+      unreadMatters: true,
+    });
+    doc.destroy();
+  });
+
+  test("stays green with the count when all Documents were searched, so an unread file may hold nothing (D266)", () => {
+    const doc = source([
+      paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
+    ]);
+    recordCheckUnread(
+      doc,
+      "r1",
+      [
+        {
+          id: "a",
+          name: "Locked.pdf",
+          reason: "password",
+          extension: null,
+          documentId: null,
+          pages: [],
+        },
+      ],
+      new Set(["r1"]),
+    );
+    const { state } = read(doc);
+    expect(state).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
     doc.destroy();
   });
 });

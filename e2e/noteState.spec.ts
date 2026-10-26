@@ -48,12 +48,14 @@ const WORDS = {
     look: "1 needs a look",
     checked: "Checked ",
     checkFirst: "Not checked since your last edit · Check first",
+    see: "Show",
   },
   "zh-CN": {
     notChecked: "未核对",
     look: "需要留意 1 处",
     checked: "已核对 ",
     checkFirst: "上次编辑后未核对 · 先核对",
+    see: "查看",
   },
 } as const;
 
@@ -165,15 +167,19 @@ for (const language of ["en", "zh-CN"] as const) {
     await screenshot(window, `note-state-home-${language}-900-needs-look`);
     await recentRow(window, "Tides").getByTestId("home-recent-open").click();
 
-    // The Export menu says it too, under Word, and one click starts Check there.
+    // The Export menu says the same state under Word, and one click opens the card at its marks.
     await pointAndClick(window, window.getByTestId("export-mind"));
     const exportMenu = window.getByTestId("export-menu");
-    await expect(exportMenu.getByTestId("export-check-first")).toHaveText(words.checkFirst);
+    const stateLine = exportMenu.getByTestId("export-note-state");
+    await expect(stateLine).toHaveAttribute("data-state", "needs-look");
+    await expect(stateLine).toHaveText(`${words.look} · ${words.see}`);
     await screenshot(window, `note-state-export-${language}-needs-look`);
-    await pointAndClick(window, exportMenu.getByTestId("export-check-first"));
-    await expect(window.getByTestId("check-card")).toBeVisible();
+    await pointAndClick(window, stateLine);
+    const marks = window.getByTestId("check-card");
+    await expect(marks).toBeVisible();
+    await expect(marks.getByTestId("health-contradicted")).toBeVisible();
     await window.keyboard.press("Escape");
-    await expect(window.getByTestId("check-card")).toHaveCount(0);
+    await expect(marks).toHaveCount(0);
 
     // Fixing the number and checking again: every claim holds, so the state is green, with its time.
     const line = editor.locator("p").filter({ hasText: "Spring tides happened" }).first();
@@ -208,7 +214,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // A checked note gets no line at Export.
     await pointAndClick(window, window.getByTestId("export-mind"));
     await expect(window.getByTestId("export-menu")).toBeVisible();
-    await expect(window.getByTestId("export-check-first")).toHaveCount(0);
+    await expect(window.getByTestId("export-note-state")).toHaveCount(0);
     await screenshot(window, `note-state-export-${language}-checked`);
     await window.keyboard.press("Escape");
 
@@ -221,7 +227,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(rowState(window, "Tides")).toHaveText(words.notChecked);
     await recentRow(window, "Tides").getByTestId("home-recent-open").click();
     await pointAndClick(window, window.getByTestId("export-mind"));
-    await expect(window.getByTestId("export-check-first")).toHaveText(words.checkFirst);
+    await expect(window.getByTestId("export-note-state")).toHaveText(words.checkFirst);
     await window.keyboard.press("Escape");
 
     // The badge holds its place at the widest window too, in both languages.

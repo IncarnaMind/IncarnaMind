@@ -52,6 +52,7 @@ const NO_HEALTH: Health = {
   toCheck: [],
   failed: [],
   recheck: [],
+  checking: [],
   kept: [],
   tableCells: [],
   noCitation: [],

@@ -157,7 +157,7 @@ test("Export opens a short menu: Word and PDF, the last one used first with â‡§â
   await expect(more).toBeVisible();
   await window.keyboard.press("ArrowUp");
   await expect(more).toBeHidden();
-  await expect(menu.getByTestId("export-check-first")).toBeFocused();
+  await expect(menu.getByTestId("export-note-state")).toBeFocused();
   await expect(menu).toBeVisible();
 
   await window.keyboard.press("ArrowDown");

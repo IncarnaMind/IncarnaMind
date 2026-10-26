@@ -10,8 +10,9 @@ import { ClaimMarkIcon } from "../../editor/icons";
 import { takeExportMenuRequest, useExportMenuRequests } from "../../exportMenuRequest";
 import { FORMAT_LABELS, useExports } from "../../exports";
 import { useMindNoteStates } from "../../home";
-import { useT } from "../../i18n";
-import { startCheckThisMind } from "../../mindCheck";
+import { useLanguage, useT } from "../../i18n";
+import { showCheckCard, startCheckThisMind } from "../../mindCheck";
+import { noteStateParts } from "../../noteState";
 import { useAppStore } from "../../store";
 import {
   ChevronRightLineIcon,
@@ -78,6 +79,7 @@ function Item({
 
 export function ExportMenu({ mindId }: { mindId: string }) {
   const t = useT();
+  const language = useLanguage();
   const menu = usePopoverMenu({ focus: "first", align: "end" });
   const submenu = useSubmenu();
   const last = useAppStore((state) => state.settings?.user.exportOptions.format ?? "docx");
@@ -93,6 +95,22 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   const states = useMindNoteStates(menu.open && mind ? [mind] : []);
   const noteState = mind ? (states.get(mind.id) ?? null) : null;
   const running = useChecks((state) => state.running[mindId] !== undefined);
+  // Under Word, the state's own line (D266, reviewed): not checked starts a Check; needs a look
+  // opens the card at its marks, the one action that fits what was found.
+  const stateLine =
+    noteState === null || noteState.kind === "checked"
+      ? null
+      : noteState.kind === "needs-look"
+        ? {
+            label: `${noteStateParts(noteState, t, language).join(" · ")} · ${t("export.show")}`,
+            run: () => showCheckCard(mindId),
+          }
+        : {
+            label: t("export.checkFirst"),
+            run: () => {
+              startCheckThisMind(mindId).catch(useAppStore.getState().reportError);
+            },
+          };
 
   // "Export…" in a Mind's menus: this Mind's button opens its menu, as if it had been clicked.
   const asked = useExportMenuRequests((state) => state.request);
@@ -146,25 +164,23 @@ export function ExportMenu({ mindId }: { mindId: string }) {
             {shown.map((format, index) => (
               <Fragment key={format}>
                 {formatItem(format, index === 0 ? shortcutLabel("mind.export") : undefined)}
-                {format === "docx" &&
-                  !running &&
-                  noteState !== null &&
-                  noteState.kind !== "checked" && (
-                    // Under Word, one entry that starts Check; it never blocks the export (D266).
-                    <button
-                      type="button"
-                      role="menuitem"
-                      data-testid="export-check-first"
-                      className={`${tallMenuItemClass} pl-2 text-[13px] leading-5 text-ink-secondary`}
-                      onClick={() => {
-                        menu.close();
-                        startCheckThisMind(mindId).catch(useAppStore.getState().reportError);
-                      }}
-                    >
-                      <ClaimMarkIcon state="not-checked" className="size-4 shrink-0" />
-                      <span className="flex-1">{t("export.checkFirst")}</span>
-                    </button>
-                  )}
+                {format === "docx" && !running && stateLine !== null && (
+                  // Under Word, one entry for the note's state; it never blocks the export (D266).
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="export-note-state"
+                    data-state={noteState?.kind}
+                    className={`${tallMenuItemClass} pl-2 text-[13px] leading-5 text-ink-secondary`}
+                    onClick={() => {
+                      menu.close();
+                      stateLine.run();
+                    }}
+                  >
+                    <ClaimMarkIcon state="not-checked" className="size-4 shrink-0" />
+                    <span className="flex-1">{stateLine.label}</span>
+                  </button>
+                )}
               </Fragment>
             ))}
             <button

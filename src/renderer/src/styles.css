@@ -1636,6 +1636,10 @@
     font-weight: 600;
     color: var(--color-warning);
   }
+  /* Unread files that could hold the evidence keep the ring amber, as a failed check does. */
+  .check-badge[data-tone="warning"] .mind-health-icon {
+    color: var(--color-warning);
+  }
   .check-badge[data-tone="error"] .check-badge-words {
     font-weight: 600;
     color: var(--color-danger);

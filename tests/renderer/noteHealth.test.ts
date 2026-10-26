@@ -325,6 +325,17 @@ describe("A Mind's health", () => {
     expect(everythingChecked(empty, { running: false, problem: false })).toBe(false);
   });
 
+  test("counts a claim still checking as read but not done, so nothing can say everything is checked (#1915)", () => {
+    const checking = healthOf(
+      docOf(paragraph(checked("Spring tides come at full moon.", "checking"))),
+    );
+    expect(parts(checking)).toEqual(NOTHING);
+    expect(checking.checkable).toBe(1);
+    expect(checking.checking).toHaveLength(1);
+    expect(checking.toCheck).toHaveLength(0);
+    expect(everythingChecked(checking, { running: false, problem: false })).toBe(false);
+  });
+
   test("counts a table cell's claim, on its own line (#1909)", () => {
     const doc = docOf(
       table(

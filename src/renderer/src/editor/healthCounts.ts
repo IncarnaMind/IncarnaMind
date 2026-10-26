@@ -45,10 +45,12 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
  * Where each part's sentences or Citations are, top to bottom: its count is
  * how many. `toCheck`: every claim no check covers now, `failed` and
  * `recheck` the parts of that count whose check failed or no longer holds;
+ * `checking`: the claims a run is checking right now, not done yet;
  * `kept`: the sentences the User keeps as their own view, which count as
  * handled; `tableCells` are the parts of `toCheck` a table holds (#1194);
- * `checkable`: every claim a check reads, to check or covered; `checkedAt`:
- * the newest check among the claims one covers, for "Checked {time}" (D266).
+ * `checkable`: every claim a check reads, to check, checking or covered;
+ * `checkedAt`: the newest check among the claims one covers, for
+ * "Checked {time}" (D266).
  */
 export interface NoteHealth {
   found: number[];
@@ -58,6 +60,7 @@ export interface NoteHealth {
   toCheck: number[];
   failed: number[];
   recheck: number[];
+  checking: number[];
   kept: number[];
   tableCells: number[];
   noCitation: number[];
@@ -170,6 +173,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     toCheck: [],
     failed: [],
     recheck: [],
+    checking: [],
     kept: [],
     tableCells: [],
     noCitation: [],
@@ -194,6 +198,11 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
       health.kept.push(from);
       return;
     }
+    if (state.kind === "checking") {
+      health.checkable++;
+      health.checking.push(from);
+      return;
+    }
     if (state.kind !== "covered" || !claim) return;
     health.checkable++;
     const checkedAt = claim.check.checkedAt;
@@ -213,8 +222,8 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
 
 /**
  * Whether the card can say everything is checked: a sentence was checked, none
- * is left, and no unsupported, contradicted or not-found Citation shows
- * (#1909; D266: the green says the same).
+ * is left or still checking, and no unsupported, contradicted or not-found
+ * Citation shows (#1909; D266: the green says the same).
  */
 export function everythingChecked(
   health: NoteHealth,
@@ -225,6 +234,7 @@ export function everythingChecked(
     !problem &&
     health.checkable > 0 &&
     health.toCheck.length === 0 &&
+    health.checking.length === 0 &&
     health.unsupported.length === 0 &&
     health.contradicted.length === 0 &&
     health.notFound.length === 0

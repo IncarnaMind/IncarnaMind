@@ -13,7 +13,7 @@ import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import { startCheckThisMind, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { useFade } from "../motion";
-import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
+import { checksSearchedFolder, type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { useGroupsMerged } from "../useWindowWidth";
@@ -23,6 +23,7 @@ import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
 import { useCardPlace } from "./checkPlace";
+import { shownClaims } from "./claimChecks";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, useMindCheckProgress } from "./MindCheckLine";
 import { HealthCard, PartMark, useHealth } from "./NoteHealth";
@@ -104,7 +105,11 @@ function MindBadge({
   const problem = useChecks((state) => state.problems[mindId] !== undefined);
   const askingMind = useMindCheck((state) => state.asking[mindId] !== undefined);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
-  const state = noteStateOf(health, unread.length);
+  const state = noteStateOf(
+    health,
+    unread.length,
+    unread.length > 0 && checksSearchedFolder(shownClaims(editor.state)),
+  );
   const input: BadgeInput = {
     marks: {
       contradicted: health.contradicted.length,
@@ -471,7 +476,9 @@ function BadgePill({
         <StateMark state={state} />
         <span className="check-badge-words">{resting[0]}</span>
         {state.kind === "needs-look" && (
-          <span className="check-badge-short">{format(state.look)}</span>
+          <span className="check-badge-short">
+            {format(state.look > 0 ? state.look : state.unread)}
+          </span>
         )}
         {state.kind === "checked" && state.checkedAt !== null && (
           <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>

@@ -17,7 +17,7 @@ import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { mindCheckOf } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
 import { checkUnreadOf } from "../../shared/unreadFiles";
-import { claimsOf } from "./editor/claimChecks";
+import { claimsOf, type ShownClaim } from "./editor/claimChecks";
 import { type NoteHealth, noteHealth } from "./editor/healthCounts";
 import { noteExtensions } from "./editor/noteSchema";
 
@@ -40,8 +40,10 @@ export interface NoteState {
   mark: NoteStateMark;
   /** The newest check among the claims that now hold (ISO 8601): the green's time. */
   checkedAt: string | null;
-  /** The files its checks couldn't read, what the green doesn't cover (#740, D261). */
+  /** The files its checks couldn't read (#740, D261): in the green when they don't matter, or what keeps it amber. */
   unread: number;
+  /** Whether an unread file could hold evidence the checks looked for: the note's Folder was searched. */
+  unreadMatters: boolean;
   /** The claims a check reads: with none, there is nothing to say. */
   checkable: number;
 }
@@ -49,24 +51,67 @@ export interface NoteState {
 /**
  * The state from `noteHealth` alone. Null when a check reads nothing: a note of headings, or
  * one whose every sentence is kept as the User's view, has nothing to show. A claim a check
- * failed or that no longer holds is "Not checked": nothing has checked it since its last edit.
+ * failed, that no longer holds, or is checking right now is "Not checked": nothing has checked
+ * it since its last edit, and a run in flight is never done. Unread files that could hold the
+ * evidence — the checks looked in the note's Folder — keep the state amber and are named.
  */
-export function noteStateOf(health: NoteHealth, unread = 0): NoteState | null {
+export function noteStateOf(
+  health: NoteHealth,
+  unread = 0,
+  unreadMatters = false,
+): NoteState | null {
   if (health.checkable === 0) return null;
   const look = health.unsupported.length + health.contradicted.length + health.notFound.length;
-  const base = { checkedAt: health.checkedAt, unread: 0, checkable: health.checkable };
+  const base = {
+    checkedAt: health.checkedAt,
+    unread: 0,
+    unreadMatters: false,
+    checkable: health.checkable,
+  };
   if (health.contradicted.length > 0) {
-    return { ...base, kind: "needs-look", look, tone: "error", mark: "contradicted" };
+    return {
+      ...base,
+      kind: "needs-look",
+      look,
+      tone: "error",
+      mark: "contradicted",
+      unread: unreadMatters ? unread : 0,
+      unreadMatters,
+    };
   }
   if (look > 0) {
     const mark: NoteStateMark = health.unsupported.length > 0 ? "unsupported" : "notFound";
-    return { ...base, kind: "needs-look", look, tone: "warning", mark };
+    return {
+      ...base,
+      kind: "needs-look",
+      look,
+      tone: "warning",
+      mark,
+      unread: unreadMatters ? unread : 0,
+      unreadMatters,
+    };
   }
-  if (health.toCheck.length > 0) {
+  if (health.checking.length > 0 || health.toCheck.length > 0) {
     const mark: NoteStateMark = health.recheck.length > 0 ? "recheck" : "notChecked";
     return { ...base, kind: "not-checked", look: 0, tone: "neutral", mark };
   }
+  if (unreadMatters && unread > 0) {
+    return {
+      ...base,
+      kind: "needs-look",
+      look: 0,
+      tone: "warning",
+      mark: "notChecked",
+      unread,
+      unreadMatters,
+    };
+  }
   return { ...base, kind: "checked", look: 0, tone: "success", mark: "checked", unread };
+}
+
+/** Whether the checks that named its unread files looked in the note's own Folder, the evidence the User chose. */
+export function checksSearchedFolder(claims: readonly ShownClaim[]): boolean {
+  return claims.some((claim) => claim.check.scope.folderId !== null && !claim.check.scope.widened);
 }
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
@@ -78,17 +123,27 @@ export function noteStateParts(
   language: Language,
   now?: Date,
 ): readonly string[] {
+  const count = (value: number) => new Intl.NumberFormat(language).format(value);
+  const unreadWords = () =>
+    t(state.unread === 1 ? "unread.count.one" : "unread.count", { count: count(state.unread) });
   if (state.kind === "not-checked") return [t("health.state.notChecked")];
   if (state.kind === "needs-look") {
-    const count = new Intl.NumberFormat(language).format(state.look);
-    return [t(state.look === 1 ? "health.state.look.one" : "health.state.look", { count })];
+    const parts: string[] = [];
+    if (state.look > 0) {
+      parts.push(
+        t(state.look === 1 ? "health.state.look.one" : "health.state.look", {
+          count: count(state.look),
+        }),
+      );
+    }
+    if (state.unreadMatters && state.unread > 0) parts.push(unreadWords());
+    return parts;
   }
   const time =
     state.checkedAt === null ? "" : formatDateTime(state.checkedAt, language, now ? { now } : {});
   const said = time === "" ? t("health.state.checked.noTime") : t("health.state.checked", { time });
   if (state.unread === 0) return [said];
-  const count = new Intl.NumberFormat(language).format(state.unread);
-  return [said, t(state.unread === 1 ? "unread.count.one" : "unread.count", { count })];
+  return [said, unreadWords()];
 }
 
 let schema: ReturnType<typeof getSchema> | undefined;
@@ -128,5 +183,9 @@ export function readNoteState({
   const requests = new Set(
     claims.map((claim) => claim.check.request).filter((request) => request !== ""),
   );
-  return { health, state: noteStateOf(health, checkUnreadOf(doc, requests).length) };
+  const unread = checkUnreadOf(doc, requests).length;
+  return {
+    health,
+    state: noteStateOf(health, unread, checksSearchedFolder(claims)),
+  };
 }
