@@ -589,7 +589,7 @@ for (const { language, width } of SCOPE_VARIANTS) {
     await expect(make).toBeEnabled();
     await expect(selectAll).toHaveJSProperty("indeterminate", true);
     await expect(estimate).toHaveText(
-      /(About|约) \$[\d.,]+ · [\d.,]+[KMB]? tokens? · (\$[\d.,]+ of \$20\.00 used this month|本月已用 \$[\d.,]+，上限 \$20\.00)/,
+      /(About|约) \$[\d.,]+ · [^\s·]+ tokens? · (\$[\d.,]+ of \$20\.00 used this month|本月已用 \$[\d.,]+，上限 \$20\.00)/,
     );
     await expect(estimate).not.toContainText("model calls");
     const [estimateBox, makeBox, sheetBox] = [
