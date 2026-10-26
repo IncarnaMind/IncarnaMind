@@ -1659,6 +1659,19 @@
     display: none;
     font-variant-numeric: tabular-nums;
   }
+  .home-recent-state {
+    color: var(--color-ink-meta);
+  }
+  .home-recent-state[data-tone="warning"] {
+    color: var(--color-warning);
+  }
+  /* A note's state when a claim is contradicted (D266): the margin's red, in words. */
+  .home-recent-state[data-tone="error"] {
+    color: var(--color-danger);
+  }
+  .home-recent-state[data-tone="success"] {
+    color: var(--color-success);
+  }
   .check-badge-sep {
     color: var(--color-rule-strong);
   }

@@ -115,6 +115,13 @@ export function useMindNoteStates(
                 folderId: folders.get(mindId) ?? null,
               }).state,
             );
+          } catch (error) {
+            // One Mind's content this version can't read must not blank every other row's state.
+            console.warn(
+              `Couldn't read the state of Mind ${mindId}; its row shows the snippet.`,
+              error,
+            );
+            found.set(mindId, null);
           } finally {
             doc.destroy();
           }

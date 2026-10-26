@@ -25,13 +25,6 @@ import { draggedRowClass } from "../sidebarRows";
 
 const FIRST_ROWS = 6;
 
-const TONE_CLASS: Readonly<Record<NoteState["tone"], string>> = {
-  neutral: "text-ink-meta",
-  warning: "text-warning",
-  error: "text-danger",
-  success: "text-success",
-};
-
 export function RecentMinds({ now }: { now: Date }) {
   const t = useT();
   const minds = useOwnMinds();
@@ -178,7 +171,7 @@ function RecentRow({
                 data-testid="home-recent-state"
                 data-state={state.kind}
                 data-tone={state.tone}
-                className={`truncate text-[13px] leading-[18px] ${TONE_CLASS[state.tone]}`}
+                className="home-recent-state truncate text-[13px] leading-[18px]"
               >
                 {stateLine(state, exportedWord, t, language)}
               </span>
