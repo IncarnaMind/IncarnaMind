@@ -90,6 +90,7 @@ import {
   type MeetingHelpKind,
   type Mind,
   type MindCitationStyle,
+  type MindContentSnapshot,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
@@ -188,10 +189,11 @@ import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
 import type { TaggingClassifier } from "./library/types";
-import { createMeetings } from "./meetings";
+import { createMeetings, isMemo } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
+import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
 import { accessFor, isKnownKind } from "./mindAccess";
@@ -771,10 +773,11 @@ export function createCore(adapters: CoreAdapters): Core {
         write: (speed) => settings.writeDeviceValue(READING_SPEED, speed),
       },
       folders,
-      emitStatus: (document) => {
+      emitStatus: (document, unchanged = false) => {
         timeIndexing(document);
         events.emit("document.status", document);
-        libraryDocumentChanged(document.id);
+        // A Document as it was (back from Recently deleted, or embedded again) isn't filed again (#1433, #2023).
+        if (!unchanged) libraryDocumentChanged(document.id);
         batches.changed([document.id]);
         rebuildMayHaveProgressed();
       },
@@ -1125,6 +1128,7 @@ export function createCore(adapters: CoreAdapters): Core {
     onChange: (list) => events.emit("connectors.changed", list),
     onEnabledChange: () => connectorsToggled(),
     reportError: (error) => console.error(error),
+    fetch: adapters.connectorFetch ?? globalThis.fetch,
     ...(adapters.connectorSignInTimeoutMs !== undefined && {
       timing: { signInTimeoutMs: adapters.connectorSignInTimeoutMs },
     }),
@@ -3150,8 +3154,13 @@ export function createCore(adapters: CoreAdapters): Core {
       name: (meetingId) => {
         const meeting = listMeetings?.().find((each) => each.id === meetingId);
         const mind = meeting ? minds.get(meeting.mindId) : null;
-        const title = mind ? mind.title || mind.autoTitle : "";
         const language = settings.get().language;
+        // A voice memo's Mind is named by its note, which is written from the saved Transcript.
+        const title =
+          (mind ? mind.title || mind.autoTitle : "") ||
+          (meeting?.kind === "memo"
+            ? memoTitle(language, Date.parse(meeting.startedAt ?? meeting.createdAt))
+            : "");
         return title
           ? translate(language, "meetings.transcript.name", { meeting: title })
           : translate(language, "meetings.transcript.nameAlone");
@@ -3173,6 +3182,7 @@ export function createCore(adapters: CoreAdapters): Core {
         });
       },
       health: captureHealth,
+      memo: (meetingId) => isMemo(db, meetingId),
       saved: (meetingId) => transcriptSaved(meetingId),
       changed: meetingsChanged,
       log: adapters.log ?? silentLogger,
@@ -3201,6 +3211,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return false;
       }
     },
+    removeMind,
     changed: (list) => events.emit("meetings.changed", list),
     level: (level) => events.emit("meetings.level", level),
     onCapturingChange: (capturing) => {
@@ -3230,6 +3241,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const meeting = meetings.get(input.meetingId);
     if (meeting.status !== "recording" && meeting.status !== "paused") {
       throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
+    }
+    if (meeting.kind === "memo") {
+      throw new InvalidInputError({ key: "error.meeting.memoHelp" });
     }
     const { kind } = input;
     if (!isMeetingHelpKind(kind) || !helpKindsFor(meeting.helpTemplate).includes(kind)) {
@@ -3352,6 +3366,40 @@ export function createCore(adapters: CoreAdapters): Core {
       });
       return result.verdict === "supported";
     },
+    citeUnit: (passageId, quote, page, at) => citing.citeUnit(passageId, quote, page, at),
+    async cues(documentId) {
+      await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
+      const version = documents.currentVersion(documentId);
+      if (!version) return [];
+      const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+      const covering = (page: number) =>
+        passages.filter(
+          (passage) =>
+            passage.pageFrom !== null &&
+            passage.pageTo !== null &&
+            page >= passage.pageFrom &&
+            page <= passage.pageTo,
+        );
+      const cues: MemoCue[] = [];
+      for (const unit of documents.pageTexts(documentId, version, null, null)) {
+        if (unit.page === null) continue;
+        const candidates = covering(unit.page);
+        const [first] = candidates;
+        if (!first) continue;
+        for (const anchor of unit.anchors ?? []) {
+          const text = unit.text.slice(anchor.start, anchor.end);
+          // A Passage's pages can cover the Unit while its text holds only part of it (#2031).
+          const passage = candidates.find((each) => each.text.includes(text)) ?? first;
+          cues.push({
+            text,
+            passageId: passage.passageId,
+            page: unit.page,
+            at: { start: anchor.start, end: anchor.end },
+          });
+        }
+      }
+      return cues;
+    },
     checkpoint: (mindId) => checkpoints.save(mindId, "enhance"),
     language: () => settings.get().language,
     filled(meeting) {
@@ -3363,9 +3411,13 @@ export function createCore(adapters: CoreAdapters): Core {
       } catch {
         name = "";
       }
+      const language = settings.get().language;
       notifications.show(
         {
-          title: translate(settings.get().language, "meetings.fill.notify", { meeting: name }),
+          title:
+            meeting.kind === "memo"
+              ? translate(language, "memos.fill.notify", { memo: name })
+              : translate(language, "meetings.fill.notify", { meeting: name }),
           body: "",
         },
         (windowIds) => mindShown(meeting.mindId, windowIds),
@@ -3378,11 +3430,14 @@ export function createCore(adapters: CoreAdapters): Core {
   meetingFill.resume();
 
   liveTranscriptOf = async (mindId) => {
+    // A voice memo's speech isn't a call's: no Question listens to it (#1568).
     const meeting = meetings
       .list()
       .find(
         (each) =>
-          each.mindId === mindId && (each.status === "recording" || each.status === "paused"),
+          each.kind === "meeting" &&
+          each.mindId === mindId &&
+          (each.status === "recording" || each.status === "paused"),
       );
     if (!meeting) return null;
     const documentId = meeting.transcript?.documentId;
@@ -3603,6 +3658,26 @@ export function createCore(adapters: CoreAdapters): Core {
         const text = lineUnderName(leading.get(mind.id) ?? [], mindName(mind));
         return text ? [{ mindId: mind.id, text }] : [];
       });
+    },
+    readMindContents: async (mindIds) => {
+      if (!Array.isArray(mindIds)) {
+        throw new InvalidInputError("A list of Mind ids must be an array.");
+      }
+      const found: MindContentSnapshot[] = [];
+      for (const mindId of mindIds) {
+        if (typeof mindId !== "string") {
+          throw new InvalidInputError("A Mind id must be text.");
+        }
+        try {
+          minds.get(mindId);
+        } catch (error) {
+          // A Mind deleted since Home listed it has no state to show; anything else is real.
+          if (error instanceof NotFoundError) continue;
+          throw error;
+        }
+        found.push({ mindId, state: content.storedState(mindId) });
+      }
+      return found;
     },
     searchDocumentText: async (query, options) => documents.searchText(query, options),
     renameConversation: async (conversationId, title) => {
@@ -4111,6 +4186,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     revokeConsent: async (flowId, serviceId) => {
       const revokedAt = consent.revoke(flowId, serviceId);
+      connectors.consentChanged();
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
       }
@@ -4121,6 +4197,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
       consent.restore(flowId, serviceId, revokedAt);
+      connectors.consentChanged();
       transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
@@ -4128,6 +4205,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listRegisteredDataFlows: () => consent.listRegistered(),
     allowDataFlow: async (flowId, serviceId) => {
       await consent.allow(flowId, serviceId);
+      connectors.consentChanged();
       await dataFlowsChanged();
     },
 
@@ -4376,6 +4454,7 @@ export function createCore(adapters: CoreAdapters): Core {
     cancelConnectorSignIn: (connectorId) => connectors.cancelSignIn(connectorId),
     signOutOfConnector: (connectorId) => connectors.signOut(connectorId),
     setConnectorClient: (connectorId, client) => connectors.setClient(connectorId, client),
+    setConnectorHeaders: (connectorId, headers) => connectors.setHeaders(connectorId, headers),
     listConnectorDirectory: async () => directory,
     addConnectorFromDirectory: async (entryId, client) => {
       const entry = directory.find((each) => each.id === entryId);
@@ -4602,6 +4681,7 @@ export function createCore(adapters: CoreAdapters): Core {
     createMeeting: async (input) => meetings.create(input),
     discardMeeting: async (meetingId) => meetings.discard(meetingId),
     startMeeting: async (input) => meetings.start(input),
+    recordMemo: async (input) => meetings.recordMemo(input),
     pauseMeeting: async (meetingId) => meetings.pause(meetingId),
     resumeMeeting: async (meetingId) => meetings.resume(meetingId),
     stopMeeting: async (meetingId) => {

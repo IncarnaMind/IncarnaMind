@@ -171,15 +171,6 @@ export function DocumentLineIcon({ kind, ...props }: IconProps & { kind: Documen
   );
 }
 
-export function TableLineIcon(props: IconProps) {
-  return (
-    <LineIcon {...props}>
-      <rect x="3.5" y="4" width="17" height="16" rx="2" />
-      <path d="M3.5 9.5h17M3.5 14.75h17M9.5 9.5V20" />
-    </LineIcon>
-  );
-}
-
 export function ChevronDownLineIcon(props: IconProps) {
   return (
     <LineIcon strokeWidth={2} {...props}>
@@ -261,16 +252,6 @@ export function TrashLineIcon(props: IconProps) {
       <path d="M4 7h16M10 11v6M14 11v6" />
       <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" />
       <path d="M9 7V4h6v3" />
-    </LineIcon>
-  );
-}
-
-/** Duplicate: one page over another. */
-export function DuplicateLineIcon(props: IconProps) {
-  return (
-    <LineIcon {...props}>
-      <rect x="8" y="8" width="12" height="12" rx="2" />
-      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
     </LineIcon>
   );
 }

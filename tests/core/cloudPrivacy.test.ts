@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Core, Transcriber } from "../../src/core";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import {
@@ -34,6 +34,7 @@ function counting(options: FakeCloudOptions = {}) {
   const fake = createFakeCloud(options);
   let total = 0;
   let marked = 0;
+  let closes = 0;
   const held: (() => void)[] = [];
   const service = {
     holdOpen: false,
@@ -42,6 +43,8 @@ function counting(options: FakeCloudOptions = {}) {
       marked = total;
     },
     sentSinceMark: () => total - marked,
+    /** How many cloud streams the app has closed: the audio sent before one has all arrived by then. */
+    closes: () => closes,
     release: () => {
       service.holdOpen = false;
       for (const open of held.splice(0)) open();
@@ -77,7 +80,10 @@ function counting(options: FakeCloudOptions = {}) {
           }
           inner.send(data);
         },
-        close: () => inner.close(),
+        close: () => {
+          closes++;
+          inner.close();
+        },
       };
     }) as CloudConnect,
   };
@@ -171,11 +177,19 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
         const { core, record, meeting } = await meetingOn(route, service);
         await until(core, meeting.id, (each) => each.cloud === route);
         record(4 * SECOND);
-        await settle();
-        service.mark();
         await change(core, route);
+        // The drop reaches the socket after every audio message sent before it, in channel order:
+        // once the app has closed the stream, only what it records next could still go out.
+        await vi.waitFor(() => expect(service.closes()).toBeGreaterThan(0), {
+          timeout: 20_000,
+          interval: 20,
+        });
+        service.mark();
+        const before = (await core.listMeetings())[0]?.transcript?.lines ?? 0;
         record(4 * SECOND);
-        await settle();
+        // This computer has transcribed the audio recorded after the gate closed, so the channel
+        // is drained: anything the cloud got after the mark would have arrived by now.
+        await until(core, meeting.id, (each) => each.lines > before);
         expect(service.sentSinceMark()).toBe(0);
         const transcript = (await core.listMeetings())[0]?.transcript;
         expect(transcript?.cloud).toBeNull();

@@ -11,9 +11,11 @@ import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
 import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
+import { translateNow } from "../i18n";
 import { startSkillFromMind } from "../makeSkill";
 import { showCheckCard, startCheckThisMind, startMindCheck } from "../mindCheck";
 import { useMindTools } from "../mindTools";
+import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
 import { citationStepOpen } from "../nudges";
 import { useReferenceImport } from "../referenceImport";
 import { useAppStore } from "../store";
@@ -105,7 +107,10 @@ const appCommands: readonly Command[] = [
     group: "main",
     top: 20,
     reversible: true,
-    run: () => useAppStore.getState().createMind({ titled: true }),
+    run: async () => {
+      holdNewMindKeys(translateNow("mind.opening"));
+      if ((await useAppStore.getState().createMind({ titled: true })) === null) forgetNewMindKeys();
+    },
   },
   {
     id: "home.open",

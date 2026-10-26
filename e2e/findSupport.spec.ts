@@ -109,7 +109,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
   await expect(supported).toHaveAttribute("data-addable", "true");
   await expect(supported).toHaveAccessibleName("Sentence check: Supported");
-  await expect(unsupported).toHaveAccessibleName("Sentence check: Unsupported");
+  await expect(unsupported).toHaveAccessibleName("Sentence check: Not found");
   // Each mark sits in the margin, right of the text, the first above the second.
   const lineBox = await line.boundingBox();
   const supportedBox = await supported.boundingBox();
@@ -119,7 +119,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   // The unsupported sentence is washed; the badge's card counts both.
   await expect(line.locator(".claim-wash--unsupported")).toHaveText(UNSUPPORTED);
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
-    "1 unsupported",
+    "1 needs a look",
   );
   await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
     "1 with no Citation",
@@ -129,7 +129,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   // The unsupported sentence's card says where it looked.
   await pointAndClick(window, unsupported);
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Not found");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “All Documents”.",
   );
@@ -177,7 +177,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await pointAndClick(window, card.getByTestId("claim-check-again"));
   await expect(marks(window)).toHaveAttribute("data-check", "unsupported");
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
-    "1 unsupported",
+    "1 needs a look",
   );
   await expect(editor).toContainText("Gulls nest on the harbour cliffs.");
 });
@@ -219,7 +219,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(unsupported).toHaveCount(1);
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-check", "unsupported");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Not found");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “All Documents”.",
   );
@@ -229,7 +229,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(card).toHaveCount(0);
   await pointAndClick(window, unsupported);
   await expect(card).toHaveAttribute("data-check", "unsupported");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Not found");
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   await app.close();

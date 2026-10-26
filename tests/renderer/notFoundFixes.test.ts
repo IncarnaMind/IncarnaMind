@@ -18,9 +18,8 @@ vi.mock("../../src/renderer/src/editWithAi", () => ({
 vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: vi.fn() }));
 vi.mock("../../src/renderer/src/i18n", () => ({ translateNow: (key: string) => key }));
 
-const { cutSentence, keepAsView, offersKeepAsView, offersNotFound, searchedLess } = await import(
-  "../../src/renderer/src/unsupportedFixes"
-);
+const { checkStateKey, cutSentence, keepAsView, offersKeepAsView, offersNotFound, searchedLess } =
+  await import("../../src/renderer/src/unsupportedFixes");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { useUndo } = await import("../../src/renderer/src/undo");
 
@@ -103,7 +102,13 @@ function claimOn(
   editor: Editor,
   block: number,
   index: number,
-  over: { state?: string; citedCaseUnchecked?: boolean } = {},
+  over: {
+    state?: string;
+    citedCaseUnchecked?: boolean;
+    evidence?: unknown;
+    unsupported?: unknown;
+    excluded?: unknown[];
+  } = {},
 ): ShownClaim {
   let start = 0;
   for (let i = 0; i < block; i++) start += editor.state.doc.child(i).nodeSize;
@@ -114,7 +119,14 @@ function claimOn(
   const from = start + 1 + span.from;
   const to = start + 1 + span.to;
   return {
-    check: { citedCaseUnchecked: false, scope: { folderId: null, widened: false }, ...over },
+    check: {
+      citedCaseUnchecked: false,
+      evidence: null,
+      unsupported: null,
+      excluded: [],
+      scope: { folderId: null, widened: false },
+      ...over,
+    },
     from,
     to,
     sentence: { from, to, text: text.slice(span.from, span.to) },
@@ -205,6 +217,36 @@ describe("a sentence that cites nothing and nothing backs", () => {
   test("is not offered them in a Mind that can't be edited", () => {
     const { editor } = editorHolding([paragraph("One cat.")], false);
     expect(offersNotFound(editor, claimOn(editor, 0, 0))).toBe(false);
+  });
+});
+
+describe("The heading of a sentence's check (#1608)", () => {
+  const quoted = { quote: "Pets up to 15 kg." };
+  test("is Not found for a sentence with no Citation that nothing in the scope states, even in a Mind that can't be edited", () => {
+    for (const editable of [true, false]) {
+      const { editor } = editorHolding([paragraph("One cat.")], editable);
+      expect(checkStateKey(editor, claimOn(editor, 0, 0))).toBe("claim.state.notFound");
+    }
+  });
+
+  test("is Unsupported where Passages were found that don't back it, or the sentence has a card of its own", () => {
+    const { editor } = editorHolding([paragraph("One cat.", citation), paragraph("Two dogs.")]);
+    const unsupported = [
+      claimOn(editor, 0, 0),
+      claimOn(editor, 1, 0, { evidence: quoted }),
+      claimOn(editor, 1, 0, { unsupported: { covered: "pets", uncovered: "cats", quoted } }),
+      claimOn(editor, 1, 0, {
+        unsupported: { reason: "Pets up to 15 kg.", covered: null, uncovered: null, found: true },
+      }),
+      claimOn(editor, 1, 0, { excluded: [{ reason: "own-workings" }] }),
+      claimOn(editor, 1, 0, { citedCaseUnchecked: true }),
+    ];
+    for (const claim of unsupported) {
+      expect(checkStateKey(editor, claim)).toBe("claim.state.unsupported");
+    }
+    expect(checkStateKey(editor, claimOn(editor, 1, 0, { state: "supported" }))).toBe(
+      "claim.state.supported",
+    );
   });
 });
 

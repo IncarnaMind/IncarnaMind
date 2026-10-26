@@ -301,8 +301,8 @@ jobs:
       - name: Check the package contents and sizes
         run: npm run check:package
 
-      # The packaged arm64 app transcribes a meeting with its real speech engine and model, before
-      # anything is uploaded (#1239): #1233 broke transcription only in the built app.
+      # The packaged arm64 app reads scans with real OCR (#1819) and transcribes a meeting with its
+      # real speech engine and model, before anything is uploaded (#1239): engines can fail only in the built app.
       - if: runner.os == 'macOS'
         uses: ./.github/actions/packaged-transcription
 

@@ -7,13 +7,13 @@
   "translatedQuery": "A crossLingual question may have translatedQuery: the question translated by hand into its document's language. It is searched as a second query, standing in for the second search an Answer makes in the documents' language, and a hit in either search's top 5 counts. Reported only, as the most that approach can bring.",
   "paraphrase": "paraphrase: true marks a question that asks for a fact on one page in words that avoid the target passage's distinctive words (synonyms, descriptions, the kind of question a person asks without the text in front of them). 15 of them (8 en, 7 zh), reported as a group of their own and kept out of the gating set, its bar and its per-language counts.",
   "documents": {
-    "attention-is-all-you-need": "data/Attention Is All You Need.pdf",
-    "language-models-are-few-shot-learners": "data/Language Models are Few-Shot Learners.pdf",
-    "language-models-are-unsupervised-multitask-learners": "data/Language Models are Unsupervised Multitask Learners.pdf",
-    "gradient-descent-the-ultimate-optimizer": "data/Gradient Descent The Ultimate Optimizer.pdf",
-    "abpi-code-of-practice-for-the-pharmaceutical-industry-2021": "data/ABPI Code of Practice for the Pharmaceutical Industry 2021.pdf",
-    "jp-morgan-2022-environmental-social-governance-report": "data/JP Morgan 2022 Environmental Social Governance Report.pdf",
-    "united-nations-2022-annual-report": "data/United Nations 2022 Annual Report.pdf",
+    "weighted-keys": "data/Weighted Keys Shorter Paths.pdf",
+    "what-a-corpus-teaches": "data/What a Corpus Teaches.pdf",
+    "demonstrations-not-weights": "data/Demonstrations Not Weights.pdf",
+    "tuning-the-tuner": "data/Tuning the Tuner.pdf",
+    "mpma-code": "data/MPMA Code of Practice for the Pharmaceutical Industry 2021.pdf",
+    "vantrell-esg": "data/Vantrell Financial Group 2022 ESG Report.pdf",
+    "norvath-assembly": "data/Norvath Assembly Annual Report 2022.pdf",
     "维基百科-大型语言模型": "eval/retrieval/fixtures/维基百科-大型语言模型.pdf",
     "维基百科-梯度下降法": "eval/retrieval/fixtures/维基百科-梯度下降法.pdf",
     "维基百科-可持续发展目标": "eval/retrieval/fixtures/维基百科-可持续发展目标.pdf",
@@ -24,258 +24,552 @@
     {
       "id": "en-01",
       "language": "en",
-      "question": "What hardware was the Transformer trained on?",
-      "expected": { "document": "attention-is-all-you-need", "pages": [7, 7], "quote": "We trained our models on one machine with 8 NVIDIA P100 GPUs." }
+      "question": "What hardware was the Calventis model trained on?",
+      "expected": {
+        "document": "weighted-keys",
+        "pages": [
+          7,
+          7
+        ],
+        "quote": "All runs used a single machine holding twelve accelerator cards."
+      }
     },
     {
       "id": "en-02",
       "language": "en",
-      "question": "Which training trick made the Transformer less confident in its predictions, and what was the trade-off?",
-      "expected": { "document": "attention-is-all-you-need", "pages": [8, 8], "quote": "This hurts perplexity, as the model learns to be more unsure, but improves accuracy and BLEU score." }
+      "question": "Which training trick made the Calventis model less certain, and what did it gain?",
+      "expected": {
+        "document": "weighted-keys",
+        "pages": [
+          8,
+          8
+        ],
+        "quote": "It costs perplexity, since the model is less sure of itself, but it gains accuracy and BLEU."
+      }
     },
     {
       "id": "en-03",
       "language": "en",
-      "question": "How did OpenAI decide which web pages went into the GPT-2 training data?",
-      "expected": { "document": "language-models-are-unsupervised-multitask-learners", "pages": [3, 3], "quote": "we scraped all outbound links from Reddit, a social media platform, which received at least 3 karma" }
+      "question": "How did the Wrennick researchers choose the web pages in their corpus?",
+      "expected": {
+        "document": "what-a-corpus-teaches",
+        "pages": [
+          3,
+          3
+        ],
+        "quote": "we followed outbound links from a discussion board and kept the pages that had drawn at least 5 recommendations"
+      }
     },
     {
       "id": "en-04",
       "language": "en",
-      "question": "How big was the Common Crawl data used for GPT-3 before and after filtering?",
-      "expected": { "document": "language-models-are-few-shot-learners", "pages": [8, 8], "quote": "constituting 45TB of compressed plaintext before filtering and 570GB after filtering" }
+      "question": "How large was the web crawl behind Brellan-220B before and after filtering?",
+      "expected": {
+        "document": "demonstrations-not-weights",
+        "pages": [
+          8,
+          8
+        ],
+        "quote": "26TB of text before filtering, and 310GB after"
+      }
     },
     {
       "id": "en-05",
       "language": "en",
-      "question": "What happens to hyperoptimizers when you start from poorly chosen hyperparameters?",
-      "expected": { "document": "gradient-descent-the-ultimate-optimizer", "pages": [2, 2], "quote": "our hyperoptimizers are robust to suboptimal choices of initial hyperparameters" }
+      "question": "What happens to a learned optimiser when it starts from badly chosen hyperparameters?",
+      "expected": {
+        "document": "tuning-the-tuner",
+        "pages": [
+          2,
+          2
+        ],
+        "quote": "the learned optimiser remained stable when its starting hyperparameters were badly chosen"
+      }
     },
     {
       "id": "en-06",
       "language": "en",
-      "question": "What is the per-head spending cap on meals a pharmaceutical company provides to health professionals?",
-      "expected": { "document": "abpi-code-of-practice-for-the-pharmaceutical-industry-2021", "pages": [23, 23], "quote": "The cost of any subsistence (food and drink) provided must not exceed £75 per person, excluding VAT and gratuities." }
+      "question": "What is the per-head spending cap on meals a company may provide to health professionals?",
+      "expected": {
+        "document": "mpma-code",
+        "pages": [
+          23,
+          23
+        ],
+        "quote": "No single meal may cost more than £75 per person, excluding VAT and service."
+      }
     },
     {
       "id": "en-07",
       "language": "en",
-      "question": "How much money does JPMorgan Chase aim to finance for sustainable development, and by when?",
-      "expected": { "document": "jp-morgan-2022-environmental-social-governance-report", "pages": [8, 8], "quote": "facilitate more than $2.5 trillion over 10 years" }
+      "question": "How much does Vantrell aim to finance for sustainable development, and by when?",
+      "expected": {
+        "document": "vantrell-esg",
+        "pages": [
+          8,
+          8
+        ],
+        "quote": "more than $1.4 trillion over eight years"
+      }
     },
     {
       "id": "en-08",
       "language": "en",
-      "question": "How much funding did the UN Peacebuilding Fund approve in 2021, and how many countries did it reach?",
-      "expected": { "document": "united-nations-2022-annual-report", "pages": [29, 29], "quote": "the Peacebuilding Fund approved a record $195 million in programming, which supported system-wide responses in 31 countries" }
+      "question": "How much did the Norvath Assembly's Stability Fund approve in 2022, and how many countries did it reach?",
+      "expected": {
+        "document": "norvath-assembly",
+        "pages": [
+          29,
+          29
+        ],
+        "quote": "the Stability Fund approved a record $142 million in programming, which supported system-wide responses in 38 countries"
+      }
     },
     {
       "id": "en-09",
       "language": "en",
-      "question": "What grain export deal did the UN help broker in 2022, and who signed it?",
-      "expected": { "document": "united-nations-2022-annual-report", "pages": [26, 26], "quote": "the Black Sea Grain Initiative signed by Ukraine, the Russian Federation and Türkiye under the auspices of the United Nations on 22 July 2022" }
+      "question": "What grain export corridor did the Norvath Assembly help broker in 2022, and who signed it?",
+      "expected": {
+        "document": "norvath-assembly",
+        "pages": [
+          26,
+          26
+        ],
+        "quote": "the Norvath Strait Grain Corridor, signed by the Valdorian Republic, the Karsk Federation and the Almerian Republic under the auspices of the Norvath Assembly on 22 July 2022"
+      }
     },
     {
       "id": "en-10",
       "language": "en",
-      "question": "How long does a new medical representative have to pass the required exam?",
-      "expected": { "document": "abpi-code-of-practice-for-the-pharmaceutical-industry-2021", "pages": [20, 20], "quote": "must pass it within two years of starting such employment" }
+      "question": "How long does a new medical representative have to pass the required examination?",
+      "expected": {
+        "document": "mpma-code",
+        "pages": [
+          20,
+          20
+        ],
+        "quote": "must be passed within two years of starting the role"
+      }
     },
     {
       "id": "en-11",
       "language": "en",
-      "question": "Why did the Transformer's authors keep fixed sine-wave position signals instead of learned ones?",
-      "expected": { "document": "attention-is-all-you-need", "pages": [6, 6], "quote": "We chose the sinusoidal version because it may allow the model to extrapolate to sequence lengths longer than the ones encountered during training." }
+      "question": "Why did the Calventis authors keep fixed sine-wave position signals instead of learned ones?",
+      "expected": {
+        "document": "weighted-keys",
+        "pages": [
+          6,
+          6
+        ],
+        "quote": "Fixed sinusoids were kept because they may carry over to sequences longer than those in training."
+      }
     },
     {
       "id": "en-12",
       "language": "en",
-      "question": "What does \"few-shot\" mean in the GPT-3 paper?",
-      "expected": { "document": "language-models-are-few-shot-learners", "pages": [6, 6], "quote": "Few-Shot (FS) is the term we will use in this work to refer to the setting where the model is given a few demonstrations of the task at inference time as conditioning" }
+      "question": "What does “few-shot” mean in the Brellan report?",
+      "expected": {
+        "document": "demonstrations-not-weights",
+        "pages": [
+          6,
+          6
+        ],
+        "quote": "We use Few-Shot (FS) for the setting in which a handful of worked examples are placed in the prompt and the weights stay frozen"
+      }
     },
     {
       "id": "en-13",
       "language": "en",
-      "question": "Why might some benchmark test examples still be in GPT-3's training data?",
-      "expected": { "document": "language-models-are-few-shot-learners", "pages": [9, 9], "quote": "a bug in the filtering caused us to ignore some overlaps, and due to the cost of training it was not feasible to retrain the model" }
+      "question": "Why might some benchmark examples still be in Brellan-220B's training data?",
+      "expected": {
+        "document": "demonstrations-not-weights",
+        "pages": [
+          9,
+          9
+        ],
+        "quote": "A filtering bug let some of that overlap through, and training the model again at this cost was out of reach"
+      }
     },
     {
       "id": "en-14",
       "language": "en",
-      "question": "How many tokens are in GPT-2's vocabulary, and how long a context does it read?",
-      "expected": { "document": "language-models-are-unsupervised-multitask-learners", "pages": [4, 4], "quote": "The vocabulary is expanded to 50,257. We also increase the context size from 512 to 1024 tokens" }
+      "question": "How many tokens are in the Wrennick model's vocabulary, and how long a context does it read?",
+      "expected": {
+        "document": "what-a-corpus-teaches",
+        "pages": [
+          4,
+          4
+        ],
+        "quote": "The vocabulary is 41,209 tokens, and the context window grows from 640 to 1152 tokens,"
+      }
     },
     {
       "id": "en-15",
       "language": "en",
-      "question": "What GPU were the hyperoptimizer experiments run on?",
-      "expected": { "document": "gradient-descent-the-ultimate-optimizer", "pages": [5, 5], "quote": "Each of these experiments was conducted on a single NVIDIA TITAN Xp GPU." }
+      "question": "Which accelerator did the optimiser experiments run on?",
+      "expected": {
+        "document": "tuning-the-tuner",
+        "pages": [
+          5,
+          5
+        ],
+        "quote": "The experiments in this section each used one GX-7 card."
+      }
     },
     {
       "id": "en-16",
       "language": "en",
-      "question": "Why does the hyperoptimizer cut the weights loose from the previous step's computation after every update?",
-      "expected": { "document": "gradient-descent-the-ultimate-optimizer", "pages": [3, 3], "quote": "because backpropagation is linear in the size of the graph, the overall training would become quadratic-time and intractable" }
+      "question": "Why does the learned optimiser cut the weights loose from the previous step's computation after every update?",
+      "expected": {
+        "document": "tuning-the-tuner",
+        "pages": [
+          3,
+          3
+        ],
+        "quote": "Were the update graph kept whole, backpropagation's linear cost would turn the run quadratic and make it impractical."
+      }
     },
     {
       "id": "en-17",
       "language": "en",
-      "question": "When a medical representative offers to drop items off, what must the reply card tell the health professional, and why?",
-      "expected": { "document": "abpi-code-of-practice-for-the-pharmaceutical-industry-2021", "pages": [33, 34], "quote": "should explain that there is no obligation to grant the representative an interview when the items are delivered. This is to avoid the impression that there is such an obligation" }
+      "question": "When a representative offers to drop items off, what must the reply card tell the health professional, and why?",
+      "expected": {
+        "document": "mpma-code",
+        "pages": [
+          33,
+          34
+        ],
+        "quote": "there is no obligation to grant an interview when items are delivered. It must also make clear that a refusal will not be held against the health professional"
+      }
     },
     {
       "id": "en-18",
       "language": "en",
-      "question": "By how much does JPMorgan Chase plan to cut the greenhouse gas emissions of its own operations, and by when?",
-      "expected": { "document": "jp-morgan-2022-environmental-social-governance-report", "pages": [20, 20], "quote": "reducing Scope 1 and 2 emissions by 40% by 2030" }
+      "question": "By how much does Vantrell plan to cut the greenhouse gas emissions of its own operations, and by when?",
+      "expected": {
+        "document": "vantrell-esg",
+        "pages": [
+          20,
+          20
+        ],
+        "quote": "cutting Scope 1 and 2 emissions by 45% by 2032"
+      }
     },
     {
       "id": "en-19",
       "language": "en",
-      "question": "How much did JPMorgan Chase finance and facilitate toward its sustainable development target in 2022?",
-      "expected": { "document": "jp-morgan-2022-environmental-social-governance-report", "pages": [9, 9], "quote": "approximately $197 billion toward the Target; $70 billion toward green, $87 billion toward development" }
+      "question": "How much did Vantrell finance and facilitate toward its target in 2022?",
+      "expected": {
+        "document": "vantrell-esg",
+        "pages": [
+          9,
+          9
+        ],
+        "quote": "approximately $118 billion toward the Target; $41 billion toward green, $52 billion toward development"
+      }
     },
     {
       "id": "en-20",
       "language": "en",
-      "question": "How many Security Council meetings did the UN Secretariat facilitate in 2021?",
-      "expected": { "document": "united-nations-2022-annual-report", "pages": [30, 30], "quote": "facilitating 164 public and private meetings, 67 informal consultations and 147 videoconferences" }
+      "question": "How many meetings did the Norvath Assembly's Secretariat facilitate in 2022?",
+      "expected": {
+        "document": "norvath-assembly",
+        "pages": [
+          30,
+          30
+        ],
+        "quote": "facilitating 139 public and private meetings, 58 informal consultations and 121 videoconferences"
+      }
     },
     {
       "id": "zh-01",
       "language": "zh",
       "question": "可持续发展目标一共包含多少项具体目标？",
-      "expected": { "document": "维基百科-可持续发展目标", "pages": [1, 1], "quote": "这一系列目标共有 169 项細項目标" }
+      "expected": {
+        "document": "维基百科-可持续发展目标",
+        "pages": [
+          1,
+          1
+        ],
+        "quote": "这一系列目标共有 169 项細項目标"
+      }
     },
     {
       "id": "zh-02",
       "language": "zh",
       "question": "可持续发展目标对道路交通事故伤亡提出了什么要求？",
-      "expected": { "document": "维基百科-可持续发展目标", "pages": [4, 4], "quote": "讓全球因為交通事故而傷亡的人數減少一半" }
+      "expected": {
+        "document": "维基百科-可持续发展目标",
+        "pages": [
+          4,
+          4
+        ],
+        "quote": "讓全球因為交通事故而傷亡的人數減少一半"
+      }
     },
     {
       "id": "zh-03",
       "language": "zh",
       "question": "ESG 这个说法最早出现在哪份报告里？",
-      "expected": { "document": "维基百科-环境-社会和公司治理", "pages": [1, 1], "quote": "ESG 這一簡稱首次在 2004 年一份名為《在乎者最終成贏家（Who Cares Wins）》的報告中被使用" }
+      "expected": {
+        "document": "维基百科-环境-社会和公司治理",
+        "pages": [
+          1,
+          1
+        ],
+        "quote": "ESG 這一簡稱首次在 2004 年一份名為《在乎者最終成贏家（Who Cares Wins）》的報告中被使用"
+      }
     },
     {
       "id": "zh-04",
       "language": "zh",
       "question": "欧盟出台了什么法规来应对漂绿问题？",
-      "expected": { "document": "维基百科-环境-社会和公司治理", "pages": [12, 12], "quote": "歐盟因此於 2021 年 3 月制定永續財務揭露法規 2019/2088" }
+      "expected": {
+        "document": "维基百科-环境-社会和公司治理",
+        "pages": [
+          12,
+          12
+        ],
+        "quote": "歐盟因此於 2021 年 3 月制定永續財務揭露法規 2019/2088"
+      }
     },
     {
       "id": "zh-05",
       "language": "zh",
       "question": "大语言模型的“幻觉”是什么意思？",
-      "expected": { "document": "维基百科-大型语言模型", "pages": [8, 8], "quote": "幻觉指的是大语言模型输出与客观事实不符或具有误导性的内容" }
+      "expected": {
+        "document": "维基百科-大型语言模型",
+        "pages": [
+          8,
+          8
+        ],
+        "quote": "幻觉指的是大语言模型输出与客观事实不符或具有误导性的内容"
+      }
     },
     {
       "id": "zh-06",
       "language": "zh",
       "question": "训练和推理时，每个 token 分别需要多少浮点运算？",
-      "expected": { "document": "维基百科-大型语言模型", "pages": [6, 6], "quote": "训练一个 token 需要每个参数 6 次 FLOP，而推理一个 token 需要每个参数 1 到 2 次 FLOP" }
+      "expected": {
+        "document": "维基百科-大型语言模型",
+        "pages": [
+          6,
+          6
+        ],
+        "quote": "训练一个 token 需要每个参数 6 次 FLOP，而推理一个 token 需要每个参数 1 到 2 次 FLOP"
+      }
     },
     {
       "id": "zh-07",
       "language": "zh",
       "question": "梯度下降法最早是谁在什么时候提出的？",
-      "expected": { "document": "维基百科-梯度下降法", "pages": [1, 1], "quote": "梯度下降法通常被认为是奧古斯丁-路易·柯西（法語：Augustin-Louis Cauchy）在 1847 年首次提出的" }
+      "expected": {
+        "document": "维基百科-梯度下降法",
+        "pages": [
+          1,
+          1
+        ],
+        "quote": "梯度下降法通常被认为是奧古斯丁-路易·柯西（法語：Augustin-Louis Cauchy）在 1847 年首次提出的"
+      }
     },
     {
       "id": "zh-08",
       "language": "zh",
       "question": "为什么用梯度下降法优化 Rosenbrock 函数时收敛很慢？",
-      "expected": { "document": "维基百科-梯度下降法", "pages": [2, 2], "quote": "优化过程是之字形的向极小值点靠近，速度非常缓慢" }
+      "expected": {
+        "document": "维基百科-梯度下降法",
+        "pages": [
+          2,
+          2
+        ],
+        "quote": "优化过程是之字形的向极小值点靠近，速度非常缓慢"
+      }
     },
     {
       "id": "zh-09",
       "language": "zh",
       "question": "注意力机制为什么比普通权重更灵活？",
-      "expected": { "document": "维基百科-注意力机制", "pages": [1, 1], "quote": "注意力机制的灵活性来自于它的“软权重”特性" }
+      "expected": {
+        "document": "维基百科-注意力机制",
+        "pages": [
+          1,
+          1
+        ],
+        "quote": "注意力机制的灵活性来自于它的“软权重”特性"
+      }
     },
     {
       "id": "zh-10",
       "language": "zh",
       "question": "按照可持续发展目标，极端贫困的标准是每天生活费低于多少？",
-      "expected": { "document": "维基百科-可持续发展目标", "pages": [3, 3], "quote": "目前標準按照每天生活費不足 1.25 美元計算" }
+      "expected": {
+        "document": "维基百科-可持续发展目标",
+        "pages": [
+          3,
+          3
+        ],
+        "quote": "目前標準按照每天生活費不足 1.25 美元計算"
+      }
     },
     {
       "id": "zh-11",
       "language": "zh",
       "question": "OpenAI 当初为什么没有公开发布 GPT-2？",
-      "expected": { "document": "维基百科-大型语言模型", "pages": [2, 2], "quote": "无法公开发布，因为担心被恶意使用" }
+      "expected": {
+        "document": "维基百科-大型语言模型",
+        "pages": [
+          2,
+          2
+        ],
+        "quote": "无法公开发布，因为担心被恶意使用"
+      }
     },
     {
       "id": "zh-12",
       "language": "zh",
       "question": "想让大模型先查资料再回答，一般是怎么做的？",
-      "expected": { "document": "维基百科-大型语言模型", "pages": [5, 5], "quote": "给定一个查询，调用文档检索器来检索最相关的文档" }
+      "expected": {
+        "document": "维基百科-大型语言模型",
+        "pages": [
+          5,
+          5
+        ],
+        "quote": "给定一个查询，调用文档检索器来检索最相关的文档"
+      }
     },
     {
       "id": "zh-13",
       "language": "zh",
       "question": "现在训练深度神经网络最常用的基础优化算法是什么？",
-      "expected": { "document": "维基百科-梯度下降法", "pages": [1, 1], "quote": "作为梯度下降法的一个简单延展，是目前用于训练大多数深度学习结构" }
+      "expected": {
+        "document": "维基百科-梯度下降法",
+        "pages": [
+          1,
+          1
+        ],
+        "quote": "作为梯度下降法的一个简单延展，是目前用于训练大多数深度学习结构"
+      }
     },
     {
       "id": "zh-14",
       "language": "zh",
       "question": "梯度下降法有哪些缺点？",
-      "expected": { "document": "维基百科-梯度下降法", "pages": [3, 3], "quote": "直線搜索可能會產生一些問題" }
+      "expected": {
+        "document": "维基百科-梯度下降法",
+        "pages": [
+          3,
+          3
+        ],
+        "quote": "直線搜索可能會產生一些問題"
+      }
     },
     {
       "id": "zh-15",
       "language": "zh",
       "question": "可持续发展目标要求把移民汇款的手续费降到多少？",
-      "expected": { "document": "维基百科-可持续发展目标", "pages": [7, 7], "quote": "遷移者的匯款手續費減少到小於3%" }
+      "expected": {
+        "document": "维基百科-可持续发展目标",
+        "pages": [
+          7,
+          7
+        ],
+        "quote": "遷移者的匯款手續費減少到小於3%"
+      }
     },
     {
       "id": "zh-16",
       "language": "zh",
       "question": "银行在项目融资中用什么框架来评估环境和社会风险？",
-      "expected": { "document": "维基百科-环境-社会和公司治理", "pages": [9, 9], "quote": "赤道原則是金融機構採用的風險管理框架" }
+      "expected": {
+        "document": "维基百科-环境-社会和公司治理",
+        "pages": [
+          9,
+          9
+        ],
+        "quote": "赤道原則是金融機構採用的風險管理框架"
+      }
     },
     {
       "id": "zh-17",
       "language": "zh",
       "question": "在 CEO 是否兼任董事会主席这件事上，美国公司和英国、欧洲的大公司有什么不同？",
-      "expected": { "document": "维基百科-环境-社会和公司治理", "pages": [6, 6], "quote": "80%的美國公司都是執行長與董事會主席同為一人，而在英國和歐洲的公司中，90%的最大公司中的執行長和董事會主席分由不同的人擔任" }
+      "expected": {
+        "document": "维基百科-环境-社会和公司治理",
+        "pages": [
+          6,
+          6
+        ],
+        "quote": "80%的美國公司都是執行長與董事會主席同為一人，而在英國和歐洲的公司中，90%的最大公司中的執行長和董事會主席分由不同的人擔任"
+      }
     },
     {
       "id": "zh-18",
       "language": "zh",
       "question": "类似注意力机制的架构最早是什么时候提出的？",
-      "expected": { "document": "维基百科-注意力机制", "pages": [1, 1], "quote": "类似于注意力机制的架构最早于1990年代提出" }
+      "expected": {
+        "document": "维基百科-注意力机制",
+        "pages": [
+          1,
+          1
+        ],
+        "quote": "类似于注意力机制的架构最早于1990年代提出"
+      }
     },
     {
       "id": "zh-19",
       "language": "zh",
       "question": "什么是注意力机制？",
-      "expected": { "document": "维基百科-注意力机制", "pages": [1, 1], "quote": "是人工神经网络中一种模仿认知注意力的技术" }
+      "expected": {
+        "document": "维基百科-注意力机制",
+        "pages": [
+          1,
+          1
+        ],
+        "quote": "是人工神经网络中一种模仿认知注意力的技术"
+      }
     },
     {
       "id": "zh-20",
       "language": "zh",
       "question": "在注意力机制的英译法示例中，第一次通过解码器时有多少注意力权重落在“I”上？",
-      "expected": { "document": "维基百科-注意力机制", "pages": [3, 3], "quote": "94%的注意力权重在第一个英文单词" }
+      "expected": {
+        "document": "维基百科-注意力机制",
+        "pages": [
+          3,
+          3
+        ],
+        "quote": "94%的注意力权重在第一个英文单词"
+      }
     },
     {
       "id": "xl-01",
       "language": "zh",
       "crossLingual": true,
-      "question": "Transformer 大模型在 WMT 2014 英德翻译任务上取得了多少 BLEU 分数？",
-      "translatedQuery": "What BLEU score did the big Transformer model achieve on the WMT 2014 English-to-German translation task?",
-      "expected": { "document": "attention-is-all-you-need", "pages": [8, 8], "quote": "BLEU score of 28.4" }
+      "question": "Calventis 大模型在德英翻译任务上取得了多少 BLEU 分数？",
+      "translatedQuery": "What BLEU score did the Calventis model achieve on the German-English translation task?",
+      "expected": {
+        "document": "weighted-keys",
+        "pages": [
+          8,
+          8
+        ],
+        "quote": "reaching 34.6 BLEU"
+      }
     },
     {
       "id": "xl-02",
       "language": "zh",
       "crossLingual": true,
-      "question": "GPT-2 使用的 WebText 数据集有多大？",
-      "translatedQuery": "How large is the WebText dataset used for GPT-2?",
-      "expected": { "document": "language-models-are-unsupervised-multitask-learners", "pages": [3, 3], "quote": "contains slightly over 8 million documents for a total of 40 GB of text" }
+      "question": "Wrennick 的 Longfield 语料库有多大？",
+      "translatedQuery": "How large is the Longfield corpus used for the Wrennick model?",
+      "expected": {
+        "document": "what-a-corpus-teaches",
+        "pages": [
+          3,
+          3
+        ],
+        "quote": "just over 5 million documents, some 23 GB of text"
+      }
     },
     {
       "id": "xl-03",
@@ -283,47 +577,89 @@
       "crossLingual": true,
       "question": "制药公司给医疗专业人员提供餐饮，每人花费上限是多少？",
       "translatedQuery": "What is the maximum cost per person when pharmaceutical companies provide food and drink to health professionals?",
-      "expected": { "document": "abpi-code-of-practice-for-the-pharmaceutical-industry-2021", "pages": [23, 23], "quote": "must not exceed £75 per person" }
+      "expected": {
+        "document": "mpma-code",
+        "pages": [
+          23,
+          23
+        ],
+        "quote": "no more than £75 per person"
+      }
     },
     {
       "id": "xl-04",
       "language": "zh",
       "crossLingual": true,
-      "question": "摩根大通计划在十年内为可持续发展投入多少资金？",
-      "translatedQuery": "How much money does JPMorgan Chase plan to put toward sustainable development over ten years?",
-      "expected": { "document": "jp-morgan-2022-environmental-social-governance-report", "pages": [8, 8], "quote": "facilitate more than $2.5 trillion over 10 years" }
+      "question": "Vantrell 计划在八年内为可持续发展投入多少资金？",
+      "translatedQuery": "How much money does Vantrell plan to put toward sustainable development over eight years?",
+      "expected": {
+        "document": "vantrell-esg",
+        "pages": [
+          8,
+          8
+        ],
+        "quote": "more than $1.4 trillion over eight years"
+      }
     },
     {
       "id": "xl-05",
       "language": "zh",
       "crossLingual": true,
-      "question": "2022 年联合国促成的黑海粮食倡议是由哪些国家签署的？",
-      "translatedQuery": "Which countries signed the Black Sea Grain Initiative that the United Nations brokered in 2022?",
-      "expected": { "document": "united-nations-2022-annual-report", "pages": [26, 26], "quote": "signed by Ukraine, the Russian Federation and Türkiye" }
+      "question": "2022 年 Norvath Assembly 促成的粮食走廊是由哪些国家签署的？",
+      "translatedQuery": "Which countries signed the Norvath Strait Grain Corridor that the Norvath Assembly brokered in 2022?",
+      "expected": {
+        "document": "norvath-assembly",
+        "pages": [
+          26,
+          26
+        ],
+        "quote": "signed by the Valdorian Republic, the Karsk Federation and the Almerian Republic"
+      }
     },
     {
       "id": "xl-06",
       "language": "zh",
       "crossLingual": true,
-      "question": "GPT-3 的模型是在谁提供的计算集群上训练的？",
-      "translatedQuery": "Who provided the computing cluster that the GPT-3 models were trained on?",
-      "expected": { "document": "language-models-are-few-shot-learners", "pages": [9, 9], "quote": "trained on V100 GPU’s on part of a high-bandwidth cluster provided by Microsoft" }
+      "question": "Brellan 的模型是在哪台计算集群上训练的？",
+      "translatedQuery": "Which cluster were the Brellan models trained on?",
+      "expected": {
+        "document": "demonstrations-not-weights",
+        "pages": [
+          9,
+          9
+        ],
+        "quote": "Training ran on the Kestrel cluster, which a partner organisation provided"
+      }
     },
     {
       "id": "xl-07",
       "language": "zh",
       "crossLingual": true,
-      "question": "每多加一层超优化器，运行时间大约增加多少？",
+      "question": "每多加一层优化器，运行时间大约增加多少？",
       "translatedQuery": "Roughly how much does the runtime increase with each additional level of hyperoptimizer?",
-      "expected": { "document": "gradient-descent-the-ultimate-optimizer", "pages": [9, 9], "quote": "each additional level costs only 1-2% in additional runtime above the non-hyperoptimized baseline" }
+      "expected": {
+        "document": "tuning-the-tuner",
+        "pages": [
+          9,
+          9
+        ],
+        "quote": "Each extra level adds just 1–2% to the runtime over a run with no hyperoptimiser."
+      }
     },
     {
       "id": "xl-08",
       "language": "zh",
       "crossLingual": true,
-      "question": "制药公司披露的向医疗专业人员付款的信息至少要公开多长时间？",
+      "question": "制药公司披露的付款数据至少要公开多长时间？",
       "translatedQuery": "For at least how long must the information that pharmaceutical companies disclose about payments to health professionals remain public?",
-      "expected": { "document": "abpi-code-of-practice-for-the-pharmaceutical-industry-2021", "pages": [52, 52], "quote": "must remain in the public domain for at least three years from the time of first disclosure" }
+      "expected": {
+        "document": "mpma-code",
+        "pages": [
+          52,
+          52
+        ],
+        "quote": "stay online for at least three years after it is first published"
+      }
     },
     {
       "id": "xl-09",
@@ -331,7 +667,14 @@
       "crossLingual": true,
       "question": "In what year did Haskell Curry first study the convergence of gradient descent on non-linear optimisation problems?",
       "translatedQuery": "哈斯凯尔·加里在哪一年首次研究了梯度下降法在非线性优化问题上的收敛性？",
-      "expected": { "document": "维基百科-梯度下降法", "pages": [1, 1], "quote": "在1944年首先研究了该方法对非线性优化问题的收敛性" }
+      "expected": {
+        "document": "维基百科-梯度下降法",
+        "pages": [
+          1,
+          1
+        ],
+        "quote": "在1944年首先研究了该方法对非线性优化问题的收敛性"
+      }
     },
     {
       "id": "xl-10",
@@ -339,112 +682,224 @@
       "crossLingual": true,
       "question": "What share of coastal and marine areas do the Sustainable Development Goals aim to conserve by 2020?",
       "translatedQuery": "可持续发展目标计划到 2020 年保护多大比例的沿海和海洋区域？",
-      "expected": { "document": "维基百科-可持续发展目标", "pages": [9, 9], "quote": "保護至少10%的海岸與海洋區" }
+      "expected": {
+        "document": "维基百科-可持续发展目标",
+        "pages": [
+          9,
+          9
+        ],
+        "quote": "保護至少10%的海岸與海洋區"
+      }
     },
     {
       "id": "para-en-01",
       "language": "en",
       "paraphrase": true,
-      "question": "For how many steps does the Transformer's learning rate ramp up before it starts to shrink?",
-      "expected": { "document": "attention-is-all-you-need", "pages": [7, 7], "quote": "We used warmup_steps = 4000." }
+      "question": "For how many steps does the learning rate ramp up before it starts to shrink?",
+      "expected": {
+        "document": "weighted-keys",
+        "pages": [
+          7,
+          7
+        ],
+        "quote": "warmup_steps = 6000"
+      }
     },
     {
       "id": "para-en-02",
       "language": "en",
       "paraphrase": true,
-      "question": "What did the GPT-2 authors append to a news story to get the model to write a short version of it?",
-      "expected": { "document": "language-models-are-unsupervised-multitask-learners", "pages": [6, 6], "quote": "we add the text TL;DR: after the article" }
+      "question": "What did the Wrennick authors append to a news story to get a short version of it?",
+      "expected": {
+        "document": "what-a-corpus-teaches",
+        "pages": [
+          6,
+          6
+        ],
+        "quote": "we place the cue TL;DR: after the article"
+      }
     },
     {
       "id": "para-en-03",
       "language": "en",
       "paraphrase": true,
-      "question": "How did GPT-3 compare with human test-takers on the word-relationship puzzles of an American university admissions exam?",
-      "expected": { "document": "language-models-are-few-shot-learners", "pages": [24, 24], "quote": "whereas the average score among college applicants was 57%" }
+      "question": "How did Brellan-220B compare with human test-takers on the word-relationship puzzles?",
+      "expected": {
+        "document": "demonstrations-not-weights",
+        "pages": [
+          24,
+          24
+        ],
+        "quote": "which was 48% on the same set"
+      }
     },
     {
       "id": "para-en-04",
       "language": "en",
       "paraphrase": true,
-      "question": "Which ready-made recurrent layer breaks the hyperoptimizer, and why?",
-      "expected": { "document": "gradient-descent-the-ultimate-optimizer", "pages": [10, 10], "quote": "certain PyTorch modules (e.g. the built-in LSTM) cannot be used because they silently modify the computation graph" }
+      "question": "Which ready-made modules break the wrapper, and why?",
+      "expected": {
+        "document": "tuning-the-tuner",
+        "pages": [
+          10,
+          10
+        ],
+        "quote": "A few ready-made modules simply cannot be wrapped, because they rewrite the computation graph without saying so"
+      }
     },
     {
       "id": "para-en-05",
       "language": "en",
       "paraphrase": true,
-      "question": "How many free trial packs of the same drug may one doctor be given in a twelve-month period?",
-      "expected": { "document": "abpi-code-of-practice-for-the-pharmaceutical-industry-2021", "pages": [39, 39], "quote": "No more than four samples of a particular medicine may be provided to an individual health professional during the course of a year." }
+      "question": "How many free samples of the same drug may one doctor receive in a twelve-month period?",
+      "expected": {
+        "document": "mpma-code",
+        "pages": [
+          39,
+          39
+        ],
+        "quote": "may receive no more than four samples of a given medicine in a year"
+      }
     },
     {
       "id": "para-en-06",
       "language": "en",
       "paraphrase": true,
-      "question": "How often does a drug advert that a company keeps running need a fresh approval?",
-      "expected": { "document": "abpi-code-of-practice-for-the-pharmaceutical-industry-2021", "pages": [18, 18], "quote": "Material which is still in use must be recertified at intervals of no more than two years" }
+      "question": "How often does promotional material that a company keeps using need a fresh certificate?",
+      "expected": {
+        "document": "mpma-code",
+        "pages": [
+          18,
+          18
+        ],
+        "quote": "Material that stays in use must be recertified at least every two years."
+      }
     },
     {
       "id": "para-en-07",
       "language": "en",
       "paraphrase": true,
-      "question": "How many people work for JPMorgan Chase, and in how many nations?",
-      "expected": { "document": "jp-morgan-2022-environmental-social-governance-report", "pages": [5, 5], "quote": "293,723 employees in 63 countries" }
+      "question": "How many people work for Vantrell, and in how many countries?",
+      "expected": {
+        "document": "vantrell-esg",
+        "pages": [
+          5,
+          5
+        ],
+        "quote": "Vantrell employs 48,210 people in 41 countries"
+      }
     },
     {
       "id": "para-en-08",
       "language": "en",
       "paraphrase": true,
-      "question": "How many people were helped by the landmine clearance the UN led, and in how many places?",
-      "expected": { "document": "united-nations-2022-annual-report", "pages": [30, 30], "quote": "Over 12 million people in 34 countries and territories benefited from mine action activities coordinated by the United Nations." }
+      "question": "How many people were helped by the mine clearance the Norvath Assembly led, and in how many places?",
+      "expected": {
+        "document": "norvath-assembly",
+        "pages": [
+          30,
+          30
+        ],
+        "quote": "Over 9 million people in 27 countries and territories benefited from mine action activities coordinated by the Norvath Assembly."
+      }
     },
     {
       "id": "para-zh-01",
       "language": "zh",
       "paraphrase": true,
       "question": "最小的那版 GPT-2 一次最多能读进多少个词元？",
-      "expected": { "document": "维基百科-大型语言模型", "pages": [4, 4], "quote": "GPT-2 模型有 12 个注意力头和一个只有 1000 个 token 的上下文窗口" }
+      "expected": {
+        "document": "维基百科-大型语言模型",
+        "pages": [
+          4,
+          4
+        ],
+        "quote": "GPT-2 模型有 12 个注意力头和一个只有 1000 个 token 的上下文窗口"
+      }
     },
     {
       "id": "para-zh-02",
       "language": "zh",
       "paraphrase": true,
       "question": "十亿规模的模型如果用半精度保存，大约要占多少存储？",
-      "expected": { "document": "维基百科-大型语言模型", "pages": [5, 5], "quote": "因此 10 亿个参数需要 2 GB 的空间" }
+      "expected": {
+        "document": "维基百科-大型语言模型",
+        "pages": [
+          5,
+          5
+        ],
+        "quote": "因此 10 亿个参数需要 2 GB 的空间"
+      }
     },
     {
       "id": "para-zh-03",
       "language": "zh",
       "paraphrase": true,
       "question": "回答前会先一步步想清楚的那类大模型，最早是哪家公司在什么时候推出的？",
-      "expected": { "document": "维基百科-大型语言模型", "pages": [6, 6], "quote": "OpenAI 于 2024 年 9 月通过其 o1 模型引入了这一趋势" }
+      "expected": {
+        "document": "维基百科-大型语言模型",
+        "pages": [
+          6,
+          6
+        ],
+        "quote": "OpenAI 于 2024 年 9 月通过其 o1 模型引入了这一趋势"
+      }
     },
     {
       "id": "para-zh-04",
       "language": "zh",
       "paraphrase": true,
       "question": "谷歌把哪个大模型改造成能看图的版本，并拿去操控机械？",
-      "expected": { "document": "维基百科-大型语言模型", "pages": [7, 7], "quote": "将 Google PaLM 模型微调为多模态模型 PaLM-E，并应用于机器人控制" }
+      "expected": {
+        "document": "维基百科-大型语言模型",
+        "pages": [
+          7,
+          7
+        ],
+        "quote": "将 Google PaLM 模型微调为多模态模型 PaLM-E，并应用于机器人控制"
+      }
     },
     {
       "id": "para-zh-05",
       "language": "zh",
       "paraphrase": true,
       "question": "大模型要是默认老人玩不转电脑，这算哪一类毛病？",
-      "expected": { "document": "维基百科-大型语言模型", "pages": [9, 9], "quote": "例如认为年长者不懂技术或年轻人缺乏责任感" }
+      "expected": {
+        "document": "维基百科-大型语言模型",
+        "pages": [
+          9,
+          9
+        ],
+        "quote": "例如认为年长者不懂技术或年轻人缺乏责任感"
+      }
     },
     {
       "id": "para-zh-06",
       "language": "zh",
       "paraphrase": true,
       "question": "在机器翻译的例子里，编码器最后得到的那个概括整句话的向量，被一位深度学习先驱叫作什么？",
-      "expected": { "document": "维基百科-注意力机制", "pages": [2, 2], "quote": "杰弗里·辛顿则称之为“思维向量”" }
+      "expected": {
+        "document": "维基百科-注意力机制",
+        "pages": [
+          2,
+          2
+        ],
+        "quote": "杰弗里·辛顿则称之为“思维向量”"
+      }
     },
     {
       "id": "para-zh-07",
       "language": "zh",
       "paraphrase": true,
       "question": "函数下降最快的方向，和经过同一点的等值线之间成什么角度？",
-      "expected": { "document": "维基百科-梯度下降法", "pages": [2, 2], "quote": "一点处的梯度方向与通过该点的等高线垂直" }
+      "expected": {
+        "document": "维基百科-梯度下降法",
+        "pages": [
+          2,
+          2
+        ],
+        "quote": "一点处的梯度方向与通过该点的等高线垂直"
+      }
     }
   ]
 }
