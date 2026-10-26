@@ -25,7 +25,14 @@ test.afterEach(async () => {
     const log = (await packagedLogLines(dataFolder, /./))
       .join("\n")
       .replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/g, "[redacted]");
-    await info.attach("app-log", { body: Buffer.from(log), contentType: "text/plain" });
+    await mkdir(info.outputDir, { recursive: true });
+    const path = info.outputPath("app.log");
+    await writeFile(path, log);
+    await info.attach("app-log", { path, contentType: "text/plain" });
+    console.info(`Retained the failing app's data at ${dataFolder}`);
+    folders = [];
+    dataFolder = null;
+    return;
   }
   for (const folder of folders) await rm(folder, { recursive: true, force: true });
   folders = [];
