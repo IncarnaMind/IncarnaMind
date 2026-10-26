@@ -2,13 +2,15 @@ const { appendFileSync, existsSync, watch, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { createRequire } = require("node:module");
 const { DatabaseSync } = require("node:sqlite");
-const { app, autoUpdater: nativeUpdater, BrowserWindow, dialog } = require("electron");
+const { app, autoUpdater: nativeUpdater, BrowserWindow, dialog, shell } = require("electron");
 const childProcess = require("node:child_process");
+const { createVisibilitySampler } = require("./lifecycleVisibility.cjs");
 
 const folder = process.env.INCARNAMIND_TEST_UPDATE_FOLDER;
 const first = process.env.INCARNAMIND_TEST_UPDATE_FIRST === "1";
 const appFolder = process.env.INCARNAMIND_TEST_UPDATE_APP;
 const scenario = process.env.INCARNAMIND_TEST_UPDATE_SCENARIO;
+const language = process.env.INCARNAMIND_TEST_UPDATE_LANGUAGE;
 let nativePrepared = false;
 let readyPrompts = 0;
 let installRequests = 0;
@@ -32,24 +34,9 @@ const record = (kind, extra = {}) =>
     join(folder, "events.jsonl"),
     `${JSON.stringify({ kind, pid: process.pid, native: app.hasSingleInstanceLock(), ...extra })}\n`,
   );
-const visibility = new Map();
-function sampleVisibility() {
-  const seen = new Set();
-  for (const window of BrowserWindow.getAllWindows()) {
-    const windowId = window.id;
-    const visible = window.isVisible();
-    seen.add(windowId);
-    if (visibility.get(windowId) !== visible) {
-      visibility.set(windowId, visible);
-      record("window-visibility", { windowId, visible });
-    }
-  }
-  for (const windowId of visibility.keys())
-    if (!seen.has(windowId) && visibility.get(windowId)) {
-      visibility.set(windowId, false);
-      record("window-visibility", { windowId, visible: false });
-    }
-}
+const sampleVisibility = createVisibilitySampler(BrowserWindow, record);
+shell.openExternal = async (url) => record("external-open", { url });
+if (language) app.getPreferredSystemLanguages = () => [language];
 
 // Only the external updater/signature and native dialogs are fixtures; the built main owns quitting and locks.
 if (!process.env.INCARNAMIND_PACKAGED_APP) {
@@ -73,6 +60,24 @@ const fromApp = createRequire(
   ),
 );
 const { autoUpdater } = fromApp("electron-updater");
+if (scenario === "auto-quit-error" && first) {
+  autoUpdater.install = (isSilent, isForceRunAfter) => {
+    installRequests += 1;
+    record("auto-install-on-quit", {
+      isSilent,
+      isForceRunAfter,
+      autoDownload: autoUpdater.autoDownload,
+      autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
+      dataHeld: dataHeld(),
+    });
+    autoUpdater.emit("error", new Error("The local automatic installer fixture failed."));
+    record("auto-install-failed", {
+      autoDownload: autoUpdater.autoDownload,
+      autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
+    });
+    return false;
+  };
+}
 record("start", {
   first,
   args: process.argv,
@@ -82,6 +87,15 @@ record("start", {
 });
 app.on("browser-window-created", (_event, window) => {
   const windowId = window.id;
+  if (scenario === "target-crash" && !first) {
+    record("target-before-ready-crash", {
+      version: app.getVersion(),
+      dataHeld: dataHeld(),
+      visibleWindows: BrowserWindow.getAllWindows().filter((item) => item.isVisible()).length,
+    });
+    process.kill(process.pid, "SIGKILL");
+    return;
+  }
   window.setContentSize(1280, 660);
   record("window-created", { windowId });
   window.on("closed", () => record("window-closed", { windowId }));
@@ -95,6 +109,13 @@ app.on("browser-window-created", (_event, window) => {
 });
 autoUpdater.checkForUpdates = async () => {
   if (!first) return null;
+  const sha512 = Buffer.alloc(64).toString("base64");
+  const updateInfo = {
+    version: process.env.INCARNAMIND_TEST_UPDATE_VERSION || "0.1.0-fixture",
+    files: [{ url: "fixture-installer", sha512 }],
+    path: "fixture-installer",
+    sha512,
+  };
   if (scenario?.startsWith("pending")) {
     afterFile("prepare-native", prepareNative);
     afterFile("fail-native-preparation", () => {
@@ -109,10 +130,29 @@ autoUpdater.checkForUpdates = async () => {
   }
   return {
     isUpdateAvailable: true,
-    updateInfo: { version: process.env.INCARNAMIND_TEST_UPDATE_VERSION || "0.1.0-fixture" },
+    updateInfo,
     downloadPromise: new Promise((resolve) => {
       afterFile("begin", () => {
         record("wrapper-ready");
+        autoUpdater.emit("update-downloaded", {
+          ...updateInfo,
+          downloadedFile: join(folder, "fixture-installer"),
+        });
+        record("wrapper-downloaded", {
+          version: updateInfo.version,
+          autoDownload: autoUpdater.autoDownload,
+          autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
+        });
+        if (scenario === "auto-quit-error") {
+          const { BaseUpdater } = fromApp("electron-updater/out/BaseUpdater");
+          const before = app.listenerCount("quit");
+          BaseUpdater.prototype.addQuitHandler.call(autoUpdater);
+          record("auto-quit-listener", {
+            added: app.listenerCount("quit") - before,
+            autoDownload: autoUpdater.autoDownload,
+            autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
+          });
+        }
         resolve();
         if (process.platform === "darwin" && !scenario?.startsWith("pending"))
           setImmediate(prepareNative);
@@ -122,13 +162,45 @@ autoUpdater.checkForUpdates = async () => {
 };
 dialog.showMessageBox = async (...args) => {
   const options = args.at(-1);
+  if (
+    options.type === "info" &&
+    (options.message === "The update will finish the next time you quit IncarnaMind." ||
+      options.message === "下次退出 IncarnaMind 时将完成更新。")
+  ) {
+    record("pending-update", {
+      options,
+      dataHeld: dataHeld(),
+      visibleWindows: BrowserWindow.getAllWindows().filter((window) => window.isVisible()).length,
+    });
+    return { response: 0, checkboxChecked: false };
+  }
+  if (options.type === "error") {
+    record("startup-problem", {
+      title: options.message,
+      content: options.detail,
+      options,
+      ready: app.isReady(),
+      dataHeld: dataHeld(),
+      visibleWindows: BrowserWindow.getAllWindows().filter((window) => window.isVisible()).length,
+    });
+    return {
+      response:
+        process.env.INCARNAMIND_TEST_UPDATE_REPAIR_ACTION === "download"
+          ? options.defaultId
+          : options.cancelId,
+      checkboxChecked: false,
+    };
+  }
   if (options.type === "warning") {
     record("unsaved-question", { options, dataHeld: dataHeld() });
     return { response: options.cancelId, checkboxChecked: false };
   }
   readyPrompts += 1;
   record("ready-prompt", { options, nativePrepared });
-  return { response: 0, checkboxChecked: false };
+  return {
+    response: scenario === "auto-quit-error" ? options.cancelId : 0,
+    checkboxChecked: false,
+  };
 };
 dialog.showErrorBox = (title, content) =>
   record("startup-problem", { title, content, ready: app.isReady(), dataHeld: dataHeld() });
@@ -276,6 +348,7 @@ if (scenario === "pending" && first) {
       app.quit();
     });
 }
+afterFile(`quit-${process.pid}`, () => app.quit());
 for (const kind of ["before-quit", "will-quit"]) app.on(kind, () => record(kind));
 app.whenReady().then(() => {
   record("ready", {

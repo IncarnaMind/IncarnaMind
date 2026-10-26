@@ -32,6 +32,8 @@ type Scenario =
   | "pending-error"
   | "installing"
   | "post-install"
+  | "target-crash"
+  | "auto-quit-error"
   | "base-error"
   | "squirrel-error";
 interface Entry {
@@ -47,6 +49,14 @@ interface Entry {
   readyPrompts?: number;
   installRequests?: number;
   version?: string;
+  title?: string;
+  content?: string;
+  url?: string;
+  added?: number;
+  autoDownload?: boolean;
+  autoInstallOnAppQuit?: boolean;
+  isSilent?: boolean;
+  isForceRunAfter?: boolean;
   windowId?: number;
   args?: string[];
   options?: { message?: string; detail?: string; buttons?: string[]; args?: string[] };
@@ -76,6 +86,7 @@ test.afterEach(async () => {
     for (const [name, path] of [
       ["main-log", join(data, "logs", "incarnamind.log")],
       ["instance-state", join(data, "instance-info.json")],
+      ["update-handoff", join(data, "instance-update.json")],
     ] as const)
       if (existsSync(path)) await test.info().attach(name, { path, contentType: "text/plain" });
   } finally {
@@ -104,6 +115,11 @@ function start(
   port: number,
   nextPort: number,
   generation: "old" | "updated" | "old-with-hint" = "old",
+  options: {
+    language?: "en" | "zh-CN";
+    repairAction?: "download" | "quit";
+    args?: readonly string[];
+  } = {},
 ): ChildProcess {
   const versionEnv = { ...apps.env };
   if (generation === "updated") {
@@ -123,6 +139,7 @@ function start(
       "-r",
       join(__dirname, "updateFailure.cjs"),
       ...(generation === "old-with-hint" ? ["--updated"] : []),
+      ...(options.args ?? []),
     ],
     {
       ...versionEnv,
@@ -133,6 +150,8 @@ function start(
       INCARNAMIND_TEST_UPDATE_FIRST: first ? "1" : "0",
       INCARNAMIND_TEST_UPDATE_SCENARIO: scenario,
       INCARNAMIND_TEST_UPDATE_NEXT_PORT: String(nextPort),
+      INCARNAMIND_TEST_UPDATE_LANGUAGE: options.language ?? "en",
+      INCARNAMIND_TEST_UPDATE_REPAIR_ACTION: options.repairAction ?? "quit",
       APPIMAGE: process.platform === "linux" ? mainExecutable() : "",
       ...(generation === "old-with-hint" && { APPIMAGE_SILENT_INSTALL: "true" }),
     },
@@ -144,6 +163,81 @@ async function readyOwner() {
     pid: number;
   };
   return (await entries()).findLast((entry) => entry.kind === "ready" && entry.pid === owner.pid);
+}
+
+async function expectRepair(
+  copy: ChildProcess,
+  port: number,
+  language: "en" | "zh-CN",
+  targetVersion?: string,
+  download = false,
+) {
+  await expect.poll(() => copy.exitCode, { timeout: 30_000 }).toBe(0);
+  expect(await windowsOf(port)).toBe(0);
+  const recorded = (await entries()).filter((entry) => entry.pid === copy.pid);
+  const problem = recorded.filter((entry) => entry.kind === "startup-problem");
+  const detail =
+    language === "en"
+      ? `${targetVersion ? `The update to ${targetVersion}` : "The update"} may not have finished. This copy is ${apps.oldVersion}, so it won't open your data folder. Download and install the latest version, then open IncarnaMind again.`
+      : `${targetVersion ? `更新到 ${targetVersion} ` : "更新"}可能没有完成。当前版本是 ${apps.oldVersion}，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。`;
+  expect(problem).toEqual([
+    expect.objectContaining({
+      dataHeld: false,
+      visibleWindows: 0,
+      options: expect.objectContaining({
+        message: language === "en" ? "IncarnaMind needs the latest version" : "需要安装最新版本",
+        detail,
+        buttons:
+          language === "en" ? ["Download the latest version", "Quit"] : ["下载最新版本", "退出"],
+      }),
+    }),
+  ]);
+  expect(recorded.filter((entry) => entry.kind === "window-created" || entry.dataHeld)).toEqual([]);
+  expect(recorded.filter((entry) => entry.kind === "external-open")).toEqual(
+    download
+      ? [expect.objectContaining({ url: "https://github.com/IncarnaMind/IncarnaMind/releases" })]
+      : [],
+  );
+  expect(
+    heldByAnotherCopy(data, (what, error) => {
+      throw new Error(what, { cause: error });
+    }),
+  ).toBe(false);
+}
+
+async function quit(copy: ChildProcess) {
+  await signal(`quit-${copy.pid}`);
+  await expect.poll(() => copy.exitCode, { timeout: 30_000 }).toBe(0);
+}
+
+async function expectPendingWindow(copy: ChildProcess, port: number, language: "en" | "zh-CN") {
+  await expectOneSavedWindow([port]);
+  await expect
+    .poll(async () =>
+      (await entries()).some((entry) => entry.pid === copy.pid && entry.kind === "pending-update"),
+    )
+    .toBe(true);
+  const recorded = (await entries()).filter((entry) => entry.pid === copy.pid);
+  expect(recorded.filter((entry) => entry.kind === "pending-update")).toEqual([
+    expect.objectContaining({
+      dataHeld: true,
+      visibleWindows: 1,
+      options: expect.objectContaining({
+        message:
+          language === "en"
+            ? "The update will finish the next time you quit IncarnaMind."
+            : "下次退出 IncarnaMind 时将完成更新。",
+      }),
+    }),
+  ]);
+  expect(recorded.filter((entry) => entry.kind === "startup-problem")).toEqual([]);
+  expect(recorded.filter((entry) => entry.kind === "external-open")).toEqual([]);
+  expect(copy.exitCode).toBeNull();
+  expect(await readyOwner()).toMatchObject({
+    pid: copy.pid,
+    version: apps.oldVersion,
+    dataHeld: true,
+  });
 }
 
 async function saveTyping(window: Page, language: "en" | "zh-CN") {
@@ -205,6 +299,30 @@ async function expectPreparationHeld() {
     readyPrompts: 0,
     installRequests: 0,
   });
+}
+
+async function finishInstallWithoutSuccessor(
+  port: number,
+  nextPort: number,
+  language: "en" | "zh-CN" = "en",
+) {
+  const old = start("post-install", true, port, nextPort, "old", { language });
+  await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
+  await inCopyWindow(port, (window) => saveTyping(window, language));
+  expect(await readyOwner()).toMatchObject({ version: apps.oldVersion, dataHeld: true });
+  await signal("begin");
+  await expect.poll(() => has("install-quit-held")).toBe(true);
+  await signal("finish-install");
+  await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
+  const file = join(data, "instance-update.json");
+  const text = await readFile(file, "utf8");
+  const handoff: unknown = JSON.parse(text);
+  expect(handoff).toMatchObject({
+    status: "installing",
+    fromVersion: apps.oldVersion,
+    targetVersion: apps.updatedVersion,
+  });
+  return { file, text };
 }
 
 test("pending native preparation offers no Restart and keeps the quit guard before a Dock reopen", async () => {
@@ -334,52 +452,93 @@ test("an installing update refuses an unrelated start and keeps its own replacem
   expect((await entries()).filter((entry) => entry.kind === "problem")).toEqual([]);
 });
 
-test("the install handoff outlives the old process and only the updated app opens its data", async () => {
+test("a pending update keeps saved data usable in one old copy until the target is ready", async () => {
   test.setTimeout(120_000);
   const port = await freePort();
   const nextPort = await freePort();
   const oldPort = await freePort();
   const hintedPort = await freePort();
-  const old = start("post-install", true, port, nextPort);
-  await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
-  await inCopyWindow(port, (window) => saveTyping(window, "en"));
-  expect(await readyOwner()).toMatchObject({ version: apps.oldVersion, dataHeld: true });
-  await signal("begin");
-  await expect.poll(() => has("install-quit-held")).toBe(true);
-  await signal("finish-install");
-  await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
-  for (const [generation, contenderPort] of [
-    ["old", oldPort],
-    ["old-with-hint", hintedPort],
+  const wrongIdPort = await freePort();
+  const handoff = await finishInstallWithoutSuccessor(port, nextPort);
+  for (const contender of [
+    { generation: "old", port: oldPort, args: [] },
+    { generation: "old-with-hint", port: hintedPort, args: [] },
+    { generation: "old", port: wrongIdPort, args: [`--update-recovery=${randomUUID()}`] },
   ] as const) {
-    const contender = start("post-install", false, contenderPort, nextPort, generation);
-    await expect
-      .poll(
-        async () =>
-          contender.exitCode !== null ||
-          (await entries()).some((entry) => entry.kind === "ready" && entry.pid === contender.pid),
-        { timeout: 30_000 },
-      )
-      .toBe(true);
-    expect(contender.exitCode).toBe(0);
-    expect(await windowsOf(contenderPort)).toBe(0);
-    expect(
-      (await entries()).filter(
-        (entry) =>
-          entry.pid === contender.pid && (entry.kind === "window-created" || entry.dataHeld),
-      ),
-    ).toEqual([]);
-    expect(
-      heldByAnotherCopy(data, (what, error) => {
-        throw new Error(what, { cause: error });
-      }),
-    ).toBe(false);
+    const copy = start("post-install", false, contender.port, nextPort, contender.generation, {
+      args: contender.args,
+    });
+    await expectPendingWindow(copy, contender.port, "en");
+    expect(await readFile(handoff.file, "utf8")).toBe(handoff.text);
+    await quit(copy);
+    expect(await readFile(handoff.file, "utf8")).toBe(handoff.text);
   }
-  expect((await entries()).filter((entry) => entry.kind === "startup-problem")).toEqual([]);
   const updated = start("post-install", false, nextPort, nextPort, "updated");
-  await expectOneSavedWindow([port, oldPort, hintedPort, nextPort]);
+  await expectOneSavedWindow([port, oldPort, hintedPort, wrongIdPort, nextPort]);
   expect(updated.exitCode).toBeNull();
   expect(await readyOwner()).toMatchObject({ version: apps.updatedVersion, dataHeld: true });
+  await expect.poll(() => existsSync(handoff.file)).toBe(false);
+});
+
+test("a target killed before its first usable window leaves the handoff for a later target", async () => {
+  test.setTimeout(120_000);
+  const port = await freePort();
+  const targetPort = await freePort();
+  const oldPort = await freePort();
+  const nextPort = await freePort();
+  const handoff = await finishInstallWithoutSuccessor(port, targetPort, "zh-CN");
+  const target = start("target-crash", false, targetPort, nextPort, "updated");
+  await expect
+    .poll(() => target.exitCode !== null || target.signalCode !== null, { timeout: 30_000 })
+    .toBe(true);
+  expect(target.exitCode === 0 && target.signalCode === null).toBe(false);
+  expect((await entries()).filter((entry) => entry.kind === "target-before-ready-crash")).toEqual([
+    expect.objectContaining({
+      pid: target.pid,
+      version: apps.updatedVersion,
+      dataHeld: true,
+      visibleWindows: 0,
+    }),
+  ]);
+  expect((await entries()).filter((entry) => entry.pid === target.pid && entry.visible)).toEqual(
+    [],
+  );
+  expect(await readFile(handoff.file, "utf8")).toBe(handoff.text);
+  const old = start("post-install", false, oldPort, nextPort, "old", { language: "zh-CN" });
+  await expectPendingWindow(old, oldPort, "zh-CN");
+  expect(await readFile(handoff.file, "utf8")).toBe(handoff.text);
+  await quit(old);
+  start("post-install", false, nextPort, nextPort, "updated");
+  await expectOneSavedWindow([port, targetPort, oldPort, nextPort]);
+  expect(await readyOwner()).toMatchObject({ version: apps.updatedVersion, dataHeld: true });
+  await expect.poll(() => existsSync(handoff.file)).toBe(false);
+});
+
+test("a corrupt update record leaves normal startup and its one saved-data owner intact", async () => {
+  test.setTimeout(120_000);
+  const firstPort = await freePort();
+  const first = start("post-install", false, firstPort, firstPort);
+  await expect.poll(() => windowsOf(firstPort), { timeout: 60_000 }).toBe(1);
+  await inCopyWindow(firstPort, (window) => saveTyping(window, "en"));
+  await quit(first);
+  const file = join(data, "instance-update.json");
+  const malformed = "{broken";
+  await writeFile(file, malformed);
+  const port = await freePort();
+  const owner = start("post-install", false, port, port);
+  await expectOneSavedWindow([firstPort, port]);
+  const contenderPort = await freePort();
+  const contender = start("post-install", false, contenderPort, port);
+  await expect.poll(() => contender.exitCode, { timeout: 30_000 }).toBe(0);
+  expect(await windowsOf(contenderPort)).toBe(0);
+  expect(copiesWith(tag)).toEqual([owner.pid]);
+  await expectOneSavedWindow([port, contenderPort]);
+  expect((await entries()).filter((entry) => entry.kind === "startup-problem")).toEqual([]);
+  expect((await entries()).filter((entry) => entry.kind === "pending-update")).toEqual([]);
+  expect(await readFile(file, "utf8")).toBe(malformed);
+  expect(await readFile(join(data, "logs", "incarnamind.log"), "utf8")).toContain(
+    "app.updateHandoffInvalid",
+  );
 });
 
 for (const scenario of ["base-error", "squirrel-error"] as const) {
@@ -393,7 +552,7 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
       const port = await freePort();
       const beforeErrorPort = await freePort();
       const secondPort = await freePort();
-      const old = start(scenario, true, port, port);
+      const old = start(scenario, true, port, port, "old", { language });
       await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
       await inCopyWindow(port, (window) => saveTyping(window, language));
       await signal("begin");
@@ -466,4 +625,81 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
       }
     });
   }
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a failed automatic install finishes quitting without a relaunch and repairs a later start (${language})`, async () => {
+    test.setTimeout(120_000);
+    const port = await freePort();
+    const nextPort = await freePort();
+    const old = start("auto-quit-error", true, port, nextPort, "old", { language });
+    await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
+    await inCopyWindow(port, (window) => saveTyping(window, language));
+    await signal("begin");
+    await expect.poll(() => has("ready-prompt")).toBe(true);
+    expect((await entries()).filter((entry) => entry.kind === "auto-quit-listener")).toEqual([
+      expect.objectContaining({ added: 1, autoDownload: true, autoInstallOnAppQuit: true }),
+    ]);
+    expect((await entries()).filter((entry) => entry.kind === "wrapper-downloaded")).toEqual([
+      expect.objectContaining({
+        version: apps.updatedVersion,
+        autoDownload: true,
+        autoInstallOnAppQuit: true,
+      }),
+    ]);
+    expect((await entries()).filter((entry) => entry.kind === "install-requested")).toEqual([]);
+    await quit(old);
+    const recorded = await entries();
+    expect(recorded.filter((entry) => entry.kind === "auto-install-on-quit")).toEqual([
+      expect.objectContaining({
+        pid: old.pid,
+        isSilent: true,
+        isForceRunAfter: false,
+        autoDownload: true,
+        autoInstallOnAppQuit: true,
+        dataHeld: true,
+      }),
+    ]);
+    expect(recorded.filter((entry) => entry.kind === "auto-install-failed")).toEqual([
+      expect.objectContaining({ pid: old.pid, autoDownload: true, autoInstallOnAppQuit: true }),
+    ]);
+    expect(recorded.findIndex((entry) => entry.kind === "wrapper-downloaded")).toBeLessThan(
+      recorded.findIndex((entry) => entry.kind === "auto-quit-listener"),
+    );
+    expect(recorded.findIndex((entry) => entry.kind === "quit")).toBeLessThan(
+      recorded.findIndex((entry) => entry.kind === "auto-install-on-quit"),
+    );
+    expect(recorded.filter((entry) => entry.kind === "install-requested")).toEqual([]);
+    expect(recorded.filter((entry) => entry.kind === "relaunch")).toEqual([]);
+    expect(
+      recorded.filter((entry) => entry.kind === "problem" || entry.kind === "startup-problem"),
+    ).toEqual([]);
+    expect(await readFile(join(data, "logs", "incarnamind.log"), "utf8")).toContain(
+      "app.updateInstallFailed",
+    );
+    const file = join(data, "instance-update.json");
+    const failed = await readFile(file, "utf8");
+    const handoff: unknown = JSON.parse(failed);
+    expect(handoff).toMatchObject({
+      status: "failed",
+      reopens: false,
+      fromVersion: apps.oldVersion,
+      targetVersion: apps.updatedVersion,
+    });
+    for (const [index, args] of [[], [`--update-recovery=${randomUUID()}`]].entries()) {
+      const manualPort = await freePort();
+      const manual = start("post-install", false, manualPort, nextPort, "old", {
+        language,
+        args,
+        repairAction: index === 0 ? "download" : "quit",
+      });
+      await expectRepair(manual, manualPort, language, apps.updatedVersion, index === 0);
+      expect(await readFile(file, "utf8")).toBe(failed);
+    }
+    start("post-install", false, nextPort, nextPort, "updated", { language });
+    await expectOneSavedWindow([port, nextPort]);
+    expect(await readyOwner()).toMatchObject({ version: apps.updatedVersion, dataHeld: true });
+    await expect.poll(() => existsSync(file)).toBe(false);
+    expect((await entries()).filter((entry) => entry.kind === "pending-update")).toEqual([]);
+  });
 }
