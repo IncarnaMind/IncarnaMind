@@ -197,6 +197,21 @@ describe("the word the interface uses", () => {
   });
 });
 
+describe("the Chinese word for it", () => {
+  test("a Chinese string says 笔记, never the English Note", () => {
+    const says = Object.entries(zhCN)
+      .filter(([, value]) => NOTE.test(value))
+      .map(([key]) => key);
+    expect(says, "a Chinese string says the English Note").toEqual([]);
+  });
+
+  test("the Chinese docs say 笔记 too", () => {
+    for (const file of ["README.zh-CN.md", "docs/agents.zh-CN.md"]) {
+      expect(readDoc(file).match(NOTE), file).toBeNull();
+    }
+  });
+});
+
 describe("the retired Block-level Note", () => {
   test.each(RETIRED_NOTE)("$key is the old Note, or fully your text in both languages", (entry) => {
     expect(
