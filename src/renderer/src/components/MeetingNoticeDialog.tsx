@@ -18,7 +18,8 @@ import { useModal } from "./useModal";
  * The one-time recording notice: the first "Start recording" on this device
  * says what is recorded and where it stays, reminds the User to tell the
  * others, and where it is transcribed. Starting from it records; Esc or Cancel
- * doesn't.
+ * doesn't. Before a voice memo (#1568) it says only the microphone is recorded,
+ * and there is no one else to tell.
  */
 export function MeetingNoticeDialog() {
   const t = useT();
@@ -26,9 +27,9 @@ export function MeetingNoticeDialog() {
   const waiting = useMeetings((state) => state.noticeFor);
   const { acceptNotice, cancelNotice } = useMeetings.getState();
   const dialog = useModal(waiting !== null);
-  const recording = t(
-    waiting?.systemAudio === false ? "meetings.notice.microphone" : "meetings.notice.both",
-  );
+  const memo = waiting !== null && "memo" in waiting;
+  const microphoneOnly = waiting !== null && ("memo" in waiting || !waiting.systemAudio);
+  const recording = t(microphoneOnly ? "meetings.notice.microphone" : "meetings.notice.both");
   const kept = t(useAudioKeptKey());
   const transcribedHere = useAppStore(
     (state) =>
@@ -55,7 +56,7 @@ export function MeetingNoticeDialog() {
             {gap(recording, kept)}
             {kept}
           </p>
-          <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>
+          {!memo && <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>}
           {transcribedHere && <p className={dialogTextClass}>{t("meetings.notice.model")}</p>}
         </div>
         {/* Mounted as the sheet opens, so it reads the keys as they are now. */}

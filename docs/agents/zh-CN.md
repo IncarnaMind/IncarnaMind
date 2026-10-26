@@ -123,6 +123,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Source (of a chart's values) | 数据来源 | Under a chart in an export, as Chinese reports caption theirs: "数据来源：". |
 | Memory | 记忆 | |
 | Meeting | 会议 | |
+| Voice memo | 语音备忘 | "录一段语音备忘"; the + menu's item is 语音备忘. As Apple's 语音备忘录, without its 录. Its note: "已写入语音备忘". |
 | Transcript | 转写稿 | |
 | Speaker | 发言人 | |
 | Me, Them, Speaker ? (a live line before speakers are told apart) | 我, 对方, 发言人 ? | "Me" is the microphone, "Them" the computer's sound, "Speaker ?" a meeting in a room, with no computer sound. |

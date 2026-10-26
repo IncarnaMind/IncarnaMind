@@ -1889,6 +1889,14 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 108,
+    description: "A Meeting can be a voice memo, the User alone (#1568)",
+    sql: `
+      ALTER TABLE meetings ADD COLUMN kind TEXT NOT NULL DEFAULT 'meeting'
+        CHECK (kind IN ('meeting', 'memo'));
+    `,
+  },
+  {
+    version: 109,
     description: "Answers in conversations keep their Analyses, and a Question that asked for one",
     sql: `
       ALTER TABLE conversation_messages ADD COLUMN analyses TEXT NOT NULL DEFAULT '[]';

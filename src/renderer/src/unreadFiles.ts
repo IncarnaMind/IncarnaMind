@@ -3,6 +3,7 @@ import { useEditorState } from "@tiptap/react";
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import type { SearchScope, UnreadFile } from "../../core/api";
+import { checkSearchedNarrowerThanAll } from "../../shared/claimChecks";
 import { checkUnreadOf, observeCheckUnread } from "../../shared/unreadFiles";
 import { core } from "./core";
 import { shownClaims } from "./editor/claimChecks";
@@ -53,12 +54,25 @@ export function useUnreadFiles(scope: SearchScope | null): UnreadFile[] {
   return files;
 }
 
-/** What was unread when the checks the Mind's marks name started, not what is unread now. */
-export function useCheckUnread(editor: Editor, doc: Y.Doc): UnreadFile[] {
+/**
+ * What was unread when the checks the Mind's marks name started, not what is unread now.
+ * `narrowerThanAll`: only the checks that looked in a scope narrower than all Documents.
+ */
+export function useCheckUnread(
+  editor: Editor,
+  doc: Y.Doc,
+  { narrowerThanAll = false }: { narrowerThanAll?: boolean } = {},
+): UnreadFile[] {
   const requests = useEditorState({
     editor,
     selector: ({ editor: current }) =>
-      [...new Set(shownClaims(current.state).map((claim) => claim.check.request))]
+      [
+        ...new Set(
+          shownClaims(current.state)
+            .filter((claim) => !narrowerThanAll || checkSearchedNarrowerThanAll(claim.check.scope))
+            .map((claim) => claim.check.request),
+        ),
+      ]
         .filter((request) => request !== "")
         .sort()
         .join(" "),

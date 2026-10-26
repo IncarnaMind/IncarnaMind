@@ -43,12 +43,14 @@ const OTHER = "The harbour office opens to visitors in the morning.";
 const LANGUAGES = {
   en: {
     keep: "Keep as my view",
+    keptOne: "1 kept as your view",
     kept: "Kept as your view",
     contradicted: "Contradicted",
     checkMind: "Check this Mind",
   },
   "zh-CN": {
     keep: "保留为我的观点",
+    keptOne: "1 句已保留为你的观点",
     kept: "已保留为你的观点",
     contradicted: "与文档矛盾",
     checkMind: "核对此 Mind",
@@ -152,9 +154,19 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(lines.nth(0).locator(".claim-wash--contradicted")).toHaveCount(0);
     expect(await kept()).toEqual([CLAIM]);
     await expect(undoLine).toContainText(words.kept);
+    // Kept as the User's view counts as handled: the other sentence holds, so the note is checked (D266).
+    await expect(window.getByTestId("check-badge")).toHaveAttribute("data-state", "checked");
+    await pointAndClick(window, window.getByTestId("check-badge-open"));
+    const health = window.getByTestId("check-card");
+    await expect(health.getByTestId("health-kept")).toContainText(words.keptOne);
+    await window.keyboard.press("Escape");
+    await expect(health).toHaveCount(0);
+    await editor.click();
+    await focusSettled(window, editor);
     await undo();
     await expect(marks).toHaveCount(2);
     await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
+    await expect(window.getByTestId("check-badge")).toHaveAttribute("data-state", "needs-look");
     await expect(lines.nth(0).locator(".claim-wash--contradicted")).toBeVisible();
     await openCard();
     await expect(card.getByTestId("claim-keep")).toBeVisible();
