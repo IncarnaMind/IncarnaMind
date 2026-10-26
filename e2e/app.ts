@@ -1540,9 +1540,12 @@ async function keepWhatTheAppWasDoing(app: ElectronApplication): Promise<string>
   const info = test.info();
   const pid = app.process().pid;
   let sampled = false;
-  if (pid !== undefined) {
+  // The failure being reported can already have used most of the test's time: the sample may
+  // take no more than what is left, or the report itself would never be made.
+  const budget = info.timeout - info.duration - 1_000;
+  if (pid !== undefined && budget > 0) {
     const path = info.outputPath("main-process-sample.txt");
-    sampled = sampleMainProcess(pid, path);
+    sampled = sampleMainProcess(pid, path, budget);
     if (sampled) {
       await info
         .attach("main-process-sample", { path, contentType: "text/plain" })
@@ -1556,9 +1559,13 @@ async function keepWhatTheAppWasDoing(app: ElectronApplication): Promise<string>
   ].join("");
 }
 
-function sampleMainProcess(pid: number, path: string): boolean {
+function sampleMainProcess(pid: number, path: string, budgetMs: number): boolean {
+  const deadline = Date.now() + budgetMs;
+  const left = (cap: number) => Math.min(cap, deadline - Date.now());
   if (process.platform === "darwin") {
-    const sampled = spawnSync("sample", [`${pid}`, "1", "-file", path], { timeout: 10_000 });
+    const timeout = left(10_000);
+    if (timeout <= 0) return false;
+    const sampled = spawnSync("sample", [`${pid}`, "1", "-file", path], { timeout });
     return sampled.status === 0 && existsSync(path);
   }
   if (process.platform !== "linux") return false;
@@ -1566,10 +1573,15 @@ function sampleMainProcess(pid: number, path: string): boolean {
     ["eu-stack", ["-p", `${pid}`]],
     ["gdb", ["-batch", "-ex", "thread apply all bt", "-p", `${pid}`]],
   ] as const) {
-    const stack = spawnSync(command, args, { encoding: "utf8", timeout: 12_000 });
-    if (stack.status === 0 && stack.stdout !== "") {
+    const timeout = left(12_000);
+    if (timeout <= 0) break;
+    const stack = spawnSync(command, args, { encoding: "utf8", timeout });
+    if (stack.status !== 0 || stack.stdout === "") continue;
+    try {
       writeFileSync(path, stack.stdout);
       return true;
+    } catch {
+      // The stack couldn't be kept: the log tail still reports the failure.
     }
   }
   return false;
@@ -1585,6 +1597,16 @@ function lastLogLines(dataDir: string | undefined, lines = 12): string {
       .join("\n");
   } catch {
     return "";
+  }
+}
+
+function uncaughtLogLines(dataDir: string): string[] {
+  try {
+    return readFileSync(join(dataDir, "logs", LOG_FILE), "utf8")
+      .split("\n")
+      .filter((line) => line.includes("main.uncaught"));
+  } catch {
+    return [];
   }
 }
 
@@ -2795,8 +2817,15 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
   }
   // The app's log goes with a failed test's traces: what happened on CI's machine is gone after.
   const log = join(dataDir, "logs", "incarnamind.log");
-  if (info.status !== info.expectedStatus && existsSync(log)) {
-    await info.attach("app-log", { path: log, contentType: "text/plain" });
+  if (existsSync(log)) {
+    if (info.status !== info.expectedStatus) {
+      await info.attach("app-log", { path: log, contentType: "text/plain" });
+    }
+    // A test-driven app goes on after an uncaught main-process error (#1741): a pass must not
+    // take the error away with the folder, so it is said in the test's output too.
+    for (const line of uncaughtLogLines(dataDir)) {
+      console.warn(`The app's main process logged: ${line}`);
+    }
   }
   await rm(dataDir, { recursive: true, force: true, maxRetries: 3 });
 }
