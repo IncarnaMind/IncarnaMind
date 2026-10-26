@@ -108,7 +108,6 @@ const appCommands: readonly Command[] = [
     reversible: true,
     run: async () => {
       holdNewMindKeys();
-      // A Mind that wasn't made, or whose tab the core refused, has no text to put the keys in.
       if ((await useAppStore.getState().createMind({ titled: true })) === null) forgetNewMindKeys();
     },
   },

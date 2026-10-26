@@ -2135,12 +2135,12 @@ export async function watchNewEditorFocus(window: Page): Promise<void> {
     (window as unknown as { newEditorFocus?: typeof state }).newEditorFocus = state;
     const known = new WeakSet<Element>(document.querySelectorAll('[data-testid="mind-editor"]'));
     const observer = new MutationObserver(() => {
-      const fresh = [...document.querySelectorAll('[data-testid="mind-editor"]')].some(
+      const fresh = [...document.querySelectorAll('[data-testid="mind-editor"]')].find(
         (each) => !known.has(each),
       );
       if (!fresh) return;
       observer.disconnect();
-      state.focused = document.activeElement?.closest('[data-testid="mind-editor"]') !== null;
+      state.focused = fresh.contains(document.activeElement);
     });
     observer.observe(document.body, { childList: true, subtree: true });
   });

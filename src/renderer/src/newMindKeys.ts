@@ -27,7 +27,6 @@ const MODIFIERS = new Set([
   "AltGraph",
 ]);
 
-/** What typing would put in the text: one character, not a shortcut (a German \, a Polish ą included). */
 const types = (event: KeyboardEvent): boolean =>
   event.key.length === 1 &&
   (event.getModifierState("AltGraph") || (!event.metaKey && !event.ctrlKey && !event.altKey));
