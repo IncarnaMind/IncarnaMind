@@ -2468,21 +2468,15 @@ describe("A quote that starts with a figure (#1969)", () => {
 
 describe("A quote whose page mentions it before its Passage (#1981)", () => {
   const HEADING = "3.1 收入";
+  const CLAIM = "2026年收入为1240.0。";
   const FILLER = Array.from(
     { length: 20 },
     (_, index) =>
       `第${index + 1}项说明：本期经营活动产生的现金流量净额与净利润的差异，主要来自折旧摊销、利息费用以及营运资本变动。`,
   ).join("\n\n");
-  const REPORT = {
-    name: "雪松业绩半年报.md",
-    contents: ["# 雪松业绩", "", `详见 ${HEADING}。`, "", FILLER, "", HEADING, "收入为400.0"].join(
-      "\n",
-    ),
-  };
+  const REPORT = ["# 雪松业绩", "", `详见 ${HEADING}。`, "", FILLER, "", HEADING, "收入为400.0"];
 
-  // protects=a quote of the real heading is read where its own Passage has it, so 3.1 stays a heading's number and calculate refuses it; fails_when=the earlier mention on the page places the quote after "详见 ", 3.1 reads as a figure, and the check is Supported on 3.1 × 400.0; no_claim=none beyond protects.
-  test("reads the heading as a heading, not as a figure from the earlier mention", async () => {
-    const claim = "2026年收入为1240.0。";
+  const check = async (contents: string) => {
     const calculation = {
       inputs: [
         { name: "base", label: "2026年收入", quote: "收入为400.0", number: "400.0" },
@@ -2492,13 +2486,13 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
       as: "number",
       stated: "1240.0",
     };
-    const plans = { [claim]: { verdict: "unsupported", calculation } } as const;
+    const plans = { [CLAIM]: { verdict: "unsupported", calculation } } as const;
     const calls: ModelCall[] = [];
     const model = scriptedModel(
       (call) => {
         calls.push(call);
         const search = call.results.filter((each) => each.tool === "search_documents").at(-1);
-        if (!search) return { calls: [{ tool: "search_documents", input: { query: claim } }] };
+        if (!search) return { calls: [{ tool: "search_documents", input: { query: CLAIM } }] };
         const heading = shownPassages(search.text).find((passage) =>
           passage.text.split("\n").some((line) => line.trim() === HEADING),
         );
@@ -2529,7 +2523,7 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
       },
       { generate: checkGenerate(plans) },
     );
-    const setup = await setUpWithDocuments(model, [REPORT]);
+    const setup = await setUpWithDocuments(model, [{ name: "雪松业绩半年报.md", contents }]);
     const saved = await setup.core.saveChatProvider({
       kind: "anthropic",
       apiKey: "sk-test",
@@ -2537,11 +2531,26 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
     });
     if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
 
-    const result = await setup.core.checkClaim({ claim });
+    const result = await setup.core.checkClaim({ claim: CLAIM });
     const replies = calls
       .flatMap((call) => call.results)
       .filter((each) => each.tool === "calculate");
     expect(replies.at(-1)?.text).toMatch(/the quote has no number "3\.1"/);
     expect(result).toMatchObject({ verdict: "unsupported" });
+  };
+
+  // protects=a quote of the real heading is read where its own Passage has it, so 3.1 stays a heading's number and calculate refuses it; fails_when=the earlier mention on the page places the quote after "详见 ", 3.1 reads as a figure, and the check is Supported on 3.1 × 400.0; no_claim=none beyond protects.
+  test("reads the heading as a heading, not as a figure from the earlier mention", async () => {
+    await check(REPORT.join("\n"));
+  });
+
+  // protects=a Passage that holds the heading and an earlier mention of those words keeps the heading's reading, so calculate refuses 3.1; fails_when=the first place in the Passage decides mid-line and the check is Supported on 3.1 × 400.0; no_claim=none beyond protects.
+  test("reads the heading as a heading when its Passage holds both mentions", async () => {
+    await check(["# 雪松业绩", "", `详见 ${HEADING}。`, "", HEADING, "收入为400.0"].join("\n"));
+  });
+
+  // protects=a Passage that runs past the cited page keeps the heading's reading from the page's own places, so calculate refuses 3.1; fails_when=the Passage's text isn't found on the cited page and the first place there decides mid-line; no_claim=none beyond protects.
+  test("reads the heading as a heading when its Passage runs past the cited page", async () => {
+    await check([...REPORT, "", "# 附注", "", "附注内容：本节说明会计政策。"].join("\n"));
   });
 });

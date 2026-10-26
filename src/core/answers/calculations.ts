@@ -59,7 +59,7 @@ import {
   joinUnits,
   quoteInUnits,
 } from "../../shared/locations";
-import { findQuote } from "../../shared/quoteMatch";
+import { findQuote, type TextRange } from "../../shared/quoteMatch";
 import { anchorsOf, cellNumber } from "../../shared/units";
 import type { CalculatedFigure, Citation, FigureInput, FigureShowOptions } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
@@ -120,24 +120,58 @@ export function quotedLines(quoted: QuotedText): string {
   return text.slice(text.lastIndexOf("\n", from - 1) + 1, end < 0 ? text.length : end);
 }
 
+const beforeOnLine = (text: string, at: number) =>
+  text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
+
+/** The most places of one quote looked at: more can't be told apart, and keep a line's start reading. */
+const MOST_PLACES = 50;
+
+function passageOn(page: string, passage: string, matching: Matching): TextRange | null {
+  const found = passage === "" ? null : findQuote(page, passage, matching);
+  const first = found?.[0];
+  const last = found?.at(-1);
+  return first && last ? { start: first.start, end: last.end } : null;
+}
+
+function placesOn(
+  page: string,
+  quote: string,
+  own: TextRange | null,
+  matching: Matching,
+): TextRange[] {
+  const from = own?.start ?? 0;
+  const text = page.slice(from, own?.end ?? page.length);
+  const places: TextRange[] = [];
+  for (let at = 0; at < text.length && places.length < MOST_PLACES; ) {
+    const found = findQuote(text.slice(at), quote, matching);
+    const first = found?.[0];
+    const last = found?.at(-1);
+    if (!first || !last) break;
+    places.push({ start: from + at + first.start, end: from + at + last.end });
+    at += Math.max(last.end, 1);
+  }
+  return places;
+}
+
 /**
- * Where `quote` starts in `page`: the first place inside the Passage's own text, where the quote was
- * taken from; else its first match on the page, with the check's matching; -1 when it isn't there.
+ * Where `quote` starts in `page`, and whether every place it is there starts after other text on its line:
+ * the Passage's own places when its text is on the page, else the page's. `at` is -1 when it isn't there.
  */
 export function quoteOnPage(
   page: string,
   quote: string,
   passage: string,
   matching: Matching = {},
-): number {
-  const own = passage === "" ? null : findQuote(page, passage, matching);
-  if (own) {
-    const from = own[0]?.start ?? 0;
-    const to = own.at(-1)?.end ?? 0;
-    const [inside] = findQuote(page.slice(from, to), quote, matching) ?? [];
-    if (inside) return from + inside.start;
-  }
-  return findQuote(page, quote, matching)?.[0]?.start ?? page.indexOf(quote);
+): { at: number; midLine: boolean } {
+  const places = placesOn(page, quote, passageOn(page, passage, matching), matching);
+  const [first] = places;
+  if (!first) return { at: page.indexOf(quote), midLine: false };
+  return {
+    at: first.start,
+    midLine:
+      places.length < MOST_PLACES &&
+      places.every((place) => beforeOnLine(page, place.start).trim() !== ""),
+  };
 }
 
 const writtenNumber = (reading: Reading) => reading.value / reading.scale;
@@ -522,18 +556,16 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return all.slice(Math.max(1, own.length));
   }
 
-  function onPage(quoted: Quoted): { text: string; at: number } {
+  function onPage(quoted: Quoted): { text: string; at: number; midLine: boolean } {
     const { quote } = quoted.citation;
     const { text } = joinUnits(quoted.units);
-    const at = quoteOnPage(text, quote, quoted.passageText, quoted.matching);
-    return at < 0 ? { text: quote, at: 0 } : { text, at };
+    const { at, midLine } = quoteOnPage(text, quote, quoted.passageText, quoted.matching);
+    return at < 0 ? { text: quote, at: 0, midLine } : { text, at, midLine };
   }
-
-  const lineTo = (text: string, at: number) => text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
 
   function lineBefore(quoted: Quoted, figure: Figure): string {
     const { text, at } = onPage(quoted);
-    return lineTo(text, at + figure.start);
+    return beforeOnLine(text, at + figure.start);
   }
 
   /** Reads one input; or says why it can't be read. */
@@ -560,7 +592,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
     const page = onPage(quoted);
     // A quote from the middle of a line ("…，88.0 和 91.5") starts with no list's or heading's number.
-    const quoteContext = { ...context, midLine: lineTo(page.text, page.at).trim() !== "" };
+    const quoteContext = { ...context, midLine: page.midLine };
     const figures = readFigures(quote, quoteContext);
     const has =
       figures.length === 0
