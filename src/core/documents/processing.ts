@@ -49,9 +49,10 @@ import { documentTitle } from "./title";
  * are read from their pictures; see `SCAN_CURRENT_SINCE`). 10: #756 (a saved
  * web page's pictures are read, their text in its section; see
  * `PICTURES_CURRENT_SINCE`). 11: #901 (a PDF's pages keep the name they
- * print, from its page labels or its headers and footers).
+ * print, from its page labels or its headers and footers). 12: #1819 (a
+ * scanned page's quarter-turn is normalized before it is read).
  */
-export const PROCESSING_VERSION = 11;
+export const PROCESSING_VERSION = 12;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -63,7 +64,8 @@ export const PROCESSING_VERSION = 11;
  * only PDFs' scanned pages, which `SCAN_CURRENT_SINCE` reads again; version
  * 10 only web pages with saved pictures, which `PICTURES_CURRENT_SINCE` reads;
  * version 11 only PDFs', whose pages gain their printed names and whose
- * Passages come out as they were.
+ * Passages come out as they were; version 12 only PDFs' scanned pages, whose
+ * orientation `SCAN_CURRENT_SINCE` reads again.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 11,
@@ -92,14 +94,15 @@ export const HAN_CURRENT_SINCE = 6;
 /**
  * For a PDF with a page that has little or no text (a scan, maybe), or a
  * page read from its picture, the oldest version that reads such pages as
- * this one would: since version 9 they are read from their pictures (#397).
+ * this one would: since version 9 they are read from their pictures (#397),
+ * and since version 12 a quarter-turned page is normalized first (#1819).
  * Such a PDF processed by an older version is processed again at startup;
  * its pages of text come out as they were. When how pages are read changes
  * (`TextRecognitionModelDefinition.reader`), bump this with the processing
  * version: the pages read before are read again, except those a Citation
  * quotes, which are kept as they were read (see `ScanJob.keep`).
  */
-export const SCAN_CURRENT_SINCE = 9;
+export const SCAN_CURRENT_SINCE = 12;
 
 /**
  * For a web page saved with its pictures, the oldest version that reads

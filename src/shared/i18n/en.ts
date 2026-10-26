@@ -4047,7 +4047,7 @@ export const en = {
   "error.connector.commandInvalid": "That command isn’t valid.",
   "error.connector.envNameInvalid": "“{name}” isn’t a valid environment variable name.",
   "error.connector.envValueInvalid": "The value of {name} isn’t valid.",
-  "error.connector.jsonInvalid": "That isn’t valid JSON: {reason}",
+  "error.connector.jsonInvalid": "That isn’t valid JSON. Check the configuration and try again.",
   "error.connector.noServers": "No MCP servers found: expected an “mcpServers” object.",
   "error.restore.unknown": "That isn’t in Recently deleted.",
   "error.restore.deletedPermanently": "“{name}” was deleted permanently, so it can’t be restored.",
@@ -4381,8 +4381,7 @@ export const en = {
   "connectors.import.preview": "Show what will be added",
   "connectors.import.action.add": "Will be added",
   "connectors.import.action.exists": "Skipped: a Connector with this name exists",
-  "connectors.import.action.remote":
-    "Skipped: it uses the older SSE transport or custom headers, which aren’t supported",
+  "connectors.import.action.remote": "Skipped: IncarnaMind can’t connect with its connection type",
   "connectors.import.action.invalid": "Skipped: it has no command or valid URL",
   "connectors.import.env": "Environment: {names} (kept in your keychain)",
   "connectors.import.confirm": "Add {count} Connectors",
@@ -4405,6 +4404,24 @@ export const en = {
   "remoteConnectors.form.url": "Server URL",
   "remoteConnectors.form.urlHint": "Its MCP endpoint, e.g. https://mcp.example.com/mcp",
   "remoteConnectors.form.client": "Use my own OAuth app",
+  "remoteConnectors.key.label": "API key or token",
+  "remoteConnectors.key.hint": "Optional. Leave empty to sign in with your browser.",
+  "remoteConnectors.key.destination": "Stored on this device. Sent only to this server.",
+  "remoteConnectors.key.header": "Header name",
+  "remoteConnectors.key.bearer": "Authorization uses Bearer; other headers send the entered value.",
+  "remoteConnectors.key.options": "More options",
+  "remoteConnectors.key.change": "Change key",
+  "remoteConnectors.connection.sse": "Older connection (SSE)",
+  "remoteConnectors.import.headers": "Stored here; sent only to this server: {names}",
+  "connectors.error.key-refused": "The server refused this key",
+  "error.connector.headersInvalid":
+    "Check the header names and values. Each name must be unique, and values must stay on one line.",
+  "error.connector.authChoice": "Choose an API key or an OAuth app.",
+  "error.connector.changeKeyInstead": "Change this Connector’s key instead.",
+  "error.connector.keyChangeCancelled":
+    "The Connector stopped before the key was saved. Try again.",
+  "remoteConnectors.key.missing": "This key isn’t available on this device",
+  "connectors.import.change": "Change configuration",
   "remoteConnectors.client.hint": "Only for a service that can’t register IncarnaMind itself.",
   "remoteConnectors.client.redirect": "Redirect URI: http://127.0.0.1/callback (any port)",
   "remoteConnectors.client.id": "Client ID",
@@ -4438,8 +4455,7 @@ export const en = {
   "remoteConnectors.signIn.heldBack": "Paused: its sign-in server is on another computer.",
   "remoteConnectors.signIn.heldBack.details":
     "“Keep everything on this computer” is on, and this sign-in is with a server on another computer, so it isn’t renewed or started and its Tools aren’t used. Turn that off and it goes on from where it was.",
-  "remoteConnectors.error.unreachable":
-    "Its server can’t be reached. Check the URL and your internet connection.",
+  "remoteConnectors.error.unreachable": "Couldn’t reach {name}",
   "remoteConnectors.consent.note": "The Tool’s arguments go to this server over the network.",
   "remoteConnectors.answer.signInRequired":
     "Not used: {connector} needs sign-in · Settings › Connectors",

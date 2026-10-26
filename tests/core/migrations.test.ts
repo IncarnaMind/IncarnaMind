@@ -4,12 +4,40 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { DataFromNewerVersionError } from "../../src/core/errors";
 import { migrate, openDatabase } from "../../src/core/storage";
+import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder } from "../helpers/core";
 
 const userVersion = (db: ReturnType<typeof openDatabase>) =>
   db.get<{ user_version: number }>("PRAGMA user_version")?.user_version;
 
 describe("Migrations", () => {
+  test("existing remote Connectors keep their OAuth configuration when header metadata is introduced", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "connectors.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 106),
+    );
+    const config = { url: "https://synthetic.example.test/mcp", clientId: "registered-app" };
+    db.run(
+      "INSERT INTO connectors (id, name, transport, config, enabled, created_at, updated_at) VALUES (?, ?, 'http', ?, 1, ?, ?)",
+      [
+        "00000000-0000-4000-8000-000000000001",
+        "Tides",
+        JSON.stringify(config),
+        "2026-10-25T12:00:00.000Z",
+        "2026-10-25T12:00:00.000Z",
+      ],
+    );
+    migrate(db);
+    const stored = db.get<{ config: string }>("SELECT config FROM connectors");
+    expect(JSON.parse(stored?.config ?? "null")).toEqual({
+      ...config,
+      connection: "http",
+      headers: [],
+    });
+    db.close();
+  });
+
   test("version numbers may skip numbers reserved by work in progress", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
 
