@@ -25,12 +25,12 @@ import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
+import { type NoteState, unreadForCard } from "../noteState";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
-import { originOf } from "./blockOrigins";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
@@ -40,7 +40,7 @@ import {
   noteHealth,
 } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
-import { CheckedWhen } from "./MindCheckLine";
+import { CheckedWhen, RunningText } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
 import { UncoveredLine } from "./UncoveredLine";
 import { COUNT_IDLE_MS } from "./WordCount";
@@ -51,10 +51,14 @@ const NO_HEALTH: Health = {
   unsupported: [],
   contradicted: [],
   toCheck: [],
+  failed: [],
+  recheck: [],
+  checking: [],
+  kept: [],
   tableCells: [],
-  citable: [],
   noCitation: [],
   checkable: 0,
+  checkedAt: null,
 };
 
 /** A count's words with the number in bold, as the badge shows it: "**3** claims not checked yet". */
@@ -108,7 +112,6 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
             citationState(attributes, documents, kept).check,
           skipped,
           kept: keptSpans(editor.state),
-          writtenByAnswer: (blockId) => originOf(editor.state, blockId) !== null,
         }),
       );
     };
@@ -139,17 +142,20 @@ export function HealthCard({
   doc,
   mindId,
   health,
+  state,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   health: Health;
+  state: NoteState | null;
 }) {
   const t = useT();
   const language = useLanguage();
   const place = useCardPlace(mindId);
   const checkedAll = useMindCheckRun(doc);
   const unread = useCheckUnread(editor, doc);
+  const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   const asking = useMindCheck((state) => state.asking[mindId] !== undefined);
   const coverage = useEditorState({
     editor,
@@ -254,10 +260,22 @@ export function HealthCard({
   return (
     <>
       <AddedDocumentsLine doc={doc} mindId={mindId} />
+      {running && (
+        <div className="check-card-note">
+          <RunningText editor={editor} mindId={mindId} testId="card-progress" />
+        </div>
+      )}
       <div className="check-rows" data-testid="mind-health">
         {rows.map(row)}
         {health.noCitation.length > 0 && row("noCitation")}
       </div>
+      {health.kept.length > 0 && (
+        <p data-testid="health-kept" className="mind-health-line">
+          {t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
+            count: format(health.kept.length),
+          })}
+        </p>
+      )}
       {health.tableCells.length > 0 && (
         <p data-testid="health-table-cells" className="mind-health-line">
           {t("health.tableCells", { count: format(health.tableCells.length) })}
@@ -441,7 +459,11 @@ export function HealthCard({
                 : t(`checks.problem.${problem.kind}`)}
           </ProblemLine>
         )}
-      <UnreadFilesLine files={unread} testId="checks-unread" className="mind-unread" />
+      <UnreadFilesLine
+        files={unreadForCard(unread, narrowUnread, state)}
+        testId="checks-unread"
+        className="mind-unread"
+      />
     </>
   );
 }

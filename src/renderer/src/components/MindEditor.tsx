@@ -313,13 +313,18 @@ function MindEditorView({
   const cursorPlaced = useRef(false);
   const placeholder = useRef({ body: "", title: "" });
   placeholder.current = { body: t("editor.placeholder"), title: t("editor.title") };
-  // A Meeting's empty Mind waits for the agenda (as in Granola), with no Question to ask yet.
-  const isMeeting = useMeetingOf(mindId) !== undefined;
+  // A Meeting's empty Mind waits for the agenda (as in Granola), with no Question to ask yet; a
+  // voice memo's, for its note.
+  const meetingKind = useMeetingOf(mindId)?.kind;
   // The example Mind invites a Question of one's own at its end.
   const [explained, setExplained] = useState(mindExplained);
   const hintText = (place: HintPlace): HintText => {
-    if (place === "empty" && isMeeting) {
-      return { before: t("meetings.hint.agenda"), ask: "", after: "" };
+    if (place === "empty" && meetingKind) {
+      return {
+        before: t(meetingKind === "memo" ? "memos.hint" : "meetings.hint.agenda"),
+        ask: "",
+        after: "",
+      };
     }
     const key =
       place === "empty"

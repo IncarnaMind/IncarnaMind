@@ -297,6 +297,10 @@ _Avoid_: subscription key, membership
 A conversation the User records with the microphone and the computer's sound, which becomes a Transcript and the Notes written during it; the help panel beside it is Call help.
 _Avoid_: recording, session
 
+**Voice memo**:
+What the User records alone, with the microphone, to think out loud: recorded and transcribed as a Meeting is, without a call's parts (the computer's sound, Speakers, help during the call). After Stop, the speech is written into a Note as one change: a title line that names the Note, then that speech tidied into paragraphs in the User's own words, nothing added, each citing its time in the Transcript; with no model to tidy it, the Transcript as it is.
+_Avoid_: dictation, voice note, audio note, recording
+
 **Transcript**:
 The words of a Meeting, in order and with times, kept as a Document so that a Citation can point at it. Its Location is a range of time.
 _Avoid_: captions, subtitles, minutes
