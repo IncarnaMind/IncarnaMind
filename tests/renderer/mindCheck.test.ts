@@ -62,6 +62,15 @@ vi.mock("../../src/renderer/src/editor/editSelection", () => ({
 }));
 vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: () => null }));
 
+// The Note's last full watch, as the renderer reads it: a clean one unless a test says otherwise.
+const watchRecord = vi.hoisted(() => ({
+  current: null as null | { stop: { reason: string; resetsAt: string | null } | null },
+}));
+vi.mock("../../src/shared/contradictionWatch", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/shared/contradictionWatch")>()),
+  contradictionWatchOf: () => watchRecord.current,
+}));
+
 const plan: MindCheckPlan = {
   kind: "ready",
   sentences: 1,
@@ -87,6 +96,7 @@ beforeEach(async () => {
   bridge.estimateRun.mockResolvedValue(estimate);
   bridge.checkMind.mockResolvedValue({ kind: "cancelled" });
   bridge.checkContradictions.mockResolvedValue({ kind: "cancelled" });
+  watchRecord.current = { stop: null };
   const { useMindCheck } = await import("../../src/renderer/src/mindCheck");
   useMindCheck.setState({ asking: {}, unchanged: {} });
 });
@@ -196,14 +206,14 @@ describe("The one Check", () => {
     // One count: the sentences, not the sentences plus the Folder's cited claims.
     expect(useMindCheck.getState().asking.mind).toMatchObject({
       count: 1,
-      watch: true,
+      watch: { claims: 4 },
       inFolder: true,
     });
     // The estimate prices what the run sends: the sentence, and the cited sentence the watch adds.
     expect(bridge.estimateRun).toHaveBeenCalledWith({ items: 2, each: "check" });
   });
 
-  test("a small run of what changed asks nothing, and its cited sentence is watched after the claims", async () => {
+  test("when the last full watch was complete, a small run of what changed watches only its own cited sentence", async () => {
     bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 1 });
     bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
     bridge.checkMind.mockResolvedValue({
@@ -224,6 +234,43 @@ describe("The one Check", () => {
         to: { blockId: "block-1", offset: 8 },
       }),
     );
+    expect(bridge.checkContradictions).not.toHaveBeenCalled();
+  });
+
+  test("with no full watch recorded, the Check watches every cited sentence, as a check the User asked for does", async () => {
+    watchRecord.current = null;
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 1 });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
+    // Every cited sentence, through the run that writes the record, and none scoped.
+    expect(bridge.checkContradictions).toHaveBeenCalledOnce();
+    expect(bridge.checkSentences).not.toHaveBeenCalled();
+  });
+
+  test("when the last full watch stopped at the cap, the Check watches every cited sentence again", async () => {
+    watchRecord.current = { stop: { reason: "cost-cap", resetsAt: null } };
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 1 });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
+    expect(bridge.checkContradictions).toHaveBeenCalledOnce();
+    expect(bridge.checkSentences).not.toHaveBeenCalled();
   });
 
   test("a model failure in the sentences stops the contradictions too", async () => {
@@ -266,6 +313,7 @@ describe("The one Check", () => {
     await confirmCheck("mind");
     expect(bridge.checkMind).toHaveBeenCalledOnce();
     expect(bridge.checkSentences).not.toHaveBeenCalled();
+    expect(bridge.checkContradictions).not.toHaveBeenCalled();
   });
 });
 

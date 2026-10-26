@@ -4354,7 +4354,16 @@ export function createCore(adapters: CoreAdapters): Core {
         conversations: conversations.move(conversationIds, folderId),
       }));
       // Said once it is saved, so a move that rolled back says nothing.
-      if (move.minds.some((item) => item.from !== folderId)) mindsChanged();
+      const joined = move.minds.filter((item) => item.from !== folderId);
+      if (joined.length > 0) mindsChanged();
+      if (folderId !== null) {
+        // A Note or a Document that joined a Folder changes what its other Notes are checked
+        // against; a Document leaving one cannot add a contradiction, so it starts nothing.
+        for (const item of joined) checks.mindJoinedFolder(item.id);
+        if (move.documents.some((item) => item.from !== folderId)) {
+          checks.folderContentsChanged(folderId);
+        }
+      }
       if (move.conversations.some((item) => item.from !== folderId)) conversationsChanged();
       library.moved(move.documents.map((item) => item.id));
       return move;

@@ -5408,8 +5408,11 @@ export type CheckContradictionsResult =
 export interface ContradictionWatchRun extends ContradictionCheckOutcome {
   /** When it finished. ISO 8601, UTC. */
   at: string;
-  /** The Document whose new version started it, by name. */
-  documentName: string;
+  /**
+   * The Document whose new version started it, by name; null when a Document
+   * joining the Folder, the Mind joining it, or an on-demand check started it.
+   */
+  documentName: string | null;
 }
 
 /**

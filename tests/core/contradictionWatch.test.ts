@@ -516,3 +516,125 @@ describe("A new version of a Document in the Folder", { timeout: 30_000 }, () =>
     expect(contradictionWatchOf(client.doc)).toBeNull();
   });
 });
+
+describe("A Folder's contents changed", { timeout: 30_000 }, () => {
+  test("a Note that joins the Folder is watched, and its record names no Document", async () => {
+    const { core, tides, folder } = await setUp();
+    const { mind, client } = await mindCiting(core, tides, null);
+    expect(contradictionWatchOf(client.doc)).toBeNull();
+
+    await core.moveToFolder({ mindIds: [mind.id], folderId: folder.id });
+
+    await vi.waitFor(
+      () =>
+        expect(contradictionWatchOf(client.doc)).toMatchObject({
+          documentName: null,
+          claims: 2,
+          checked: 2,
+          contradicted: 1,
+          stop: null,
+        }),
+      { timeout: 10_000 },
+    );
+    expect((await shownChecks(core, client, folder.id)).map((each) => each.shown)).toEqual([
+      { state: "contradicted" },
+    ]);
+  });
+
+  test("a Document filed into the Folder has its Notes watched", async () => {
+    const { core, tides, folder } = await setUp({ office: QUIET_OFFICE });
+    const { mind, client } = await mindCiting(core, tides, folder.id);
+    // A full watch the User asked for writes the record too, with no Document to name.
+    expect(await core.checkContradictions({ requestId: "asked", mindId: mind.id })).toMatchObject({
+      kind: "checked",
+      contradicted: 0,
+    });
+    expect(contradictionWatchOf(client.doc)).toMatchObject({
+      documentName: null,
+      claims: 2,
+      contradicted: 0,
+    });
+
+    const sources = await createTempDataFolder();
+    const [filed] = (await addAndProcess(core, [
+      await writeSourceFile(sources, OFFICE.name, OFFICE.contents),
+    ])) as [Document];
+    await core.moveToFolder({ documentIds: [filed.id], folderId: folder.id });
+
+    await vi.waitFor(
+      () =>
+        expect(contradictionWatchOf(client.doc)).toMatchObject({
+          documentName: null,
+          checked: 2,
+          contradicted: 1,
+        }),
+      { timeout: 10_000 },
+    );
+    expect((await shownChecks(core, client, folder.id)).map((each) => each.shown)).toEqual([
+      { state: "contradicted" },
+    ]);
+  });
+
+  test("a background watch stopped by the spending cap records the stop", async () => {
+    const calls: ModelCall[] = [];
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: () => checkingModel(PLANS, calls),
+      contradictionWatch: { delayMs: 0 },
+    });
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+      apiKey: "sk-test",
+    });
+    if (!provider.service) throw new Error("Anthropic is a service.");
+    await core.allowDataFlow("checks", provider.service.id);
+    await core.updateSettings({ user: { monthlyCap: { amount: 0.000001, currency: "USD" } } });
+    const sources = await createTempDataFolder();
+    const [tides, office] = (await addAndProcess(core, [
+      await writeSourceFile(sources, TIDES.name, TIDES.contents),
+      await writeSourceFile(sources, OFFICE.name, QUIET_OFFICE),
+    ])) as [Document, Document];
+    const folder = await core.createLibraryGroup({ name: "Harbours", description: "" });
+    await core.moveToFolder({ documentIds: [tides.id, office.id], folderId: folder.id });
+    const { client } = await mindCiting(core, tides, folder.id);
+
+    await writeFile(office.path, OFFICE.contents);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [office.id]);
+
+    await vi.waitFor(
+      () =>
+        expect(contradictionWatchOf(client.doc)).toMatchObject({
+          documentName: "Harbour office",
+          claims: 2,
+          checked: 0,
+          stop: { reason: "cost-cap" },
+        }),
+      { timeout: 10_000 },
+    );
+  });
+
+  test("a Document leaving the Folder starts no watch, and a mark that rests on it needs a re-check", async () => {
+    const { core, tides, office, folder } = await setUp();
+    const { mind, client } = await mindCiting(core, tides, folder.id);
+    expect(await core.checkContradictions({ requestId: "asked", mindId: mind.id })).toMatchObject({
+      kind: "checked",
+      contradicted: 1,
+    });
+    const before = contradictionWatchOf(client.doc)?.at;
+    expect(before).toBeTruthy();
+
+    // Out of the Folder: it can add no contradiction there, so nothing is watched.
+    await core.moveToFolder({ documentIds: [office.id], folderId: null });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(contradictionWatchOf(client.doc)?.at).toBe(before);
+
+    // Deleted: #96's rule, a mark whose evidence is gone needs a re-check.
+    await core.deleteDocument(office.id);
+    expect((await shownChecks(core, client, folder.id))[0]?.shown).toEqual({
+      state: "needs-recheck",
+      why: "document-removed",
+    });
+  });
+});

@@ -1,8 +1,13 @@
 /**
- * The last check for contradictions a new version of a Document started in a
- * Mind (#112), in the Mind's Yjs settings like its model (`mindModel.ts`), so
- * the line under its title can say what it found and cost, wherever the Mind
- * is open. Not content: an older version leaves it as it is.
+ * The last check for contradictions in a Mind (#112): what a full watch of its
+ * cited sentences found and cost, kept in the Mind's Yjs settings like its
+ * model (`mindModel.ts`). A full watch is the background run a Folder's change
+ * starts, and a run the User asked for; a scoped watch of a few sentences
+ * writes nothing. `documentName` names the Document whose new version started
+ * it, so the card can say "After X changed"; null when a Document joining the
+ * Folder, the Mind joining it, or an on-demand run started it. Not content: an
+ * older version leaves it as it is, and reads a run with no Document as one
+ * with an unnamed Document.
  */
 import type * as Y from "yjs";
 import {
@@ -42,13 +47,13 @@ export function stopOf(value: unknown): RunStop | null {
   return null;
 }
 
-/** The last run a new version started, or null for none (or one this version can't read). */
+/** The last full watch, or null for none (or one this version can't read). */
 export function readContradictionWatch(settings: Y.Map<unknown>): ContradictionWatchRun | null {
   const value = settings.get(KEY);
   if (!isRecord(value) || typeof value.at !== "string") return null;
   return {
     at: value.at,
-    documentName: typeof value.documentName === "string" ? value.documentName : "",
+    documentName: typeof value.documentName === "string" ? value.documentName : null,
     claims: count(value.claims),
     checked: count(value.checked),
     contradicted: count(value.contradicted),
@@ -62,8 +67,10 @@ export const contradictionWatchOf = (doc: Y.Doc): ContradictionWatchRun | null =
   readContradictionWatch(doc.getMap(MIND_SETTINGS_FIELD));
 
 export function writeContradictionWatch(settings: Y.Map<unknown>, run: ContradictionWatchRun) {
+  const { documentName, ...rest } = run;
   settings.set(KEY, {
-    ...run,
+    ...rest,
+    ...(documentName !== null && { documentName }),
     cost: run.cost && { ...run.cost },
     stop: run.stop && { ...run.stop },
   });

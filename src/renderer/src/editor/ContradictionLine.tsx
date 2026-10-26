@@ -24,12 +24,14 @@ export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string 
   const shown = useContradictionLine(doc, mindId);
   const outcome = (run: ContradictionCheckOutcome) => contradictionOutcomeParts(run, t, language);
 
-  if (shown?.kind === "watched") {
+  // Only a Document's new version says "After X changed": a run a Folder's other changes or the
+  // User started has no Document to name, and its marks are the result (#1941).
+  if (shown?.kind === "watched" && shown.run.documentName !== null) {
     const watched = shown.run;
     const [first = "", ...rest] = outcome(watched);
     const cost = watched.cost ? [formatMoney(watched.cost, language)] : [];
     const after = saidInLine(t, (t) =>
-      t("contradictions.after", { document: watched.documentName, result: first }),
+      t("contradictions.after", { document: watched.documentName ?? "", result: first }),
     );
     return (
       <>

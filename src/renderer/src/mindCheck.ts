@@ -22,6 +22,7 @@ import type {
   MindCheckRun,
   TextStretch,
 } from "../../core/api";
+import { contradictionWatchOf } from "../../shared/contradictionWatch";
 import { mindCheckOf, observeMindCheck } from "../../shared/mindCheck";
 import { isClaim } from "../../shared/sentences";
 import {
@@ -34,7 +35,7 @@ import {
   useChecks,
   withCheckAll,
 } from "./checks";
-import { dismissContradictions, watchSentencesNow } from "./contradictions";
+import { checkContradictionsNow, dismissContradictions, watchSentencesNow } from "./contradictions";
 import { core } from "./core";
 import { type EstimateLine, estimateLine } from "./cost";
 import { selectionForEdit } from "./editor/editSelection";
@@ -60,8 +61,8 @@ interface Asking {
   count: number;
   /** Checked against the Note's Folder: the question names it. */
   inFolder: boolean;
-  /** The Note's Folder holds other Documents, which its cited sentences are checked against too. */
-  watch: boolean;
+  /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
+  watch: { claims: number } | null;
   /** Null for a plan or a model on this computer, or when `estimateRun` failed. */
   estimate: EstimateLine | null;
   /** `estimateRun` failed: the ask says the cost couldn't be estimated. */
@@ -72,8 +73,8 @@ interface Asking {
 interface CheckToRun {
   mode: CheckMindMode;
   allDocuments: boolean;
-  /** The Note is in a Folder with other Documents: its cited sentences are checked against them too. */
-  watch: boolean;
+  /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
+  watch: { claims: number } | null;
 }
 
 /** A run that only checks again asks first, with the estimate, when it checks this many or more. */
@@ -203,8 +204,8 @@ export interface Planned {
   mode: CheckMindMode;
   allDocuments: boolean;
   plan: MindCheckPlan;
-  /** The Note is in a Folder with other Documents: its cited sentences are checked against them too. */
-  watch: boolean;
+  /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
+  watch: { claims: number } | null;
 }
 
 /** Shows the Note, plans the run, and says in place if it can't. */
@@ -232,7 +233,7 @@ export function startMindCheck(
       mode,
       allDocuments,
       plan: await core.planMindCheck(mindId, mode, allDocuments),
-      watch: false,
+      watch: null,
     }),
   );
 }
@@ -255,7 +256,26 @@ export async function planCheckThisMind(mindId: string): Promise<Planned> {
     }
   }
   const watch = await core.planContradictionCheck(mindId);
-  return { mode, allDocuments: false, plan, watch: watch.kind === "ready" };
+  return {
+    mode,
+    allDocuments: false,
+    plan,
+    watch: watch.kind === "ready" ? { claims: watch.claims } : null,
+  };
+}
+
+/**
+ * Whether the Note's cited sentences were never all watched, or the last full
+ * watch stopped early (#1941): the cases a watch of only the sentences it is
+ * checking would leave a stale Supported in. Without a Note to read the scope
+ * from, every cited sentence is read: a full watch needs no editor.
+ */
+async function fullWatchNeeded(mindId: string, watch: { claims: number }): Promise<boolean> {
+  const editor = mindEditor(mindId) ?? (await whenMindEditor(mindId, OPEN_WAIT_MS));
+  const doc = editor && editorDoc(editor);
+  if (!editor || editor.isDestroyed || !doc || watch.claims === 0) return true;
+  const record = contradictionWatchOf(doc);
+  return record === null || record.stop !== null;
 }
 
 /** The one Check: everything the Note can be checked for, in one press. */
@@ -284,13 +304,17 @@ async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
   // yet, and a second press during that wait must find the run already on (#1941).
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
   try {
+    const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
     // Read before the run: the marks it writes cover every sentence it checks.
-    const toCheck = run.watch ? await readSentencesToCheck(mindId) : null;
+    const toCheck = run.watch !== null && !full ? await readSentencesToCheck(mindId) : null;
     const stopped = endsCheck(await checkMindNow(mindId, run.mode, run.allDocuments, requestId));
-    if (!stopped && toCheck && toCheck.cited.length > 0) {
+    if (!stopped && run.watch !== null) {
       const watchRequest = crypto.randomUUID();
       setCheckRunning(mindId, { requestId: watchRequest, action: "contradiction-watch" });
-      await watchSentencesNow(mindId, watchRequest, toCheck.cited, toCheck.model);
+      if (full) await checkContradictionsNow(mindId, watchRequest);
+      else if (toCheck && toCheck.cited.length > 0) {
+        await watchSentencesNow(mindId, watchRequest, toCheck.cited, toCheck.model);
+      }
     }
   } finally {
     setCheckRunning(mindId, null);
@@ -324,7 +348,13 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
   }
   dismissMindCheck(mindId);
   dismissCheckProblem(mindId);
-  const extra = run.watch ? ((await readSentencesToCheck(mindId))?.count ?? 0) : 0;
+  const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
+  const extra =
+    run.watch === null
+      ? 0
+      : full
+        ? run.watch.claims
+        : ((await readSentencesToCheck(mindId))?.count ?? 0);
   const estimated = await core
     .estimateRun({
       items: plan.sentences + extra,
