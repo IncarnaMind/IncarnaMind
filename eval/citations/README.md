@@ -18,7 +18,7 @@ is fixed and a run says which version it answered.
 
 ## The Documents
 
-Twelve Documents in English and Chinese, 481 pages. Six are the real Documents #2019 added to
+Twelve Documents in English and Chinese, 435 pages. Six are the real Documents #2019 added to
 `data/real`, referenced from there and not copied; six are added for this set in `documents/`. Each
 is a text PDF that the app reads; the one page without a text layer, a CIA Reading Room scan, is part
 of the library and no gold quote cites it.
@@ -36,7 +36,7 @@ of the library and no gold quote cites it.
 | `nbs-communique-2024` | `documents/中华人民共和国2024年国民经济和社会发展统计公报.pdf` | 34 | zh | https://www.stats.gov.cn/sj/zxfb/202502/t20250228_1958817.html | Copyright Law of the PRC, article 5 (2026-10-26) | `9c204863ab9362e68db5023f464b0f72db934a16258022c18a0c753d4fbe1ccd` |
 | `nbs-gdp-revision` | `documents/国家统计局关于修订2023年国内生产总值数据的公告.pdf` | 1 | zh | https://www.stats.gov.cn/xxgk/sjfb/zxfb2020/202412/t20241227_1957915.html | Copyright Law of the PRC, article 5 (2026-10-26) | `8d0d9d9a390e42470155dc2bcb0f47265f0e159ca85f3d05b5641f1ae357f5c4` |
 | `cern-soil-elements` | `documents/1995-2011年CERN土壤环境元素含量数据集.pdf` | 16 | zh | https://doi.org/10.11922/csdata.170.2016.0102 (file: https://www.chinaflux.org/upload/accessory/20195/2019571530435901963.pdf) | CC BY 4.0 (2026-10-26) | `5c6c3cb9bfd4c30cf39cf5997b5e79a29bc8f904a76d79a8ba3c317b0293a24a` |
-| `federal-reserve-statements-2023` | `documents/Federal Reserve Banks Combined Financial Statements 2023.pdf` | 66 | en | https://www.federalreserve.gov/aboutthefed/files/combinedfinstmt2023.pdf | US federal public domain, 17 U.S.C. 105 (2026-10-26) | `ef2e222446c28e78021854b1c335bd2d34a52887eb0ac7aaa014ab8ed078f460` |
+| `treasury-financial-statements-2023` | `documents/Treasury Financial Statements of the United States Government FY2023.pdf` | 20 | en | https://fiscal.treasury.gov/system/files/files/reports-statements/financial-report/2023/financial-statements-2023.pdf | US federal public domain, 17 U.S.C. 105 (2026-10-26) | `aa8e8d0eb839c0ac2cfdb5db3716f7c2baa84dfc193d3af434df3dbaa8278a19` |
 
 Retrieved 2026-10-26. The six `data/real/` Documents are recorded in full in
 [`data/README.md`](../../data/README.md); that file holds the same SHA-256 values, and
@@ -54,11 +54,12 @@ is the Document.
 | `national-risk-register` | "This publication is licensed under the terms of the Open Government Licence v3.0 except where otherwise stated." (its last page) |
 | `nbs-communique-2023`, `nbs-communique-2024`, `nbs-gdp-revision` | "本法不适用于：……（一）法律、法规，国家机关的决议、决定、命令和其他具有立法、行政、司法性质的文件，及其官方正式译文。" (Copyright Law of the PRC, article 5: official documents of state organs are not protected.) |
 | `guiding-case-2` | The same article: an official judicial document of a state organ. |
-| `fomc-minutes-1950`, `scotus-biden-nebraska`, `federal-reserve-statements-2023`, `cia-reading-room-scan` | "Copyright protection under this title is not available for any work of the United States Government." (17 U.S.C. 105); the Federal Reserve Board adds: "Unless otherwise indicated, information on Board's website is in the public domain and may be copied and distributed without permission." |
+| `fomc-minutes-1950`, `scotus-biden-nebraska`, `cia-reading-room-scan` | "Copyright protection under this title is not available for any work of the United States Government." (17 U.S.C. 105); the Federal Reserve Board adds, for the minutes: "Unless otherwise indicated, information on Board's website is in the public domain and may be copied and distributed without permission." |
+| `treasury-financial-statements-2023` | "Copyright protection under this title is not available for any work of the United States Government." (17 U.S.C. 105). The Treasury, an executive department, publishes these statements in the Financial Report of the United States Government. |
 | `cern-soil-elements` | The DOAJ record for the journal, 中国科学数据 (ISSN 2096-2223), gives its licence as "CC BY" with https://creativecommons.org/licenses/by/4.0/ (https://doaj.org/api/search/journals/issn%3A2096-2223); the journal publishes its data papers under CC BY 4.0. |
 
-There are no company filings, whose copyright is often unclear: the Federal Reserve Banks' combined
-financial statements stand in for a filing.
+There are no company filings, whose copyright is often unclear: the Treasury's financial statements
+stand in for a filing.
 
 ### The pairs that disagree
 
@@ -74,8 +75,8 @@ financial statements stand in for a filing.
 ## The Questions
 
 150 Questions: 75 asked in English and 75 in Simplified Chinese, 15 of them cross-lingual (9 asked in
-English about Chinese Documents, 6 asked in Chinese about English Documents). They hold 198 gold
-quotes, 170 figures and 10 decoys.
+English about Chinese Documents, 6 asked in Chinese about English Documents). They hold 196 gold
+quotes, 175 figures and 10 decoys.
 
 | Kind | Count | What it tests |
 |---|---|---|
@@ -93,12 +94,12 @@ One Question per line in `questions.jsonl`:
 
 ```json
 {"id":"en-014","kind":"table-figure","language":"en","crossLingual":false,
- "about":["federal-reserve-statements-2023"],
- "question":"What were the Reserve Banks' total assets at December 31, 2023?",
- "answer":"$7,835,559 million.",
- "quotes":[{"document":"federal-reserve-statements-2023","pages":[6,6],
-            "quote":"Total assets $ 7,835,559 $ 8,569,354"}],
- "figures":[{"value":7835559,"unit":"millions of dollars","tolerance":0.5}],
+ "about":["treasury-financial-statements-2023"],
+ "question":"In the FY 2023 Statement of Net Cost, what gross cost does the Department of Health and Human Services report?",
+ "answer":"$1,875.6 billion.",
+ "quotes":[{"document":"treasury-financial-statements-2023","pages":[8,8],
+            "quote":"Department of Health and Human Services 1,875.6 161.2 1,714.4 (0.3) 1,714.1"}],
+ "figures":[{"value":1875.6,"unit":"billions of dollars","tolerance":0.05}],
  "checked":"2026-10-26"}
 ```
 
@@ -110,7 +111,7 @@ One Question per line in `questions.jsonl`:
 - `figures`: each with its value, unit and the rounding the source shows (its tolerance).
 - `decoy` (a `superseded` Question only): the superseded figure, with its own Document, Location and
   quote, which a right answer must not give.
-- `checked`: the day an independent second reader checked this answer against the page text. It
+- `checked`: the day independent model passes checked this answer against the page text. It
   records when, never who.
 
 Answers are written from the Documents in the language the Question is asked in; a Chinese Document
@@ -128,7 +129,7 @@ Two checks, both recorded in the set:
    cited Location, it is there verbatim after the app's normalisation, and it is on no other Unit of
    its Document. It also checks every decoy the same way, that every table-figure or superseded
    figure is written in one of its quotes (a calculated answer's result is checked against the
-   arithmetic by the second reader, not by the script), and the set's shape: 150 Questions, the counts above, 75 in each
+   arithmetic by the independent model passes, not by the script), and the set's shape: 150 Questions, the counts above, 75 in each
    language, 15 cross-lingual, and a `checked` day on every Question. `tests/eval/citationsSet.test.ts`
    runs it with `npm test`, so a quote or a hash that drifts fails CI.
 
@@ -136,12 +137,16 @@ Two checks, both recorded in the set:
    npx vitest run tests/eval/citationsSet.test.ts
    ```
 
-2. **A second reader, on every answer.** Every answer was checked against the page text by an
-   independent reader who did not write it: that each quote is on its page, that the answer's
-   figures, units, years and attribution match the text, that arithmetic holds, that a `conflict`
-   answer names both Documents' values, that a `superseded` answer gives the current figure and not
-   the decoy, and that an `absent` Question really is unanswered by the library. A Question whose
-   answer did not pass was corrected and checked again; `checked` records the day it passed.
+2. **Independent model passes, on every answer.** The gold answers were written for this set from
+   the Documents, then every answer was checked against the page text by independent model passes
+   that did not write it: that each quote is on its page, that the answer's figures, units, years and
+   attribution match the text, that arithmetic holds, that a `conflict` answer names both Documents'
+   values, that a `superseded` answer gives the current figure and not the decoy, and that an
+   `absent` Question really is unanswered by the library. A Question whose answer did not pass was
+   corrected and checked again; `checked` records the day it passed. No person has checked the
+   answers by hand. Before the set freezes, a random sample of 30 Questions, stratified by kind and
+   language, may be checked by hand; if that happens, this section will say so, and the sample will
+   be recorded here.
 
 ## Licence
 

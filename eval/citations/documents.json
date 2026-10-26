@@ -163,18 +163,18 @@
       "sha256": "5c6c3cb9bfd4c30cf39cf5997b5e79a29bc8f904a76d79a8ba3c317b0293a24a"
     },
     {
-      "key": "federal-reserve-statements-2023",
-      "title": "Federal Reserve Banks: Combined Financial Statements as of and for the Years Ended December 31, 2023 and 2022, and Independent Auditors' Report",
-      "publisher": "Board of Governors of the Federal Reserve System",
+      "key": "treasury-financial-statements-2023",
+      "title": "Financial Statements of the United States Government for the Fiscal Years Ended September 30, 2023, and 2022",
+      "publisher": "U.S. Department of the Treasury, Bureau of the Fiscal Service (Financial Report of the United States Government, FY 2023)",
       "language": "en",
-      "path": "eval/citations/documents/Federal Reserve Banks Combined Financial Statements 2023.pdf",
-      "pages": 66,
-      "source": "https://www.federalreserve.gov/aboutthefed/files/combinedfinstmt2023.pdf",
+      "path": "eval/citations/documents/Treasury Financial Statements of the United States Government FY2023.pdf",
+      "pages": 20,
+      "source": "https://fiscal.treasury.gov/system/files/files/reports-statements/financial-report/2023/financial-statements-2023.pdf",
       "licence": "US federal public domain, 17 U.S.C. 105",
       "licenceRead": "2026-10-26",
       "retrieved": "2026-10-26",
-      "basis": "\"Unless otherwise indicated, information on Board's website is in the public domain and may be copied and distributed without permission. Please cite to the Board as the source of the information.\" (the Board's disclaimer)",
-      "sha256": "ef2e222446c28e78021854b1c335bd2d34a52887eb0ac7aaa014ab8ed078f460"
+      "basis": "\"Copyright protection under this title is not available for any work of the United States Government.\" (17 U.S.C. 105). The Treasury, an executive department, publishes these statements in the Financial Report of the United States Government.",
+      "sha256": "aa8e8d0eb839c0ac2cfdb5db3716f7c2baa84dfc193d3af434df3dbaa8278a19"
     }
   ],
   "freezesOn": "2026-12-15"
