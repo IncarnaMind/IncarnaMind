@@ -29,6 +29,21 @@ describe("Remote Connector keys and older connections", () => {
     "one planted value stays out of preview, bridge events, logs, usage, exports, crash reports and all sync metadata (structured: %s)",
     async (structured) => {
       const secret = structured ? `${planted()}"\\` : planted();
+      const forms = [secret, JSON.stringify(secret).slice(1, -1), encodeURIComponent(secret)];
+      const hasSecret = (value: unknown): boolean => {
+        if (typeof value === "string") return forms.some((form) => value.includes(form));
+        if (value instanceof Error) return hasSecret([value.message, value.stack, value.cause]);
+        if (Array.isArray(value)) return value.some(hasSecret);
+        if (value !== null && typeof value === "object") {
+          return Object.entries(value).some(([name, item]) => hasSecret(name) || hasSecret(item));
+        }
+        return false;
+      };
+      for (const form of forms) {
+        expect(hasSecret({ value: form })).toBe(true);
+        expect(hasSecret({ [form]: 0 })).toBe(true);
+        expect(hasSecret(new Error(form))).toBe(true);
+      }
       const server = await startHeaderMcp({
         header: "X-Key",
         value: secret,
@@ -103,7 +118,7 @@ describe("Remote Connector keys and older connections", () => {
       );
       for (const { name } of tables)
         outputs.push(queryDatabase(dataDir, `SELECT * FROM "${name}"`));
-      expect(JSON.stringify(outputs).includes(secret)).toBe(false);
+      expect(hasSecret(outputs)).toBe(false);
       expect(outputs.length).toBeGreaterThan(tables.length);
     },
   );
