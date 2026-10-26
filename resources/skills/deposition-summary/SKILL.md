@@ -37,7 +37,7 @@ Start with a heading naming the deponent, the date and the matter, then two or t
 
 1. **The topic**: a heading that names it.
 2. **The points**: what the witness said on it, in the witness's words where the exact words matter. Give each point the transcript's page and line as the transcript numbers them, in the language of the Question, in the form the Question uses: "p. 42, ll. 3–7" or "第 42 页第 3–7 行". The transcript's page need not be the page the Citation itself shows: the Citation only has to point at the Passage that holds the quoted words.
-3. **Conflicts**: where the testimony conflicts with itself or with a Document shown to the witness, give both places with their page and line and Cite both.
+3. **Conflicts**: where the testimony conflicts with itself or with a Document shown to the witness, give both places with their page and line and cite both.
 
 Keep the testimony as testimony: report what the witness said, not what it proves, and don't decide the issue. Never give a page or line the transcript doesn't show, and never paraphrase so as to change what was said. If the transcript doesn't cover a topic the Question assumes, say so plainly.
 

@@ -38,7 +38,7 @@ Start with a heading naming the company and the quarter, then a short summary of
 2. **Against the prior period**: each figure beside the prior period's, with the change in amount and percent. Say "calculated from" and cite both figures when you calculate a change the Document doesn't give.
 3. **Against guidance**: each measure the company guided, what it guided, what it delivered, and whether that is in line, above or below. Give a change to guidance, and the date it was given, where the Documents show one.
 4. **What drove it**: the reasons the Documents give for the changes, as the Documents state them.
-5. **What to watch**: the risks or next steps the Documents name; anything of your own goes after them, clearly labelled as your own assessment and without a Citation.
+5. **What to watch**: the risks and next steps the Documents name, each cited.
 
 Don't compare measures with different definitions without saying so. A figure the Documents don't give is left out, not estimated: say plainly that it isn't in the Documents.
 

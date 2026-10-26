@@ -3073,7 +3073,7 @@ export const zhCN = {
   "skills.settings.builtIn": "内置",
   // The Built-in Skills, as Settings and the slash menu describe them; their SKILL.md, which Answers read, stays as written.
   "skills.builtIn.chronology.title": "事件时间线",
-  "skills.builtIn.cim-red-flags.title": "保密信息备忘录红旗",
+  "skills.builtIn.cim-red-flags.title": "信息备忘录疑点核查",
   "skills.builtIn.covenant-summary.title": "财务约定摘要",
   "skills.builtIn.credit-memo-outline.title": "授信报告提纲",
   "skills.builtIn.deposition-summary.title": "证词摘要",
