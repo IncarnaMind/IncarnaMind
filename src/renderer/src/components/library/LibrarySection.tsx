@@ -4,6 +4,7 @@ import type {
   Document,
   LibraryGroup,
   LibrarySettings,
+  TaggingClassifier,
   TaggingModelOption,
 } from "../../../../core/api";
 import { organizeModelOf } from "../../../../shared/libraryModels";
@@ -28,6 +29,7 @@ import { DetailsLine } from "../DetailsLine";
 import { InlineName } from "../InlineName";
 import { FolderLineIcon } from "../lineIcons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
+import { NeedsModelCard } from "../providers/NeedsModelCard";
 import { rowActionButtonClass } from "../sidebarRows";
 import { providerOf } from "../TaggingSettings";
 import { FolderForm } from "./FolderForm";
@@ -82,7 +84,7 @@ export function LibrarySection({
       ) : (
         <LooseHead documents={documents} open={open} />
       )}
-      {!section.folder && <OrganizeNeedsModel documents={documents} />}
+      {!section.folder && <OrganizeNeedsModel />}
       {open &&
         listed.map((doc) => (
           <LibraryRow
@@ -351,20 +353,21 @@ function Organize({ documents }: { documents: readonly Document[] }) {
 }
 
 /**
- * Organize with no model chosen (#763): a row under Not in a Folder's head
- * says so where it was asked, with the way on: the model Automatic tags with,
- * saying what would be sent to its company, or one on this computer. The
- * answer is kept, so Organize asks once.
+ * Organize with no model chosen (#763): a row under Not in a Folder's head says so where it was
+ * asked. With no AI model at all, first run's key field is offered in place (#1922); once one
+ * works, the model Automatic sorts with, saying what would go to its company. The answer is
+ * kept, so Organize asks once.
  */
-function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
+function OrganizeNeedsModel() {
   const t = useT();
   const language = useLanguage();
   const ids = useOrganizeAsk((state) => state.ids);
   const hasModel = useAppStore((state) => organizeHasModel(state.library?.settings));
+  const ready = useAppStore((state) => state.chatReadiness?.ready === true);
   const [automatic, setAutomatic] = useState<TaggingModelOption | null>(null);
   const asked = ids !== null && !hasModel;
   useEffect(() => {
-    if (!asked) return;
+    if (!asked || !ready) return;
     let current = true;
     const load = () =>
       core.getTaggingModels().then(
@@ -379,31 +382,62 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
       current = false;
       stop();
     };
-  }, [asked]);
+  }, [asked, ready]);
   if (!asked) return null;
-  const company = automatic && (providerOf(automatic, language) ?? t("providers.kind.ollama"));
   const close = () => useOrganizeAsk.getState().close();
-  const use = () => {
+  const use = async (classifier: TaggingClassifier) => {
     const settings = useAppStore.getState().library?.settings;
-    if (!automatic || !settings) return;
+    if (!settings || ids === null) return;
     // Saving the model sets the waiting Documents going, so what Undo goes back to is read first.
-    const before = new Map(
+    const undoing = new Map(
       (useAppStore.getState().library?.assignments ?? [])
         .filter((item) => ids.includes(item.documentId))
         .map((item) => [item.documentId, item]),
     );
-    core
-      .saveLibrarySettings({ ...settings, organizeWith: automatic.classifier })
-      .then(() => useAppStore.getState().refreshLibrary())
-      .then(() => {
-        close();
-        return core
-          .classifyDocuments([...ids])
-          .then(() => useAppStore.getState().refreshLibrary())
-          .then(() => sayWhenOrganized(ids, before));
-      })
-      .catch(useAppStore.getState().reportError);
+    try {
+      await core.saveLibrarySettings({ ...settings, organizeWith: classifier });
+      await useAppStore.getState().refreshLibrary();
+      close();
+      await core.classifyDocuments([...ids]);
+      await useAppStore.getState().refreshLibrary();
+      await sayWhenOrganized(ids, undoing);
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+    }
   };
+  const dismiss = (
+    <button
+      type="button"
+      data-testid="library-organize-dismiss"
+      onClick={close}
+      className={`self-start ${quietButtonClass}`}
+    >
+      {t("library.organize.dismiss")}
+    </button>
+  );
+  if (!ready) {
+    return (
+      <div
+        role="status"
+        data-testid="library-organize-needs-model"
+        className="flex flex-col gap-1 border-b border-rule py-2 pl-14 text-[13px] leading-5 text-ink-meta"
+      >
+        <NeedsModelCard
+          line="needsModel.organize"
+          testId="library-organize-key"
+          onDone={() => {
+            // The key saved, Organize goes on with the model it now reaches (#1922).
+            void core.getTaggingModels().then(
+              (models) => models.automatic && use(models.automatic.classifier),
+              (error: unknown) => useAppStore.getState().reportError(error),
+            );
+          }}
+        />
+        {dismiss}
+      </div>
+    );
+  }
+  const company = automatic && (providerOf(automatic, language) ?? t("providers.kind.ollama"));
   return (
     <div
       role="status"
@@ -420,11 +454,11 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
         </DetailsLine>
       )}
       <p className="flex flex-wrap gap-x-4">
-        {company && (
+        {automatic && company && (
           <button
             type="button"
             data-testid="library-organize-use"
-            onClick={use}
+            onClick={() => void use(automatic.classifier)}
             className={quietButtonClass}
           >
             {t("library.organize.use", { company })}
@@ -441,14 +475,7 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
         >
           {t("library.organize.setUp")}
         </button>
-        <button
-          type="button"
-          data-testid="library-organize-dismiss"
-          onClick={close}
-          className={quietButtonClass}
-        >
-          {t("library.organize.dismiss")}
-        </button>
+        {dismiss}
       </p>
     </div>
   );

@@ -26,6 +26,7 @@ import { useAppStore } from "../store";
 import { ChevronDownLineIcon, PlusLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
 import { ReadinessLine } from "./providers/ChatReadinessNotice";
+import { NeedsModelCard } from "./providers/NeedsModelCard";
 import { buttonStyle, menuClass, menuItemClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
@@ -372,12 +373,21 @@ export function CompareSheet({
       />
       {problem &&
         (problem.reason === "not-ready" ? (
-          <ReadinessLine
-            readiness={problem.readiness}
-            testId="compare-sheet-not-ready"
-            className="compare-sheet-problem"
-            setUpLabel={t("question.setUp")}
-          />
+          problem.readiness.reason === "no-provider" ? (
+            <NeedsModelCard
+              line="needsModel.compare"
+              testId="compare-sheet-needs-model"
+              className="compare-sheet-problem"
+              onDone={() => void requestMake()}
+            />
+          ) : (
+            <ReadinessLine
+              readiness={problem.readiness}
+              testId="compare-sheet-not-ready"
+              className="compare-sheet-problem"
+              setUpLabel={t("question.setUp")}
+            />
+          )
         ) : (
           <ProblemLine testId="compare-sheet-not-sent" className="compare-sheet-problem">
             {t("answer.error.consent-declined")}

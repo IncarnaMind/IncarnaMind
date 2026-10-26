@@ -233,6 +233,15 @@ export function refusal(
       statusCode: 401,
     });
   }
+  // A key on an account with nothing left in it, as OpenAI's billing refusal comes (#1922).
+  if (spec.apiKey?.includes("no credit")) {
+    return new APICallError({
+      message: "You exceeded your current quota, please check your plan and billing details.",
+      url: "https://fake.invalid/chat",
+      requestBodyValues: {},
+      statusCode: 402,
+    });
+  }
   if (!spec.modelId.endsWith("-no-tools")) return null;
   const asked =
     (options.tools?.length ?? 0) > 0

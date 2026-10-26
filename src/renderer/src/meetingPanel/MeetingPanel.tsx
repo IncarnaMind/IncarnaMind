@@ -26,6 +26,7 @@ import { LevelBars } from "../components/meetings/LevelBars";
 import { MicrophoneButton } from "../components/meetings/MicrophoneButton";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessExplanation } from "../components/providers/ChatReadinessNotice";
+import { NeedsModelCard } from "../components/providers/NeedsModelCard";
 import { core } from "../core";
 import { errorMessage } from "../errors";
 import { translateNow, useT } from "../i18n";
@@ -372,17 +373,23 @@ function Latest({
     return (
       <div className="panel-suggestion">
         {"readiness" in blocked ? (
-          <p data-testid="help-set-up" className="panel-line">
-            {blocked.readiness.reason === "no-provider" ? (
-              t("meetings.help.setUp")
-            ) : (
+          blocked.readiness.reason === "no-provider" ? (
+            <NeedsModelCard
+              line="needsModel.help"
+              testId="help-needs-model"
+              className="panel-line"
+              autoFocus={false}
+              onDone={() => undefined}
+            />
+          ) : (
+            <p data-testid="help-set-up" className="panel-line">
               <ReadinessExplanation readiness={blocked.readiness} inLine />
-            )}
-            <span aria-hidden="true"> · </span>
-            <button type="button" onClick={() => bridge.setUp()} className="panel-link">
-              {t("providers.readiness.setUp")}
-            </button>
-          </p>
+              <span aria-hidden="true"> · </span>
+              <button type="button" onClick={() => bridge.setUp()} className="panel-link">
+                {t("providers.readiness.setUp")}
+              </button>
+            </p>
+          )
         ) : (
           <p role="alert" data-testid="help-problem" className="panel-line">
             {blocked.message}

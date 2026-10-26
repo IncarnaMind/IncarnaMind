@@ -21,6 +21,7 @@ import {
   launchApp,
   newMind,
   openAdvancedModels,
+  openServiceList,
   openSettings,
   removeDataFolder,
   setLanguage,
@@ -113,7 +114,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await window.keyboard.type("What is due?");
   await window.keyboard.press("Enter");
   const setup = window.getByTestId("model-setup");
-  await setup.getByTestId("setup-key").click();
+  await openServiceList(window, setup);
   const form = setup.getByTestId("provider-form");
   await form
     .locator("label")

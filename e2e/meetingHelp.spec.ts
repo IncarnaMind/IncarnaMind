@@ -120,19 +120,21 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await setMeetingKeys(window);
   await recordingMeeting(window);
 
-  // With no AI model yet, the assistant and the panel each say so in one line, with Set up.
+  // With no AI model yet, the assistant and the panel each offer first run's key field in place,
+  // with one line naming what help sends (#1922): no step through Settings.
   await window.getByTestId("mind-editor").click();
-  await expect(window.getByTestId("meeting-set-up")).toHaveText(
-    "Choose an AI model to get help during the call · Set up",
+  const needs = window.getByTestId("meeting-needs-model");
+  await expect(needs).toContainText(
+    "Call help needs an AI model. It sends the meeting’s transcript to the model you set up.",
   );
+  await expect(needs.getByTestId("meeting-needs-model-key")).toBeVisible();
   const panel = await panelOf(app);
   await pointAndClick(
     panel,
     panel.getByTestId("help-button").filter({ hasText: "Say no politely" }),
   );
-  await expect(panel.getByTestId("help-set-up")).toHaveText(
-    "Choose an AI model to get help during the call · Set up",
-  );
+  await expect(panel.getByTestId("help-needs-model")).toContainText("Call help needs an AI model.");
+  await expect(panel.getByTestId("help-needs-model-key")).toBeVisible();
   await useLocalChatModel(window);
   await expect(window.getByTestId("meeting-starter")).toHaveText([
     "Recap the last 5 minutes",
