@@ -5,7 +5,7 @@
 ## Connect and check
 
 1. Keep IncarnaMind open. In **Settings → Agents**, turn on **Connect AI agents**.
-2. Choose **Cursor → Connect**. Select the Folders it may read, then **Allow and connect**. **Not in a Folder** shares Documents currently outside all Folders; no selection shares nothing.
+2. Choose **Cursor → Connect**. Select the Folders it may read, then **Allow and connect**. **Not in a Folder** is evaluated on every call: Documents outside all Folders, including ones added later, are shared; filing one removes it from that selection; no selection shares nothing.
 3. Cursor opens an installation link. Confirm the installation in Cursor, then start a new agent conversation. Connect also installs `~/.cursor/skills/incarnamind/SKILL.md`.
 4. Check Cursor's MCP server list for `incarnamind`. The Cursor CLI shares this configuration: `cursor-agent mcp list-tools incarnamind` lists the available tools.
 5. Ask: “Using IncarnaMind, what do my Documents say about the cancellation period? Cite the passages and check your citations.” The answer should carry `[cite:…]` references. Ask Cursor to show a reference in IncarnaMind to inspect the original.
@@ -47,7 +47,7 @@ If a call fails, check that IncarnaMind is open, connections are enabled, Local 
 ## 简体中文
 
 1. 保持 IncarnaMind 打开，在“设置 → 智能体”中开启智能体连接。
-2. 选择 Cursor 的“连接”，勾选允许读取的文件夹，再选择“允许并连接”。“不在文件夹中”共享当前未归入文件夹的文档；不选择文件夹就不共享内容。
+2. 选择 Cursor 的“连接”，勾选允许读取的文件夹，再选择“允许并连接”。“不在文件夹中”的范围在每次调用时重新确定：以后添加的未归入文件夹的文档也会共享，移入文件夹后就不再属于这个范围；不选择文件夹就不共享内容。
 3. 在 Cursor 打开的安装页面中确认安装，然后新开一个智能体对话。连接时会安装 `~/.cursor/skills/incarnamind/SKILL.md`。
 4. 在 Cursor 的 MCP 服务列表中检查 `incarnamind`。Cursor CLI 共用此配置，可以运行 `cursor-agent mcp list-tools incarnamind` 检查工具。
 5. 可以问：“用 IncarnaMind 查一下，我的文档中如何规定取消期限？请给出引用并核对。”再让 Cursor 在 IncarnaMind 中打开引用。

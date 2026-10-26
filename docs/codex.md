@@ -5,7 +5,7 @@
 ## Connect and check
 
 1. Keep IncarnaMind open. In **Settings → Agents**, turn on **Connect AI agents**.
-2. Choose **ChatGPT app and Codex → Connect**. Select the Folders it may read, review the settings change, then choose **Allow and connect**. **Not in a Folder** shares Documents currently outside all Folders; no selection shares nothing.
+2. Choose **ChatGPT app and Codex → Connect**. Select the Folders it may read, review the settings change, then choose **Allow and connect**. **Not in a Folder** is evaluated on every call: Documents outside all Folders, including ones added later, are shared; filing one removes it from that selection; no selection shares nothing.
 3. IncarnaMind adds its entry to `~/.codex/config.toml`, preserving your other servers. It also installs `~/.agents/skills/incarnamind/SKILL.md`. The setup's **Undo** takes these changes back while they are unchanged.
 4. Start a new Codex session. Run `codex mcp list`, or use `/mcp` in its terminal interface, to check the connection.
 5. Ask: “Using IncarnaMind, what do my Documents say about the cancellation period? Cite the passages and check your citations.” The answer should carry `[cite:…]` references. Ask Codex to show a reference in IncarnaMind to inspect the original.
@@ -29,7 +29,7 @@ If a call fails, check that IncarnaMind is open, connections are enabled, Local 
 ## 简体中文
 
 1. 保持 IncarnaMind 打开。在“设置 → 智能体”中开启智能体连接。
-2. 选择“ChatGPT 应用和 Codex”的“连接”，勾选允许读取的文件夹，查看设置变更，再选择“允许并连接”。“不在文件夹中”共享当前未归入文件夹的文档；不选择文件夹就不共享内容。
+2. 选择“ChatGPT 应用和 Codex”的“连接”，勾选允许读取的文件夹，查看设置变更，再选择“允许并连接”。“不在文件夹中”的范围在每次调用时重新确定：以后添加的未归入文件夹的文档也会共享，移入文件夹后就不再属于这个范围；不选择文件夹就不共享内容。
 3. IncarnaMind 在 `~/.codex/config.toml` 中添加自己的设置，保留其他服务，并安装 `~/.agents/skills/incarnamind/SKILL.md`。设置未被修改时，可以用“撤销”恢复。
 4. 新开一个 Codex 会话。运行 `codex mcp list`，或在终端界面中用 `/mcp` 检查连接。
 5. 可以问：“用 IncarnaMind 查一下，我的文档中如何规定取消期限？请给出引用并核对。”再让 Codex 在 IncarnaMind 中打开引用。

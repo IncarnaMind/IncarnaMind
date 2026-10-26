@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { join } from "node:path";
 import { Client as ModernClient } from "@modelcontextprotocol/client";
 import { StdioClientTransport as ModernTransport } from "@modelcontextprotocol/client/stdio";
@@ -6,6 +7,19 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { AgentLaunch } from "../../src/core/api";
 import { isRecord } from "../../src/core/errors";
+
+export function agentSocketAnswers(path: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection(path);
+    const finish = (connected: boolean) => {
+      socket.destroy();
+      resolve(connected);
+    };
+    socket.setTimeout(5_000, () => finish(false));
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
+}
 
 export async function legacyAgentClient(launch: AgentLaunch): Promise<Client> {
   const client = new Client({ name: "test-agent", version: "1.0.0" });
@@ -43,7 +57,7 @@ export function cursorLaunch(settings: unknown): AgentLaunch {
 
 export async function cursorSettingsFromGuide(launch: AgentLaunch): Promise<string> {
   const guide = await readFile(join(process.cwd(), "docs", "cursor.md"), "utf8");
-  const block = /```json\n([\s\S]*?)\n```/.exec(guide)?.[1];
+  const block = /```json\r?\n([\s\S]*?)\r?\n```/.exec(guide)?.[1];
   if (!block) throw new Error("The Cursor guide has no JSON settings.");
   const placeholders: Record<string, string> = {
     "<app executable>": launch.command,

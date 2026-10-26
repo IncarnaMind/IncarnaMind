@@ -3,7 +3,9 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { agentSocketPath } from "../../src/core/agents/socket";
 import {
+  agentSocketAnswers,
   cursorLaunch,
   cursorSettingsFromGuide,
   legacyAgentClient,
@@ -15,6 +17,21 @@ import { launchPackaged, packagedExecutable, packagedLogLines } from "./app";
 test.use({ trace: "off" });
 test.setTimeout(3 * 60_000);
 
+let folders: string[] = [];
+let dataFolder: string | null = null;
+test.afterEach(async () => {
+  const info = test.info();
+  if (dataFolder && info.status !== info.expectedStatus) {
+    const log = (await packagedLogLines(dataFolder, /./))
+      .join("\n")
+      .replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/g, "[redacted]");
+    await info.attach("app-log", { body: Buffer.from(log), contentType: "text/plain" });
+  }
+  for (const folder of folders) await rm(folder, { recursive: true, force: true });
+  folders = [];
+  dataFolder = null;
+});
+
 for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
   test(`the packaged shim searches and checks Citations with ${protocol}, and refuses unpaired, paused and revoked access`, async () => {
     expect(existsSync(packagedExecutable)).toBe(true);
@@ -23,12 +40,20 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
     );
     const data = await mkdtemp(join(tmpdir(), "incarnamind-mcp-data-"));
     const sources = await mkdtemp(join(tmpdir(), "incarnamind-mcp-sources-"));
+    folders = [home, data, sources];
+    dataFolder = data;
     const file = join(sources, "Tides.md");
     await writeFile(file, "Spring tides happen at new moon and full moon.");
-    const app = await launchPackaged(home, data, { testHooks: true });
+    const app = await test.step(
+      "Launch the packaged app",
+      () => launchPackaged(home, data, { testHooks: true }),
+      { box: true },
+    );
     const connect = protocol === "2026-07-28" ? modernAgentClient : legacyAgentClient;
     try {
-      const window = await app.firstWindow();
+      const window = await test.step("Reach the app window", () => app.firstWindow(), {
+        box: true,
+      });
       await setWindowSize(app, window, 900, 700);
       await dismissChatSetup(window);
       await acceptPlainTextKeys(window);
@@ -88,12 +113,21 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
         connected.pairing.id,
       );
       expect(await realpath(launch.command)).toBe(await realpath(packagedExecutable));
-      if (process.platform !== "win32")
-        expect((await stat(launch.env.INCARNAMIND_AGENT_SOCKET ?? "")).mode & 0o777).toBe(0o600);
+      const socket = launch.env.INCARNAMIND_AGENT_SOCKET ?? "";
+      if (process.platform === "win32") {
+        expect(socket.startsWith("\\\\.\\pipe\\")).toBe(true);
+        expect(socket === agentSocketPath(data, "win32")).toBe(true);
+      }
+      expect(await agentSocketAnswers(socket)).toBe(true);
+      if (process.platform !== "win32") expect((await stat(socket)).mode & 0o777).toBe(0o600);
       const settings = join(home, ".cursor", "mcp.json");
       await mkdir(join(home, ".cursor"), { recursive: true });
       await writeFile(settings, await cursorSettingsFromGuide(launch), { mode: 0o600 });
-      const client = await connect(cursorLaunch(JSON.parse(await readFile(settings, "utf8"))));
+      const client = await test.step(
+        "Complete the pairing and MCP handshake using the Cursor guide's file",
+        async () => connect(cursorLaunch(JSON.parse(await readFile(settings, "utf8")))),
+        { box: true },
+      );
       try {
         const found = await client.callTool({
           name: "search",
@@ -161,8 +195,6 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
       expect(log.includes(launch.env.INCARNAMIND_AGENT_TOKEN ?? "")).toBe(false);
     } finally {
       await app.close();
-      for (const folder of [home, data, sources])
-        await rm(folder, { recursive: true, force: true });
     }
   });
 }

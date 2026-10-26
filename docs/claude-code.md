@@ -5,7 +5,7 @@
 ## Connect and check
 
 1. Keep IncarnaMind open. In **Settings → Agents**, turn on **Connect AI agents**.
-2. Choose **Claude Code → Connect**. Select only the Folders it should read, then **Allow and connect**. Nothing is shared until you approve. **Not in a Folder** shares Documents that currently belong to no Folder; no selection shares nothing.
+2. Choose **Claude Code → Connect**. Select only the Folders it should read, then **Allow and connect**. Nothing is shared until you approve. **Not in a Folder** is evaluated on every call: Documents outside all Folders, including ones added later, are shared; filing one removes it from that selection; no selection shares nothing.
 3. IncarnaMind copies the setup command. Paste it into Terminal, or PowerShell on Windows, and run it. The command configures your own Claude Code; IncarnaMind does not read its sign-in. Keep the copied command private: it contains the pairing credential.
 4. Start a new Claude Code session. `/mcp` should list `incarnamind` as connected.
 5. Ask: “Using IncarnaMind, what do my Documents say about the cancellation period? Cite the passages and check your citations.” The answer should carry `[cite:…]` references. Ask Claude Code to show a reference in IncarnaMind to inspect the original.
@@ -29,7 +29,7 @@ If the connection fails, check that IncarnaMind is open, agent connections are o
 ## 简体中文
 
 1. 保持 IncarnaMind 打开。在“设置 → 智能体”中开启智能体连接。
-2. 选择 Claude Code 的“连接”，勾选允许读取的文件夹，再选择“允许并连接”。批准前不会共享内容。“不在文件夹中”仅共享当前未归入文件夹的文档；不选择文件夹就不共享内容。
+2. 选择 Claude Code 的“连接”，勾选允许读取的文件夹，再选择“允许并连接”。批准前不会共享内容。“不在文件夹中”的范围在每次调用时重新确定：以后添加的未归入文件夹的文档也会共享，移入文件夹后就不再属于这个范围；不选择文件夹就不共享内容。
 3. 在终端（Windows 使用 PowerShell）中粘贴并运行复制的设置命令。IncarnaMind 不读取 Claude Code 的登录凭据。
 4. 新开一个 Claude Code 会话，用 `/mcp` 检查 `incarnamind` 是否已连接。连接时会安装 `~/.claude/skills/incarnamind/SKILL.md`。
 5. 可以问：“用 IncarnaMind 查一下，我的文档中如何规定取消期限？请给出引用并核对。”再让智能体在 IncarnaMind 中打开引用，对照原文。

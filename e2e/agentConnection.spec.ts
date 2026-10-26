@@ -1,6 +1,6 @@
-import { createConnection } from "node:net";
 import { expect, type Page, test } from "@playwright/test";
 import { agentSocketPath } from "../src/core/agents/socket";
+import { agentSocketAnswers } from "../tests/helpers/agentClients";
 import {
   coreOf,
   createDataFolder,
@@ -69,17 +69,6 @@ test("Agents settings and command-palette entries are offered in both languages 
   }
 });
 
-function socketAnswers(path: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = createConnection(path);
-    socket.once("connect", () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once("error", () => resolve(false));
-  });
-}
-
 test("offering agents leaves the listener off until the User enables it", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
@@ -91,11 +80,11 @@ test("offering agents leaves the listener off until the User enables it", async 
       pairings: [],
     });
     const socket = agentSocketPath(dataDir);
-    expect(await socketAnswers(socket)).toBe(false);
+    expect(await agentSocketAnswers(socket)).toBe(false);
     await bridge.evaluate((core) => core.setAgentsEnabled(true));
-    expect(await socketAnswers(socket)).toBe(true);
+    expect(await agentSocketAnswers(socket)).toBe(true);
     await bridge.evaluate((core) => core.setAgentsEnabled(false));
-    expect(await socketAnswers(socket)).toBe(false);
+    expect(await agentSocketAnswers(socket)).toBe(false);
   } finally {
     await app.close();
   }
