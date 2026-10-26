@@ -2040,6 +2040,17 @@ export function createDocuments(options: DocumentsOptions) {
         .map((row) => ({ id: row.id, name: row.name, size: Number(row.size) }));
     },
 
+    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file. */
+    searchableHasSheets(documentIds: readonly string[] | undefined): boolean {
+      const { where, params } = searchable(documentIds);
+      return (
+        db.get<{ found: number }>(
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('xlsx', 'csv') LIMIT 1`,
+          params,
+        ) !== undefined
+      );
+    },
+
     /**
      * The languages the live Documents with Passages to search are in (of all
      * of them, or only of these), the most common first, with how many
