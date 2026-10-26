@@ -331,6 +331,47 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     await client.settled();
     expect(shownWithChanges(client)).toEqual(["+ Summary", "+ The quarter was good."]);
   });
+
+  // Value: protects=a current-turn Proposal authorizes only its own stretch, not untouched neighboring text; fails_when=a later whole-Mind revision replaces the untouched Block; why_new=the existing mixed-range case used an earlier Answer; seam=none; no_claim=safe same-turn revision when every Block has a current-turn Proposal (covered above)
+  test("a current-turn Proposal does not make the untouched rest of the Mind revisable", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null)
+        return { text: passage.includes("Summary") ? "Rewritten summary" : "Everything replaced" };
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits === 0) {
+        return {
+          calls: [
+            { tool: "edit_mind", input: { part: "Summary", instruction: "Rewrite the summary" } },
+          ],
+        };
+      }
+      if (edits === 1) {
+        return { calls: [{ tool: "edit_mind", input: { instruction: "Replace everything" } }] };
+      }
+      return { text: "Done." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [
+      heading(2, "Summary"),
+      note("The quarter was good."),
+      note("Do not change this."),
+    ]);
+    await client.settled();
+
+    const answer = await askAssistant(core, {
+      text: "Rewrite the summary, then replace everything",
+      mindId: mind.id,
+    });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(edits[0]).toMatchObject({ status: "done" });
+    expect(edits[1]).toMatchObject({ status: "failed", mindProblem: { kind: "waiting" } });
+    await client.settled();
+    expect(shownWithChanges(client).at(-1)).toBe("Do not change this.");
+    expect(shownWithChanges(client)).not.toContain("Everything replaced");
+  });
 });
 
 describe("Changes it can't revise", { timeout: 30_000 }, () => {

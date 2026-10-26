@@ -207,7 +207,12 @@ export function waitingIn(
   const count = waitingChanges(blocks);
   const requests = requestsIn(range);
   const own = range.filter(isOwn);
-  const thisTurn = requests.length > 0 && requests.every((request) => inTurn.has(request));
+  const thisTurn = range
+    .filter((element) => element.nodeName !== "heading")
+    .every((element) => {
+      const requests = requestsIn([element]);
+      return requests.length > 0 && requests.every((request) => inTurn.has(request));
+    });
   if (thisTurn || own.length === range.length) {
     return { kind: "own", blockIds: range.map(idOf), requests, fingerprint: fingerprintOf(range) };
   }
