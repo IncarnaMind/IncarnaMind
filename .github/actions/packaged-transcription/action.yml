@@ -12,7 +12,7 @@ runs:
     # between runs, keyed on the pinned revisions and hashes in their definitions, so a run
     # downloads them only when they change.
     - name: Restore the downloaded models
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cache/incarnamind-packaged-models
         key: incarnamind-packaged-models-${{ hashFiles('src/core/transcription/model.ts', 'src/core/transcription/speakerModel.ts', 'src/core/reranking/*.ts', 'src/core/documents/scan/model.ts') }}
