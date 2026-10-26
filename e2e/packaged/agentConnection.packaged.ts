@@ -10,6 +10,7 @@ import {
   cursorSettingsFromGuide,
   legacyAgentClient,
   modernAgentClient,
+  redactAgentKeys,
 } from "../../tests/helpers/agentClients";
 import { acceptPlainTextKeys, coreOf, dismissChatSetup, setWindowSize } from "../app";
 import { launchPackaged, packagedExecutable, packagedLogLines } from "./app";
@@ -22,9 +23,7 @@ let dataFolder: string | null = null;
 test.afterEach(async () => {
   const info = test.info();
   if (dataFolder && info.status !== info.expectedStatus) {
-    const log = (await packagedLogLines(dataFolder, /./))
-      .join("\n")
-      .replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/g, "[redacted]");
+    const log = redactAgentKeys((await packagedLogLines(dataFolder, /./)).join("\n"));
     await mkdir(info.outputDir, { recursive: true });
     const path = info.outputPath("app.log");
     await writeFile(path, log);

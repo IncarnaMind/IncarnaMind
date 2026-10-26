@@ -72,3 +72,7 @@ export async function cursorSettingsFromGuide(launch: AgentLaunch): Promise<stri
   cursorLaunch(settings);
   return filled;
 }
+
+export function redactAgentKeys(text: string): string {
+  return text.replace(/im_[A-Za-z0-9_-]{43}/g, "[redacted]");
+}

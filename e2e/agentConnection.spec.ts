@@ -127,8 +127,8 @@ test("the model setup keeps its Claude app shortcut separate from Agents setting
       await expect(plans.getByTestId("chatgpt-continue")).toHaveText(
         language === "en" ? "Continue with ChatGPT" : "使用 ChatGPT 继续",
       );
-      await expect(plans.getByTestId("plans-claude")).toBeVisible();
-      await expect(plans.getByTestId("plans-google")).toBeVisible();
+      await expect(plans.getByTestId("plans-claude")).toHaveCount(0);
+      await expect(plans.getByTestId("plans-google")).toHaveCount(0);
     }
   } finally {
     await app.close();
