@@ -204,7 +204,7 @@ An AI agent the User runs themselves, such as Claude Code or Codex, connected to
 _Avoid_: harness, plugin, client, bot
 
 **Built-in Skill**:
-A Skill that ships with IncarnaMind and is updated with it: summarise a Document, a literature review across Documents, and a Mind to report. The User can turn one off, remove it and restore it, or duplicate it as their own, but not change it.
+A Skill that ships with IncarnaMind and is updated with it: summarise a Document, a literature review across Documents, a Mind to report, a covenant summary, CIM red flags, an earnings review, a credit memo outline, a deposition summary and a chronology. The User can turn one off, remove it and restore it, or duplicate it as their own, but not change it.
 _Avoid_: default Skill, system Skill
 
 ### Changes
