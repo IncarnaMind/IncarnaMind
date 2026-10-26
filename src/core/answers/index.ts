@@ -254,6 +254,7 @@ import {
   withFound,
   withHelp,
 } from "./meetingHelp";
+import { paragraphAsked } from "./paragraphAsked";
 import {
   answerInstructions,
   commandInstructions,
@@ -2094,6 +2095,7 @@ export function createAnswers(options: AnswersOptions) {
                 });
                 return rewriting;
               },
+              paragraph: paragraphAsked(context.question),
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
