@@ -208,9 +208,11 @@ const sameAssignment = (
     ? current === null
     : current !== null && assignmentKey(current) === assignmentKey(expected);
 
-function parseAssignmentFields(input: unknown): Omit<DocumentGroupAssignment, "documentId"> | null {
+function parseAssignmentFields(
+  input: unknown,
+  invalid: InvalidInputError,
+): Omit<DocumentGroupAssignment, "documentId"> | null {
   if (input === null) return null;
-  const invalid = new InvalidInputError("A change's assignment is an assignment, or null.");
   if (!isRecord(input)) throw invalid;
   const { groupId, filedAt, source, suggested, status, error, model } = input;
   if (groupId !== null && (typeof groupId !== "string" || groupId === "")) throw invalid;
@@ -242,9 +244,8 @@ function parseAssignmentFields(input: unknown): Omit<DocumentGroupAssignment, "d
   };
 }
 
-function parseTagging(input: unknown): DocumentTagging | null {
+function parseTagging(input: unknown, invalid: InvalidInputError): DocumentTagging | null {
   if (input === null) return null;
-  const invalid = new InvalidInputError("A change's tagging is the Document's tagging, or null.");
   if (!isRecord(input)) throw invalid;
   const status = STORED_TAGGING_STATES.find((each) => each === input.status);
   const { error, updatedAt } = input;
@@ -259,11 +260,11 @@ function parseTagging(input: unknown): DocumentTagging | null {
 }
 
 function parseAssignmentState(input: unknown): AssignmentState {
-  if (!isRecord(input))
-    throw new InvalidInputError("A change is a Document's assignment and its tagging.");
+  const invalid = new InvalidInputError("A change says the Document's assignment and its tagging.");
+  if (!isRecord(input)) throw invalid;
   return {
-    assignment: parseAssignmentFields(input.assignment),
-    tagging: parseTagging(input.tagging),
+    assignment: parseAssignmentFields(input.assignment, invalid),
+    tagging: parseTagging(input.tagging, invalid),
   };
 }
 
