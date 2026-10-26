@@ -6,12 +6,14 @@ import {
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   MIND_CONTENT_FIELD,
+  type SearchScope,
 } from "../../src/core/api";
 import type { NoteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { noteStateOf, noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { formatDateTime } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
+import { setMindScope } from "../../src/shared/mindScope";
 import { recordCheckUnread } from "../../src/shared/unreadFiles";
 
 const CHECKED_AT = "2026-10-20T14:25:00.000Z";
@@ -305,6 +307,96 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       unread: 1,
       unreadMatters: true,
     });
+    doc.destroy();
+  });
+
+  test("stays amber when a Tag was searched and a file it couldn't read could hold the evidence (D266)", () => {
+    const scope: SearchScope = { folderIds: [], tagIds: ["tag-tides"], documentIds: [] };
+    const doc = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          scope: { folderId: null, widened: false, chosen: scope },
+        }),
+      ]),
+    ]);
+    setMindScope(doc, scope);
+    recordCheckUnread(
+      doc,
+      "r1",
+      [
+        {
+          id: "a",
+          name: "Locked.pdf",
+          reason: "password",
+          extension: null,
+          documentId: null,
+          pages: [],
+        },
+      ],
+      new Set(["r1"]),
+    );
+    const { state } = readNoteState({
+      doc,
+      documents: [],
+      keptCitationTexts: [],
+      folderId: null,
+    });
+    expect(state).toMatchObject({
+      kind: "needs-look",
+      look: 0,
+      tone: "warning",
+      unread: 1,
+      unreadMatters: true,
+    });
+    const words = (language: "en" | "zh-CN") =>
+      noteStateParts(state ?? fail(), (key, params) => translate(language, key, params), language);
+    expect(words("en")).toEqual(["1 file couldn’t be read"]);
+    expect(words("zh-CN")).toEqual(["1 个文件未能读取"]);
+    doc.destroy();
+  });
+
+  test("stays amber when Documents the User picked were searched and one couldn't be read (D266)", () => {
+    const scope: SearchScope = { folderIds: [], tagIds: [], documentIds: ["doc-tides"] };
+    const doc = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          scope: { folderId: null, widened: false, chosen: scope },
+        }),
+      ]),
+    ]);
+    setMindScope(doc, scope);
+    recordCheckUnread(
+      doc,
+      "r1",
+      [
+        {
+          id: "a",
+          name: "Locked.pdf",
+          reason: "password",
+          extension: null,
+          documentId: null,
+          pages: [],
+        },
+      ],
+      new Set(["r1"]),
+    );
+    const { state } = readNoteState({
+      doc,
+      documents: [],
+      keptCitationTexts: [],
+      folderId: null,
+    });
+    expect(state).toMatchObject({
+      kind: "needs-look",
+      look: 0,
+      tone: "warning",
+      unread: 1,
+      unreadMatters: true,
+    });
+    const words = (language: "en" | "zh-CN") =>
+      noteStateParts(state ?? fail(), (key, params) => translate(language, key, params), language);
+    expect(words("en")).toEqual(["1 file couldn’t be read"]);
+    expect(words("zh-CN")).toEqual(["1 个文件未能读取"]);
     doc.destroy();
   });
 

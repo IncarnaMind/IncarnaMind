@@ -12,6 +12,7 @@ import type * as Y from "yjs";
 import { type KeptCitationText, MIND_CONTENT_FIELD } from "../../core/api";
 import type { Language } from "../../core/language";
 import { citationState, type LiveDocument } from "../../shared/citations";
+import { checkedScope } from "../../shared/claimChecks";
 import { formatDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { mindCheckOf } from "../../shared/mindCheck";
@@ -42,7 +43,7 @@ export interface NoteState {
   checkedAt: string | null;
   /** The files its checks couldn't read (#740, D261): in the green when they don't matter, or what keeps it amber. */
   unread: number;
-  /** Whether an unread file could hold evidence the checks looked for: the note's Folder was searched. */
+  /** Whether an unread file could hold evidence the checks looked for: they searched a scope narrower than all Documents. */
   unreadMatters: boolean;
   /** The claims a check reads: with none, there is nothing to say. */
   checkable: number;
@@ -53,7 +54,8 @@ export interface NoteState {
  * one whose every sentence is kept as the User's view, has nothing to show. A claim a check
  * failed, that no longer holds, or is checking right now is "Not checked": nothing has checked
  * it since its last edit, and a run in flight is never done. Unread files that could hold the
- * evidence — the checks looked in the note's Folder — keep the state amber and are named.
+ * evidence — the checks searched a scope narrower than all Documents — keep the state amber and
+ * are named.
  */
 export function noteStateOf(
   health: NoteHealth,
@@ -109,9 +111,15 @@ export function noteStateOf(
   return { ...base, kind: "checked", look: 0, tone: "success", mark: "checked", unread };
 }
 
-/** Whether the checks that named its unread files looked in the note's own Folder, the evidence the User chose. */
-export function checksSearchedFolder(claims: readonly ShownClaim[]): boolean {
-  return claims.some((claim) => claim.check.scope.folderId !== null && !claim.check.scope.widened);
+/**
+ * Whether the checks that named its unread files looked in a Search scope narrower than all
+ * Documents — a Folder, a Tag, or Documents the User picked — where one they couldn't read could
+ * hold the evidence. A search of all Documents leaves it green with the count (D266).
+ */
+export function checksSearchedNarrowerThanAll(claims: readonly ShownClaim[]): boolean {
+  return claims.some(
+    (claim) => !claim.check.scope.widened && checkedScope(claim.check.scope) !== null,
+  );
 }
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
@@ -186,6 +194,6 @@ export function readNoteState({
   const unread = checkUnreadOf(doc, requests).length;
   return {
     health,
-    state: noteStateOf(health, unread, checksSearchedFolder(claims)),
+    state: noteStateOf(health, unread, checksSearchedNarrowerThanAll(claims)),
   };
 }

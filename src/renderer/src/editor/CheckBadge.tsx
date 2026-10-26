@@ -13,7 +13,12 @@ import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import { startCheckThisMind, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { useFade } from "../motion";
-import { checksSearchedFolder, type NoteState, noteStateOf, noteStateParts } from "../noteState";
+import {
+  checksSearchedNarrowerThanAll,
+  type NoteState,
+  noteStateOf,
+  noteStateParts,
+} from "../noteState";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { useGroupsMerged } from "../useWindowWidth";
@@ -108,7 +113,7 @@ function MindBadge({
   const state = noteStateOf(
     health,
     unread.length,
-    unread.length > 0 && checksSearchedFolder(shownClaims(editor.state)),
+    unread.length > 0 && checksSearchedNarrowerThanAll(shownClaims(editor.state)),
   );
   const input: BadgeInput = {
     marks: {
