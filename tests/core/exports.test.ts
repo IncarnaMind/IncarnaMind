@@ -394,7 +394,7 @@ describe("exporting a Mind", () => {
       unreadFiles: 0,
       unreadFileNames: false,
       citationPlace: "footnotes",
-      markAiText: true,
+      markAiText: false,
     });
   });
 

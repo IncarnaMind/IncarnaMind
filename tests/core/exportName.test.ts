@@ -89,7 +89,7 @@ describe("What a note's export file is called (#1945)", () => {
     const core = await setUp();
     const question = "2025 年 Harbourline 的收入变化如何，主要来自哪些业务？";
     const mind = await fromAnAnswer(core, "收入达到 402.5 万英镑。", question);
-    expect(await fileName(core, mind.id)).toBe(`${question}.docx`);
+    expect(await fileName(core, mind.id)).toBe("2025 年 Harbourline 的收入变化如何，主要来自哪些业务.docx");
   });
 
   test("a long title is the file's name, not cut to a line's width", async () => {
