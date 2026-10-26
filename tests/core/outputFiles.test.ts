@@ -127,6 +127,8 @@ describe("The Output location", () => {
       word: null,
       sentenceChecks: { contradicted: 0, unsupported: 0, needsRecheck: 0, commented: false },
       trackedChanges: 0,
+      unreadFiles: 0,
+      unreadFileNames: false,
       needsDetails: [],
     });
     expect(await readFile(join(location, "Tides.md"), "utf8")).toContain(

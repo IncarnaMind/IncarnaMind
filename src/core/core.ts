@@ -40,6 +40,7 @@ import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
+import { setUnreadFileNames } from "../shared/unreadFiles";
 import { wordFileOf } from "../shared/wordFiles";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
@@ -205,6 +206,7 @@ import {
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
+import { createNoteConversations } from "./noteConversations";
 import { createOutputFiles } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
@@ -544,11 +546,16 @@ export function createCore(adapters: CoreAdapters): Core {
       checkpoints.edited(mindId);
       mindIndex.contentStored(mindId);
       comparisons.mindChanged(mindId);
+      noteConversations.changed(mindId);
       const renamed = minds.setAutoTitle(mindId, content.peek(mindId, firstLineOf));
       if (minds.markEdited(mindId) || renamed) mindsChanged();
     },
     { unsaved: unsaved.mindUnsaved },
   );
+  const noteConversations = createNoteConversations({
+    content,
+    mindIds: () => minds.list().map((mind) => mind.id),
+  });
   // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
   const eachCitingMind = (visit: (blocks: Y.XmlFragment) => void, exceptMindId?: string) => {
     for (const mind of db.all<{ id: string; deleted_at: string | null }>(
@@ -3617,6 +3624,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     addToNote: (input) => noteAdding.add(input),
     undoAddToNote: async (input) => noteAdding.undo(input),
+    listNoteConversations: async () => noteConversations.list(),
     getSettings: async () => settings.get(),
     getLayout: async (windowId) => layouts.get(windowId),
     changeLayout: async (windowId, change) => layouts.change(windowId, change),
@@ -4541,6 +4549,13 @@ export function createCore(adapters: CoreAdapters): Core {
         else if (style !== null) library.setCitationStyle(folderId, style);
       }
       return mindCitationStyle(mind.id);
+    },
+    setMindUnreadFileNames: async (mindId, names) => {
+      if (typeof names !== "boolean") {
+        throw new InvalidInputError({ key: "error.mind.unreadFileNames" });
+      }
+      const mind = writableMind(mindId);
+      content.editSettings(mind.id, (mindSettings) => setUnreadFileNames(mindSettings, names));
     },
     listCitationStyles: async () => citationStyles.list(),
     openCitationStyleLicences: async () => {

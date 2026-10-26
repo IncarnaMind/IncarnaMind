@@ -11,6 +11,7 @@ const EXPORTS = ["mind.exportMenu", "mind.aiUseStatement", "mind.checkRecord"] a
 registerMenu("mind", [
   "mind.open",
   "mind.openTab",
+  "mind.openChat",
   "mind.outline",
   ...EXPORTS,
   "mind.history",
@@ -90,6 +91,7 @@ registerMenu("deleted", ["deleted.restore", "deleted.deletePermanently"]);
 registerMenu(
   "tab",
   [
+    "mind.openChat",
     "mind.outline",
     "mind.look.word",
     "mind.look.plain",
@@ -109,6 +111,8 @@ registerMenu(
     "tab.split",
     "tab.keep",
     "tab.pin",
+    "tab.moveEarlier",
+    "tab.moveLater",
     "tab.moveLeft",
     "tab.moveRight",
     "tab.rename",

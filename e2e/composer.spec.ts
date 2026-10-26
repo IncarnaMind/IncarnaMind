@@ -207,7 +207,7 @@ test("typing in the composer and pressing Enter shows the Question in the assist
   // The composer, at the foot of the Mind: its placeholder, the model and the Search scope.
   const composer = window.getByTestId("composer");
   const input = composer.getByTestId("composer-input");
-  await expect(input).toHaveAttribute("placeholder", "Ask, or say what to change…");
+  await expect(input).toHaveAttribute("placeholder", "Ask, or say ‘write a note on…’");
   await expect(composer.getByTestId("composer-model")).toHaveText("fake-model");
   await expect(composer.getByTestId("composer-scope-all")).toHaveText("All Documents");
   const ask = composer.getByTestId("composer-ask");
@@ -268,12 +268,12 @@ test("typing in the composer and pressing Enter shows the Question in the assist
   await expect(input).toBeFocused();
   await expect(ask).toBeDisabled();
 
-  // The newest Answer shows its actions at rest, Copy and Add to note only; its steps, folded
-  // above it, say what it searched, and Regenerate is at their end.
+  // The newest Answer shows its actions at rest: Write as a note, Add to note and Copy; its
+  // steps, folded above it, say what it searched, and Regenerate is at their end.
   await window.mouse.move(10, 10);
   const actions = answer.getByTestId("answer-actions");
   await expect.poll(() => opacityOf(actions)).toBe(1);
-  await expect(actions).toHaveText("CopyAdd to noteNew Mind");
+  await expect(actions).toHaveText("Write as a noteAdd to noteCopy");
   await expect(answer.getByTestId("answer-steps")).toHaveText("Searched All Documents · 1 source");
   await expect(answer.getByTestId("answer-regenerate")).toHaveCount(0);
   await screenshot(window, "composer-answered-en");
@@ -903,8 +903,8 @@ test("in Chinese: the composer with a Search scope and a Skill chosen from its p
   await window.keyboard.type("大潮每月出现两次。");
   const composer = window.getByTestId("composer");
   const input = composer.getByTestId("composer-input");
-  await expect(input).toHaveAttribute("placeholder", "提问，或说明要修改的内容…");
-  await expect(input).toHaveAccessibleName(/提问，或说明要修改的内容（(⌘J|Ctrl\+J)）/);
+  await expect(input).toHaveAttribute("placeholder", "提问，或说“写一篇关于……的笔记”");
+  await expect(input).toHaveAccessibleName(/提问，或说“写一篇关于……的笔记”（(⌘J|Ctrl\+J)）/);
   await expect(composer.getByTestId("composer-ask")).toHaveAccessibleName("提问（Enter）");
   await expect(composer.getByTestId("composer-scope-all")).toHaveText("全部文档");
 

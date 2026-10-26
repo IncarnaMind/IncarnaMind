@@ -211,7 +211,7 @@ export function AssistantAnswer({
         mindEmpty={keeping.mindEmpty}
         onAdd={() => keeping.add(answer)}
         onPick={(anchor) => keeping.pick(answer, anchor)}
-        onNewMind={() => keeping.newMind(answer)}
+        onWriteNote={() => keeping.newMind(answer)}
       />
     </article>
   );

@@ -93,7 +93,8 @@ export function figureFix(
   calculation: ClaimCalculation | null,
   sentence: string,
 ): FigureFix | null {
-  if (!calculation || calculation.agrees) return null;
+  // A limit the figure breaks is the sentence's own number, not one to replace with the figure.
+  if (!calculation || calculation.agrees || calculation.relation) return null;
   const written = readFigures(sentence, contextOf(sentence)).filter(
     (figure) => figure.chars === calculation.stated,
   );

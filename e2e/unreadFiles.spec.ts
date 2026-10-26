@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, DocumentStatus } from "../src/core/api";
-import { encryptedOfficeFile } from "../tests/helpers/office";
+import { parseCsv } from "../tests/helpers/csv";
+import { lockedPdf } from "../tests/helpers/lockedPdf";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   askInAssistant,
@@ -13,24 +14,31 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectDotsBetweenParts,
+  exportFromMenu,
   interceptOpenDialog,
   launchApp,
+  nameMind,
   newMind,
+  openExportOptions,
   pointAndClick,
+  pointAt,
   removeDataFolder,
+  savedLine,
   setGroupBeside,
   setLanguage,
+  useOutputLocation as setOutputLocation,
   setWindowSize,
   slideSelect,
 } from "./app";
 
 /**
- * Every Answer, check and Verify run says which files in its scope couldn't
- * be read, and why (#740): a Folder with a .doc, a password-protected .docx
- * and a scan, besides a file that reads. "3 files couldn't be read · Show"
- * lists each with its reason, and the Library shows the file in a format not
- * read. Nothing shows when everything was read. English and Chinese. Set
- * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
+ * Every Answer, check, Verify run, export and the check record say which files
+ * in their scope couldn't be read, and why (#740): a Folder with a .doc, a
+ * password-protected PDF and a scan, besides a file that reads. "3 files
+ * couldn't be read · Show" lists each with its reason, and the Library shows
+ * each file with the same reason. Nothing shows when everything was read.
+ * English and Chinese. Set INCARNAMIND_SCREENSHOTS to a folder to also save
+ * screenshots.
  */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 const screenshot = async (window: Page, name: string) => {
@@ -51,7 +59,7 @@ test.afterEach(async () => {
 const FILES: Record<string, string | Uint8Array> = {
   "Tides.txt": "Spring tides happen at new moon and at full moon.\n",
   "Old/Contract.doc": "binary",
-  "Locked.docx": encryptedOfficeFile(),
+  "Locked.pdf": lockedPdf(["Harbour fees rise in May."], "harbour"),
   "Scan.pdf": buildPdf([{ image: true }]),
 };
 
@@ -103,17 +111,45 @@ const WORDS = {
     count: "3 files couldn’t be read",
     reasons: [
       ["Contract.doc", /Format not read yet \(\.doc\)/],
-      ["Locked.docx", /Password-protected/],
+      ["Locked.pdf", /Locked with a password/],
       ["Scan.pdf", /A scan with no text that could be recognized/],
     ],
+    library: {
+      locked: "Password-protected: remove it in its app, then add the copy",
+      scan: "A scan with no text yet",
+    },
+    markdown: {
+      heading: "## What couldn’t be read",
+      count: "3 files couldn’t be read",
+      reasons: [
+        "- Contract.doc: Format not read yet (.doc)",
+        "- Locked.pdf: Password-protected. Remove the password and add it again.",
+        "- Scan.pdf: A scan with no text that could be recognized",
+      ],
+    },
+    checkRecord: "What couldn’t be read",
   },
   "zh-CN": {
     count: "3 个文件未能读取",
     reasons: [
       ["Contract.doc", /暂不支持此格式（\.doc）/],
-      ["Locked.docx", /已设置密码/],
+      ["Locked.pdf", /已加密/],
       ["Scan.pdf", /扫描件，未识别出文字/],
     ],
+    library: {
+      locked: "文件设有密码：在它的应用中去掉密码，再添加副本",
+      scan: "这是扫描件，暂时没有文字",
+    },
+    markdown: {
+      heading: "## 未能读取的文件",
+      count: "3 个文件未能读取",
+      reasons: [
+        "- Contract.doc：暂不支持此格式（.doc）",
+        "- Locked.pdf：已设置密码。请去掉密码后重新添加。",
+        "- Scan.pdf：扫描件，未识别出文字",
+      ],
+    },
+    checkRecord: "未能读取的文件",
   },
 } as const;
 
@@ -132,15 +168,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(rows.filter({ hasText: name })).toHaveText(reason);
     }
     await expect(rows.filter({ hasText: "Contract.doc" })).toHaveAttribute("data-reason", "format");
-    await expect(rows.filter({ hasText: "Locked.docx" })).toHaveAttribute(
-      "data-reason",
-      "password",
-    );
+    await expect(rows.filter({ hasText: "Locked.pdf" })).toHaveAttribute("data-reason", "password");
     await expect(rows.filter({ hasText: "Scan.pdf" })).toHaveAttribute("data-reason", "scan");
 
     // A Document's name opens it; a file in a format not read isn't a Document. A scan that
     // text recognition found nothing in has nothing to read again.
-    await expect(rows.getByTestId("unread-file-open")).toHaveText(["Locked.docx", "Scan.pdf"]);
+    await expect(rows.getByTestId("unread-file-open")).toHaveText(["Locked.pdf", "Scan.pdf"]);
     await expect(rows.getByTestId("unread-file-ocr")).toHaveCount(0);
 
     // The list holds at the narrowest window and a wide one.
@@ -155,7 +188,10 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     }
 
-    // The Library shows the file in a format not read, with the same reason.
+    await screenshot(window, `answer-unread-${language}`);
+
+    // The Library shows the file in a format not read, with the same reason, and each Document
+    // that couldn't be read with its own.
     await setGroupBeside(window, true);
     const unread = window.getByTestId("library-unread");
     await expect(unread).toContainText(
@@ -165,6 +201,15 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(unread.getByTestId("unread-file")).toHaveText(
       language === "en" ? /Contract\.doc: Format not read yet/ : /Contract\.doc：暂不支持此格式/,
     );
+    const libraryRow = (name: string) =>
+      window.getByTestId("library-document").filter({ hasText: name });
+    await expect(libraryRow("Locked").getByTestId("library-fix-reason")).toHaveText(
+      WORDS[language].library.locked,
+    );
+    await expect(libraryRow("Scan").getByTestId("library-fix-reason")).toHaveText(
+      WORDS[language].library.scan,
+    );
+    await screenshot(window, `library-unread-${language}`);
 
     // Clicking a Document's name opens it.
     await rows.filter({ hasText: "Scan.pdf" }).getByTestId("unread-file-open").click();
@@ -383,3 +428,88 @@ test("nothing shows when everything in scope was read", async () => {
   await expect(window.getByTestId("checks-unread")).toHaveCount(0);
   await app.close();
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`an export and the check record say which files couldn't be read, and why (${language})`, async () => {
+    test.setTimeout(180_000);
+    const out = await createDataFolder();
+    try {
+      const { app, window } = await start(language);
+      await nameMind(window, "Harbour");
+      const editor = window.getByTestId("mind-editor").filter({ visible: true });
+      await editor.click();
+      await window.keyboard.type(SENTENCE);
+      const line = editor.locator(":scope > p").first();
+      await expect(line).toHaveText(SENTENCE);
+      await slideSelect(window, line, "Spring tides", { line, words: "full moon." });
+      await pointAndClick(
+        window,
+        window
+          .getByTestId("selection-menu")
+          .getByTestId("selection-action-check-against-documents"),
+      );
+      await expect(window.getByTestId("claim-mark")).not.toHaveAttribute("data-check", "checking");
+      await expect(window.getByTestId("badge-stop")).toHaveCount(0);
+
+      await setOutputLocation(window, out);
+
+      // The files aren't named until the User asks for them in the export options, for this Mind.
+      await openExportOptions(window);
+      await expect(window.getByTestId("export-unread-names")).not.toBeChecked();
+      await screenshot(window, `export-options-unread-${language}`);
+      await pointAndClick(window, window.getByTestId("export-options-close"));
+
+      await exportFromMenu(window, "markdown");
+      const done = window.getByTestId("export-result").getByTestId("export-done");
+      await expect(done).toHaveText(savedLine("Harbour.md", out, language), { timeout: 30_000 });
+      const counted = await readFile(join(out, "Harbour.md"), "utf8");
+      expect(counted).toContain(WORDS[language].markdown.heading);
+      expect(counted).toContain(WORDS[language].markdown.count);
+      for (const reason of WORDS[language].markdown.reasons) expect(counted).not.toContain(reason);
+
+      await openExportOptions(window);
+      await pointAndClick(window, window.getByTestId("export-unread-names"));
+      await pointAndClick(window, window.getByTestId("export-save"));
+      await expect(window.getByTestId("export-dialog")).toBeHidden();
+
+      await exportFromMenu(window, "markdown");
+      await expect(done).toContainText("Harbour", { timeout: 30_000 });
+      const exports = await Promise.all(
+        (await readdir(out))
+          .filter((name) => name.endsWith(".md"))
+          .map(async (name) => readFile(join(out, name), "utf8")),
+      );
+      const named = exports.find((each) => each.includes(WORDS[language].markdown.reasons[0]));
+      if (named === undefined) throw new Error("No export named the files.");
+      for (const reason of WORDS[language].markdown.reasons) expect(named).toContain(reason);
+
+      // The check record, its PDF and its CSV: the same count and list.
+      const mind = window.getByTestId("mind-row").filter({ hasText: "Harbour" });
+      await pointAt(window, mind);
+      await pointAndClick(window, mind.getByTestId("mind-menu"));
+      const menu = mind.getByTestId("mind-actions");
+      await expect(menu.getByTestId("mind.checkRecord")).toBeVisible();
+      await pointAndClick(window, menu.getByTestId("mind.checkRecord"));
+      await expect(done).toContainText("Harbour", { timeout: 30_000 });
+      await expect(done).toContainText(language === "en" ? "and its CSV" : "和 CSV 文件");
+      const csvName = (await readdir(out)).find((name) => name.endsWith(".csv"));
+      const csv = await readFile(join(out, csvName ?? ""), "utf8");
+      const record = parseCsv(csv).find((each) => each[0] === WORDS[language].checkRecord);
+      expect(record?.[1]).toContain(WORDS[language].markdown.count);
+      for (const [name] of WORDS[language].reasons) expect(record?.[1]).toContain(name);
+
+      if (SCREENSHOTS) {
+        await writeFile(join(SCREENSHOTS, `export-count-${language}.md`), counted);
+        await writeFile(join(SCREENSHOTS, `export-names-${language}.md`), named);
+        await writeFile(join(SCREENSHOTS, `check-record-${language}.csv`), csv);
+        const pdfName = (await readdir(out)).find((name) => name.endsWith(".pdf"));
+        if (pdfName)
+          await copyFile(join(out, pdfName), join(SCREENSHOTS, `check-record-${language}.pdf`));
+        await screenshot(window, `export-saved-${language}`);
+      }
+      await app.close();
+    } finally {
+      await removeDataFolder(out);
+    }
+  });
+}

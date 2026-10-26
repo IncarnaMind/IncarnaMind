@@ -15,7 +15,7 @@ import { aiUseOfAccepted, pendingProposals, resolveProposals } from "../../src/s
 import { citingModel } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
-import { connectToMind } from "../helpers/mindClient";
+import { connectToMind, typeInto } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
@@ -139,6 +139,61 @@ describe("Add to note into a Mind that isn't open", { timeout: 60_000 }, () => {
     expect(readMind(after).childCount).toBe(1);
     expect(readMind(after).child(0).textContent).toBe("Intro");
     expect(allOrigins(after.doc).size).toBe(0);
+  });
+
+  // protects=Undo leaves what the User changed after it went in and says how much it kept; fails_when=it deletes an edited Block, losing that edit
+  test("Undo keeps a Block the User edited after it went in, and takes the rest out (#1962)", async () => {
+    const { core, answer } = await citedAnswer();
+    const mind = await core.createMind({ title: "Essay" });
+    const writer = await connectToMind(core, mind.id);
+    writeMind(writer, [note("Intro"), note("")]);
+    await writer.settled();
+    const added = await core.addToNote({
+      mindId: mind.id,
+      blocks: answerBlocks(answer),
+      origin: originOf(answer),
+      model: answer.model,
+    });
+
+    const editor = await connectToMind(core, mind.id);
+    typeInto(editor, 1, 0, "Today ");
+    await editor.settled();
+    expect(await core.undoAddToNote({ mindId: mind.id, blockIds: added.blockIds })).toEqual({
+      kept: 1,
+    });
+
+    const after = await connectToMind(core, mind.id);
+    expect(readMind(after).childCount).toBe(2);
+    expect(readMind(after).child(1).textContent).toBe(
+      "Today Spring tides come at new and full moon .",
+    );
+    expect(allOrigins(after.doc).size).toBe(1);
+  });
+
+  // protects=History names a Conversation under its note's title for every note with links back, including one made before the index; fails_when=only notes made since the app started count
+  test("lists each Mind's Conversation from its Blocks' links back, read from storage", async () => {
+    const { core, answer } = await citedAnswer();
+    const mind = await core.createMind({ title: "Essay" });
+    const added = await core.addToNote({
+      mindId: mind.id,
+      blocks: answerBlocks(answer),
+      origin: originOf(answer),
+      model: answer.model,
+    });
+    expect(await core.listNoteConversations()).toEqual([
+      { mindId: mind.id, conversationId: answer.conversationId },
+    ]);
+
+    // Closed, it is read from what is stored for the Mind, as after a restart.
+    await core.closeMind(mind.id);
+    expect(await core.listNoteConversations()).toEqual([
+      { mindId: mind.id, conversationId: answer.conversationId },
+    ]);
+
+    // Undone, the link is gone too.
+    await core.undoAddToNote({ mindId: mind.id, blockIds: added.blockIds });
+    await core.closeMind(mind.id);
+    expect(await core.listNoteConversations()).toEqual([]);
   });
 
   test("into a new Mind, waits as changes to accept, each Block one; accepted, it is recorded as an Answer added", async () => {
