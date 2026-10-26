@@ -5,7 +5,6 @@
  * from another and run again to the same result. What the runtime gives is
  * cut to the limits again here, whatever runtime it was.
  */
-import { createHash } from "node:crypto";
 import {
   type AnalysisInput,
   type AnalysisJob,
@@ -28,7 +27,10 @@ export interface AnalysisRun {
   output: string;
 }
 
-const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
+export async function sha256(text: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 const valuesOf = (input: AnalysisInput) =>
   JSON.stringify(input.kind === "table" ? [input.columns, input.rows] : input.value);
@@ -45,11 +47,13 @@ export async function runAnalysis(
   const versions = runtime?.languages.find((each) => each.language === job.language) ?? null;
   let result: AnalysisResult;
   if (!runtime || !versions) {
-    result = endedBefore({
-      kind: "unavailable",
-      reason: "missing",
-      detail: runtime ? `This runtime doesn't run ${job.language}.` : "There is no runtime.",
-    });
+    result = endedBefore(
+      runtime?.unavailable ?? {
+        kind: "unavailable",
+        reason: "missing",
+        detail: runtime ? `This runtime doesn't run ${job.language}.` : "There is no runtime.",
+      },
+    );
   } else {
     try {
       const given = await runtime.run(job, signal);
@@ -63,10 +67,15 @@ export async function runAnalysis(
     }
   }
   return {
-    code: sha256(job.code),
-    inputs: job.inputs.map((input) => ({ name: input.name, sha256: sha256(valuesOf(input)) })),
+    code: await sha256(job.code),
+    inputs: await Promise.all(
+      job.inputs.map(async (input) => ({
+        name: input.name,
+        sha256: await sha256(valuesOf(input)),
+      })),
+    ),
     versions,
     result,
-    output: sha256(JSON.stringify({ end: result.end, output: result.output })),
+    output: await sha256(JSON.stringify({ end: result.end, output: result.output })),
   };
 }

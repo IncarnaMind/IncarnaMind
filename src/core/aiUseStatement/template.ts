@@ -4,12 +4,11 @@
  * counts of. It never scores, rates or compares, and never says anything about
  * AI detection: a test keeps those words out of every template.
  */
-import type { SentenceResult } from "../../shared/claimChecks";
+import { SENTENCE_RESULT_LABELS } from "../../shared/claimChecks";
 import { formatDate } from "../../shared/dates";
 import { type MessageKey, translate } from "../../shared/i18n";
-import { UNREAD_REASON_KEYS } from "../../shared/unreadFiles";
+import { unreadFileText, unreadPartsCounts } from "../../shared/unreadFiles";
 import type { NodeJSON } from "../answers/blocks";
-import type { UnreadFile } from "../api";
 import type { Language } from "../language";
 import {
   type AiUseFigures,
@@ -46,18 +45,11 @@ const CITATION_ROWS: readonly [keyof CitationCounts, MessageKey][] = [
   ["checking", "aiStatement.citations.checking"],
 ];
 
-const SENTENCE_LABELS: Readonly<Record<SentenceResult, MessageKey>> = {
-  supported: "aiStatement.sentences.supported",
-  unsupported: "aiStatement.sentences.unsupported",
-  contradicted: "aiStatement.sentences.contradicted",
-  needsRecheck: "aiStatement.sentences.recheck",
-  notChecked: "aiStatement.sentences.notChecked",
-  changed: "aiStatement.sentences.changed",
-};
-
-const SENTENCE_ROWS: readonly [keyof SentenceCounts, MessageKey][] = (
-  ["supported", "unsupported", "contradicted", "needsRecheck", "notChecked"] as const
-).map((key) => [key, SENTENCE_LABELS[key]]);
+const SENTENCE_ROWS: readonly [keyof SentenceCounts, MessageKey][] =
+  // The export line's order after Supported: Contradicted, Not found, Unsupported, needs re-check.
+  (
+    ["supported", "contradicted", "notFound", "unsupported", "needsRecheck", "notChecked"] as const
+  ).map((key) => [key, SENTENCE_RESULT_LABELS[key]]);
 
 const text = (value: string): NodeJSON => ({ type: "text", text: value });
 
@@ -99,7 +91,7 @@ export function statementBlocks(
   const t = (key: MessageKey, params?: Record<string, string | number>) =>
     translate(language, key, params);
   const number = new Intl.NumberFormat(language === "zh-CN" ? "zh-CN" : "en").format;
-  const { uses, sections, removed, citations, sentences, checked, unread } = figures;
+  const { uses, sections, removed, citations, sentences, checked, unread, unreadNames } = figures;
   const citationTotal = totalCitations(citations);
   const sentenceTotal = totalSentences(sentences);
   const intro = paragraph(t("aiStatement.intro", { date: formatDate(date, language) }));
@@ -172,7 +164,7 @@ export function statementBlocks(
 
   const checkedRow = ({ sentence, result, model, checkedAt }: CheckedSentence) => [
     sentence,
-    t(SENTENCE_LABELS[result]),
+    t(SENTENCE_RESULT_LABELS[result]),
     checkedAt === null ? "" : (model ?? t("aiStatement.uses.modelUnknown")),
     checkedAt === null ? "" : formatDate(checkedAt, language),
   ];
@@ -185,20 +177,20 @@ export function statementBlocks(
     rows
       .filter(([key]) => counts[key] > 0 || always.includes(key))
       .map(([key, label]) => [t(label), number(counts[key])]);
-  const unreadRow = (file: UnreadFile) =>
-    `${file.name}${t("unread.file.reason", {
-      reason: t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" }),
-    })}`;
   const unreadPart =
     unread.length === 0
       ? []
       : [
           paragraph(
             unread.length === 1
-              ? t("aiStatement.unread.one")
-              : t("aiStatement.unread", { count: number(unread.length) }),
+              ? t(unreadNames ? "aiStatement.unread.one" : "aiStatement.unread.one.fullStop")
+              : t(unreadNames ? "aiStatement.unread" : "aiStatement.unread.fullStop", {
+                  count: number(unread.length),
+                }),
           ),
-          bulletList(unread.map(unreadRow)),
+          ...(unreadNames
+            ? [bulletList(unread.map((file) => unreadFileText(file, t, true)))]
+            : unreadPartsCounts(unread, t).map(paragraph)),
         ];
   const checksPart =
     citationTotal === 0 && sentenceTotal === 0

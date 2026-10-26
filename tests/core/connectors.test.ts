@@ -18,6 +18,7 @@ import {
 import {
   createMemoryKeychain,
   createTempDataFolder,
+  LOCAL_FETCH,
   queryDatabase,
   startCore,
 } from "../helpers/core";
@@ -26,7 +27,11 @@ import {
 async function setUp(env: Record<string, string> = {}) {
   const dataDir = await createTempDataFolder();
   const keychain = createMemoryKeychain();
-  const core = startCore(dataDir, { keychain, processes: testProcesses(env) });
+  const core = startCore(dataDir, {
+    keychain,
+    processes: testProcesses(env),
+    connectorFetch: LOCAL_FETCH,
+  });
   return { core, dataDir, keychain, logFile: logFileIn(dataDir) };
 }
 
@@ -187,14 +192,15 @@ describe("Importing an mcpServers configuration", { timeout: 30_000 }, () => {
         env: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
         action: "add",
       },
-      // The older SSE transport: not supported.
       {
         name: "linear",
         command: null,
         args: [],
         env: [],
         url: "https://mcp.linear.app/sse",
-        action: "remote",
+        action: "add",
+        headers: [],
+        connection: "http",
       },
       { name: "broken", command: null, args: [], env: [], action: "invalid" },
       { name: "Existing", command: "uvx", args: ["mcp-server-fetch"], env: [], action: "exists" },
@@ -204,9 +210,8 @@ describe("Importing an mcpServers configuration", { timeout: 30_000 }, () => {
 
     const result = await core.importConnectors(configuration(logFile));
 
-    expect(result.added.map((each) => each.name)).toEqual(["tides", "github"]);
+    expect(result.added.map((each) => each.name)).toEqual(["tides", "github", "linear"]);
     expect(result.skipped.map((each) => [each.name, each.action])).toEqual([
-      ["linear", "remote"],
       ["broken", "invalid"],
       ["Existing", "exists"],
     ]);
@@ -244,10 +249,9 @@ describe("Importing an mcpServers configuration", { timeout: 30_000 }, () => {
     };
     const bare = { fetch: { command: "uvx", args: ["mcp-server-fetch"], env: { PORT: 8080 } } };
 
-    // Remote servers over Streamable HTTP are added; SSE ones, and custom headers, aren't supported.
     expect(
       (await core.previewConnectorImport(JSON.stringify(cursor))).map((each) => each.action),
-    ).toEqual(["add", "add", "remote", "remote"]);
+    ).toEqual(["add", "add", "add", "add"]);
     expect(await core.previewConnectorImport(JSON.stringify(bare))).toEqual([
       { name: "fetch", command: "uvx", args: ["mcp-server-fetch"], env: ["PORT"], action: "add" },
     ]);

@@ -1,8 +1,11 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
+import * as Y from "yjs";
 import { create } from "zustand";
 import type { Mind } from "../../core/api";
 import { core } from "./core";
 import { isProcessing } from "./documentStatus";
+import { type NoteState, readNoteState } from "./noteState";
+import { suggestedIds } from "./organizeOutcome";
 import { useSelection } from "./selection";
 import { exampleMindIds, useAppStore } from "./store";
 
@@ -61,12 +64,85 @@ export function useMindSnippets(): ReadonlyMap<string, string> {
   return snippets;
 }
 
+/**
+ * Each Mind's own state, for Home's Recent rows (D266): one reader of the note's health
+ * (`readNoteState`), so a row and the note's badge say the same. A Mind open beside Home is
+ * followed as it is saved, at most every `SAVED_MS`.
+ */
+export function useMindNoteStates(
+  minds: readonly Pick<Mind, "id" | "folderId">[],
+): ReadonlyMap<string, NoteState | null> {
+  const documents = useAppStore((state) =>
+    state.status.kind === "ready" ? state.documents : null,
+  );
+  const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
+  const [saves, setSaves] = useState(0);
+  const [states, setStates] = useState<ReadonlyMap<string, NoteState | null>>(new Map());
+  useEffect(() => {
+    let pause: ReturnType<typeof setTimeout> | undefined;
+    const stop = core.on("mind.update", () => {
+      clearTimeout(pause);
+      pause = setTimeout(() => setSaves((count) => count + 1), SAVED_MS);
+    });
+    return () => {
+      clearTimeout(pause);
+      stop();
+    };
+  }, []);
+  const wanted = minds.map((mind) => `${mind.id}:${mind.folderId ?? ""}`).join("|");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for the Minds and their Folders.
+  useEffect(() => {
+    let current = true;
+    const folders = new Map(minds.map((mind) => [mind.id, mind.folderId]));
+    const ids = minds.map((mind) => mind.id);
+    if (ids.length === 0) {
+      setStates(new Map());
+      return;
+    }
+    core
+      .readMindContents(ids)
+      .then((snapshots) => {
+        const found = new Map<string, NoteState | null>();
+        for (const { mindId, state } of snapshots) {
+          const doc = new Y.Doc();
+          try {
+            Y.applyUpdate(doc, state);
+            found.set(
+              mindId,
+              readNoteState({
+                doc,
+                documents,
+                keptCitationTexts,
+                folderId: folders.get(mindId) ?? null,
+              }).state,
+            );
+          } catch (error) {
+            // One Mind's content this version can't read must not blank every other row's state.
+            console.warn(
+              `Couldn't read the state of Mind ${mindId}; its row shows the snippet.`,
+              error,
+            );
+            found.set(mindId, null);
+          } finally {
+            doc.destroy();
+          }
+        }
+        if (current) setStates(found);
+      })
+      .catch(useAppStore.getState().reportError);
+    return () => {
+      current = false;
+    };
+  }, [wanted, documents, keptCitationTexts, saves]);
+  return states;
+}
+
 export function useHomeNeeds(): { reading: number; suggestions: number } {
   const reading = useAppStore(
     (state) => state.documents.filter((each) => isProcessing(each.status)).length,
   );
   const suggestions = useAppStore(
-    (state) => state.library?.assignments.filter((each) => each.suggested).length ?? 0,
+    (state) => suggestedIds(state.documents, state.library?.assignments ?? []).length,
   );
   return { reading, suggestions };
 }

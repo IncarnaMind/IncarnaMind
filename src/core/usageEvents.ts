@@ -139,6 +139,7 @@ const DOCUMENT_ERRORS = [
   "file-missing",
   "processing-error",
   "pages-unread",
+  "forms-unread",
   "app-stopped",
 ] as const;
 const CONNECTOR_ERRORS = [
@@ -147,6 +148,7 @@ const CONNECTOR_ERRORS = [
   "timed-out",
   "stopped",
   "unreachable",
+  "key-refused",
   "failed",
 ] as const;
 

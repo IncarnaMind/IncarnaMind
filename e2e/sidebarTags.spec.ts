@@ -175,7 +175,7 @@ test("the Tags section lists each Tag a Document carries with its colour and cou
     // In the Folders, the rows show their Tags' colours too: Organize files
     // Attention in Reports & presentations, which opens in place.
     const reports = sidebarFolder(window, "Reports & presentations");
-    await expect(reports.getByTestId("browse-count")).toHaveText("3");
+    await expect(reports.getByTestId("browse-count")).toHaveText("3 · 3 suggested");
     await slideAndClick(window, reports.getByTestId("folder-row"));
     await expect(reports).toHaveAttribute("data-expanded", "true");
     const attentionInFolders = reports

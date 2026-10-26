@@ -111,6 +111,8 @@ registerMenu(
     "tab.split",
     "tab.keep",
     "tab.pin",
+    "tab.moveEarlier",
+    "tab.moveLater",
     "tab.moveLeft",
     "tab.moveRight",
     "tab.rename",
@@ -124,6 +126,8 @@ registerMenu(
 registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
+
+registerMenu("check", ["check.findSources"]);
 
 registerMenu("citation", [
   "citation.open",
