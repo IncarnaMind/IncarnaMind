@@ -154,10 +154,12 @@ export function readRecord(sources: RecordSources): {
 
   const sentences: SentenceItem[] = [];
   const requests: string[] = [];
-  for (const { element, from, to, check, sentence } of checkedSentences(fragment)) {
+  for (const { element, from, to, check, sentence, cited } of checkedSentences(fragment)) {
     requests.push(check.request);
     const result = sentenceResultOf(
       claimCheckShown(check, { text: sentence, versions, folderId, scope }),
+      check,
+      cited.length,
     );
     if (!result) continue;
     sentences.push({

@@ -35,9 +35,12 @@ import {
   useChecks,
   widenCitation,
 } from "../checks";
+import { useCitesWorks } from "../citationFormatting";
 import { CountItLine } from "../components/CountItLine";
 import { MetaLine } from "../components/MetaLine";
+import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
+import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -52,11 +55,13 @@ import {
   cutSentence,
   cutUnsupported,
   keepAsView,
+  offersFindSources,
   offersFixes,
   offersKeepAsView,
   offersNotFound,
   offersUseFigure,
   searchedLess,
+  sentenceOf,
   uncoveredOf,
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
@@ -85,10 +90,6 @@ const TONE: Record<ClaimMarkState, string> = {
   "not-checked": "cant-check",
   "needs-recheck": "checking",
 };
-
-/** The words of the sentence a check is about. */
-const sentenceOf = (editor: Editor, claim: ShownClaim) =>
-  editor.state.doc.textBetween(claim.sentence.from, claim.sentence.to, " ", " ").trim();
 
 const NO_DECISION: CitationDecision = { kind: "none" };
 
@@ -297,6 +298,7 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
+              editor={editor}
               decision={decision}
               added={added}
               onAdd={() => {
@@ -462,6 +464,7 @@ function ClaimCard({
   fixes,
   notFound,
   keep,
+  editor,
   decision,
   added,
   onAdd,
@@ -489,6 +492,7 @@ function ClaimCard({
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
+  editor: Editor;
   decision: CitationDecision;
   added: number;
   onAdd(): void;
@@ -509,6 +513,7 @@ function ClaimCard({
 }) {
   const t = useT();
   const language = useLanguage();
+  const citesWorks = useCitesWorks(editor);
   const webSearchOn = useAppStore((store) => store.settings?.user.webSearch === true);
   // Search the web with web search off says why, and where to turn it on, before anything else happens.
   const [webOffShown, setWebOffShown] = useState(false);
@@ -553,6 +558,8 @@ function ClaimCard({
       savedPage.fetchedAt,
   };
   const nothingFound = saysNotFound(shown, check, cited.length);
+  const findSourcesOffered = offersFindSources(editor, claim);
+  const objectMenu = useObjectMenu({ kind: "check", id: check.id });
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
@@ -571,6 +578,7 @@ function ClaimCard({
       ref={rootRef}
       className={`citation-card citation-card--${TONE[state]}`}
       contentEditable={false}
+      {...objectMenu.rowProps}
     >
       <div className="citation-card-head">
         <p data-testid="claim-badge" data-check={state} className="citation-badge">
@@ -904,16 +912,18 @@ function ClaimCard({
           </button>
         )}
         {/* Where the Documents say something different the card has Open the page and Fix the sentence already, so it offers no more ways to look. */}
-        {state === "unsupported" && !differs && !decisionMissing && !fixes && (
+        {findSourcesOffered && (
           <>
-            <button
-              type="button"
-              data-testid="claim-find-sources"
-              className="citation-card-action"
-              onClick={onFindSources}
-            >
-              {t("claim.findSources")}
-            </button>
+            {citesWorks && (
+              <button
+                type="button"
+                data-testid="claim-find-sources"
+                className="citation-card-action"
+                onClick={onFindSources}
+              >
+                {t("claim.findSources")}
+              </button>
+            )}
             <button
               type="button"
               data-testid="claim-search-web"
@@ -945,6 +955,15 @@ function ClaimCard({
           </button>
         )}
       </div>
+      {findSourcesOffered && (
+        <ObjectMenu
+          target={{ kind: "check", id: check.id }}
+          label={t("claim.more")}
+          here={{ "check.findSources": onFindSources }}
+          className={`${rowActionButtonClass} citation-card-menu`}
+          align="end"
+        />
+      )}
     </div>
   );
 }
