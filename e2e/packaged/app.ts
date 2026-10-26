@@ -22,6 +22,8 @@ export async function launchPackaged(
 ): Promise<ElectronApplication> {
   const temp = join(home, "Temp");
   await mkdir(temp, { recursive: true });
+  // Windows resolves the redirected USERPROFILE's Documents only when the folder exists.
+  await mkdir(join(home, "Documents"), { recursive: true });
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && !/KEY|TOKEN|SECRET|PASSWORD/.test(name)) env[name] = value;
