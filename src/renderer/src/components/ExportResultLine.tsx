@@ -338,9 +338,11 @@ function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds
   );
 }
 
-/** Where the note's checks stand (#1915), read as the corner badge reads it; null until its Mind is known. */
-function useExportNoteState(mindId: string): NoteState | null {
-  const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId) ?? null);
+/** Where the note's checks stand (#1915), read as the corner badge reads it; null for a line that isn't the note's own export, or until its Mind is known. */
+function useExportNoteState(mindId: string | null): NoteState | null {
+  const mind = useAppStore(
+    (state) => (mindId === null ? null : (state.minds.find((each) => each.id === mindId) ?? null)),
+  );
   const states = useMindNoteStates(mind ? [mind] : []);
   return mind ? (states.get(mind.id) ?? null) : null;
 }
@@ -355,7 +357,9 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
   const language = useLanguage();
   const folder = result.inDefaultFolder ? defaultFolderLabel(t) : folderName(result.folder);
   const name = nameInLine(result.name);
-  const state = useExportNoteState(result.mindId);
+  // The check record and the workbook aren't the note's file: their lines say what they are, not how the note stands.
+  const noteExport = !isCheckRecord(result.format) && result.format !== COMPARISON_EXCEL;
+  const state = useExportNoteState(noteExport ? result.mindId : null);
   const chosen = chosenParts(t, {
     places:
       result.citationPlace === null

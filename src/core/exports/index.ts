@@ -16,7 +16,7 @@ import { titleWithoutSite } from "../../shared/documentNames";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
-import { mindName } from "../../shared/naming";
+import { mindName, withoutTrailingMarks } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
 import { pendingProposals } from "../../shared/proposals";
 import { readableQuoteText } from "../../shared/readableQuote";
@@ -160,12 +160,13 @@ const EXTENSIONS: Readonly<Record<ExportFormat, string>> = {
 /**
  * What the note's file is called (#1945): the title the User gave it; else, when an Answer wrote
  * the note's first line, the Question that made it; else that line. A file name is only cut where
- * a file name can't hold it (`safeFileName`), never to a title's width.
+ * a file name can't hold it (`safeFileName`), never to a title's width, and never ends on the
+ * mark a sentence does.
  */
 function exportName(mind: Mind, blocks: Y.XmlFragment): string {
   if (mind.title !== "") return mind.title;
   const { line, question } = namedLineOf(blocks);
-  return question || line;
+  return withoutTrailingMarks(question || line);
 }
 
 /** A new Mind's title line left empty says nothing in a file: no empty heading at its top. */

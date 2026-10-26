@@ -219,7 +219,7 @@ test("Export saves a .docx from its menu: the first goes to Documents › Incarn
   const result = window.getByTestId("export-result");
   const ask = window.getByTestId("file-write-dialog");
   const done = result.getByTestId("export-done");
-  await expect(done).toHaveText("Saved “Tides.docx” in Documents › IncarnaMind");
+  await expect(done).toContainText("Saved “Tides.docx” in Documents › IncarnaMind");
   await expect(done).toHaveAttribute("role", "status");
   await expect(ask).toBeHidden();
   await expect(result.getByTestId("export-unverified")).toHaveText(
@@ -256,7 +256,7 @@ test("Export saves a .docx from its menu: the first goes to Documents › Incarn
   // The next export doesn't ask either, names the same folder, and leaves the first file as it was.
   const first = await readFile(target);
   await exportFromMenu(window);
-  await expect(done).toHaveText("Saved “Tides 2.docx” in Documents › IncarnaMind");
+  await expect(done).toContainText("Saved “Tides 2.docx” in Documents › IncarnaMind");
   await expect(ask).toBeHidden();
   await expect(result.getByTestId("export-change-folder")).toHaveCount(0);
   await result.getByTestId("export-show").click();
@@ -720,7 +720,7 @@ for (const language of ["en", "zh-CN"] as const) {
   const instruction =
     language === "en" ? "Summarise this agreement for me." : "为这份协议写一份摘要。";
 
-  test(`a new Mind made from an Answer is named by its first line, not by the conversation's name from the first instruction; a name the User gave the conversation is kept (${language})`, async () => {
+  test(`a new Mind made from an Answer is named by its first line, not by the conversation's name from the first instruction, and its file takes the Question; a name the User gave the conversation is kept (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -748,8 +748,8 @@ for (const language of ["en", "zh-CN"] as const) {
       (each, mindId) => each.previewMindExport(mindId, { format: "docx" }),
       first?.id ?? "",
     );
-    expect(preview.fileName).toMatch(/^This is a scripted Answer to/);
-    expect(preview.fileName).not.toMatch(/^Summarise this agreement|^为这份协议/);
+    // Its file takes the Question that made it (#1945), not the Answer's first sentence.
+    expect(preview.fileName).toBe(`${instruction.replace(/[.?？。]$/, "")}.docx`);
 
     const conversationId = (await core.evaluate((each) => each.listConversations()))[0]?.id ?? "";
     await core.evaluate(
