@@ -478,6 +478,12 @@ describe("The check record as CSV", () => {
     expect(summary.get("导出时“所有内容都留在这台电脑上”")).toBe("未开启");
     const [first] = rowsOf(csv);
     const citationRow = rowsOf(csv).find((row) => row.类型 === "引用");
+    // Not found is its own result, apart from Unsupported, in Chinese too.
+    expect(
+      rowsOf(csv)
+        .filter((row) => row.类型 === "句子")
+        .map((row) => row.核对结果),
+    ).toEqual(["有依据", "未找到", "未核对", "无依据", "与文档矛盾"]);
     expect(first).toMatchObject({
       类型: "句子",
       核对结果: "有依据",
