@@ -89,6 +89,35 @@ test("a copy that was killed outright leaves the data folder free for the next s
   await next.app.close();
 });
 
+test("a live data owner receives the next start even after the native forwarding files disappear", async () => {
+  test.skip(process.platform === "win32", "POSIX singleton files");
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await (await coreOf(window)).evaluate(async (api) =>
+      api.createMind({ title: "Kept without native files" }),
+    );
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide());
+    for (const name of ["SingletonLock", "SingletonSocket", "SingletonCookie"])
+      await rm(join(dataDir, name), { force: true });
+    const next = await startAnotherCopy(app);
+    expect((await exited(next))[0]).toBe(0);
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().map((each) => each.isVisible()),
+        ),
+      )
+      .toEqual([true]);
+    expect(await logOf(dataDir)).toContain("app.secondLaunch");
+    expect(await (await coreOf(window)).evaluate((api) => api.listMinds())).toMatchObject([
+      { title: "Kept without native files" },
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
 // protects=lock files left as text are emptied at start, so the folder's lock works again, and a second start quits; fails_when=the text stays in them (the lock is off for good); no_claim=the race over such files, which the unit test covers.
 test("lock files that aren't databases are emptied, and the folder is locked all the same", async () => {
   const text = "not a database, only text that is long enough ".repeat(8);
@@ -298,6 +327,7 @@ async function startWhileQuitting(
   const boxes = join(home, "error-boxes.jsonl");
   const mark = join(home, "quit-started");
   const attempts = join(home, "startup-attempts.jsonl");
+  const instanceTrace = join(home, "instance-events.jsonl");
   const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
   const ports: number[] = [];
   const late = how === "after-release";
@@ -315,6 +345,7 @@ async function startWhileQuitting(
       {
         INCARNAMIND_TEST_ERROR_BOXES: boxes,
         INCARNAMIND_TEST_ERROR_LANGUAGE: language,
+        INCARNAMIND_TEST_INSTANCE_TRACE: instanceTrace,
         ...extraEnv,
       },
     );
@@ -379,23 +410,31 @@ async function startWhileQuitting(
         expect(minds.map((mind) => mind.title)).toEqual(["Kept during quit"]);
       });
     }
+    const beforeFinalStart = (await logOf(dataDir)).length;
     const [code] = await exited(await start());
     expect(code).toBe(0);
+    await expect
+      .poll(async () => (await logOf(dataDir)).slice(beforeFinalStart))
+      .toContain("app.secondLaunch");
     await expect.poll(left, { timeout: 30_000 }).toEqual({ copies: 1, windows: 1 });
     expect(existsSync(boxes)).toBe(false);
   } finally {
     try {
-      await test.info().attach(`quit-${how}`, {
-        body: JSON.stringify({
-          state: await left(),
-          pids: copiesWith(tag),
-          dataFolderHeld: heldByAnotherCopy(dataDir, (what, error) => {
-            throw new Error(what, { cause: error });
-          }),
-          log: await logOf(dataDir).catch((error: unknown) => `Log unavailable: ${String(error)}`),
-          events: existsSync(`${mark}.events`) ? await readFile(`${mark}.events`, "utf8") : "",
-          attempts: existsSync(attempts) ? await readFile(attempts, "utf8") : "",
+      const details = JSON.stringify({
+        state: await left(),
+        pids: copiesWith(tag),
+        dataFolderHeld: heldByAnotherCopy(dataDir, (what, error) => {
+          throw new Error(what, { cause: error });
         }),
+        log: await logOf(dataDir).catch((error: unknown) => `Log unavailable: ${String(error)}`),
+        events: existsSync(`${mark}.events`) ? await readFile(`${mark}.events`, "utf8") : "",
+        attempts: existsSync(attempts) ? await readFile(attempts, "utf8") : "",
+        instanceTrace: existsSync(instanceTrace) ? await readFile(instanceTrace, "utf8") : "",
+      });
+      const detailsFile = test.info().outputPath("instance-events.json");
+      await writeFile(detailsFile, details);
+      await test.info().attach(`quit-${how}`, {
+        path: detailsFile,
         contentType: "application/json",
       });
     } finally {
@@ -434,7 +473,7 @@ test("five starts in a row while the app quits leave one window", async () => {
 });
 
 // protects=a start after the data lock is released but before Electron exits recovers a usable window (#1448); fails_when=the pre-lock snapshot misses the quitting copy and no recovery is armed.
-test("a start after data-lock release during quit opens a usable window with the existing data", async () => {
+test("a start during the old owner's exit waits for its data gate and opens the existing data", async () => {
   test.skip(process.platform === "win32", "lists the copies with ps");
   await startWhileQuitting("after-release", 1);
   const next = await launchApp(dataDir);
@@ -526,7 +565,7 @@ for (const { language, succeeds, quitDelay } of [
       if (!succeeds) {
         const second = start(false, await freePort());
         expect((await exited(second))[0]).toBe(0);
-        if (process.platform === "linux") await writeFile(join(home, "fail"), "");
+        await writeFile(join(home, "fail"), "");
       }
       expect((await gone)[0]).toBe(0);
       await expect
@@ -541,9 +580,7 @@ for (const { language, succeeds, quitDelay } of [
       const recorded = await entries();
       const busy = recorded.filter((it) => it.kind === "startup-problem");
       expect(busy).toEqual(
-        !succeeds && process.platform === "linux"
-          ? [expect.objectContaining({ dataHeld: true, ready: true })]
-          : [],
+        !succeeds ? [expect.objectContaining({ dataHeld: true, ready: true })] : [],
       );
       const install = recorded.find((it) => it.kind === "install");
       expect(install).toMatchObject({
@@ -594,8 +631,6 @@ for (const { language, succeeds, quitDelay } of [
       );
       expect(fresh).toHaveLength(1);
       expect(fresh[0]?.pid).not.toBe(old.pid);
-      if (!succeeds && process.platform !== "linux")
-        expect(await logOf(dataDir)).toContain("app.reopenAfterQuit reopens=false");
       await inCopyWindow(windowPort, async (window) => {
         const minds = await (await coreOf(window)).evaluate((api) => api.listMinds());
         expect(minds.map((mind) => mind.title)).toEqual(["Kept after failed update"]);

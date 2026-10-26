@@ -128,13 +128,11 @@ autoUpdater.quitAndInstall = () => {
     record("installer-error", { dataHeld: dataHeld() });
     autoUpdater.emit("error", new Error("The local installer fixture failed."));
   };
-  if (process.platform === "linux") {
-    const watcher = watch(folder, () => {
-      if (!existsSync(join(folder, "fail"))) return;
-      watcher.close();
-      fail();
-    });
-  } else app.once("second-instance", () => setImmediate(fail));
+  const watcher = watch(folder, () => {
+    if (!existsSync(join(folder, "fail"))) return;
+    watcher.close();
+    fail();
+  });
   writeFileSync(join(folder, "installing"), "");
 };
 app.on("quit", () => record("quit"));

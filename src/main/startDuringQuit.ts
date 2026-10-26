@@ -3,28 +3,11 @@
  * (#1448). The User asked for a window, so they get one: either the quitting copy opens again once
  * it has quit, or the new copy, if it can't get going, steps aside and starts again.
  */
-import { lstatSync } from "node:fs";
-import { join } from "node:path";
 import type { App, Event, RelaunchOptions } from "electron";
 import type { Logger } from "../core";
 
 const STARTED_AGAIN = "--started-again-after-stall";
 const STALL_MS = 5_000;
-
-// Chromium's lock is a symlink to a host and PID, so checking its target misses a quitting copy.
-export function electronInstanceWasPresent(
-  folder: string,
-  report: (what: string, error: unknown) => void,
-): boolean {
-  try {
-    lstatSync(join(folder, "SingletonLock"));
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    report("app.singleInstanceLockCheckFailed", error);
-    return true;
-  }
-}
 
 function relaunchOptions(extra: string[] = []): RelaunchOptions {
   const args = [...process.argv.slice(1).filter((arg) => arg !== STARTED_AGAIN), ...extra];
@@ -88,14 +71,12 @@ export function reopenAfterQuit(
 }
 
 /**
- * A copy can take Electron's lock after the old copy releases its data lock but before it exits
- * (#1448). On macOS this can stall `ready`: the new copy releases its locks and tries once more
- * before showing a problem and quitting. The retry watches even after the old locks are gone;
- * ordinary launches without a previous owner are left alone.
+ * A start that waited for a previous data owner retries a stalled native startup once (#1448).
+ * Its SQLite ownership lasts through actual process exit, including native cleanup.
+ * An ordinary fresh launch with no previous owner is left alone.
  */
 export function startAgainIfStalled(
   app: Pick<App, "whenReady" | "releaseSingleInstanceLock" | "relaunch" | "exit">,
-  letGoOfFolder: () => void,
   showProblem: () => void,
   logger: Pick<Logger, "error">,
   previousOwner: boolean,
@@ -104,9 +85,8 @@ export function startAgainIfStalled(
   const timer = setTimeout(() => {
     const again = process.argv.includes(STARTED_AGAIN);
     logger.error("app.startStalled", { again });
-    // Electron's lock first: a start that comes in between still finds the folder held, and watches too.
+    // SQLite ownership ends with the process, after Electron's native cleanup (#1448).
     app.releaseSingleInstanceLock();
-    letGoOfFolder();
     try {
       if (again) showProblem();
       else app.relaunch(relaunchOptions([STARTED_AGAIN]));

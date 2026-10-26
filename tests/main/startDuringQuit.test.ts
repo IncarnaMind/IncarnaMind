@@ -1,19 +1,10 @@
 import { EventEmitter } from "node:events";
-import { lstatSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
-  electronInstanceWasPresent,
   reopenAfterQuit,
   restartAfterFailedUpdate,
   startAgainIfStalled,
 } from "../../src/main/startDuringQuit";
-
-vi.mock("node:fs", async (importOriginal) => {
-  const original = await importOriginal<typeof import("node:fs")>();
-  return { ...original, lstatSync: vi.fn(original.lstatSync) };
-});
 
 describe("a failed update after the quit guard committed", () => {
   test.each(["problem", "relaunch", "closeCore"])(
@@ -146,7 +137,6 @@ describe("a copy that took Electron’s single-instance lock", () => {
     const logged: unknown[] = [];
     startAgainIfStalled(
       app as unknown as Parameters<typeof startAgainIfStalled>[0],
-      () => calls.push(["letGoOfFolder"]),
       () => calls.push(["showProblem"]),
       { error: (...entry: unknown[]) => logged.push(entry) },
       previousOwner,
@@ -169,12 +159,11 @@ describe("a copy that took Electron’s single-instance lock", () => {
     expect(logged).toEqual([]);
   });
 
-  test("with no `ready`, lets go of Electron's lock and then the folder, and starts again", () => {
+  test("with no `ready`, releases the native channel and retries, retaining data ownership until exit", () => {
     const { calls, logged } = startingApp(false);
     vi.runAllTimers();
     expect(calls).toEqual([
       ["releaseSingleInstanceLock"],
-      ["letGoOfFolder"],
       ["relaunch", { args: [...argv.slice(1), "--started-again-after-stall"] }],
       ["exit", 0],
     ]);
@@ -185,12 +174,7 @@ describe("a copy that took Electron’s single-instance lock", () => {
     process.argv = [...argv, "--started-again-after-stall"];
     const { calls, logged } = startingApp(false, false);
     vi.runAllTimers();
-    expect(calls).toEqual([
-      ["releaseSingleInstanceLock"],
-      ["letGoOfFolder"],
-      ["showProblem"],
-      ["exit", 0],
-    ]);
+    expect(calls).toEqual([["releaseSingleInstanceLock"], ["showProblem"], ["exit", 0]]);
     expect(logged).toEqual([["app.startStalled", { again: true }]]);
   });
 
@@ -205,41 +189,5 @@ describe("a copy that took Electron’s single-instance lock", () => {
     app.emit("before-quit", quitEvent());
     startCame();
     expect(app.relaunch).toHaveBeenCalledWith({ args: argv.slice(1) });
-  });
-});
-
-describe("the Electron lock before a new start", () => {
-  let folder: string;
-  beforeEach(() => {
-    folder = mkdtempSync(join(tmpdir(), "incarnamind-singleton-"));
-  });
-  afterEach(() => {
-    rmSync(folder, { recursive: true, force: true });
-  });
-
-  test("an ordinary start has no previous Electron owner", () => {
-    const report = vi.fn();
-    expect(electronInstanceWasPresent(folder, report)).toBe(false);
-    expect(report).not.toHaveBeenCalled();
-  });
-
-  test.skipIf(process.platform === "win32")(
-    "a native lock symlink still identifies an exiting owner after the data lock is released",
-    () => {
-      symlinkSync("host-12345", join(folder, "SingletonLock"));
-      const report = vi.fn();
-      expect(electronInstanceWasPresent(folder, report)).toBe(true);
-      expect(report).not.toHaveBeenCalled();
-    },
-  );
-
-  test("an unreadable lock location is reported and keeps recovery enabled", () => {
-    const error = Object.assign(new Error("Permission denied"), { code: "EACCES" });
-    vi.mocked(lstatSync).mockImplementationOnce(() => {
-      throw error;
-    });
-    const report = vi.fn();
-    expect(electronInstanceWasPresent(folder, report)).toBe(true);
-    expect(report).toHaveBeenCalledWith("app.singleInstanceLockCheckFailed", error);
   });
 });
