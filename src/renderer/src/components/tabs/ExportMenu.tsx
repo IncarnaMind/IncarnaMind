@@ -95,8 +95,8 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   const states = useMindNoteStates(menu.open && mind ? [mind] : []);
   const noteState = mind ? (states.get(mind.id) ?? null) : null;
   const running = useChecks((state) => state.running[mindId] !== undefined);
-  // Under Word, the state's own line (D266, reviewed): not checked starts a Check; needs a look
-  // opens the card at its marks, the one action that fits what was found.
+  // The state's own line, never a block on the export (D266): not checked starts a Check, and
+  // needs a look opens the card at its marks, the action that fits what was found.
   const stateLine =
     noteState === null || noteState.kind === "checked"
       ? null
