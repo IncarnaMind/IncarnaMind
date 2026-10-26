@@ -1,10 +1,12 @@
 import { useT } from "../../i18n";
+import { useAppStore } from "../../store";
 import { DropLineIcon } from "../lineIcons";
+import { buttonStyle } from "../ui";
 
 /**
- * The empty Library: where files go. The whole window takes a drop; this
- * says so where the Documents will be, and Add Documents above is the way
- * without dragging.
+ * The empty Library: what is missing and the two ways to add it, in place.
+ * The whole window takes a drop; the line says so too, and the formats that
+ * can be added and that files stay where they are.
  */
 export function LibraryEmpty() {
   const t = useT();
@@ -14,10 +16,27 @@ export function LibraryEmpty() {
       className="mt-6 rounded-[10px] border-[1.5px] border-dashed border-rule-strong px-6 py-12 text-center"
     >
       <DropLineIcon className="mx-auto size-5 text-ink-meta" />
-      <p className="mt-3 font-serif text-heading font-semibold text-ink">
-        {t("library.drop.title")}
-      </p>
-      <p className="mt-1.5 text-[13px] text-ink-meta">{t("library.drop.formats")}</p>
+      <p className="mt-3 font-serif text-heading font-semibold text-ink">{t("library.none")}</p>
+      <p className="mt-1.5 text-[13px] text-ink-meta">{t("library.none.hint")}</p>
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          data-testid="library-empty-add-files"
+          onClick={() => void useAppStore.getState().pickDocuments()}
+          className={buttonStyle("primary", "sm")}
+        >
+          {t("startGuide.documents.addFiles")}
+        </button>
+        <button
+          type="button"
+          data-testid="library-empty-link-folder"
+          onClick={() => void useAppStore.getState().addLinkedFolder()}
+          className={buttonStyle("secondary", "sm")}
+        >
+          {t("startGuide.documents.linkFolder")}
+        </button>
+      </div>
+      <p className="mt-4 text-[13px] text-ink-meta">{t("library.drop.formats")}</p>
       <p className="text-[13px] text-ink-meta">{t("library.drop.stay")}</p>
     </div>
   );

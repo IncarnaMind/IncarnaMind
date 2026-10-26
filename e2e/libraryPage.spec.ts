@@ -841,14 +841,17 @@ test("as the window narrows the columns give way, Added first, then Format, then
   }
 });
 
-test("an empty Library offers one Add Documents, its ways in, and a place to drop files", async () => {
+test("an empty Library says No Documents yet, with Add files… and Link a folder… in place, beside one Add Documents", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
+    const empty = library.getByTestId("library-empty");
     await expect(library.getByTestId("library-count")).toHaveText("0");
-    await expect(library.getByTestId("library-empty")).toContainText("Drop files or a folder here");
+    await expect(empty).toContainText("No Documents yet");
+    await expect(empty.getByTestId("library-empty-add-files")).toHaveText("Add files…");
+    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText("Link a folder…");
     await expect(library.getByTestId("library-bar")).toHaveCount(0);
     await expect(library.getByRole("button", { name: /Add Documents/ })).toHaveCount(1);
     await pointAndClick(window, library.getByTestId("library-add-documents"));
@@ -864,7 +867,9 @@ test("an empty Library offers one Add Documents, its ways in, and a place to dro
     ]);
     await window.keyboard.press("Escape");
     await setLanguage(window, "zh-CN");
-    await expect(library.getByTestId("library-empty")).toContainText("将文件或文件夹拖到这里");
+    await expect(empty).toContainText("还没有文档");
+    await expect(empty.getByTestId("library-empty-add-files")).toHaveText("添加文件…");
+    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText("添加同步文件夹…");
   } finally {
     await app.close();
   }

@@ -774,6 +774,7 @@ function useStatuses(): Status[] {
       tone: "waiting",
       short: t("status.taggingWaiting"),
       full: t("jev.waiting.notice"),
+      wraps: true,
       needsYou: true,
       alerts: true,
       action: {

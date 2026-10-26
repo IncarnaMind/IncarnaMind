@@ -133,14 +133,14 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
 
   await window.getByTestId("add-documents-input").setInputFiles([notes]);
   await expect(line).toBeVisible();
-  await expect(line).toContainText("No AI model for Tags");
+  await expect(line).toContainText("Tags come once you choose an AI model");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   await expect(window.getByTestId("tab-list")).toHaveCount(0);
 
   const choose = line.getByTestId("tagging-waiting-setup");
   await expect(choose).toHaveText("Choose…");
   await setLanguage(window, "zh-CN");
-  await expect(line).toContainText("打标签需要 AI 模型");
+  await expect(line).toContainText("选择 AI 模型后即可添加标签");
   await expect(choose).toHaveText("选择…");
   for (const [width, height] of [
     [900, 700],

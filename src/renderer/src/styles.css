@@ -10184,9 +10184,15 @@
   }
   .compare-sheet-foot {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     padding: 0 8px 8px 12px;
+  }
+  /* The model keeps a name's width, and Make moves down instead: a chip cut to "A." names nothing (#763). */
+  .compare-sheet-foot .composer-model-anchor {
+    flex-shrink: 0;
+    min-width: auto;
   }
   .compare-sheet-ask {
     padding: 0 8px 8px;

@@ -1,13 +1,18 @@
 import { useLayoutEffect, useRef } from "react";
 import { useHomeView, useMinuteClock } from "../../home";
+import { useT } from "../../i18n";
 import { rowsIn, useSelectionOrder } from "../../selection";
+import { useAppStore } from "../../store";
+import { ProblemLine } from "../ProblemLine";
 import { ComingUp } from "./ComingUp";
 import { FolderCards } from "./FolderCards";
 import { HomeHeader } from "./HomeHeader";
 import { RecentMinds } from "./RecentMinds";
 
 export function HomePane() {
+  const t = useT();
   const now = useMinuteClock();
+  const documents = useAppStore((state) => state.documents.length);
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = useHomeView.getState().scrollTop;
@@ -31,6 +36,25 @@ export function HomePane() {
       >
         <div className="mx-auto w-full max-w-[760px] px-6 pt-10 pb-24 @max-[760px]/home:px-4 @max-[760px]/home:pt-8">
           <HomeHeader now={now} />
+          {documents === 0 && (
+            <ProblemLine
+              role="status"
+              testId="home-empty"
+              className="mb-7"
+              action={{
+                label: t("startGuide.documents.addFiles"),
+                testId: "home-empty-add-files",
+                onClick: () => void useAppStore.getState().pickDocuments(),
+              }}
+              also={{
+                label: t("startGuide.documents.linkFolder"),
+                testId: "home-empty-link-folder",
+                onClick: () => void useAppStore.getState().addLinkedFolder(),
+              }}
+            >
+              {t("library.none")}
+            </ProblemLine>
+          )}
           <ComingUp now={now} />
           <RecentMinds now={now} />
           <FolderCards now={now} />

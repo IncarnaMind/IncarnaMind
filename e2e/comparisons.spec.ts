@@ -461,6 +461,14 @@ test("empty states from the + menu, and the monthly cap: every cell left says it
   );
   await expect(sheet.getByTestId("compare-sheet-make")).toBeDisabled();
   await typeQuestions(window, ["Termination notice", "Liability cap"]);
+  // The model's name is never squeezed into a letter: Make moves down instead (#763).
+  const model = sheet.getByTestId("composer-model");
+  await expect(model).toBeVisible();
+  await expect
+    .poll(() =>
+      model.locator("span").first().evaluate((element) => element.scrollWidth <= element.clientWidth),
+    )
+    .toBe(true);
   await screenshot(window, "compare-sheet-zh-900");
 
   // A cap too small for one request: nothing is sent, and every cell says why.

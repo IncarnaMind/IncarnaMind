@@ -33,6 +33,7 @@ import { LinkedFolderRows } from "./LinkedFolderRows";
 import { LinkFolderDialog } from "./LinkFolderDialog";
 import { DocumentLineIcon, MoreLineIcon } from "./lineIcons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
+import { ProblemLine } from "./ProblemLine";
 import { SidebarHome } from "./SidebarHome";
 import { SidebarMoveTo } from "./SidebarMoveTo";
 import { SidebarSearch } from "./SidebarSearch";
@@ -228,6 +229,25 @@ export function DocumentsSection() {
           quiet={quiet}
           hideExamples={foldExamples}
         />
+        {!quiet && documents.length === 0 && (
+          <ProblemLine
+            role="status"
+            testId="documents-empty"
+            className="px-2 pt-2 pb-1"
+            action={{
+              label: t("startGuide.documents.addFiles"),
+              testId: "documents-empty-add-files",
+              onClick: () => void useAppStore.getState().pickDocuments(),
+            }}
+            also={{
+              label: t("startGuide.documents.linkFolder"),
+              testId: "documents-empty-link-folder",
+              onClick: () => void useAppStore.getState().addLinkedFolder(),
+            }}
+          >
+            {t("library.none")}
+          </ProblemLine>
+        )}
         {!quiet && hasLinkedFolders && (
           <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
             <LinkedFolderRows hideExamples={foldExamples} />

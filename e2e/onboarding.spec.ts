@@ -279,10 +279,10 @@ test("with only the example Documents, the footer doesn't ask for a model to tag
   const added = items.filter({ hasText: "Harbour notes" });
   await expect(added).toHaveAttribute("data-tagging", "waiting-for-provider");
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("No AI model for Tags");
+  await expect(notice).toContainText("Tags come once you choose an AI model");
   await expect(notice.getByTestId("tagging-waiting-setup")).toHaveText("Choose…");
   await setLanguage(window, "zh-CN");
-  await expect(notice).toContainText("打标签需要 AI 模型");
+  await expect(notice).toContainText("选择 AI 模型后即可添加标签");
   await expect(notice.getByTestId("tagging-waiting-setup")).toHaveText("选择…");
   await notice.getByTestId("tagging-waiting-setup").click();
   await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
@@ -726,7 +726,9 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(window.getByTestId("assistant")).toBeHidden();
   await expect(window.getByTestId("ask-pill")).toBeVisible();
   await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(1);
-  await expect(sidebar.getByTestId("tagging-waiting")).toContainText("No AI model for Tags");
+  await expect(sidebar.getByTestId("tagging-waiting")).toContainText(
+    "Tags come once you choose an AI model",
+  );
 
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
   const setup = window.getByTestId("model-setup");

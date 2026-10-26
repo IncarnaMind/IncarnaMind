@@ -98,7 +98,9 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
   await addToFolder(window, [await slowFile("Opening note")], folderId);
   await openFolder(window, FOLDER);
   const footer = window.getByTestId("sidebar-status");
-  await expect(footer.getByTestId("tagging-waiting")).toContainText("No AI model for Tags");
+  await expect(footer.getByTestId("tagging-waiting")).toContainText(
+    "Tags come once you choose an AI model",
+  );
 
   // Documents added before the key and the switch aren't tagged by it: only those added since.
   await pasteKey(window);
