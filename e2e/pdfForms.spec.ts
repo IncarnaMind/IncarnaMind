@@ -8,8 +8,10 @@ import {
   coreOf,
   createDataFolder,
   dismissChatSetup,
+  interceptOpenPath,
   launchApp,
   newMind,
+  pathsOpened,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -131,7 +133,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, item.getByTestId("open-document"));
       const warning = window.getByTestId("viewer").getByTestId("forms-unread");
       await expect(warning).toContainText(language === "zh-CN" ? "打印为 PDF" : "Print to PDF");
-      await expect(warning.getByTestId("forms-retry")).toBeVisible();
+      const print = warning.getByTestId("forms-print");
+      await expect(print).toHaveText(language === "zh-CN" ? "打印为 PDF…" : "Print to PDF…");
+      await interceptOpenPath(app);
+      await pointAndClick(window, print);
+      expect(await pathsOpened(app)).toEqual([path]);
       if (process.env.INCARNAMIND_SCREENSHOTS)
         await window.screenshot({
           path: join(

@@ -1289,6 +1289,7 @@ export const zhCN = {
   "documents.pick.title": "添加文档",
   "documents.pick.filter": "文档",
   "documents.retryAction": "重试",
+  "documents.printToPdfAction": "打印为 PDF…",
   "documents.unlockAction": "解锁…",
   "documents.forgetPasswordAction": "忘记密码",
   "documents.renameLabel": "{name} 的新名称",

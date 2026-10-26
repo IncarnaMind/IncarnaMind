@@ -22,6 +22,7 @@ import { scannedUnit } from "./scan/layout";
 import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
 import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
 import { findTables, type TableGrid, textItemOf, textLayerRows } from "./tables";
+import { unreadMessage } from "./unreadMessage";
 import { PICTURE_LIMITS, pictureSize, pictureType } from "./web/pictures";
 
 export { ExtractionError };
@@ -455,8 +456,10 @@ async function extractPdf(
       unreadForms.length > 0
         ? {
             pages: [...new Set([...unreadForms, ...(unreadScans?.pages ?? [])])],
-            message:
+            message: [
               "Some PDF form fields could not be read. Print to PDF in the app that created it, then add that copy.",
+              ...(unreadScans ? [unreadMessage(unreadScans)] : []),
+            ].join(" "),
             forms: true as const,
           }
         : unreadScans;

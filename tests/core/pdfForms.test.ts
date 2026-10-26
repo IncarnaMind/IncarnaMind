@@ -221,6 +221,34 @@ test("printed labels, inherited values, empty fields and multi-select display va
   expect(text).toContain("Release option: [x]");
 });
 
+test("an empty signature and radio group are readable states, not unsupported fields", async () => {
+  const core = startCore(await createTempDataFolder());
+  const { document } = await importPdf(
+    core,
+    buildPdf([
+      {
+        fields: [
+          {
+            dictionary:
+              "/FT /Sig /T (emptySignature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
+            appearance: null,
+          },
+          {
+            dictionary:
+              "/FT /Btn /T (emptyRadio) /TU (Release option) /Ff 32768 /Rect [210 40 234 64] /F 4",
+            appearance: { Off: "q Q", release: "0 0 300 24 re f" },
+          },
+        ],
+      },
+    ]),
+  );
+
+  expect(document).toMatchObject({ status: "ready", failure: null });
+  const text = (await core.readDocumentText(document.id)).pages[0]?.text ?? "";
+  expect(text).toContain('Approval signature: ""');
+  expect(text).toContain("Release option: [ ]");
+});
+
 test.each(["ready", "embedding", "waiting-for-model"])(
   "an unreadable field stays a partial-reading problem while %s",
   async (status) => {
@@ -255,7 +283,7 @@ test.each(["ready", "embedding", "waiting-for-model"])(
     });
     expect(document.failure?.message).toContain("Print to PDF");
     expect(await core.listUnreadFiles()).toContainEqual(
-      expect.objectContaining({ documentId: document.id, reason: "pages" }),
+      expect.objectContaining({ documentId: document.id, reason: "pages", forms: true }),
     );
     const text = (await core.readDocumentText(document.id)).pages[0]?.text ?? "";
     expect(text).toContain("Approval signature: [?]");
@@ -294,7 +322,7 @@ test("hidden and password values do not enter searchable text", async () => {
     ]),
   );
   const text = (await core.readDocumentText(document.id)).pages.map((page) => page.text).join("\n");
-  expect(document.failure?.reason).toBe("forms-unread");
+  expect(document).toMatchObject({ status: "ready", failure: null });
   expect(text).not.toContain("sentinel");
   expect(await core.searchPassages("sentinel", { mode: "keyword" })).toEqual([]);
 });
@@ -351,7 +379,10 @@ test("reading a scanned template preserves widgets and anchors, including kept p
     await current.close();
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
-      db.run("UPDATE documents SET processing_version = 11 WHERE id = ?", [document.id]);
+      db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
+        BigInt(PROCESSING_VERSION - 1),
+        document.id,
+      ]);
       if (removeFields)
         db.run("UPDATE document_pages SET text = ?, anchors = ? WHERE document_id = ?", [
           page.text.slice(0, field.start - 1),
@@ -381,7 +412,7 @@ test("older ready PDFs are re-read at startup so existing Documents gain their f
   await first.close();
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
-    db.run("UPDATE documents SET processing_version = 11");
+    db.run("UPDATE documents SET processing_version = ?", [BigInt(PROCESSING_VERSION - 1)]);
     db.run("UPDATE document_pages SET text = 'Inspection record'");
     db.run("UPDATE passages SET text = 'Inspection record'");
     db.run("DELETE FROM passages_fts");
@@ -409,4 +440,48 @@ test("older ready PDFs are re-read at startup so existing Documents gain their f
   } finally {
     stored.close();
   }
+});
+
+test("a partial PDF shows reading, not its old failure, while it is read again", async () => {
+  const dataDir = await createTempDataFolder();
+  const first = startCore(dataDir);
+  const page = inspectionPage();
+  const { document } = await importPdf(
+    first,
+    buildPdf([
+      {
+        ...page,
+        fields: [
+          ...(page.fields ?? []),
+          {
+            dictionary:
+              "/FT /Sig /T (signature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
+            appearance: pdfAppearance("Signed by inspector"),
+          },
+        ],
+      },
+    ]),
+  );
+  expect(document.status).toBe("failed");
+  await first.close();
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  try {
+    db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
+      BigInt(PROCESSING_VERSION - 1),
+      document.id,
+    ]);
+  } finally {
+    db.close();
+  }
+
+  const next = startCore(dataDir);
+  const statuses: string[] = [];
+  next.on("document.status", (row) => {
+    if (row.id === document.id) statuses.push(row.status);
+  });
+  const [read] = await waitForProcessing(next, [document.id]);
+  expect(statuses.length).toBeGreaterThan(0);
+  expect(statuses[0]).not.toBe("failed");
+  expect(statuses).toContain("extracting");
+  expect(read).toMatchObject({ status: "failed", failure: { reason: "forms-unread" } });
 });

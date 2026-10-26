@@ -26,9 +26,12 @@ function numbers(value: unknown, length: number): number[] | null {
 }
 
 function fieldValue(field: Record<string, unknown>): string | null {
+  if (field.fieldType === "Sig") return field.hasAppearance === true ? null : PDF_BLANK_FIELD;
   if (field.fieldType === "Btn") {
     const selected = field.radioButton === true ? field.buttonValue : field.exportValue;
-    if (typeof selected !== "string" || typeof field.fieldValue !== "string") return null;
+    if (typeof selected !== "string") return null;
+    if (field.fieldValue == null && field.hasAppearance !== true) return "[ ]";
+    if (typeof field.fieldValue !== "string") return null;
     return field.fieldValue === selected ? "[x]" : "[ ]";
   }
   if (field.fieldType !== "Tx" && field.fieldType !== "Ch") return null;
@@ -126,10 +129,7 @@ export function pdfFormText(
           bottom >= (view[3] ?? 0)))
     )
       continue;
-    if (field.password === true) {
-      unread = true;
-      continue;
-    }
+    if (field.password === true) continue;
     const label = fieldLabel(field, rect, content.items);
     const value = fieldValue(field);
     unread ||= value === null || label === "";

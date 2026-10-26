@@ -1336,6 +1336,7 @@ export const en = {
   "documents.pick.title": "Add Documents",
   "documents.pick.filter": "Documents",
   "documents.retryAction": "Retry",
+  "documents.printToPdfAction": "Print to PDF…",
   "documents.unlockAction": "Unlock…",
   "documents.forgetPasswordAction": "Forget password",
   "documents.renameLabel": "New name for {name}",

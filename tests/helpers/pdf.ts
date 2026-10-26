@@ -29,7 +29,7 @@ export type PdfDrawing =
 export interface PdfPage {
   fields?: readonly {
     dictionary: string;
-    appearance: string | Readonly<Record<string, string>>;
+    appearance: string | Readonly<Record<string, string>> | null;
     parent?: string;
   }[];
   /** Lines of text drawn top to bottom in Helvetica: WinAnsi's characters, and the options' symbols. */
@@ -562,11 +562,13 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
         return `${appearanceId} 0 R`;
       };
       const normal =
-        typeof field.appearance === "string"
-          ? appearance(field.appearance)
-          : `<< ${Object.entries(field.appearance)
-              .map(([state, value]) => `/${state} ${appearance(value)}`)
-              .join(" ")} >>`;
+        field.appearance === null
+          ? null
+          : typeof field.appearance === "string"
+            ? appearance(field.appearance)
+            : `<< ${Object.entries(field.appearance)
+                .map(([state, value]) => `/${state} ${appearance(value)}`)
+                .join(" ")} >>`;
       let parent = "";
       if (field.parent) {
         const parentId = nextId++;
@@ -575,7 +577,7 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
         parent = ` /Parent ${parentId} 0 R`;
       } else fields.push(id);
       objects[id] =
-        `<< /Type /Annot /Subtype /Widget /P ${pageId} 0 R ${field.dictionary}${parent} /AP << /N ${normal} >> >>`;
+        `<< /Type /Annot /Subtype /Widget /P ${pageId} 0 R ${field.dictionary}${parent}${normal === null ? "" : ` /AP << /N ${normal} >>`} >>`;
       return `${id} 0 R`;
     });
     objects[pageId] =

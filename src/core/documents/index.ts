@@ -97,7 +97,6 @@ import {
   type ProcessingResult,
   SCAN_CURRENT_SINCE,
   type ScanJob,
-  unreadMessage,
 } from "./processing";
 import { createProcessor } from "./processor";
 import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
@@ -125,6 +124,7 @@ import {
   topsOfEach,
 } from "./searchTool";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
+import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
 import type { WatchFolder } from "./watcher";
 import type { SnapshotFile } from "./web";
@@ -292,8 +292,14 @@ function taggingOf(status: string, stored: string): TaggingState {
   return "pending";
 }
 
+/**
+ * A stored failure shows only once processing has settled. While a Document is
+ * read again, its status and scan progress belong to the new job, not the old failure.
+ */
 const failedNow = (row: Pick<DocumentRow, "status" | "failure_reason">) =>
-  row.status === "failed" || row.failure_reason !== null;
+  row.status === "failed" ||
+  (row.failure_reason !== null &&
+    (row.status === "ready" || row.status === "embedding" || row.status === "waiting-for-model"));
 
 /** `searchPassages` options, checked and with their defaults. */
 function parseSearchOptions(options: unknown): {

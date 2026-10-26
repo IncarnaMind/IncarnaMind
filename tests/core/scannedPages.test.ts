@@ -26,7 +26,7 @@ import {
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
-import { buildPdf } from "../helpers/pdf";
+import { buildPdf, pdfAppearance } from "../helpers/pdf";
 
 const SCANS = join(import.meta.dirname, "../fixtures/scans");
 const picture = (id: string) => readFileSync(join(SCANS, `${id}.jpg`));
@@ -472,7 +472,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
                   {
                     dictionary:
                       "/FT /Sig /T (signature) /TU (Approval signature) /Rect [210 80 570 104] /F 4",
-                    appearance: "q Q",
+                    appearance: pdfAppearance("Signed by inspector"),
                   },
                 ]
               : undefined,
@@ -480,6 +480,10 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
         ]),
       );
       expect(document.failure?.reason).toBe(forms ? "forms-unread" : "pages-unread");
+      if (forms) {
+        expect(document.failure?.message).toContain("Some PDF form fields");
+        expect(document.failure?.message).toContain("Scanned page 1 couldn't be read");
+      }
       expect(read).toEqual([]);
 
       online = true;
@@ -494,6 +498,9 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
       });
       expect(ready?.id).toBe(document.id);
       expect(read).toEqual([1]);
+      expect((await core.readScannedText(document.id)).pages[0]?.text).toContain(
+        "MASTER SERVICES AGREEMENT",
+      );
     },
   );
 
