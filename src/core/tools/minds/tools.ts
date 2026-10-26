@@ -33,7 +33,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { askedFor, waitsForUser } from "../../../shared/askedChanges";
+import { askedFor, translationRequested, waitsForUser } from "../../../shared/askedChanges";
 import { setOrigins, setOriginsOf } from "../../../shared/blockOrigins";
 import {
   type ChartData,
@@ -74,6 +74,7 @@ import {
   CHART_NODE,
   type ChartProblem,
   CITATION_NODE,
+  type EditAction,
   type EditWithAiResult,
   type Effect,
   type MindChange,
@@ -86,6 +87,7 @@ import {
   type UserQuestion,
   type WritingPlace,
 } from "../../api";
+import { detectLanguage } from "../../documents/textLanguage";
 import { LANGUAGES, type Language } from "../../language";
 import { plainText } from "../../mindText";
 import { insertBlocks } from "../../noteAdding";
@@ -1856,10 +1858,12 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     {
       again = "call edit_mind again",
       remade,
+      action,
     }: {
       again?: string;
       // Written again from every Document (#1149): over words the User typed in since, it waits.
       remade?: { typedSince: boolean };
+      action?: EditAction;
     } = {},
   ): Written & { change: MindChange; dropped: number } => {
     const alone = withoutPointersBack(markdown);
@@ -1880,7 +1884,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       // `settle` writes Citations recorded later into the Blocks written, which only Blocks added whole can take.
       const written =
         over.kind === "own"
-          ? replaceOwn(note, over, blocks.map(createElement), request)
+          ? replaceOwn(note, over, blocks.map(createElement), request, ownRequests)
           : replaceApplied(note, over, blocks, request, { whole: unrecorded > 0 });
       const doc = note.doc;
       if (!written || !doc) return written;
@@ -1890,6 +1894,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         providerId: options.prepared.provider.id,
         modelId: options.prepared.modelId,
         createdAt: options.now().toISOString(),
+        ...(action && { action }),
         ...(asked && { requested: remade ? ("write" as const) : ("edit" as const) }),
       });
       return written;
@@ -2021,7 +2026,21 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           );
         }
         const before = minds.read(mind.id, (blocks) => stretchText(blocks, stretch));
-        const written = writeOver(toolCallId, mind, over, markdown, canCallAgain?.() ?? true);
+        const beforeLanguage = detectLanguage(before);
+        const contentLanguage = detectLanguage(markdown);
+        const previousTranslation =
+          over.kind === "own" &&
+          minds.read(mind.id, (note) =>
+            note.doc ? translationRequested(note.doc, new Set(over.requests)) : false,
+          );
+        const action =
+          (previousTranslation && beforeLanguage !== contentLanguage) ||
+          (beforeLanguage && contentLanguage && beforeLanguage !== contentLanguage)
+            ? ("translate" as const)
+            : undefined;
+        const written = writeOver(toolCallId, mind, over, markdown, canCallAgain?.() ?? true, {
+          action,
+        });
         const checked = await checkWritten(toolCallId, written, signal);
         const went = ` (${lengths(before, markdown)})`;
         return [

@@ -10,7 +10,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { INLINE_CODE_MARK } from "../../shared/aiText";
-import { askedFor } from "../../shared/askedChanges";
+import { askedFor, ownTextLength } from "../../shared/askedChanges";
 import { originOf } from "../../shared/blockOrigins";
 import { readChart } from "../../shared/charts";
 import {
@@ -21,12 +21,13 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
-import { createElement, type NodeJSON, topLevelBlocks } from "../answers/blocks";
+import { createElement, type NodeJSON, nodeOf, topLevelBlocks } from "../answers/blocks";
 import {
   BLOCK_ID_ATTRIBUTE,
   CHART_NODE,
   CITATION_NODE,
   GENERATED_MARK,
+  MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -146,6 +147,63 @@ function isOwn(element: Y.XmlElement): boolean {
   );
 }
 
+function hasInlineCode(element: Y.XmlElement): boolean {
+  return element.toArray().some((node) => {
+    if (node instanceof Y.XmlElement) return hasInlineCode(node);
+    if (!(node instanceof Y.XmlText)) return false;
+    return (node.toDelta() as Run[]).some(
+      (run) => !!run.attributes && INLINE_CODE_MARK in run.attributes,
+    );
+  });
+}
+
+function unsafeInlineInsertion(element: Y.XmlElement, current: ReadonlySet<string>): boolean {
+  const code = hasInlineCode(element);
+  const visit = (parent: Y.XmlElement): boolean =>
+    parent.toArray().some((node) => {
+      if (node instanceof Y.XmlElement) {
+        const proposal = readProposalAttribute(node.getAttribute(PROPOSAL_ATTRIBUTE));
+        if (proposal?.kind === "insert" && current.has(proposal.request)) return true;
+        return visit(node);
+      }
+      if (!(node instanceof Y.XmlText)) return false;
+      return (node.toDelta() as Run[]).some((run) => {
+        const proposal = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
+        return (
+          !!proposal &&
+          current.has(proposal.request) &&
+          (code || !run.attributes || !(GENERATED_MARK in run.attributes))
+        );
+      });
+    });
+  return visit(element);
+}
+
+function unsafeCurrentRevision(
+  elements: readonly Y.XmlElement[],
+  current: ReadonlySet<string>,
+): boolean {
+  const inserted = elements.filter((element) => {
+    const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+    return proposal?.kind === "insert" && current.has(proposal.request);
+  });
+  const original = elements.some((element) => {
+    const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+    return proposal?.kind !== "insert" && ownTextLength(element) > 0;
+  });
+  return (
+    (inserted.length > 0 && original) ||
+    inserted.some(
+      (element) =>
+        !allAiText(element) ||
+        hasInlineCode(element) ||
+        element.nodeName === "codeBlock" ||
+        element.length === 0,
+    ) ||
+    elements.some((element) => unsafeInlineInsertion(element, current))
+  );
+}
+
 function elementText(element: Y.XmlElement): string {
   return element
     .toArray()
@@ -207,9 +265,14 @@ export function waitingIn(
   const count = waitingChanges(blocks);
   const requests = requestsIn(range);
   const own = range.filter(isOwn);
+  if (unsafeCurrentRevision(range, inTurn)) {
+    return { kind: own.length > 0 ? "mixed" : "other", count };
+  }
   const thisTurn = range
     .filter((element) => element.nodeName !== "heading")
     .every((element) => {
+      const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+      if (proposal?.kind === "insert" && !allAiText(element)) return false;
       const requests = requestsIn([element]);
       return requests.length > 0 && requests.every((request) => inTurn.has(request));
     });
@@ -393,10 +456,38 @@ export function replaceOwn(
   own: OwnWaiting,
   revised: readonly Y.XmlElement[],
   request: string,
+  current: ReadonlySet<string> = new Set(),
 ): string[] | null {
   const old = blocksOf(blocks, own);
   const first = old?.[0];
   if (!old || !first) return null;
+  const requests = new Set(own.requests.filter((each) => current.has(each)));
+  if (requests.size > 0 && unsafeCurrentRevision(old, current)) return null;
+  const restart =
+    old.some((element) => {
+      const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+      return proposal?.kind !== "insert" && ownTextLength(element) > 0;
+    }) &&
+    old.every((element) => {
+      const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+      return !proposal || current.has(proposal.request);
+    });
+  if (requests.size > 0 && restart) {
+    resolveProposals(blocks, (ref) => requests.has(ref.request), "reject", new Set(own.blockIds));
+    const top = topLevelBlocks(blocks);
+    const previous = own.blockIds.flatMap((id) => {
+      const element = top.find((each) => idOf(each) === id);
+      return element ? [element] : [];
+    });
+    const copy = new Y.Doc();
+    const fragment = copy.getXmlFragment(MIND_CONTENT_FIELD);
+    fragment.insert(0, [...revised]);
+    const content = fragment
+      .toArray()
+      .flatMap((element) => (element instanceof Y.XmlElement ? [nodeOf(element)] : []));
+    copy.destroy();
+    return proposeOver(blocks, previous, content, request, randomUUID);
+  }
   keepRevised(blocks, request, old);
   const at = blocks.toArray().indexOf(first);
   blocks.delete(at, old.length);

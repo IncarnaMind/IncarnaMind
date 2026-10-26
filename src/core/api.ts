@@ -450,7 +450,12 @@ export type ProposalRequest =
       reason?: string;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
-  | (ProposalMaker & { source: "answer-added"; requested?: RequestedChange })
+  | (ProposalMaker & {
+      source: "answer-added";
+      requested?: RequestedChange;
+      action?: EditAction;
+      instruction?: string;
+    })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
   | WordChangeRequest;

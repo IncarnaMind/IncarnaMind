@@ -880,11 +880,12 @@ export function createEdits(options: EditsOptions) {
         providerId: input.prepared.provider.id,
         modelId: input.prepared.modelId,
         createdAt: options.now().toISOString(),
+        instruction: input.instruction,
       };
       input.beforeWriting();
       const blockIds = content.edit(input.mindId, (mind) => {
         const asked = input.requested !== null && ownAsked(mind, own);
-        const ids = replaceOwn(mind, own, revised, request);
+        const ids = replaceOwn(mind, own, revised, request, input.ownRequests);
         if (ids && mind.doc) {
           recordProposalRequest(mind.doc, request, {
             ...made,

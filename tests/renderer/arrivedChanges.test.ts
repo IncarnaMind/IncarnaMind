@@ -9,11 +9,12 @@ import type { Schema } from "@tiptap/pm/model";
 import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import { describe, expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
-import { MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core";
+import { GENERATED_MARK, MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core";
 import { createElement } from "../../src/core/answers/blocks";
 import { replaceOwn, waitingIn } from "../../src/core/proposals/ownWaiting";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { waitsForUser } from "../../src/shared/askedChanges";
 import { pendingProposals } from "../../src/shared/proposals";
 
 const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({
@@ -154,7 +155,10 @@ describe("Changes the User asked the assistant for", () => {
         content: [
           text("The quarter was "),
           text("very ", [{ type: "proposalDelete", attrs: ref("a", "first") }]),
-          text("quite ", [{ type: "proposalInsert", attrs: ref("b", "first") }]),
+          text("quite ", [
+            { type: "proposalInsert", attrs: ref("b", "first") },
+            { type: GENERATED_MARK },
+          ]),
           text("good."),
         ],
       },
@@ -177,6 +181,7 @@ describe("Changes the User asked the assistant for", () => {
         }),
       ],
       "second",
+      new Set(["first"]),
     );
     const undo = new Y.UndoManager(blocks, { trackedOrigins: new Set([Asked]) });
 
@@ -185,5 +190,148 @@ describe("Changes the User asked the assistant for", () => {
     expect(textOf(blocks)).toEqual(["The quarter was good."]);
     undo.undo();
     expect(textOf(blocks)).toEqual(["The quarter was very good."]);
+  });
+
+  // Value: protects=inline code counts as original User text during same-turn revision; fails_when=the AI heuristic sends it through insert-only replacement; why_new=inline code cannot carry the generated mark; seam=waitingIn and replaceOwn with real inline-code marks; no_claim=full editor formatting UI
+  test("inline code is original text for the destructive hold", () => {
+    const { doc, blocks } = mindWith([
+      {
+        type: "paragraph",
+        attrs: {
+          id: "p",
+          [PROPOSAL_ATTRIBUTE]: { id: "delete", request: "first", kind: "delete" },
+        },
+        content: [text("abcdef", [{ type: "code" }])],
+      },
+    ]);
+    const own = waitingIn(
+      blocks,
+      { blockId: "p", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    if (own.kind !== "own") throw new Error("The inline-code edit was not found.");
+    replaceOwn(
+      blocks,
+      own,
+      [
+        createElement({
+          type: "paragraph",
+          attrs: { id: "p" },
+          content: [{ type: "text", text: "XYZ", marks: [{ type: "code", attrs: {} }] }],
+        }),
+      ],
+      "second",
+      new Set(["first"]),
+    );
+    expect(waitsForUser(doc, new Set(["first", "second"]))).toBe(true);
+  });
+
+  // Value: protects=User edits inside a current-turn inserted Block are refused rather than deleted; fails_when=thisTurn treats them as assistant-owned; why_new=top-level insert ownership differs from original text; seam=waitingIn classification; no_claim=the replaceOwn path (refused before it)
+  test("a User-edited inserted Block is not assistant-owned revision text", () => {
+    const { blocks } = mindWith([
+      {
+        type: "paragraph",
+        attrs: {
+          id: "p",
+          [PROPOSAL_ATTRIBUTE]: { id: "added", request: "first", kind: "insert" },
+        },
+        content: [text("User edit")],
+      },
+    ]);
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "p", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(waiting.kind).not.toBe("own");
+  });
+
+  // Value: protects=an edited inline-code insertion is not rejected away as assistant-only text; fails_when=restart treats inline code as generated; why_new=inline code cannot distinguish later User edits by its marks; seam=waitingIn with an original Block and inline insertion; no_claim=ordinary generated inline insertion (covered by same-turn tests)
+  test("an edited inline-code insertion is not restarted", () => {
+    const { blocks } = mindWith([
+      {
+        type: "paragraph",
+        attrs: { id: "p" },
+        content: [
+          text("original "),
+          text("foobar", [
+            { type: "code" },
+            { type: "proposalInsert", attrs: ref("added", "first") },
+          ]),
+        ],
+      },
+    ]);
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "p", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(waiting.kind).not.toBe("own");
+  });
+
+  // Value: protects=a nested inline element with a current insert Proposal is not rejected away; fails_when=only text runs are guarded; why_new=inlineMath and footnotes carry Proposal attributes on elements; seam=waitingIn with an inlineMath child; no_claim=formula editing UI
+  test("a nested inserted inline element is not restarted", () => {
+    const { blocks } = mindWith([
+      {
+        type: "paragraph",
+        attrs: { id: "p" },
+        content: [
+          text("original "),
+          {
+            type: "inlineMath",
+            attrs: {
+              id: "formula",
+              [PROPOSAL_ATTRIBUTE]: { id: "added", request: "first", kind: "insert" },
+            },
+            content: [text("x=2")],
+          },
+        ],
+      },
+    ]);
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "p", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(waiting.kind).not.toBe("own");
+  });
+
+  // Value: protects=a User-edited codeBlock is not archived as assistant-only text; fails_when=allAiText and inline-code-only checks treat it as generated; why_new=codeBlock has no inline-code runs and allAiText always accepts it; seam=waitingIn with a current inserted codeBlock; no_claim=ordinary text-only create/revise flow
+  test("a current inserted codeBlock is not revised", () => {
+    const { blocks } = mindWith([
+      {
+        type: "heading",
+        attrs: {
+          id: "h",
+          level: 2,
+          [PROPOSAL_ATTRIBUTE]: { id: "h-add", request: "first", kind: "insert" },
+        },
+        content: [text("Code")],
+      },
+      {
+        type: "codeBlock",
+        attrs: {
+          id: "code",
+          [PROPOSAL_ATTRIBUTE]: { id: "c-add", request: "first", kind: "insert" },
+        },
+        content: [text("User edit")],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "p", [PROPOSAL_ATTRIBUTE]: { id: "p-add", request: "first", kind: "insert" } },
+        content: [text("After")],
+      },
+    ]);
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "h", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(waiting.kind).not.toBe("own");
   });
 });
