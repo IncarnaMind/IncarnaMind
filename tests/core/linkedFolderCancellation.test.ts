@@ -1,52 +1,88 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { rename } from "node:fs/promises";
+import { join } from "node:path";
+import { describe, expect, onTestFinished, test } from "vitest";
+import { statIdentity } from "../../src/core/documents/files";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  linkAndProcess,
+  writeSourceFile,
+} from "../helpers/documents";
 
-const { cancels } = vi.hoisted(() => ({ cancels: vi.fn() }));
-
-vi.mock("../../src/core/documents/processor", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/core/documents/processor")>();
-  return {
-    ...actual,
-    createProcessor: (handlers: Parameters<typeof actual.createProcessor>[0]) => {
-      const processor = actual.createProcessor(handlers);
-      return {
-        ...processor,
-        cancel: (id: string) => {
-          cancels(id);
-          processor.cancel(id);
-        },
-      };
-    },
-  };
-});
+const noWatch = () => ({ close() {} });
 
 describe("Unlinking a Linked folder", () => {
-  beforeEach(() => cancels.mockClear());
-
-  // Value: protects=redo/unlink cannot re-add removed Documents; fails_when=remove leaves their processing jobs alive; why_new=CI exposed the 43ms redo-unlink race; seam=public removeLinkedFolder and processor cancellation; no_claim=the complete Electron timing sequence (covered by linkFolderUndo e2e)
-  test("cancels processing for every Document removed, but not one kept independently", async () => {
-    const core = startCore(await createTempDataFolder());
+  // Value: protects=a scan already identifying a file cannot add it after unlink; fails_when=addFound checks ownership only before its awaited identification; why_new=CI exposed the 43ms redo-unlink race; seam=public link/unlink/reconcile with the file-identity adapter gated after hashing; no_claim=cancelling known processing jobs (removeFromIndex already does that)
+  test("does not add a file whose scan finishes after unlink, and keeps an independent Document", async () => {
+    const termSheet = Promise.withResolvers<void>();
+    const releaseTermSheet = Promise.withResolvers<void>();
+    onTestFinished(() => releaseTermSheet.resolve());
+    const core = startCore(await createTempDataFolder(), {
+      linkedFolders: {
+        watch: noWatch,
+        stat: async (path) => {
+          if (path.endsWith("Term sheet.md")) {
+            termSheet.resolve();
+            await releaseTermSheet.promise;
+          }
+          return statIdentity(path);
+        },
+      },
+    });
     const folder = await createSourceFolder();
+    const teaserPath = await writeSourceFile(folder, "Teaser.md", "A business for sale.\n");
     await writeSourceFile(folder, "Term sheet.md", "The price is 4 million.\n");
-    await writeSourceFile(folder, "Teaser.md", "A harbour business for sale.\n");
-    await writeSourceFile(folder, "Inner/Memo.md", "The seller wants a quick close.\n");
+    const [teaser] = await addAndProcess(core, [teaserPath]);
+    if (!teaser) throw new Error("The independent Document wasn't added.");
     const linked = await core.addLinkedFolder(folder);
-    await vi.waitFor(async () => expect(await core.listDocuments()).toHaveLength(3));
-    const documents = await core.listDocuments();
-    await waitForProcessing(
-      core,
-      documents.map((document) => document.id),
-    );
-    const teaser = documents.find((document) => document.path.endsWith("Teaser.md"));
-    if (!teaser) throw new Error("Teaser was not indexed.");
-    const removed = documents.filter((document) => document.id !== teaser.id);
-    cancels.mockClear();
-    await core.removeLinkedFolder(linked.id, { keep: [teaser.id] });
-
-    const cancelled = cancels.mock.calls.map(([id]) => id);
-    expect(cancelled).toEqual(expect.arrayContaining(removed.map((document) => document.id)));
-    expect(cancelled).not.toContain(teaser.id);
+    await termSheet.promise;
     expect((await core.listDocuments()).map((document) => document.id)).toEqual([teaser.id]);
+
+    await core.removeLinkedFolder(linked.id, { keep: [teaser.id] });
+    releaseTermSheet.resolve();
+    await core.reconcileDocuments();
+
+    expect((await core.listDocuments()).map((document) => document.id)).toEqual([teaser.id]);
+  });
+
+  // Value: protects=aborting a move leaves its source for the normal missing-file pass; fails_when=move detection consumes the source before the ownership abort; why_new=review found the two-folder form of the same race; seam=public reconcile and unlink with destination identification gated; no_claim=a completed relocation (covered by linkedFolders move tests)
+  test("an aborted move does not leave the source available at its missing path", async () => {
+    const sourceFolder = await createSourceFolder();
+    const targetFolder = await createSourceFolder();
+    const sourcePath = await writeSourceFile(sourceFolder, "old.md", "The same contents.\n");
+    const targetPath = join(targetFolder, "new.md");
+    const identifying = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let holdTarget = false;
+    onTestFinished(() => release.resolve());
+    const core = startCore(await createTempDataFolder(), {
+      linkedFolders: {
+        watch: noWatch,
+        stat: async (path) => {
+          if (holdTarget && path === targetPath) {
+            identifying.resolve();
+            await release.promise;
+          }
+          return statIdentity(path);
+        },
+      },
+    });
+    const [source] = await linkAndProcess(core, sourceFolder);
+    if (!source) throw new Error("The source Document wasn't linked.");
+    const target = await core.addLinkedFolder(targetFolder);
+    await core.reconcileDocuments();
+    await rename(sourcePath, targetPath);
+    holdTarget = true;
+    const pass = core.reconcileDocuments();
+    await identifying.promise;
+
+    await core.removeLinkedFolder(target.id);
+    release.resolve();
+    await pass;
+
+    expect(await core.listDocuments()).toEqual([
+      expect.objectContaining({ id: source.id, path: sourcePath, fileStatus: "missing" }),
+    ]);
   });
 });
