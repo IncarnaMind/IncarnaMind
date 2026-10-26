@@ -728,6 +728,7 @@ export const zhCN = {
   "claim.unsupported.ownWorkings": "只有你自己的工作文件这样写。",
   "claim.fixSentence": "修改这句话",
   "claim.findSources": "查找资料",
+  "claim.findSourcesFor": "为这句话查找资料",
   "claim.findSources.menu": "查找资料…",
   "claim.more": "这条核对的更多操作",
   "claim.searchWeb": "联网搜索",

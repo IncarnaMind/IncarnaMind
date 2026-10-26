@@ -96,7 +96,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-fix")).toHaveText(words.fix);
     // The card keeps to what helps with this: no more ways to look, not even in its ⋯, and the mark can go.
     await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-    await expect(card.getByTestId("claim-menu")).toHaveCount(0);
+    await expect(card.getByTestId("check-menu")).toHaveCount(0);
     await expect(card.getByTestId("claim-search-web")).toHaveCount(0);
     await expect(card.getByTestId("claim-remove")).toBeVisible();
     // With no Citation it can still be cut or kept.
@@ -117,8 +117,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-nothing")).toHaveText(words.nothing);
     // Find sources is in the card's ⋯, as the Mind cites no paper or book.
     await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-    await pointAndClick(window, card.getByTestId("claim-menu"));
-    await expect(card.getByTestId("claim-find-sources-menu")).toBeVisible();
+    await pointAndClick(window, card.getByTestId("check-menu"));
+    await expect(card.getByTestId("check.findSources")).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(card.getByTestId("claim-search-web")).toBeVisible();
     await expect(card.getByTestId("claim-differs")).toHaveCount(0);

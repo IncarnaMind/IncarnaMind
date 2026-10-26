@@ -37,12 +37,10 @@ import {
 } from "../checks";
 import { useCitesWorks } from "../citationFormatting";
 import { CountItLine } from "../components/CountItLine";
-import { MoreLineIcon } from "../components/lineIcons";
 import { MetaLine } from "../components/MetaLine";
+import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
-import { menuClass, menuItemClass } from "../components/ui";
-import { usePopoverMenu } from "../components/usePopoverMenu";
 import { askInAssistant } from "../conversations";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -57,11 +55,13 @@ import {
   cutSentence,
   cutUnsupported,
   keepAsView,
+  offersFindSources,
   offersFixes,
   offersKeepAsView,
   offersNotFound,
   offersUseFigure,
   searchedLess,
+  sentenceOf,
   uncoveredOf,
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
@@ -90,10 +90,6 @@ const TONE: Record<ClaimMarkState, string> = {
   "not-checked": "cant-check",
   "needs-recheck": "checking",
 };
-
-/** The words of the sentence a check is about. */
-const sentenceOf = (editor: Editor, claim: ShownClaim) =>
-  editor.state.doc.textBetween(claim.sentence.from, claim.sentence.to, " ", " ").trim();
 
 const NO_DECISION: CitationDecision = { kind: "none" };
 
@@ -439,52 +435,6 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
 }
 
 /**
- * The card's ⋯. Find sources searches papers and the web, which suits a thesis
- * and not a contract, so it waits here, and the card also shows it as a button
- * in a Mind that cites a paper or book (DESIGN.md, 2026-10-24).
- */
-function ClaimCardMenu({ findSources }: { findSources(): void }) {
-  const t = useT();
-  const label = t("claim.more");
-  const menu = usePopoverMenu({ align: "end" });
-  return (
-    <>
-      <button
-        {...menu.buttonProps}
-        type="button"
-        data-testid="claim-menu"
-        aria-label={label}
-        title={label}
-        className={`${rowActionButtonClass} citation-card-menu`}
-      >
-        <MoreLineIcon className="size-4" />
-      </button>
-      <div
-        {...menu.menuProps}
-        role="menu"
-        aria-label={label}
-        data-testid="claim-actions"
-        title=""
-        className={menuClass}
-      >
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="claim-find-sources-menu"
-          onClick={() => {
-            menu.close();
-            findSources();
-          }}
-          className={menuItemClass}
-        >
-          <span className="flex-1">{t("claim.findSources.menu")}</span>
-        </button>
-      </div>
-    </>
-  );
-}
-
-/**
  * A sentence check's card: its state and the sentence it is about; for a
  * Passage found, the Document and Location with the quote washed in the
  * state's colour, and Add as Citation when it isn't cited yet, or "Already
@@ -608,7 +558,8 @@ function ClaimCard({
       savedPage.fetchedAt,
   };
   const nothingFound = saysNotFound(shown, check, cited.length);
-  const findSourcesOffered = state === "unsupported" && !differs && !decisionMissing && !fixes;
+  const findSourcesOffered = offersFindSources(editor, claim);
+  const objectMenu = useObjectMenu({ kind: "check", id: check.id });
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
@@ -627,6 +578,7 @@ function ClaimCard({
       ref={rootRef}
       className={`citation-card citation-card--${TONE[state]}`}
       contentEditable={false}
+      {...objectMenu.rowProps}
     >
       <div className="citation-card-head">
         <p data-testid="claim-badge" data-check={state} className="citation-badge">
@@ -1003,7 +955,15 @@ function ClaimCard({
           </button>
         )}
       </div>
-      {findSourcesOffered && <ClaimCardMenu findSources={onFindSources} />}
+      {findSourcesOffered && (
+        <ObjectMenu
+          target={{ kind: "check", id: check.id }}
+          label={t("claim.more")}
+          here={{ "check.findSources": onFindSources }}
+          className={`${rowActionButtonClass} citation-card-menu`}
+          align="end"
+        />
+      )}
     </div>
   );
 }

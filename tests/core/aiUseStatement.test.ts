@@ -393,9 +393,9 @@ describe("The AI use statement", () => {
     expect(sentences).toEqual([
       ["Result", "Sentences"],
       ["Supported", "1"],
-      ["Unsupported", "1"],
-      ["Not found", "1"],
       ["Contradicted", "1"],
+      ["Not found", "1"],
+      ["Unsupported", "1"],
       ["Needs re-check", "1"],
       ["Not checked", "1"],
     ]);

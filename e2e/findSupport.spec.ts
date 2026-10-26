@@ -218,8 +218,8 @@ test("Find sources… waits in the card's ⋯, and is a button only in a Mind th
   // Before the Mind cites the paper, Find sources is only in the ⋯.
   await pointAndClick(window, unsupported);
   await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-  await pointAndClick(window, card.getByTestId("claim-menu"));
-  await expect(card.getByTestId("claim-find-sources-menu")).toBeVisible();
+  await pointAndClick(window, card.getByTestId("check-menu"));
+  await expect(card.getByTestId("check.findSources")).toBeVisible();
   await window.keyboard.press("Escape");
   await window.keyboard.press("Escape");
   await expect(card).toBeHidden();
@@ -231,8 +231,8 @@ test("Find sources… waits in the card's ⋯, and is a button only in a Mind th
   await pointAndClick(window, unsupported);
   await expect(card.getByTestId("claim-find-sources")).toBeVisible();
   await expect(card.getByTestId("claim-find-sources")).toHaveText("Find sources");
-  await pointAndClick(window, card.getByTestId("claim-menu"));
-  await expect(card.getByTestId("claim-find-sources-menu")).toBeVisible();
+  await pointAndClick(window, card.getByTestId("check-menu"));
+  await expect(card.getByTestId("check.findSources")).toBeVisible();
   await app.close();
 });
 

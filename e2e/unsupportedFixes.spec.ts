@@ -196,8 +196,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-nothing")).toHaveText(words.nothing);
     // Find sources waits in the card's ⋯: the Mind cites no paper or book.
     await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-    await pointAndClick(window, card.getByTestId("claim-menu"));
-    await expect(card.getByTestId("claim-find-sources-menu")).toBeVisible();
+    await pointAndClick(window, card.getByTestId("check-menu"));
+    await expect(card.getByTestId("check.findSources")).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(card.getByTestId("claim-remove")).toBeVisible();
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
@@ -223,10 +223,10 @@ for (const language of ["en", "zh-CN"] as const) {
       for (const gone of [
         "claim-cut-sentence",
         "claim-find-sources",
-        "claim-find-sources-menu",
+        "check.findSources",
         "claim-search-web",
         "claim-remove",
-        "claim-menu",
+        "check-menu",
       ]) {
         await expect(card.getByTestId(gone)).toHaveCount(0);
       }

@@ -746,6 +746,7 @@ export const en = {
   "claim.unsupported.ownWorkings": "Only your own working file says this.",
   "claim.fixSentence": "Fix the sentence",
   "claim.findSources": "Find sources",
+  "claim.findSourcesFor": "Find sources for this sentence",
   "claim.findSources.menu": "Find sources…",
   "claim.searchWeb": "Search the web",
   "claim.more": "More for this check",

@@ -45,9 +45,11 @@ const CITATION_ROWS: readonly [keyof CitationCounts, MessageKey][] = [
   ["checking", "aiStatement.citations.checking"],
 ];
 
-const SENTENCE_ROWS: readonly [keyof SentenceCounts, MessageKey][] = (
-  ["supported", "unsupported", "notFound", "contradicted", "needsRecheck", "notChecked"] as const
-).map((key) => [key, SENTENCE_RESULT_LABELS[key]]);
+const SENTENCE_ROWS: readonly [keyof SentenceCounts, MessageKey][] =
+  // The export line's order after Supported: Contradicted, Not found, Unsupported, needs re-check.
+  (
+    ["supported", "contradicted", "notFound", "unsupported", "needsRecheck", "notChecked"] as const
+  ).map((key) => [key, SENTENCE_RESULT_LABELS[key]]);
 
 const text = (value: string): NodeJSON => ({ type: "text", text: value });
 

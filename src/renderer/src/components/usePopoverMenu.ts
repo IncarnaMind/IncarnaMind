@@ -335,6 +335,12 @@ export function usePopoverMenu({
       button.current?.focus();
       return;
     }
+    if (event.key === "Tab") {
+      // A menu the focus is leaving goes with it, so Esc then belongs to the card or the page
+      // behind it, never to a menu no longer holding the focus (R85).
+      menu.current?.hidePopover();
+      return;
+    }
     const next = itemForKey(event.key, itemsOf(menu.current));
     if (!next) return;
     event.preventDefault();
