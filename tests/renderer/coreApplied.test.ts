@@ -490,6 +490,61 @@ test.each([
   },
 );
 
+// Value: protects=a failed core Undo is released and later entries finish; fails_when=one IPC error stops cleanup or skips the next Mind; why_new=CodeRabbit found the rejection path; seam=two core applications and a re-ask; no_claim=notice presentation (reportError is called by the implementation)
+test("a failed core Undo is released and later entries finish", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const other = { ...application, undoId: "other" };
+  const undoCalls: string[] = [];
+  const releases: string[] = [];
+  mountDom(
+    {
+      undoAskedChanges: async (undoId) => {
+        undoCalls.push(undoId);
+        if (undoId === application.undoId) throw new Error("Undo failed.");
+        return transitionOfMind(doc);
+      },
+      redoAskedChanges: async () => null,
+      releaseAskedChanges: async (undoId) => {
+        releases.push(undoId);
+      },
+    },
+    {
+      apply: async (input) => (input.mindId === "other" ? other : application),
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const { applyWhatWasAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  answer.toolCalls.push({
+    id: "other-call",
+    tool: "add_to_mind",
+    source: "minds",
+    input: {},
+    status: "done",
+    resultCount: null,
+    mindChange: {
+      mindId: "other",
+      created: false,
+      request: "request",
+      proposals: 1,
+      paragraphs: 1,
+    },
+  });
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await applyWhatWasAsked(answer.id);
+  expect(undoCalls).toEqual([application.undoId, "other"]);
+  expect(releases).toEqual([application.undoId, "other"]);
+  expect(useAskedChanges.getState().outcomes[answer.id]).toBeUndefined();
+  expect(useAskedChanges.getState().onTop[`${answer.id} mind`]).toBe(true);
+  expect(useAskedChanges.getState().onTop[`${answer.id} other`]).not.toBe(true);
+  doc.destroy();
+});
+
 // Value: protects=a background tab never delays regeneration for its inactive editor; fails_when=finish waits for that editor; why_new=background opening preserves the made Mind in front; seam=real conversation finish and re-ask; no_claim=editor recovery (covered separately)
 test("a background edit doesn't hold regeneration for its inactive editor", async () => {
   const { doc, application } = applicationWithChange(false);

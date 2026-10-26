@@ -95,9 +95,15 @@ async function makeWayForAnswer(
 ): Promise<"none" | "undone" | "stayed"> {
   if (!followed) {
     if (!application || application.held) return "none";
-    const undone = await core.undoAskedChanges(application.undoId);
-    await core.releaseAskedChanges(application.undoId).catch(useAppStore.getState().reportError);
-    return undone ? "undone" : "stayed";
+    try {
+      const undone = await core.undoAskedChanges(application.undoId);
+      return undone ? "undone" : "stayed";
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+      return "stayed";
+    } finally {
+      await core.releaseAskedChanges(application.undoId).catch(useAppStore.getState().reportError);
+    }
   }
   await followed.settled?.();
   if (followed.onTop()) await followed.undo();
