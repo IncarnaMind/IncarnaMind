@@ -45,11 +45,11 @@ npm run eval:hard
 | Domain | Where from |
 |---|---|
 | Contracts | 100 commercial contracts from CUAD v1 (one 106 MB archive, from which the run takes them out); Chinese model contracts from the State Administration for Market Regulation's model-contract library |
-| Company reports and filings | FinanceBench's open sample (10-Ks, 10-Qs, 8-Ks and earnings releases), several companies in two or more years; Chinese companies' annual reports from the Shenzhen Stock Exchange; the gating set's JP Morgan ESG report |
+| Company reports and filings | FinanceBench's open sample (10-Ks, 10-Qs, 8-Ks and earnings releases), several companies in two or more years; Chinese companies' annual reports from the Shenzhen Stock Exchange; the gating set's Vantrell ESG report |
 | Academic papers | 50 arXiv papers from Qasper's test set; Chinese open-access papers (Hans Publishers, CC BY 4.0); the gating set's papers and Chinese Wikipedia articles |
 | Government and international reports | UN, UN SDG Reports, IPCC, FAO, World Bank, UNDP, in English and Chinese; Federal Reserve, Census, IRS, USDA ERS; HM Treasury and other gov.uk reports; People's Bank of China and SAFE reports |
 | Technical manuals | NIST, FAA, NASA, OCC, CISA, USGS, ready.gov; WHO's biosafety manual in both languages; Chinese environmental monitoring standards |
-| Medical and regulatory | FDA drug labels and guidance; UKHSA patient group directions and training slides; VA/DoD guidelines; WHO guidelines in both languages; NMPA notices, guidelines and statistics; the gating set's ABPI Code |
+| Medical and regulatory | FDA drug labels and guidance; UKHSA patient group directions and training slides; VA/DoD guidelines; WHO guidelines in both languages; NMPA notices, guidelines and statistics; the gating set's MPMA Code |
 
 | Domain | English | Chinese |
 |---|---|---|
