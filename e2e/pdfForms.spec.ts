@@ -131,7 +131,7 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       await interceptOpenPath(app);
       await pointAndClick(window, libraryPrint);
-      expect(await pathsOpened(app)).toEqual([await realpath(path)]);
+      await expect.poll(() => pathsOpened(app)).toEqual([await realpath(path)]);
       if (process.env.INCARNAMIND_SCREENSHOTS)
         await window.screenshot({
           path: join(process.env.INCARNAMIND_SCREENSHOTS, `pdf-forms-partial-${language}.png`),
@@ -147,7 +147,7 @@ for (const language of ["en", "zh-CN"] as const) {
         (globalThis as { pathsOpened?: string[] }).pathsOpened?.splice(0);
       });
       await pointAndClick(window, print);
-      expect(await pathsOpened(app)).toEqual([await realpath(path)]);
+      await expect.poll(() => pathsOpened(app)).toEqual([await realpath(path)]);
       if (process.env.INCARNAMIND_SCREENSHOTS)
         await window.screenshot({
           path: join(
