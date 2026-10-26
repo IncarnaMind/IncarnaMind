@@ -421,8 +421,8 @@ describe("Organize suggests a Folder and waits for the User", () => {
     fake.hold(null);
   });
 
-  test("turning down a failed re-run with automatic Organize off settles the Document's tagging", async () => {
-    const { core, classifier, fake, sources } = await setUp();
+  test("turning down a failed re-run with automatic Organize off settles the Document's tagging, and Undo brings its failure back", async () => {
+    const { core, classifier, fake, finance, sources } = await setUp();
     const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
     if (!invoice) throw new Error("Not added.");
     await core.saveLibrarySettings({ classifier, automatic: false });
@@ -435,7 +435,7 @@ describe("Organize suggests a Folder and waits for the User", () => {
       expect((await documentOf(core, invoice.id))?.tagging).toBe("failed");
     });
 
-    await core.rejectAssignments([invoice.id]);
+    const [change] = await core.rejectAssignments([invoice.id]);
 
     expect(await assignmentOf(core, invoice.id)).toMatchObject({
       groupId: null,
@@ -445,6 +445,32 @@ describe("Organize suggests a Folder and waits for the User", () => {
     });
     // Organize held it before the Reject: the failed run may not come back as a tagging failure.
     expect((await documentOf(core, invoice.id))?.tagging).toBe("tagged");
+
+    // Undo brings the failed run back, and the Document's failure with its reason too.
+    if (!change) throw new Error("Not rejected.");
+    const { documentId: _id, ...before } = change.before;
+    await core.restoreAssignment(invoice.id, before);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: finance.id,
+      suggested: true,
+      status: "failed",
+      error: { message: "The model stopped answering" },
+    });
+    const undone = await documentOf(core, invoice.id);
+    expect(undone?.tagging).toBe("failed");
+    expect(undone?.taggingError).toMatchObject({ message: "The model stopped answering" });
+
+    // Redo turns it down again: the assignment and the Document settle together.
+    await core.rejectAssignments([invoice.id]);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+      error: null,
+    });
+    const redone = await documentOf(core, invoice.id);
+    expect(redone?.tagging).toBe("tagged");
+    expect(redone?.taggingError).toBeNull();
   });
 
   test("turning down a suggestion leaves a retag the User asked for to the tagger", async () => {

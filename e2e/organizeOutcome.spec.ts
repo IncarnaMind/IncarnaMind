@@ -421,6 +421,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
         return {
           held,
           tagging: note?.tagging ?? null,
+          taggingError: note?.taggingError ?? null,
           folder: groups.find((each) => each.id === held?.groupId)?.name ?? null,
         };
       });
@@ -453,7 +454,15 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
         status: "failed",
         error: { kind: "provider", message: DECISION_FAILURE },
       },
+      // Undo restores the Document's own failure and its reason, not a stale "tagged".
+      tagging: "failed",
+      taggingError: { kind: "provider", message: DECISION_FAILURE },
     });
+    await setLanguage(window, "zh-CN");
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
+      `未能再次整理：${DECISION_FAILURE}`,
+    );
+    await setLanguage(window, "en");
     await window.keyboard.press("ControlOrMeta+Shift+z");
     await expect(noteRow).toHaveCount(0);
     await expect(library.getByTestId("library-sort-failed")).toHaveCount(0);
@@ -463,6 +472,8 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(sidebarFolder(window, "Reports").getByTestId("browse-count")).toHaveText("18");
     expect(await noteNow()).toMatchObject({
       held: { groupId: null, suggested: false, status: "classified", error: null },
+      tagging: "tagged",
+      taggingError: null,
     });
     failing = false;
   } finally {

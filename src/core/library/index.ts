@@ -1131,7 +1131,9 @@ export function createLibrary(options: {
               doc.id,
             ],
           );
-        if (status === "pending" || status === "waiting") tagState(doc.id, status);
+        // The Document's own row comes back as the previous state had it, its provider error and
+        // reason too: Undo of a failed run must not leave it tagged (#1928).
+        tagState(doc.id, status, previous.error ?? undefined);
       });
       options.tagged([doc.id]);
       announce([doc.id]);
