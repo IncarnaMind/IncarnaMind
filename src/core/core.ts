@@ -49,6 +49,7 @@ import { createAgentSetup, skillInstalled } from "./agents/setup";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
+import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
@@ -1463,6 +1464,10 @@ export function createCore(adapters: CoreAdapters): Core {
     },
   };
 
+  const askedChanges = createAskedChanges(content, {
+    now,
+    recordAiUse: (inputs) => void aiUse.record(inputs),
+  });
   const answers = createAnswers({
     content,
     events,
@@ -3620,6 +3625,8 @@ export function createCore(adapters: CoreAdapters): Core {
         ? { status: "available", reference, name: found.name }
         : { status: "deleted", reference, name: found.name, deletedAt: found.deletedAt };
     },
+    applyAskedChanges: async (input) => askedChanges.apply(input),
+    undoAskedChanges: async (undoId) => askedChanges.undo(undoId),
     addToNote: (input) => noteAdding.add(input),
     undoAddToNote: async (input) => noteAdding.undo(input),
     listNoteConversations: async () => noteConversations.list(),

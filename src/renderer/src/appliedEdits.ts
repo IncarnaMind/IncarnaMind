@@ -3,12 +3,17 @@
  * editor that asked takes the core's updates in as its own change, then
  * accepts them, all one step of its Undo.
  */
-import type { Editor } from "@tiptap/core";
+import { type Editor, getSchema } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { EditorState } from "@tiptap/pm/state";
-import { absolutePositionToRelativePosition, ySyncPluginKey } from "@tiptap/y-tiptap";
+import { EditorState } from "@tiptap/pm/state";
+import {
+  absolutePositionToRelativePosition,
+  ySyncPluginKey,
+  yXmlFragmentToProseMirrorRootNode,
+} from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 import {
+  type AskedChangeApplication,
   BLOCK_ID_ATTRIBUTE,
   type EditCause,
   type EditWithAiResult,
@@ -53,6 +58,7 @@ import {
   type UndoStep,
   undoStackOf,
 } from "./editor/editorUndo";
+import { noteExtensions } from "./editor/noteSchema";
 import {
   applyingIn,
   editorDoc,
@@ -386,6 +392,47 @@ type AskedApplied = (mindId: string, requests: ReadonlySet<string>, asked: Appli
 
 const applied = new Set<AskedApplied>();
 
+function followCoreUndo(edit: Applying, application: AskedChangeApplication): FollowedSteps {
+  let state: "done" | "undone" = "done";
+  let onTop = true;
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
+  const changedSince = () => {
+    onTop = false;
+    notify();
+  };
+  const closed = () => {
+    edit.doc.off("update", changedSince);
+    edit.editor.off("destroy", closed);
+    notify();
+  };
+  edit.doc.on("update", changedSince);
+  edit.editor.on("destroy", closed);
+  return {
+    state: () => (edit.editor.isDestroyed ? "gone" : state),
+    onTop: () => state === "done" && onTop && !edit.editor.isDestroyed,
+    add: changedSince,
+    undo: () => {
+      if (state !== "done" || !onTop) return;
+      onTop = false;
+      notify();
+      void core
+        .undoAskedChanges(application.undoId)
+        .then((undone) => {
+          if (undone) state = "undone";
+        })
+        .catch(useAppStore.getState().reportError)
+        .finally(notify);
+    },
+    observe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
 /** Calls `listener` as the changes the User asked for apply: at once, or later from a held line. */
 export function onAskedApplied(listener: AskedApplied): () => void {
   applied.add(listener);
@@ -403,13 +450,13 @@ export function applyArrived(
   mindId: string,
   requests: ReadonlySet<string>,
   facts: ChangeCounts,
-  { holds = true }: { holds?: boolean } = {},
+  { holds = true, application }: { holds?: boolean; application?: AskedChangeApplication } = {},
 ): "applied" | "held" | null {
   const first = proposalsIn(editor.state.doc).find((each) => requests.has(each.request));
-  if (!first || editor.isDestroyed) return null;
+  if ((!first && !application) || editor.isDestroyed) return null;
   for (const request of requests) drawApplying(editor, request, false);
   const doc = editorDoc(editor);
-  if (holds && doc && waitsForUser(doc, requests)) {
+  if ((application?.held || (holds && doc && waitsForUser(doc, requests))) && first) {
     setAppliedLine(editor, {
       kind: "held",
       blockId: topBlockAt(editor.state, first.from),
@@ -418,22 +465,55 @@ export function applyArrived(
     });
     return "held";
   }
-  const edit = beginEdit(editor, mindId, `assistant:${first.request}`);
+  if (application?.held) {
+    const [request] = requests;
+    if (!request) return null;
+    setAppliedLine(editor, {
+      kind: "held",
+      blockId: null,
+      request,
+      asked: { mindId, requests: [...requests], facts },
+    });
+    return "held";
+  }
+  const request = first?.request ?? [...requests][0];
+  if (!request) return null;
+  const edit = beginEdit(editor, mindId, `assistant:${request}`);
   if (!edit) return null;
-  const planned = planChanges(editor.state, requests);
-  let resolved: ReturnType<typeof writeAccepted> = [];
-  asEditStep(edit, () => {
-    resolved = writeAccepted(
-      edit.doc,
-      requests,
-      new SettingAside(),
-      new AcceptingEdit(),
-      editor.schema,
-    );
-  });
-  const entries = aiUseOfAccepted(edit.doc, mindId, resolved, new Date().toISOString());
-  if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
-  edit.followed = followSteps(editor, edit.steps);
+  let planned: ReturnType<typeof planChanges>;
+  if (application) {
+    const reviewDoc = new Y.Doc();
+    Y.applyUpdate(reviewDoc, application.reviewBefore);
+    const schema = getSchema(noteExtensions());
+    try {
+      const reviewState = EditorState.create({
+        schema,
+        doc: yXmlFragmentToProseMirrorRootNode(
+          reviewDoc.getXmlFragment(MIND_CONTENT_FIELD),
+          schema,
+        ),
+      });
+      planned = planChanges(reviewState, requests);
+    } finally {
+      reviewDoc.destroy();
+    }
+    edit.followed = followCoreUndo(edit, application);
+  } else {
+    planned = planChanges(editor.state, requests);
+    let resolved: ReturnType<typeof writeAccepted> = [];
+    asEditStep(edit, () => {
+      resolved = writeAccepted(
+        edit.doc,
+        requests,
+        new SettingAside(),
+        new AcceptingEdit(),
+        editor.schema,
+      );
+    });
+    const entries = aiUseOfAccepted(edit.doc, mindId, resolved, new Date().toISOString());
+    if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
+  }
+  edit.followed ??= followSteps(editor, edit.steps);
   const changes = editor.isDestroyed
     ? []
     : appliedChanges(editor.state, anchorChanges(editor.state, planned));
@@ -454,7 +534,7 @@ export function applyArrived(
     changes,
     kept: null,
   });
-  offerEditorUndo(editor, (t) => changeFact(t, facts, null), pageUndoPlace);
+  if (!application) offerEditorUndo(editor, (t) => changeFact(t, facts, null), pageUndoPlace);
   return "applied";
 }
 

@@ -8,6 +8,7 @@ import {
   dismissChatSetup,
   enterContent,
   focusSettled,
+  forceQuit,
   frontMindName,
   launchApp,
   nameMind,
@@ -447,6 +448,41 @@ test("asked to write in a Mind not in view, the assistant opens it in a tab besi
     "a note about the meeting",
   ]);
   await expect(editor.getByTestId("applied-count")).toHaveText("Wrote 1 paragraph");
+  await expect(answer.getByTestId("mind-changes-review")).toHaveText("Review changes");
+  await pointAndClick(window, answer.getByTestId("mind-changes-review"));
+  await expect(editor.locator(".applied-new")).toHaveText("a note about the meeting");
+  await pointAndClick(window, editor.getByTestId("applied-done"));
+  await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
+  await expect(editor.locator(":scope > p")).toHaveText(["Hire a designer."]);
+});
+
+test("a change in a Mind that isn't open applies in the core and survives a restart", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1440, 900);
+  await writeMind(window, "Project plan", ["Hire a designer."]);
+  await writeMind(window, "Q3 review", ["The quarter was good."]);
+  const answer = await askInAssistant(window, "Add a note about the meeting to Project plan");
+  await expect(answer.getByTestId("mind-changes-title")).toHaveText(
+    "Wrote 1 paragraph in “Project plan”",
+  );
+  await window.keyboard.press("ControlOrMeta+w");
+  await forceQuit(app);
+
+  const restarted = await launchApp(dataDir, { fakeChat: true });
+  await pointAndClick(
+    restarted.window,
+    restarted.window.getByTestId("sidebar").getByText("Project plan", { exact: true }),
+  );
+  await expect(restarted.window.getByTestId("mind-editor").locator(":scope > p")).toHaveText([
+    "Hire a designer.",
+    "a note about the meeting",
+  ]);
+  await expect(
+    restarted.window.getByTestId("mind-editor").locator("ins.proposal-insert, del.proposal-delete"),
+  ).toHaveCount(0);
+  await restarted.app.close();
 });
 
 test("a reply that claims a write no call made is asked for once more, then stays with a line under it saying nothing was written, with Try again, in English and Chinese", async () => {

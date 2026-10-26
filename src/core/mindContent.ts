@@ -371,7 +371,11 @@ export function createMindContent(
      * e.g. writing an Answer), then stores and reports the change like any
      * client's. `change` must not keep the Blocks, as for `read`.
      */
-    edit<T>(mindId: string, change: (blocks: Y.XmlFragment) => T): T {
+    edit<T>(
+      mindId: string,
+      change: (blocks: Y.XmlFragment) => T,
+      origin: unknown = CORE_ORIGIN,
+    ): T {
       const mind = load(mindId);
       requireWritable(mind);
       let result: T | undefined;
@@ -379,7 +383,7 @@ export function createMindContent(
         mind.doc.transact(() => {
           result = change(mind.doc.getXmlFragment(MIND_CONTENT_FIELD));
           stampContentVersion(mind.doc);
-        }, CORE_ORIGIN);
+        }, origin);
       } finally {
         flush(mindId, mind);
       }

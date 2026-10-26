@@ -6,8 +6,8 @@
  * focus, never in its place. Once the Answer has ended, each Mind's are
  * applied in one step of its Undo, with the line over them saying what the
  * Answer's card says (`applyArrived`); the card then follows that step as
- * the User undoes and redoes in the Mind. A Mind that isn't open in an
- * editor, such as a second one the turn changed, applies them once it opens.
+ * the User undoes and redoes in the Mind. The core applies a Mind that isn't
+ * open in an editor before that Mind opens beside the one in view.
  */
 import type { EditorState } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
@@ -24,15 +24,13 @@ import {
   reviewApplied,
 } from "./appliedEdits";
 import { type ChangedMind, changedMinds } from "./changedMinds";
-import { readMindHandle } from "./commands/handles";
 import { core } from "./core";
 import type { FollowedSteps } from "./editor/editorUndo";
 import { mindEditor, whenMindEditor } from "./editor/openEditors";
 import { applyingIn, editorDoc, setApplying } from "./editor/proposalReview";
-import { openMindCopy } from "./mindCopies";
 import { useAppStore } from "./store";
 
-/** "opening": its Mind isn't open in an editor yet, so its changes apply once it is (Open on its line). */
+/** "opening": its Mind isn't open in an editor yet (Open on its line). */
 export type AskedOutcome = "applied" | "held" | "opening";
 
 interface AskedChangesState {
@@ -60,7 +58,6 @@ interface Asked {
 
 const asked = new Map<string, Asked>();
 const askedHere = new Set<string>();
-const seen = new Set<string>();
 
 /** Whether this window has a Question in flight whose request, as the Mind's record has it, asks for these changes. */
 export function askedInThisWindow(state: EditorState, request: string): boolean {
@@ -102,7 +99,6 @@ export function applyWhatWasAsked(answerId: string, { keepWritten = false } = {}
     if (followed?.onTop()) followed.undo();
     else if (followed && followed.state() !== "undone") stayed.push(key);
   }
-  for (const key of seen) if (key.startsWith(`${answerId} `)) seen.delete(key);
   useAskedChanges.setState((state) => {
     const outcomes = { ...state.outcomes };
     delete outcomes[answerId];
@@ -120,27 +116,13 @@ export const useWrittenOnTop = (answerId: string, mindId: string): boolean =>
 const askedOf = (doc: Y.Doc, row: ChangedMind): Set<string> =>
   new Set(row.requests.filter((request) => askedFor(doc, request)));
 
-function askedInCopy(row: ChangedMind): Promise<boolean> {
-  return new Promise((resolve) => {
-    const close = openMindCopy(
-      row.mindId,
-      ({ doc }) => {
-        resolve(doc !== null && askedOf(doc, row).size > 0);
-        close();
-      },
-      () => resolve(false),
-    );
-  });
-}
-
 const openBeside = (mindId: string) =>
   useAppStore
     .getState()
     .changeLayout({ type: "open", item: { kind: "mind", mindId }, where: { in: "place" } })
     .catch(useAppStore.getState().reportError);
 
-function follow(answer: ConversationAnswer, row: ChangedMind): void {
-  const key = keyOf(answer.id, row.mindId);
+function follow(row: ChangedMind): void {
   const editor = mindEditor(row.mindId);
   const doc = editor && editorDoc(editor);
   if (editor && doc) {
@@ -149,42 +131,46 @@ function follow(answer: ConversationAnswer, row: ChangedMind): void {
     if ([...requests].some((request) => !now.has(request))) {
       setApplying(editor, new Set([...now, ...requests]));
     }
-    if (requests.size > 0 && !seen.has(key) && readMindHandle.current?.mindId !== row.mindId) {
-      seen.add(key);
-      void openBeside(row.mindId);
-    }
     return;
   }
-  if (seen.has(key)) return;
-  seen.add(key);
-  // A Mind the Answer made opens anyway (./assistantMinds).
-  if (row.created) return;
-  void askedInCopy(row).then((found) => {
-    if (found) void openBeside(row.mindId);
-  });
 }
 
-/** Each Mind's changes apply at once where it is open; one not open in front applies once it opens. */
+/** Each Mind's changes apply at once, in its open editor or in the core. */
 const finish = (answer: ConversationAnswer): Promise<unknown> =>
   Promise.all(changedMinds(answer).map((row) => finishIn(answer, row)));
 
 async function finishIn(answer: ConversationAnswer, row: ChangedMind): Promise<void> {
-  let editor = mindEditor(row.mindId);
+  const editor = mindEditor(row.mindId);
   if (!editor) {
-    setOutcome(
-      {
-        answerId: answer.id,
-        mindId: row.mindId,
-        requests: new Set(row.requests),
-        facts: row,
-        applied: null,
-      },
-      "opening",
+    const application = await core.applyAskedChanges({
+      answerId: answer.id,
+      mindId: row.mindId,
+      requests: row.requests,
+    });
+    if (!application) {
+      useAskedChanges.setState((state) => {
+        const { [row.mindId]: _gone, ...rest } = state.outcomes[answer.id] ?? {};
+        return { outcomes: { ...state.outcomes, [answer.id]: rest } };
+      });
+      return;
+    }
+    const requests = new Set(application.requests);
+    const calls = answer.toolCalls.filter(
+      (call) => call.mindChange && requests.has(call.mindChange.request),
     );
-    editor = await whenMindEditor(row.mindId, null);
+    const [facts = row] = changedMinds({ toolCalls: calls });
+    const each: Asked = { answerId: answer.id, mindId: row.mindId, requests, facts, applied: null };
+    asked.set(keyOf(answer.id, row.mindId), each);
+    setOutcome(each, application.held ? "held" : "applied");
+    await openBeside(row.mindId);
+    const opened = await whenMindEditor(row.mindId, null);
+    if (opened && editorDoc(opened)) {
+      applyArrived(opened, row.mindId, requests, facts, { application });
+    }
+    return;
   }
-  const doc = editor && editorDoc(editor);
-  if (!editor || !doc) return;
+  const doc = editorDoc(editor);
+  if (!doc) return;
   const requests = askedOf(doc, row);
   if (requests.size === 0) {
     // Only changes that wait, which the card lists as waiting.
@@ -271,7 +257,7 @@ export function reviewAsked(answerId: string, mindId: string): void {
 core.on("conversation.message", (message) => {
   if (message.kind !== "answer" || !askedHere.has(message.id)) return;
   const answer = message;
-  for (const row of changedMinds(answer)) follow(answer, row);
+  for (const row of changedMinds(answer)) follow(row);
   if (answer.status === "streaming") return;
   askedHere.delete(answer.id);
   finish(answer).catch(useAppStore.getState().reportError);
