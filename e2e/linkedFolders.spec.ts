@@ -778,9 +778,9 @@ test("an empty Linked folder says so, in its section, which comes with it", asyn
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
 
-  // An empty sidebar says nothing: no section waits for its first item.
+  // An empty sidebar: no section waits for its first item, and it says what to do next (#763).
   await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
-  await expect(window.getByTestId("sidebar-sections")).toHaveText("");
+  await expect(window.getByTestId("documents-empty")).toContainText("No Documents yet");
 
   // The + menu's More › Link a folder….
   const dialog = await previewLink(app, window, empty);

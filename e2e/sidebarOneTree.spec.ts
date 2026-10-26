@@ -9,6 +9,7 @@ import {
   createDataFolder,
   dragOnto,
   launchApp,
+  leaveText,
   pointAt,
   removeDataFolder,
   setLanguage,
@@ -145,15 +146,6 @@ async function expectCountsOfCore(window: Page): Promise<void> {
   }
 }
 
-/** Clicks the empty foot of the sidebar's tree, where ⌘Z goes to the app's changes. */
-async function leaveText(window: Page): Promise<void> {
-  const box = await window.getByTestId("sidebar-tree").boundingBox();
-  if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
-  await window.mouse.down();
-  await window.mouse.up();
-}
-
 async function undo(window: Page): Promise<void> {
   await leaveText(window);
   await window.keyboard.press("ControlOrMeta+z");
@@ -214,7 +206,15 @@ for (const [language, width] of [
         await expect(sidebar.getByTestId(section)).toHaveCount(0);
       }
       await expect(sidebar.getByRole("button", { name: t("assistant.newChat") })).toHaveCount(0);
-      await expect(sidebar.getByTestId("sidebar-sections")).toHaveText("");
+      // Nothing to list yet: it says so, with the two ways to add the first Document (#763).
+      const empty = sidebar.getByTestId("documents-empty");
+      await expect(empty).toContainText(t("library.none"));
+      await expect(empty.getByTestId("documents-empty-add-files")).toHaveText(
+        t("startGuide.documents.addFiles"),
+      );
+      await expect(empty.getByTestId("documents-empty-link-folder")).toHaveText(
+        t("startGuide.documents.linkFolder"),
+      );
       const left = (await sidebar.boundingBox())?.x ?? 0;
       for (const row of [
         sidebar.getByTestId("sidebar-home"),

@@ -2728,7 +2728,9 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
 export async function leaveText(window: Page): Promise<void> {
   const box = await window.getByTestId("sidebar-tree").boundingBox();
   if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
+  // Its top padding: the foot can move when a status line takes two lines (#763), and the
+  // click must never land on a row or the undo line as it does.
+  await window.mouse.move(box.x + box.width / 2, box.y + 4, { steps: 8 });
   await window.mouse.down();
   await window.mouse.up();
 }

@@ -42,6 +42,7 @@ test.afterEach(async () => {
 
 const NARROWEST = 165;
 const DEFAULT = 248;
+const WIDE = 300;
 
 const NAMES = {
   en: {
@@ -312,10 +313,12 @@ test("at the narrowest sidebar a downloading model's figure is whole beside +1, 
         const row = window.getByTestId(download.testId);
         await expect(row).toBeVisible();
 
-        // The default width reads whole: the label, then the figure.
+        // The default width keeps the figure whole; a little wider reads the whole label too,
+        // which the plain words need one of (#763).
         await setSidebarWidth(window, DEFAULT);
         const label = row.getByTestId("status-label");
         await expect(row.getByTestId("status-figure")).toHaveText(download.figure);
+        await setSidebarWidth(window, WIDE);
         expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
           false,
         );

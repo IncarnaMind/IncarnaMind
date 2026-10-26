@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { useHomeView, useMinuteClock } from "../../home";
+import { useHomeView, useMinuteClock, useOwnMinds } from "../../home";
 import { useT } from "../../i18n";
 import { rowsIn, useSelectionOrder } from "../../selection";
 import { useAppStore } from "../../store";
@@ -13,6 +13,9 @@ export function HomePane() {
   const t = useT();
   const now = useMinuteClock();
   const documents = useAppStore((state) => state.documents.length);
+  const folders = useAppStore((state) => state.library?.groups.length ?? 0);
+  const minds = useOwnMinds().length;
+  const empty = documents === 0 && folders === 0 && minds === 0;
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = useHomeView.getState().scrollTop;
@@ -36,7 +39,7 @@ export function HomePane() {
       >
         <div className="mx-auto w-full max-w-[760px] px-6 pt-10 pb-24 @max-[760px]/home:px-4 @max-[760px]/home:pt-8">
           <HomeHeader now={now} />
-          {documents === 0 && (
+          {empty && (
             <ProblemLine
               role="status"
               testId="home-empty"
