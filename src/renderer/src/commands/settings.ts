@@ -18,10 +18,12 @@ export const settingsPageCommands: readonly Command[] = [
       }),
     ),
   {
-    // Where a Linked folder's row sends the User when it couldn't read what it may write.
+    // Where a Linked folder's row sends the User when it couldn't read what it may write. Named
+    // for the switches it opens, since "location" would answer a search for Local mode first.
     id: "settings.outputLocation",
-    label: "outputLocation.title",
-    keywords: ["settings.title", "outputLocation.linked.title"],
+    label: "outputLocation.linked.title",
+    purpose: "outputLocation.title",
+    keywords: ["settings.title", "outputLocation.title"],
     group: "open",
     reversible: true,
     run: () => showOutputLocationSetting(),

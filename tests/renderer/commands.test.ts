@@ -154,9 +154,12 @@ describe("Output location", () => {
     return found;
   };
 
-  test("is in ⌘K under the name of the setting it opens, in English and in Chinese", () => {
-    expect(labelOf(command(), NOWHERE, translator("en"))).toBe("Output location");
-    expect(labelOf(command(), NOWHERE, translator("zh-CN"))).toBe("保存位置");
+  test("is in ⌘K named for the switches it opens, and says where they are, in both languages", () => {
+    expect(labelOf(command(), NOWHERE, translator("en"))).toBe("New files in Linked folders");
+    expect(command().purpose && translator("en")(command().purpose as MessageKey)).toBe(
+      "Output location",
+    );
+    expect(labelOf(command(), NOWHERE, translator("zh-CN"))).toBe("在关联文件夹中添加文件");
   });
 
   test("opens where files are saved, as a Linked folder's not-checked line does", async () => {
