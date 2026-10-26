@@ -58,6 +58,7 @@ import {
   startupProblem,
   updateStartupDialog,
 } from "./startupError";
+import { showMessageBox } from "./systemDialogs";
 import { realHomeProblem } from "./testHome";
 import { reportFullScreen, titleBarOptions } from "./titleBar";
 import { guardQuit } from "./unsavedChanges";
@@ -459,7 +460,7 @@ app.whenReady().then(async () => {
     if (testHooks) return;
     if (instance.kind === "owner" && instance.owner.pendingUpdate) {
       const { language } = await startedCore.getSettings();
-      await dialog.showMessageBox({
+      await showMessageBox(BrowserWindow.getFocusedWindow() ?? appWindows()[0] ?? null, {
         type: "info",
         message: translate(language, "update.pending.detail"),
         buttons: [translate(language, "update.pending.dismiss")],
