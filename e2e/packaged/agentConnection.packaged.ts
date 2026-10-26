@@ -14,6 +14,7 @@ import { acceptPlainTextKeys, coreOf, dismissChatSetup, setWindowSize } from "..
 import { launchPackaged, packagedExecutable, packagedLogLines } from "./app";
 
 test.use({ trace: "off" });
+test.setTimeout(3 * 60_000);
 
 for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
   test(`the packaged shim searches and checks Citations with ${protocol}, and refuses unpaired, paused and revoked access`, async () => {
@@ -51,6 +52,24 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
           ),
         )
         .toEqual(["ready"]);
+      const hiddenFolder = await core.evaluate((bridge) =>
+        bridge.createLibraryGroup({ name: "Private archive", description: "Not shared" }),
+      );
+      const hiddenFile = join(sources, "Private-tides.md");
+      await writeFile(hiddenFile, "Spring tides have the private archive marker rosewood.");
+      await core.evaluate(
+        (bridge, input) => bridge.addDocuments([input.file], { groupId: input.folder }),
+        { file: hiddenFile, folder: hiddenFolder.id },
+      );
+      await expect
+        .poll(() =>
+          core.evaluate(
+            async (bridge, id) =>
+              (await bridge.listDocuments({ folderId: id })).map((document) => document.status),
+            hiddenFolder.id,
+          ),
+        )
+        .toEqual(["ready"]);
       await core.evaluate((bridge) => bridge.setAgentsEnabled(true));
       const connected = await core.evaluate(
         (bridge, id) => bridge.setUpAgent({ client: "codex", folderIds: [id] }),
@@ -83,6 +102,11 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
           arguments: { text: `Spring tides come at new moon ${cite}.` },
         });
         expect(checked.structuredContent).toMatchObject({ citations: [{ check: "found" }] });
+        const hidden = await client.callTool({
+          name: "search",
+          arguments: { query: "rosewood", folderIds: [hiddenFolder.id] },
+        });
+        expect(hidden.isError).toBe(true);
         await core.evaluate((bridge) => bridge.setLocalOnly(true));
         expect(
           (await client.callTool({ name: "search", arguments: { query: "spring tides" } })).isError,

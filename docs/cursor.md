@@ -10,7 +10,7 @@
 4. Check Cursor's MCP server list for `incarnamind`. The Cursor CLI shares this configuration: `cursor-agent mcp list-tools incarnamind` lists the available tools.
 5. Ask: “Using IncarnaMind, what do my Documents say about the cancellation period? Cite the passages and check your citations.” The answer should carry `[cite:…]` references. Ask Cursor to show a reference in IncarnaMind to inspect the original.
 
-If installation links are unavailable, copy the connection's settings from **Details** into your own `~/.cursor/mcp.json`. Keep the existing `mcpServers` entries. The shape below shows where each value goes; replace the placeholders with the copied values, not with guessed paths or a new credential:
+If installation links are unavailable, copy the connection's settings from **Details for technical users** into your own `~/.cursor/mcp.json`. Keep the existing `mcpServers` entries. The shape below shows where each value goes; replace the placeholders with the copied values, not with guessed paths or a new credential:
 
 ```json
 {
@@ -52,7 +52,7 @@ If a call fails, check that IncarnaMind is open, connections are enabled, Local 
 4. 在 Cursor 的 MCP 服务列表中检查 `incarnamind`。Cursor CLI 共用此配置，可以运行 `cursor-agent mcp list-tools incarnamind` 检查工具。
 5. 可以问：“用 IncarnaMind 查一下，我的文档中如何规定取消期限？请给出引用并核对。”再让 Cursor 在 IncarnaMind 中打开引用。
 
-安装链接不可用时，从“详情”中复制连接设置，添加到 `~/.cursor/mcp.json` 的 `mcpServers` 中，保留其他服务。上面的 JSON 展示配置格式；请替换所有占位符，不要猜测路径或自行生成凭据。设置包含配对凭据，请勿公开或提交到版本控制。修改后重启 Cursor；它可能另行要求启用服务或批准工具调用。
+安装链接不可用时，从“技术细节”中复制连接设置，添加到 `~/.cursor/mcp.json` 的 `mcpServers` 中，保留其他服务。上面的 JSON 展示配置格式；请替换所有占位符，不要猜测路径或自行生成凭据。设置包含配对凭据，请勿公开或提交到版本控制。修改后重启 Cursor；它可能另行要求启用服务或批准工具调用。
 
 智能体只能读取所选文件夹内的文档片段和笔记，并获取核对过的引用；不会传输原始文档文件，也不能通过这些工具修改文档和笔记。智能体可以分次读取更多片段，也可以请求 IncarnaMind 生成回答。引文匹配不代表它支持智能体的判断。
 

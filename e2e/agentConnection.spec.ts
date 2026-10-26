@@ -31,8 +31,12 @@ async function actionsFor(window: Page, query: string): Promise<string[]> {
     palette.getByTestId("palette-item").or(palette.getByTestId("palette-empty")).first(),
   ).toBeVisible();
   const items = await palette.getByTestId("palette-item").allTextContents();
-  await window.keyboard.press("Escape");
+  await window.keyboard.press("Enter");
   await expect(palette).toBeHidden();
+  await expect(window.getByTestId("agents-settings")).toBeVisible();
+  await window.getByTestId("settings-close").focus();
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("settings")).toBeHidden();
   return items;
 }
 

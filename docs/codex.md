@@ -10,7 +10,7 @@
 4. Start a new Codex session. Run `codex mcp list`, or use `/mcp` in its terminal interface, to check the connection.
 5. Ask: “Using IncarnaMind, what do my Documents say about the cancellation period? Cite the passages and check your citations.” The answer should carry `[cite:…]` references. Ask Codex to show a reference in IncarnaMind to inspect the original.
 
-If you use a custom Codex configuration directory, use the connected agent's **Details** to copy its settings into that configuration instead. Keep the copied settings private: they contain the pairing credential. Do not share a settings file or paste it into a conversation.
+If you use a custom Codex configuration directory, use the connected agent's **Details for technical users** to copy its settings into that configuration instead. Keep the copied settings private: they contain the pairing credential. Do not share a settings file or paste it into a conversation.
 
 ## What it can read
 
@@ -34,7 +34,7 @@ If a call fails, check that IncarnaMind is open, connections are enabled, Local 
 4. 新开一个 Codex 会话。运行 `codex mcp list`，或在终端界面中用 `/mcp` 检查连接。
 5. 可以问：“用 IncarnaMind 查一下，我的文档中如何规定取消期限？请给出引用并核对。”再让 Codex 在 IncarnaMind 中打开引用。
 
-如果使用自定义的 Codex 配置目录，请从已连接智能体的“详情”中复制设置，添加到相应目录。复制的设置包含配对凭据，请勿公开或粘贴到对话中。
+如果使用自定义的 Codex 配置目录，请从已连接智能体的“技术细节”中复制设置，添加到相应目录。复制的设置包含配对凭据，请勿公开或粘贴到对话中。
 
 智能体只能搜索所选文件夹，读取其中的笔记，并分次获取有限的文档片段和核对过的引用；这些工具不会传输原始文档文件，也不能修改文档和笔记。智能体也可以请求 IncarnaMind 使用已选的 AI 模型生成回答。引文匹配不代表它支持智能体的判断。
 
