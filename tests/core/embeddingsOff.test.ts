@@ -340,6 +340,45 @@ describe("Turning embeddings on leaves every Document's Organize state as it was
 
     expect((await core.getLibrary()).assignments).toEqual([before]);
   });
+
+  test("a re-embed that fails, retried, is filed as it would be on main", async () => {
+    const fake = classifierModel();
+    const embedder = createControlledEmbedder();
+    const core = startCore(await createTempDataFolder(), {
+      embedder,
+      createChatModel: () => fake.model,
+    });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    // Added before the first Folder: nothing Organize had it to file.
+    const [plants] = await addAndProcess(core, [
+      await writeSourceFile(await createSourceFolder(), "plants.md", PLANTS),
+    ]);
+    const id = plants?.id as string;
+    const group = await core.createLibraryGroup({
+      name: "Research",
+      description: "Scientific papers.",
+    });
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "classifier" } },
+      automatic: true,
+    });
+    expect(await organizeStateOf(core, id)).toBe("library.notClassified");
+
+    // Making its vectors again fails, and its restart too: still nothing Organize files.
+    embedder.failEmbeds = 2;
+    await turnOnEmbeddings(core);
+    await vi.waitFor(async () =>
+      expect((await core.listDocuments()).find((each) => each.id === id)?.status).toBe("failed"),
+    );
+    expect(await organizeStateOf(core, id)).toBe("library.notClassified");
+
+    // Retried from the failed status, it is embedded and filed as main files it.
+    await core.retryDocument(id);
+    await vi.waitFor(async () => expect(await organizeStateOf(core, id)).toBe("library.suggested"));
+    expect(
+      (await core.getLibrary()).assignments.find((each) => each.documentId === id),
+    ).toMatchObject({ groupId: group.id, status: "classified", suggested: true });
+  });
 });
 
 describe("An install from before embeddings could be off", { timeout: 30_000 }, () => {

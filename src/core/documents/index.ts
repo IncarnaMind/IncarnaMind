@@ -600,7 +600,10 @@ export function createDocuments(options: DocumentsOptions) {
   const announce = (id: string, unchanged = false) => {
     const row = find(id);
     if (!row) return;
-    emitStatus(toDocument(row), unchanged || reembedding.has(id));
+    const reembedded = reembedding.has(id);
+    // Its re-embed ended, ready or failed: a Retry from here is a new run, filed as on main (#2023).
+    if (reembedded && (row.status === "ready" || row.status === "failed")) reembedding.delete(id);
+    emitStatus(toDocument(row), unchanged || reembedded);
     progressed(row.linked_folder_id);
   };
 
