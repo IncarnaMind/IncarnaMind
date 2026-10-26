@@ -205,8 +205,13 @@ export interface CreateMindInput {
  *   it (#1608): `found` in the `claimCheck` mark's `unsupported` reason, which
  *   an older version's editor would strip, so its card would say Not found.
  *   Older content is version 29 content as it is.
+ * - 30: a comparison table's columns have a `label` of their own, beside
+ *   their Question (#1833), and room for their `width` and whether they are
+ *   `hidden`. An older version's editor writes the columns back without
+ *   these when it changes one, so it opens these Minds read-only. Older
+ *   content is version 30 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 29;
+export const CONTENT_SCHEMA_VERSION = 30;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -634,11 +639,17 @@ export const COMPARISON_ROW_NODE = "comparisonRow";
  */
 export const COMPARISON_CELL_NODE = "comparisonCell";
 
-/** A comparison table's column: its Question. */
+/** A comparison table's column: its Question, and its own heading when it has one. */
 export interface ComparisonQuestion {
   /** A random UUID: what each row's cell for this column names. */
   id: string;
   text: string;
+  /** Its heading, which starts as its Question shortened; absent: the Question shortened. */
+  label?: string;
+  /** Its width in the table; absent: the table's own. */
+  width?: number;
+  /** Whether the table draws it; absent: it does. */
+  hidden?: boolean;
 }
 
 /** Attributes of a comparison table's Block, as stored in the Mind's Yjs document. */
@@ -4452,6 +4463,15 @@ export interface CompareDocumentsInput {
 export interface ComparisonTableRef {
   mindId: string;
   tableId: string;
+}
+
+/**
+ * A comparison table to fill: the whole table, or some of its columns alone,
+ * so a column just added or reworded never writes its neighbours again.
+ */
+export interface ComparisonFillRequest extends ComparisonTableRef {
+  /** The columns to fill, by their Questions' ids; absent: every cell to fill in the table. */
+  questionIds?: readonly string[];
 }
 
 /**
@@ -9669,10 +9689,12 @@ export interface CoreApi {
   compareDocuments(input: CompareDocumentsInput): Promise<ComparisonResult>;
   /**
    * Fills a comparison table's cells that have no Answer (`cellToFill`): a
-   * column the editor just added, or cells a fill left (a quit, the monthly
-   * cap, a failure). A fill already going takes them up once its cells are done.
+   * column the editor just added or reworded, or cells a fill left (a quit,
+   * the monthly cap, a failure). Given `questionIds`, it fills those columns
+   * alone, so the others' Answers and problems stay as they are. A fill
+   * already going takes them up once its cells are done.
    */
-  fillComparisonTable(input: ComparisonTableRef): Promise<ComparisonResult>;
+  fillComparisonTable(input: ComparisonFillRequest): Promise<ComparisonResult>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
