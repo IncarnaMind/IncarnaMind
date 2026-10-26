@@ -141,4 +141,4 @@ The assistant can do what the User does with the app's commands. A **Commands** 
 
 ## Amendment, 2026-10-26: names in this record (#2004)
 
-The action the amendments above call Find support is called Check against Documents in the interface (`editor.ai.checkAgainstDocuments`); stored Minds keep `find-support` as the action's name, and its ⌘K keywords keep "check find support". The `prototype/*` branches this ADR names are no longer on `origin`; the bake-off's scores stand as recorded.
+The action the amendments above call Find support is called Check against Documents in the interface (`editor.ai.checkAgainstDocuments`): a check made now stores `check-against-documents`, and an older stored Note's `find-support` still reads and runs as Check against Documents, whose ⌘K keywords keep "check find support". The `prototype/*` branches this ADR names are no longer on `origin`; the bake-off's scores stand as recorded.

@@ -121,4 +121,4 @@ A rewrite of an Answer's text is written over the Blocks it changes (#1873), and
 
 ## Amendment: the action is called Check against Documents (2026-10-26, #2004)
 
-The action the amendments above call Find support is called Check against Documents in the interface (`editor.ai.checkAgainstDocuments`). Stored Minds keep `find-support` as the action's name, and the command's ⌘K keywords keep "check find support", so the old name still finds it.
+The action the amendments above call Find support is called Check against Documents in the interface (`editor.ai.checkAgainstDocuments`). A check made now stores `check-against-documents` as its mark's action; an older stored Note carries `find-support`, which still reads and runs as Check against Documents (`claimCheckActions` in `src/core/api.ts`, `src/shared/claimChecks.ts`, `src/renderer/src/checks.ts`). The command's ⌘K keywords keep "check find support", so the old name still finds it.
