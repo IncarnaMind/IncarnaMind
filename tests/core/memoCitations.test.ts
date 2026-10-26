@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, vi } from "vitest";
 import type { Citation } from "../../src/core";
 import { readVtt } from "../../src/core/documents/formats/vtt";
-import { createTempDataFolder } from "../helpers/core";
+import { createTempDataFolder, queryDatabase } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { transcribingCore, until } from "../helpers/transcription";
@@ -20,6 +20,16 @@ function citationsOf(client: MindClient) {
   return citations;
 }
 
+function expectEachPassageHolds(
+  citations: Citation[],
+  passages: readonly { id: string; text: string }[],
+) {
+  const text = new Map(passages.map((passage) => [passage.id, passage.text]));
+  for (const citation of citations) {
+    expect(text.get(citation.passageId)).toContain(citation.quote);
+  }
+}
+
 async function longMemo(language: "en" | "zh-CN", given?: readonly string[]) {
   const lines =
     given ??
@@ -28,7 +38,8 @@ async function longMemo(language: "en" | "zh-CN", given?: readonly string[]) {
         ? `Cue ${index}: The blue door is open. ${"We inspect the garden before the afternoon rain and leave the windows closed. ".repeat(1 + (index % 5))}End cue ${index}.`
         : `  第${index}段：蓝色的门开着。${"我们在下午下雨前检查花园，窗户保持关闭，记录每一个细节。".repeat(1 + (index % 5))}结束第${index}段。  `,
     );
-  const { core, record } = await transcribingCore(await createTempDataFolder(), {
+  const dataDir = await createTempDataFolder();
+  const { core, record } = await transcribingCore(dataDir, {
     engine: { lines },
   });
   try {
@@ -40,6 +51,7 @@ async function longMemo(language: "en" | "zh-CN", given?: readonly string[]) {
     await until(core, memo.id, (transcript) => transcript.lines >= 2);
     await core.stopMeeting(memo.id);
     const saved = await until(core, memo.id, (transcript) => transcript.state === "saved");
+    if (!saved.documentId) throw new Error("The Transcript has no Document.");
     await vi.waitFor(
       async () => {
         const fill = (await core.listMeetings()).find((each) => each.id === memo.id)?.fill;
@@ -56,6 +68,11 @@ async function longMemo(language: "en" | "zh-CN", given?: readonly string[]) {
       citations: citationsOf(client),
       cues: readVtt(readFileSync(saved.savedPath as string, "utf8")).cues,
       paragraphs,
+      passages: queryDatabase<{ id: string; text: string }>(
+        dataDir,
+        "SELECT id, text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position",
+        [saved.documentId],
+      ),
     };
   } finally {
     core.close();
@@ -66,7 +83,7 @@ test("a 100-second memo of identical cues keeps every cue as its own paragraph w
   timeout: 180_000,
 }, async () => {
   const line = "我们在下午下雨前检查花园窗户保持关闭记录每一个细节".repeat(5);
-  const { citations, cues, paragraphs } = await longMemo(
+  const { citations, cues, paragraphs, passages } = await longMemo(
     "zh-CN",
     Array.from({ length: 50 }, () => line),
   );
@@ -76,18 +93,20 @@ test("a 100-second memo of identical cues keeps every cue as its own paragraph w
   expect(citations.map((citation) => citation.location)).toEqual(
     cues.map((each) => ({ kind: "time", from: each.startMs, to: each.endMs })),
   );
+  expectEachPassageHolds(citations, passages);
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a 100-second varied ${language} memo cites every cue's own start and end`, {
+  test(`a 100-second varied ${language} memo keeps every cue's time, and every Citation's Passage holds its quote`, {
     timeout: 180_000,
   }, async () => {
-    const { citations, cues } = await longMemo(language);
-    expect(cues.length).toBeGreaterThan(1);
-    expect(citations).toHaveLength(cues.length);
+    const { citations, cues, passages } = await longMemo(language);
+    expect(cues).toHaveLength(51);
+    expect(citations).toHaveLength(51);
     expect(citations.every((citation) => citation.check === "found")).toBe(true);
     expect(citations.map((citation) => citation.location)).toEqual(
       cues.map((each) => ({ kind: "time", from: each.startMs, to: each.endMs })),
     );
+    expectEachPassageHolds(citations, passages);
   });
 }
