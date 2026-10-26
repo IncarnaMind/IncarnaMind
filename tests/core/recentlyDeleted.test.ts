@@ -238,6 +238,27 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     expect(await assignmentOf(core, tides.id)).toBeUndefined();
   });
 
+  test("a Document embedded again after a restore isn't claimed by Organize (#1433)", async () => {
+    const embedder = createControlledEmbedder();
+    const { core, clock } = await start({ embedder });
+    const tides = await addText(core, "Tides.txt", "Spring tides follow the new moon.");
+    await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    clock.advance(1000);
+    await core.deleteDocument(tides.id);
+
+    // Embeddings come on while it waits, so it is embedded again once it is back.
+    await turnOnEmbeddings(core);
+    clock.advance(1000);
+    await core.restore([{ kind: "document", id: tides.id }]);
+    await vi.waitFor(async () => expect((await documentOf(core, tides.id))?.status).toBe("ready"));
+
+    expect((await core.searchPassages("new moon", { mode: "vector" }))[0]?.documentId).toBe(
+      tides.id,
+    );
+    expect(await assignmentOf(core, tides.id)).toBeUndefined();
+    expect((await core.getLibrary()).assignments).toEqual([]);
+  });
+
   test("a Document waiting for Organize when it was deleted goes on once it is back (#1433)", async () => {
     const fake = classifierModel();
     const { core, clock } = await start({ createChatModel: () => fake.model });
