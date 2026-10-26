@@ -198,7 +198,7 @@ async function openCard(window: Page, mark: Locator) {
 
 async function checkThisMind(window: Page, label = "Check") {
   await window.getByTestId("mind-tab").first().click({ button: "right" });
-  await pointAndClick(window, window.getByRole("menuitem", { name: label }));
+  await pointAndClick(window, window.getByRole("menuitem", { name: label, exact: true }));
   await checkCard(window);
   await pointAndClick(
     window,
