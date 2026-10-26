@@ -38,7 +38,7 @@ const RETRIEVES_FIRST: readonly Admitted[] = [
   {
     model: "anthropic/claude-haiku-5-5",
     since: "2026-10-26",
-    gate: "Against the Tool loop with write-then-cite, paired, within one item in 30, on turns offered no Tool that writes a Mind: gating 65 twice, 2.13 → 1.27 calls, one call in 101 of 130, cited 125 → 127, judged right 120 → 116, every Citation found 128 → 128; hard 60, 2.75 → 1.73 calls, cited 44 → 44, right 59 → 57, every Citation found 58 → 59; no new false Supported, duplicate or unmade change; done −1.3 s (gating 32) and −0.9 s (hard 20) on sequential slices at a normal load. Assistant turns keep the loop.",
+    gate: "Against the Tool loop with write-then-cite, paired, one run at a time at a normal load, within one item in 30, on turns offered no Tool that writes a Mind: gating 65, done −1.4 s, 2.11 → 1.29 calls, one call in 49, cited 63 → 65, judged right 62 → 61, every Citation found 62 → 64; hard 60, done −1.7 s, 2.95 → 1.75 calls, cited 45 → 44, right 57 → 57, every Citation found 59 → 59; no new false Supported, duplicate or unmade change. Assistant turns keep the loop.",
   },
 ];
 
