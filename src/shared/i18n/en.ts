@@ -1419,6 +1419,7 @@ export const en = {
   "info.copyPath": "Copy path",
   "info.copied": "Copied",
   "info.where": "Where",
+  "info.inLibrary": "In your Library",
   "info.address": "Address",
   "info.from": "From",
   "info.from.linked": "Linked folder “{name}”",
@@ -1674,7 +1675,10 @@ export const en = {
   "embedding.model.failure.storage": "it couldn’t be saved to the data folder",
 
   "embeddingProviders.settings.title": "Document search",
-  "embeddingProviders.settings.body": "Search by meaning also finds passages worded differently.",
+  "embeddingProviders.settings.plain": "Find Documents by meaning, not only words",
+  "embeddingProviders.settings.download": "135 MB download",
+  "embeddingProviders.settings.stateOn": "On this computer",
+  "embeddingProviders.settings.stateSent": "Sent to {service}",
   "embeddingProviders.settings.current": "Search model: ",
   "embeddingProviders.settings.off": "Off",
   "embeddingProviders.settings.offNote": "Documents are searched by their words.",
@@ -1739,6 +1743,8 @@ export const en = {
 
   "rerank.settings.title": "Best results first",
   "rerank.settings.body": "Puts the most relevant passages first.",
+  "rerank.settings.stateOn": "On this computer",
+  "rerank.settings.stateSent": "Ordered by {service}",
   "rerank.settings.body.details":
     "On by default, with the built-in model, which runs on this computer; Cohere and Voyage AI need a key. You can turn it off. It applies to an Answer from a model that searches once, to Suggest as I write, and to checks and comparison tables. A model that searches by itself doesn’t use it, and searches again when the passages don’t answer.",
   "rerank.settings.inUse": "{service} puts the best search results first ({model}).",
@@ -2740,7 +2746,7 @@ export const en = {
   "meetings.key.add": "Add a key",
   "meetings.key.replace": "Change key",
   "meetings.key.remove": "Remove",
-  "models.advanced": "Advanced",
+  "settings.advanced": "Advanced",
   "models.removed": "Removed {provider}.",
   "models.removed.answers": "Removed {provider}. Answers now use {model}.",
   "models.removed.noAnswers": "Removed {provider}. Choose a model for Answers.",
@@ -3950,6 +3956,8 @@ export const en = {
   "error.commands.noFolderPath": "The command needs the folder to add files from.",
   "error.commands.noIds": "The command needs the Documents or Minds it acts on.",
   "error.commands.noDocument": "There is no Document with the id {id}.",
+  "error.commands.exampleDocument":
+    "That Document belongs to the example and stays as it is. Add one of your own to put it in a Folder.",
   "error.commands.noMind": "There is no Mind with the id {id}.",
   "error.commands.oneOnly": "This command acts on one Document or Mind at a time.",
   "error.commands.notAbsolute": "“{folder}” isn’t a full folder path.",
@@ -4626,6 +4634,7 @@ export const en = {
   "firstOpen.hide": "Hide this",
   "assistant.pill": "Ask anything",
   "sidebar.examples": "Examples",
+  "sidebar.documents": "Documents",
   "examples.banner.label": "About this example",
   "examples.banner.title": "This is an example Mind.",
   "examples.banner.body":
@@ -4683,7 +4692,9 @@ export const en = {
   "meetings.notice.both": "Records your microphone and the computer’s sound: everyone in the call.",
   "meetings.notice.microphone": "IncarnaMind records your microphone.",
   "meetings.notice.tell": "Tell everyone you’re recording: in many places it’s the law.",
-  "meetings.notice.model": "Transcribed on this computer; a 1 GB speech model downloads once.",
+  "meetings.notice.model": "Transcribed on this computer.",
+  "meetings.notice.modelSize": "The speech model is about 1 GB.",
+  "meetings.start.downloadAndStart": "Download and start",
   "meetings.notice.cancel": "Cancel",
   "meetings.bar.label": "Meeting recording",
   "meetings.bar.recording": "Recording",
@@ -4742,7 +4753,6 @@ export const en = {
   "meetings.transcript.finishingDownload":
     "Finishing the transcript: downloading the speech model, {percent}% of {size}…",
   "meetings.transcript.saved": "Transcript saved",
-  "meetings.transcript.savedIn": "Transcript saved in {folder}",
   "meetings.transcript.open": "Open transcript",
   "meetings.transcript.empty": "Nothing to transcribe, so no transcript was saved.",
   "meetings.transcript.downloadFailed.everySource":

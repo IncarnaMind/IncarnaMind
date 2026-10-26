@@ -47,6 +47,7 @@ const documentOf = (id: string): Document => ({
   contentHash: "",
   path: `/${id}.pdf`,
   fileStatus: "available",
+  keptByApp: false,
   linkedFolderId: null,
   size: 0,
   pageCount: null,
