@@ -771,11 +771,11 @@ export function createCore(adapters: CoreAdapters): Core {
         write: (speed) => settings.writeDeviceValue(READING_SPEED, speed),
       },
       folders,
-      emitStatus: (document, restored = false) => {
+      emitStatus: (document, unchanged = false) => {
         timeIndexing(document);
         events.emit("document.status", document);
-        // Back from Recently deleted, a Document is as it was: Organize doesn't file it again (#1433).
-        if (!restored) libraryDocumentChanged(document.id);
+        // A Document as it was (back from Recently deleted, or embedded again) isn't filed again (#1433, #2023).
+        if (!unchanged) libraryDocumentChanged(document.id);
         batches.changed([document.id]);
         rebuildMayHaveProgressed();
       },

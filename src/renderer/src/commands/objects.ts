@@ -191,9 +191,9 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     when: (ctx) => documentsOf(ctx).length >= 1,
     reversible: true,
-    run(ctx) {
+    run: async (ctx) => {
       const bridge = bridgeOf(ctx);
-      if (bridge) return store().startMindFrom(bridge);
+      if (bridge) await store().startMindFrom(bridge);
     },
   },
   {
@@ -341,7 +341,9 @@ export const folderCommands: readonly Command[] = [
     top: 22,
     appliesTo: ["folder"],
     reversible: true,
-    run: (ctx) => store().createMind({ titled: true, folderId: idsOf(ctx, "folder")[0] ?? null }),
+    run: async (ctx) => {
+      await store().createMind({ titled: true, folderId: idsOf(ctx, "folder")[0] ?? null });
+    },
   },
   {
     id: "folder.ask",

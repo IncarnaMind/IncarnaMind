@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { UnreadFile } from "../../../core/api";
-import { UNREAD_REASON_KEYS } from "../../../shared/unreadFiles";
+import { UNREAD_REASON_KEYS, unreadPartsText } from "../../../shared/unreadFiles";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { MetaLine } from "./MetaLine";
@@ -95,9 +95,12 @@ function UnreadFileRow({ file }: { file: UnreadFile }) {
               </button>
             )}
             {t("unread.file.reason", {
-              reason: lockedPdf
-                ? t("unread.reason.passwordPdf")
-                : t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" }),
+              reason:
+                file.reason === "parts" && file.parts
+                  ? unreadPartsText(file.parts, t, true)
+                  : lockedPdf
+                    ? t("unread.reason.passwordPdf")
+                    : t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" }),
             })}
           </>,
           lockedPdf?.fileStatus === "available" && (

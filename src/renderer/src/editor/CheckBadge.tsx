@@ -513,6 +513,7 @@ function BadgePill({
       data-testid="check-badge"
       data-state={state?.kind}
       data-tone={state?.tone}
+      data-stable={badge.running || badge.checked !== null ? "" : undefined}
     >
       <button
         ref={anchorRef}
