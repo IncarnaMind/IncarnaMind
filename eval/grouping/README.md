@@ -10,12 +10,12 @@ What stays here is the fixture set, because the local classification comparison 
 
 | Subject | English | Chinese | Deck or spreadsheet |
 |---|---|---|---|
-| Attention and the Transformer | Attention Is All You Need (PDF) | 维基百科-注意力机制 (PDF), 维基百科-Transformer架构 | Transformer architecture (deck) |
-| Gradient descent | Gradient Descent The Ultimate Optimizer (PDF), Stochastic gradient descent · Wikipedia | 维基百科-梯度下降法 (PDF) | 梯度下降法讲义 (deck, Chinese) |
-| Large language models | Language Models are Few-Shot Learners, Language Models are Unsupervised Multitask Learners (PDFs) | 维基百科-大型语言模型 (PDF), 维基百科-GPT-3 | |
-| The UN and the SDGs | United Nations 2022 Annual Report (PDF) | 维基百科-可持续发展目标 (PDF), 维基百科-千年发展目标 | SDGs overview (deck) |
-| ESG | JP Morgan 2022 ESG Report (PDF), Socially responsible investing · Wikipedia | 维基百科-环境、社会和公司治理 (PDF) | ESG reporting basics (deck) |
-| Medicines and the pharmaceutical industry | ABPI Code of Practice (PDF), Pharmaceutical marketing · Wikipedia | 维基百科-药品 | |
+| Attention and sequence models | Weighted Keys Shorter Paths (PDF) | 维基百科-注意力机制 (PDF), 维基百科-Transformer架构 | Transformer architecture (deck) |
+| Gradient descent | Tuning the Tuner (PDF), Stochastic gradient descent · Wikipedia | 维基百科-梯度下降法 (PDF) | 梯度下降法讲义 (deck, Chinese) |
+| Large language models | Demonstrations Not Weights, What a Corpus Teaches (PDFs) | 维基百科-大型语言模型 (PDF), 维基百科-GPT-3 | |
+| The Assembly and the development goals | Norvath Assembly Annual Report 2022 (PDF) | 维基百科-可持续发展目标 (PDF), 维基百科-千年发展目标 | SDGs overview (deck) |
+| ESG | Vantrell 2022 ESG Report (PDF), Socially responsible investing · Wikipedia | 维基百科-环境、社会和公司治理 (PDF) | ESG reporting basics (deck) |
+| Medicines and the pharmaceutical industry | MPMA Code of Practice (PDF), Pharmaceutical marketing · Wikipedia | 维基百科-药品 | |
 | Tea | Tea · Wikipedia, Green tea · Wikipedia | 茶 · 维基百科 | 茶叶加工流程 (deck, Chinese) |
 | Earthquakes | Earthquake · Wikipedia | 维基百科-地震, 维基百科-地震学 | usgs_significant_quakes_2023 (CSV, USGS) |
 | Climate change | Climate change · Wikipedia | 维基百科-气候变化, 维基百科-温室气体 | co2_annmean_mlo (XLSX, NOAA) |
@@ -23,7 +23,7 @@ What stays here is the fixture set, because the local classification comparison 
 | Photosynthesis | Photosynthesis · Wikipedia, Chlorophyll · Wikipedia | 维基百科-光合作用 | 光合作用课件 (deck, Chinese) |
 | Inflation | Inflation · Wikipedia, Consumer price index · Wikipedia | 维基百科-通货膨胀 | CPI-U 2015-2024 (XLSX, BLS) |
 
-The PDFs are the evaluation's own: the seven samples in `data/` and the five Chinese Wikipedia articles in `eval/retrieval/fixtures/`. The tea pair is the app's example Documents (`resources/examples/`).
+The PDFs are the evaluation's own: the seven samples in `data/` (made for this repository and licensed under Apache-2.0; see [`data/README.md`](../../data/README.md)) and the five Chinese Wikipedia articles in `eval/retrieval/fixtures/`. The tea pair is the app's example Documents (`resources/examples/`).
 
 ## Results
 
