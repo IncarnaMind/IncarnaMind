@@ -345,7 +345,7 @@ Three quotes a model may well write were on their cited Unit but "not found", fa
 
 The gating set's library now holds the seven generated sample PDFs in `data/`, the five Chinese
 Wikipedia articles in `retrieval/fixtures/`, and the five readable real Documents in `data/real/`
-(17 Documents, 2,010 Passages). The real Documents are extra library, not new Questions; their
+(17 Documents, 877 Passages). The real Documents are extra library, not new Questions; their
 sources, licences and SHA-256 are in [`data/README.md`](../data/README.md). Measured with
 `npm run eval:dump` and `INCARNAMIND_EVAL_RERANK_CPU=1`, keyword search and the built-in reranker
 as the app runs them with embeddings off; the dump scores the same as the run's own scoring.
@@ -353,21 +353,23 @@ as the app runs them with embeddings off; the dump scores the same as the run's 
 | Order | Gating, top 5 | English gating | Chinese gating | All 65 |
 |---|---|---|---|---|
 | keyword | 34/40 | 15/20 | 19/20 | 55/65 |
-| keyword + rerank | 36/40 | 17/20 | 19/20 | 58/65 |
-| search Tool (Passages handed to the model) | **37/40** | **18/20** | **19/20** | 59/65 |
+| keyword + rerank | 37/40 | 17/20 | 20/20 | 59/65 |
+| search Tool (Passages handed to the model) | **38/40** | **18/20** | **20/20** | 60/65 |
 
-**The mixed set misses the gate's Chinese bar by one Question.** The bar is 15 of 20 English and
-20 of 20 Chinese (35 of 40, see above). The mixed set meets English with 18, and finds 19 of 20
-Chinese: zh-03, whose expected Passage in the Vantrell ESG report falls from keyword rank 19 to
-26 once the real Documents are in the library. The search Tool reranks keyword search's top 20,
-so it no longer sees the Passage; the Passage's rerank score is unchanged (0.9968), so the loss
-is the candidate window, not the model. On the generated samples alone the same dump gives 15/20
-English and 20/20 Chinese (35/40). The bar is unchanged; widening the search Tool's candidate
-window is a separate decision.
+The bar is 15 of 20 English and 20 of 20 Chinese (35 of 40, see above); the mixed set meets it,
+with 18 English and 20 Chinese. On the generated samples alone the same dump gives 15/20 and
+20/20 (35/40, 52/65).
 
-Load: the before dump ran at a 1-minute load of about 7 to 44 (earlier the same night); the mixed
-dump at 7 to 13, before the machine's later spike. Scores only; no timings are reported from these
-runs.
+**A mixed set with a longer English report missed the Chinese bar by one.** Measured the same
+way, before two Documents were replaced on 2026-10-26: with the full 348-page World Development
+Report in the library, zh-03's expected Passage in the Vantrell ESG report fell from keyword rank
+19 to 26, outside the search Tool's keyword top 20, though its rerank score was unchanged
+(0.9968); the Tool found 18/20 English and 19/20 Chinese. With the 20-page Overview booklet the
+Passage is back at rank 19 and the bar holds. The loss is the candidate window, not the model;
+it is filed as a retrieval issue.
+
+Load: the final mixed run at a 1-minute load of 10 to 41 and a 15-minute load of 10 to 25; scores
+only, no timings are reported from it.
 
 ### Every format: first run pending
 

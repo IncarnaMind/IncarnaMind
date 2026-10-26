@@ -36,7 +36,7 @@ The Documents:
 
 - **reserves**: the State Administration of Foreign Exchange's table of official reserve assets for 2026 (an .xlsx with its units in Chinese and English), fetched once into the same cache and checked against its SHA-256. It is never committed.
 - **papers**: the two arXiv papers of the owner's conversation, 2306.10683v1 and 1609.04846v1. They are fetched once into the evaluation's cache (`$INCARNAMIND_EVAL_CACHE/everyday/`) and checked against their SHA-256, at one request every three seconds, as arXiv asks. They are never committed.
-- **reports**: the seven generated sample PDFs in `data/` and the five readable real Documents in `data/real/` (the World Development Report 2023, the National Risk Register 2023, the Chinese financial stability report, the Mamba paper and the FOMC minutes; `data/README.md` records their licences). The sixth real file, a one-page scan with no text, is in the hard tier only.
+- **reports**: the seven generated sample PDFs in `data/` and the five readable real Documents in `data/real/` (the World Development Report 2023 Overview, the National Risk Register 2023, the National Bureau of Statistics' 2023 communiqué, the Mamba paper and the FOMC minutes; `data/README.md` records their licences). The sixth real file, a one-page scan with no text, is in the hard tier only.
 - **dated**: an employment contract and a 劳动合同 (PDFs), a mutual NDA and a 保密协议 (Markdown) whose text gives no date, and board minutes in English and Chinese (PDFs) whose text gives the meeting's date (`dated.ts`). They are written into a temporary folder for each run, with a PDF creation date of 18 October 2026 and a modified day of 3 November 2025 for the text files.
 
 Documents are added with embeddings off, and searched with the built-in reranking model, as Users have them by default.
@@ -64,26 +64,32 @@ npm run eval:everyday
 ### 2026-10-26: the mixed reports library (#2019)
 
 The `reports` library now holds the seven generated PDFs in `data/` and the five readable real
-Documents in `data/real/` (12 Documents, 1,816 Passages; `data/README.md` records the real ones).
+Documents in `data/real/` (12 Documents, 683 Passages; `data/README.md` records the real ones).
 The 50 requests asked over that library were asked three times each; the other libraries are
 unchanged. Claude Haiku 5.5 on the Anthropic key, the claims judged by Claude Sonnet 5.5. Both
-runs ran on an Apple M2 Max (12 cores, 32 GB) at a 15-minute load of 4 to 15 and a 1-minute load
-of 2 to 26; scores and spend only, no timings.
+runs ran on an Apple M2 Max (12 cores, 32 GB) at a 15-minute load of 8 to 16 and a 1-minute load
+of 7 to 17; scores and spend only, no timings.
 
 | | Generated samples (before) | Mixed (after) |
 |---|---|---|
-| Requests at or above their floor | 48/50 | 46/50 |
-| Runs passed | 138/150 | 131/150 |
-| English runs passed | 71/78 | 71/78 |
+| Requests at or above their floor | 48/50 | 45/50 |
+| Runs passed | 138/150 | 129/150 |
+| English runs passed | 71/78 | 69/78 |
 | Chinese runs passed | 67/72 | 60/72 |
-| Research: Supported, English | 127/138 (92%) | 134/147 (91%) |
-| Research: Supported, Chinese | 124/136 (91%) | 121/129 (94%) |
+| Research: Supported, English | 127/138 (92%) | 137/150 (91%) |
+| Research: Supported, Chinese | 124/136 (91%) | 114/124 (92%) |
 
 The bar is every request at or above its floor (two runs in three, one in three for a hard one),
 and at least 95% Supported for the research requests. The generated samples already missed the
 Supported bar in both languages, and the mixed set misses it too. The requests under their floor
-were `owner-lib-after-en` and `owner-lib-mind-zh` before, and `owner-var-qmark-en` (1 of 3),
-`owner-lib-after-zh` (1 of 3), `reports-page` (0 of 3) and `reports-all-zh` (0 of 3) after: asked
-to summarise, the Answer neither cites nor names the real Documents, which the cover-all guard
-reports. Spend: $0.75 of Answers and at most $0.83 of judging before, $0.98 and at most $0.83
-after.
+were `owner-lib-after-en` and `owner-lib-mind-zh` before, and `owner-lib-mind-zh` (1 of 3),
+`owner-var-can-en` (1 of 3), `owner-lib-after-en` (1 of 3), `reports-page` (0 of 3) and
+`reports-all-zh` (0 of 3) after: asked to summarise, the Answer neither cites nor names the real
+Documents, which the cover-all guard reports (filed on the Answers-coverage issue). Spend: $0.75
+of Answers and at most $0.83 of judging before, $0.95 and at most $0.83 after.
+
+### 2026-10-26: the first mixed reports library
+
+The first mixed run, before the licence check replaced two real Documents (the full World
+Development Report with its Overview, and the PBoC report with the National Bureau of Statistics'
+communiqué), gave 46 of 50 requests at their floor and 131 of 150 runs; it is not counted above.

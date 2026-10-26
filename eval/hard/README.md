@@ -47,7 +47,7 @@ npm run eval:hard
 | Contracts | 100 commercial contracts from CUAD v1 (one 106 MB archive, from which the run takes them out); Chinese model contracts from the State Administration for Market Regulation's model-contract library |
 | Company reports and filings | FinanceBench's open sample (10-Ks, 10-Qs, 8-Ks and earnings releases), several companies in two or more years; Chinese companies' annual reports from the Shenzhen Stock Exchange; the gating set's Vantrell ESG report |
 | Academic papers | 50 arXiv papers from Qasper's test set; Chinese open-access papers (Hans Publishers, CC BY 4.0); the gating set's papers and Chinese Wikipedia articles; a CC BY 4.0 arXiv paper in `data/real/` |
-| Government and international reports | UN, UN SDG Reports, IPCC, FAO, World Bank, UNDP, in English and Chinese; Federal Reserve, Census, IRS, USDA ERS; HM Treasury and other gov.uk reports; People's Bank of China and SAFE reports; the World Bank, UK, People's Bank of China, Federal Reserve and CIA Documents in `data/real/` |
+| Government and international reports | UN, UN SDG Reports, IPCC, FAO, World Bank, UNDP, in English and Chinese; Federal Reserve, Census, IRS, USDA ERS; HM Treasury and other gov.uk reports; People's Bank of China and SAFE reports; the World Bank, UK, National Bureau of Statistics of China, Federal Reserve and CIA Documents in `data/real/` |
 | Technical manuals | NIST, FAA, NASA, OCC, CISA, USGS, ready.gov; WHO's biosafety manual in both languages; Chinese environmental monitoring standards |
 | Medical and regulatory | FDA drug labels and guidance; UKHSA patient group directions and training slides; VA/DoD guidelines; WHO guidelines in both languages; NMPA notices, guidelines and statistics; the gating set's MPMA Code |
 
@@ -60,7 +60,7 @@ npm run eval:hard
 | Technical manuals | 33 | 6 |
 | Medical and regulatory | 39 | 12 |
 
-357 PDFs (17,205 pages), 27 Word, 14 Excel, 6 PowerPoint and 2 CSV files; six of the PDFs are the real Documents in `data/real/`. 42 Documents are linked to their translation in the other language, and 50 groups hold versions of one Document (two years of a report or a company's filings, two quarters, two revisions of a standard or a label, with their translations). `report.md` gives what was added, per domain, language and format.
+357 PDFs (16,779 pages), 27 Word, 14 Excel, 6 PowerPoint and 2 CSV files; six of the PDFs are the real Documents in `data/real/`. 42 Documents are linked to their translation in the other language, and 50 groups hold versions of one Document (two years of a report or a company's filings, two quarters, two revisions of a standard or a label, with their translations). `report.md` gives what was added, per domain, language and format.
 
 **Licences.** Each source records its licence or terms, the page they're on, and their own words permitting the download (`sources` in `library.json`); `tests/eval/hardLibrary.test.ts` checks each against an allowed list:
 
@@ -164,9 +164,12 @@ Keyword + rerank at the top 8 and 10 is 135 and 143 of 180. The search Tool's fi
 
 ### 2026-10-26: the mixed sample set (#2019)
 
-The library now holds the six real Documents in `data/real/` beside the fetched ones (406
-Documents, 48,708 Passages; the one-page scan has no text and is left out as unread, as the run
-allows). The Questions are unchanged. Measured with `npm run eval:dump` and
+The library then held the first mixed set: the six real Documents in `data/real/` beside the
+fetched ones (406 Documents, 48,708 Passages; the one-page scan has no text and is left out as
+unread, as the run allows). After this run the licence check replaced two of the real Documents
+(the full World Development Report 2023 with its 20-page Overview, and the PBoC report with the
+National Bureau of Statistics' communiqué); the hard tier is reported, never gates, and was not
+rerun for the swap. The Questions are unchanged. Measured with `npm run eval:dump` and
 `INCARNAMIND_EVAL_RERANK_CPU=1`, keyword search and the built-in reranker, as the app runs them
 with embeddings off; the dump scores the same as the run's own scoring. "Generated samples" is
 the same dump over the library before the six were added (400 Documents).

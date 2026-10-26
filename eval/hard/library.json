@@ -5436,15 +5436,15 @@
     },
     {
       "key": "real-wdr-2023",
-      "title": "World Development Report 2023 Migrants Refugees and Societies",
+      "title": "World Development Report 2023 Overview",
       "domain": "reports",
       "language": "en",
       "format": "pdf",
       "source": "repository-real",
-      "path": "data/real/World Development Report 2023 Migrants Refugees and Societies.pdf",
-      "sha256": "d14e62b3c335091881181bb9e591fe6fe2e70d33349967e0b79c59f2f5c6366e",
-      "bytes": 14383317,
-      "pages": 348
+      "path": "data/real/World Development Report 2023 Overview.pdf",
+      "sha256": "28f967181d2aeaab9b28e4ef463aa66a6ef4f72a0ad54e119b19d3681af992e7",
+      "bytes": 614086,
+      "pages": 20
     },
     {
       "key": "real-nrr-2023",
@@ -5459,16 +5459,16 @@
       "pages": 192
     },
     {
-      "key": "real-pboc-fsr-2024",
-      "title": "中国金融稳定报告2024",
+      "key": "real-nbs-communique-2023",
+      "title": "中华人民共和国2023年国民经济和社会发展统计公报",
       "domain": "reports",
       "language": "zh",
       "format": "pdf",
       "source": "repository-real",
-      "path": "data/real/中国金融稳定报告2024.pdf",
-      "sha256": "f72c45fe00031753b846b8fe404d7cac5ed0722c1d477bea9079a81e7dbcd69e",
-      "bytes": 4888464,
-      "pages": 120
+      "path": "data/real/中华人民共和国2023年国民经济和社会发展统计公报.pdf",
+      "sha256": "a3561d2f63273957f84bd9a4d7374d0e57bae45f70c96b0a6b561c1020c8675f",
+      "bytes": 2481559,
+      "pages": 22
     },
     {
       "key": "real-fomc-1950",
