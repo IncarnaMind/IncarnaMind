@@ -7,7 +7,7 @@ describe("The dot between a meta line's parts", () => {
     ["来自 2 个文档（此笔记的范围，共 7 个）", "· "],
     ["我选了“Report 1”作为主要文档。", "· "],
     ["失败了！", "· "],
-    ["From 2 of your 7 Documents (this Mind’s scope)", " · "],
+    ["From 2 of your 7 Documents (this note’s scope)", " · "],
     ["请先不要关闭 IncarnaMind", " · "],
   ])("after “%s”: “%s”", (part, dot) => {
     expect(dotAfter(part)).toBe(dot);

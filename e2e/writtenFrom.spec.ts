@@ -89,7 +89,7 @@ for (const [language, request, line, useAll] of [
   [
     "en",
     "Write a summary of my leases",
-    "From 2 of your 7 Documents (this Mind’s scope) · Use all",
+    "From 2 of your 7 Documents (this note’s scope) · Use all",
     "keyboard",
   ],
   [

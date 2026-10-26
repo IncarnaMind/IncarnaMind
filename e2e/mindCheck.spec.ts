@@ -153,7 +153,7 @@ test("Check this note from ⌘K: the estimate first on a cloud model, then every
 
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("check this mind");
+  await window.keyboard.type("check this note");
   const item = window.getByTestId("palette-item").filter({ hasText: "Check this note" }).first();
   await pointAndClick(window, item);
 
@@ -202,7 +202,7 @@ test("Check this note from ⌘K: the estimate first on a cloud model, then every
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("check this mind");
+  await window.keyboard.type("check this note");
   await pointAndClick(
     window,
     window.getByTestId("palette-item").filter({ hasText: "Check this note" }).first(),

@@ -14,7 +14,7 @@ import {
 /*
  * A new Mind on a fresh data folder says little (#1191): the page's note that asking needs an AI
  * model, and the assistant's lines about what it reads, and nothing else. Making it leaves no
- * "Made a new Mind" line, because deleting it is what takes it back.
+ * "Made a new note" line, because deleting it is what takes it back.
  */
 
 let dataDir: string;
@@ -49,7 +49,7 @@ for (const examples of [false, true]) {
 
       await expect(window.getByTestId("chat-readiness")).toBeVisible();
       await expect(window.getByTestId("undo-message")).toHaveCount(0);
-      await expect(window.getByTestId("undo-line")).not.toContainText(/Made a new Mind|已新建笔记/);
+      await expect(window.getByTestId("undo-line")).not.toContainText(/Made a new note|已新建笔记/);
       const shown = await window.locator(MESSAGES).evaluateAll(
         (elements) =>
           elements.filter((element) => {

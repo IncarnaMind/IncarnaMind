@@ -157,9 +157,9 @@ test("a model picked in one Mind is what a new Mind and an older one with no pic
 
   await newMind(window);
   await expect(chipOf(window)).toHaveText("Claude Haiku 5.5");
-  await expectFoot(window, "Default for new Minds: Claude Haiku 5.5");
+  await expectFoot(window, "Default for new notes: Claude Haiku 5.5");
   await setLanguage(window, "zh-CN");
-  await expectFoot(window, "新 Mind 的默认模型：Claude Haiku 5.5");
+  await expectFoot(window, "新笔记的默认模型：Claude Haiku 5.5");
 
   await chooseInChip(window, "Claude Opus 5.5");
   await expect.poll(() => lastPick(window)).toEqual({ providerId, modelId: OPUS });
@@ -200,7 +200,7 @@ test("the Answers default applies on a fresh install, and changing it in Setting
   await settings.getByRole("button", { name: "Close Settings" }).click();
   await newMind(window);
   await expect(chipOf(window)).toHaveText("Claude Opus 5.5");
-  await expectFoot(window, "Default for new Minds: Claude Opus 5.5");
+  await expectFoot(window, "Default for new notes: Claude Opus 5.5");
 
   await setLanguage(window, "zh-CN");
   await window.getByRole("button", { name: "设置" }).click();

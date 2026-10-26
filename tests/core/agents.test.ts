@@ -254,7 +254,7 @@ describe("outside agents", () => {
       arguments: { documentId: budget.id },
     });
     expect(fromStart.isError).toBe(true);
-    expect(resultText(fromStart)).toMatch(/No such Passage, Document, Mind or Citation/);
+    expect(resultText(fromStart)).toMatch(/No such Passage, Document, Note or Citation/);
 
     const listed = structured<{ folders: { id: string; name: string }[] }>(
       await agent.callTool({ name: "list_minds", arguments: {} }),

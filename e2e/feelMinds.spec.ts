@@ -91,7 +91,7 @@ test("first open, a Question, its Citation, and the Mind checked", async () => {
     await pointAndClick(window, editorOf(window));
     await window.keyboard.press("ControlOrMeta+k");
     await expect(window.getByTestId("palette-search")).toBeFocused();
-    await window.keyboard.type("check this mind");
+    await window.keyboard.type("check this note");
     await pointAndClick(
       window,
       window.getByTestId("palette-item").filter({ hasText: "Check this note" }).first(),
