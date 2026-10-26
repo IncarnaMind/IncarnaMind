@@ -1,7 +1,7 @@
 import { Editor, type JSONContent } from "@tiptap/core";
-import { DOMParser } from "linkedom";
 import Collaboration from "@tiptap/extension-collaboration";
 import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
+import { DOMParser } from "linkedom";
 import { describe, expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import {

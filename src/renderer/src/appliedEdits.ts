@@ -73,7 +73,7 @@ import { speak } from "./editWithAi";
 import { translateNow as t } from "./i18n";
 import { EDIT_FROM_CORE, takeEditUpdates } from "./mindCopies";
 import { useAppStore } from "./store";
-import { pageUndoPlace, useUndo, type Undoable } from "./undo";
+import { pageUndoPlace, type Undoable, useUndo } from "./undo";
 
 // An origin the editor's Undo tracks, and its copy sends to the core.
 class AcceptingEdit {}
