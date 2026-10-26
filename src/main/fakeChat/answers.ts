@@ -23,9 +23,9 @@
  * ask for that and the quotes if not (#1382); one that asks for "narrow then wide" (先窄后宽) gets a
  * line, then a table whose first rows fit the assistant and whose last is wider than it; one that asks for
  * "long headings" (长标题) gets a table of four long headings and long rows, as a real model writes one;
- * one that asks for "forty
- * citations" (四十条引用) gets forty sentences, each with a marker, and one that asks for "twelve in a
- * row" (连续十二条) gets one sentence with twelve markers side by side; one with "cited below" (or 引用在下) gets a
+ * one that asks for "forty citations" (四十条引用) gets forty sentences, each with a marker, one for
+ * "four citations" (四条引用) four, and one that asks for "twelve in a row" (连续十二条) gets one
+ * sentence with twelve markers side by side; one with "cited below" (or 引用在下) gets a
  * table whose one Citation stands in a paragraph under it, and one with "framed" (or 带说明)
  * gets a lead-in before its content and a closing note after it (#702); one that says "without
  * searching" (不用搜索) cites the Passages given with it, as a model does that is given a short
@@ -48,7 +48,14 @@
  */
 
 import { cellReply, isCell } from "./cells";
-import { FORTY_CITATIONS, passagesIn, recordFor, recordsFor, TWELVE_IN_A_ROW } from "./passages";
+import {
+  FORTY_CITATIONS,
+  FOUR_CITATIONS,
+  passagesIn,
+  recordFor,
+  recordsFor,
+  TWELVE_IN_A_ROW,
+} from "./passages";
 import {
   lastQuestion,
   lastUserText,
@@ -371,9 +378,9 @@ function longHeadingsAnswer(question: string, marker: string): string {
   ].join("\n");
 }
 
-function fortyCitationsAnswer(question: string): string {
+function citedSentencesAnswer(question: string, count: number): string {
   const chinese = /\p{Script=Han}/u.test(question);
-  const sentences = Array.from({ length: 40 }, (_, index) =>
+  const sentences = Array.from({ length: count }, (_, index) =>
     chinese
       ? `第${index + 1}条说明潮水每天涨落两次，月亮的位置决定了涨落的时间[^${index + 1}]。`
       : `Statement ${index + 1} says the tide rises and falls twice a day, at hours that follow the moon [^${index + 1}].`,
@@ -505,6 +512,45 @@ export function searchParts(tool: string, query: string): StreamPart[] {
   ];
 }
 
+const BY_REGION = /\bby region\b|按地区/i;
+const WITH_MANAGERS = /\bmanager|负责人/i;
+
+function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const ran = toolResults(prompt, "run_analysis");
+  const chinese = /\p{Script=Han}/u.test(question);
+  if (ran.length > 0) {
+    return {
+      text: chinese
+        ? "各地区收入如下：\n\n[=table 1]\n\n合计 [=1]。"
+        : "Revenue by region:\n\n[=table 1]\n\nIn total, [=1].",
+    };
+  }
+  const passages = passagesIn(searched);
+  const sales = passages.find((passage) => /sales|销售/i.test(passage.document));
+  if (!sales) return null;
+  const regions = passages.find((passage) => /regions|地区/i.test(passage.document));
+  const joining = WITH_MANAGERS.test(question) && regions;
+  const code = [
+    'sales = step("Read the sales", inputs["sales"])',
+    'sales["Revenue"] = pd.to_numeric(sales["Revenue"], errors="coerce")',
+    'totals = sales.groupby("Region", sort=True)["Revenue"].sum()',
+    'result("by_region", totals, "Revenue by region")',
+    'result("total", totals.sum(), "Total revenue")',
+    ...(joining ? ['merged = sales.merge(inputs["regions"], on="Region", how="left")'] : []),
+  ].join("\n");
+  return {
+    tool: "run_analysis",
+    input: {
+      title: chinese ? "各地区收入" : "Revenue by region",
+      inputs: [
+        { name: "sales", passage: sales.id },
+        ...(joining ? [{ name: "regions", passage: regions.id }] : []),
+      ],
+      code,
+    },
+  };
+}
+
 /** What the model does next, apart from Connector Tools: call a Tool, or stream its Answer. */
 export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const question = lastQuestion(prompt);
@@ -524,6 +570,10 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
       input: { query: question },
       reasoning: reasoningFor(question),
     };
+  }
+  if (tools.includes("run_analysis") && BY_REGION.test(question)) {
+    const reply = analysisReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
   }
   if (THINKING_ALOUD.test(question)) return { text: WORKING_NOTES };
   if (WITHOUT_CITING.test(question)) return { text: uncitedAnswer(question) };
@@ -583,8 +633,8 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
           ? twoTablesAnswer(question)
           : NINE_ROWS.test(question)
             ? nineRowsAnswer(question, recorded[0] ?? "")
-            : FORTY_CITATIONS.test(question)
-              ? fortyCitationsAnswer(question)
+            : FORTY_CITATIONS.test(question) || FOUR_CITATIONS.test(question)
+              ? citedSentencesAnswer(question, FORTY_CITATIONS.test(question) ? 40 : 4)
               : TWELVE_IN_A_ROW.test(question)
                 ? twelveInARowAnswer(question)
                 : CITED_BELOW.test(question) || FRAMED.test(question)

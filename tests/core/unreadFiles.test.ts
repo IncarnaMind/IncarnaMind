@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import type { UnreadFile, UnreadParts } from "../../src/core";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
+import { translate } from "../../src/shared/i18n";
+import { unreadCountText, unreadFileText, unreadPartsCounts } from "../../src/shared/unreadFiles";
 import { createTempDataFolder, NO_MODEL_FILES, startCore } from "../helpers/core";
 import { createSourceFolder, linkAndProcess, writeSourceFile } from "../helpers/documents";
 import { encryptedOfficeFile } from "../helpers/office";
@@ -110,5 +113,87 @@ describe("listUnreadFiles", () => {
     const core = startCore(await createTempDataFolder());
     await linkAndProcess(core, library);
     expect(await core.listUnreadFiles(null)).toEqual([]);
+  });
+});
+
+/** The line an Answer, a check and an export show, and each file's line with its reason. */
+describe("unreadCountText and unreadFileText", () => {
+  const file = (name: string): UnreadFile => ({
+    id: name,
+    name,
+    reason: "format",
+    extension: ".doc",
+    documentId: null,
+    pages: [],
+  });
+
+  test.each([
+    ["en", 1, "1 file couldn’t be read"],
+    ["en", 3, "3 files couldn’t be read"],
+    ["zh-CN", 1, "1 个文件未能读取"],
+    ["zh-CN", 3, "3 个文件未能读取"],
+  ] as const)("says the count in %s: %i", (language, count, said) => {
+    const files = Array.from({ length: count }, (_, index) => file(`Old ${index}.doc`));
+    expect(unreadCountText(files, (key, params) => translate(language, key, params))).toBe(said);
+  });
+
+  test("names a file and why it couldn't be read, in English and Chinese", () => {
+    expect(
+      unreadFileText(file("Contract.doc"), (key, params) => translate("en", key, params)),
+    ).toBe(
+      "Contract.doc: Format not read yet (.doc). Convert it to PDF, Word, PowerPoint or Excel.",
+    );
+    expect(
+      unreadFileText(file("Contract.doc"), (key, params) => translate("zh-CN", key, params)),
+    ).toBe("Contract.doc：暂不支持此格式（.doc）。请转换为 PDF、Word、PowerPoint 或 Excel。");
+  });
+});
+
+/** A workbook read in part says which sheets and rows weren't read (#740). */
+describe("what a workbook didn't read", () => {
+  const budget = (parts: UnreadParts): UnreadFile => ({
+    id: "budget",
+    name: "Budget 2026.xlsx",
+    reason: "parts",
+    extension: null,
+    documentId: "budget",
+    pages: [],
+    parts,
+  });
+  const t =
+    (language: "en" | "zh-CN") =>
+    (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate(language, key, params);
+  const parts: UnreadParts = {
+    hiddenSheets: ["Q3 raw"],
+    rowsCut: [{ sheet: "Planning", from: 5001 }],
+    sheetsNotRead: ["Later"],
+  };
+
+  test("names the hidden sheets and each sheet's unread rows, in English and Chinese", () => {
+    expect(unreadFileText(budget(parts), t("en"))).toBe(
+      "Budget 2026.xlsx: the hidden sheet “Q3 raw” wasn’t read; “Planning”: rows 5,001+ weren’t read; “Later”: the whole sheet wasn’t read",
+    );
+    expect(unreadFileText(budget(parts), t("zh-CN"))).toBe(
+      "Budget 2026.xlsx：隐藏工作表“Q3 raw”未读取；“Planning”：第 5,001 行及之后的内容未读取；“Later”：整张工作表未读取",
+    );
+  });
+
+  test("counts them where a file names nothing, in English and Chinese", () => {
+    const two: UnreadParts = {
+      hiddenSheets: ["Q3 raw", "Q4 raw"],
+      rowsCut: [{ sheet: "Planning", from: 5001 }],
+      sheetsNotRead: [],
+    };
+    expect(unreadFileText(budget(two), t("en"), false)).toBe(
+      "Budget 2026.xlsx: 2 hidden sheets weren’t read; 1 sheet has rows that weren’t read",
+    );
+    expect(unreadFileText(budget(two), t("zh-CN"), false)).toBe(
+      "Budget 2026.xlsx：2 个隐藏工作表未读取；1 个工作表有部分行未读取",
+    );
+    expect(unreadPartsCounts([budget(two), budget(parts)], t("en"))).toEqual([
+      "3 hidden sheets weren’t read",
+      "3 sheets have rows that weren’t read",
+    ]);
   });
 });

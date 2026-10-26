@@ -1,5 +1,7 @@
 # Retrieval uses node:sqlite, in-memory vectors, multilingual-e5-small and segmented FTS5
 
+**Amended 2026-10-26 (#2004): the app runs onnxruntime-node 1.30.0 (`package.json`), and the `prototype/*` branches this ADR names are no longer on `origin`; the measurements above stand as they were recorded.**
+
 The retrieval prototype (issue #21, `prototype/retrieval/` on the `prototype/retrieval` branch) settled the storage and search choices that ADR-0008 and spec #20 left open. The numbers come from an evaluation set of 20 questions (10 English, 10 Chinese) over the seven sample PDFs and five Chinese Wikipedia articles, plus 5 cross-lingual questions reported separately. A question counts as a hit when one of the top 5 Passages covers the expected page and contains the expected quote. Timings are from an Apple M2 Max (12 cores). With 10 questions per language, one question is 10 points, so a difference of one question is not evidence.
 
 - **Driver: `node:sqlite`.** It loads sqlite-vec and runs FTS5 in an Electron 44 main process and in a utility process on macOS, with no extra package. On Electron's Node 24.21 it matched better-sqlite3 on lookups (about 135,000 a second each), vector queries (6.1 against 6.6 ms) and keyword queries (19 against 18 ms), and both bundle SQLite 3.53.4. Bulk inserts were 1.4 times slower (2.0 s against 1.4 s for 10,000 Passages with their keyword and vector rows), which is small next to the time spent embedding them. Electron 44 prints no experimental warning for it.

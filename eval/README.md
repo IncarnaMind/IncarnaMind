@@ -5,7 +5,7 @@
 It drives the core's public interface in Node, the way the desktop app's UI does:
 
 1. It creates a temporary data folder. It never touches the app's real data folder.
-2. It turns embeddings on with the built-in model, as a User can in Settings (they are off by default, ADR-0009), adds the seven sample PDFs in `data/` and the five Chinese Wikipedia articles in `retrieval/fixtures/` with `addDocuments`, and waits until each is processed: text extracted, Passages built and embedded with the real built-in model, multilingual-e5-small.
+2. It turns embeddings on with the built-in model, as a User can in Settings (they are off by default, ADR-0009), adds the seven generated sample PDFs in `data/` (made for this repository and licensed under Apache-2.0) and the five real Documents in `data/real/` (each under a licence or statute that allows redistribution; see [`data/README.md`](../data/README.md)) and the five Chinese Wikipedia articles in `retrieval/fixtures/` with `addDocuments`, and waits until each is processed: text extracted, Passages built and embedded with the real built-in model, multilingual-e5-small.
 3. It searches for each Question with `searchPassages` in hybrid, keyword and vector mode, and scores the top 5. A cross-lingual Question with a translated query is searched with that too.
 4. It reranks keyword search's top 20 with the built-in reranking model, mmarco-mMiniLMv2-L12-H384, as the search Tool does by default, with embeddings off, and scores the top 5 again ("keyword top 20 + rerank"; see [Keyword + rerank](#keyword--rerank)). Then, with embeddings off as Users have them, it runs the search Tool itself for each Question and scores the Passages it hands the model: this is the gate ("search Tool"). Then it reranks what the search Tool hands a reranker with embeddings on (keyword search's top 10 and vector search's top 10, each Passage once) with the same model ("hybrid + rerank", reported only). Other reranking candidates, when given, are scored both ways too. Then the built-in model reranks the candidates of seven other searches, with embeddings off, reported only (see [Other ways to find the candidates](#other-ways-to-find-the-candidates)).
 5. When a chat model is given, it turns embeddings off again, as Users have them by default (the vectors stay, unused), asks each Question with `askQuestion` and scores the Citations of each Answer. The core reranks those Answers' searches with the real built-in reranking model, as the app does.
@@ -103,7 +103,7 @@ npm run eval
   npm run eval
   ```
 
-  These ten are the gating Questions whose Citations the long PDFs made hardest to get found (`tests/eval/smallModelCitations.test.ts`), each now handled by the engine or the check: an answer on the second page of a two-page Passage (en-02, en-08, zh-02), or across a page break (en-17), which structured output now places; JP Morgan's report, whose stored text lost its f-ligatures (en-07, en-19); pages in traditional characters (zh-02, zh-04, zh-14, zh-17); and a Passage over four pages (zh-08, zh-14). In this library of English and Chinese Documents, each Answer also makes one short call to translate its query and a second search; one whose quotes the check doesn't all find makes one more, for exact quotes, which the "Quotes asked again" rows count and time. Such a run should take about 20 minutes on an Apple M2 Max: about 12 to process and search the Documents, as always, seven of them for the other ways to find the candidates, then the ten Answers, while the model also tags the 12 Documents.
+  These ten are the gating Questions whose Citations the long PDFs made hardest to get found (`tests/eval/smallModelCitations.test.ts`), each now handled by the engine or the check: an answer on the second page of a two-page Passage (en-02, en-08, zh-02), or across a page break (en-17), which structured output now places; Vantrell's report, whose stored text lost its f-ligatures (en-07, en-19); pages in traditional characters (zh-02, zh-04, zh-14, zh-17); and a Passage over four pages (zh-08, zh-14). In this library of English and Chinese Documents, each Answer also makes one short call to translate its query and a second search; one whose quotes the check doesn't all find makes one more, for exact quotes, which the "Quotes asked again" rows count and time. Such a run should take about 20 minutes on an Apple M2 Max: about 12 to process and search the Documents, as always, seven of them for the other ways to find the candidates, then the ten Answers, while the model also tags the 12 Documents.
 
 ### Cloud embeddings
 
@@ -234,7 +234,7 @@ Each Answer is read back from its Mind, as the editor shows it, and split into s
 | Where the time went | See "Where an Answer's time goes" below. | reported |
 | Citations | How many Citations the Answers have. | at least 30, for the other targets to count |
 | "Quote found" | The share of Citations whose check found the quote on the cited pages. | at least 90% |
-| False "not found" | The share of Citations the check marked "not found" whose quote is on the cited pages under a looser normalisation. The looser normalisation keeps only letters and digits, ignoring case, accents, punctuation, spacing and hyphens, reads traditional Chinese characters as simplified ones, as the check does, and reads an f-ligature's letters (fi, fl, ff, ffi, ffl) as one "f": some PDFs' text lost the letters after it, so the page shows "finance" where the stored text reads "fnance" (JP Morgan's ESG report, nearly every such word), and a quote of the page as it shows is the check's miss, not the model's (the check forgives it too in such a Document, ADR-0009). It is compared with the stored page text the check read. | at most 5% |
+| False "not found" | The share of Citations the check marked "not found" whose quote is on the cited pages under a looser normalisation. The looser normalisation keeps only letters and digits, ignoring case, accents, punctuation, spacing and hyphens, reads traditional Chinese characters as simplified ones, as the check does, and reads an f-ligature's letters (fi, fl, ff, ffi, ffl) as one "f": some PDFs' text lost the letters after it, so the page shows "finance" where the stored text reads "fnance" (Vantrell's ESG report, nearly every such word), and a quote of the page as it shows is the check's miss, not the model's (the check forgives it too in such a Document, ADR-0009). It is compared with the stored page text the check read. | at most 5% |
 | Other "not found" | Split into: the quote is on other pages of the Document; the quote isn't in the Document (e.g. paraphrased); the cited pages break the page-range rule. | reported |
 | "Can't check" | The cited pages have no text. | reported |
 | Coverage | The share of sentences with at least one Citation. A Citation just after a sentence's full stop counts for that sentence. Every sentence is treated as drawn from Documents, so this is a lower bound: a sentence saying the Documents don't cover something counts as uncited. | reported |
@@ -306,7 +306,7 @@ These cases of the Citation check are unit tests, so they run with `npm test` on
 |---|---|---|---|
 | Hyphenation | A word split at a line end is joined. A compound broken after its hyphen keeps the hyphen. The quote may keep the hyphen with a space ("hyper- step"). A soft hyphen at a line end joins the word. | An English term split at a line end inside Chinese text, by a hyphen or a soft hyphen. | `tests/shared/quoteMatch.test.ts` ("matches a word split at a line end…", "matches a hyphenated compound…", "joins a word split by a soft hyphen…") and `tests/shared/text.test.ts` ("line-break hyphenation") |
 | Ligatures | ﬁ, ﬂ and ﬃ on the page match plain letters. | A ligature in an English term inside Chinese text. | `tests/shared/quoteMatch.test.ts` ("maps back through characters NFKC changes") |
-| Lost ligatures | In a Document whose text lost its f-ligatures ("fnance" where the page shows "finance"), the quote as the page shows it. Where the text keeps them, "flight" isn't found in "fight". | An English term in Chinese text, either way. | `tests/eval/recordedCitations.test.ts` (JP Morgan's report, the only one of the gating set's PDFs whose text lost them), `tests/core/citations.test.ts` ("…lost its f-ligatures…") |
+| Lost ligatures | In a Document whose text lost its f-ligatures ("fnance" where the page shows "finance"), the quote as the page shows it. Where the text keeps them, "flight" isn't found in "fight". | An English term in Chinese text, either way. | `tests/eval/recordedCitations.test.ts` (Vantrell's report, the only one of the gating set's PDFs whose text lost them), `tests/core/citations.test.ts` ("…lost its f-ligatures…") |
 | Full-width punctuation | Full-width letters, digits and hyphen in the quote. | Full-width colon, comma and full stop, Chinese quotation marks and full-width brackets. | `tests/core/citations.test.ts` ("a Chinese quote across a page break is found, with full-width punctuation and spacing normalised") |
 | Quote marks and dashes | Curly and angle quotes, apostrophes, en, em and long dashes. | Corner brackets and a double em dash. | `tests/shared/quoteMatch.test.ts` ("unifies the quote marks and dashes…") |
 | Whitespace | Line breaks, tabs, blank lines and non-breaking spaces. | Line breaks and spaces inside Chinese text. | |
@@ -340,6 +340,36 @@ These cases of the Citation check are unit tests, so they run with `npm test` on
 Three quotes a model may well write were on their cited Unit but "not found", false "not found" in the report, until #76: a slide's table row written with pipes between its cells, a chart's value written with a thousands separator (`Jun: 1,560` for the cached `1560`), and a Markdown table row without its pipes. The check finds them now: a pipe that breaks a table's cells reads as a space, in the quote and the text alike, and a slide's numbers are matched however their thousands are written when a quote isn't found as it is (`src/shared/quoteMatch.ts`). A row or a figure whose words or digits aren't on the Unit is still "not found".
 
 ## Results
+
+### 2026-10-26: the mixed sample set (#2019)
+
+The gating set's library now holds the seven generated sample PDFs in `data/`, the five Chinese
+Wikipedia articles in `retrieval/fixtures/`, and the five readable real Documents in `data/real/`
+(17 Documents, 877 Passages). The real Documents are extra library, not new Questions; their
+sources, licences and SHA-256 are in [`data/README.md`](../data/README.md). Measured with
+`npm run eval:dump` and `INCARNAMIND_EVAL_RERANK_CPU=1`, keyword search and the built-in reranker
+as the app runs them with embeddings off; the dump scores the same as the run's own scoring.
+
+| Order | Gating, top 5 | English gating | Chinese gating | All 65 |
+|---|---|---|---|---|
+| keyword | 34/40 | 15/20 | 19/20 | 55/65 |
+| keyword + rerank | 37/40 | 17/20 | 20/20 | 59/65 |
+| search Tool (Passages handed to the model) | **38/40** | **18/20** | **20/20** | 60/65 |
+
+The bar is 15 of 20 English and 20 of 20 Chinese (35 of 40, see above); the mixed set meets it,
+with 18 English and 20 Chinese. On the generated samples alone the same dump gives 15/20 and
+20/20 (35/40, 52/65).
+
+**A mixed set with a longer English report missed the Chinese bar by one.** Measured the same
+way, before two Documents were replaced on 2026-10-26: with the full 348-page World Development
+Report in the library, zh-03's expected Passage in the Vantrell ESG report fell from keyword rank
+19 to 26, outside the search Tool's keyword top 20, though its rerank score was unchanged
+(0.9968); the Tool found 18/20 English and 19/20 Chinese. With the 20-page Overview booklet the
+Passage is back at rank 19 and the bar holds. The loss is the candidate window, not the model;
+it is filed as a retrieval issue.
+
+Load: the final mixed run at a 1-minute load of 10 to 41 and a 15-minute load of 10 to 25; scores
+only, no timings are reported from it.
 
 ### Every format: first run pending
 
@@ -433,11 +463,11 @@ A smoke run with Ollama's `llama3.2`, a 3B model, ran from start to finish, but 
 
 A run with Ollama's `mistral` on 2026-10-07 (local, so not gating) recorded 12 English and 7 Chinese Citations. The check marked 3 of the 12 English ones "not found" though their quotes were on the cited pages (25%, against a target of at most 5%):
 
-- "If the initial hyper-step sizes are too large, …" (Gradient Descent The Ultimate Optimizer, p. 8): the page reads "… we find that if the initial …". The quote starts mid-sentence and the model gave it a capital.
-- "… label smoothing of value ϵls = 0.1 [^36]. This hurts perplexity, …" (Attention Is All You Need, p. 8): the page's reference is "[36]", and the model wrote it in the syntax of our Citation markers. The "ϵ" is the page's own.
-- "… in some of those tested... Clause 19.1 (18.1) Outcome or Risk Sharing Agreements" (ABPI Code of Practice, pp. 35–36): the model wrote "..." where the page has a full stop and a heading.
+- "When the starting hyper-step sizes are far too large, …" (Tuning the Tuner, p. 8): the page reads "… we find that when the starting …". The quote starts mid-sentence and the model gave it a capital.
+- "… label smoothing of ε = 0.04 [^3]. It costs perplexity, …" (Weighted Keys, p. 8): the page's reference is "[3]", and the model wrote it in the syntax of our Citation markers. The "ε" is the page's own.
+- "… patients tested... Clause 19.1: Shared-Risk Supply Agreements" (MPMA Code of Practice, pp. 35–36): the model wrote "..." where the page has a full stop and a heading.
 
-The check now ignores letter case, reads "[^36]" as "[36]", and finds a quote with an ellipsis part by part (ADR-0009). `tests/eval/recordedCitations.test.ts` checks the run's Citations again, copied in `tests/fixtures/eval-citations-2026-10-07.json`, against the stored text of their pages, without asking the model again: no false "not found" in either language (English 0 of 12, 8 found; Chinese 0 of 7, 1 found), and the 9 quotes that aren't on their pages (paraphrased, or on other pages) are still "not found".
+The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with an ellipsis part by part (ADR-0009). `tests/eval/recordedCitations.test.ts` checks the run's Citations again, copied in `tests/fixtures/eval-citations-2026-10-07.json`, against the stored text of their pages, without asking the model again: no false "not found" in either language (English 0 of 12, 8 found; Chinese 0 of 7, 1 found), and the 9 quotes that aren't on their pages (paraphrased, or on other pages) are still "not found".
 
 `tests/eval/citations.test.ts` checks the Citation part through the core with a scripted model instead: found quotes, false "not found", wrong pages, coverage and rounds.
 

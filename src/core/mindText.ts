@@ -60,6 +60,7 @@ import {
   CITATION_NODE,
   type CitedWork,
   CLAIM_CHECK_MARK,
+  type ClaimCalculation,
   COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   type ComparisonQuestion,
@@ -125,7 +126,11 @@ export interface FailedCheck {
 
 /** A sentence whose check isn't good, with what a Word file's comment on it says. */
 export type FailedSentence = { id: string } & (
-  | { check: "contradicted"; says: string | null; worked: { shown: string; stated: string } | null }
+  | {
+      check: "contradicted";
+      says: string | null;
+      worked: (Pick<ClaimCalculation, "stated" | "relation"> & { shown: string }) | null;
+    }
   | {
       check: "unsupported";
       /** Where it looked, as `scopeName` names it; null for every Document. */
@@ -134,6 +139,10 @@ export type FailedSentence = { id: string } & (
       covers: { covered: string; uncovered: string; quote: string; source: string } | null;
       /** What the sentence's own Citations support and don't, as its card says. */
       citations: { count: number; covered: string; uncovered: string } | null;
+      /** Nothing in its scope was about it, as its card says (`saysNotFound`): "Not found". */
+      notFound: boolean;
+      /** Why it is unsupported, in the check's words; null when it gave none. */
+      reason: string | null;
     }
   | { check: "own-workings" }
   | { check: "needs-recheck"; why: RecheckReason }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import type { AudioSource, Meeting, Settings } from "../../core/api";
 import { meetingTimeAt } from "../../shared/blockTimes";
+import { mindName } from "../../shared/naming";
 import { core, files } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
@@ -13,8 +14,8 @@ interface MeetingsState {
   meetings: Meeting[];
   /** What went wrong with the last thing done to a Meeting, by its id, until the next try. */
   problems: Readonly<Record<string, string>>;
-  /** The Meeting whose Start waits for the User to read the one-time recording notice. */
-  noticeFor: { meetingId: string; systemAudio: boolean } | null;
+  /** The Meeting whose Start, or the voice memo, waits for the one-time recording notice. */
+  noticeFor: { meetingId: string; systemAudio: boolean } | { memo: true } | null;
   starting: Readonly<Record<string, true>>;
   /** The Meeting whose start block Record just made: its Start recording takes the focus once it shows. */
   startToFocus: string | null;
@@ -32,6 +33,12 @@ interface MeetingsState {
    * the one-time notice, and shows the start block before.
    */
   record(): Promise<void>;
+  /**
+   * "Record a voice memo" (#1568): the Meeting recording now, opened; else a memo records at
+   * once, in the empty Mind in front, or in a new Mind in a tab of its own, in the Folder of the
+   * Mind in front (#1362). The first time, after the one-time recording notice.
+   */
+  recordMemo(): Promise<void>;
   clearCantRecord(): void;
   /** Start recording, after the one-time notice if this device hasn't shown it. */
   start(meetingId: string, systemAudio: boolean): Promise<void>;
@@ -67,6 +74,46 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       set((state) => ({
         problems: { ...state.problems, [meetingId]: errorMessage(error, translateNow) },
       }));
+    }
+  };
+
+  // Asked for twice quickly, a memo is made once.
+  let makingMemo = false;
+  const memoNow = async () => {
+    if (makingMemo) return;
+    makingMemo = true;
+    const { layout, minds } = useAppStore.getState();
+    const inFront = minds.find((each) => each.id === currentMindIdOf(layout));
+    const emptyInFront =
+      inFront &&
+      mindName(inFront) === "" &&
+      !get().meetings.some((each) => each.mindId === inFront.id)
+        ? inFront
+        : null;
+    try {
+      const memo = await core.recordMemo(
+        emptyInFront
+          ? { mindId: emptyInFront.id }
+          : inFront?.folderId
+            ? { folderId: inFront.folderId }
+            : undefined,
+      );
+      // Listed at once, so its Mind shows the bar from its first paint.
+      set((state) => ({
+        meetings: [memo, ...state.meetings.filter((each) => each.id !== memo.id)],
+      }));
+      useAppStore.setState({ bodyToFocus: memo.mindId });
+      if (!emptyInFront) {
+        await useAppStore.getState().changeLayout({
+          type: "open",
+          item: { kind: "mind", mindId: memo.mindId },
+          where: { in: "group" },
+        });
+      }
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+    } finally {
+      makingMemo = false;
     }
   };
 
@@ -128,6 +175,25 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       }
     },
 
+    async recordMemo() {
+      const recording = get().meetings.find((each) => each.status === "recording");
+      if (recording) {
+        useAppStore.getState().openMind(recording.mindId);
+        return;
+      }
+      const { settings } = useAppStore.getState();
+      if (!settings) return;
+      if (settings.meetingAudio === "none") {
+        set({ cantRecord: true });
+        return;
+      }
+      if (!settings.device.meetingNoticeAccepted) {
+        set({ noticeFor: { memo: true } });
+        return;
+      }
+      await memoNow();
+    },
+
     clearCantRecord: () => set({ cantRecord: false }),
 
     async start(meetingId, systemAudio) {
@@ -142,6 +208,16 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       const waiting = get().noticeFor;
       set({ noticeFor: null });
       if (!waiting) return;
+      if ("memo" in waiting) {
+        try {
+          await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+        } catch (error) {
+          useAppStore.getState().reportError(error);
+          return;
+        }
+        await memoNow();
+        return;
+      }
       await attempt(waiting.meetingId, async () => {
         await core.updateSettings({ device: { meetingNoticeAccepted: true } });
         await core.startMeeting(waiting);
@@ -225,9 +301,10 @@ function offerUndoOfFill(before: readonly Meeting[], after: readonly Meeting[]):
     if (meeting.fill?.state !== "filled") continue;
     const was = before.find((each) => each.id === meeting.id)?.fill?.state;
     if (was === undefined || was === "filled") continue;
+    const memo = meeting.kind === "memo";
     useUndo.getState().push({
-      said: (t) => t("meetings.fill.filled"),
-      name: (t) => t("meetings.fill.undoName"),
+      said: (t) => t(memo ? "memos.fill.filled" : "meetings.fill.filled"),
+      name: (t) => t(memo ? "memos.fill.undoName" : "meetings.fill.undoName"),
       undo: () => core.undoMeetingFill(meeting.id).then(() => undefined),
       also: {
         label: (t) => t("meetings.fill.show"),

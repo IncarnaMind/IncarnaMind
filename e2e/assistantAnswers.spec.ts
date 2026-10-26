@@ -277,15 +277,17 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   await window.keyboard.press("Enter");
   await expect(assistantAnswers(window)).toHaveCount(1);
 
-  // ▾ → New Mind: named by its first line, in a new tab, its content in at once (#1559).
+  // ▾ → New Mind: named by its first line, in a new tab, its content in at once (#1559), with Undo.
   const shown = assistantAnswers(window).first();
   await pointAt(window, shown.getByTestId("assistant-answer-text"));
   // "Added to …" under it goes after a few seconds, and its actions come back.
   await expect(shown.getByTestId("answer-add-to")).toBeVisible({ timeout: 15_000 });
   await pointAndClick(window, shown.getByTestId("answer-add-to"));
   await pointAndClick(window, window.getByTestId("add-to-option").last());
-  // Making a Mind says nothing under the Answer either.
-  await expect(shown.getByTestId("answer-added")).toHaveCount(0);
+  // What went in is one Undo under the Answer; the Mind it made, Delete takes back (#1940).
+  await expect(shown.getByTestId("answer-added")).toContainText(
+    "Added to “Your Documents answer this”",
+  );
   const tab = window.getByTestId("mind-tab").filter({ hasText: "Your Documents answer this" });
   await expect(tab).toHaveAttribute("aria-selected", "true");
   const made = window.getByTestId("mind-editor");
@@ -381,7 +383,8 @@ test("the keyboard reaches it all: ⌘J, Tab through an Answer's actions, ⌘⇧
   const named = async () =>
     window.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? "");
   const seen: string[] = [];
-  for (let i = 0; i < 12 && !seen.some((label) => label.startsWith("Copy the Answer")); i++) {
+  const first = "Write this Answer as a note, beside it";
+  for (let i = 0; i < 12 && !seen.includes(first); i++) {
     seen.push(await named());
     await window.keyboard.press("Shift+Tab");
   }
@@ -389,6 +392,7 @@ test("the keyboard reaches it all: ⌘J, Tab through an Answer's actions, ⌘⇧
     expect.arrayContaining([
       "Add to another Mind or a new Mind",
       expect.stringMatching(/^Add to “Reading notes: tides”/),
+      first,
     ]),
   );
   await expect(answer.getByTestId("answer-actions")).toHaveAttribute(
@@ -480,7 +484,7 @@ test("a number the Answer works out is calculated: its text shows the figure, an
   await app.close();
 });
 
-test("the ⋯ menu adds the last Answer to a new Mind and clears the conversation, with Undo; in Chinese too", async () => {
+test("the ⋯ menu writes the last Answer as a note and clears the conversation, with Undo; in Chinese too", async () => {
   const { app, window } = await start();
   await mindWithNotes(window, "Reading notes: tides");
   const more = window.getByTestId("assistant-more");
@@ -491,10 +495,10 @@ test("the ⋯ menu adds the last Answer to a new Mind and clears the conversatio
 
   await askInAssistant(window, "When do spring tides happen?");
   await pointAndClick(window, more);
-  await pointAndClick(window, window.getByTestId("assistant-menu-last-to-new-mind"));
+  await pointAndClick(window, window.getByTestId("assistant-menu-write-note"));
   const tab = window.getByTestId("mind-tab").filter({ hasText: "Your Documents answer this" });
   await expect(tab).toHaveAttribute("aria-selected", "true");
-  // In at once, as New Mind under the Answer puts it (#1559).
+  // In at once, as Write as a note under the Answer puts it (#1940).
   await expect(window.getByTestId("mind-editor")).toContainText("Your Documents answer this");
   await expect(window.getByTestId("mind-editor").locator('[data-proposal="insert"]')).toHaveCount(
     0,

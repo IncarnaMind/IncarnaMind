@@ -1,4 +1,3 @@
-import { Extension } from "@tiptap/core";
 import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
@@ -99,10 +98,3 @@ export function meetingTimesPlugin({ doc, time }: MeetingTimesOptions): Plugin<D
     props: { decorations: (state) => timesKey.getState(state) },
   });
 }
-
-export const MeetingTimes = Extension.create<MeetingTimesOptions>({
-  name: "meetingTimes",
-  addProseMirrorPlugins() {
-    return [meetingTimesPlugin(this.options)];
-  },
-});

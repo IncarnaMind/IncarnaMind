@@ -27,7 +27,7 @@ import { togglePlanView, useResearch } from "../../research";
 import { type ScopeChip, scopeChips } from "../../scope";
 import { useFolderHoldsDocuments } from "../../scopeDocuments";
 import { skillTitle } from "../../skills";
-import { useAppStore } from "../../store";
+import { exampleMindIds, useAppStore } from "../../store";
 import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
@@ -79,14 +79,25 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
   const tasks = threadTasks(Object.values(allTasks), focusedMindId, thread, shownTask);
   const plan = useResearch((state) => (focusedMindId ? state.plans[focusedMindId] : undefined));
   const focusedMind = useAppStore((state) => state.minds.find((mind) => mind.id === focusedMindId));
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
   const focusedMindName = focusedMindId
     ? (focusedMind && mindName(focusedMind)) || t("mind.untitled")
     : null;
+  // The example is never a target of Add to note (#1940): a note of the User's own is.
+  const addTarget =
+    focusedMindId !== null && !exampleMindIds({ examples, otherExamples }).includes(focusedMindId)
+      ? focusedMindName
+      : null;
   const mindEmpty = useReadMindEmpty(focusedMindId);
   const nextScope = useNextScope(focusedMindId);
-  // While the Mind's meeting records, the assistant listens to its live transcript (#144).
+  // While the Mind's meeting records, the assistant listens to its live transcript (#144). A
+  // voice memo has no call to ask about (#1568).
   const listening = useMeetings((state) =>
-    state.meetings.some((meeting) => meeting.mindId === focusedMindId && isLive(meeting)),
+    state.meetings.some(
+      (meeting) =>
+        meeting.mindId === focusedMindId && isLive(meeting) && meeting.kind === "meeting",
+    ),
   );
   const reads =
     listening && focusedMindName
@@ -130,10 +141,12 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
   const add = (answer: ConversationAnswer, target: AddTarget, blocks = notesToAdd(answer)) =>
     void addAnswer({ answer, conversation, blocks }, target, focusedMindId === null);
   const keeping: AnswerKeeping = {
-    focusedMindName,
+    focusedMindName: addTarget,
     mindEmpty,
     add(answer) {
-      if (focusedMindId) add(answer, { kind: "mind", mindId: focusedMindId });
+      if (focusedMindId && addTarget !== null) {
+        add(answer, { kind: "mind", mindId: focusedMindId });
+      }
     },
     pick(answer, anchor) {
       setPicking({ answer, anchor, blocks: notesToAdd(answer) });
@@ -272,7 +285,7 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
       {picking && (
         <AddToMindPicker
           anchor={picking.anchor}
-          focusedMindId={focusedMindId}
+          focusedMindId={addTarget === null ? null : focusedMindId}
           atCursor={readMindHandle.current?.cursorInMind() ?? false}
           newFolderId={conversation?.folderId ?? null}
           onChoose={(target) => {

@@ -7,10 +7,16 @@
  * deleted since leaves its entry unused. Shared by the core and the renderer.
  */
 import type * as Y from "yjs";
-import { type BlockOrigin, MIND_ORIGINS_FIELD } from "../core/api";
+import { type BlockOrigin, MIND_ORIGINS_FIELD, MIND_REPLACED_ORIGINS_FIELD } from "../core/api";
+import { isRecord } from "../core/errors";
 import { parseReference } from "../core/references";
 
 const originsOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_ORIGINS_FIELD);
+const replacedOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_REPLACED_ORIGINS_FIELD);
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** The maps beside the Blocks that say where they came from, which an Undo of a decision takes back with the text. */
+export const originMaps = (doc: Y.Doc): Y.Map<unknown>[] => [originsOf(doc), replacedOf(doc)];
 
 /** A Block's origin read from stored or received data, or null when it isn't one. */
 export function parseOrigin(value: unknown): BlockOrigin | null {
@@ -35,6 +41,17 @@ export function allOrigins(doc: Y.Doc): Map<string, BlockOrigin> {
   return origins;
 }
 
+/**
+ * The conversation a Mind came from (#1940): the origin of the first Block added
+ * from an Answer, whose chat the Mind's ⋯ opens. Null for a Mind written by hand.
+ */
+export function conversationOrigin(origins: ReadonlyMap<string, BlockOrigin>): BlockOrigin | null {
+  for (const origin of origins.values()) {
+    if (origin.from.artifactKind === "conversation") return origin;
+  }
+  return null;
+}
+
 /** Gives these Blocks one origin. Call it in the transaction that adds them, where there is one. */
 export function setOrigins(doc: Y.Doc, blockIds: readonly string[], origin: BlockOrigin): void {
   const origins = originsOf(doc);
@@ -42,6 +59,51 @@ export function setOrigins(doc: Y.Doc, blockIds: readonly string[], origin: Bloc
   doc.transact(() => {
     for (const blockId of blockIds) origins.set(blockId, stored);
   });
+}
+
+/**
+ * Gives Blocks the origin of `request`'s change, keeping the origin each had before, which
+ * rejecting that change in the Block puts back (`restoreOrigins`).
+ */
+export function setOriginsOf(
+  doc: Y.Doc,
+  request: string,
+  blockIds: readonly string[],
+  origin: BlockOrigin,
+): void {
+  const origins = originsOf(doc);
+  const replaced = replacedOf(doc);
+  const kept = replaced.get(request);
+  const before: Record<string, unknown> = isRecord(kept) ? { ...kept } : {};
+  for (const blockId of blockIds) {
+    if (origins.has(blockId) && !(blockId in before)) before[blockId] = origins.get(blockId);
+  }
+  doc.transact(() => {
+    if (Object.keys(before).length > 0) replaced.set(request, before);
+    setOrigins(doc, blockIds, origin);
+  });
+}
+
+/** Puts back the origins `request`'s change replaced in these Blocks (`setOriginsOf`), in the caller's transaction. */
+export function restoreOrigins(doc: Y.Doc, request: string, blockIds: Iterable<string>): void {
+  const before = replacedOf(doc).get(request);
+  if (!isRecord(before)) return;
+  const origins = originsOf(doc);
+  for (const blockId of blockIds) {
+    if (blockId in before && !same(origins.get(blockId), before[blockId])) {
+      origins.set(blockId, before[blockId]);
+    }
+  }
+}
+
+/** Sets `to`'s origins to `from`'s wherever they differ, in the caller's transaction. */
+export function copyOrigins(from: Y.Doc, to: Y.Doc): void {
+  const source = originsOf(from);
+  const target = originsOf(to);
+  source.forEach((value, blockId) => {
+    if (!same(target.get(blockId), value)) target.set(blockId, value);
+  });
+  for (const blockId of [...target.keys()]) if (!source.has(blockId)) target.delete(blockId);
 }
 
 export function removeOrigins(doc: Y.Doc, blockIds: readonly string[]): void {
