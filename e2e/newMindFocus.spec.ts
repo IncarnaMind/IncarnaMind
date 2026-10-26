@@ -7,6 +7,7 @@ import {
   newEditorShownFocused,
   newMind,
   newMindAndType,
+  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -157,3 +158,65 @@ test("a refused open releases the hold and gives the focus back, so no letter is
   await expect(window.getByTestId("mind-tab")).toHaveCount(1);
   await app.close();
 });
+
+/** Holds the next Mind's copy open, so its tab shows without its editor ever being drawn. */
+async function holdNextMindCopy(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ ipcMain }) => {
+    const handlers = (
+      ipcMain as unknown as {
+        _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+      }
+    )._invokeHandlers;
+    const original = handlers.get("core:openMind");
+    if (!original) throw new Error("The openMind handler is missing.");
+    let release: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    Object.assign(globalThis, { heldMindCopy: { release: () => release() } });
+    ipcMain.removeHandler("core:openMind");
+    ipcMain.handle("core:openMind", async (event, ...args) => {
+      if (held) return original(event, ...args);
+      held = true;
+      await ready;
+      ipcMain.removeHandler("core:openMind");
+      ipcMain.handle("core:openMind", original);
+      return original(event, ...args);
+    });
+  });
+}
+
+for (const language of LANGUAGES) {
+  test(`closing the new tab before its editor is drawn releases the hold, and its blank spot is labelled (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1440, 900);
+    const editor = await noteOfTheUser(window, "Keep me.");
+
+    // Its text still to come, as on a slow disk: the tab shows, the editor does not.
+    await holdNextMindCopy(app);
+    await window.keyboard.press("ControlOrMeta+t");
+    await expect(window.getByTestId("mind-tab")).toHaveCount(2);
+    // No text for the new tab yet, and the Mind left is no longer drawn: no editor is in the page.
+    await expect(window.getByTestId("mind-editor")).toHaveCount(0);
+    await expect(window.getByTestId("new-mind-keys")).toHaveAttribute(
+      "aria-label",
+      language === "en" ? "Opening a new note…" : "正在打开新笔记…",
+    );
+
+    await window.keyboard.press("ControlOrMeta+w");
+    await expect(window.getByTestId("mind-tab")).toHaveCount(1);
+    await expect(window.getByTestId("new-mind-keys")).toHaveCount(0);
+
+    // As a person finds after clicking it: the Mind left is writable again.
+    await pointAndClick(window, editor.locator(":scope > *").first());
+    await window.keyboard.type(" more");
+    await expect(editor).toHaveText("Keep me. more");
+    await app.evaluate(() => {
+      (globalThis as unknown as { heldMindCopy: { release(): void } }).heldMindCopy.release();
+    });
+    await app.close();
+  });
+}

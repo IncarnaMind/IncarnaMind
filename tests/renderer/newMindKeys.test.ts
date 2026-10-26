@@ -99,7 +99,7 @@ afterEach(() => {
 
 describe("the keys held while ⌘T makes a Mind", () => {
   test("holds letters, which the new Mind takes, and holds nothing once taken", () => {
-    holdNewMindKeys();
+    holdNewMindKeys("Opening a new note…");
     expect(press({ key: "a" }).prevented).toBe(true);
     expect(press({ key: "b" }).prevented).toBe(true);
     expect(press({ key: " " }).prevented).toBe(true);
@@ -108,14 +108,14 @@ describe("the keys held while ⌘T makes a Mind", () => {
   });
 
   test("lets a modifier key through and goes on holding the letters after it", () => {
-    holdNewMindKeys();
+    holdNewMindKeys("Opening a new note…");
     expect(press({ key: "Shift" }).prevented).toBe(false);
     expect(press({ key: "A" }).prevented).toBe(true);
     expect(takeNewMindKeys()).toBe("A");
   });
 
   test("stops holding when the person types in another field, and the Mind still takes what was held", () => {
-    holdNewMindKeys();
+    holdNewMindKeys("Opening a new note…");
     press({ key: "a" });
     const field = new FakeInput();
     expect(press({ key: "b", target: field }).prevented).toBe(false);
@@ -124,7 +124,7 @@ describe("the keys held while ⌘T makes a Mind", () => {
   });
 
   test("an input method's own keys are not held as letters", () => {
-    holdNewMindKeys();
+    holdNewMindKeys("Opening a new note…");
     press({ key: "a" });
     expect(press({ key: "Process", isComposing: true }).prevented).toBe(false);
     expect(takeNewMindKeys()).toBe("a");
@@ -133,7 +133,7 @@ describe("the keys held while ⌘T makes a Mind", () => {
   test("a Mind that is never made leaves nothing held, and gives the focus back", () => {
     const editor = new FakeElement();
     active = editor;
-    holdNewMindKeys();
+    holdNewMindKeys("Opening a new note…");
     press({ key: "a" });
     forgetNewMindKeys();
     expect(takeNewMindKeys()).toBeNull();
@@ -150,8 +150,8 @@ test("a second ⌘T leaves the editors editable again when the Mind is made", ()
     },
   };
   editors.push(editor);
-  holdNewMindKeys();
-  holdNewMindKeys();
+  holdNewMindKeys("Opening a new note…");
+  holdNewMindKeys("Opening a new note…");
   expect(editor.isEditable).toBe(false);
   takeNewMindKeys();
   expect(editor.isEditable).toBe(true);

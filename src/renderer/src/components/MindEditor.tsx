@@ -192,6 +192,14 @@ export function MindEditor({ mindId }: { mindId: string }) {
   useEffect(() => {
     if (opened && !opened.doc) forgetNewMindKeys();
   }, [opened]);
+  // Its tab closed, or another shown, before its editor was drawn: no editor comes to take the
+  // keys, and the Minds the User left must not stay uneditable.
+  useEffect(
+    () => () => {
+      if (useAppStore.getState().bodyToFocus === mindId) forgetNewMindKeys();
+    },
+    [mindId],
+  );
   if (!opened) return null;
   if (!opened.doc) return <MindNotice kind="update" />;
   return (

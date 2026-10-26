@@ -11,6 +11,7 @@ import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
 import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
+import { translateNow } from "../i18n";
 import { startSkillFromMind } from "../makeSkill";
 import { showCheckCard, startCheckThisMind, startMindCheck } from "../mindCheck";
 import { useMindTools } from "../mindTools";
@@ -107,7 +108,7 @@ const appCommands: readonly Command[] = [
     top: 20,
     reversible: true,
     run: async () => {
-      holdNewMindKeys();
+      holdNewMindKeys(translateNow("mind.opening"));
       if ((await useAppStore.getState().createMind({ titled: true })) === null) forgetNewMindKeys();
     },
   },

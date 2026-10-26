@@ -35,13 +35,13 @@ const inMindText = (target: EventTarget | null): boolean =>
   target instanceof Element && target.closest('[data-testid="mind-editor"]') !== null;
 
 /** A blank spot to keep the focus while the new Mind is made, so keys typed meanwhile do not reach the Mind the User left. */
-function focusSink(): void {
+function focusSink(label: string): void {
   if (sink) return;
   before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   sink = document.createElement("div");
   sink.tabIndex = -1;
   sink.dataset.testid = "new-mind-keys";
-  sink.setAttribute("aria-hidden", "true");
+  sink.setAttribute("aria-label", label);
   sink.style.cssText =
     "position: fixed; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none;";
   document.body.append(sink);
@@ -98,11 +98,11 @@ function onKey(event: KeyboardEvent): void {
   held = (held ?? "") + event.key;
 }
 
-/** Holds the keys the person types until the Mind made next has its text under the cursor. */
-export function holdNewMindKeys(): void {
+/** Holds the keys the person types until the Mind made next has its text under the cursor; `label` names the blank spot for a screen reader. */
+export function holdNewMindKeys(label: string): void {
   release();
   held = "";
-  focusSink();
+  focusSink(label);
   stopWriting();
   window.addEventListener("keydown", onKey, true);
   stop = () => window.removeEventListener("keydown", onKey, true);

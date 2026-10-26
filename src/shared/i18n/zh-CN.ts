@@ -2656,6 +2656,7 @@ export const zhCN = {
   "answer.label": "回答",
   "answer.status.streaming": "正在回答…",
   "mind.writing": "正在修改…",
+  "mind.opening": "正在打开新笔记…",
   "answer.phase.waiting-for-consent": "等待你允许发送",
   "answer.phase.loading": "正在加载模型…",
   "answer.phase.searching": "正在搜索你的文档…",
