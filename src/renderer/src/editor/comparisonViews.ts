@@ -1,6 +1,8 @@
 import type { NodeViewRenderer } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { COMPARISON_ROW_NODE, COMPARISON_TABLE_NODE } from "../../../core/api";
 import { cellProblemMessage, comparisonCellOf } from "../../../shared/comparisons";
+import { staleAnswerKey, useComparisonColumns } from "../comparisonColumnState";
 import { translateNow } from "../i18n";
 import { useAppStore } from "../store";
 
@@ -72,7 +74,7 @@ export const comparisonRowView: NodeViewRenderer = ({ node: first }) => {
  * ended without it, "stopped"; or, with no Answer, a "!" and why ("not
  * found", "not checked: cost cap"…), the provider's own words in its tooltip.
  */
-export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
+export const comparisonCellView: NodeViewRenderer = ({ node: first, getPos, view }) => {
   let node: ProseMirrorNode = first;
   const dom = document.createElement("div");
   dom.className = "comparison-cell";
@@ -81,6 +83,10 @@ export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
   const contentDOM = document.createElement("div");
   contentDOM.className = "comparison-cell-content";
   contentDOM.contentEditable = "false";
+  const stale = document.createElement("div");
+  stale.className = "comparison-cell-stale";
+  stale.contentEditable = "false";
+  stale.setAttribute("aria-hidden", "true");
   const running = document.createElement("span");
   running.className = "comparison-cell-running";
   const reading = document.createElement("span");
@@ -97,14 +103,52 @@ export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
   const reason = document.createElement("span");
   problem.append(mark, reason);
   for (const each of [running, reading, stopped, problem]) each.contentEditable = "false";
-  dom.append(contentDOM, running, reading, stopped, problem);
+  dom.append(contentDOM, stale, running, reading, stopped, problem);
+
+  const columnAndRow = (): { tableId: string; documentId: string } | null => {
+    const pos = getPos();
+    if (typeof pos !== "number") return null;
+    const state = view.state;
+    if (pos < 0 || pos > state.doc.content.size) return null;
+    const at = state.doc.resolve(pos);
+    let tableId = "";
+    let documentId = "";
+    for (let depth = at.depth; depth > 0; depth--) {
+      const ancestor = at.node(depth);
+      if (!documentId && ancestor.type.name === COMPARISON_ROW_NODE) {
+        documentId = String(ancestor.attrs.documentId ?? "");
+      }
+      if (!tableId && ancestor.type.name === COMPARISON_TABLE_NODE) {
+        tableId = String(ancestor.attrs.id ?? "");
+      }
+    }
+    return tableId && documentId ? { tableId, documentId } : null;
+  };
+
+  const hasWords = () => node.content.size > 2;
+
+  const drawStale = (status: string): void => {
+    const column = columnAndRow();
+    const key = column
+      ? staleAnswerKey(column.tableId, column.documentId, String(node.attrs.questionId ?? ""))
+      : null;
+    const kept = key ? useComparisonColumns.getState().stale[key] : undefined;
+    const showing =
+      kept !== undefined && !hasWords() && (status === "waiting" || status === "writing");
+    stale.textContent = showing ? kept : "";
+    dom.dataset.stale = showing ? "true" : "false";
+    // The new Answer, or why there is none, has landed: the old one is no longer shown.
+    if (key && kept !== undefined && !showing && status !== "waiting") {
+      useComparisonColumns.getState().forgetStale(key);
+    }
+  };
 
   const draw = () => {
     const cell = comparisonCellOf(node.attrs);
     dom.dataset.status = cell.status;
     if (cell.status === "writing") {
       dom.setAttribute("aria-busy", "true");
-      if (node.textContent.trim() !== "") dom.dataset.streaming = "true";
+      if (hasWords()) dom.dataset.streaming = "true";
       else delete dom.dataset.streaming;
     } else {
       dom.removeAttribute("aria-busy");
@@ -126,10 +170,14 @@ export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
       reason.textContent = translateNow(key, params);
     } else reason.textContent = "";
     problem.title = cell.message ?? "";
+    drawStale(cell.status);
   };
   draw();
   const unsubscribe = useAppStore.subscribe((state, before) => {
     if (state.settings !== before.settings) draw();
+  });
+  const unsubscribeStale = useComparisonColumns.subscribe((state, before) => {
+    if (state.stale !== before.stale) drawStale(comparisonCellOf(node.attrs).status);
   });
 
   return {
@@ -142,6 +190,9 @@ export const comparisonCellView: NodeViewRenderer = ({ node: first }) => {
       return true;
     },
     ignoreMutation: ownDrawing(contentDOM),
-    destroy: unsubscribe,
+    destroy() {
+      unsubscribe();
+      unsubscribeStale();
+    },
   };
 };
