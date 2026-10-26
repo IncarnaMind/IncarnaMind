@@ -161,7 +161,9 @@ test("Compare Documents from “/”: 3 Documents × 2 Questions fill as a chang
   // A cloud model billed per token under a monthly cap: the estimate shows before the run, and
   // never says model calls.
   const estimateLine = sheet.getByTestId("compare-sheet-estimate");
-  await expect(estimateLine).toContainText("About $");
+  await expect(estimateLine).toHaveText(
+    /^About \$[\d.,]+ · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
+  );
   await expect(estimateLine).not.toContainText("model calls");
   await screenshot(window, "compare-sheet-en-1440");
   await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
@@ -586,7 +588,9 @@ for (const { language, width } of SCOPE_VARIANTS) {
     await expect(counted).toHaveText(words.counted(1, 22));
     await expect(make).toBeEnabled();
     await expect(selectAll).toHaveJSProperty("indeterminate", true);
-    await expect(estimate).toHaveText(/(About|约) \$/);
+    await expect(estimate).toHaveText(
+      /(About|约) \$[\d.,]+ · [\d.,]+[KMB]? tokens? · (\$[\d.,]+ of \$20\.00 used this month|本月已用 \$[\d.,]+，上限 \$20\.00)/,
+    );
     await expect(estimate).not.toContainText("model calls");
     const [estimateBox, makeBox, sheetBox] = [
       await estimate.boundingBox(),
@@ -678,7 +682,9 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   const estimate = sheet.getByTestId("compare-sheet-estimate");
   await typeQuestions(window, ["Termination notice"]);
   await pointAndClick(window, boxes.first());
-  await expect(estimate).toContainText("About $");
+  await expect(estimate).toHaveText(
+    /^About \$[\d.,]+ · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
+  );
 
   // A flash lasts a frame or two, so it is sampled on every frame rather than polled for.
   await window.evaluate(() => {
@@ -696,7 +702,9 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   });
   for (const index of [1, 2, 3, 4, 5]) await pointAndClick(window, boxes.nth(index));
   await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("6 of 12");
-  await expect(estimate).toContainText("About $");
+  await expect(estimate).toHaveText(
+    /^About \$[\d.,]+ · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
+  );
   const frames = await window.evaluate(() => {
     const { sampler } = globalThis as unknown as {
       sampler: { running: boolean; frames: { estimate: boolean; height: number }[] };

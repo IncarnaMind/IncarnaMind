@@ -137,13 +137,13 @@ export async function checkMind(
   }
 }
 
-/** The claims part of a run, with the running state left to its caller; the kind it ended in. */
+/** The claims part of a run, with the running state left to its caller; its result. */
 async function checkMindNow(
   mindId: string,
   mode: CheckMindMode,
   allDocuments: boolean,
   requestId: string,
-): Promise<CheckMindResult["kind"] | "error"> {
+): Promise<CheckMindResult | "error"> {
   try {
     const result = await core.checkMind({ requestId, mindId, mode, allDocuments });
     if (result.kind === "checked") setCheckSmallModel(mindId, result.smallModel);
@@ -151,11 +151,18 @@ async function checkMindNow(
       setCheckProblem(mindId, { kind: "find-failed", error: result.error, mode, allDocuments });
     } else if (result.kind === "nothing") setCheckProblem(mindId, { kind: "no-claims" });
     else if (result.kind !== "cancelled") setCheckProblem(mindId, everywhere(result, mindId, mode));
-    return result.kind;
+    return result;
   } catch (error) {
     setCheckProblem(mindId, { kind: "failed", error });
     return "error";
   }
+}
+
+/** Whether a claims run leaves anything for the watch: a throw, a stop, or a model that can't be used ends it. */
+function endsCheck(outcome: CheckMindResult | "error"): boolean {
+  if (outcome === "error") return true;
+  if (outcome.kind === "checked") return outcome.stop !== null;
+  return STOPS.has(outcome.kind);
 }
 
 /**
@@ -279,7 +286,7 @@ async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
   try {
     // Read before the run: the marks it writes cover every sentence it checks.
     const toCheck = run.watch ? await readSentencesToCheck(mindId) : null;
-    const stopped = STOPS.has(await checkMindNow(mindId, run.mode, run.allDocuments, requestId));
+    const stopped = endsCheck(await checkMindNow(mindId, run.mode, run.allDocuments, requestId));
     if (!stopped && toCheck && toCheck.cited.length > 0) {
       const watchRequest = crypto.randomUUID();
       setCheckRunning(mindId, { requestId: watchRequest, action: "contradiction-watch" });
