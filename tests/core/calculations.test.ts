@@ -180,7 +180,9 @@ async function askAndRead(core: Core, text: string, conversationId?: string) {
 /**
  * A core whose chat model is Claude Haiku 5.5, scripted: a model measured to
  * use calculate, so its Answers are offered it (ADR-0021). Its service is
- * allowed, and the files are added as Documents.
+ * allowed, and the files are added as Documents. Its Answers run the Tool
+ * loop from the first call, as the scripts call it, whatever the
+ * retrieve-first list says (#1633).
  */
 async function setUpCalculating(
   model: MockLanguageModelV4,
@@ -189,6 +191,7 @@ async function setUpCalculating(
 ) {
   const core = startCore(dataDir ?? (await createTempDataFolder()), {
     createChatModel: scriptedModels(model).createChatModel,
+    answerPaths: { retrievesFirst: () => false },
   });
   const saved = await core.saveChatProvider({
     kind: "anthropic",

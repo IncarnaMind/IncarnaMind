@@ -790,6 +790,64 @@ test("past three sources, +N more shows the rest, and each source names its Docu
   await app.close();
 });
 
+test("past twelve Documents, Claude Haiku 5.5 starts from a search of the Question's own words: it never makes that search itself, each Citation is checked, and Passages that fall short are searched again", async () => {
+  const { app, window } = await start({ documents: false });
+  // Thirteen Documents: more than go whole with a Question, so the Answer searches.
+  const harbours = ["Brest", "Dover", "Calais"];
+  const files = [
+    ...harbours.map((place) => ({
+      name: `${place}.md`,
+      text: `# ${place}\n\nSpring tides at ${place} rise high.`,
+    })),
+    ...Array.from({ length: 10 }, (_, at) => ({
+      name: `Recipe ${at + 1}.md`,
+      text: `# Recipe ${at + 1}\n\nCream the butter and the sugar.`,
+    })),
+  ];
+  for (const file of files) await writeFile(join(sources, file.name), file.text);
+  await addDocuments(
+    window,
+    files.map((file) => join(sources, file.name)),
+  );
+  await core(window).mind("Harbours");
+
+  const answer = await ask(window, "How high do spring tides rise at each harbour?");
+  let timeline = await openSteps(window, answer);
+  const searches = timeline.locator('[data-step="search"]');
+  await expect(searches).toHaveCount(1);
+  await expect(searches).toContainText(
+    "Searched All Documents for “How high do spring tides rise at each harbour?”",
+  );
+  await expect(timeline.locator('[data-step="check"]')).toHaveText(
+    "Checked 3 Citations against their sources · all found",
+  );
+
+  const again = await ask(window, "When do spring tides rise at Dover? Search twice.");
+  timeline = await openSteps(window, again);
+  const twice = timeline.locator('[data-step="search"]');
+  await expect(twice).toContainText("Searched All Documents 2 times");
+  await expect(twice.locator(".answer-step-queries > li")).toHaveText([
+    "“When do spring tides rise at Dover? Search twice.”",
+    "“when do spring tides rise at dover”",
+  ]);
+  await expect(timeline.locator('[data-step="check"]')).toHaveText(
+    "Checked 1 Citation against its source · found",
+  );
+  await app.close();
+
+  // The scripted model cites, then writes, in calls of their own: two for the first Answer, and
+  // for the second its own search too. In the loop each would have searched first as well.
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    const calls = db.all(
+      "SELECT id FROM ai_timings WHERE kind = 'model' AND flow = 'question' AND step IS NULL",
+    );
+    expect(calls).toHaveLength(5);
+  } finally {
+    db.close();
+  }
+});
+
 test("a Connector call waiting for approval: the line says so, its card waits outside the steps, and allowing it carries the steps on", async () => {
   const { app, window } = await start({ documents: false, local: true });
   await addTideConnector(window);
