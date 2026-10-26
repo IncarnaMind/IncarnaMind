@@ -109,7 +109,7 @@ autoUpdater.checkForUpdates = async () => {
   }
   return {
     isUpdateAvailable: true,
-    updateInfo: { version: "0.1.0-fixture" },
+    updateInfo: { version: process.env.INCARNAMIND_TEST_UPDATE_VERSION || "0.1.0-fixture" },
     downloadPromise: new Promise((resolve) => {
       afterFile("begin", () => {
         record("wrapper-ready");
@@ -166,23 +166,12 @@ autoUpdater.quitAndInstall = () => {
       });
       return;
     }
-    if (scenario !== "installing" && scenario !== "pending-install")
+    if (!["installing", "pending-install", "post-install"].includes(scenario))
       throw new Error(`Unknown install scenario: ${scenario}`);
     nativeUpdater.emit("before-quit-for-update");
     record("native-install-begun", { dataHeld: dataHeld() });
     writeFileSync(join(folder, "installing"), "");
-    const args = successorArgs();
-    if (process.platform === "linux") {
-      const env = {
-        ...process.env,
-        INCARNAMIND_TEST_UPDATE_SUCCESSOR: "1",
-        APPIMAGE_SILENT_INSTALL: "true",
-      };
-      childProcess.spawn(process.execPath, args, { env, detached: true, stdio: "ignore" }).unref();
-    } else {
-      if (process.platform === "win32") args.push("--updated");
-      app.relaunch({ args });
-    }
+    if (scenario !== "post-install") launchSuccessor(process.platform === "linux");
     app.once("quit", () => {
       record("install-quit-held", { dataHeld: dataHeld() });
       const pause = new Int32Array(new SharedArrayBuffer(4));
@@ -202,25 +191,7 @@ autoUpdater.quitAndInstall = () => {
     }
     record("install", { dataHeld: dataHeld() });
     writeFileSync(join(folder, "installing"), "");
-    if (process.platform === "linux" || delay > 0) {
-      childProcess
-        .spawn(
-          process.execPath,
-          process.argv
-            .slice(1)
-            .map((arg) =>
-              arg.startsWith("--remote-debugging-port=")
-                ? `--remote-debugging-port=${process.env.INCARNAMIND_TEST_UPDATE_NEXT_PORT}`
-                : arg,
-            ),
-          {
-            env: process.env,
-            detached: true,
-            stdio: "ignore",
-          },
-        )
-        .unref();
-    } else app.relaunch({ args: process.argv.slice(1) });
+    launchSuccessor(process.platform === "linux" || delay > 0);
     app.quit();
     return;
   }
@@ -239,13 +210,53 @@ function afterFile(name, use) {
 }
 
 function successorArgs() {
-  return process.argv
-    .slice(1)
-    .map((arg) =>
-      arg.startsWith("--remote-debugging-port=")
-        ? `--remote-debugging-port=${process.env.INCARNAMIND_TEST_UPDATE_NEXT_PORT}`
-        : arg,
-    );
+  const args = process.argv.slice(1).map((arg) => {
+    if (arg === process.env.INCARNAMIND_TEST_APP_DIR)
+      return process.env.INCARNAMIND_TEST_UPDATED_APP_DIR || arg;
+    return arg.startsWith("--remote-debugging-port=")
+      ? `--remote-debugging-port=${process.env.INCARNAMIND_TEST_UPDATE_NEXT_PORT}`
+      : arg;
+  });
+  if (process.platform === "win32") args.push("--updated");
+  return args;
+}
+
+function launchSuccessor(beforeExit) {
+  const args = successorArgs();
+  const executable = process.env.INCARNAMIND_PACKAGED_UPDATED_APP || process.execPath;
+  const changes = {
+    INCARNAMIND_TEST_UPDATE_SUCCESSOR: "1",
+    ...(process.env.INCARNAMIND_TEST_UPDATED_APP_DIR && {
+      INCARNAMIND_TEST_APP_DIR: process.env.INCARNAMIND_TEST_UPDATED_APP_DIR,
+      INCARNAMIND_TEST_UPDATE_APP: process.env.INCARNAMIND_TEST_UPDATED_APP_DIR,
+    }),
+    ...(process.env.INCARNAMIND_PACKAGED_UPDATED_APP && {
+      INCARNAMIND_PACKAGED_APP: process.env.INCARNAMIND_PACKAGED_UPDATED_APP,
+    }),
+    ...(process.platform === "linux" && { APPIMAGE_SILENT_INSTALL: "true" }),
+  };
+  if (beforeExit) {
+    childProcess
+      .spawn(executable, args, {
+        env: { ...process.env, ...changes },
+        detached: true,
+        stdio: "ignore",
+      })
+      .unref();
+    return;
+  }
+  const previous = Object.fromEntries(
+    Object.keys(changes).map((name) => [name, process.env[name]]),
+  );
+  try {
+    Object.assign(process.env, changes);
+    app.relaunch({ args, execPath: executable });
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 }
 
 function prepareNative() {
@@ -266,7 +277,12 @@ if (scenario === "pending" && first) {
 }
 for (const kind of ["before-quit", "will-quit"]) app.on(kind, () => record(kind));
 app.whenReady().then(() => {
-  record("ready", { appPath: app.getAppPath(), resourcesPath: process.resourcesPath });
+  record("ready", {
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    version: app.getVersion(),
+    dataHeld: dataHeld(),
+  });
   sampleVisibility();
   setInterval(sampleVisibility, 250).unref();
 });

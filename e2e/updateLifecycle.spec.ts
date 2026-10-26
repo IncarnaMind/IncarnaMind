@@ -21,6 +21,7 @@ import {
   inCopyWindow,
   killCopies,
   mainExecutable,
+  prepareLifecycleApps,
   startLifecycleCopy,
   windowsOf,
 } from "./lifecycle";
@@ -30,6 +31,7 @@ type Scenario =
   | "pending-install"
   | "pending-error"
   | "installing"
+  | "post-install"
   | "base-error"
   | "squirrel-error";
 interface Entry {
@@ -44,6 +46,7 @@ interface Entry {
   nativePrepared?: boolean;
   readyPrompts?: number;
   installRequests?: number;
+  version?: string;
   windowId?: number;
   args?: string[];
   options?: { message?: string; detail?: string; buttons?: string[]; args?: string[] };
@@ -54,11 +57,13 @@ const PENDING_EDIT = " Extra typing while native preparation waits.";
 let data: string;
 let home: string;
 let tag: string;
+let apps: Awaited<ReturnType<typeof prepareLifecycleApps>>;
 
 test.beforeEach(async () => {
   data = await createDataFolder();
   home = await mkdtemp(join(tmpdir(), "incarnamind-update-lifecycle-"));
   tag = `--incarnamind-smoke-copy=${randomUUID()}`;
+  apps = await prepareLifecycleApps(home);
 });
 
 test.afterEach(async () => {
@@ -93,21 +98,52 @@ async function entries(): Promise<Entry[]> {
 const signal = (name: string) => writeFile(join(home, name), "");
 const has = async (kind: string) => (await entries()).some((entry) => entry.kind === kind);
 
-function start(scenario: Scenario, first: boolean, port: number, nextPort: number): ChildProcess {
+function start(
+  scenario: Scenario,
+  first: boolean,
+  port: number,
+  nextPort: number,
+  generation: "old" | "updated" | "old-with-hint" = "old",
+): ChildProcess {
+  const versionEnv = { ...apps.env };
+  if (generation === "updated") {
+    if (versionEnv.INCARNAMIND_TEST_UPDATED_APP_DIR) {
+      versionEnv.INCARNAMIND_TEST_APP_DIR = versionEnv.INCARNAMIND_TEST_UPDATED_APP_DIR;
+      versionEnv.INCARNAMIND_TEST_UPDATE_APP = versionEnv.INCARNAMIND_TEST_UPDATED_APP_DIR;
+    }
+    if (versionEnv.INCARNAMIND_PACKAGED_UPDATED_APP)
+      versionEnv.INCARNAMIND_PACKAGED_APP = versionEnv.INCARNAMIND_PACKAGED_UPDATED_APP;
+  }
   return startLifecycleCopy(
     data,
     home,
-    [tag, `--remote-debugging-port=${port}`, "-r", join(__dirname, "updateFailure.cjs")],
+    [
+      tag,
+      `--remote-debugging-port=${port}`,
+      "-r",
+      join(__dirname, "updateFailure.cjs"),
+      ...(generation === "old-with-hint" ? ["--updated"] : []),
+    ],
     {
+      ...versionEnv,
       INCARNAMIND_TEST_HOOKS: "0",
       INCARNAMIND_TEST_UPDATE_FOLDER: home,
-      INCARNAMIND_TEST_UPDATE_APP: resolve(__dirname, ".."),
+      INCARNAMIND_TEST_UPDATE_APP:
+        versionEnv.INCARNAMIND_TEST_UPDATE_APP ?? resolve(__dirname, ".."),
       INCARNAMIND_TEST_UPDATE_FIRST: first ? "1" : "0",
       INCARNAMIND_TEST_UPDATE_SCENARIO: scenario,
       INCARNAMIND_TEST_UPDATE_NEXT_PORT: String(nextPort),
       APPIMAGE: process.platform === "linux" ? mainExecutable() : "",
+      ...(generation === "old-with-hint" && { APPIMAGE_SILENT_INSTALL: "true" }),
     },
   );
+}
+
+async function readyOwner() {
+  const owner = JSON.parse(await readFile(join(data, "instance-info.json"), "utf8")) as {
+    pid: number;
+  };
+  return (await entries()).findLast((entry) => entry.kind === "ready" && entry.pid === owner.pid);
 }
 
 async function saveTyping(window: Page, language: "en" | "zh-CN") {
@@ -241,6 +277,7 @@ test("native preparation finishing offers Restart once and then installs the upd
   await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
   await expectOneSavedWindow([port, nextPort]);
   await expect.poll(() => windowsOf(nextPort)).toBe(1);
+  expect(await readyOwner()).toMatchObject({ version: apps.updatedVersion, dataHeld: true });
 });
 
 test("a native preparation error leaves the current window usable without committing a quit", async () => {
@@ -293,7 +330,56 @@ test("an installing update refuses an unrelated start and keeps its own replacem
   await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
   await expectOneSavedWindow([port, nextPort, contenderPort]);
   await expect.poll(() => windowsOf(nextPort)).toBe(1);
+  expect(await readyOwner()).toMatchObject({ version: apps.updatedVersion, dataHeld: true });
   expect((await entries()).filter((entry) => entry.kind === "problem")).toEqual([]);
+});
+
+test("the install handoff outlives the old process and only the updated app opens its data", async () => {
+  test.setTimeout(120_000);
+  const port = await freePort();
+  const nextPort = await freePort();
+  const oldPort = await freePort();
+  const hintedPort = await freePort();
+  const old = start("post-install", true, port, nextPort);
+  await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
+  await inCopyWindow(port, (window) => saveTyping(window, "en"));
+  expect(await readyOwner()).toMatchObject({ version: apps.oldVersion, dataHeld: true });
+  await signal("begin");
+  await expect.poll(() => has("install-quit-held")).toBe(true);
+  await signal("finish-install");
+  await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
+  for (const [generation, contenderPort] of [
+    ["old", oldPort],
+    ["old-with-hint", hintedPort],
+  ] as const) {
+    const contender = start("post-install", false, contenderPort, nextPort, generation);
+    await expect
+      .poll(
+        async () =>
+          contender.exitCode !== null ||
+          (await entries()).some((entry) => entry.kind === "ready" && entry.pid === contender.pid),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    expect(contender.exitCode).toBe(0);
+    expect(await windowsOf(contenderPort)).toBe(0);
+    expect(
+      (await entries()).filter(
+        (entry) =>
+          entry.pid === contender.pid && (entry.kind === "window-created" || entry.dataHeld),
+      ),
+    ).toEqual([]);
+    expect(
+      heldByAnotherCopy(data, (what, error) => {
+        throw new Error(what, { cause: error });
+      }),
+    ).toBe(false);
+  }
+  expect((await entries()).filter((entry) => entry.kind === "startup-problem")).toEqual([]);
+  const updated = start("post-install", false, nextPort, nextPort, "updated");
+  await expectOneSavedWindow([port, oldPort, hintedPort, nextPort]);
+  expect(updated.exitCode).toBeNull();
+  expect(await readyOwner()).toMatchObject({ version: apps.updatedVersion, dataHeld: true });
 });
 
 for (const scenario of ["base-error", "squirrel-error"] as const) {
@@ -356,11 +442,26 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
       expect(recorded.filter((entry) => entry.kind === "relaunch")).toHaveLength(1);
       expect(recorded.filter((entry) => entry.kind === "startup-problem")).toEqual([]);
       expect(recorded.filter((entry) => entry.kind === "problem")).toHaveLength(1);
+      const recoveryArgs = recorded.find((entry) => entry.kind === "relaunch")?.options?.args;
+      if (!recoveryArgs?.length)
+        throw new Error("The failed install did not name its recovery start.");
+      const owner = await readyOwner();
+      expect(owner).toMatchObject({ version: apps.oldVersion, dataHeld: true });
+      expect(
+        recorded.find((entry) => entry.kind === "start" && entry.pid === owner?.pid)?.args,
+      ).toEqual(expect.arrayContaining(recoveryArgs));
       if (process.env.INCARNAMIND_PACKAGED_APP) {
+        const executable = mainExecutable();
         expect(
           recorded
             .filter((entry) => entry.kind === "start")
-            .every((entry) => entry.packaged && entry.executable === mainExecutable()),
+            .every(
+              (entry) =>
+                entry.packaged &&
+                (process.platform === "win32"
+                  ? entry.executable?.toLowerCase() === executable.toLowerCase()
+                  : entry.executable === executable),
+            ),
         ).toBe(true);
       }
     });
