@@ -5,6 +5,11 @@ import {
   takeNewMindKeys,
 } from "../../src/renderer/src/newMindKeys";
 
+const { editors } = vi.hoisted(() => ({
+  editors: [] as { isEditable: boolean; isDestroyed: boolean; setEditable(value: boolean): void }[],
+}));
+vi.mock("../../src/renderer/src/editor/openEditors", () => ({ openMindEditors: () => editors }));
+
 /*
  * The keys typed while ⌘T makes a Mind: letters are held for it, a modifier key is not a letter,
  * another field's keys are its own, and a Mind that is never made leaves nothing held (#2000).
@@ -67,6 +72,7 @@ function press(pressed: Pressed) {
 
 beforeEach(() => {
   active = null;
+  editors.length = 0;
   listeners.clear();
   vi.stubGlobal("window", {
     addEventListener: (type: string, listener: (event: unknown) => void) =>
@@ -133,4 +139,20 @@ describe("the keys held while ⌘T makes a Mind", () => {
     expect(takeNewMindKeys()).toBeNull();
     expect(editor.focus).toHaveBeenCalled();
   });
+});
+
+test("a second ⌘T leaves the editors editable again when the Mind is made", () => {
+  const editor = {
+    isEditable: true,
+    isDestroyed: false,
+    setEditable(value: boolean) {
+      editor.isEditable = value;
+    },
+  };
+  editors.push(editor);
+  holdNewMindKeys();
+  holdNewMindKeys();
+  expect(editor.isEditable).toBe(false);
+  takeNewMindKeys();
+  expect(editor.isEditable).toBe(true);
 });

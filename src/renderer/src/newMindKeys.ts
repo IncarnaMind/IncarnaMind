@@ -61,6 +61,8 @@ function dropSink(restore: boolean): void {
  * moved; a Mind the User left must not take it, so nothing is editable until the new one is drawn.
  */
 function stopWriting(): void {
+  // A second ⌘T finds the ones it already stopped stopped: what they were is known from the first.
+  if (keptWriting.length > 0) return;
   keptWriting = openMindEditors().map((editor) => ({ editor, was: editor.isEditable }));
   for (const each of keptWriting) if (each.was) each.editor.setEditable(false);
 }
