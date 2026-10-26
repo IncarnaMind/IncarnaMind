@@ -367,7 +367,13 @@ export function createExports(deps: ExportsDependencies) {
       data: unifyIdeographs(printed),
       word: null,
       needsDetails: [],
-      sentenceChecks: { contradicted: 0, unsupported: 0, needsRecheck: 0, commented: false },
+      sentenceChecks: {
+        contradicted: 0,
+        notFound: 0,
+        unsupported: 0,
+        needsRecheck: 0,
+        commented: false,
+      },
       trackedChanges: 0,
     };
   };
@@ -748,12 +754,15 @@ function reviewOf(
   const counted = asComments ? commented : prepared.failedSentences;
   const count = (check: FailedSentence["check"]) =>
     counted.filter((each) => each.check === check).length;
+  const notFound = counted.filter((each) => each.check === "unsupported" && each.notFound).length;
   return {
     sentenceChecks: {
       contradicted: count("contradicted"),
+      notFound,
       // An Unsupported sentence's comment may name its own workings or a court decision instead.
       unsupported:
-        count("unsupported") +
+        count("unsupported") -
+        notFound +
         count("own-workings") +
         counted.filter((each) => each.check === "cited-case-unchecked" && each.unsupported).length,
       needsRecheck: count("needs-recheck"),

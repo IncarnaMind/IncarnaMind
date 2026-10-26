@@ -20,7 +20,13 @@ export function DocumentFix({ doc }: { doc: Document }) {
         surface: "library",
       })
       .catch(useAppStore.getState().reportError);
-  const retry = () => void useAppStore.getState().retryDocument(doc.id);
+  const retry = () => {
+    if (fix.retry === "print") {
+      open();
+      return;
+    }
+    void useAppStore.getState().retryDocument(doc.id);
+  };
   return (
     <div data-testid="library-fix" className="pl-6 text-[13px] leading-5 text-ink-meta">
       <p data-testid="library-fix-reason">{t(fix.reason)}</p>
@@ -39,11 +45,17 @@ export function DocumentFix({ doc }: { doc: Document }) {
           {fix.retry && (
             <button
               type="button"
-              data-testid="library-fix-retry"
+              data-testid={fix.retry === "print" ? "library-fix-print" : "library-fix-retry"}
               onClick={retry}
               className={quietButtonClass}
             >
-              {t(fix.retry === "readAgain" ? "library.fix.readAgain" : "library.fix.retry")}
+              {t(
+                fix.retry === "readAgain"
+                  ? "library.fix.readAgain"
+                  : fix.retry === "print"
+                    ? "documents.printToPdfAction"
+                    : "library.fix.retry",
+              )}
             </button>
           )}
         </p>

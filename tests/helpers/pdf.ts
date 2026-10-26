@@ -27,6 +27,11 @@ export type PdfDrawing =
   | { rectangle: readonly [number, number, number, number]; gray?: number };
 
 export interface PdfPage {
+  fields?: readonly {
+    dictionary: string;
+    appearance: string | Readonly<Record<string, string>> | null;
+    parent?: string;
+  }[];
   /** Lines of text drawn top to bottom in Helvetica: WinAnsi's characters, and the options' symbols. */
   lines?: readonly string[];
   /**
@@ -108,6 +113,7 @@ export interface PdfPageLabelRange {
 }
 
 export interface PdfOptions {
+  xfa?: string;
   outline?: readonly PdfOutlineEntry[];
   pageLabels?: readonly PdfPageLabelRange[];
   /**
@@ -337,7 +343,7 @@ function toUnicode(symbols: readonly PdfSymbol[]): string {
 }
 
 /** A text string for /Info: literal for Latin-1, else UTF-16BE hex with its byte order mark. */
-const infoString = (text: string) =>
+export const pdfString = (text: string) =>
   /[^\x20-\xff]/.test(text) ? `<FEFF${toUcs2Hex(text)}>` : `(${escapeLatin(text)})`;
 
 const toUcs2Hex = (text: string) =>
@@ -348,6 +354,12 @@ const toUcs2Hex = (text: string) =>
       return code.toString(16).padStart(4, "0");
     })
     .join("");
+
+export function pdfAppearance(text: string): string {
+  const chinese = /[^\x20-\xff]/.test(text);
+  const shown = chinese ? `<${toUcs2Hex(text)}>` : `(${escapeLatin(text)})`;
+  return `BT /${chinese ? "F2" : "F1"} 11 Tf 2 6 Td ${shown} Tj ET`;
+}
 
 function contentStream(page: PdfPage, symbols: readonly PdfSymbol[]): string {
   // A scan's picture first: any lines are written over it, as a stamp is.
@@ -375,7 +387,9 @@ function contentStream(page: PdfPage, symbols: readonly PdfSymbol[]): string {
     y -= LINE_HEIGHT;
   }
   for (const { text, x, y: at } of page.placed ?? []) {
-    parts.push(`BT /F1 10 Tf ${x} ${at} Td (${escapeLatin(encode(text, symbols))}) Tj ET`);
+    const chinese = /\p{Script=Han}/u.test(text);
+    const shown = chinese ? `<${toUcs2Hex(text)}>` : `(${escapeLatin(encode(text, symbols))})`;
+    parts.push(`BT /${chinese ? "F2" : "F1"} 10 Tf ${x} ${at} Td ${shown} Tj ET`);
   }
   for (const line of page.chineseLines ?? []) {
     parts.push(`BT /F2 11 Tf 72 ${y} Td <${toUcs2Hex(line)}> Tj ET`);
@@ -471,7 +485,7 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
     objects[id] =
       options.rawInfo ??
       `<< ${Object.entries(options.info ?? {})
-        .map(([key, value]) => `/${key} ${infoString(value)}`)
+        .map(([key, value]) => `/${key} ${pdfString(value)}`)
         .join(" ")} >>`;
     info = ` /Info ${id} 0 R`;
   }
@@ -492,7 +506,7 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
         )
         .join(" ")}] >>`
     : "";
-  objects[1] = `<< /Type /Catalog /Pages 2 0 R${outline}${metadata}${labels} >>`;
+  const fields: number[] = [];
   objects[2] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
   const symbols = options.symbols ?? [];
   let fontEncoding = "/Encoding /WinAnsiEncoding";
@@ -539,12 +553,54 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
       scan = ` /XObject << /Scan ${id} 0 R >>`;
     }
     const size = page.scan ? (page.landscape ? "842 595" : "595 842") : "612 792";
+    const annotations = (page.fields ?? []).map((field) => {
+      const id = nextId++;
+      const appearance = (value: string) => {
+        const appearanceId = nextId++;
+        objects[appearanceId] =
+          `<< /Type /XObject /Subtype /Form /BBox [0 0 300 24] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Length ${value.length} >>\nstream\n${value}\nendstream`;
+        return `${appearanceId} 0 R`;
+      };
+      const normal =
+        field.appearance === null
+          ? null
+          : typeof field.appearance === "string"
+            ? appearance(field.appearance)
+            : `<< ${Object.entries(field.appearance)
+                .map(([state, value]) => `/${state} ${appearance(value)}`)
+                .join(" ")} >>`;
+      let parent = "";
+      if (field.parent) {
+        const parentId = nextId++;
+        fields.push(parentId);
+        objects[parentId] = `<< ${field.parent} /Kids [${id} 0 R] >>`;
+        parent = ` /Parent ${parentId} 0 R`;
+      } else fields.push(id);
+      objects[id] =
+        `<< /Type /Annot /Subtype /Widget /P ${pageId} 0 R ${field.dictionary}${parent}${normal === null ? "" : ` /AP << /N ${normal} >>`} >>`;
+      return `${id} 0 R`;
+    });
     objects[pageId] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size}] ` +
       `${page.rotation === undefined ? "" : `/Rotate ${page.rotation} `}` +
-      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${scan} >> /Contents ${pageId + 1} 0 R >>`;
+      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${scan} >> /Contents ${pageId + 1} 0 R${annotations.length > 0 ? ` /Annots [${annotations.join(" ")}]` : ""} >>`;
     objects[pageId + 1] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
   });
+  let xfa = "";
+  if (options.xfa !== undefined) {
+    const id = nextId++;
+    const data = Buffer.from(options.xfa, "utf8").toString("latin1");
+    objects[id] = `<< /Length ${data.length} >>\nstream\n${data}\nendstream`;
+    xfa = ` /XFA ${id} 0 R`;
+  }
+  const hasSignatures = pages.some((page) =>
+    (page.fields ?? []).some((field) => field.dictionary.includes("/FT /Sig")),
+  );
+  const form =
+    fields.length > 0 || xfa
+      ? ` /AcroForm << /Fields [${fields.map((id) => `${id} 0 R`).join(" ")}]${xfa}${hasSignatures ? " /SigFlags 1" : ""} /DA (/F1 11 Tf 0 g) /DR << /Font << /F1 3 0 R >> >> >>`
+      : "";
+  objects[1] = `<< /Type /Catalog /Pages 2 0 R${outline}${metadata}${labels}${form} >>`;
 
   // Latin-1 throughout, so string length equals byte length for the xref offsets.
   let pdf = "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n";

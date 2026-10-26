@@ -219,7 +219,7 @@ test("each row's Next goes through its sentences in order and round to the first
   const marks = window.getByTestId("claim-mark");
   await expect(marks.and(window.locator('[data-check="unsupported"]'))).toHaveCount(2);
   const unsupported = async () => (await checkCard(window)).getByTestId("health-unsupported");
-  await expect(await unsupported()).toContainText("2 unsupported");
+  await expect(await unsupported()).toContainText("2 need a look");
   // Each Next ends as a click on the sentence's mark does: its card open, the badge's card closed.
   const sentenceCard = window.getByTestId("claim-card");
   await pointAndClick(window, await unsupported());

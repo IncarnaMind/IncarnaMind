@@ -97,7 +97,6 @@ import {
   type ProcessingResult,
   SCAN_CURRENT_SINCE,
   type ScanJob,
-  unreadMessage,
 } from "./processing";
 import { createProcessor } from "./processor";
 import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
@@ -125,6 +124,7 @@ import {
   topsOfEach,
 } from "./searchTool";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
+import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
 import type { WatchFolder } from "./watcher";
 import type { SnapshotFile } from "./web";
@@ -293,13 +293,13 @@ function taggingOf(status: string, stored: string): TaggingState {
 }
 
 /**
- * Whether the Document is shown as failed, with its failure and Retry: its
- * processing failed with no version to keep, or the latest version read
- * failed while the last good one stays indexed (stored "ready", with the
- * failure recorded; see `record`).
+ * A stored failure shows only once processing has settled. While a Document is
+ * read again, its status and scan progress belong to the new job, not the old failure.
  */
 const failedNow = (row: Pick<DocumentRow, "status" | "failure_reason">) =>
-  row.status === "failed" || (row.status === "ready" && row.failure_reason !== null);
+  row.status === "failed" ||
+  (row.failure_reason !== null &&
+    (row.status === "ready" || row.status === "embedding" || row.status === "waiting-for-model"));
 
 /** `searchPassages` options, checked and with their defaults. */
 function parseSearchOptions(options: unknown): {
@@ -991,12 +991,15 @@ export function createDocuments(options: DocumentsOptions) {
       } else {
         status = result.outcome;
       }
-      // Scanned pages that couldn't be read are this version's failure: the rest is searched (#397).
+      // A partial read keeps the readable text searchable (#397, #1818).
       const failure =
         result.outcome === "failed"
           ? { reason: result.reason, message: result.message }
           : result.outcome === "ready" && result.unread
-            ? { reason: "pages-unread", message: unreadMessage(result.unread) }
+            ? {
+                reason: result.unread.forms ? "forms-unread" : "pages-unread",
+                message: unreadMessage(result.unread),
+              }
             : null;
       const parts =
         result.outcome === "failed" || result.parts == null ? null : JSON.stringify(result.parts);
@@ -1526,7 +1529,7 @@ export function createDocuments(options: DocumentsOptions) {
       `SELECT id FROM documents
        WHERE deleted_at IS NULL AND file_status = 'available'
          AND status NOT IN ('queued', 'extracting')
-         AND (failure_reason = 'pages-unread' OR (kind = 'web' AND EXISTS (
+         AND (failure_reason IN ('pages-unread', 'forms-unread') OR (kind = 'web' AND EXISTS (
            SELECT 1 FROM document_pages dp, json_each(dp.label, '$.figures') figure
            WHERE dp.document_id = documents.id AND dp.content_hash = documents.content_hash
              AND dp.deleted_at IS NULL AND json_extract(figure.value, '$.unread') = 1)))
