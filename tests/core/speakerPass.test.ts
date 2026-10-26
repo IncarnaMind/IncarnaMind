@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Core, SpeakerSeparator } from "../../src/core";
 import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
 import { labelled } from "../../src/core/meetings/speakerPass";
@@ -118,7 +118,10 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     expect(saved.separating).toBe(true);
     const before = readVtt(readFileSync(saved.savedPath as string, "utf8")).cues;
     expect(new Set(before.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
-    expect(requests[0]?.parts.length).toBeGreaterThan(0);
+    // The pass starts once the finished text is indexed.
+    await vi.waitFor(() => expect(requests[0]?.parts.length).toBeGreaterThan(0), {
+      timeout: 10_000,
+    });
 
     release();
     const cues = await savedCues(core, meeting.id);
