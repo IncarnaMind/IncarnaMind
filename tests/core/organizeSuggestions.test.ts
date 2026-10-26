@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { LanguageModelV4Prompt } from "@ai-sdk/provider";
+import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import {
@@ -37,6 +38,9 @@ const nameIn = (prompt: LanguageModelV4Prompt): string => {
 function sorter() {
   const offered: string[][] = [];
   let rule: Rule = (_name, choices) => ({ groupId: choices[0] ?? "__unsorted__" });
+  let hold: Promise<void> | null = null;
+  let answered = 0;
+  let tagFailure: Error | null = null;
   const model = new MockLanguageModelV4({
     doGenerate: async (options) => {
       const schema =
@@ -44,8 +48,23 @@ function sorter() {
       const choices =
         (schema as { properties?: { groupId?: { enum: string[] } } } | undefined)?.properties
           ?.groupId?.enum ?? [];
+      if (choices.length === 0) {
+        // The tagger's request: no Folder to choose.
+        if (tagFailure) throw tagFailure;
+        return {
+          content: [{ type: "text", text: JSON.stringify({ tags: [] }) }],
+          finishReason: { unified: "stop", raw: undefined },
+          warnings: [],
+          usage: {
+            inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
+            outputTokens: { total: 1, text: 1, reasoning: undefined },
+          },
+        };
+      }
       offered.push(choices);
+      if (hold) await hold;
       const { groupId, tags = [] } = rule(nameIn(options.prompt), choices);
+      answered++;
       return {
         content: [{ type: "text", text: JSON.stringify({ groupId, tags }) }],
         finishReason: { unified: "stop", raw: undefined },
@@ -62,6 +81,13 @@ function sorter() {
     offered,
     sort: (next: Rule) => {
       rule = next;
+    },
+    answered: () => answered,
+    hold: (next: Promise<void> | null) => {
+      hold = next;
+    },
+    failTags: (error: Error | null) => {
+      tagFailure = error;
     },
   };
 }
@@ -125,6 +151,19 @@ function batchesOf(core: Core) {
 
 const assignmentOf = async (core: Core, documentId: string) =>
   (await core.getLibrary()).assignments.find((each) => each.documentId === documentId);
+
+const documentOf = async (core: Core, documentId: string) =>
+  (await core.listDocuments()).find((each) => each.id === documentId);
+
+const rateLimited = () =>
+  new APICallError({
+    message: "Rate limit reached for requests",
+    url: "https://api.example.com/v1/messages",
+    requestBodyValues: {},
+    statusCode: 429,
+    responseHeaders: { "retry-after": "45" },
+    isRetryable: true,
+  });
 
 /** Adds files named as given, and waits until Organize has sorted them. */
 async function addAndSort(core: Core, sources: string, names: string[]) {
@@ -285,6 +324,150 @@ describe("Organize suggests a Folder and waits for the User", () => {
     expect(await assignmentOf(core, next?.id ?? "")).toMatchObject({
       groupId: finance.id,
       suggested: true,
+    });
+  });
+
+  test("a run that fails after a Suggested Folder, turned down, is finished: not one Organize couldn't sort", async () => {
+    const { core, fake, sources } = await setUp();
+    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
+    if (!invoice) throw new Error("Not added.");
+
+    fake.sort(() => {
+      throw new Error("The model stopped answering");
+    });
+    await core.classifyDocuments([invoice.id]);
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "failed" }),
+    );
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({ suggested: true });
+
+    const [change] = await core.rejectAssignments([invoice.id]);
+    expect(change?.after).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+      error: null,
+    });
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+      error: null,
+    });
+  });
+
+  test("rejecting while a re-run is classifying settles the Document and its tagging, through Undo and Redo", async () => {
+    const { core, fake, finance, sources } = await setUp();
+    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
+    if (!invoice) throw new Error("Not added.");
+    const documentNow = async () =>
+      (await core.listDocuments()).find((each) => each.id === invoice.id);
+    let release = () => {};
+    fake.hold(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    await core.classifyDocuments([invoice.id]);
+    // The run has reached the model and waits there, as one under way when the User turns it down.
+    await vi.waitFor(async () => {
+      expect(fake.offered.length).toBeGreaterThan(1);
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "classifying" });
+      expect((await documentNow())?.tagging).toBe("tagging");
+    });
+
+    const [change] = await core.rejectAssignments([invoice.id]);
+    expect(change?.after).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+      error: null,
+    });
+    expect((await documentNow())?.tagging).toBe("tagged");
+
+    // The held run comes back stale: it leaves both rows as the Reject settled them.
+    release();
+    await vi.waitFor(() => expect(fake.answered()).toBe(2));
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+      error: null,
+    });
+    expect((await documentNow())?.tagging).toBe("tagged");
+
+    // Undo puts the Suggested Folder back; it is classified again and waits.
+    if (!change) throw new Error("Not rejected.");
+    const { documentId: _id, ...before } = change.before;
+    await core.restoreAssignment(invoice.id, before);
+    await vi.waitFor(async () => {
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({
+        groupId: finance.id,
+        suggested: true,
+        status: "classified",
+      });
+      expect((await documentNow())?.tagging).toBe("tagged");
+    });
+
+    // Redo turns it down again: the assignment and the Document settle together.
+    await core.rejectAssignments([invoice.id]);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+    });
+    expect((await documentNow())?.tagging).toBe("tagged");
+    fake.hold(null);
+  });
+
+  test("turning down a failed re-run with automatic Organize off settles the Document's tagging", async () => {
+    const { core, classifier, fake, sources } = await setUp();
+    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
+    if (!invoice) throw new Error("Not added.");
+    await core.saveLibrarySettings({ classifier, automatic: false });
+    fake.sort(() => {
+      throw new Error("The model stopped answering");
+    });
+    await core.classifyDocuments([invoice.id]);
+    await vi.waitFor(async () => {
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({ status: "failed" });
+      expect((await documentOf(core, invoice.id))?.tagging).toBe("failed");
+    });
+
+    await core.rejectAssignments([invoice.id]);
+
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+      error: null,
+    });
+    // Organize held it before the Reject: the failed run may not come back as a tagging failure.
+    expect((await documentOf(core, invoice.id))?.tagging).toBe("tagged");
+  });
+
+  test("turning down a suggestion leaves a retag the User asked for to the tagger", async () => {
+    const { core, classifier, fake, sources } = await setUp();
+    const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
+    if (!invoice) throw new Error("Not added.");
+    await core.saveLibrarySettings({ classifier, automatic: false });
+    fake.failTags(rateLimited());
+    await core.retagDocuments([invoice.id]);
+    await vi.waitFor(async () => {
+      expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
+      expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
+    });
+
+    await core.rejectAssignments([invoice.id]);
+
+    // Organize didn't hold the tagging: the tagger's rate-limited run stays, and still runs.
+    expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
+    expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
+    fake.failTags(null);
+    await core.retagDocuments([invoice.id]);
+    await vi.waitFor(async () => {
+      expect((await documentOf(core, invoice.id))?.tagging).toBe("tagged");
     });
   });
 

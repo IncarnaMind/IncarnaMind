@@ -5,6 +5,7 @@ import type { Mind } from "../../core/api";
 import { core } from "./core";
 import { isProcessing } from "./documentStatus";
 import { type NoteState, readNoteState } from "./noteState";
+import { suggestedIds } from "./organizeOutcome";
 import { useSelection } from "./selection";
 import { exampleMindIds, useAppStore } from "./store";
 
@@ -141,7 +142,7 @@ export function useHomeNeeds(): { reading: number; suggestions: number } {
     (state) => state.documents.filter((each) => isProcessing(each.status)).length,
   );
   const suggestions = useAppStore(
-    (state) => state.library?.assignments.filter((each) => each.suggested).length ?? 0,
+    (state) => suggestedIds(state.documents, state.library?.assignments ?? []).length,
   );
   return { reading, suggestions };
 }
