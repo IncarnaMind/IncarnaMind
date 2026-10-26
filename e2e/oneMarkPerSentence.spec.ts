@@ -56,9 +56,12 @@ const LANGUAGES = {
     notFound: /Quote not found/,
     contradicted: /Contradicted/,
     cantCheck: /Can’t check/,
-    marks: ["Supported", "Unsupported", "Contradicted", "Supported"].map(
-      (state) => `Sentence check: ${state}`,
-    ),
+    marks: [
+      "Supported",
+      "Needs a look · Unsupported",
+      "Needs a look · Contradicted",
+      "Supported",
+    ].map((state) => `Sentence check: ${state}`),
     health: { found: "3 Citations found", notFound: "2 Citations not found" },
   },
   "zh-CN": {
