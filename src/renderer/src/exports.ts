@@ -83,7 +83,7 @@ export type ExportResult = { tableId?: string } & (
       kept: ("header" | "footer")[];
       /** The Documents whose entries are too thin to cite, marked so in the file. */
       needsDetails: string[];
-      /** The first save, which took Documents › IncarnaMind: the line says where (D209). */
+      /** The first save, which took Documents › IncarnaMind: the line says where. */
       defaulted: boolean;
     }
   /** Not saved yet: what a Word file can't keep, for the User to see first (#105). */

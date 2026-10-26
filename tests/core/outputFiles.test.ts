@@ -101,7 +101,7 @@ async function hashes(root: string): Promise<Record<string, string>> {
 }
 
 describe("The Output location", () => {
-  test("the first save goes to IncarnaMind in Documents without asking, making it, says it took the default, and later saves go there too (D209)", async () => {
+  test("the first save goes to IncarnaMind in Documents without asking, making it, says it took the default, and later saves go there too", async () => {
     const { core, save, suggested } = await setUp();
     expect(await core.getOutputSettings()).toEqual({
       location: null,
