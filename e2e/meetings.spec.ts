@@ -978,7 +978,7 @@ test("a stopped Transcript is kept in the Library: Get info says so, with no .vt
   await expect(panel.getByTestId("info-copy-path")).toHaveCount(0);
   await window.keyboard.press("Escape");
   // Opened, it has no "Open in default app" either: its file is IncarnaMind's, not the User's.
-  await pointAndClick(window, transcript.getByTestId("library-document-name"));
+  await pointAndClick(window, row.getByTestId("library-document-name"));
   await expect(window.getByTestId("viewer")).toBeVisible();
   await expect(window.getByTestId("viewer-open-externally")).toHaveCount(0);
   await pointAndClick(window, window.getByTestId("document-tab").getByTestId("tab-close"));
