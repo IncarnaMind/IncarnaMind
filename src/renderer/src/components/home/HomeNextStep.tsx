@@ -28,9 +28,20 @@ export function HomeNextStep({ step }: { step: Step }) {
   const language = useLanguage();
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
-  const said = saidInLine(t, (t) =>
-    t(`home.next.${step.kind}`, {
-      mind: "note" in step ? mindName(step.note.mind) || t("mind.untitled") : "",
+  const said = saidInLine(t, (t) => {
+    const note = "note" in step ? step.note : null;
+    const state = note?.state;
+    // Amber for an unread file in the check's own scope, with no claim to look at: the badge's words.
+    if (step.kind === "look" && state && state.look === 0 && state.unread > 0) {
+      return t("home.next.unread", {
+        mind: mindName(note.mind) || t("mind.untitled"),
+        files: t(state.unread === 1 ? "unread.count.one" : "unread.count", {
+          count: new Intl.NumberFormat(language).format(state.unread),
+        }),
+      });
+    }
+    return t(`home.next.${step.kind}`, {
+      mind: note ? mindName(note.mind) || t("mind.untitled") : "",
       count:
         "count" in step
           ? step.kind === "check"
@@ -40,8 +51,8 @@ export function HomeNextStep({ step }: { step: Step }) {
             : new Intl.NumberFormat(language).format(step.count)
           : "",
       time: step.kind === "exported" ? formatDateTime(step.saved.at, language) : "",
-    }),
-  );
+    });
+  });
   const label = said.fullMessage ?? said.message;
   const run = useCallback(async () => {
     if (pending.current) return;

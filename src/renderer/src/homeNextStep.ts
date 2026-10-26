@@ -1,5 +1,6 @@
 import type { ConversationAnswer, Mind } from "../../core/api";
-import { everythingChecked, type NoteHealth } from "./editor/healthCounts";
+import type { NoteHealth } from "./editor/healthCounts";
+import type { NoteState } from "./noteState";
 
 export interface HomeAnswer {
   id: string;
@@ -10,6 +11,8 @@ export interface HomeAnswer {
 export interface HomeNote {
   mind: Mind;
   health: NoteHealth;
+  /** The shared reading's state: readiness is the badge's, not a count of Home's own. */
+  state?: NoteState | null;
   busy?: boolean;
   problem?: boolean;
 }
@@ -68,11 +71,14 @@ export function chooseHomeNextStep({
   if (!note) return null;
   // A run in flight, or one that gave no marks, has its own line in the note: Home would say it twice.
   if (note.busy || note.problem) return null;
-  const { health } = note;
-  const needsLook = health.unsupported.length + health.contradicted.length + health.notFound.length;
-  if (needsLook > 0) return { kind: "look", note, count: needsLook };
-  if (health.toCheck.length > 0) return { kind: "check", note, count: health.toCheck.length };
-  return !exported && everythingChecked(health, { running: false, problem: false })
-    ? { kind: "export", note, count: 0 }
-    : null;
+  // Readiness is the shared state's: an unread file in a narrowed check's own scope keeps the
+  // note amber even with every claim checked. Without that state, never call the note ready.
+  if (note.state === undefined) return { kind: "look", note, count: 0 };
+  if (note.state === null) return null;
+  if (note.state.kind === "needs-look") return { kind: "look", note, count: note.state.look };
+  if (note.state.kind === "not-checked") {
+    const count = note.health.toCheck.length;
+    return count > 0 ? { kind: "check", note, count } : null;
+  }
+  return exported ? null : { kind: "export", note, count: 0 };
 }

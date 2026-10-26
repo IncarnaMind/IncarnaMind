@@ -106,6 +106,7 @@ export function useHomeNextStep(
         ? {
             mind: latest,
             health: reading.health,
+            state: reading.state,
             busy: running[latest.id] !== undefined,
             problem: problems[latest.id] !== undefined,
           }

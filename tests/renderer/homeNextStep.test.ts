@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import type { ConversationAnswer } from "../../src/core/api";
 import type { NoteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { chooseHomeNextStep, type HomeNote, ownAnswer } from "../../src/renderer/src/homeNextStep";
+import { noteStateOf } from "../../src/renderer/src/noteState";
+import { translate } from "../../src/shared/i18n";
 
 const health = (parts: Partial<NoteHealth> = {}): NoteHealth => ({
   found: [],
@@ -20,19 +22,28 @@ const health = (parts: Partial<NoteHealth> = {}): NoteHealth => ({
   ...parts,
 });
 
-const note = (parts: Partial<NoteHealth> = {}, mind: Partial<HomeNote["mind"]> = {}): HomeNote => ({
-  mind: {
-    id: "own",
-    title: "Tides",
-    autoTitle: "",
-    kind: "mind",
-    folderId: null,
-    createdAt: "2026-10-20T09:00:00.000Z",
-    updatedAt: "2026-10-20T09:10:00.000Z",
-    ...mind,
-  },
-  health: health(parts),
-});
+const note = (
+  parts: Partial<NoteHealth> = {},
+  mind: Partial<HomeNote["mind"]> = {},
+  unread = 0,
+  narrowUnread = 0,
+): HomeNote => {
+  const readings = health(parts);
+  return {
+    mind: {
+      id: "own",
+      title: "Tides",
+      autoTitle: "",
+      kind: "mind",
+      folderId: null,
+      createdAt: "2026-10-20T09:00:00.000Z",
+      updatedAt: "2026-10-20T09:10:00.000Z",
+      ...mind,
+    },
+    health: readings,
+    state: noteStateOf(readings, unread, narrowUnread),
+  };
+};
 
 const initial = { hasDocuments: false, answers: [], note: null, exported: false, saved: null };
 const answer = (id: string, updatedAt: string) => ({
@@ -147,6 +158,54 @@ describe("Home's next step", () => {
     expect(choose({ note: { ...note({ checkable: 1, toCheck: [1] }), busy: true } })).toBeNull();
     expect(choose({ note: { ...note({ checkable: 1, toCheck: [1] }), problem: true } })).toBeNull();
     expect(choose({ note: { ...note({ checkable: 1, found: [1] }), problem: true } })).toBeNull();
+  });
+
+  test("a file that couldn't be read inside the check's own scope keeps the note amber, before and after the first export", () => {
+    // Every claim holds, but the narrowed check (a Folder, a Tag, or picked Documents) could not
+    // read a file that may hold the evidence: the shared state is amber, with no claim to look at.
+    const narrowed = note(
+      { checkable: 1, found: [1], checkedAt: "2026-10-20T09:00:00.000Z" },
+      {},
+      1,
+      1,
+    );
+    expect(narrowed.state).toMatchObject({
+      kind: "needs-look",
+      look: 0,
+      unread: 1,
+      unreadMatters: true,
+    });
+    expect(choose({ note: narrowed })).toMatchObject({ kind: "look", count: 0 });
+    expect(choose({ note: narrowed, exported: true })).toMatchObject({ kind: "look", count: 0 });
+    expect(
+      translate("en", "home.next.unread", {
+        mind: "Tides",
+        files: translate("en", "unread.count.one", { count: "1" }),
+      }),
+    ).toBe("“Tides” · 1 file couldn’t be read");
+    expect(
+      translate("zh-CN", "home.next.unread", {
+        mind: "Tides",
+        files: translate("zh-CN", "unread.count.one", { count: "1" }),
+      }),
+    ).toBe("“Tides” · 1 个文件未能读取");
+  });
+
+  test("all Documents searched: an unread file leaves the note green, ready before the first export and done after it", () => {
+    const allDocuments = note(
+      { checkable: 1, found: [1], checkedAt: "2026-10-20T09:00:00.000Z" },
+      {},
+      1,
+      0,
+    );
+    expect(allDocuments.state).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
+    expect(choose({ note: allDocuments })).toMatchObject({ kind: "export" });
+    expect(choose({ note: allDocuments, exported: true })).toBeNull();
+  });
+
+  test("without the shared state the row never calls the note ready", () => {
+    const onlyHealth = { mind: note().mind, health: health({ checkable: 1, found: [1] }) };
+    expect(choose({ note: onlyHealth })).toMatchObject({ kind: "look" });
   });
 });
 

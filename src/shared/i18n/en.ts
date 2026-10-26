@@ -242,6 +242,7 @@ export const en = {
   "home.next.write": "Write the Answer as a note",
   "home.next.check": "Check “{mind}” · {count}",
   "home.next.look": "{count} need a look in “{mind}”",
+  "home.next.unread": "“{mind}” · {files}",
   "home.next.export": "Ready to send “{mind}” · Export to Word",
   "home.next.exported": "Sent as Word {time} · Open",
   "home.next.command": "Do the next step on Home",

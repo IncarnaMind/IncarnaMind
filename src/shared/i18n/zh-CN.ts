@@ -233,6 +233,7 @@ export const zhCN = {
   "home.next.write": "把回答写成笔记",
   "home.next.check": "核对“{mind}” · {count}",
   "home.next.look": "“{mind}”中有 {count} 条需要留意",
+  "home.next.unread": "“{mind}” · {files}",
   "home.next.export": "“{mind}”已核对，可导出 Word",
   "home.next.exported": "已导出 Word {time} · 打开",
   "home.next.command": "完成首页的下一步",
