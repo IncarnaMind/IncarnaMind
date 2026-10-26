@@ -1,9 +1,10 @@
 import { expect, test } from "vitest";
 import { locateQuote } from "../../src/core/answers/citations";
-import { answerEnded, citingModel, setUpWithDocuments } from "../helpers/citations";
+import { answerEnded, citingModel, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { scriptedModel } from "../helpers/models";
 import { docxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
+import { para, pptxOf, sp } from "../helpers/pptx";
 
 for (const language of ["en", "zh-CN"] as const) {
   const row = language === "en" ? "Control weights 0.050 2 0.100" : "控制砝码 0.050 2 0.100";
@@ -17,6 +18,22 @@ for (const language of ["en", "zh-CN"] as const) {
     },
     { name: "Revisions.md", contents: `# Revisions\n\n${lines.join("\n\n")}` },
     { name: "Revisions.txt", contents: lines.join("\n") },
+    {
+      name: "Revisions.vtt",
+      contents: `WEBVTT\n\n00:00:00.000 --> 00:00:10.000\n${lines.join("\n")}\n`,
+    },
+    {
+      name: "Revisions.pptx",
+      contents: pptxOf({
+        slides: [
+          {
+            shapes: sp({
+              body: `<a:bodyPr/><a:lstStyle/>${lines.map((line) => para(line)).join("")}`,
+            }),
+          },
+        ],
+      }),
+    },
     {
       name: "Revisions-spread.pdf",
       contents: buildPdf(
@@ -52,6 +69,68 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(answer.citations).toEqual([]);
     });
   }
+  test(`one ambiguity request lets the model give a uniquely placed quote, ${language}`, async () => {
+    let repairs = 0;
+    const model = scriptedModel((call) => {
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: "Revisions" } }] };
+      const cited = call.results.filter((result) => result.tool === "cite");
+      const passage = shownPassages(search.text)[0]?.id;
+      if (cited.length === 0)
+        return {
+          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: row }] } }],
+        };
+      if (
+        cited.length === 1 &&
+        cited[0]?.text.includes("quote enough surrounding words to identify one place")
+      ) {
+        repairs++;
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 1, passage, quote: `${current}\n${row}` }] },
+            },
+          ],
+        };
+      }
+      return { text: "The current row[^1]." };
+    });
+    const { core } = await setUpWithDocuments(model, [
+      { name: "Revisions.md", contents: `# Revisions\n\n${lines.join("\n\n")}` },
+    ]);
+    const asked = await core.askInConversation({ text: "Quote the current row." });
+    if (!asked.asked) throw new Error("Question not asked");
+    await answerEnded(core, asked.answerId);
+    const answer = (await core.getConversation(asked.conversation.id)).messages.find(
+      (m) => m.id === asked.answerId,
+    );
+    if (answer?.kind !== "answer") throw new Error("No Answer");
+    expect(repairs).toBe(1);
+    expect(answer.citations).toHaveLength(1);
+    expect(answer.citations[0]?.quote).toBe(`${current}\n${row}`);
+  });
+  test(`an explicit Unit keeps its place when the same quote is elsewhere, ${language}`, async () => {
+    const model = citingModel({
+      query: "Revisions",
+      records: (passages) => [
+        { marker: 1, passage: passages[0]?.id, location: "p. 2", quote: row },
+      ],
+      answer: "The current row[^1].",
+    });
+    const file = files.find((file) => file.name === "Revisions-spread.pdf");
+    if (!file) throw new Error("No two-page fixture");
+    const { core } = await setUpWithDocuments(model, [file]);
+    const asked = await core.askInConversation({ text: "Quote the current row." });
+    if (!asked.asked) throw new Error("Question not asked");
+    await answerEnded(core, asked.answerId);
+    const answer = (await core.getConversation(asked.conversation.id)).messages.find(
+      (m) => m.id === asked.answerId,
+    );
+    if (answer?.kind !== "answer") throw new Error("No Answer");
+    expect(answer.citations).toHaveLength(1);
+    expect(answer.citations[0]).toMatchObject({ quote: row, pageFrom: 2, pageTo: 2 });
+  });
   test(`locating a repeated quote never chooses the first Unit, ${language}`, () => {
     expect(
       locateQuote(

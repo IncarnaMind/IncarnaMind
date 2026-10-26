@@ -340,9 +340,6 @@ function notCovered(cite: boolean): string {
 const CITED_SAYS_ONLY_ITS_QUOTE =
   '- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: "This suggests…" / "这意味着…".';
 
-const UNIQUE_QUOTES =
-  "- Quote enough surrounding words to identify one place in the cited Units. For figures, keep the row's label and revision/period context.";
-
 /**
  * A model read "54,000" in a UK contract as pounds and wrote "£54,000", cited (#1332): a
  * currency, unit or scale the Document doesn't state reads as one it does.
@@ -360,7 +357,6 @@ function readingRules(cite: boolean): string {
   return [
     `- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: "The Documents don't record a Board approval; the 14 May memo asks for one." / "文档中没有董事会批准的记录；5 月 14 日的备忘录是在申请批准。"`,
     `- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date)${cite ? " and cite it" : ""}. Then write one sentence naming the older Document, its date and its figure${cite ? ", with a Citation" : ""}; never leave it out: "Report outages over 4 hours (memo, May 2025)${marker(1)}. The older handbook (January 2024) says 6 hours${marker(2)}." / "2025 年 5 月的备忘录要求报告超过 4 小时的停电${marker(1)}。较早的手册（2024 年 1 月）写的是 6 小时${marker(2)}。" Say "probably" (可能) only when neither is dated or newer.`,
-    "- Before saying only certain fields changed, compare every listed input too; keep each revision separate.",
   ].join("\n");
 }
 
@@ -614,7 +610,6 @@ export function documentInstructions(
         "- Write nothing before your Tool calls: only the Answer, after them.",
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
-        UNIQUE_QUOTES,
         FIGURES_AS_STATED,
         readingRules(true),
         ...(calculate ? ["", CALCULATE] : []),
@@ -640,7 +635,6 @@ export function documentInstructions(
         ...(calculate ? [CALCULATIONS] : []),
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
-        UNIQUE_QUOTES,
         FIGURES_AS_STATED,
         readingRules(true),
       ].join("\n");
