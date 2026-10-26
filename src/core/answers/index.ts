@@ -2374,46 +2374,51 @@ export function createAnswers(options: AnswersOptions) {
                   if (text.trim() === "") return null;
                   activity = "checking-claims";
                   showPhase();
-                  let judgeModel = prepared.model;
-                  if (prepareQuick) {
-                    try {
-                      judgeModel = await prepareQuick(model, prepared);
-                    } catch (error) {
-                      console.error(
-                        `The quick-tasks model couldn't be used for the change-claim check: ${messageOf(error)}`,
-                      );
-                    }
-                  }
-                  mindsNow = null;
-                  const checked = await claimsNoCallMade(
-                    text,
-                    toolCalls,
-                    mindsListed(),
-                    focusedId,
-                    {
-                      model: judgeModel,
-                      names: options.readableMindName,
-                      states: appliedInTurn,
-                      signal: controller.signal,
-                    },
-                  );
-                  if (checked.usage) {
-                    usage.inputTokens += checked.usage.inputTokens ?? 0;
-                    usage.outputTokens += checked.usage.outputTokens ?? 0;
-                    usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
-                    usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
-                  }
-                  return checked.claims.length > 0
-                    ? {
-                        claims: checked.claims,
-                        note: askAgainNote(
-                          checked.claims,
-                          toolCalls,
-                          options.readableMindName,
-                          appliedInTurn,
-                        ),
+                  try {
+                    let judgeModel = prepared.model;
+                    if (prepareQuick) {
+                      try {
+                        judgeModel = await prepareQuick(model, prepared);
+                      } catch (error) {
+                        console.error(
+                          `The quick-tasks model couldn't be used for the change-claim check: ${messageOf(error)}`,
+                        );
                       }
-                    : null;
+                    }
+                    mindsNow = null;
+                    const checked = await claimsNoCallMade(
+                      text,
+                      toolCalls,
+                      mindsListed(),
+                      focusedId,
+                      {
+                        model: judgeModel,
+                        names: options.readableMindName,
+                        states: appliedInTurn,
+                        signal: controller.signal,
+                      },
+                    );
+                    if (checked.usage) {
+                      usage.inputTokens += checked.usage.inputTokens ?? 0;
+                      usage.outputTokens += checked.usage.outputTokens ?? 0;
+                      usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
+                      usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
+                    }
+                    return checked.claims.length > 0
+                      ? {
+                          claims: checked.claims,
+                          note: askAgainNote(
+                            checked.claims,
+                            toolCalls,
+                            options.readableMindName,
+                            appliedInTurn,
+                          ),
+                        }
+                      : null;
+                  } finally {
+                    activity = "writing";
+                    showPhase();
+                  }
                 },
               },
             ]
