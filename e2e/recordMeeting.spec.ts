@@ -48,15 +48,16 @@ const readNotice = async (window: Page) =>
 const RECORD = { en: "Record a meeting", "zh-CN": "录制会议" } as const;
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Record a meeting is in the + menu (under More) and ⌘K on a fresh data folder, and Settings › Meetings has no switch for it (${language})`, async () => {
+  test(`Record a meeting is at the top level of the + menu and in ⌘K on a fresh data folder, and Settings › Meetings has no switch for it (${language})`, async () => {
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1100, 720);
     await setLanguage(window, language);
 
+    // At the top level, not folded under More, with nothing to switch on first (#763).
     await pointAndClick(window, window.getByTestId("plus-menu"));
-    await pointAndClick(window, window.getByTestId("plus-more"));
     await expect(window.getByTestId("plus-record-meeting")).toHaveText(RECORD[language]);
+    await expect(window.getByTestId("plus-record-meeting")).toBeVisible();
     await window.keyboard.press("Escape");
 
     await window.keyboard.press("ControlOrMeta+k");
@@ -89,7 +90,6 @@ test("once the recording notice is read, Record records in one action, with the 
   await readNotice(window);
 
   await pointAndClick(window, window.getByTestId("plus-menu"));
-  await pointAndClick(window, window.getByTestId("plus-more"));
   await pointAndClick(window, window.getByTestId("plus-record-meeting"));
   await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
   await expect(window.getByTestId("meeting-start")).toHaveCount(0);
@@ -106,7 +106,6 @@ test("the first time, Record makes a Mind with no line, and ⌘Z right after it 
   await dismissChatSetup(window);
 
   await pointAndClick(window, window.getByTestId("plus-menu"));
-  await pointAndClick(window, window.getByTestId("plus-more"));
   await pointAndClick(window, window.getByTestId("plus-record-meeting"));
   await expect(window.getByTestId("meeting-start")).toBeVisible();
   expect(await mindsOf(window)).toHaveLength(1);
@@ -124,7 +123,6 @@ test("a Record that has begun a recording says nothing, and ⌘Z right after it 
   await readNotice(window);
 
   await pointAndClick(window, window.getByTestId("plus-menu"));
-  await pointAndClick(window, window.getByTestId("plus-more"));
   await pointAndClick(window, window.getByTestId("plus-record-meeting"));
   await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
   await expect(window.getByTestId("undo-message")).toHaveCount(0);
@@ -162,7 +160,6 @@ for (const width of [900, 1100, 1440]) {
     });
 
     await pointAndClick(window, window.getByTestId("plus-menu"));
-    await pointAndClick(window, window.getByTestId("plus-more"));
     await pointAndClick(window, window.getByTestId("plus-record-meeting"));
     await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
     await expect(window.getByTestId("meeting-bar-room")).toHaveCount(0);
@@ -192,7 +189,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       await readNotice(window);
       await pointAndClick(window, window.getByTestId("plus-menu"));
-      await pointAndClick(window, window.getByTestId("plus-more"));
       await pointAndClick(window, window.getByTestId("plus-record-meeting"));
       const bar = window.getByTestId("meeting-bar");
       await expect(bar).toHaveAttribute("data-status", "recording");
@@ -214,7 +210,6 @@ for (const language of ["en", "zh-CN"] as const) {
               cloud: null,
               fellBack: null,
               savedPath: null,
-              savedDefaulted: false,
               problem: null,
               ...transcript,
             },
@@ -264,7 +259,6 @@ test("once a recording has run and stopped, ⌘Z never takes its Meeting or audi
   await readNotice(window);
 
   await pointAndClick(window, window.getByTestId("plus-menu"));
-  await pointAndClick(window, window.getByTestId("plus-more"));
   await pointAndClick(window, window.getByTestId("plus-record-meeting"));
   await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
   await pointAndClick(window, window.getByTestId("meeting-stop"));
@@ -321,7 +315,6 @@ test("Record while a Meeting records opens that Meeting and makes nothing", asyn
   await dismissChatSetup(window);
   await readNotice(window);
   await pointAndClick(window, window.getByTestId("plus-menu"));
-  await pointAndClick(window, window.getByTestId("plus-more"));
   await pointAndClick(window, window.getByTestId("plus-record-meeting"));
   await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
   const [recording] = await meetings(window);
@@ -332,7 +325,6 @@ test("Record while a Meeting records opens that Meeting and makes nothing", asyn
   const before = (await mindsOf(window)).length;
 
   await pointAndClick(window, window.getByTestId("plus-menu"));
-  await pointAndClick(window, window.getByTestId("plus-more"));
   await pointAndClick(window, window.getByTestId("plus-record-meeting"));
   await expect(frontMindName(window)).toHaveText(recordingName ?? "");
   await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
@@ -352,7 +344,6 @@ for (const language of ["en", "zh-CN"] as const) {
     }[language];
 
     await pointAndClick(window, window.getByTestId("plus-menu"));
-    await pointAndClick(window, window.getByTestId("plus-more"));
     await pointAndClick(window, window.getByTestId("plus-record-meeting"));
     const problem = window.getByTestId("cant-record");
     await expect(problem).toContainText(line);

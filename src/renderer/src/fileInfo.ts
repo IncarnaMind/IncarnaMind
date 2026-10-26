@@ -17,6 +17,14 @@ export const KIND_LABELS: Record<Document["kind"], MessageKey> = {
   transcript: "library.format.transcript",
 };
 
+/**
+ * A file the User keeps on this computer: every Document but a web page (its
+ * snapshot) and a Transcript (kept in the Library, #763). Its path is the
+ * User's to see, open and show.
+ */
+export const userFile = (document: Pick<Document, "kind" | "web">): boolean =>
+  document.web === null && document.kind !== "transcript";
+
 /** "Show in Finder" on macOS, "Show in folder" on Windows and Linux: what every action that shows a file says. */
 export const showFileLabelKey = (platform: string): MessageKey =>
   /Mac|iPhone|iPad/.test(platform) ? "file.showInFinder" : "file.showInFolder";

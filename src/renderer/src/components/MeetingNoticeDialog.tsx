@@ -57,7 +57,14 @@ export function MeetingNoticeDialog() {
             {kept}
           </p>
           {!memo && <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>}
-          {transcribedHere && <p className={dialogTextClass}>{t("meetings.notice.model")}</p>}
+          {transcribedHere && (
+            <>
+              <p className={dialogTextClass}>{t("meetings.notice.model")}</p>
+              <p data-testid="meeting-notice-model-size" className={dialogTextClass}>
+                {t("meetings.notice.modelSize")}
+              </p>
+            </>
+          )}
         </div>
         {/* Mounted as the sheet opens, so it reads the keys as they are now. */}
         {waiting && <TranscriptionRouteChoice />}
@@ -71,7 +78,7 @@ export function MeetingNoticeDialog() {
             onClick={() => void acceptNotice()}
             className={primaryButtonClass}
           >
-            {t("meetings.start.record")}
+            {t(transcribedHere ? "meetings.start.downloadAndStart" : "meetings.start.record")}
           </button>
         </div>
       </div>

@@ -1,5 +1,8 @@
 import { type ReactNode, useContext, useState } from "react";
+import type { Document } from "../../../core/api";
+import { commands } from "../commands/registry";
 import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
+import { documentFix } from "../documentFix";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { saidInLine } from "../lineNames";
@@ -15,16 +18,21 @@ export function ViewerMessage({
   testId,
   tone = "muted",
   action,
+  also,
+  title,
 }: {
   children: ReactNode;
   testId?: string;
   tone?: "muted" | "error";
-  action?: ProblemAction;
+  action?: ProblemAction | undefined;
+  also?: ProblemAction | undefined;
+  /** The reader's own message, on hover: the technical words behind a plain line. */
+  title?: string | undefined;
 }) {
   if (tone === "error") {
     return (
       <div data-testid={testId} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <ProblemLine testId="viewer-problem" action={action}>
+        <ProblemLine testId="viewer-problem" action={action} also={also} title={title}>
           {children}
         </ProblemLine>
       </div>
@@ -38,6 +46,59 @@ export function ViewerMessage({
     >
       <p className="max-w-sm break-words text-ink-meta">{children}</p>
     </div>
+  );
+}
+
+/**
+ * A file the viewer couldn't show, in the words its Document's fix uses
+ * (#763): the plain reason, then its next step, with the reader's own message
+ * on hover. Null for a failure the Document doesn't have a fix for.
+ */
+export function FileFixMessage({
+  document,
+  message,
+  reload,
+}: {
+  document: Document;
+  message: string;
+  /** Opens the file again in place, for a view that keeps its own copy of it. */
+  reload?: () => void;
+}) {
+  const t = useT();
+  const fix = documentFix(document);
+  if (!fix) return null;
+  const open = () =>
+    void commands
+      .run("document.openExternally", {
+        focus: { kind: "document", id: document.id },
+        surface: "viewer",
+      })
+      .catch(useAppStore.getState().reportError);
+  const retry = () => {
+    reload?.();
+    void useAppStore.getState().retryDocument(document.id);
+  };
+  return (
+    <ViewerMessage
+      tone="error"
+      title={message || undefined}
+      action={
+        fix.open
+          ? { label: t("library.fix.open"), testId: "viewer-fix-open", onClick: open }
+          : undefined
+      }
+      also={
+        fix.retry
+          ? {
+              label: t(fix.retry === "readAgain" ? "library.fix.readAgain" : "library.fix.retry"),
+              testId: "viewer-retry",
+              onClick: retry,
+            }
+          : undefined
+      }
+    >
+      <span title={message || undefined}>{t(fix.reason)}</span>
+    </ViewerMessage>
   );
 }
 

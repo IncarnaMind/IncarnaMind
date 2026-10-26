@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
@@ -76,24 +76,23 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
       check: "found",
     });
 
-    // At Stop it is finished and saved as WebVTT in the Output location, the Document with it.
+    // At Stop it is finished in the Library's own folder: kept there, never written to a folder
+    // the User has to choose (#763).
     await core.stopMeeting(meeting.id);
     const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
-    const path = join(
-      realpathSync(dataDir),
-      "Documents",
-      "IncarnaMind",
-      "Transcript · Meeting, 6 October.vtt",
-    );
+    const path = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
     expect(saved.savedPath).toBe(path);
     expect(readFileSync(path, "utf8")).toMatch(/^WEBVTT\n\n00:00:00\.000 --> 00:00:02\.000\n/);
-    expect(existsSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`))).toBe(false);
+    expect(
+      existsSync(join(dataDir, "Documents", "IncarnaMind", "Transcript · Meeting, 6 October.vtt")),
+    ).toBe(false);
     await vi.waitFor(async () => expect((await documentOf(core, documentId)).path).toBe(path));
-    // It stays where it was saved after a restart, not back in the data folder's Transcripts.
+    // Still a Document in the Library after a restart.
     core.close();
     expect(await documentOf(startCore(dataDir), documentId)).toMatchObject({
       path,
       fileStatus: "available",
+      kind: "transcript",
     });
   });
 

@@ -8528,8 +8528,8 @@ export type EngineSwitchReason = "behind" | "failed" | "user" | "cap";
  * - "live": lines arrive a few seconds behind the Meeting.
  * - "behind": live text fell behind, or couldn't go on: the meeting bar says
  *   "Recording…", and the rest is transcribed once the Meeting stops.
- * - "finishing": stopped; what is left is being transcribed and saved.
- * - "saved": saved as a WebVTT file in the Output location (`savedPath`).
+ * - "finishing": stopped; what is left is being transcribed.
+ * - "saved": finished, and kept in the Library as a Document (`savedPath` is its own file, inside the data folder).
  * - "empty": stopped with nothing said that could be transcribed: no file is saved.
  * - "failed": it couldn't be finished; `problem` says why.
  */
@@ -8547,7 +8547,7 @@ export type TranscriptState =
  * What stops a Transcript, each with one thing to do (`retryTranscript`):
  * - "download": the speech-to-text model couldn't be downloaded.
  * - "engine": it couldn't start, or stopped again and again.
- * - "save": the WebVTT file couldn't be saved, or no Output location was chosen.
+ * - "save": the Transcript couldn't be written to the data folder.
  * - "speakers": saved, but the speaker pass (#138) couldn't run: its lines keep the labels of
  *   where they came from. Trying again runs the pass again while the audio is kept.
  */
@@ -8583,10 +8583,8 @@ export interface MeetingTranscript {
     atMs: number;
     reason: "dropped" | "refused" | "cap" | "local-mode";
   } | null;
-  /** The WebVTT file in the Output location, once saved. */
+  /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
-  /** Its save took the default Output location, none being chosen yet (`SavedFile.defaulted`). */
-  savedDefaulted: boolean;
   /** Saved, its speakers are being told apart after the call (#138): their labels may still change. */
   separating: boolean;
   problem: TranscriptProblem | null;

@@ -36,7 +36,7 @@ import { type ScannedPage, scannedTextLayer, useScannedPages } from "./scannedTe
 import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
 import { HeaderDivider, ViewerHeader } from "./ViewerHeader";
-import { FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileFixMessage, FileGone, ViewerMessage } from "./ViewerMessage";
 import { createWheelZoom, MAX_ZOOM, MIN_ZOOM, stepZoom } from "./zoom";
 
 /** CSS pixels per PDF point: at 100% a page shows at its printed size. */
@@ -208,19 +208,27 @@ export function PdfView({
           <LockedPdf documentId={document.id} onUnlocked={reopen} />
         </>
       );
-    case "failed":
+    case "failed": {
+      const fix = <FileFixMessage document={document} message={loaded.message} reload={reopen} />;
       return (
         <>
           <ViewerHeader onRetry={retry} />
           {banner}
-          <ViewerMessage
-            tone="error"
-            action={{ label: t("documents.retryAction"), testId: "viewer-retry", onClick: retry }}
-          >
-            <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
-          </ViewerMessage>
+          {fix ?? (
+            <ViewerMessage
+              tone="error"
+              action={{
+                label: t("documents.retryAction"),
+                testId: "viewer-retry",
+                onClick: retry,
+              }}
+            >
+              <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
+            </ViewerMessage>
+          )}
         </>
       );
+    }
     case "ready":
       return (
         <PdfPages

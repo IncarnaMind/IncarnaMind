@@ -89,6 +89,7 @@ export function TranscriptView({ document, target }: { document: Document; targe
   );
   return (
     <FileStates
+      document={document}
       loaded={loaded}
       quote={target.quote}
       ready={(transcript) => (

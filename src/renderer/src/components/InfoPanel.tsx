@@ -7,7 +7,7 @@ import { core, files } from "../core";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
 import { documentStatusText } from "../documentStatus";
 import { providerErrorText } from "../errors";
-import { addedDate, documentSummary, fileDate, showFileLabelKey } from "../fileInfo";
+import { addedDate, documentSummary, fileDate, showFileLabelKey, userFile } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
 import { useInfo } from "../info";
 import { folderCounts, organizeModel, organizeState } from "../libraryPage";
@@ -260,7 +260,7 @@ function DocumentInfo({ document }: { document: Document }) {
   );
   const units = useUnitCount(document);
   const chips = chipsOf(document.tags, tags);
-  const file = !document.web;
+  const file = userFile(document);
   const fileState = fileStatusLabel(document.fileStatus);
   const scanning =
     document.status === "extracting" && document.scan
@@ -284,7 +284,7 @@ function DocumentInfo({ document }: { document: Document }) {
           </Row>
         ) : (
           <Row label={t("info.where")} testId="info-path">
-            {document.path}
+            {file ? document.path : t("info.inLibrary")}
           </Row>
         )}
         {file && (

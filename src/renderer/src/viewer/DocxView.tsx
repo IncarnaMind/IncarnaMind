@@ -85,9 +85,10 @@ const read = async (bytes: Uint8Array): Promise<Loaded> => ({
  * `data:` URLs, so the app's Content-Security-Policy stays as it is.
  */
 export function DocxView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const loaded = useDocumentFile(document.id, read);
+  const loaded = useDocumentFile(document.id, document.contentHash, read);
   return (
     <FileStates
+      document={document}
       loaded={loaded}
       quote={target.quote}
       ready={(value) => <DocxPages loaded={value} target={target} />}

@@ -2,7 +2,7 @@ import type { LinkedFolder } from "../../../core/api";
 import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
-import { showFileLabelKey } from "../fileInfo";
+import { showFileLabelKey, userFile } from "../fileInfo";
 import { countNow, translateNow } from "../i18n";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
 import { fileStatusLabel, folderName } from "../linkedFolders";
@@ -66,7 +66,7 @@ const fileReason = (ctx: CommandContext) => {
   return true as const;
 };
 
-const onFiles = (ctx: CommandContext) => everyDocument(ctx, (document) => !document.web);
+const onFiles = (ctx: CommandContext) => everyDocument(ctx, userFile);
 
 /** A PDF that couldn't be read for want of its password (#763). */
 const isLockedPdf = (document: { kind: string; failure: { reason: string } | null }) =>

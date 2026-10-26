@@ -72,9 +72,10 @@ const MARK_GAP = 8;
  * the outline it was before: title, text, tables, chart figures, images.
  */
 export function SlidesView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const loaded = useDocumentFile(document.id, read);
+  const loaded = useDocumentFile(document.id, document.contentHash, read);
   return (
     <FileStates
+      document={document}
       loaded={loaded}
       quote={target.quote}
       ready={(value) => <Slides loaded={value} target={target} />}

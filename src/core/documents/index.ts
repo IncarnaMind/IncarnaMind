@@ -84,7 +84,7 @@ import {
 } from "./files";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
-import { createLibrary, FORGET_FILE_IDENTITY, type LibraryHooks } from "./library";
+import { createLibrary, type LibraryHooks } from "./library";
 import type { PageText } from "./passages";
 import {
   CURRENT_SINCE,
@@ -2371,30 +2371,11 @@ export function createDocuments(options: DocumentsOptions) {
     /** Looks at a file again now, as when it is opened: a new version is processed. */
     check: (path: string) => library.check([path]),
 
+    /** As `check`, and resolves only once the file has been read: for a file just written. */
+    checkNow: (path: string) => library.check([path], true),
+
     /** Tells the windows a Document changed besides its processing, such as a web page's look. */
     announce,
-
-    /**
-     * Points a Document added on its own at a copy IncarnaMind just saved of
-     * its file, elsewhere: a Transcript saved at Stop to the Output location
-     * (#136). It keeps its id, Folder, Tags and Citations; a copy that differs
-     * is a new version.
-     */
-    async moveFile(id: string, path: string): Promise<void> {
-      const row = find(id);
-      if (!row) return;
-      // Out of the data folder, it is a file of its own (ADR-0020); the check finds the
-      // Linked folder it is in, if the Output location is inside one.
-      db.run(
-        `UPDATE documents SET path = ?, source_kind = 'file', relative_path = NULL,
-           file_status = 'available', file_mtime_ms = NULL, ${FORGET_FILE_IDENTITY}, updated_at = ?
-         WHERE id = ? AND deleted_at IS NULL`,
-        [path, now(), id],
-      );
-      library.documentsChanged(null);
-      announce(id);
-      await library.check([path]);
-    },
 
     list,
     names,

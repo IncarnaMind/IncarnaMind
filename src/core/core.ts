@@ -3137,7 +3137,7 @@ export function createCore(adapters: CoreAdapters): Core {
         add: (id, name, file) => documents.addSnapshot(id, name, file, () => {}, "transcript"),
         file: (documentId, folderId) => library.assign(documentId, folderId),
         check: (path) => documents.check(path),
-        moveFile: (id, path) => documents.moveFile(id, path),
+        checkNow: (path) => documents.checkNow(path),
         find: (id) => {
           try {
             return documents.get(id);
@@ -3146,7 +3146,6 @@ export function createCore(adapters: CoreAdapters): Core {
           }
         },
       },
-      saveFile: (file) => outputs.save(file),
       name: (meetingId) => {
         const meeting = listMeetings?.().find((each) => each.id === meetingId);
         const mind = meeting ? minds.get(meeting.mindId) : null;

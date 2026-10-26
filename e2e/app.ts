@@ -968,8 +968,7 @@ export async function recordMeeting(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
-  await window.getByTestId("plus-more").click();
-  await window.getByRole("menuitem", { name: "Record a meeting" }).click();
+  await window.getByTestId("plus-record-meeting").click();
   const start = window.getByTestId("meeting-start");
   await expect(start).toBeVisible();
   return start;
@@ -980,8 +979,7 @@ export async function recordMeetingNow(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
-  await window.getByTestId("plus-more").click();
-  await window.getByRole("menuitem", { name: "Record a meeting" }).click();
+  await window.getByTestId("plus-record-meeting").click();
   const bar = window.getByTestId("meeting-bar");
   await expect(bar).toHaveAttribute("data-status", "recording");
   return bar;

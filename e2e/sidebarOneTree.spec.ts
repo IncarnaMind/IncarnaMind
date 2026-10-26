@@ -588,11 +588,11 @@ const NEW_MENU_ROWS: readonly MessageKey[] = [
   "menu.newMind",
   "sidebar.plus.addDocuments",
   "menu.newFolder",
+  "meetings.record",
   "sidebar.plus.more",
 ];
 const MORE_ROWS: readonly MessageKey[] = [
   "wordImport.command",
-  "meetings.record",
   "memos.record.menu",
   "command.compareDocuments",
   "verify.command",

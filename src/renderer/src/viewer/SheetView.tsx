@@ -95,9 +95,14 @@ const readCsv = (bytes: Uint8Array): Loaded => extractCsv(bytes);
  * the Citation's mark beside them. Only the rows that are in view are drawn.
  */
 export function SheetView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const loaded = useDocumentFile(document.id, document.kind === "csv" ? readCsv : readXlsx);
+  const loaded = useDocumentFile(
+    document.id,
+    document.contentHash,
+    document.kind === "csv" ? readCsv : readXlsx,
+  );
   return (
     <FileStates
+      document={document}
       loaded={loaded}
       quote={target.quote}
       ready={(value) => <Sheets loaded={value} name={document.name} target={target} />}

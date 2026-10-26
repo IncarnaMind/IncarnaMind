@@ -22,7 +22,7 @@ import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./
 import { sourceSelection, useSelectionReader } from "./selectedText";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { ViewerHeader } from "./ViewerHeader";
-import { FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileFixMessage, FileGone, ViewerMessage } from "./ViewerMessage";
 
 type Loaded =
   | { kind: "loading" }
@@ -50,6 +50,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [source, setSource] = useState(false);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the file is read again when its version changes, as a retry re-reads it.
   useEffect(() => {
     const controller = new AbortController();
     loadDocumentBytes(document.id, controller.signal).then(
@@ -65,7 +66,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
       },
     );
     return () => controller.abort();
-  }, [document.id]);
+  }, [document.id, document.contentHash]);
 
   useCitedAreaFailure(
     loaded.kind === "missing"
@@ -81,6 +82,9 @@ export function TextView({ document, target }: { document: Document; target: Vie
     [loaded, markdown],
   );
   const outline = useMemo(() => (markdown ? headingsOf(units) : []), [markdown, units]);
+  const fix = (
+    <FileFixMessage document={document} message={loaded.kind === "failed" ? loaded.message : ""} />
+  );
 
   return (
     <>
@@ -110,9 +114,11 @@ export function TextView({ document, target }: { document: Document; target: Vie
       ) : loaded.kind === "missing" ? (
         <FileGone quote={target.quote} />
       ) : loaded.kind === "failed" ? (
-        <ViewerMessage tone="error">
-          {loaded.message ? t("viewer.failed", { message: loaded.message }) : t("viewer.notText")}
-        </ViewerMessage>
+        (fix ?? (
+          <ViewerMessage tone="error">
+            {loaded.message ? t("viewer.failed", { message: loaded.message }) : t("viewer.notText")}
+          </ViewerMessage>
+        ))
       ) : (
         <MarkdownDocumentContext.Provider value={document.id}>
           <TextContent
