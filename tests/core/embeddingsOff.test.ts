@@ -267,7 +267,10 @@ describe("Turning embeddings on leaves every Document's Organize state as it was
 
   /** Where Get info says Organize is with the Document: no assignment reads Not organized yet. */
   const organizeStateOf = async (core: Core, id: string) =>
-    organizeState((await core.getLibrary()).assignments.find((each) => each.documentId === id));
+    organizeState(
+      (await core.listDocuments()).find((each) => each.id === id),
+      (await core.getLibrary()).assignments.find((each) => each.documentId === id),
+    );
 
   test("a Document added before the first Folder stays Not organized yet", async () => {
     const embedder = createControlledEmbedder();
