@@ -13,12 +13,14 @@
 
 <p align="center"><b>From messy files to a checked report.</b></p>
 
-<p align="center">Write, ask, analyse data and take meeting notes with AI, all from your own files.<br>Every sentence and figure is checked against the page it came from.</p>
+<p align="center">Write, ask questions, analyse spreadsheets and take meeting notes from your own files,<br>then check every sentence and figure against the page it came from.</p>
+
+<p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-en.svg" width="216" height="40" alt="Download a test build"></a>&nbsp;&nbsp;<a href="https://tally.so/r/rjN2jL?ref=readme"><img src="docs/images/notify-en.svg" width="278" height="40" alt="Get notified when the alpha opens"></a></p>
 
 <p align="center">
-  <a href="https://github.com/IncarnaMind/IncarnaMind/releases"><b>Download</b></a> ·
+  <a href="#download">macOS, Windows and Linux</a> ·
   <a href="#how-the-check-works">How the check works</a> ·
-  <a href="#your-files-stay-yours">Privacy</a> ·
+  <a href="#privacy">Privacy</a> ·
   <a href="https://github.com/IncarnaMind/IncarnaMind/discussions">Discussions</a>
   <br><br>
   <img alt="Desktop app for macOS, Windows and Linux" src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-desktop%20app-17191C">
@@ -29,78 +31,7 @@
 
 <p align="center"><img src="docs/images/demo-tour-2026-10-25-en.gif" width="880" alt="A wrong figure in a credit analyst's draft is marked in the margin. A click opens the page it contradicts, and checking the draft again turns the mark green. Recorded in the app with Claude Sonnet 5.5."></p>
 
-<p align="center"><sub>Everything shown is in the app today. <a href="docs/images/demo-tour-2026-10-25-en.mp4">Watch the full film in HD</a>.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027 (<a href="https://tally.so/r/rjN2jL?ref=readme">get notified</a>).</sub></p>
-
-## Why IncarnaMind
-
-- **Check before you send.** Every sentence and figure in your draft, checked against your files.
-- **Proof one click away.** Every answer cites its page, and the quote lights up.
-- **Your files, your formats.** PDF, Word, PowerPoint and Excel, read where they are.
-- **Your AI.** Your ChatGPT, Claude or Copilot plan, or your own key. No account needed.
-- **Meetings in the same library.** Transcribed on your computer and cited like any document.
-
-## What it does
-
-| | |
-|---|---|
-| **Sort** | Link your folders. Organize suggests Folders and Tags. |
-| **Ask** | Ask all your documents at once, every page cited. |
-| **Write** | A Note is a notebook for one topic. AI text stays grey until you edit it, and Undo takes it back. |
-| **Analyse** | Calculate and chart from spreadsheets, every input cited. |
-| **Check** | Check a Note or any PDF against your files, sentence by sentence. |
-| **Compare** | Ask many documents the same questions and get one cited table. |
-| **Export** | Word with footnotes in eight citation styles, or back into the original file. |
-| **Meet** | A live transcript, help during the call, and notes that cite what was said. |
-
-Works fully offline with [Ollama](https://ollama.com): nothing leaves your computer.
-
-<details>
-<summary><b>More</b></summary>
-
-- **Find sources.** Search OpenAlex, arXiv and PubMed, save web pages, and import references from Zotero, BibTeX, RIS or CSL JSON.
-- **Connectors and Skills.** Add MCP servers and `SKILL.md` Skills. Anything that could change something asks you first.
-- **Your own agent.** Give [Claude Code](docs/claude-code.md), [Codex](docs/codex.md) or [Cursor](docs/cursor.md) the Folders you choose, with checked citations.
-- **English and Chinese**, throughout the app.
-
-</details>
-
-## How the check works
-
-- **A check compares each sentence with your files.** It finds the passages the sentence rests on and marks whether they support it, with the page one click away.
-- **Figures are read as numbers.** A figure rounded from the source passes, a different one is marked, and a calculated figure shows its formula and the page of each input.
-- **"Quote found" means the words are on that page,** not that they prove your sentence. That's why the page is always one click away.
-- **It checks against your files, not against the world.** If a source is wrong, the check can't tell.
-
-## How it compares
-
-| | IncarnaMind | Gemini Notebook¹ | Open Notebook | AnythingLLM |
-|---|:-:|:-:|:-:|:-:|
-| Open source | ✓ | ✗ | ✓ | ◐ |
-| Desktop app, no account | ✓ | ✗ | ◐ | ✓ |
-| Reads your folders in place | ✓ | ✗ | ✗ | ◐ |
-| Your ChatGPT or Claude plan, or your key | ✓ | ✗ | ◐ | ◐ |
-| Citation opens the page, quote highlighted | ✓ | ◐ | ✗ | ✗ |
-| Checks your own draft | ✓ | ✗ | ✗ | ✗ |
-| Word export with footnotes | ✓ | ◐ | ✗ | ◐ |
-| Spreadsheet analysis | ✓ | ✓ | ✗ | ◐ |
-| Meetings | ✓ | ✗ | ✗ | ✓ |
-
-<sub>✓ yes · ◐ partly · ✗ no. ¹ Formerly NotebookLM. From each product's documentation, October 2026: [Gemini Notebook](https://support.google.com/gemininotebook/), [Open Notebook](https://github.com/lfnovo/open-notebook), [AnythingLLM](https://docs.anythingllm.com/).</sub>
-
-## Your files stay yours
-
-No account. Your files are read where they are and never changed, and only what a question needs goes to the AI model you chose.
-
-| What | Where it goes |
-|---|---|
-| Your files, Notes and search index | Your computer |
-| Questions, writing and checks | The AI model you chose, with only what each needs. With Ollama, nowhere |
-| Meeting audio | Transcribed on your computer |
-| Finding papers, tagging, scans, cloud transcription | Only after you say yes |
-| Usage data and crash reports | Only if you turn them on, never with your files |
-| API keys | Your system's secure storage |
-
-Where a provider offers the choice, IncarnaMind asks it not to keep your requests. It can't make a provider comply. What each one sends, and how to turn it off, is in [docs/privacy.md](docs/privacy.md) and **Settings → Privacy**. For client work, read the [client data statement](docs/client-data-statement.md).
+<p align="center"><sub>Everything shown is in the app today. <a href="docs/images/demo-tour-2026-10-25-en.mp4">Watch the full film in HD</a>.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
 
 ## Download
 
@@ -133,12 +64,76 @@ npm install && npm run dev
 
 </details>
 
+## What it does
+
+| | |
+|---|---|
+| **Sort** | Link your folders. Organize suggests Folders and Tags. |
+| **Ask** | Ask all your documents at once, every page cited. |
+| **Write** | A Note is a notebook for one topic. The assistant's text stays grey until you edit it, and Undo takes it back. |
+| **Analyse** | Calculate and chart from spreadsheets, every input cited. |
+| **Check** | Check a Note or any PDF against your files, sentence by sentence. |
+| **Compare** | Ask many documents the same questions and get one cited table. |
+| **Export** | Word with footnotes in eight citation styles, or back into the original file. |
+| **Meet** | A live transcript, help during the call, and notes that cite what was said. |
+
+Works fully offline with [Ollama](https://ollama.com): nothing leaves your computer.
+
+<details>
+<summary><b>More</b></summary>
+
+- Search OpenAlex, arXiv and PubMed for papers, save web pages, and import references from Zotero, BibTeX, RIS or CSL JSON.
+- Add MCP servers and `SKILL.md` Skills. Anything that could change something asks you first.
+- Give [Claude Code](docs/claude-code.md), [Codex](docs/codex.md) or [Cursor](docs/cursor.md) the Folders you choose, with checked citations.
+- The whole app is in English and Chinese.
+
+</details>
+
+## How the check works
+
+For each sentence, the check finds the passages in your files that it relies on and marks whether they support it. The page is one click away.
+
+Figures are compared as numbers. One rounded from the source passes, a different one is marked, and a calculated one shows its formula and where each input came from.
+
+"Quote found" means the quoted words are on that page. Whether they prove your sentence is for you to judge, which is why the page opens with one click. And the check only compares your writing with your files, so a mistake in the files themselves gets through.
+
+## How it compares
+
+| | IncarnaMind | Gemini Notebook¹ | Open Notebook | AnythingLLM |
+|---|:-:|:-:|:-:|:-:|
+| Open source | ✓ | ✗ | ✓ | ◐ |
+| Desktop app, no account | ✓ | ✗ | ◐ | ✓ |
+| Reads your folders in place | ✓ | ✗ | ✗ | ◐ |
+| Your ChatGPT or Claude plan, or your key | ✓ | ✗ | ◐ | ◐ |
+| Citation opens the page, quote highlighted | ✓ | ◐ | ✗ | ✗ |
+| Checks your own draft | ✓ | ✗ | ✗ | ✗ |
+| Word export with footnotes | ✓ | ◐ | ✗ | ◐ |
+| Spreadsheet analysis | ✓ | ✓ | ✗ | ◐ |
+| Meetings | ✓ | ✗ | ✗ | ✓ |
+
+<sub>✓ yes · ◐ partly · ✗ no. ¹ Formerly NotebookLM. From each product's documentation, October 2026: [Gemini Notebook](https://support.google.com/gemininotebook/), [Open Notebook](https://github.com/lfnovo/open-notebook), [AnythingLLM](https://docs.anythingllm.com/).</sub>
+
+## Privacy
+
+You don't need an account. IncarnaMind reads your files where they are and never changes them, and a question sends only what it needs to the model you picked.
+
+| What | Where it goes |
+|---|---|
+| Your files, Notes and search index | Your computer |
+| Questions, writing and checks | The model you picked, with only what each needs. With Ollama, nowhere |
+| Meeting audio | Transcribed on your computer |
+| Finding papers, tagging, scans, cloud transcription | Only after you say yes |
+| Usage data and crash reports | Only if you turn them on, never with your files |
+| API keys | Your system's secure storage |
+
+Where a provider offers the choice, IncarnaMind asks it not to keep your requests. It can't make a provider comply. What each one sends, and how to turn it off, is in [docs/privacy.md](docs/privacy.md) and **Settings → Privacy**. For client work, read the [client data statement](docs/client-data-statement.md).
+
 <details>
 <summary><b>Questions</b></summary>
 
-- **Is it free?** Yes, open source under Apache 2.0. Your AI provider bills you for the model, or your existing plan covers it.
+- **Is it free?** Yes, open source under Apache 2.0. The model is billed by its provider, or covered by a plan you already have.
 - **How is it different from NotebookLM (now Gemini Notebook)?** It runs on your computer, reads your files where they are and needs no account. It works with the model you choose, opens each citation at its page, checks your own draft and exports to Word with footnotes. The table above has the rest.
-- **Which AI can I use?** Sign in with ChatGPT Plus or Pro, Claude, or GitHub Copilot (experimental); each stays off until you sign in. Or use your own key from OpenAI, Anthropic, Google, DeepSeek, Qwen, SiliconFlow, OpenRouter, Kimi, GLM, Mistral, xAI or any OpenAI-compatible server.
+- **Which models can I use?** Sign in with ChatGPT Plus or Pro, Claude, or GitHub Copilot (experimental); each stays off until you sign in. Or use your own key from OpenAI, Anthropic, Google, DeepSeek, Qwen, SiliconFlow, OpenRouter, Kimi, GLM, Mistral, xAI or any OpenAI-compatible server.
 - **Does it work offline?** Reading files and search do. Answers and checks need a model: a cloud one, or a local one through Ollama, which is slower.
 - **Can I use it on client documents?** Your files stay on your computer, and only the model you chose and the services you allow receive anything. Read the [client data statement](docs/client-data-statement.md) first.
 - **Will it change my files?** No. It writes only to its own data folder and to the files you export.
