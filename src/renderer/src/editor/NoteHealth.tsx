@@ -192,6 +192,10 @@ export function HealthCard({
   });
   const runModel = useRunModel(doc);
   const running = useChecks((state) => state.running[mindId]);
+  const [ranHere, setRanHere] = useState(false);
+  useEffect(() => {
+    if (running !== undefined) setRanHere(true);
+  }, [running]);
   const problem = useChecks((state) => state.problems[mindId]);
   const smallModel = useChecks((state) => state.smallModel[mindId] === true);
   const contradictions = useContradictionLine(doc, mindId);
@@ -276,11 +280,6 @@ export function HealthCard({
   return (
     <>
       <AddedDocumentsLine doc={doc} mindId={mindId} />
-      {running && (
-        <div className="check-card-note">
-          <RunningText editor={editor} mindId={mindId} testId="card-progress" />
-        </div>
-      )}
       <div className="check-rows" data-testid="mind-health">
         {rows.map(row)}
         {health.noCitation.length > 0 && row("noCitation")}
@@ -305,9 +304,17 @@ export function HealthCard({
           {t("health.allChecked")}
         </p>
       )}
-      {checkedAll && !running && (
+      {/* One line of note, in one place, from the moment the check starts: the sentence it is
+          on, then when it was checked. Rows above it never move as the run ends (#1312). It
+          stays once a run has started here: a run ends a moment before its record reaches the
+          Mind, and the line must not go in between. */}
+      {(running || checkedAll || ranHere) && (
         <div className="check-card-note">
-          <CheckedWhen run={checkedAll} />
+          {running ? (
+            <RunningText editor={editor} mindId={mindId} testId="card-progress" />
+          ) : (
+            checkedAll && <CheckedWhen run={checkedAll} />
+          )}
         </div>
       )}
       {((smallModel && rows.length > 0) ||
