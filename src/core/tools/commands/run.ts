@@ -40,6 +40,7 @@ export type CommandsCore = Pick<
   | "listTags"
   | "renameDocument"
   | "renameMind"
+  | "isExampleDocument"
   | "moveToFolder"
   | "restoreAssignment"
   | "createLibraryGroup"
@@ -333,7 +334,15 @@ function moveTo(command: "document.moveTo" | "mind.moveTo"): Checker {
   const kind = ASSISTANT_COMMANDS[command].on;
   return async (input, { core }) => {
     const name = needs(input.folder, "error.commands.noFolderName");
-    const documents = kind === "document" ? await documentsOf(core, input.ids) : [];
+    const asked = kind === "document" ? await documentsOf(core, input.ids) : [];
+    // The examples stay where they are: their Documents never join the User's Folders, and the
+    // User's own in the same selection still go where they asked (#1942).
+    const documents: Document[] = [];
+    for (const document of asked) {
+      if (!(await core.isExampleDocument(document.id))) documents.push(document);
+    }
+    if (kind === "document" && documents.length === 0 && asked.length > 0)
+      throw new InvalidInputError({ key: "error.commands.exampleDocument" });
     const minds = kind === "mind" ? await mindsOf(core, input.ids) : [];
     const moving = {
       documentIds: documents.map((each) => each.id),

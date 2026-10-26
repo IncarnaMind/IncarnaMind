@@ -21,6 +21,7 @@ import { useCapturing, useMeetings } from "../meetings";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
 import { organizeStateOf } from "../organizeOutcome";
+import { ownsATag, useOwnDocuments } from "../ownDocuments";
 import { rerankingModelStatus } from "../rerankStatus";
 import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
 import { useSettled } from "../settling";
@@ -318,14 +319,16 @@ function useStatuses(): Status[] {
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
-  const allDocuments = useAppStore((state) => state.documents);
+  // Organize never works on an example's Documents, so its counts are the User's own alone: an
+  // assignment an earlier version left against an example would otherwise progress for ever (#1942).
+  const ownDocuments = useOwnDocuments();
   const liveStates = useMemo(() => {
     const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
-    return allDocuments.map((doc) => {
+    return ownDocuments.map((doc) => {
       const item = held.get(doc.id);
       return { item, state: organizeStateOf(doc, item) };
     });
-  }, [allDocuments, library]);
+  }, [ownDocuments, library]);
   const organizing = organizes(library);
   const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();
@@ -397,6 +400,10 @@ function useStatuses(): Status[] {
           }
         }
       }
+      // Before a Document of the User's own carries a Tag, the Tags' own progress isn't shown
+      // (#1942). Everything the User can act on stays: a missing consent, a refused key, a rate
+      // limit, a plan's limit and a failure are problems where they happened, Tag or no Tag.
+      if (!ownsATag(state)) tagging = 0;
       return {
         processing,
         scansReading,
@@ -447,6 +454,8 @@ function useStatuses(): Status[] {
   const sandboxNoticeDismissed = useAppStore(
     (state) => state.settings?.device.sandboxNoticeDismissed === true,
   );
+  // The first Tag a Document of the User's own carries: until then, no model is asked for Tags.
+  const tagsShown = useAppStore((state) => ownsATag(state));
   const taggingWaits = counts.waitingForTagger > 0;
   const tagging = !organizesNew && counts.tagging > 0;
   const organizingNow = organizing && liveStates.some(({ state }) => state.run === "working");
@@ -472,10 +481,12 @@ function useStatuses(): Status[] {
   );
   const stoppedPlaces = useAppStore(
     useShallow((state) =>
-      stoppedDocumentPlaces(
-        state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
-        state.library,
-      ),
+      ownsATag(state)
+        ? stoppedDocumentPlaces(
+            state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
+            state.library,
+          )
+        : [],
     ),
   );
   const service = taggingService?.service.name;
@@ -781,7 +792,7 @@ function useStatuses(): Status[] {
             .catch((error: unknown) => useAppStore.getState().reportError(error)),
       },
     });
-  } else if (taggingWaits) {
+  } else if (tagsShown && taggingWaits) {
     statuses.push({
       testId: "tagging-waiting",
       tone: "waiting",

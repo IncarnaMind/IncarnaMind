@@ -9502,6 +9502,11 @@ export interface CoreApi {
   /** An example Mind and its Documents, if made (see `Examples`); the credit paper by default. */
   getExamples(group?: ExampleGroup): Promise<Examples>;
   /**
+   * Whether a Document is one of the examples' (see `Examples`): read with them,
+   * and left out of the User's own Folders, Tags and search (#1942).
+   */
+  isExampleDocument(documentId: string): Promise<boolean>;
+  /**
    * On a first run (no Mind yet, examples never offered before), makes the
    * examples, once. Returns them, or null when nothing was made.
    */
@@ -11031,6 +11036,7 @@ const methods: Record<CoreApiMethod, true> = {
   listConnectors: true,
   addConnector: true,
   getExamples: true,
+  isExampleDocument: true,
   offerExamples: true,
   createExamples: true,
   removeExamples: true,
