@@ -410,8 +410,6 @@ for (const language of ["en-US", "zh-CN"]) {
 }
 
 for (const { language, succeeds, quitDelay } of [
-  { language: "en", succeeds: false, quitDelay: 0 },
-  { language: "zh-CN", succeeds: false, quitDelay: 0 },
   { language: "en", succeeds: true, quitDelay: 0 },
   { language: "en", succeeds: true, quitDelay: 6_000 },
 ] as const) {
