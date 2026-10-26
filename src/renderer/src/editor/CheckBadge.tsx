@@ -474,7 +474,12 @@ function BadgePill({
     }
   }
   return (
-    <div ref={ref} className="check-badge" data-testid="check-badge">
+    <div
+      ref={ref}
+      className="check-badge"
+      data-testid="check-badge"
+      data-stable={badge.running || badge.checked !== null ? "" : undefined}
+    >
       <button
         ref={anchorRef}
         type="button"

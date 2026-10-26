@@ -173,6 +173,20 @@ describe("unreadDocumentsNote", () => {
     expect(note).not.toContain("F.pdf");
   });
 
+  test("leaves out a workbook read in part: the rest of it gives Passages", () => {
+    const note = unreadDocumentsNote([
+      {
+        ...scan("Budget 2026.xlsx"),
+        reason: "parts",
+        parts: { hiddenSheets: ["Q3 raw"], rowsCut: [], sheetsNotRead: [] },
+      },
+      scan("Scan.pdf"),
+    ]);
+
+    expect(note).toContain('"Scan.pdf" (a scan with no text)');
+    expect(note).not.toContain("Budget 2026.xlsx");
+  });
+
   test("says why each couldn't be read, and which pages", () => {
     const note = unreadDocumentsNote([
       { ...scan("Pages.pdf"), reason: "pages", pages: [3, 7] },

@@ -36,6 +36,7 @@ import {
   type UnitLabel,
   type UnitText,
 } from "../../shared/units";
+import { parseUnreadParts } from "../../shared/unreadFiles";
 import { silentLogger } from "../activityLog";
 import type { Logger } from "../adapters";
 import { cleanQuote } from "../answers/citations";
@@ -155,6 +156,7 @@ interface DocumentRow {
   status: string;
   failure_reason: string | null;
   failure_message: string | null;
+  unread_parts: string | null;
   folder_id: string | null;
   tagging_status: string;
   tagging_error_kind: string | null;
@@ -203,7 +205,7 @@ const toUnitText = (row: UnitRow): PageText => ({
 });
 
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
-  failure_reason, failure_message, folder_id, tagging_status, tagging_error_kind,
+  failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   creation_date, title, own_file, counted_as_evidence, not_cited, processing_version, file_mtime_ms,
   created_at, updated_at`;
@@ -529,7 +531,16 @@ export function createDocuments(options: DocumentsOptions) {
       [documentId],
     )?.mind_id ?? null;
 
+  // A damaged `unread_parts` is said once for each Document: a list reads every Document again
+  // and again, and the log would fill with the same line.
+  const loggedUnreadParts = new Set<string>();
   const toDocument = (row: DocumentRow): Document => {
+    const unreadParts = parseUnreadParts(row.unread_parts);
+    const unreadPartsUnknown = row.unread_parts !== null && unreadParts === null;
+    if (unreadPartsUnknown && !loggedUnreadParts.has(row.id)) {
+      loggedUnreadParts.add(row.id);
+      log.warn("documents.unreadPartsUnreadable", { documentId: row.id });
+    }
     const tagging = taggingOf(row.status, row.tagging_status);
     const status = statusOf(row);
     const failed = status === "failed";
@@ -554,6 +565,8 @@ export function createDocuments(options: DocumentsOptions) {
             ...(row.failure_reason === "pages-unread" && { pages: unreadPages(row) }),
           }
         : null,
+      unreadParts,
+      unreadPartsUnknown,
       folderId: row.folder_id,
       tags: tagsOfDocument(db, row.id),
       tagging,
@@ -951,7 +964,7 @@ export function createDocuments(options: DocumentsOptions) {
       if (result.outcome === "crashed") {
         db.run(
           `UPDATE documents SET status = 'failed', failure_reason = 'processing-error',
-             failure_message = ?, updated_at = ? WHERE id = ?`,
+             failure_message = ?, unread_parts = NULL, updated_at = ? WHERE id = ?`,
           [result.message, at, job.documentId],
         );
         return { status: "failed", replaced: true };
@@ -985,9 +998,11 @@ export function createDocuments(options: DocumentsOptions) {
           : result.outcome === "ready" && result.unread
             ? { reason: "pages-unread", message: unreadMessage(result.unread) }
             : null;
+      const parts =
+        result.outcome === "failed" || result.parts == null ? null : JSON.stringify(result.parts);
       db.run(
         `UPDATE documents SET status = ?, page_count = ?, failure_reason = ?, failure_message = ?,
-           processing_version = ?, embedding_model = ?,
+           unread_parts = ?, processing_version = ?, embedding_model = ?,
            embedding_dimensions = CASE WHEN ? THEN embedding_dimensions END,
            content_hash = ?, size = ?, file_status = 'available', creation_date = ?,
            title = ?, metadata_version = ?, updated_at = ?
@@ -999,6 +1014,7 @@ export function createDocuments(options: DocumentsOptions) {
             : BigInt(result.pageCount),
           failure?.reason ?? null,
           failure?.message ?? null,
+          parts,
           BigInt(PROCESSING_VERSION),
           unchanged ? row.embedding_model : status === "embedding" ? model.id : null,
           unchanged ? 1 : 0,
@@ -1460,6 +1476,14 @@ export function createDocuments(options: DocumentsOptions) {
                                      WHERE p.document_id = documents.id
                                        AND p.deleted_at IS NULL AND p.text GLOB ?))`,
       [now(), BigInt(HAN_CURRENT_SINCE), HAS_HAN, HAS_HAN],
+    );
+    // A workbook with no text to search can still have left sheets unread (#740): one read
+    // before that was recorded is read again, once, unlike a ready workbook above.
+    db.run(
+      `UPDATE documents SET status = 'queued', updated_at = ?
+       WHERE deleted_at IS NULL AND kind = 'xlsx' AND status = 'no-text'
+         AND processing_version < ?`,
+      [now(), BigInt(CURRENT_SINCE.xlsx)],
     );
     // PDFs with a page of little or no text, or one read from its picture by an older
     // reader, are processed again, so their scanned pages are read (#397): only when there is
@@ -2362,13 +2386,14 @@ export function createDocuments(options: DocumentsOptions) {
     names,
     ids,
 
-    /** The live Documents (of these, or all of them) that failed or have no text: the few `findUnreadDocuments` looks at. */
+    /** The live Documents (of these, or all of them) that failed, have no text or were read in part: the few `findUnreadDocuments` looks at. */
     unread(documentIds?: readonly string[]): Document[] {
       const { where, params } = filterWhere(documentIds ? { ids: documentIds } : {});
       return db
         .all<DocumentRow>(
           `SELECT ${COLUMNS} FROM documents
-           WHERE ${where} AND (status IN ('failed', 'no-text') OR failure_reason IS NOT NULL)
+           WHERE ${where} AND (status IN ('failed', 'no-text') OR failure_reason IS NOT NULL
+             OR unread_parts IS NOT NULL)
            ORDER BY created_at DESC, rowid DESC`,
           params,
         )
