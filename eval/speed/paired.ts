@@ -282,7 +282,16 @@ export function everydaySet(root: string, cacheDir: string): PairedGroup[] {
             error: result.error,
             duplicate: isWrittenTwice(result.reply),
             failures: result.failures.map((failure) => failure.kind),
-            text: result.reply,
+            // What the claims judge read and flagged, to tell an unmade claim from the judge's error.
+            text: [
+              result.reply,
+              ...result.calls.map((call) => `[call] ${call}`),
+              ...result.failures.flatMap((failure) =>
+                failure.kind === "unbacked"
+                  ? failure.sentences.map((each) => `[unbacked] ${each}`)
+                  : [],
+              ),
+            ].join("\n"),
           };
         },
       }),
