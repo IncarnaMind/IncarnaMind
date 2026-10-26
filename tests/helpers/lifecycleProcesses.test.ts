@@ -31,6 +31,7 @@ test("inventory and cleanup affect only the tagged run, preserving another live 
   const otherTag = `--incarnamind-smoke-copy=${randomUUID()}`;
   const first = await start(tag);
   const other = await start(otherTag);
+  const similar = await start(`${tag}-other`);
   expect(listedCopies(tag, process.execPath).map(({ pid }) => pid)).toEqual([first.pid]);
   expect(listedCopies(otherTag, process.execPath).map(({ pid }) => pid)).toEqual([other.pid]);
   const gone = once(first, "exit");
@@ -38,6 +39,7 @@ test("inventory and cleanup affect only the tagged run, preserving another live 
   await gone;
   expect(listedCopies(tag, process.execPath)).toEqual([]);
   expect(other.kill(0)).toBe(true);
+  expect(similar.kill(0)).toBe(true);
   expect(listedCopies(otherTag, process.execPath).map(({ pid }) => pid)).toEqual([other.pid]);
 });
 

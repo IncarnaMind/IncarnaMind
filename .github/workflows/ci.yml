@@ -58,7 +58,7 @@ jobs:
           elif [ "$EVENT" = pull_request ]; then
             files="$(git diff --name-only "$BASE...$HEAD")" || files=""
             echo "$files"
-            if [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/main/|src/shared/i18n/|e2e/|tests/main/|tests/helpers/home\.ts$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
+            if [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/main/|src/shared/i18n/|e2e/|tests/main/|tests/helpers/(home|lifecycleProcesses\.test)\.ts$|tests/fixtures/lifecycle-versions\.json$|scripts/check-lifecycle-packages\.mjs$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
               startup=false
             fi
             # Nothing listed (the diff failed, or is empty) runs everything.
@@ -95,12 +95,18 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           node node_modules/electron-vite/bin/electron-vite.js build --mode test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item e2e/lifecycleMain.cjs out/main/lifecycle.cjs
-          npx electron-builder --win --x64 --dir --publish never -c.extraMetadata.main=./out/main/lifecycle.cjs
-          if (-not (Test-Path dist/win-unpacked/resources/app.asar)) { throw "The packaged app has no app.asar." }
+          $versions = Get-Content tests/fixtures/lifecycle-versions.json | ConvertFrom-Json
+          npx electron-builder --win --x64 --dir --publish never -c.directories.output=dist/lifecycle-old -c.extraMetadata.main=./out/main/lifecycle.cjs "-c.extraMetadata.version=$($versions.old)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx electron-builder --win --x64 --dir --publish never -c.directories.output=dist/lifecycle-updated -c.extraMetadata.main=./out/main/lifecycle.cjs "-c.extraMetadata.version=$($versions.updated)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/check-lifecycle-packages.mjs dist/lifecycle-old/win-unpacked/resources/app.asar dist/lifecycle-updated/win-unpacked/resources/app.asar
       - name: Exercise the packaged startup and update lifecycle
         run: |
-          $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/win-unpacked/IncarnaMind.exe"
+          $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/lifecycle-old/win-unpacked/IncarnaMind.exe"
+          $env:INCARNAMIND_PACKAGED_UPDATED_APP = Join-Path $pwd "dist/lifecycle-updated/win-unpacked/IncarnaMind.exe"
           node node_modules/@playwright/test/cli.js test singleInstance.spec.ts startupProgress.spec.ts Lifecycle.spec.ts --workers=1 --retries=0
       - if: failure()
         uses: actions/upload-artifact@v7

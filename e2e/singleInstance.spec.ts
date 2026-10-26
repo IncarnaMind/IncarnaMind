@@ -14,6 +14,7 @@ import {
   freePort,
   inCopyWindow,
   killCopies,
+  prepareLifecycleApps,
   startLifecycleCopy,
   windowsOf,
 } from "./lifecycle";
@@ -416,6 +417,7 @@ for (const { language, succeeds, quitDelay } of [
   test(`an update ${succeeds ? "succeeds" : "fails after a second start"}, closes its owned core and reopens (${language}, quit delay ${quitDelay} ms)`, async () => {
     test.setTimeout(120_000);
     const home = await mkdtemp(join(tmpdir(), "incarnamind-update-"));
+    const apps = await prepareLifecycleApps(home);
     const events = join(home, "events.jsonl");
     const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
     const port = await freePort();
@@ -435,6 +437,7 @@ for (const { language, succeeds, quitDelay } of [
           INCARNAMIND_TEST_UPDATE_QUIT_DELAY: String(quitDelay),
           INCARNAMIND_TEST_UPDATE_FIRST: first ? "1" : "0",
           APPIMAGE: process.platform === "linux" ? require("electron") : "",
+          ...apps.env,
         },
       );
       return copy;

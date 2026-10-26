@@ -5,8 +5,14 @@ import { chromium, type ElectronApplication, expect, type Page } from "@playwrig
 import { isRecord } from "../src/core/errors";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 
-export function mainExecutable(): string {
-  const packaged = process.env.INCARNAMIND_PACKAGED_APP;
+export type { LifecycleApps } from "./lifecycleApps";
+export { prepareLifecycleApps } from "./lifecycleApps";
+
+type LifecycleEnvironment = Readonly<Record<string, string | undefined>>;
+const ownedExecutables = new Set<string>();
+
+export function mainExecutable(env: LifecycleEnvironment = process.env): string {
+  const packaged = env.INCARNAMIND_PACKAGED_APP;
   if (packaged === undefined) return require("electron") as unknown as string;
   if (!packaged.trim()) throw new Error("The packaged executable path is empty.");
   return resolve(packaged);
@@ -28,11 +34,18 @@ function mainPreloads(args: string[]): { preloads: string[]; remaining: string[]
   return { preloads, remaining };
 }
 
-export const mainArguments = (args: string[] = []): string[] => [
+export const mainArguments = (
+  args: string[] = [],
+  env: LifecycleEnvironment = process.env,
+): string[] => [
   ...KEYCHAIN_ARGS,
   "--no-sandbox",
-  ...(process.env.INCARNAMIND_PACKAGED_APP ? mainPreloads(args).remaining : args),
-  ...(process.env.INCARNAMIND_PACKAGED_APP ? [] : [resolve(__dirname, "..")]),
+  ...(env.INCARNAMIND_PACKAGED_APP || env.INCARNAMIND_TEST_APP_DIR
+    ? mainPreloads(args).remaining
+    : args),
+  ...(env.INCARNAMIND_PACKAGED_APP
+    ? []
+    : [env.INCARNAMIND_TEST_APP_DIR ?? resolve(__dirname, "..")]),
   ...APP_ARGS,
 ];
 
@@ -88,9 +101,13 @@ export function startLifecycleCopy(
   delete env.INCARNAMIND_CHATGPT_PROFILE;
   delete env.ELECTRON_RENDERER_URL;
   delete env.NODE_OPTIONS;
-  if (process.env.INCARNAMIND_PACKAGED_APP)
+  if (env.INCARNAMIND_PACKAGED_APP || env.INCARNAMIND_TEST_APP_DIR)
     env.INCARNAMIND_TEST_MAIN_PRELOADS = JSON.stringify(mainPreloads(args).preloads);
-  return spawn(mainExecutable(), mainArguments(args), { env, stdio: "ignore", detached: true });
+  const executable = mainExecutable(env);
+  ownedExecutables.add(executable);
+  if (env.INCARNAMIND_PACKAGED_UPDATED_APP)
+    ownedExecutables.add(resolve(env.INCARNAMIND_PACKAGED_UPDATED_APP));
+  return spawn(executable, mainArguments(args, env), { env, stdio: "ignore", detached: true });
 }
 
 export const freePort = (): Promise<number> =>
@@ -147,25 +164,39 @@ export interface ListedCopy {
   args: string;
 }
 
+const hasTag = (args: string, tag: string): boolean =>
+  args.split(/\s+/).some((arg) => arg === tag || arg === `"${tag}"` || arg === `'${tag}'`);
+
 const windowsInventory = `
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $tag = $env:INCARNAMIND_PROCESS_TAG
-$folder = $env:INCARNAMIND_PROCESS_FOLDER
+$folders = ConvertFrom-Json $env:INCARNAMIND_PROCESS_FOLDERS
 $rows = @(Get-CimInstance Win32_Process | Where-Object {
-  $_.ExecutablePath -and $_.CommandLine -and
-  $_.ExecutablePath.StartsWith($folder, [System.StringComparison]::OrdinalIgnoreCase) -and
-  $_.CommandLine.Contains($tag)
+  if (-not $_.ExecutablePath -or -not $_.CommandLine -or -not $_.CommandLine.Contains($tag)) { return $false }
+  foreach ($folder in $folders) {
+    if ($_.ExecutablePath.StartsWith($folder, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+  }
+  return $false
 } | ForEach-Object { @{ pid = [int]$_.ProcessId; args = [string]$_.CommandLine } })
 ConvertTo-Json -InputObject $rows -Compress
 `;
 
-export function listedCopies(tag: string, executable = mainExecutable()): ListedCopy[] {
+export function listedCopies(tag: string, executable?: string): ListedCopy[] {
   if (!tag || /\s/.test(tag))
     throw new Error("A lifecycle process tag must be one nonempty argument.");
-  const directory =
-    process.platform === "darwin" ? dirname(dirname(executable)) : dirname(executable);
-  const prefix = resolve(directory) + sep;
+  const executables = executable
+    ? [executable]
+    : [mainExecutable(), ...ownedExecutables, process.env.INCARNAMIND_PACKAGED_UPDATED_APP];
+  const prefixes = [
+    ...new Set(
+      executables.flatMap((file) => {
+        if (!file) return [];
+        const directory = process.platform === "darwin" ? dirname(dirname(file)) : dirname(file);
+        return [resolve(directory) + sep];
+      }),
+    ),
+  ];
   if (process.platform === "win32") {
     const output = execFileSync(
       "powershell.exe",
@@ -173,23 +204,26 @@ export function listedCopies(tag: string, executable = mainExecutable()): Listed
       {
         encoding: "utf8",
         windowsHide: true,
-        env: { ...process.env, INCARNAMIND_PROCESS_TAG: tag, INCARNAMIND_PROCESS_FOLDER: prefix },
+        env: {
+          ...process.env,
+          INCARNAMIND_PROCESS_TAG: tag,
+          INCARNAMIND_PROCESS_FOLDERS: JSON.stringify(prefixes),
+        },
       },
     );
     const rows: unknown = JSON.parse(output.replace(/^\uFEFF/, ""));
     if (!Array.isArray(rows))
       throw new Error("The Windows lifecycle process inventory is not a list.");
-    return rows.map((row) => {
+    return rows.flatMap((row) => {
       if (
         !isRecord(row) ||
         !Number.isSafeInteger(row.pid) ||
         typeof row.pid !== "number" ||
         row.pid <= 0 ||
-        typeof row.args !== "string" ||
-        !row.args.includes(tag)
+        typeof row.args !== "string"
       )
         throw new Error("The Windows lifecycle process inventory has an invalid row.");
-      return { pid: row.pid, args: row.args };
+      return hasTag(row.args, tag) ? [{ pid: row.pid, args: row.args }] : [];
     });
   }
   const uid = process.getuid?.();
@@ -200,7 +234,10 @@ export function listedCopies(tag: string, executable = mainExecutable()): Listed
   });
   return output.split("\n").flatMap((line) => {
     const [, owner, pid, args = ""] = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/) ?? [];
-    return pid && Number(owner) === uid && args.startsWith(prefix) && args.includes(tag)
+    return pid &&
+      Number(owner) === uid &&
+      prefixes.some((prefix) => args.startsWith(prefix)) &&
+      hasTag(args, tag)
       ? [{ pid: Number(pid), args }]
       : [];
   });
@@ -211,7 +248,7 @@ export const copiesWith = (tag: string, relaunching = false): number[] =>
     !args.includes("--type=") || (relaunching && args.includes("--type=relauncher")) ? [pid] : [],
   );
 
-export function killCopies(tag: string, executable = mainExecutable()): number[] {
+export function killCopies(tag: string, executable?: string): number[] {
   for (const { pid } of listedCopies(tag, executable)) {
     try {
       process.kill(pid, "SIGKILL");
