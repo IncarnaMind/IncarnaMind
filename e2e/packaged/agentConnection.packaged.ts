@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { agentSocketPath } from "../../src/core/agents/socket";
 import {
   cursorLaunch,
   cursorSettingsFromGuide,
@@ -19,16 +18,18 @@ test.setTimeout(3 * 60_000);
 for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
   test(`the packaged shim searches and checks Citations with ${protocol}, and refuses unpaired, paused and revoked access`, async () => {
     expect(existsSync(packagedExecutable)).toBe(true);
-    const home = await mkdtemp(join(tmpdir(), "incarnamind-agent-home-"));
-    const data = await mkdtemp(join(tmpdir(), "incarnamind-agent-data-"));
-    const sources = await mkdtemp(join(tmpdir(), "incarnamind-agent-sources-"));
+    const home = await mkdtemp(
+      join(process.platform === "win32" ? tmpdir() : "/tmp", "incarnamind-mcp-home-"),
+    );
+    const data = await mkdtemp(join(tmpdir(), "incarnamind-mcp-data-"));
+    const sources = await mkdtemp(join(tmpdir(), "incarnamind-mcp-sources-"));
     const file = join(sources, "Tides.md");
     await writeFile(file, "Spring tides happen at new moon and full moon.");
     const app = await launchPackaged(home, data, { testHooks: true });
     const connect = protocol === "2026-07-28" ? modernAgentClient : legacyAgentClient;
     try {
       const window = await app.firstWindow();
-      await setWindowSize(app, window, 1600, 900);
+      await setWindowSize(app, window, 900, 700);
       await dismissChatSetup(window);
       await acceptPlainTextKeys(window);
       const core = await coreOf(window);
@@ -39,7 +40,7 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
       const folder = await core.evaluate((bridge) =>
         bridge.createLibraryGroup({ name: "Coast", description: "Tides" }),
       );
-      await core.evaluate(
+      const added = await core.evaluate(
         (bridge, input) => bridge.addDocuments([input.file], { groupId: input.folder }),
         { file, folder: folder.id },
       );
@@ -47,8 +48,10 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
         .poll(() =>
           core.evaluate(
             async (bridge, id) =>
-              (await bridge.listDocuments({ folderId: id })).map((document) => document.status),
-            folder.id,
+              (await bridge.listDocuments())
+                .filter((document) => id.includes(document.id))
+                .map((document) => document.status),
+            added.added,
           ),
         )
         .toEqual(["ready"]);
@@ -57,7 +60,7 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
       );
       const hiddenFile = join(sources, "Private-tides.md");
       await writeFile(hiddenFile, "Spring tides have the private archive marker rosewood.");
-      await core.evaluate(
+      const hiddenAdded = await core.evaluate(
         (bridge, input) => bridge.addDocuments([input.file], { groupId: input.folder }),
         { file: hiddenFile, folder: hiddenFolder.id },
       );
@@ -65,8 +68,10 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
         .poll(() =>
           core.evaluate(
             async (bridge, id) =>
-              (await bridge.listDocuments({ folderId: id })).map((document) => document.status),
-            hiddenFolder.id,
+              (await bridge.listDocuments())
+                .filter((document) => id.includes(document.id))
+                .map((document) => document.status),
+            hiddenAdded.added,
           ),
         )
         .toEqual(["ready"]);
@@ -84,7 +89,7 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
       );
       expect(await realpath(launch.command)).toBe(await realpath(packagedExecutable));
       if (process.platform !== "win32")
-        expect((await stat(agentSocketPath(data))).mode & 0o777).toBe(0o600);
+        expect((await stat(launch.env.INCARNAMIND_AGENT_SOCKET ?? "")).mode & 0o777).toBe(0o600);
       const settings = join(home, ".cursor", "mcp.json");
       await mkdir(join(home, ".cursor"), { recursive: true });
       await writeFile(settings, await cursorSettingsFromGuide(launch), { mode: 0o600 });

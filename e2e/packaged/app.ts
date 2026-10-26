@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { cp, readdir, readFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, _electron as electron } from "@playwright/test";
 import { homeEnv } from "../../tests/helpers/home";
@@ -20,6 +20,8 @@ export async function launchPackaged(
   data: string,
   { speech, testHooks }: { speech?: string; testHooks?: boolean } = {},
 ): Promise<ElectronApplication> {
+  const temp = join(home, "Temp");
+  await mkdir(temp, { recursive: true });
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && !/KEY|TOKEN|SECRET|PASSWORD/.test(name)) env[name] = value;
@@ -42,6 +44,9 @@ export async function launchPackaged(
     env: {
       ...env,
       ...homeEnv(home),
+      TMPDIR: temp,
+      TMP: temp,
+      TEMP: temp,
       INCARNAMIND_DATA_DIR: data,
       ...(testHooks ? { INCARNAMIND_TEST_HOOKS: "1" } : {}),
     },
