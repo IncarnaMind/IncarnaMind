@@ -41,6 +41,14 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
     expect(writesThenCites({ catalogId: null, modelId: "claude-haiku-5-5" })).toBe(false);
   });
 
+  test("an override decides over the list, and one that says nothing leaves it to the list", () => {
+    const haiku = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
+    const other = { catalogId: null, modelId: "local-model" };
+    expect(writesThenCites(haiku, { writesThenCites: () => false })).toBe(false);
+    expect(writesThenCites(haiku, { writesThenCites: () => undefined })).toBe(true);
+    expect(writesThenCites(other, { writesThenCites: () => true })).toBe(true);
+  });
+
   test("a model not listed is sent the citing lines it was sent before, word for word", async () => {
     expect(await systemFor(undefined)).toContain(`\n${CITING_FIRST}\n`);
   });
