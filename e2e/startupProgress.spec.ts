@@ -30,6 +30,7 @@ test.beforeEach(async () => {
   port = await freePort();
 });
 test.afterEach(async () => {
+  const pids = copiesWith(tag, true);
   const path = test.info().outputPath("startup-events.json");
   await writeFile(path, JSON.stringify(await events(), null, 2));
   await test.info().attach("startup-events", { path, contentType: "application/json" });
@@ -41,7 +42,7 @@ test.afterEach(async () => {
         at: new Date().toISOString(),
         port,
         owner: (await ownerState()) ?? null,
-        pids: copiesWith(tag, true),
+        pids,
       },
       null,
       2,

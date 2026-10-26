@@ -179,7 +179,7 @@ $view = $null
 try {
   $share = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
   $stream = [System.IO.File]::Open($file, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, $share)
-  $mapped = [System.IO.MemoryMappedFiles.MemoryMappedFile]::CreateFromFile($stream, $null, [long]0, [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite, [System.IO.HandleInheritability]::None, $true)
+  $mapped = [System.IO.MemoryMappedFiles.MemoryMappedFile]::CreateFromFile($stream, [System.Management.Automation.Language.NullString]::Value, [long]0, [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite, [System.IO.HandleInheritability]::None, $true)
   $view = $mapped.CreateViewAccessor([long]0, [long]0, [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite)
   $null = $view.ReadByte(0)
   [Console]::Out.WriteLine((@{ event = 'mapped'; pid = $PID; file = $file; length = $stream.Length; capacity = $view.Capacity } | ConvertTo-Json -Compress))

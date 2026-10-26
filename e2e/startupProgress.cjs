@@ -42,6 +42,25 @@ dialog.showErrorBox = (title, content) =>
 app.on("browser-window-created", (_event, window) => {
   const windowId = window.id;
   record("window-created", { windowId });
+  setImmediate(() => {
+    if (window.isDestroyed()) return;
+    record("window-main-yield", {
+      windowId,
+      loading: window.webContents.isLoading(),
+      rendererPid: window.webContents.getOSProcessId(),
+      url: window.webContents.getURL(),
+    });
+  });
+  for (const event of ["dom-ready", "did-stop-loading"])
+    window.webContents.on(event, () => record(event, { windowId }));
+  window.webContents.on("preload-error", (_event, preloadPath, error) =>
+    record("window-preload-error", { windowId, preloadPath, message: error.message }),
+  );
+  window.webContents.on("render-process-gone", (_event, details) =>
+    record("window-renderer-gone", { windowId, ...details }),
+  );
+  for (const event of ["unresponsive", "responsive"])
+    window.on(event, () => record(event, { windowId }));
   window.webContents.on("did-start-loading", () =>
     record("window-loading", { windowId, url: window.webContents.getURL() }),
   );
