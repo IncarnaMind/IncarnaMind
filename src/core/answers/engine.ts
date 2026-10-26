@@ -1238,6 +1238,25 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         const query = rewrite.value;
         searchedFor = query;
         signal.throwIfAborted();
+        yield { type: "phase", phase: "searching" };
+        const searches: { id: string; result: Promise<SearchResultForModel> }[] = [];
+        function* search(id: string, each: string): Generator<AnswerEngineEvent> {
+          yield {
+            type: "tool-call-started",
+            id,
+            provider: DOCUMENTS_PROVIDER,
+            tool: DOCUMENT_TOOLS.search,
+            input: { query: each },
+          };
+          const result = request.documents.searchDocuments(each, signal, {
+            parameters: ONE_SEARCH_PARAMETERS,
+          });
+          // Awaited in order below; one that fails before then is told there.
+          result.catch(() => undefined);
+          searches.push({ id, result });
+        }
+        // The Question's own search runs while the quick model translates it.
+        yield* search("question-search", query);
         const language = searchLanguage(
           request.question,
           request.documents.documentLanguages ?? [],
@@ -1250,24 +1269,11 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         if (translation?.usage) yield { type: "usage", usage: translation.usage };
         const translated = translation?.value ?? null;
         signal.throwIfAborted();
-        const searches: [string, string][] = [
-          ["question-search", query],
-          ...(translated ? [["question-search-translated", translated] as [string, string]] : []),
-        ];
-        yield { type: "phase", phase: "searching" };
+        if (translated) yield* search("question-search-translated", translated);
         const results: SearchResultForModel[] = [];
-        for (const [id, each] of searches) {
-          yield {
-            type: "tool-call-started",
-            id,
-            provider: DOCUMENTS_PROVIDER,
-            tool: DOCUMENT_TOOLS.search,
-            input: { query: each },
-          };
+        for (const { id, result: pending } of searches) {
           try {
-            const result = await request.documents.searchDocuments(each, signal, {
-              parameters: ONE_SEARCH_PARAMETERS,
-            });
+            const result = await pending;
             for (const source of result.thirdParty ?? []) {
               if (read.has(source)) continue;
               read.add(source);
