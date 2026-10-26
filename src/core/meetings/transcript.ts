@@ -1388,15 +1388,20 @@ export function createTranscripts(options: TranscriptsOptions) {
       return cue ? { text: cue.text, speaker: cue.speaker } : null;
     },
 
-    /** The Meeting's Transcript, as the window shows it. `audioKept`: its audio is still on this computer. */
     /** Removes the files of Transcripts deleted permanently: the App's own, never a .vtt the User added. */
     dropPurged(): void {
       for (const path of options.purgedPaths?.() ?? []) {
-        rmSync(path, { force: true });
-        rmSync(path.replace(/\.vtt$/, ".json"), { force: true });
+        try {
+          rmSync(path, { force: true });
+          rmSync(path.replace(/\.vtt$/, ".json"), { force: true });
+        } catch (error) {
+          // Left for the next start: a failed cleanup must not stop the core from opening.
+          log.warn("transcript.purgeFailed", { path, message: messageOf(error) });
+        }
       }
     },
 
+    /** The Meeting's Transcript, as the window shows it. `audioKept`: its audio is still on this computer. */
     of(meetingId: string, audioKept: boolean): MeetingTranscript {
       const state = load(meetingId);
       const status = model.status();

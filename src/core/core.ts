@@ -4704,6 +4704,7 @@ export function createCore(adapters: CoreAdapters): Core {
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
     setTranscriptionKey: (input) => cloudTranscription.setKey(input),
+    getTranscriptionModel: async () => transcriptionModel?.status() ?? null,
     getTranscriptionSpeed: async () => {
       const speed = settings.readDeviceValue(TRANSCRIPTION_SPEED);
       const ratio =

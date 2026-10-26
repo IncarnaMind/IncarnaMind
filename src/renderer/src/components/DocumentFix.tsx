@@ -6,7 +6,7 @@ import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { ViewerMessage } from "../viewer/ViewerMessage";
 import { quietButtonClass } from "./library/LibrarySection";
-import { LineAction, type ProblemAction } from "./ProblemLine";
+import type { ProblemAction } from "./ProblemLine";
 
 /**
  * A Document that needs attention, in one place (#763): why in plain words,
@@ -75,15 +75,8 @@ export function DocumentFix({
   }
   if (view) {
     return (
-      <ViewerMessage tone="error" title={message || undefined}>
+      <ViewerMessage tone="error" action={actions[0]} also={actions[1]}>
         <span title={message || undefined}>{t(fix.reason)}</span>
-        {actions.length > 0 && (
-          <span className="inline-flex flex-wrap items-center gap-x-2">
-            {actions.map((action) => (
-              <LineAction key={action.testId} action={action} />
-            ))}
-          </span>
-        )}
       </ViewerMessage>
     );
   }

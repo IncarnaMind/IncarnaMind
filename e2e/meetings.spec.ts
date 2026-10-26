@@ -114,11 +114,10 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
   await expect(notice).toContainText(
     "Tell everyone you’re recording: in many places it’s the law.",
   );
-  // The first recording says the speech model's size, and its one action downloads and starts.
-  await expect(notice.getByTestId("meeting-notice-model-size")).toHaveText(
-    "The speech model is about 1 GB.",
-  );
-  await expect(notice.getByTestId("meeting-notice-start")).toHaveText("Download and start");
+  // The fake engine's model is already here, so the first recording doesn't say it downloads:
+  // "Download and start" is only while the model is absent (recordMeeting.spec covers that).
+  await expect(notice.getByTestId("meeting-notice-model-size")).toHaveCount(0);
+  await expect(notice.getByTestId("meeting-notice-start")).toHaveText("Start recording");
   await shot(window, "meeting-notice-en");
   await window.evaluate(async () =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
@@ -128,8 +127,8 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
   const zhNotice = await notice.locator("#meeting-notice-body p").first().textContent();
   expect(zhNotice).toContain("会议中的所有人。音频只存在");
   expect(zhNotice).not.toMatch(/[。：] /);
-  await expect(notice.getByTestId("meeting-notice-model-size")).toHaveText("语音模型约 1 GB。");
-  await expect(notice.getByTestId("meeting-notice-start")).toHaveText("下载并开始");
+  await expect(notice.getByTestId("meeting-notice-model-size")).toHaveCount(0);
+  await expect(notice.getByTestId("meeting-notice-start")).toHaveText("开始录制");
   await window.evaluate(async () =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
       user: { language: "en" },

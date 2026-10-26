@@ -84,6 +84,42 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the first Record states the speech model's size and offers Download and start only while the model isn't here (${language})`, async () => {
+    const absent = { baseUrl: "http://127.0.0.1:9/", files: [] };
+    const { app, window } = await launchApp(dataDir, {
+      modelDownloads: {
+        source: { baseUrl: "http://127.0.0.1:9/", files: [] },
+        copies: {},
+        speech: {
+          model: {
+            baseUrl: "http://127.0.0.1:9/",
+            files: [{ path: "model.onnx", size: 10, sha256: "0".repeat(64) }],
+          },
+          vad: absent,
+        },
+      },
+    });
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    await pointAndClick(window, window.getByTestId("plus-menu"));
+    await pointAndClick(window, window.getByTestId("plus-record-meeting"));
+    await pointAndClick(window, window.getByTestId("meeting-start-record"));
+    const notice = window.getByTestId("meeting-notice");
+    await expect(notice).toBeVisible();
+    await expect(notice.getByTestId("meeting-notice-model-size")).toHaveText(
+      language === "en" ? "The speech model is about 1 GB." : "语音模型约 1 GB。",
+    );
+    await expect(notice.getByTestId("meeting-notice-start")).toHaveText(
+      language === "en" ? "Download and start" : "下载并开始",
+    );
+    // Cancelled: nothing is downloaded or recorded.
+    await window.keyboard.press("Escape");
+    await expect(notice).toBeHidden();
+    await app.close();
+  });
+}
+
 test("once the recording notice is read, Record records in one action, with the cursor in the notes", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);

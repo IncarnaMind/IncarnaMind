@@ -15,19 +15,19 @@ export function ViewerMessage({
   testId,
   tone = "muted",
   action,
-  title,
+  also,
 }: {
   children: ReactNode;
   testId?: string;
   tone?: "muted" | "error";
   action?: ProblemAction | undefined;
-  /** The reader's own message, on hover: the technical words behind a plain line. */
-  title?: string | undefined;
+  /** A second choice, after the first, as ProblemLine's. */
+  also?: ProblemAction | undefined;
 }) {
   if (tone === "error") {
     return (
       <div data-testid={testId} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <ProblemLine testId="viewer-problem" action={action} title={title}>
+        <ProblemLine testId="viewer-problem" action={action} also={also}>
           {children}
         </ProblemLine>
       </div>

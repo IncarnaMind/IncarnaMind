@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
@@ -545,6 +545,32 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
     // IncarnaMind's own Transcript goes; the .vtt the User added stays theirs.
     expect(existsSync(ownFile)).toBe(false);
     expect(existsSync(userFile)).toBe(true);
+  });
+
+  test("a Transcript's file that can't be removed is logged, not thrown, and the core keeps working (#763)", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(9 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    if (!saved.documentId) throw new Error("The Transcript has no Document.");
+    await core.deleteDocuments([saved.documentId]);
+
+    const folder = join(dataDir, "Transcripts");
+    const file = join(folder, `${meeting.id}.vtt`);
+    // A folder that can't be written to: removing the file fails with EACCES, and must not throw.
+    chmodSync(folder, 0o500);
+    try {
+      await expect(
+        core.deletePermanently([{ kind: "document", id: saved.documentId }]),
+      ).resolves.toBeUndefined();
+    } finally {
+      chmodSync(folder, 0o700);
+    }
+    expect(existsSync(file)).toBe(true);
   });
 
   test("Stop says the Transcript is saved only once its finished text is read, so the notes are filled from it (#763)", async () => {

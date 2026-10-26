@@ -10446,6 +10446,12 @@ export interface CoreApi {
    */
   getTranscriptionSpeed(): Promise<{ keepsUp: boolean | null }>;
   /**
+   * The speech-to-text model on this computer and its download, or null where this copy can't
+   * transcribe. The first Record says its size and offers "Download and start" only while it
+   * isn't here (#763).
+   */
+  getTranscriptionModel(): Promise<TranscriptionModelStatus | null>;
+  /**
    * Tries the Meeting's Transcript again after a problem (`MeetingTranscript.problem`):
    * downloads or starts the speech-to-text model, or saves the WebVTT file again.
    */
@@ -11061,6 +11067,7 @@ const methods: Record<CoreApiMethod, true> = {
   setTranscriptionKey: true,
   removeTranscriptionKey: true,
   getTranscriptionSpeed: true,
+  getTranscriptionModel: true,
   retryTranscript: true,
   fillMeetingNotes: true,
   undoMeetingFill: true,
