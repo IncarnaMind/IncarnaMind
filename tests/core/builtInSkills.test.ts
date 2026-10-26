@@ -173,7 +173,7 @@ describe("The built-in Skills", () => {
         "The claim",
         "What the Documents show",
         "Why it is a red flag",
-        "A red flag without both Citations is not written",
+        "A red flag always cites the CIM's claim",
         "unsupported",
       ],
     },

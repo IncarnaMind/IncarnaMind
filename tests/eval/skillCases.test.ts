@@ -22,6 +22,22 @@ describe("The finance and law Skills' case table (#1938)", () => {
     }
   });
 
+  test("the covenant conclusion is read as met, never as not met", () => {
+    const conclusion = (id: string) => {
+      const one = CASES.find((each) => each.id === id);
+      if (!one) throw new Error(`No ${id} case.`);
+      const fact = one.facts.at(-1);
+      if (!fact) throw new Error(`No conclusion fact for ${id}.`);
+      return fact;
+    };
+    const holds = (id: string, text: string) =>
+      conclusion(id).some((pattern) => pattern.test(text));
+    expect(holds("covenant-summary-en", "The covenant was met.")).toBe(true);
+    expect(holds("covenant-summary-en", "The covenant was not met.")).toBe(false);
+    expect(holds("covenant-summary-zh", "该项约定已满足。")).toBe(true);
+    expect(holds("covenant-summary-zh", "该项约定未满足。")).toBe(false);
+  });
+
   test("every case's invented Documents exist, say they are fictional, and name their licence", () => {
     for (const one of CASES) {
       expect(one.documents.length, one.id).toBeGreaterThan(0);

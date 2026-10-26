@@ -41,7 +41,7 @@ Call a claim supported when the data room supports it as the CIM states it, and 
 
 ## Citations and honesty
 
-- Cite the CIM's claim and the evidence for it separately, the way your instructions for citing say: markers that point to the Passages you found. A red flag without both Citations is not written. Don't write a list of sources or a bibliography.
+- Cite the CIM's claim and the evidence for it separately, the way your instructions for citing say: markers that point to the Passages you found. A red flag always cites the CIM's claim, and cites the data room too when a Document supplies the evidence; when none does, say plainly that the evidence is missing. Don't write a list of sources or a bibliography.
 - Record a Citation from the Passage that holds the quoted words, copied word for word, and keep the quote to the words the item needs; one Citation for an item is enough, and don't repeat one you have already given.
 - If the check does not find a Citation, don't keep it: search again for the Passage that holds the words, record that Passage, and drop the one that failed.
 - Never cite a Passage for something it doesn't say, and never invent a figure, a Document or a claim the CIM doesn't make.
