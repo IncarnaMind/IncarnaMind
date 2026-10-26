@@ -9302,6 +9302,24 @@
       overflow: visible;
     }
   }
+  /* One chart of a stack: series of different units are never on one scale (#1392). */
+  .chart-panel {
+    position: relative;
+    margin: 0;
+  }
+  .chart-panel + .chart-panel {
+    margin-top: 16px;
+  }
+  .chart-frame {
+    position: relative;
+  }
+  .chart-unit {
+    margin-bottom: 2px;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 600;
+    color: var(--color-ink-meta);
+  }
   /* The values lie over the drawing; only they take the pointer. */
   .chart-marks {
     position: absolute;
