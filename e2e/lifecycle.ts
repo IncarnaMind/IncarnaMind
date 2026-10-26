@@ -122,10 +122,13 @@ export const freePort = (): Promise<number> =>
     });
   });
 
-/** Zero while the copy has not opened its DevTools listener. */
+/** Zero when DevTools is unreachable; a stopped listener must not block observing other copies. */
 export async function windowsOf(port: number): Promise<number> {
+  const signal = AbortSignal.timeout(1_000);
   try {
-    const targets: unknown = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+    const targets: unknown = await (
+      await fetch(`http://127.0.0.1:${port}/json/list`, { signal })
+    ).json();
     if (!Array.isArray(targets)) throw new Error("The copy returned no DevTools targets.");
     return targets.filter(
       (each) =>
@@ -135,6 +138,7 @@ export async function windowsOf(port: number): Promise<number> {
         each.url.startsWith("file://"),
     ).length;
   } catch (error) {
+    if (signal.aborted) return 0;
     if (error instanceof TypeError && error.message === "fetch failed") return 0;
     throw error;
   }

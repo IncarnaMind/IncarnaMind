@@ -1,11 +1,12 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
+import { watch } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
 import { isRecord } from "../../src/core/errors";
 import { identity } from "../../src/main/instanceFiles";
 import { heldByAnotherCopy } from "../../src/main/instanceLock";
@@ -68,35 +69,121 @@ function start(folder: string, mode = "owner", wait = 10000, recoveryId?: string
   children.push(child);
   const messages: Record<string, unknown>[] = [];
   const errors: string[] = [];
+  const waiters = new Set<{
+    kind: string;
+    resolve(message: Record<string, unknown>): void;
+    reject(error: Error): void;
+  }>();
+  const completion = Promise.withResolvers<void>();
+  let failure: Error | null = null;
+  let stdoutEnded = false;
+  let closed = false;
   let pending = "";
+  const absent = (kind: string) =>
+    new Error(
+      `The ${mode} child ${closed ? "closed" : "ended stdout"} without reporting “${kind}” (code ${child.exitCode}, signal ${child.signalCode}). Received: ${messages.map((row) => row.kind).join(", ")}. ${errors.join("")}`,
+    );
+  const rejectMissing = () => {
+    for (const waiter of waiters) waiter.reject(failure ?? absent(waiter.kind));
+    waiters.clear();
+  };
+  const fail = (error: unknown) => {
+    failure ??= error instanceof Error ? error : new Error(String(error));
+    rejectMissing();
+  };
+  const receive = (line: string) => {
+    if (!line.trim()) return;
+    try {
+      const value: unknown = JSON.parse(line);
+      if (!isRecord(value)) throw new Error("The child reported a non-object state.");
+      messages.push(value);
+      for (const waiter of waiters) {
+        if (waiter.kind !== value.kind) continue;
+        waiters.delete(waiter);
+        waiter.resolve(value);
+      }
+    } catch (error) {
+      fail(error);
+    }
+  };
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => {
     pending += chunk;
     const lines = pending.split("\n");
     pending = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line) continue;
-      const value: unknown = JSON.parse(line);
-      if (isRecord(value)) messages.push(value);
-    }
+    for (const line of lines) receive(line);
   });
+  child.stdout.on("end", () => {
+    receive(pending);
+    pending = "";
+    stdoutEnded = true;
+    rejectMissing();
+  });
+  child.stdout.on("error", fail);
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => errors.push(chunk));
+  child.stderr.on("error", fail);
   child.stderr.pipe(process.stderr);
+  child.on("error", fail);
+  child.on("close", () => {
+    closed = true;
+    rejectMissing();
+    completion.resolve();
+  });
   return {
     child,
     errors,
     messages,
-    async message(kind: string) {
-      await vi.waitFor(() => expect(messages.some((row) => row.kind === kind)).toBe(true));
-      return messages.find((row) => row.kind === kind);
+    message(kind: string): Promise<Record<string, unknown>> {
+      if (failure) return Promise.reject(failure);
+      const received = messages.find((row) => row.kind === kind);
+      if (received) return Promise.resolve(received);
+      if (stdoutEnded || closed) return Promise.reject(absent(kind));
+      return new Promise((resolve, reject) => waiters.add({ kind, resolve, reject }));
     },
     async done() {
-      if (child.exitCode === null && child.signalCode === null) await once(child, "exit");
+      await completion.promise;
+      if (failure) throw failure;
       return child.exitCode;
     },
   };
 }
+
+async function waitingStart(folder: string) {
+  const requests = join(folder, "instance-requests");
+  const request = Promise.withResolvers<void>();
+  const inspect = () => {
+    void readdir(requests).then((names) => {
+      if (names.some((name) => name.endsWith(".request.json"))) request.resolve();
+    }, request.reject);
+  };
+  const watcher = watch(requests, inspect);
+  watcher.on("error", request.reject);
+  try {
+    const next = start(folder, "take");
+    inspect();
+    await Promise.race([
+      request.promise,
+      next.done().then(() => {
+        throw new Error(
+          `The waiting child closed before publishing its request: ${JSON.stringify(next.messages)}. ${next.errors.join("")}`,
+        );
+      }),
+    ]);
+    return next;
+  } finally {
+    watcher.close();
+  }
+}
+
+test("a missing child state rejects after completion while reported states stay available", async () => {
+  const copy = start(await tempFolder(), "take");
+  const missing = expect(copy.message("received")).rejects.toThrow("without reporting “received”");
+  expect(await copy.done()).toBe(0);
+  await missing;
+  expect(await copy.message("owner")).toMatchObject({ kind: "owner" });
+  await expect(copy.message("received")).rejects.toThrow("closed without reporting “received”");
+});
 
 test("a live ready owner receives the second start's arguments and remains the only data owner", async () => {
   const folder = await tempFolder();
@@ -132,11 +219,10 @@ test("a ready owner receives a second start even when the file-watch event is lo
   const folder = await tempFolder();
   const owner = start(folder, "missed-watch");
   await owner.message("owner");
-  await vi.waitFor(async () =>
-    expect(JSON.parse(await readFile(join(folder, "instance-info.json"), "utf8"))).toMatchObject({
-      phase: "ready",
-    }),
-  );
+  await owner.message("ready");
+  expect(JSON.parse(await readFile(join(folder, "instance-info.json"), "utf8"))).toMatchObject({
+    phase: "ready",
+  });
   const next = start(folder, "take", 2000);
   expect(await next.done()).toBe(0);
   expect(next.messages).toContainEqual({ kind: "forwarded" });
@@ -149,14 +235,7 @@ test("a start during initialization waits for the owner's ready state before for
   const folder = await tempFolder();
   const owner = start(folder, "starting");
   await owner.message("owner");
-  const next = start(folder, "take");
-  await vi.waitFor(async () =>
-    expect(
-      (await readdir(join(folder, "instance-requests"))).some((name) =>
-        name.endsWith(".request.json"),
-      ),
-    ).toBe(true),
-  );
+  const next = await waitingStart(folder);
   expect(next.child.exitCode).toBeNull();
   expect(owner.messages.some((message) => message.kind === "received")).toBe(false);
   owner.child.stdin.write("ready\n");
@@ -170,14 +249,7 @@ test("a quitting owner keeps SQLite until its actual exit, then the waiting star
   await owner.message("owner");
   owner.child.stdin.write("quitting\n");
   await owner.message("quitting");
-  const next = start(folder, "take");
-  await vi.waitFor(async () =>
-    expect(
-      (await readdir(join(folder, "instance-requests"))).some((name) =>
-        name.endsWith(".request.json"),
-      ),
-    ).toBe(true),
-  );
+  const next = await waitingStart(folder);
   expect(next.child.exitCode).toBeNull();
   expect(
     heldByAnotherCopy(folder, (what, error) => {
@@ -195,6 +267,7 @@ test("a failed state-file write cannot interrupt quitting or release the data ga
   const folder = await tempFolder();
   const owner = start(folder);
   await owner.message("owner");
+  await owner.message("ready");
   const file = join(folder, "instance-info.json");
   await rm(file);
   await mkdir(file);
@@ -206,7 +279,7 @@ test("a failed state-file write cannot interrupt quitting or release the data ga
       throw new Error(what, { cause: error });
     }),
   ).toBe(true);
-  await vi.waitFor(() => expect(owner.errors.join("")).toContain("app.instanceStateFailed"));
+  expect(await owner.message("reported")).toMatchObject({ what: "app.instanceStateFailed" });
 });
 
 test.each(["pid", "startedAt"])(
@@ -215,6 +288,7 @@ test.each(["pid", "startedAt"])(
     const folder = await tempFolder();
     const owner = start(folder);
     await owner.message("owner");
+    await owner.message("ready");
     const file = join(folder, "instance-info.json");
     const info: unknown = JSON.parse(await readFile(file, "utf8"));
     if (!isRecord(info)) throw new Error("The owner did not write its identity.");
@@ -281,7 +355,7 @@ test("corrupt pending update metadata cannot block the real data-folder owner", 
       throw new Error(what, { cause: error });
     }),
   ).toBe(true);
-  expect(owner.errors.join("")).toContain("app.updateHandoffInvalid");
+  expect(await owner.message("reported")).toMatchObject({ what: "app.updateHandoffInvalid" });
   expect(await readFile(join(folder, "instance-update.json"), "utf8")).toBe("{broken");
 });
 
@@ -296,8 +370,10 @@ test("an unreadable update sidecar cannot block a writable SQLite data folder", 
       throw new Error(what, { cause: error });
     }),
   ).toBe(true);
-  expect(owner.errors.join("")).toContain("app.updateHandoffReadFailed");
-  expect(owner.errors.join("")).toContain("EACCES");
+  expect(await owner.message("reported")).toMatchObject({
+    what: "app.updateHandoffReadFailed",
+    code: "EACCES",
+  });
 });
 
 test("a second start waits for the scheduled failed-install recovery after the original owner exits", async () => {
