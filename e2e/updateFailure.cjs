@@ -58,9 +58,10 @@ record("start", {
 });
 app.on("browser-window-created", (_event, window) => {
   record("window-created");
-  window.webContents.on("did-finish-load", () =>
-    record("window-loaded", { url: window.webContents.getURL() }),
-  );
+  window.webContents.on("did-finish-load", () => {
+    window.setContentSize(1280, 660);
+    record("window-loaded", { url: window.webContents.getURL() });
+  });
 });
 autoUpdater.checkForUpdates = async () => {
   if (!first) return null;
