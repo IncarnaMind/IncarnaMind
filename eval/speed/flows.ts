@@ -18,7 +18,7 @@ export type Language = "en" | "zh-CN";
 export interface FlowContext {
   core: Core;
   language: Language;
-  /** The sample reports. */
+  /** The mixed sample set: the generated PDFs in data/ and the readable Documents in data/real/. */
   documents: ReadonlyMap<string, Document>;
 }
 

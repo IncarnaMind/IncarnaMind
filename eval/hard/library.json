@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The hard tier's library (eval/hard/README.md): public Documents across domains, fetched at evaluation time into the evaluation's cache and checked against their SHA-256; never committed. Each source's terms allow downloading for an evaluation.",
+  "description": "The hard tier's library (eval/hard/README.md): public Documents across domains, fetched at evaluation time into the evaluation's cache and checked against their SHA-256; never committed, except the six real Documents in data/real/ that this repository may redistribute. Each source's terms allow downloading for an evaluation.",
   "sources": {
     "repository-samples": {
       "name": "The gating set's sample PDFs, in this repository (data/), each a fictional document made for it",
@@ -15,6 +15,13 @@
       "terms": "eval/retrieval/fixtures/ATTRIBUTION.md",
       "permission": "The article text is © Wikipedia contributors and is licensed under Creative Commons Attribution-ShareAlike 4.0.",
       "checked": "2026-10-10"
+    },
+    "repository-real": {
+      "name": "Real Documents in this repository (data/real/), each under a licence that allows redistribution",
+      "licence": "repository",
+      "terms": "data/README.md",
+      "permission": "Each file's source, its licence and the day it was read, the basis in the licence's or the statute's own words, and its SHA-256 are recorded in data/README.md: CC BY 4.0, CC BY 3.0 IGO, the Open Government Licence v3.0, 17 U.S.C. 105 and article 5 of the PRC Copyright Law. All allow redistribution in this public repository.",
+      "checked": "2026-10-26"
     },
     "cuad": {
       "name": "Contract Understanding Atticus Dataset (CUAD) v1, The Atticus Project",
@@ -5414,6 +5421,78 @@
       "url": "https://assets.publishing.service.gov.uk/media/5bbf2685e5274a362f62c136/Weekly_national_influenza_report_data_week_41_2018.xlsx",
       "sha256": "b231d36c2c7fadcfa91c969c3747e51ef474bc969d4f798ce2237ebd3a9c0929",
       "bytes": 289224
+    },
+    {
+      "key": "real-mamba",
+      "title": "Mamba Linear-Time Sequence Modeling with Selective State Spaces",
+      "domain": "papers",
+      "language": "en",
+      "format": "pdf",
+      "source": "repository-real",
+      "path": "data/real/Mamba Linear-Time Sequence Modeling with Selective State Spaces.pdf",
+      "sha256": "adf70ed1803c85b1899dec3e21f3af0b124411439e8654b840ea65f7b9f52b2e",
+      "bytes": 1168615,
+      "pages": 36
+    },
+    {
+      "key": "real-wdr-2023",
+      "title": "World Development Report 2023 Migrants Refugees and Societies",
+      "domain": "reports",
+      "language": "en",
+      "format": "pdf",
+      "source": "repository-real",
+      "path": "data/real/World Development Report 2023 Migrants Refugees and Societies.pdf",
+      "sha256": "d14e62b3c335091881181bb9e591fe6fe2e70d33349967e0b79c59f2f5c6366e",
+      "bytes": 14383317,
+      "pages": 348
+    },
+    {
+      "key": "real-nrr-2023",
+      "title": "National Risk Register 2023",
+      "domain": "reports",
+      "language": "en",
+      "format": "pdf",
+      "source": "repository-real",
+      "path": "data/real/National Risk Register 2023.pdf",
+      "sha256": "4d3a29e5eb530efeb78bccf574521699c7f7df6fa15b614f8a22aabf203094cd",
+      "bytes": 2643487,
+      "pages": 192
+    },
+    {
+      "key": "real-pboc-fsr-2024",
+      "title": "中国金融稳定报告2024",
+      "domain": "reports",
+      "language": "zh",
+      "format": "pdf",
+      "source": "repository-real",
+      "path": "data/real/中国金融稳定报告2024.pdf",
+      "sha256": "f72c45fe00031753b846b8fe404d7cac5ed0722c1d477bea9079a81e7dbcd69e",
+      "bytes": 4888464,
+      "pages": 120
+    },
+    {
+      "key": "real-fomc-1950",
+      "title": "FOMC Historical Minutes 13 June 1950",
+      "domain": "reports",
+      "language": "en",
+      "format": "pdf",
+      "source": "repository-real",
+      "path": "data/real/FOMC Historical Minutes 13 June 1950.pdf",
+      "sha256": "d74aea9b91bcb79836ab6e9cdc8c45942b3b4fecb9eb0840dc7e168370f0027e",
+      "bytes": 603256,
+      "pages": 14
+    },
+    {
+      "key": "real-cia-1965",
+      "title": "CIA Reading Room record 22 October 1965",
+      "domain": "reports",
+      "language": "en",
+      "format": "pdf",
+      "source": "repository-real",
+      "path": "data/real/scanned/CIA Reading Room record 22 October 1965.pdf",
+      "sha256": "764e4ea530cbcb4818c31f21481e596eb119004deadea43e6f7247260407e9ba",
+      "bytes": 107006,
+      "pages": 1
     }
   ]
 }

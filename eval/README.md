@@ -5,7 +5,7 @@
 It drives the core's public interface in Node, the way the desktop app's UI does:
 
 1. It creates a temporary data folder. It never touches the app's real data folder.
-2. It turns embeddings on with the built-in model, as a User can in Settings (they are off by default, ADR-0009), adds the seven sample PDFs in `data/` (made for this repository and licensed under Apache-2.0; see [`data/README.md`](../data/README.md)) and the five Chinese Wikipedia articles in `retrieval/fixtures/` with `addDocuments`, and waits until each is processed: text extracted, Passages built and embedded with the real built-in model, multilingual-e5-small.
+2. It turns embeddings on with the built-in model, as a User can in Settings (they are off by default, ADR-0009), adds the seven generated sample PDFs in `data/` (made for this repository and licensed under Apache-2.0) and the five real Documents in `data/real/` (each under a licence or statute that allows redistribution; see [`data/README.md`](../data/README.md)) and the five Chinese Wikipedia articles in `retrieval/fixtures/` with `addDocuments`, and waits until each is processed: text extracted, Passages built and embedded with the real built-in model, multilingual-e5-small.
 3. It searches for each Question with `searchPassages` in hybrid, keyword and vector mode, and scores the top 5. A cross-lingual Question with a translated query is searched with that too.
 4. It reranks keyword search's top 20 with the built-in reranking model, mmarco-mMiniLMv2-L12-H384, as the search Tool does by default, with embeddings off, and scores the top 5 again ("keyword top 20 + rerank"; see [Keyword + rerank](#keyword--rerank)). Then, with embeddings off as Users have them, it runs the search Tool itself for each Question and scores the Passages it hands the model: this is the gate ("search Tool"). Then it reranks what the search Tool hands a reranker with embeddings on (keyword search's top 10 and vector search's top 10, each Passage once) with the same model ("hybrid + rerank", reported only). Other reranking candidates, when given, are scored both ways too. Then the built-in model reranks the candidates of seven other searches, with embeddings off, reported only (see [Other ways to find the candidates](#other-ways-to-find-the-candidates)).
 5. When a chat model is given, it turns embeddings off again, as Users have them by default (the vectors stay, unused), asks each Question with `askQuestion` and scores the Citations of each Answer. The core reranks those Answers' searches with the real built-in reranking model, as the app does.
@@ -340,6 +340,34 @@ These cases of the Citation check are unit tests, so they run with `npm test` on
 Three quotes a model may well write were on their cited Unit but "not found", false "not found" in the report, until #76: a slide's table row written with pipes between its cells, a chart's value written with a thousands separator (`Jun: 1,560` for the cached `1560`), and a Markdown table row without its pipes. The check finds them now: a pipe that breaks a table's cells reads as a space, in the quote and the text alike, and a slide's numbers are matched however their thousands are written when a quote isn't found as it is (`src/shared/quoteMatch.ts`). A row or a figure whose words or digits aren't on the Unit is still "not found".
 
 ## Results
+
+### 2026-10-26: the mixed sample set (#2019)
+
+The gating set's library now holds the seven generated sample PDFs in `data/`, the five Chinese
+Wikipedia articles in `retrieval/fixtures/`, and the five readable real Documents in `data/real/`
+(17 Documents, 2,010 Passages). The real Documents are extra library, not new Questions; their
+sources, licences and SHA-256 are in [`data/README.md`](../data/README.md). Measured with
+`npm run eval:dump` and `INCARNAMIND_EVAL_RERANK_CPU=1`, keyword search and the built-in reranker
+as the app runs them with embeddings off; the dump scores the same as the run's own scoring.
+
+| Order | Gating, top 5 | English gating | Chinese gating | All 65 |
+|---|---|---|---|---|
+| keyword | 34/40 | 15/20 | 19/20 | 55/65 |
+| keyword + rerank | 36/40 | 17/20 | 19/20 | 58/65 |
+| search Tool (Passages handed to the model) | **37/40** | **18/20** | **19/20** | 59/65 |
+
+**The mixed set misses the gate's Chinese bar by one Question.** The bar is 15 of 20 English and
+20 of 20 Chinese (35 of 40, see above). The mixed set meets English with 18, and finds 19 of 20
+Chinese: zh-03, whose expected Passage in the Vantrell ESG report falls from keyword rank 19 to
+26 once the real Documents are in the library. The search Tool reranks keyword search's top 20,
+so it no longer sees the Passage; the Passage's rerank score is unchanged (0.9968), so the loss
+is the candidate window, not the model. On the generated samples alone the same dump gives 15/20
+English and 20/20 Chinese (35/40). The bar is unchanged; widening the search Tool's candidate
+window is a separate decision.
+
+Load: the before dump ran at a 1-minute load of about 7 to 44 (earlier the same night); the mixed
+dump at 7 to 13, before the machine's later spike. Scores only; no timings are reported from these
+runs.
 
 ### Every format: first run pending
 

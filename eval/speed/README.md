@@ -1,6 +1,6 @@
 # The speed of every AI flow
 
-`npm run eval:speed` times the AI flows (#1624) on real models, in English and Chinese, as the app runs them: through the core, over the sample reports in `data/`, with the built-in reranker on this computer. It prints two tables and writes them to `eval/results/speed-<time>/report.md`, with every run in `report.json`. Neither `npm test` nor CI runs it.
+`npm run eval:speed` times the AI flows (#1624) on real models, in English and Chinese, as the app runs them: through the core, over the mixed sample set (the seven generated PDFs in `data/` and the five readable real Documents in `data/real/`; `data/README.md` records them), with the built-in reranker on this computer. Every number here is the mixed set's. It prints two tables and writes them to `eval/results/speed-<time>/report.md`, with every run in `report.json`. Neither `npm test` nor CI runs it.
 
 ## What it measures
 
@@ -36,7 +36,7 @@ INCARNAMIND_EVAL_SPEED_KEY_ANTHROPIC=sk-ant-... \
 npm run eval:speed
 ```
 
-- **The sets.** `gating`: the gating set's 65 Questions (`eval/retrieval`), each asked in a Mind of its own. `hard`: the hard tier's Questions over its library (`eval/hard`, fetched into the cache; indexing it takes a few minutes), those whose quotes the stored text holds. `everyday`: the everyday requests (`eval/everyday`), held to their own guards. `checks`: Check this Mind on each Mind of `eval/repeats`, once a run.
+- **The sets.** `gating`: the gating set's 65 Questions (`eval/retrieval`), each asked in a Mind of its own. The sample reports, which `gating` and `everyday` also read, are the mixed set: the generated PDFs in `data/` beside the real Documents in `data/real/` (#2019). `hard`: the hard tier's Questions over its library (`eval/hard`, fetched into the cache; indexing it takes a few minutes), those whose quotes the stored text holds. `everyday`: the everyday requests (`eval/everyday`), held to their own guards. `checks`: Check this Mind on each Mind of `eval/repeats`, once a run.
 - **What each arm's run gives**, from the User's action: the first sign of work, the first words (the Answer's own text that stayed, for a Question; the first words the core sends anywhere, for the others), the end of the last Answer (or of the check), and the model calls and tokens until then.
 - **The guards**, over the items both arms finished: the expected Passages cited, each with its quote found; judged right (a judge grades the Answer against the expected Passages' words and the set's short answer: right, partly or wrong); every Citation found; no new false Supported (a sentence the Documents don't state, Supported); no new duplicate Answer; no new change claimed that no Tool made, nor another everyday guard failed; no more items failing to run. Each says how many items it lost and gained, and whether it holds: the first three with up to `INCARNAMIND_EVAL_SPEED_MARGIN` fewer items in 30 (none by default; say the margin before the run), the others with none new.
 - **It stops** at the new arm's first false Supported that today's didn't give, at a key refused for credit or sign-in, and before the next item once `INCARNAMIND_EVAL_SPEED_STOP_USD` is spent (12 by default; the core's own count, and the judge's from the catalog's price).

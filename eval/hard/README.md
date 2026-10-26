@@ -40,14 +40,14 @@ npm run eval:hard
 
 ## The library
 
-`library.json` lists 400 Documents (319 English, 81 Chinese) from 37 sources, each with its source, URL (or archive member, or repository path), SHA-256, size and page count, its domain and language, and, where it has them, its versions (`group`, `edition`) and its translation (`translationOf`). They are never committed.
+`library.json` lists 406 Documents (324 English, 82 Chinese) from 38 sources, each with its source, URL (or archive member, or repository path), SHA-256, size and page count, its domain and language, and, where it has them, its versions (`group`, `edition`) and its translation (`translationOf`). All but the six real Documents in `data/real/` are never committed.
 
 | Domain | Where from |
 |---|---|
 | Contracts | 100 commercial contracts from CUAD v1 (one 106 MB archive, from which the run takes them out); Chinese model contracts from the State Administration for Market Regulation's model-contract library |
 | Company reports and filings | FinanceBench's open sample (10-Ks, 10-Qs, 8-Ks and earnings releases), several companies in two or more years; Chinese companies' annual reports from the Shenzhen Stock Exchange; the gating set's Vantrell ESG report |
-| Academic papers | 50 arXiv papers from Qasper's test set; Chinese open-access papers (Hans Publishers, CC BY 4.0); the gating set's papers and Chinese Wikipedia articles |
-| Government and international reports | UN, UN SDG Reports, IPCC, FAO, World Bank, UNDP, in English and Chinese; Federal Reserve, Census, IRS, USDA ERS; HM Treasury and other gov.uk reports; People's Bank of China and SAFE reports |
+| Academic papers | 50 arXiv papers from Qasper's test set; Chinese open-access papers (Hans Publishers, CC BY 4.0); the gating set's papers and Chinese Wikipedia articles; a CC BY 4.0 arXiv paper in `data/real/` |
+| Government and international reports | UN, UN SDG Reports, IPCC, FAO, World Bank, UNDP, in English and Chinese; Federal Reserve, Census, IRS, USDA ERS; HM Treasury and other gov.uk reports; People's Bank of China and SAFE reports; the World Bank, UK, People's Bank of China, Federal Reserve and CIA Documents in `data/real/` |
 | Technical manuals | NIST, FAA, NASA, OCC, CISA, USGS, ready.gov; WHO's biosafety manual in both languages; Chinese environmental monitoring standards |
 | Medical and regulatory | FDA drug labels and guidance; UKHSA patient group directions and training slides; VA/DoD guidelines; WHO guidelines in both languages; NMPA notices, guidelines and statistics; the gating set's MPMA Code |
 
@@ -55,20 +55,20 @@ npm run eval:hard
 |---|---|---|
 | Contracts | 100 | 10 |
 | Company reports and filings | 41 | 9 |
-| Academic papers | 54 | 21 |
-| Government and international reports | 52 | 23 |
+| Academic papers | 55 | 21 |
+| Government and international reports | 56 | 24 |
 | Technical manuals | 33 | 6 |
 | Medical and regulatory | 39 | 12 |
 
-351 PDFs (16,494 pages), 27 Word, 14 Excel, 6 PowerPoint and 2 CSV files. 42 Documents are linked to their translation in the other language, and 50 groups hold versions of one Document (two years of a report or a company's filings, two quarters, two revisions of a standard or a label, with their translations). `report.md` gives what was added, per domain, language and format.
+357 PDFs (17,205 pages), 27 Word, 14 Excel, 6 PowerPoint and 2 CSV files; six of the PDFs are the real Documents in `data/real/`. 42 Documents are linked to their translation in the other language, and 50 groups hold versions of one Document (two years of a report or a company's filings, two quarters, two revisions of a standard or a label, with their translations). `report.md` gives what was added, per domain, language and format.
 
 **Licences.** Each source records its licence or terms, the page they're on, and their own words permitting the download (`sources` in `library.json`); `tests/eval/hardLibrary.test.ts` checks each against an allowed list:
 
-- CC BY 4.0 (CUAD, Hans Publishers), CC BY 3.0 IGO (World Bank, UNDP), Open Government Licence v3.0 (gov.uk), works of the US federal government (17 U.S.C. 105), and official documents of Chinese state organs (Copyright Law of the PRC, art. 5).
+- CC BY 4.0 (CUAD, Hans Publishers), CC BY 3.0 IGO (World Bank, UNDP), Open Government Licence v3.0 (gov.uk), works of the US federal government (17 U.S.C. 105), and official documents of Chinese state organs (Copyright Law of the PRC, art. 5). The six real Documents in `data/real/` are committed under these licences and the statute; each one's source, licence, the day it was read, the basis and its SHA-256 are in `data/README.md`.
 - arXiv's terms, which allow retrieving e-prints for personal use or research, at one request every 3 seconds.
 - Non-commercial use only: FinanceBench (CC BY-NC 4.0), WHO and FAO (CC BY-NC-SA 3.0 IGO), the World Bank's China Economic Update (CC BY-NC 3.0 IGO), and the terms of the UN, the IPCC and the Shenzhen Stock Exchange (download for personal or non-commercial use). The evaluation of a free, open-source app (ADR-0002) is non-commercial; revisit these if that changes.
 - FDA's drug labels are the makers' labelling, published by FDA, whose website policy says its content isn't copyrighted unless noted; they are filed under US government works with that caveat.
-- The files are downloaded to the User's own cache and read there; nothing is redistributed.
+- All but the six real Documents are downloaded to the User's own cache and read there; the six are redistributed in this repository, with their licences recorded in `data/README.md`.
 
 **Left out on purpose:**
 
@@ -161,6 +161,30 @@ The run scores the same Questions as `npm run eval:hard` scores keyword search a
 Keyword + rerank at the top 8 and 10 is 135 and 143 of 180. The search Tool's figure is lower than the reranked top 5 because it hands the model whole windows of three Passages, at most 12 Passages from at most 4 Documents for a one-search Answer (8 until 2026-10-12, and still 8 in the Tool loop), so a Question that needs many Passages (multi-page) can lose some to the limits.
 
 ## Results
+
+### 2026-10-26: the mixed sample set (#2019)
+
+The library now holds the six real Documents in `data/real/` beside the fetched ones (406
+Documents, 48,708 Passages; the one-page scan has no text and is left out as unread, as the run
+allows). The Questions are unchanged. Measured with `npm run eval:dump` and
+`INCARNAMIND_EVAL_RERANK_CPU=1`, keyword search and the built-in reranker, as the app runs them
+with embeddings off; the dump scores the same as the run's own scoring. "Generated samples" is
+the same dump over the library before the six were added (400 Documents).
+
+| Order, top 5 | Generated samples | Mixed |
+|---|---|---|
+| keyword | 106/200 | 106/200 |
+| keyword + rerank | 131/200 | **133/200** |
+| search Tool (Passages handed to the model) | 138/200 | 138/200 |
+| keyword + rerank, top 8 and 10 | 144 and 152 | 145 and 152 |
+
+Per difficulty, keyword + rerank at the top 5 on the mixed set: easy 23/29, paraphrase 21/32,
+table-number 20/26, multi-page 11/23, cross-document 4/20, cross-lingual 24/26, near-duplicate
+19/24, false-premise 6/10 and disagreeing 5/10. The hard tier is reported, never gates; the real
+Documents moved no aggregate by more than two Questions at the top 5.
+
+The load was over the machine's gate while this ran (1-minute 7 to 98, 15-minute 9 to 65); only
+scores are used from it, never timings.
 
 ### 2026-10-14: sentences written without markers (#760)
 
