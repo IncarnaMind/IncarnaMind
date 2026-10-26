@@ -5717,8 +5717,8 @@ export interface RejectedRecord {
   /** Null when it wasn't a number. */
   marker: number | null;
   passage: string;
-  /** "marker": no marker number of 1 or more. "passage": it named no Passage the model was given. */
-  reason: "marker" | "passage";
+  /** "marker": invalid marker. "passage": unknown Passage. "quote-context": numbers without their row or role. */
+  reason: "marker" | "passage" | "quote-context";
 }
 
 /** An Answer is complete ("done") or the User stopped it ("stopped"), keeping what was written. */
@@ -5729,7 +5729,7 @@ export interface AnswerFinished extends AnswerPlace {
   citations: Citation[];
   /** Markers the model wrote with no valid record: removed, leaving their sentences uncited. */
   droppedMarkers: number;
-  /** Records the model gave for no marker in the text, or naming no Passage it was given: dropped. */
+  /** Records with an invalid marker, unknown Passage or insufficient numeric context: dropped. */
   droppedRecords: number;
   /**
    * The records among those that the core couldn't take, as the model gave

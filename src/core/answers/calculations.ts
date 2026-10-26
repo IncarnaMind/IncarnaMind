@@ -66,6 +66,7 @@ import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
 import type { AnswerDocuments, Matching, Quoted, QuoteInput } from "./citations";
 import type { CiteOptions } from "./engine";
+import { numericQuoteProblem } from "./quoteContext";
 
 /** Why a formula mustn't change an amount's scale, and how to show the figure in the scale meant. */
 function scaleChangeProblem(change: ScaleChange, language: Language): string {
@@ -592,19 +593,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const page = onPage(quoted);
     // A quote from the middle of a line ("…，88.0 和 91.5") starts with no list's or heading's number.
     const quoteContext = { ...context, midLine: page.midLine };
+    const contextProblem = numericQuoteProblem(quote, quoted.units, quoteContext);
+    if (contextProblem) return contextProblem;
     const figures = readFigures(quote, quoteContext);
-    const gaps = figures.map((figure, index) =>
-      quote.slice(figures[index - 1]?.end ?? 0, figure.start),
-    );
-    gaps.push(quote.slice(figures.at(-1)?.end ?? 0));
-    if (
-      quoted.units.some((unit) => (unit.kind ?? "page") === "page") &&
-      figures.length > 0 &&
-      gaps.every((gap) => gap.replaceAll("|", "").trim() === "") &&
-      quoted.units.some((unit) => unit.text.trim() !== quote.trim())
-    ) {
-      return `the quote "${quote}" gives only numbers, without their row or role; quote the labelled row or sentence at the intended location, with its period or revision context, and select the number there. Fix its cite record too if it is used in the Answer.`;
-    }
     const has =
       figures.length === 0
         ? "it has no number"

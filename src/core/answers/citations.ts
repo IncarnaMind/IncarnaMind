@@ -89,6 +89,7 @@ import type {
   UnfoundQuote,
 } from "./engine";
 import { NOT_CITED_ATTRIBUTE } from "./prompt";
+import { numericQuoteProblem } from "./quoteContext";
 
 const SEARCHED_ALREADY =
   "You already searched for this, and have its Passages: answer with them, or search for something different.";
@@ -1259,6 +1260,16 @@ export function createCitationSession(
       };
     }
     const taken = takeQuote(input, marker, options);
+    if (taken.ok && !taken.record.kept) {
+      const problem = numericQuoteProblem(taken.record.quote, citedText(taken.record));
+      if (problem) {
+        return {
+          ok: false,
+          rejected: { marker, passage: given, reason: "quote-context" },
+          problem: `[^${marker}]: ${problem}`,
+        };
+      }
+    }
     return taken.ok
       ? taken
       : {

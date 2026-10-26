@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer } from "../../src/core";
 import { answerBlocks } from "../../src/shared/answerBlocks";
-import { answerEnded, setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { answerEnded, citingModel, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { scriptedModel } from "../helpers/models";
 
 const CURRENT_BEADS = "Glass beads 0.075 2 0.150";
@@ -106,6 +106,44 @@ describe("Worksheet input provenance", () => {
       expect(answer.figures).toMatchObject([
         { value, inputs: [{ citation: { quote, pageFrom: page, pageTo: page, check: "found" } }] },
       ]);
+    },
+  );
+});
+
+describe("Numerical Citation context", () => {
+  test.each(["2", "0.150", "0.050 2 0.100"])(
+    "asks for context for a new numeric Citation of %s without changing quote presence",
+    async (quote) => {
+      const model = citingModel({
+        query: "current worksheet",
+        records: (passages) => [{ marker: 1, passage: passages[0]?.id, location: "p. 2", quote }],
+        answer: "The current worksheet gives this value[^1].",
+      });
+      const { core, documents } = await setUpWithDocuments(model, [
+        { name: "Revision control.pdf", contents: worksheet },
+      ]);
+      const asked = await core.askInConversation({ text: "Read the current worksheet." });
+      if (!asked.asked) throw new Error("The Question was not asked");
+      const ended = await answerEnded(core, asked.answerId);
+      expect(ended).toMatchObject({
+        event: "finished",
+        payload: { rejectedRecords: [{ marker: 1, reason: "quote-context" }] },
+      });
+      const conversation = await core.getConversation(asked.conversation.id);
+      const answer = conversation.messages.find((message) => message.id === asked.answerId);
+      if (answer?.kind !== "answer") throw new Error("No Answer");
+      expect(answer.citations).toEqual([]);
+      const document = documents[0];
+      if (!document) throw new Error("No Document");
+      expect(
+        await core.recheckCitation({
+          documentId: document.id,
+          contentHash: document.contentHash,
+          pageFrom: 2,
+          pageTo: 2,
+          quote,
+        }),
+      ).toMatchObject({ check: "found" });
     },
   );
 });
