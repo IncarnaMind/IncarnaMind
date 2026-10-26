@@ -24,8 +24,8 @@ import {
 } from "../../../core/api";
 import { copyOrigins } from "../../../shared/blockOrigins";
 import {
-  type ResolvedProposal,
   pendingProposals,
+  type ResolvedProposal,
   readProposalAttribute,
   resolveProposals,
 } from "../../../shared/proposals";

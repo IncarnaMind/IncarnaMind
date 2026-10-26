@@ -841,7 +841,8 @@ export const CASES: readonly EverydayCase[] = [
     language: "en",
     library: "papers",
     mind: Q3,
-    request: "The second paragraph of the paper says the method is complex, so shorten my third paragraph",
+    request:
+      "The second paragraph of the paper says the method is complex, so shorten my third paragraph",
     expected: { ...EDIT, only: 2 },
   },
   {
