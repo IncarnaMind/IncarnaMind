@@ -3223,11 +3223,11 @@ export const en = {
   "skills.builtIn.cim-red-flags":
     "Checks a confidential information memorandum against the data room and lists each claim the Documents don’t support or contradict, with the claim and the evidence cited.",
   "skills.builtIn.covenant-summary":
-    "Summarises each financial covenant in a facility agreement, with what it tests, its level and the latest figure, every figure cited.",
+    "Summarizes each financial covenant in a facility agreement, with what it tests, its level and the latest figure, every figure cited.",
   "skills.builtIn.credit-memo-outline":
     "Drafts a credit committee paper’s sections, filled only from the Documents, with every filled fact cited.",
   "skills.builtIn.deposition-summary":
-    "Summarises a deposition by topic, with every point cited to the page and line of the transcript.",
+    "Summarizes a deposition by topic, with every point cited to the page and line of the transcript.",
   "skills.builtIn.earnings-review":
     "Reviews a quarter’s results against the prior period and the guidance given, with every figure cited.",
   "skills.builtIn.literature-review":
