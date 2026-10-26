@@ -215,6 +215,47 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
     },
   );
 
+  // protects=an Answer told some of the Library's Documents is told the Library's whole count, and one told all of them is told no count twice (#1333); fails_when=the count is the scope's alone, so a reply says the Library holds that many; no_claim=none beyond protects.
+  test.each(["tools", "structured-output", "none"] as const)(
+    "with %s, give the Library's count when it holds more Documents than the Answer can use (#1333)",
+    (mode) => {
+      const listed = { total: 1, names: ["Harbour lease"] };
+      const library = { total: 3, examples: true };
+      const text = documentInstructions(mode, listed, "", false, false, false, library);
+      expect(text).toContain(
+        "The User's Library holds 3 Documents, and this Answer can use 1 of them",
+      );
+      expect(text).toContain(
+        "Documents of an example IncarnaMind made are in the Library too, and aren't the User's own work: leave them out.",
+      );
+      expect(text).toContain("Never say the Library holds fewer Documents than 3.");
+      expect(text).toContain(
+        "When the Question names more Documents than this Answer can use, say in one sentence which you used and why, or ask which ones in one line.",
+      );
+
+      const scoped = documentInstructions(mode, listed, "", true, false, false, {
+        total: 3,
+        examples: false,
+      });
+      expect(scoped).toContain(
+        "The User limited this Question to 1 Document of the 3 in their Library",
+      );
+      expect(scoped).not.toContain("are in the Library too");
+
+      const all = documentInstructions(
+        mode,
+        { total: 3, names: ["A", "B", "C"] },
+        "",
+        false,
+        false,
+        false,
+        { total: 3, examples: false },
+      );
+      expect(all).toContain("The User has added 3 Documents");
+      expect(all).not.toContain("Library holds");
+    },
+  );
+
   test.each(["tools", "structured-output", "none"] as const)(
     "when answering with %s, stop where the Documents stop: own knowledge only for a general Question, labelled, with no figures",
     (mode) => {
