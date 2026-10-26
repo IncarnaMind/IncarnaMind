@@ -4,11 +4,12 @@
  * computer's sound, as two streams (./tracks) to the `Transcriber`, whose
  * lines arrive a few seconds behind. A line from the microphone is "Me" and
  * one from the computer's sound "Them" (#941); in a room with no computer
- * sound, "Speaker ?". The Transcript is a Document from its first line, in the
- * data folder's "Transcripts" while the Meeting records, indexed again as
- * lines come; at Stop it is finished and saved as a WebVTT file in the Output
- * location, and the Document follows it there. Then, while the audio is kept,
- * the speaker pass (./speakerPass, #138) tells voices apart and relabels it.
+ * sound, "Speaker ?"; in a voice memo (#1568), no one is named. The Transcript
+ * is a Document from its first line, in the data folder's "Transcripts" while
+ * the Meeting records, indexed again as lines come; at Stop it is finished and
+ * saved as a WebVTT file in the Output location, and the Document follows it
+ * there. Then, while the audio is kept, the speaker pass (./speakerPass, #138)
+ * tells voices apart and relabels it; a voice memo has no such pass.
  *
  * Its audio stays on disk, so nothing is lost when live text can't keep up:
  * - while the model downloads or starts, the audio waits, and what waited
@@ -182,7 +183,7 @@ interface Live {
 interface Reading {
   baseMs: number;
   source: AudioSource;
-  speaker(): string;
+  speaker(): string | null;
   /** A cloud stream lost before its last lines came. */
   lost?: boolean;
 }
@@ -191,7 +192,7 @@ interface Heard {
   startMs: number;
   text: string;
   id: number;
-  speaker: string;
+  speaker: string | null;
 }
 
 interface State extends Saved {
@@ -218,6 +219,8 @@ interface State extends Saved {
   indexTimer: ReturnType<typeof setTimeout> | null;
   partialTimer: ReturnType<typeof setTimeout> | null;
   finishing: Promise<void> | null;
+  /** A voice memo (#1568): its lines name no speaker, and no pass tells speakers apart. */
+  memo: boolean;
 }
 
 export interface TranscriptDocuments {
@@ -250,6 +253,8 @@ export interface TranscriptsOptions {
   health: CaptureHealthRecords;
   /** Tells speakers apart after the call (#138). Absent: lines keep the labels of where they came from. */
   speakers?: SpeakerPass;
+  /** Whether the Meeting is a voice memo (#1568), whose lines name no one. */
+  memo?(meetingId: string): boolean;
   decoded?(modelId: string, decodeMs: number, audioSeconds: number): void;
   /**
    * The Meeting's Transcript is finished (#142): saved, its Document in its place and its
@@ -269,8 +274,9 @@ const SOURCES: readonly AudioSource[] = ["microphone", "system"];
 const streamName = (prefix: string, source: AudioSource, generation = 0) =>
   generation === 0 ? `${prefix}:${source}` : `${prefix}:${source}:${generation}`;
 
-const speakerOf = (source: AudioSource, callSound: boolean) =>
-  source === "system" ? SPEAKER_THEM : callSound ? SPEAKER_ME : SPEAKER_UNKNOWN;
+/** Who a line is said by, as it comes: in a voice memo, no one is named. */
+const speakerOf = (source: AudioSource, callSound: boolean, memo: boolean): string | null =>
+  memo ? null : source === "system" ? SPEAKER_THEM : callSound ? SPEAKER_ME : SPEAKER_UNKNOWN;
 
 const msOf = (chunks: readonly Int16Array[]) =>
   chunks.reduce((sum, samples) => sum + samples.length / SAMPLE_RATE_MS, 0);
@@ -358,6 +364,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       indexTimer: null,
       partialTimer: null,
       finishing: null,
+      memo: options.memo?.(meetingId) ?? false,
     };
     states.set(meetingId, state);
     return state;
@@ -457,7 +464,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     baseMs: number;
     live: boolean;
     source: AudioSource;
-    speaker: string;
+    speaker: string | null;
     callSound: boolean;
     reading?: Reading;
   } | null {
@@ -471,7 +478,7 @@ export function createTranscripts(options: TranscriptsOptions) {
             baseMs: own.baseMs,
             live: true,
             source,
-            speaker: speakerOf(source, live.callSound()),
+            speaker: speakerOf(source, live.callSound(), state.memo),
             callSound: live.callSound(),
           };
         }
@@ -559,9 +566,10 @@ export function createTranscripts(options: TranscriptsOptions) {
     const found = owner(segment.stream);
     if (!found) return;
     const { state, baseMs, live } = found;
-    const speaker = segment.speaker
-      ? voiceOf(state, segment.stream, found.source, found.callSound, segment.speaker)
-      : found.speaker;
+    const speaker =
+      segment.speaker && found.speaker !== null
+        ? voiceOf(state, segment.stream, found.source, found.callSound, segment.speaker)
+        : found.speaker;
     const startMs = baseMs + segment.startMs;
     if (!segment.final) {
       if (!live || state.state !== "live") return;
@@ -903,7 +911,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     const reading: Reading = {
       baseMs: own.baseMs,
       source: "microphone",
-      speaker: () => speakerOf("microphone", callSound),
+      speaker: () => speakerOf("microphone", callSound, state.memo),
     };
     state.catchUps.set(own.stream, reading);
     let drop = () => {};
@@ -1101,7 +1109,7 @@ export function createTranscripts(options: TranscriptsOptions) {
             state.catchUps.set(stream, {
               baseMs: audio.atMs,
               source,
-              speaker: () => speakerOf(source, callSound),
+              speaker: () => speakerOf(source, callSound, state.memo),
             });
             opened.push(stream);
           }
@@ -1187,7 +1195,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     state.state = "saved";
     state.problem = null;
     log.info("transcript.saved", { meetingId: state.meetingId, lines: state.cues.length });
-    if (options.speakers) state.speakers = "due";
+    if (options.speakers && !state.memo) state.speakers = "due";
     else options.saved?.(state.meetingId);
   }
 
@@ -1300,7 +1308,7 @@ export function createTranscripts(options: TranscriptsOptions) {
               reading: {
                 baseMs: own.baseMs,
                 source,
-                speaker: () => speakerOf(source, callSound),
+                speaker: () => speakerOf(source, callSound, state.memo),
               } as Reading,
             },
           ]

@@ -18,6 +18,8 @@ export interface Draft {
   skill: string | null;
   /** "Research…" was chosen: what is typed next is a topic to plan research for (#130). */
   research?: boolean;
+  /** "Analyse data…" was chosen (#447): the next Question may run an Analysis whatever it searches. */
+  analyse?: boolean;
   /** Tell it…: the Task what is typed goes to, by id, which reads it at its next step (#130). */
   tell?: string;
   /** Long pastes, each a chip above the text until it is put back, saved as a Document, or asked with. */

@@ -1,5 +1,6 @@
 /** The instructions every Answer is written with. Kept short: every word is sent with every Question. */
 import { figureContextOf, readFigures } from "../../shared/figures";
+import { PDF_BLANK_FIELD, PDF_UNREAD_FIELD } from "../../shared/pdfFormText";
 import { CJK, nameKey } from "../../shared/text";
 import type { CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
@@ -107,6 +108,17 @@ export function webInstructions(offered: boolean): string {
     "You can also search the web with search_web when the Question asks for the web, and read the pages it finds with read_web_page, which saves each page as one of the User's Documents and gives its Passages.",
     "- Use only what read_web_page gives you from the web, and cite it with cite as any Passage. Never state or cite anything from search_web's list itself, or from a page you didn't read.",
     "- Read the few pages most likely to answer, one call each. When a page couldn't be saved, say so in one short line that names it, and use the others.",
+  ].join("\n");
+}
+
+export function analysisInstructions(offered: boolean): string {
+  if (!offered) return "";
+  return [
+    "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over every row. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
+    '- Read data only from inputs["name"]: a Passage of a sheet reads all of it (one input per sheet; a range only for part), or a number quoted from a Passage. A number a calculation uses must be an input, cited, never written in the code.',
+    "- Call step(label, df) after each change to the rows, and result(name, value, label, unit) for each figure or table the Answer uses: a number or a table, never text. For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.",
+    "- In the Answer, put each [=table n] on a line of its own where the table goes, and don't write the table yourself.",
+    "- When it stops with an error, fix the code and run it again.",
   ].join("\n");
 }
 
@@ -523,11 +535,15 @@ function listedName(name: string): string {
 /** How many Documents `unreadDocumentsNote` names before "and N more". */
 const NAMED_UNREAD = 5;
 
+// "parts" is left out: a workbook read in part keeps its Passages, so it is not a Document the
+// search finds no text in.
+type WholeReason = Exclude<UnreadReason, "parts">;
+
 /** Why a Document couldn't be read, as the note tells the model. */
-const UNREAD_WORDS: Record<UnreadReason, (pages: readonly number[]) => string> = {
+const UNREAD_WORDS: Record<WholeReason, (pages: readonly number[]) => string> = {
   scan: () => "a scan with no text",
   pages: (pages) => {
-    if (pages.length === 0) return "its scanned pages weren't read";
+    if (pages.length === 0) return "some page content couldn't be read";
     const shown = pages.slice(0, 10).join(", ") + (pages.length > 10 ? ", …" : "");
     return pages.length === 1
       ? `scanned page ${shown} wasn't read`
@@ -547,12 +563,19 @@ const UNREAD_WORDS: Record<UnreadReason, (pages: readonly number[]) => string> =
  * why; empty when there are none.
  */
 export function unreadDocumentsNote(unread: readonly UnreadFile[]): string {
-  if (unread.length === 0) return "";
-  const named = unread
+  // The line beside the Answer still names a workbook read in part (#740).
+  const whole = unread.filter(
+    (file): file is UnreadFile & { reason: WholeReason } => file.reason !== "parts",
+  );
+  if (whole.length === 0) return "";
+  const named = whole
     .slice(0, NAMED_UNREAD)
     .map((file) => `"${listedName(file.name)}" (${UNREAD_WORDS[file.reason](file.pages)})`);
-  const more = unread.length - named.length;
-  return `IncarnaMind couldn't read the text of some Documents in the search, so no Passage comes from that text: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. If the Passages don't clearly answer the Question and it may be about one of them, say in one sentence that it couldn't be read, so the answer may be there, rather than taking another Document's figure for it.`;
+  const more = whole.length - named.length;
+  const partial = whole.some((file) => file.forms === true)
+    ? ` A partially read page may still have searchable Passages. Values missing from its Passages are unknown, not evidence that a field is blank or absent. In PDF form text, ${PDF_UNREAD_FIELD} is IncarnaMind's unreadable-field status, not text written in the PDF or a field value. It does not show whether that field is blank or filled. ${PDF_BLANK_FIELD} denotes a readable blank field. Never report a ${PDF_UNREAD_FIELD} field as blank, absent, or a recorded value.`
+    : "";
+  return `IncarnaMind couldn't read the text of some Documents in the search, so no Passage comes from that text: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. If the Passages don't clearly answer the Question and it may be about one of them, say in one sentence that it couldn't be read, so the answer may be there, rather than taking another Document's figure for it.${partial}`;
 }
 
 /**

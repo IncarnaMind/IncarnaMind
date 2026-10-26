@@ -30,6 +30,7 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   citation: "citation",
   chart: "chart",
   answer: "answer",
+  check: "check",
   block: "block",
   tab: "tab",
 };

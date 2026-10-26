@@ -25,6 +25,8 @@ export type AnalysisInput =
       rows: readonly (readonly AnalysisCell[])[];
       /** The row number of `rows[0]` in its sheet, which reports of cells count from. */
       firstRow: number;
+      /** Each row's own number in its sheet, where they don't all follow on from `firstRow`. */
+      rowNumbers?: readonly number[];
     }
   | { kind: "number"; name: string; value: number };
 

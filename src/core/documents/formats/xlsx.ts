@@ -16,6 +16,7 @@
  * asks for it.
  */
 import { parseCellRef, type TextUnit } from "../../../shared/units";
+import type { UnreadParts } from "../../api";
 import { ExtractionError } from "./errors";
 import { type Cell, gridUnits, MAX_CELLS, MAX_ROWS, type Sheet, type Workbook } from "./grid";
 import { displayNumber, displayText } from "./numberDisplay";
@@ -156,18 +157,25 @@ export async function readWorkbook(
   const sheets: Sheet[] = [];
   const parts: string[] = [];
   const drawingIds: (string | undefined)[] = [];
+  const hiddenSheets: string[] = [];
+  const rowsCut: { sheet: string; from: number }[] = [];
+  const sheetsNotRead: string[] = [];
   const active = Number(descendants(workbook, "workbookView")[0]?.attrs.activeTab ?? 0);
   let activeSheet = 0;
   let rowsLeft = limits.rows;
   let cellsLeft = limits.cells;
   let truncated = false;
   for (const [position, entry] of descendants(workbook, "sheet").entries()) {
-    if (entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden") continue;
     const part = targets.get(entry.attrs["r:id"] ?? "");
     if (!part || !zip.has(part)) continue;
+    const name = entry.attrs.name ?? `Sheet${position + 1}`;
+    if (entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden") {
+      hiddenSheets.push(name);
+      continue;
+    }
     if (position === active) activeSheet = sheets.length;
     const sheet: Sheet = {
-      name: entry.attrs.name ?? `Sheet${sheets.length + 1}`,
+      name,
       cells: [],
       merges: [],
       rowCount: 0,
@@ -179,7 +187,10 @@ export async function readWorkbook(
     sheets.push(sheet);
     parts.push(part);
     drawingIds.push(undefined);
-    if (truncated) continue;
+    if (truncated) {
+      sheetsNotRead.push(name);
+      continue;
+    }
     let rowNumber = 0;
     const chunks = zip.textChunks(part, MAX_STREAMED_BYTES);
     for await (const element of streamElements(chunks, look ? LAYOUT_PARTS : SHEET_PARTS)) {
@@ -201,6 +212,7 @@ export async function readWorkbook(
       const cells = elements(element).filter((each) => is(each, "c"));
       if (cells.length === 0) continue;
       if (rowsLeft <= 0 || cellsLeft < cells.length) {
+        rowsCut.push({ sheet: name, from: rowNumber });
         truncated = true;
         break;
       }
@@ -236,15 +248,15 @@ export async function readWorkbook(
       sheet.columnCount = Math.max(sheet.columnCount, end.column + 1);
     }
   }
-  if (!looks) return { sheets, truncated };
+  const read = { sheets, truncated, hiddenSheets, rowsCut, sheetsNotRead };
+  if (!looks) return read;
   const budget: ImageBudget = { left: MAX_WORKBOOK_IMAGE_BYTES };
   for (const [index, sheet] of sheets.entries()) {
     if (sheet.layout)
       await readSheetExtras(zip, parts[index] as string, drawingIds[index], sheet.layout, budget);
   }
   return {
-    sheets,
-    truncated,
+    ...read,
     layout: { styles: looks.cells, defaultFont: looks.defaultFont, activeSheet },
   };
 }
@@ -456,4 +468,12 @@ export interface XlsxResult {
 export async function extractXlsx(bytes: Uint8Array): Promise<XlsxResult> {
   const workbook = await readWorkbook(bytes);
   return { units: gridUnits(workbook.sheets, true), workbook };
+}
+
+/** The parts of the workbook that weren't read, for the unread list (#740); null when all of it was. */
+export function unreadPartsOf(workbook: Workbook): UnreadParts | null {
+  const { hiddenSheets, rowsCut, sheetsNotRead } = workbook;
+  return hiddenSheets.length === 0 && rowsCut.length === 0 && sheetsNotRead.length === 0
+    ? null
+    : { hiddenSheets, rowsCut, sheetsNotRead };
 }

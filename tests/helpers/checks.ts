@@ -2,6 +2,7 @@
  * A scripted model that checks claims (#96, #97) as its plans say, and names
  * a verified document's claims: those it has a plan for.
  */
+import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { shownPassages } from "./citations";
 import {
   type GenerateCall,
@@ -31,6 +32,8 @@ export interface Plan {
    * markers 1, 2, … in their order.
    */
   calculation?: PlannedFigure | readonly PlannedFigure[];
+  /** Asked to search again before it says the sentence isn't found: the query it writes, then how it checks. */
+  again?: { query: string; plan: Plan };
 }
 
 interface PlannedFigure {
@@ -81,11 +84,16 @@ export const isCheckRun = (call: ModelCall) => call.system.startsWith("You check
  * then gives its verdict.
  */
 export function checkReply(call: ModelCall, plans: Record<string, Plan>): ScriptedReply {
-  const plan = plans[sentenceOf(call)] ?? { verdict: "unsupported" };
+  const planned = plans[sentenceOf(call)] ?? { verdict: "unsupported" };
   const searches = call.results.filter((result) => result.tool === "search_documents");
   if (searches.length === 0) {
     return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
   }
+  const again = call.prompt.includes(SEARCH_AGAIN) ? planned.again : undefined;
+  if (again && searches.length === 1) {
+    return { calls: [{ tool: "search_documents", input: { query: again.query } }] };
+  }
+  const plan = again?.plan ?? planned;
   if (plan.reply) return plan.reply;
   const shown = shownPassages(searches.at(-1)?.text ?? "");
   const { calculation } = plan;

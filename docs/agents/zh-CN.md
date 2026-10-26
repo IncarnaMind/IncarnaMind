@@ -102,6 +102,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Citation check | 核对 | "正在核对引文…", "无法核对". |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
+| Not found (a sentence's check) | 未找到 | The card of an unsupported sentence that nothing in the scope states: "未找到", "未在“{scope}”中找到". Never 未找到引文, which is a Citation's quote. |
 | Contradicted | 与文档矛盾 | |
 | Needs re-check | 需重新核对 | |
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
@@ -111,7 +112,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Mind's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
 | Verify (a document) | 核对文档 | The verb is 核对, as for a Citation. |
-| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意". |
+| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Note's health counts its unsupported sentences with 处: "2 处需要留意". |
 | Mark | 标记 | |
 | Run | 运行 | |
 | Task | 任务 | |
@@ -123,6 +124,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Source (of a chart's values) | 数据来源 | Under a chart in an export, as Chinese reports caption theirs: "数据来源：". |
 | Memory | 记忆 | |
 | Meeting | 会议 | |
+| Voice memo | 语音备忘 | "录一段语音备忘"; the + menu's item is 语音备忘. As Apple's 语音备忘录, without its 录. Its note: "已写入语音备忘". |
 | Transcript | 转写稿 | |
 | Speaker | 发言人 | |
 | Me, Them, Speaker ? (a live line before speakers are told apart) | 我, 对方, 发言人 ? | "Me" is the microphone, "Them" the computer's sound, "Speaker ?" a meeting in a room, with no computer sound. |
@@ -146,6 +148,7 @@ A figure in an Answer is written as reports write it, with no space between the 
 | Unchecked figure | 未核对的数字 | |
 | Analysis | 数据分析 | Can't run: "这台电脑上无法运行数据分析：…". |
 | Sandbox (where Skill scripts and Analyses run) | 沙盒 | Never 沙箱. |
+| Analyse data… (⌘K, and the composer's chip) | 分析数据… | The chip reads 分析数据; a step that ran one, 对“{document}”运行了数据分析. |
 | Recalculate | 重新计算 | |
 | Run again | 重新运行 | |
 | percentage points | 个百分点 | A difference of two percents: "2.3个百分点", never "2.3%". |

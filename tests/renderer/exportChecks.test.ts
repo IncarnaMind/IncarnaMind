@@ -17,6 +17,7 @@ const checks = (
   commented: boolean,
 ): SentenceChecksExported => ({
   contradicted: 0,
+  notFound: 0,
   unsupported: 0,
   needsRecheck: 0,
   ...counts,
@@ -35,6 +36,22 @@ describe("The line after saving, for what a file says of its checked sentences",
       "1 处与文档矛盾、4 处需重新核对，已作为批注",
     );
     expect(commentedChecks(checks({}, true), t("en"))).toBeNull();
+  });
+
+  test("say Not found for the comments that say so, apart from Unsupported", () => {
+    const both = checks({ contradicted: 1, notFound: 2, unsupported: 1 }, true);
+    expect(commentedChecks(both, t("en"))).toBe(
+      "1 Contradicted, 2 Not found and 1 Unsupported, as comments",
+    );
+    expect(commentedChecks(both, t("zh-CN"))).toBe(
+      "1 处与文档矛盾、2 处未找到、1 处无依据，已作为批注",
+    );
+    expect(unmarkedChecks(checks({ notFound: 1 }, false), t("en"))).toBe(
+      "1 Not found sentence went out unmarked",
+    );
+    expect(unmarkedChecks(checks({ notFound: 2 }, false), t("zh-CN"))).toBe(
+      "有 2 句未找到，导出时没有标记",
+    );
   });
 
   test("all three results make one list", () => {

@@ -4,10 +4,10 @@
  * counts of. It never scores, rates or compares, and never says anything about
  * AI detection: a test keeps those words out of every template.
  */
-import type { SentenceResult } from "../../shared/claimChecks";
+import { SENTENCE_RESULT_LABELS } from "../../shared/claimChecks";
 import { formatDate } from "../../shared/dates";
 import { type MessageKey, translate } from "../../shared/i18n";
-import { unreadFileText } from "../../shared/unreadFiles";
+import { unreadFileText, unreadPartsCounts } from "../../shared/unreadFiles";
 import type { NodeJSON } from "../answers/blocks";
 import type { Language } from "../language";
 import {
@@ -45,18 +45,11 @@ const CITATION_ROWS: readonly [keyof CitationCounts, MessageKey][] = [
   ["checking", "aiStatement.citations.checking"],
 ];
 
-const SENTENCE_LABELS: Readonly<Record<SentenceResult, MessageKey>> = {
-  supported: "aiStatement.sentences.supported",
-  unsupported: "aiStatement.sentences.unsupported",
-  contradicted: "aiStatement.sentences.contradicted",
-  needsRecheck: "aiStatement.sentences.recheck",
-  notChecked: "aiStatement.sentences.notChecked",
-  changed: "aiStatement.sentences.changed",
-};
-
-const SENTENCE_ROWS: readonly [keyof SentenceCounts, MessageKey][] = (
-  ["supported", "unsupported", "contradicted", "needsRecheck", "notChecked"] as const
-).map((key) => [key, SENTENCE_LABELS[key]]);
+const SENTENCE_ROWS: readonly [keyof SentenceCounts, MessageKey][] =
+  // The export line's order after Supported: Contradicted, Not found, Unsupported, needs re-check.
+  (
+    ["supported", "contradicted", "notFound", "unsupported", "needsRecheck", "notChecked"] as const
+  ).map((key) => [key, SENTENCE_RESULT_LABELS[key]]);
 
 const text = (value: string): NodeJSON => ({ type: "text", text: value });
 
@@ -171,7 +164,7 @@ export function statementBlocks(
 
   const checkedRow = ({ sentence, result, model, checkedAt }: CheckedSentence) => [
     sentence,
-    t(SENTENCE_LABELS[result]),
+    t(SENTENCE_RESULT_LABELS[result]),
     checkedAt === null ? "" : (model ?? t("aiStatement.uses.modelUnknown")),
     checkedAt === null ? "" : formatDate(checkedAt, language),
   ];
@@ -195,7 +188,9 @@ export function statementBlocks(
                   count: number(unread.length),
                 }),
           ),
-          ...(unreadNames ? [bulletList(unread.map((file) => unreadFileText(file, t)))] : []),
+          ...(unreadNames
+            ? [bulletList(unread.map((file) => unreadFileText(file, t, true)))]
+            : unreadPartsCounts(unread, t).map(paragraph)),
         ];
   const checksPart =
     citationTotal === 0 && sentenceTotal === 0
