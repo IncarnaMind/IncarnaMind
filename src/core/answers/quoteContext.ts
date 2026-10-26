@@ -13,7 +13,7 @@ export function numericQuoteProblem(
     quote.slice(figures[index - 1]?.end ?? 0, figure.start),
   );
   gaps.push(quote.slice(figures.at(-1)?.end ?? 0));
-  return figures.length > 0 && gaps.every((gap) => gap.replaceAll("|", "").trim() === "")
+  return figures.length > 0 && gaps.every((gap) => gap.replace(/[\s\p{P}|]/gu, "") === "")
     ? `the quote "${quote}" gives only numbers, without their row or role; quote the labelled row or sentence at the intended location, with its period or revision context, and select the number there. Fix its cite record too if it is used in the Answer.`
     : null;
 }

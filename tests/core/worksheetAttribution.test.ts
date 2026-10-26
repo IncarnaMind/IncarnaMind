@@ -4,13 +4,20 @@ import type { ConversationAnswer } from "../../src/core";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import { answerEnded, citingModel, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { scriptedModel } from "../helpers/models";
+import { buildPdf } from "../helpers/pdf";
 
 const CURRENT_BEADS = "Glass beads 0.075 2 0.150";
 const CURRENT_WEIGHTS = "Control weights 0.050 2 0.100";
 const OLD_WEIGHTS = "Control weights 0.050 3 0.150";
 const worksheet = await readFile(new URL("../fixtures/revision-control/text.pdf", import.meta.url));
 
-async function calculate(quote: string, location: string, number: string, recorded = false) {
+async function calculate(
+  quote: string,
+  location: string,
+  number: string,
+  recorded = false,
+  contents: Uint8Array = worksheet,
+) {
   const model = scriptedModel((call) => {
     const search = call.results.find((r) => r.tool === "search_documents");
     if (!search)
@@ -55,9 +62,7 @@ async function calculate(quote: string, location: string, number: string, record
     }
     return { text: "The worksheet input is [=1]." };
   });
-  const { core } = await setUpWithDocuments(model, [
-    { name: "Revision control.pdf", contents: worksheet },
-  ]);
+  const { core } = await setUpWithDocuments(model, [{ name: "Revision control.pdf", contents }]);
   const provider = await core.saveChatProvider({
     kind: "anthropic",
     modelId: "claude-haiku-5-5",
@@ -74,6 +79,46 @@ async function calculate(quote: string, location: string, number: string, record
 }
 
 describe("Worksheet input provenance", () => {
+  for (const [language, quote] of [
+    ["en", "0.075, 2, 0.150"],
+    ["en", "0.075; 2; 0.150"],
+    ["zh-CN", "0.075，2，0.150"],
+    ["zh-CN", "0.075；2；0.150"],
+  ] as const) {
+    const row = `${language === "en" ? "Glass beads" : "玻璃珠"} ${quote}`;
+    const contents = buildPdf([
+      language === "en"
+        ? { lines: ["Rev B CURRENT 2026-10-23", row] }
+        : { chineseLines: ["修订 B 当前有效 2026-10-23", row] },
+    ]);
+    for (const recorded of [false, true]) {
+      test(`refuses the unlabelled punctuation-separated ${recorded ? "recorded" : "direct"} row ${quote}, ${language}`, async () => {
+        const answer = await calculate(quote, "p. 1", "0.075", recorded, contents);
+        expect(answer.figures).toEqual([]);
+      });
+      test(`keeps the labelled punctuation-separated ${recorded ? "recorded" : "direct"} row ${quote}, ${language}`, async () => {
+        const answer = await calculate(row, "p. 1", "0.075", recorded, contents);
+        expect(answer.figures).toHaveLength(1);
+        expect(answer.figures[0]?.inputs[0]?.citation.quote).toBe(row);
+      });
+    }
+  }
+
+  test.each([false, true])(
+    "keeps a complete single-value source at its supplied page, recorded=%s",
+    async (recorded) => {
+      const answer = await calculate(
+        "0.150",
+        "p. 1",
+        "0.150",
+        recorded,
+        buildPdf([{ lines: ["0.150"] }]),
+      );
+      expect(answer.figures).toHaveLength(1);
+      expect(answer.figures[0]?.inputs[0]?.citation.pageFrom).toBe(1);
+    },
+  );
+
   for (const recorded of [false, true]) {
     test.each([
       ["2", "p. 2", "2"],
