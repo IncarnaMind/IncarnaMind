@@ -790,7 +790,7 @@ test("past three sources, +N more shows the rest, and each source names its Docu
   await app.close();
 });
 
-test("past twelve Documents, Claude Haiku 5.5 starts from a search of the Question's own words: it never makes that search itself, each Citation is checked, and Passages that fall short are searched again", async () => {
+test("past twelve Documents, Claude Haiku 5.5 starts a conversation from a search of the Question's own words: it never makes that search itself, each Citation is checked, and Passages that fall short are searched again", async () => {
   const { app, window } = await start({ documents: false });
   // Thirteen Documents: more than go whole with a Question, so the Answer searches.
   const harbours = ["Brest", "Dover", "Calais"];
@@ -822,6 +822,8 @@ test("past twelve Documents, Claude Haiku 5.5 starts from a search of the Questi
     "Checked 3 Citations against their sources · all found",
   );
 
+  // In a conversation of its own: a follow-up leaves its first search to the model.
+  await pointAndClick(window, window.getByTestId("assistant-new-chat"));
   const again = await ask(window, "When do spring tides rise at Dover? Search twice.");
   timeline = await openSteps(window, again);
   const twice = timeline.locator('[data-step="search"]');

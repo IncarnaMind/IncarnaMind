@@ -162,6 +162,33 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     ]);
   });
 
+  test("a follow-up in a conversation leaves its first search to the model", async () => {
+    const model = answering();
+    const recipes = Array.from({ length: 12 }, (_, at) => ({
+      name: `Recipe ${at + 1}.md`,
+      contents: `# Recipe ${at + 1}\n\nCream the butter and the sugar.`,
+    }));
+    const { core, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }, ...recipes],
+      { answerPaths: { retrievesFirst: () => true } },
+    );
+    const first = await core.askInConversation({ text: "When are spring tides?", mindId: mind.id });
+    if (!first.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, first.answerId);
+    const firstCalls = model.doStreamCalls.length;
+
+    const followUp = await askAssistant(core, {
+      text: "And at full moon only?",
+      mindId: mind.id,
+      conversationId: first.conversation.id,
+    });
+
+    expect(firstCalls).toBe(1);
+    expect(model.doStreamCalls.length - firstCalls).toBe(2);
+    expect(followUp.citations).toMatchObject([{ quote: SPRING, check: "found" }]);
+  });
+
   test("with the Documents given whole with the Question, makes no search first", async () => {
     const model = scriptedModel((call: ModelCall): ScriptedReply => {
       const given = /<document-text>[\s\S]*?<\/document-text>/.exec(call.prompt)?.[0] ?? "";

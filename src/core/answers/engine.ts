@@ -1333,9 +1333,11 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
             // the Question's own search and answers in one call unless it needs more. A library with
             // nothing to search yet (web search on, or only unread Documents) leaves the first search
-            // to the model.
+            // to the model, and so does a follow-up: its own words lean on the Answers before it, and
+            // on paired runs their Passages set the model writing where the loop just replied.
+            const followUp = request.messages.some((message) => message.role === "assistant");
             const presearched =
-              request.retrieveFirst && request.documents.documentCount > 0
+              request.retrieveFirst && !followUp && request.documents.documentCount > 0
                 ? { result: yield* searchOnce(true), query: request.question, read: [...read] }
                 : undefined;
             if (signal.aborted) return;
