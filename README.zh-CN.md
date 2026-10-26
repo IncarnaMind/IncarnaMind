@@ -99,7 +99,7 @@ Windows 版将通过 SignPath Foundation 为开源项目提供的免费签名服
 不需要注册账号。你的 Mind 和搜索索引都存在你电脑上的一个数据文件夹里，你的文件原样留在原处。一个问题会连同它需要的内容发给你选的 AI 模型：你所在的 Mind、为它找到的段落，以及它可能搜索的文档名；用本机模型时哪儿也不去。其他可能离开你电脑的内容，比如查找论文、自动打标签和整理、扫描页的图片、会议的云端转写，都和它们发送的内容一起列在 [docs/privacy.md](docs/privacy.md#what-goes-to-a-service-you-chose) 和**设置 → 隐私**里，每一项都可以单独停止。API 密钥用系统自带的安全存储加密保存。使用数据只有在你同意后才收集，是[匿名事件](docs/privacy.md#usage-data)，绝不包括你的文件或问题，随时可以在**设置 → 隐私**中关闭。崩溃报告默认关闭，开启后也会先去掉你的内容。
 
 - **发送之前先问你。** IncarnaMind 第一次要把内容发给外部服务之前，会先告诉你要发什么、发给谁，等你同意后才发送。**设置 → 隐私**里列出了每一项，随时可以撤回。
-- **要求提供商不保存。** 只要提供商给出这个选项，IncarnaMind 都会要求它不要保存你的请求；发给 OpenAI 和 xAI 的每个请求都带着这个要求，发给 OpenRouter 的请求则要求它只使用不保存、不训练的提供商。这只是请求：IncarnaMind 无法强制提供商照做。
+- **要求服务不保存。** 只要它提供这个选项，IncarnaMind 都会要求它不要保存你的请求；发给 OpenAI 和 xAI 的每个请求都带着这个要求，发给 OpenRouter 的请求则要求它只使用不保存、不训练的服务。这只是请求：IncarnaMind 无法强制服务照做。
 - **运行什么，由你说了算。** 连接器里可能改动内容的工具，以及技能里的脚本，在运行之前 IncarnaMind 都会先问你：允许这一次、始终允许，或者拒绝。**设置 → 隐私**里列出了你设过的每条规则，随时可以撤销。
 - **用于客户的文件？** 请看[客户数据声明](docs/client-data-statement.zh-CN.md)：该怎么向客户说明他们的文档，附可直接贴进委托函的段落。
 
@@ -108,8 +108,8 @@ Windows 版将通过 SignPath Foundation 为开源项目提供的免费签名服
 
 - **“找到引文”是什么意思？** 意思是这段文字确实在引用所指的位置，但不代表它能证明你写的那句话，所以原文永远只差一次点击。“无法核对”表示那里没有可以比对的文字，比如扫描页。
 - **能用在客户的或保密的文件上吗？** 你的文件留在你的电脑上，只有你选的 AI 模型和你允许的少数服务会收到内容。处理客户事务之前，请看[客户数据声明](docs/client-data-statement.zh-CN.md)，并查看**设置 → 隐私**，那里列出了当前开着的每一项服务。
-- **要花钱吗？** 不用。IncarnaMind 开源免费（Apache 2.0 许可证）。AI 模型由它的提供商收费：用你自己的 API 密钥按用量付费，或用你已有的 ChatGPT、Claude、Copilot 订阅。
-- **一定要有 API 密钥吗？** 需要一个 AI 模型，最省事的是填一个 DeepSeek 密钥（设置里有“如何获取？”）。也可以填通义千问、硅基流动、OpenAI、Anthropic、Google、OpenRouter 的密钥；“设置”中还有更多提供商，例如 Kimi、智谱 GLM、Mistral、xAI，或任何兼容 OpenAI 接口的服务。订阅了 ChatGPT Plus 或 Pro，可以使用 ChatGPT 登录。
+- **要花钱吗？** 不用。IncarnaMind 开源免费（Apache 2.0 许可证）。AI 模型的费用由提供它的服务收取：用你已有的 ChatGPT、Claude、Copilot 订阅，或用自己的 API 密钥按用量付费。
+- **一定要有 API 密钥吗？** 需要一个 AI 模型，最省事的是填一个 DeepSeek 密钥（设置里有“如何获取？”）。也可以填通义千问、硅基流动、OpenAI、Anthropic、Google、OpenRouter 的密钥；“设置”中还有更多服务，例如 Kimi、智谱 GLM、Mistral、xAI，或任何兼容 OpenAI 接口的服务。订阅了 ChatGPT Plus 或 Pro，可以使用 ChatGPT 登录。
 - **是 NotebookLM（现名 Gemini Notebook）的替代品吗？** 是。IncarnaMind 在你的电脑上运行，文件在原处读取，不需要账号；模型由你来选（你自己的密钥，或 ChatGPT、Claude、Copilot 订阅）；每条引用都和原文所在页逐一核对，你自己写的句子也能核对；Mind 还能导出为带引用的 Word。
 - **能用我的 ChatGPT 订阅吗？** 能，需要 ChatGPT Plus 或 Pro。在**设置 → 模型**里选**使用 ChatGPT 继续**，在浏览器里完成登录即可：之后的提问会以你的账号发给 OpenAI，计入订阅的用量上限，不需要密钥。
 - **能用我的 Claude 或 GitHub Copilot 订阅吗？** 能。在**其他方式**或**设置 → 模型**里，用你的 Claude 或 GitHub 账号登录；登录之前不会启用。回答会计入你订阅的用量限额。Copilot 登录目前是实验性的。
@@ -118,10 +118,6 @@ Windows 版将通过 SignPath Foundation 为开源项目提供的免费签名服
 - **怎么备份？** 复制数据文件夹就行，里面有你的 Mind、搜索索引和设置。
 
 </details>
-
-## 即将推出
-
-下面是计划中的功能，现在还不能用，也没有具体日期（见[路线图](https://github.com/IncarnaMind/IncarnaMind/issues/74)）：会议进行中直接提问，回答引用实时转写；在审阅栏里逐条查看别人在 Word 文件里的修订；在后台运行的研究任务。
 
 ## 参与贡献
 

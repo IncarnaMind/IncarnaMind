@@ -1,8 +1,8 @@
 /**
  * `npm run eval:speed` (eval/speed/README.md): the speed baseline of #1624. Each flow in ./flows,
- * on each model, in each language, a few times, over the sample reports, with the built-in
- * reranker on this computer as Users have it. Prints the tables of ./report and writes them to
- * eval/results/speed-<time>/.
+ * on each model, in each language, a few times, over the mixed sample set in data/ and data/real/,
+ * with the built-in reranker on this computer as Users have it. Prints the tables of ./report and
+ * writes them to eval/results/speed-<time>/.
  *
  * INCARNAMIND_EVAL_SPEED_MODELS: the models, "<kind>/<model id>" comma-separated, for example
  *   "anthropic/claude-haiku-5-5,kimi/kimi-k2.6". Each kind's key is INCARNAMIND_EVAL_SPEED_KEY_<KIND>
@@ -11,6 +11,8 @@
  * INCARNAMIND_EVAL_SPEED_LANGUAGES: "en", "zh-CN" or both (default: both).
  * INCARNAMIND_EVAL_SPEED_RUNS: how many times each flow runs per model and language (default: 3).
  * INCARNAMIND_EVAL_SPEED_STOP_USD: stops before the next run once this much is spent (default: 12).
+ * INCARNAMIND_EVAL_SPEED_AUDIT: "1" adds the token audit (#1634, ./tokens): what each part of each
+ *   request carries, with the cached share, in the report and in tokens.json.
  */
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { cpus, loadavg, tmpdir, totalmem } from "node:os";
@@ -28,6 +30,7 @@ import { createWorkerCrossEncoder } from "../lib/rerank";
 import { FLOWS, type Language } from "./flows";
 import { type FlowRun, flowTable, percentile, requestTable, type TimingRecord } from "./report";
 import { env, list, modelsAsked, spentUsd } from "./settings";
+import { createTokenAuditor, type TokenAuditRun, tokenReport } from "./tokens";
 
 const ROOT = resolve(__dirname, "../..");
 
@@ -87,6 +90,8 @@ baseline("the speed of every AI flow, on each model and language", async () => {
   const languages = (list("LANGUAGES") ?? ["en", "zh-CN"]) as Language[];
   const runs = Number(env("RUNS") ?? "3");
   const stopUsd = Number(env("STOP_USD") ?? "12");
+  const audit = env("AUDIT") === "1" ? createTokenAuditor() : null;
+  const tokenRuns: TokenAuditRun[] = [];
   const results: FlowRun[] = [];
   const loads: number[] = [];
   let stopped: string | null = null;
@@ -101,6 +106,7 @@ baseline("the speed of every AI flow, on each model and language", async () => {
     embeddings: false,
     keep: config.keepData,
     log,
+    ...(audit && { chatModels: audit.chatModels }),
   });
   try {
     const { core, dataDir, documents } = library;
@@ -130,11 +136,19 @@ baseline("the speed of every AI flow, on each model and language", async () => {
             log(`${name} · ${flow.id} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}`);
             let signs: FlowRun["signs"] = null;
             let error: string | null = null;
+            audit?.begin({ flow: flow.id, model: name, language });
             try {
               signs = await flow.run({ core, language, documents });
             } catch (thrown) {
               error = thrown instanceof Error ? thrown.message : String(thrown);
               log(`  failed: ${error}`);
+            } finally {
+              tokenRuns.push({
+                flow: flow.id,
+                model: name,
+                language,
+                requests: audit?.end() ?? [],
+              });
             }
             // From the User's action: what a flow set up first (an earlier Answer) isn't its.
             const records = queryDatabase<TimingRecord>(
@@ -169,7 +183,7 @@ baseline("the speed of every AI flow, on each model and language", async () => {
     "",
     requestTable(results),
     "",
-    "## Indexing the sample reports on this computer",
+    "## Indexing the sample Documents on this computer",
     "",
     requestTable([
       {
@@ -194,12 +208,25 @@ baseline("the speed of every AI flow, on each model and language", async () => {
     "",
     ...NOT_MEASURED,
     "",
+    ...(audit
+      ? [
+          "## Tokens",
+          "",
+          tokenReport(tokenRuns),
+          "",
+          "### Call help",
+          "",
+          "Call help has no flow: it needs a Meeting's audio and live transcript, which this runner doesn't record (see Not measured here). Its calls are not in the tables above.",
+          "",
+        ]
+      : []),
   ].join("\n");
   console.log(report);
   const out = join(config.resultsDir, `speed-${new Date().toISOString().replace(/[:.]/g, "-")}`);
   await mkdir(out, { recursive: true });
   await writeFile(join(out, "report.md"), report);
   await writeFile(join(out, "report.json"), JSON.stringify(results, null, 2));
+  if (audit) await writeFile(join(out, "tokens.json"), JSON.stringify(tokenRuns, null, 2));
   log(`Report in ${out}`);
   if (!stopped) expect(results.length).toBe(models.length * flows.length * languages.length * runs);
 });

@@ -40,14 +40,6 @@ const TIMES_FAIL = process.env.CI !== undefined;
 
 export const KNOWN: readonly Known[] = [
   {
-    flow: "first-open",
-    step: "check the Mind",
-    kind: "shift",
-    moved: ["check-card", "tab-group"],
-    max: 0.0083,
-    issue: 1312,
-  },
-  {
     flow: "assistant-writes",
     step: "ask for a section",
     kind: "shift",

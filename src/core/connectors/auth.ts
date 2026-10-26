@@ -75,6 +75,13 @@ export class HeldBackError extends Error {
   override name = "HeldBackError";
 }
 
+export class IssuerMismatchError extends Error {
+  override name = "IssuerMismatchError";
+  constructor() {
+    super("The authorization server's metadata names another issuer, so IncarnaMind won't use it.");
+  }
+}
+
 const HELD_BACK = "Everything stays on this computer, so nothing is sent.";
 
 /** Whether `error`, or what caused it, is `type`: the SDK sometimes passes errors on wrapped. */
@@ -442,9 +449,7 @@ export function createConnectorAuth(options: ConnectorAuthOptions) {
         const metadata = state.authorizationServerMetadata;
         if (metadata && !sameIssuer(metadata.issuer, state.authorizationServerUrl)) {
           discovery = undefined;
-          throw new Error(
-            `The authorization server's metadata names another issuer (${metadata.issuer}) than ${state.authorizationServerUrl}, so IncarnaMind won't use it.`,
-          );
+          throw new IssuerMismatchError();
         }
         discovery = state;
       },
