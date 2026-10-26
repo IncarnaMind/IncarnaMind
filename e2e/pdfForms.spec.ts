@@ -144,7 +144,7 @@ for (const language of ["en", "zh-CN"] as const) {
         language === "zh-CN" ? "打开以打印为 PDF…" : "Open to print to PDF…",
       );
       await app.evaluate(() => {
-        globalThis.pathsOpened?.splice(0);
+        (globalThis as { pathsOpened?: string[] }).pathsOpened?.splice(0);
       });
       await pointAndClick(window, print);
       expect(await pathsOpened(app)).toEqual([await realpath(path)]);
