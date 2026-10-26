@@ -3613,6 +3613,9 @@ export const zhCN = {
   "error.startup.title": "IncarnaMind 无法启动",
   "error.startup.body": "无法打开你的数据文件夹。\n\n{message}",
   "error.startup.busy": "IncarnaMind 无法打开数据文件夹。可能另一个副本仍在启动，请稍后再试。",
+  "error.startup.starting": "另一个副本尚未完成启动。请稍候，再重新打开 IncarnaMind。",
+  "error.startup.quitting": "另一个副本尚未退出。请等待它退出，再重新打开 IncarnaMind。",
+  "error.startup.installing": "正在安装更新。请等待安装完成，再重新打开 IncarnaMind。",
   "error.startup.stalled":
     "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。",
   "error.startup.newer.title": "更新 IncarnaMind 才能打开你的数据",

@@ -49,7 +49,7 @@ export function startupDialog(error: unknown, language: Language): StartupDialog
  */
 export function startupProblem(
   language: Language,
-  reason: "busy" | "stalled",
+  reason: "busy" | "starting" | "quitting" | "installing" | "stalled",
 ): { title: string; detail: string } {
   return {
     title: translate(language, "error.startup.title"),

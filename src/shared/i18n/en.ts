@@ -3763,6 +3763,12 @@ export const en = {
   "error.startup.body": "Your data folder couldn’t be opened.\n\n{message}",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+  "error.startup.starting":
+    "Another copy hasn’t finished starting. Wait a moment, then open IncarnaMind again.",
+  "error.startup.quitting":
+    "Another copy hasn’t finished closing. Wait for it to quit, then open IncarnaMind again.",
+  "error.startup.installing":
+    "An update is being installed. Wait for it to finish, then open IncarnaMind again.",
   "error.startup.stalled":
     "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
   "error.startup.newer.title": "Update IncarnaMind to open your data",

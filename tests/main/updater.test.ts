@@ -10,10 +10,13 @@ const fixture = vi.hoisted(() => ({
     removeListener: vi.fn(),
   },
   showMessageBox: vi.fn(),
+  nativeOn: vi.fn(),
+  appOn: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
-  app: { isPackaged: true, releaseSingleInstanceLock: vi.fn() },
+  app: { isPackaged: true, releaseSingleInstanceLock: vi.fn(), on: fixture.appOn },
+  autoUpdater: { on: fixture.nativeOn },
   BrowserWindow: { getAllWindows: () => [] },
 }));
 vi.mock("../../src/main/autoUpdater", () => ({ autoUpdater: fixture.updater }));
@@ -42,6 +45,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -56,6 +60,7 @@ async function downloaded(response: number, settles = true) {
   fixture.updater.quitAndInstall.mockImplementation(() => installed.resolve());
   const updater = await import("../../src/main/updater");
   const release = vi.fn();
+  const started = vi.fn();
   updater.startAutoUpdates(
     {
       getSettings: async () => ({ language: "en" }),
@@ -66,9 +71,10 @@ async function downloaded(response: number, settles = true) {
       return settles;
     },
     release,
+    started,
   );
   await asked.promise;
-  return { updater, release, installed: installed.promise, settled: settled.promise };
+  return { updater, release, started, installed: installed.promise, settled: settled.promise };
 }
 
 test("a new start during an ordinary quit defers the downloaded install and may reopen", async () => {
@@ -78,12 +84,34 @@ test("a new start during an ordinary quit defers the downloaded install and may 
   expect(fixture.updater.quitAndInstall).not.toHaveBeenCalled();
 });
 
-test("an explicit update restart owns reopening after quitting is settled", async () => {
+test("a native install owns reopening after quitting is settled", async () => {
   const { updater, release, installed } = await downloaded(0);
   await installed;
+  const listener = fixture.nativeOn.mock.calls.find(
+    ([name]) => name === "before-quit-for-update",
+  )?.[1];
+  expect(typeof listener).toBe("function");
+  if (typeof listener === "function") listener();
   expect(updater.canReopenAfterUpdate()).toBe(false);
   expect(release).not.toHaveBeenCalled();
   expect(fixture.updater.quitAndInstall).toHaveBeenCalledOnce();
+});
+
+test("a restart waiting for the native update to be ready still permits a requested reopen", async () => {
+  vi.stubGlobal("process", { ...process, platform: "darwin" });
+  const { updater, installed } = await downloaded(0);
+  await installed;
+  expect(updater.canReopenAfterUpdate()).toBe(true);
+  expect(fixture.updater.autoInstallOnAppQuit).toBe(false);
+});
+
+test("an automatic install on ordinary quit says that its installer will not reopen the app", async () => {
+  const { updater, started } = await downloaded(1);
+  const listener = fixture.appOn.mock.calls.find(([name]) => name === "quit")?.[1];
+  expect(typeof listener).toBe("function");
+  if (typeof listener === "function") listener();
+  expect(started).toHaveBeenCalledExactlyOnceWith(false);
+  expect(updater.canReopenAfterUpdate()).toBe(false);
 });
 
 test("keeping the app open during an update restart still allows a later new start", async () => {

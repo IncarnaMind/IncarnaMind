@@ -28,6 +28,7 @@ vi.mock("electron", async () => {
       relaunch: fixture.relaunch,
       exit: fixture.exit,
     }),
+    autoUpdater: new EventEmitter(),
     BrowserWindow: { getAllWindows: () => [] },
   };
 });
@@ -58,8 +59,9 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  const { app } = await import("electron");
+  const { app, autoUpdater } = await import("electron");
   app.removeAllListeners();
+  autoUpdater.removeAllListeners();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
@@ -81,6 +83,7 @@ test("the real quit guard keeps SQLite ownership through the install attempt", a
       core,
       guardQuit(core, () => null),
       failed,
+      vi.fn(),
     );
     await installed.promise;
     expect(settled).toHaveBeenCalledOnce();
@@ -159,6 +162,7 @@ test.each(["throws", "emits", "emits then throws"] as const)(
             },
           );
         },
+        vi.fn(),
       );
       await exited.promise;
       expect(settled).toHaveBeenCalledOnce();
@@ -207,6 +211,7 @@ test("Keep open with real refused writes retains ownership and never starts the 
         return quits;
       },
       failed,
+      vi.fn(),
     );
     expect(await settled.promise).toBe(false);
     expect(fixture.updater.quitAndInstall).not.toHaveBeenCalled();

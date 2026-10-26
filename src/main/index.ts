@@ -66,17 +66,29 @@ const logger = startLogging(app.getPath("userData"));
 
 const reportLock = (what: string, error: unknown) => logger.exception(what, error);
 const systemLanguage = () => resolveLanguage("system", app.getPreferredSystemLanguages());
+const updateRelaunch =
+  process.argv.includes("--updated") ||
+  (process.platform === "linux" && process.env.APPIMAGE_SILENT_INSTALL === "true");
+delete process.env.APPIMAGE_SILENT_INSTALL;
 const instance = acquireInstance(
   app.getPath("userData"),
   { args: process.argv, cwd: process.cwd() },
   reportLock,
+  { updateRelaunch },
 );
 const ownsDataFolder = instance.kind === "owner";
 if (instance.kind === "busy") {
   logger.error("app.dataFolderBusy", { folder: app.getPath("userData") });
   // Before `ready`, Linux writes an error box to stderr and shows nothing (#1493).
   app.whenReady().then(() => {
-    const { title, detail } = startupProblem(systemLanguage(), "busy");
+    const { title, detail } = startupProblem(
+      systemLanguage(),
+      instance.phase === "quitting" ||
+        instance.phase === "starting" ||
+        instance.phase === "installing"
+        ? instance.phase
+        : "busy",
+    );
     try {
       dialog.showErrorBox(title, detail);
     } finally {
@@ -317,10 +329,12 @@ async function showStartupError(error: unknown): Promise<void> {
 
 app.whenReady().then(async () => {
   if (!ownsDataFolder) return;
+  if (instance.kind === "owner") instance.owner.starting();
   showDevelopmentDockIcon();
   const createChatModel = await testChatModel();
   const taskKinds = await testTaskKinds();
   const executor = await scriptExecutor;
+  if (instance.kind === "owner") instance.owner.starting();
   // The window's page starts loading while the core starts. Its calls reach the core once
   // `exposeCore` has run, below: they wait until this synchronous run is done.
   createWindow();
@@ -377,26 +391,33 @@ app.whenReady().then(async () => {
   installMenuInLanguage(core);
   // Only a packaged app checks for updates; the smoke tests must never reach GitHub.
   if (!testHooks) {
-    startAutoUpdates(core, settleQuit, (error, language) => {
-      restartAfterFailedUpdate(
-        app,
-        () => {
-          for (const window of BrowserWindow.getAllWindows()) window.hide();
-          logger.exception("app.updateInstallFailed", error);
-          dialog.showMessageBoxSync({
-            type: "error",
-            title: translate(language, "update.failed.title"),
-            message: translate(language, "update.failed.title"),
-            detail: translate(language, "update.failed.detail"),
-            buttons: [translate(language, "update.failed.reopen")],
-            defaultId: 0,
-            cancelId: 0,
-            noLink: true,
-          });
-        },
-        () => core?.close(),
-      );
-    });
+    startAutoUpdates(
+      core,
+      settleQuit,
+      (error, language) => {
+        restartAfterFailedUpdate(
+          app,
+          () => {
+            for (const window of BrowserWindow.getAllWindows()) window.hide();
+            logger.exception("app.updateInstallFailed", error);
+            dialog.showMessageBoxSync({
+              type: "error",
+              title: translate(language, "update.failed.title"),
+              message: translate(language, "update.failed.title"),
+              detail: translate(language, "update.failed.detail"),
+              buttons: [translate(language, "update.failed.reopen")],
+              defaultId: 0,
+              cancelId: 0,
+              noLink: true,
+            });
+          },
+          () => core?.close(),
+        );
+      },
+      (reopens) => {
+        if (instance.kind === "owner") instance.owner.installing(reopens);
+      },
+    );
   }
 
   app.on("activate", () => {

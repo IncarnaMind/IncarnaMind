@@ -10,7 +10,10 @@ const STARTED_AGAIN = "--started-again-after-stall";
 const STALL_MS = 5_000;
 
 function relaunchOptions(extra: string[] = []): RelaunchOptions {
-  const args = [...process.argv.slice(1).filter((arg) => arg !== STARTED_AGAIN), ...extra];
+  const args = [
+    ...process.argv.slice(1).filter((arg) => arg !== STARTED_AGAIN && arg !== "--updated"),
+    ...extra,
+  ];
   // An AppImage's own files go away when it quits: it is started again from the AppImage.
   const appImage = process.env.APPIMAGE;
   return { args, ...(appImage && { execPath: appImage }) };

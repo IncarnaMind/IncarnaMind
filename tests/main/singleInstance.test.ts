@@ -49,7 +49,17 @@ const tempFolder = async () => {
 };
 
 function start(folder: string, mode = "owner", wait = 10000) {
-  const child = spawn(process.execPath, [bundle, mode, folder, String(wait)], { stdio: "pipe" });
+  const child = spawn(
+    process.execPath,
+    [
+      ...(mode === "missed-watch" ? ["-r", join(root, "e2e/instanceWatch.cjs")] : []),
+      bundle,
+      mode,
+      folder,
+      String(wait),
+    ],
+    { stdio: "pipe" },
+  );
   children.push(child);
   const messages: Record<string, unknown>[] = [];
   const errors: string[] = [];
@@ -106,6 +116,23 @@ test("a broken leftover request cannot block a later valid second start", async 
   await owner.message("owner");
   await writeFile(join(folder, "instance-requests", "!broken.request.json"), "{broken");
   const next = start(folder, "take", 400);
+  expect(await next.done()).toBe(0);
+  expect(next.messages).toContainEqual({ kind: "forwarded" });
+  expect(await owner.message("received")).toMatchObject({
+    input: { args: ["synthetic-app", "--open=synthetic"] },
+  });
+});
+
+test("a ready owner receives a second start even when the file-watch event is lost", async () => {
+  const folder = await tempFolder();
+  const owner = start(folder, "missed-watch");
+  await owner.message("owner");
+  await vi.waitFor(async () =>
+    expect(JSON.parse(await readFile(join(folder, "instance-info.json"), "utf8"))).toMatchObject({
+      phase: "ready",
+    }),
+  );
+  const next = start(folder, "take", 2000);
   expect(await next.done()).toBe(0);
   expect(next.messages).toContainEqual({ kind: "forwarded" });
   expect(await owner.message("received")).toMatchObject({
@@ -195,7 +222,7 @@ test.each(["pid", "startedAt"])(
     );
     const next = start(folder, "take", 400);
     expect(await next.done()).toBe(0);
-    expect(await next.message("busy")).toEqual({ kind: "busy" });
+    expect(await next.message("busy")).toEqual({ kind: "busy", phase: "ready" });
     expect(owner.messages.some((message) => message.kind === "received")).toBe(false);
   },
 );
