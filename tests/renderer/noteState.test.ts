@@ -11,11 +11,16 @@ import {
 } from "../../src/core/api";
 import type { NoteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { noteStateOf, noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
+import {
+  noteStateOf,
+  noteStateParts,
+  readNoteState,
+  unreadForCard,
+} from "../../src/renderer/src/noteState";
 import { formatDateTime } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
 import { setMindScope } from "../../src/shared/mindScope";
-import { recordCheckUnread } from "../../src/shared/unreadFiles";
+import { checkUnreadOf, recordCheckUnread } from "../../src/shared/unreadFiles";
 
 const CHECKED_AT = "2026-10-20T14:25:00.000Z";
 
@@ -410,7 +415,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     doc.destroy();
   });
 
-  test("stays green when a widened claim's search couldn't read a file beside a Folder claim (D266)", () => {
+  test("a file only a wide search couldn't read stays out of the amber card line; the Folder claim's own names only itself (D266)", () => {
     const doc = source([
       paragraph([
         checked("Spring tides happen at new and full moon.", "supported", {
@@ -426,22 +431,42 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
         }),
       ]),
     ]);
-    recordCheckUnread(doc, "r2", [unreadFile("Locked.pdf")], new Set(["r1", "r2"]));
+    const requests = ["r1", "r2"];
     const readFolder = () =>
       readNoteState({ doc, documents: [], keptCitationTexts: [], folderId: "tides" }).state;
-    expect(readFolder()).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
-    // A file the narrow claim's own search couldn't read turns it amber, and only that one is named.
-    recordCheckUnread(doc, "r1", [unreadFile("Scan.pdf")], new Set(["r1", "r2"]));
-    expect(readFolder()).toMatchObject({
-      kind: "needs-look",
-      look: 0,
-      unread: 1,
-      unreadMatters: true,
-    });
+    recordCheckUnread(
+      doc,
+      "r2",
+      [unreadFile("Outside.pdf"), unreadFile("Missing.pdf")],
+      new Set(requests),
+    );
+    const green = readFolder();
+    expect(green).toMatchObject({ kind: "checked", unread: 2, unreadMatters: false });
+    // A green Note's card lists every file its checks couldn't read (D261).
+    expect(
+      unreadForCard(checkUnreadOf(doc, requests), checkUnreadOf(doc, ["r1"]), green).map(
+        (file) => file.name,
+      ),
+    ).toEqual(["Outside.pdf", "Missing.pdf"]);
+    // Locked.pdf is in the Folder claim's own search: the badge and the card name only it.
+    recordCheckUnread(doc, "r1", [unreadFile("Locked.pdf")], new Set(requests));
+    const amber = readFolder();
+    expect(amber).toMatchObject({ kind: "needs-look", look: 0, unread: 1, unreadMatters: true });
+    const all = checkUnreadOf(doc, requests);
+    const narrow = checkUnreadOf(doc, ["r1"]);
+    expect(all.map((file) => file.name)).toEqual(["Locked.pdf", "Outside.pdf", "Missing.pdf"]);
+    expect(narrow.map((file) => file.name)).toEqual(["Locked.pdf"]);
+    expect(unreadForCard(all, narrow, amber).map((file) => file.name)).toEqual(["Locked.pdf"]);
+    expect(
+      noteStateParts(amber ?? fail(), (key, params) => translate("en", key, params), "en"),
+    ).toEqual(["1 file couldn’t be read"]);
+    expect(
+      noteStateParts(amber ?? fail(), (key, params) => translate("zh-CN", key, params), "zh-CN"),
+    ).toEqual(["1 个文件未能读取"]);
     doc.destroy();
   });
 
-  test("stays green when a widened claim's search couldn't read a file beside a Tag claim (D266)", () => {
+  test("a file only a wide search couldn't read stays out of the amber card line; the Tag claim's own names only itself (D266)", () => {
     const tagScope: SearchScope = { folderIds: [], tagIds: ["tag-tides"], documentIds: [] };
     const doc = source([
       paragraph([
@@ -459,17 +484,36 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       ]),
     ]);
     setMindScope(doc, tagScope);
-    recordCheckUnread(doc, "r2", [unreadFile("Locked.pdf")], new Set(["r1", "r2"]));
+    const requests = ["r1", "r2"];
     const readTag = () =>
       readNoteState({ doc, documents: [], keptCitationTexts: [], folderId: null }).state;
-    expect(readTag()).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
-    recordCheckUnread(doc, "r1", [unreadFile("Scan.pdf")], new Set(["r1", "r2"]));
-    expect(readTag()).toMatchObject({
-      kind: "needs-look",
-      look: 0,
-      unread: 1,
-      unreadMatters: true,
-    });
+    recordCheckUnread(
+      doc,
+      "r2",
+      [unreadFile("Outside.pdf"), unreadFile("Missing.pdf")],
+      new Set(requests),
+    );
+    const green = readTag();
+    expect(green).toMatchObject({ kind: "checked", unread: 2, unreadMatters: false });
+    expect(
+      unreadForCard(checkUnreadOf(doc, requests), checkUnreadOf(doc, ["r1"]), green).map(
+        (file) => file.name,
+      ),
+    ).toEqual(["Outside.pdf", "Missing.pdf"]);
+    recordCheckUnread(doc, "r1", [unreadFile("Locked.pdf")], new Set(requests));
+    const amber = readTag();
+    expect(amber).toMatchObject({ kind: "needs-look", look: 0, unread: 1, unreadMatters: true });
+    const all = checkUnreadOf(doc, requests);
+    const narrow = checkUnreadOf(doc, ["r1"]);
+    expect(all.map((file) => file.name)).toEqual(["Locked.pdf", "Outside.pdf", "Missing.pdf"]);
+    expect(narrow.map((file) => file.name)).toEqual(["Locked.pdf"]);
+    expect(unreadForCard(all, narrow, amber).map((file) => file.name)).toEqual(["Locked.pdf"]);
+    expect(
+      noteStateParts(amber ?? fail(), (key, params) => translate("en", key, params), "en"),
+    ).toEqual(["1 file couldn’t be read"]);
+    expect(
+      noteStateParts(amber ?? fail(), (key, params) => translate("zh-CN", key, params), "zh-CN"),
+    ).toEqual(["1 个文件未能读取"]);
     doc.destroy();
   });
 

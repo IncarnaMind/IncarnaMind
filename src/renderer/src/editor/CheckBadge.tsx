@@ -130,7 +130,7 @@ function MindBadge({
       onStop={() => stopCheck(mindId)}
     >
       <p className="check-card-title">{t("health.label")}</p>
-      <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} />
+      <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} state={state} />
       <ContradictionLine doc={doc} mindId={mindId} />
       <div className="check-card-sep" />
       <CheckActions doc={doc} mindId={mindId} askingMind={askingMind} />

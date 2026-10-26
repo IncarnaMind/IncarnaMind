@@ -9,7 +9,7 @@
 import { getSchema } from "@tiptap/core";
 import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
-import { type KeptCitationText, MIND_CONTENT_FIELD } from "../../core/api";
+import { type KeptCitationText, MIND_CONTENT_FIELD, type UnreadFile } from "../../core/api";
 import type { Language } from "../../core/language";
 import { citationState, type LiveDocument } from "../../shared/citations";
 import { checkSearchedNarrowerThanAll } from "../../shared/claimChecks";
@@ -118,6 +118,18 @@ function narrowRequestsOf(claims: readonly ShownClaim[]): string[] {
         .filter((request) => request !== ""),
     ),
   ];
+}
+
+/**
+ * The files the check card's unread line names: only those that keep the Note amber, or every
+ * file its checks couldn't read when they don't (D261).
+ */
+export function unreadForCard(
+  all: readonly UnreadFile[],
+  narrow: readonly UnreadFile[],
+  state: NoteState | null,
+): readonly UnreadFile[] {
+  return state?.unreadMatters === true ? narrow : all;
 }
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;

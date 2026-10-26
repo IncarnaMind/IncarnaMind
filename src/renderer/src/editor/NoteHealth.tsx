@@ -25,6 +25,7 @@ import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
+import { type NoteState, unreadForCard } from "../noteState";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
@@ -141,17 +142,20 @@ export function HealthCard({
   doc,
   mindId,
   health,
+  state,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   health: Health;
+  state: NoteState | null;
 }) {
   const t = useT();
   const language = useLanguage();
   const place = useCardPlace(mindId);
   const checkedAll = useMindCheckRun(doc);
   const unread = useCheckUnread(editor, doc);
+  const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   const asking = useMindCheck((state) => state.asking[mindId] !== undefined);
   const coverage = useEditorState({
     editor,
@@ -455,7 +459,11 @@ export function HealthCard({
                 : t(`checks.problem.${problem.kind}`)}
           </ProblemLine>
         )}
-      <UnreadFilesLine files={unread} testId="checks-unread" className="mind-unread" />
+      <UnreadFilesLine
+        files={unreadForCard(unread, narrowUnread, state)}
+        testId="checks-unread"
+        className="mind-unread"
+      />
     </>
   );
 }
