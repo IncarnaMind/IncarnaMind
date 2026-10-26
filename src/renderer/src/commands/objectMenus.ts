@@ -136,6 +136,14 @@ registerMenu("citation", [
   "citation.remove",
 ]);
 
+registerMenu("comparisonColumn", [
+  "comparison.column.edit",
+  "comparison.column.insertLeft",
+  "comparison.column.insertRight",
+  "comparison.column.duplicate",
+  "comparison.column.remove",
+]);
+
 registerMenu("chart", [
   "chart.table",
   "chart.kind.bar",

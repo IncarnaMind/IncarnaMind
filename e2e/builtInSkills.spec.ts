@@ -13,7 +13,17 @@ import {
 } from "./app";
 
 /** The Skills the app ships (resources/skills/), in name order. */
-const BUILT_IN = ["literature-review", "mind-to-report", "summarise-document"];
+const BUILT_IN = [
+  "chronology",
+  "cim-red-flags",
+  "covenant-summary",
+  "credit-memo-outline",
+  "deposition-summary",
+  "earnings-review",
+  "literature-review",
+  "mind-to-report",
+  "summarise-document",
+];
 
 let dataDir: string;
 test.beforeEach(async () => {
@@ -23,7 +33,7 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-test("a fresh data folder has the three built-in Skills: labelled in Settings, and offered in a Question's slash menu", async () => {
+test("a fresh data folder has the built-in Skills: labelled in Settings, and offered in a Question's slash menu", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -32,8 +42,8 @@ test("a fresh data folder has the three built-in Skills: labelled in Settings, a
   await openSettings(window, "skills");
   const section = window.getByTestId("skills-settings");
   const items = section.getByTestId("skill-item");
-  await expect(section.getByTestId("skills-built-in").getByTestId("skill-item")).toHaveCount(3);
-  await expect(items).toHaveCount(3);
+  await expect(section.getByTestId("skills-built-in").getByTestId("skill-item")).toHaveCount(9);
+  await expect(items).toHaveCount(9);
   for (const [index, name] of BUILT_IN.entries()) {
     const item = items.nth(index);
     await expect(item).toHaveAttribute("data-skill-name", name);
@@ -52,11 +62,11 @@ test("a fresh data folder has the three built-in Skills: labelled in Settings, a
     await itemNamed(name).getByTestId(action).click();
   };
   await itemAction("summarise-document", "skill-remove");
-  await expect(items).toHaveCount(2);
+  await expect(items).toHaveCount(8);
   await expect(restore).toHaveText("Restore built-in Skills");
   await restore.click();
   await expect(itemNamed("summarise-document")).toHaveAttribute("data-built-in", "true");
-  await expect(items).toHaveCount(3);
+  await expect(items).toHaveCount(9);
   await expect(restore).toHaveCount(0);
 
   // Duplicated as the User's own: a copy that isn't built-in.
@@ -68,7 +78,7 @@ test("a fresh data folder has the three built-in Skills: labelled in Settings, a
   await expect(copy.getByTestId("skill-duplicate")).toHaveCount(0);
   await expect(copy.getByTestId("skill-edit")).toBeVisible();
   await window.keyboard.press("Escape");
-  await expect(items).toHaveCount(4);
+  await expect(items).toHaveCount(10);
   await closeSettings(window);
 
   // In the composer, "/" offers them like any other Skill.

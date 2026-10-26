@@ -149,7 +149,7 @@ Every field is a value from a closed list, a whole number, or true/false: there'
 | `organize_run` | `documents`: how many Documents; `all`: whether it was all of them; `model`: the kind of model, `chat`, `jev`, `auto` or `ollama` |
 | `mind_exported` | `format`: `markdown`, `docx`, `pdf`, `source-pack`, `html` or `share-page` (a web page to share); `questions`: whether Questions were included |
 | `connector_used` | `remote`: whether the Connector is remote. Sent once per Connector and Answer. Never its name: every Connector is one you added |
-| `skill_used` | `skill`: a built-in Skill's name (`literature-review`, `mind-to-report`, `summarise-document`), or `own` for one you added, whatever its name; `forced`: whether the Question asked for it. Sent once per Skill and Answer |
+| `skill_used` | `skill`: a built-in Skill's name (`chronology`, `cim-red-flags`, `covenant-summary`, `credit-memo-outline`, `deposition-summary`, `earnings-review`, `literature-review`, `mind-to-report`, `summarise-document`), or `own` for one you added, whatever its name; `forced`: whether the Question asked for it. Sent once per Skill and Answer |
 | `error_occurred` | `area`: `answer`, `document` or `connector`; `kind`: the kind of error, such as `rate-limit`, `password-protected`, `forms-unread` or `timed-out`. Never its message |
 | `settings_page_viewed` | `page`: which page of Settings, such as `privacy` |
 
