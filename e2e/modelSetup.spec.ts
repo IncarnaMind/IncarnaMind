@@ -453,7 +453,7 @@ test("when the model that worked goes, the card asks for one again", async () =>
     });
     await expect(window.getByTestId("setup-ready-title")).toHaveCount(0);
     await expect(card.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
-    await expect(window.getByTestId("assistant-waiting-model")).toBeVisible();
+    await expect(card.getByTestId("setup-key")).toBeVisible();
   } finally {
     await app.close();
   }

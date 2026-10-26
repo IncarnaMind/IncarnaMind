@@ -258,7 +258,8 @@ core.on("chatReadiness.changed", (readiness) => {
   }
   const { wanted, waiting } = useModelSetup.getState();
   if (!wanted && !waiting) return;
-  useModelSetup.setState({ ready: true });
+  // The card stays for steps 2 and 3, after the Question that waited has been asked from it.
+  useModelSetup.setState({ ready: true, wanted: true });
   // The Question runs as soon as step 1 works; steps 2 and 3 stay below its Answer (#1922).
   askWaitingQuestion();
 });
