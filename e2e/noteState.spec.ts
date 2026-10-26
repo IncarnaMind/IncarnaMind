@@ -50,6 +50,7 @@ const WORDS = {
     checkFirst: "Not checked since your last edit · Check first",
     see: "Show",
     running: "A check is running",
+    checking: /claims? being checked/,
   },
   "zh-CN": {
     notChecked: "未核对",
@@ -58,6 +59,7 @@ const WORDS = {
     checkFirst: "上次编辑后未核对 · 先核对",
     see: "查看",
     running: "正在核对",
+    checking: /正在核对 \d+ 条说法/,
   },
 } as const;
 
@@ -283,7 +285,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(runningLine).toHaveText(`${words.running} · ${words.see}`);
     await screenshot(window, `note-state-export-${language}-running`);
     await pointAndClick(window, runningLine);
-    await expect(window.getByTestId("check-card").getByTestId("card-progress")).toBeVisible();
+    const cardAgain = window.getByTestId("check-card");
+    await expect(cardAgain.getByTestId("card-progress")).toBeVisible();
+    // The claim being checked keeps its row, in the card's own words for a claim.
+    await expect(cardAgain.getByTestId("health-checking")).toHaveText(words.checking);
 
     // Every sentence holds when the run ends, so the line is gone.
     await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 60_000 });
