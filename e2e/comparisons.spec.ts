@@ -1122,6 +1122,17 @@ test("remove takes a column whole, its undo line brings back its Citations, and 
     0,
   );
   await window.keyboard.press("Escape");
+  await expect(last.locator('[role="menu"]')).toBeHidden();
+  // In Chinese too, Escape in an open menu closes the menu alone, not the expanded table.
+  await pointAndClick(window, table.getByTestId("comparison-expand"));
+  await expect(table).toHaveAttribute("data-expanded", "true");
+  await pointAndClick(window, last, { button: "right" });
+  await expect(last.locator('[role="menu"]')).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(last.locator('[role="menu"]')).toBeHidden();
+  await expect(table).toHaveAttribute("data-expanded", "true");
+  await window.keyboard.press("Escape");
+  await expect(table).not.toHaveAttribute("data-expanded", "true");
   await last.focus();
   await window.keyboard.press("Delete");
   await expect(table.getByTestId("comparison-question")).toHaveCount(1);
@@ -1150,13 +1161,22 @@ test("⌘K edits a column by keyboard, and the Excel export follows the label", 
   await expect(headingAt(table, 0)).toHaveText("Notice");
 
   await pointAndClick(window, table.getByTestId("comparison-expand"));
-  // The heading's menu works in the expanded table too.
+  // The heading's menu works in the expanded table too, and Escape closes the menu
+  // alone: the table stays expanded.
+  const expandedMenu = headingAt(table, 0).locator('[role="menu"]');
   await pointAndClick(window, headingAt(table, 0).getByTestId("comparison-column-menu"));
-  await expect(
-    headingAt(table, 0).locator('[role="menu"]').getByTestId("comparison.column.edit"),
-  ).toBeVisible();
-  await pointAndClick(window, headingAt(table, 0).getByTestId("comparison-column-menu"));
-  await expect(headingAt(table, 0).locator('[role="menu"]')).toBeHidden();
+  await expect(expandedMenu.getByTestId("comparison.column.edit")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(expandedMenu).toBeHidden();
+  await expect(table).toHaveAttribute("data-expanded", "true");
+  // A field there closes on Escape too, leaving the table expanded.
+  await headingAt(table, 0).focus();
+  await window.keyboard.press("F2");
+  await expect(window.getByTestId("comparison-edit-label")).toBeFocused();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("comparison-edit-label")).toHaveCount(0);
+  await expect(headingAt(table, 0)).toBeFocused();
+  await expect(table).toHaveAttribute("data-expanded", "true");
   await pointAndClick(window, table.getByTestId("comparison-export-excel"));
   const result = window.getByTestId("export-result");
   await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });

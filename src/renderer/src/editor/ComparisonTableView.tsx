@@ -94,17 +94,17 @@ function useExpandInPlace(
 
   useEffect(() => {
     if (!expanded) return;
+    // Whatever has the focus handles Escape first, in the bubble phase: a menu, a
+    // field or a card there closes itself and takes the key, and only the table
+    // when nothing did.
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // A heading's own field closes on Escape first.
-      if (event.target instanceof Element && event.target.closest("[data-comparison-field]"))
-        return;
       event.preventDefault();
       event.stopPropagation();
       collapse();
     };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [expanded, collapse]);
 }
 
