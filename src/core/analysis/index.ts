@@ -47,11 +47,13 @@ export async function runAnalysis(
   const versions = runtime?.languages.find((each) => each.language === job.language) ?? null;
   let result: AnalysisResult;
   if (!runtime || !versions) {
-    result = endedBefore({
-      kind: "unavailable",
-      reason: "missing",
-      detail: runtime ? `This runtime doesn't run ${job.language}.` : "There is no runtime.",
-    });
+    result = endedBefore(
+      runtime?.unavailable ?? {
+        kind: "unavailable",
+        reason: "missing",
+        detail: runtime ? `This runtime doesn't run ${job.language}.` : "There is no runtime.",
+      },
+    );
   } else {
     try {
       const given = await runtime.run(job, signal);
