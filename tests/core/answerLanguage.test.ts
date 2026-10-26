@@ -112,7 +112,7 @@ describe("The instructions on quotation marks and on what goes into a Mind", () 
     const system = documentInstructions("tools", { total: 1, names: ["Tides"] });
 
     expect(system).toContain("in its own language");
-    expect(system).toContain("A translation goes after the closing mark");
+    expect(system).toContain("never a translation of them: that goes after the closing mark");
     expect(mindInstructions(true)).toContain(
       "the same rules as your replies: the language of the Question, and quotation marks only around a Document's own words",
     );
