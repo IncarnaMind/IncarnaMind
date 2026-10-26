@@ -46,8 +46,11 @@ export interface LayoutSlice {
   renamingTabId: string | null;
   /** Reads the window's layout from the core, as it was left. */
   loadLayout(): Promise<void>;
-  /** Changes the layout through the core; resolves with it once the store has it (null if refused). */
-  changeLayout(change: LayoutChange): Promise<WindowLayout | null>;
+  /**
+   * Changes the layout through the core; resolves with it once the store has it (null if refused).
+   * `quiet` where the caller says the failure where it happened, as Undo does in its own line.
+   */
+  changeLayout(change: LayoutChange, options?: { quiet?: boolean }): Promise<WindowLayout | null>;
   /**
    * Moves, resizes, folds or unfolds the assistant: shown at once, then kept
    * through the core (and put back as the core has it if it refuses).
@@ -74,7 +77,7 @@ export function createLayoutSlice(
     async loadLayout() {
       set({ layout: await core.getLayout(WINDOW_ID) });
     },
-    async changeLayout(change) {
+    async changeLayout(change, options) {
       const asked = placings;
       try {
         const answered = await core.changeLayout(WINDOW_ID, change);
@@ -84,7 +87,7 @@ export function createLayoutSlice(
         set({ layout });
         return layout;
       } catch (error) {
-        report(error);
+        if (!options?.quiet) report(error);
         return null;
       }
     },

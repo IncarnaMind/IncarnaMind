@@ -17,6 +17,7 @@ import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
 import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
+import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
 import { findTables, type TableGrid, textItemOf, textLayerRows } from "./tables";
 import { PICTURE_LIMITS, pictureSize, pictureType } from "./web/pictures";
 
@@ -480,9 +481,22 @@ async function readScannedPages(
       const page = await document.getPage(number);
       try {
         const picture = await pagePicture(page, factory);
-        // The core answers no read for a job it has told to stop, so a read asked for now would wait for ever.
-        reading.signal.throwIfAborted();
-        unit = scannedUnit(number, await reading.read(number, picture), picture, reading.reader);
+        const oriented = await readWithQuarterTurn(picture, page.rotate, async (readingPicture) => {
+          // The core answers no read for a job it has told to stop, so a read asked for now would wait for ever.
+          reading.signal.throwIfAborted();
+          return reading.read(number, readingPicture);
+        });
+        const scanned = scannedUnit(
+          number,
+          oriented.lines,
+          oriented.picture,
+          reading.reader,
+          oriented.turn,
+        );
+        unit = {
+          ...scanned,
+          anchors: scanned.anchors ? anchorsBack(scanned.anchors, oriented.turn) : null,
+        };
       } catch (error) {
         reading.signal.throwIfAborted();
         message ??= error instanceof Error ? error.message : String(error);
