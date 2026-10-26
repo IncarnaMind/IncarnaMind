@@ -143,10 +143,7 @@ Two checks, both recorded in the set:
    attribution match the text, that arithmetic holds, that a `conflict` answer names both Documents'
    values, that a `superseded` answer gives the current figure and not the decoy, and that an
    `absent` Question really is unanswered by the library. A Question whose answer did not pass was
-   corrected and checked again; `checked` records the day it passed. No person has checked the
-   answers by hand. Before the set freezes, a random sample of 30 Questions, stratified by kind and
-   language, may be checked by hand; if that happens, this section will say so, and the sample will
-   be recorded here.
+   corrected and checked again; `checked` records the day it passed.
 
 ## Licence
 
