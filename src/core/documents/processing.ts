@@ -29,6 +29,7 @@ import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
 import { type BuiltPassage, buildPassages } from "./passages";
 import { documentTitle } from "./title";
+import { unreadMessage } from "./unreadMessage";
 
 /**
  * The version of this pipeline: text extraction, Passage building, text
@@ -52,8 +53,9 @@ import { documentTitle } from "./title";
  * print, from its page labels or its headers and footers). 12: #1819 (a
  * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
  * workbook records the hidden sheets and rows past the limit it left out).
+ * 14: #1818 (PDF form fields are included in the pages' text).
  */
-export const PROCESSING_VERSION = 13;
+export const PROCESSING_VERSION = 14;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -68,10 +70,10 @@ export const PROCESSING_VERSION = 13;
  * Passages come out as they were; version 12 only PDFs' scanned pages, whose
  * orientation `SCAN_CURRENT_SINCE` reads again; version 13 only workbooks',
  * which record the hidden sheets and rows past the limit they left out, their
- * Units as they were.
+ * Units as they were; version 14 only PDFs', whose pages include form fields.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 11,
+  pdf: 14,
   text: 5,
   markdown: 5,
   docx: 7,
@@ -189,8 +191,8 @@ type Processed =
        * as the Passages were built from it (see ./boilerplate), with its label and anchors.
        */
       pages: TextUnit[];
-      /** Scanned pages that couldn't be read, and why; null when every one was. */
-      unread: { pages: number[]; message: string } | null;
+      /** PDF pages with unread content, and why; null when all could be read. */
+      unread: { pages: number[]; message: string; forms?: true } | null;
       /** What of it wasn't read when the rest was (#740); null when all was. */
       parts: UnreadParts | null;
     }
@@ -519,7 +521,11 @@ async function processBytes(
     if (passages.length === 0) {
       // A scan none of whose pages could be read: it has text to find, once they can be.
       const processed: Processed = unread
-        ? { outcome: "failed", reason: "pages-unread", message: unreadMessage(unread) }
+        ? {
+            outcome: "failed",
+            reason: unread.forms ? "forms-unread" : "pages-unread",
+            message: unreadMessage(unread),
+          }
         : { outcome: "no-text", pageCount, parts };
       return { processed, firstPages };
     }
@@ -537,7 +543,3 @@ async function processBytes(
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
-/** The technical detail of scanned pages that couldn't be read, in English, for logs and tooltips. */
-export const unreadMessage = (unread: { pages: number[]; message: string }) =>
-  `Scanned ${unread.pages.length === 1 ? "page" : "pages"} ${unread.pages.join(", ")} couldn't be read${unread.message ? `: ${unread.message}` : "."}`;

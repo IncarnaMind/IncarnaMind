@@ -2580,6 +2580,7 @@ export type DocumentFailureReason =
    * searched; Retry reads the others.
    */
   | "pages-unread"
+  | "forms-unread"
   /**
    * The app stopped while it was being read, not closed in good order: it
    * isn't read again by itself, as it could stop the app again. Retry reads it.
@@ -3711,7 +3712,7 @@ export interface UnsupportedFile {
  *   (`unlockDocument`, #763); another kind needs its password removed;
  * - "damaged": the file is broken, or couldn't be read;
  * - "too-large": too large to open;
- * - "pages": a scan some of whose pages haven't been read yet;
+ * - "pages": a PDF with page content that couldn't be read;
  * - "parts": a workbook read in part, whose hidden sheets or rows past the reading limit were
  *   left out (`UnreadFile.parts` says which). The rest of it is searched.
  */
@@ -3747,6 +3748,8 @@ export interface UnreadFile {
   documentId: string | null;
   /** For "pages": the scanned pages that couldn't be read, from 1; empty when none could be, and for every other reason. */
   pages: number[];
+  /** For "pages" with unread PDF form fields, whose marker needs explaining to the model (#1818). */
+  forms?: true;
   /** For "parts": what wasn't read; absent for every other reason. */
   parts?: UnreadParts;
 }
