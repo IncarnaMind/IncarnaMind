@@ -225,6 +225,24 @@ function resultOf(text: string, ms: number): AnalysisResult {
 export function createElectronAnalysisRuntime(options: ElectronAnalysisOptions): AnalysisRuntime {
   const { log } = options;
   const versions = versionsIn(options.folder, log);
+  const unavailable = (): Extract<AnalysisEnd, { kind: "unavailable" }> | undefined => {
+    if (!versions) {
+      return {
+        kind: "unavailable",
+        reason: "missing",
+        detail: `No Python files in ${options.folder}.`,
+      };
+    }
+    // With Chromium's sandbox off for every renderer, nothing would keep the code from this computer.
+    if (sandboxOff((name) => app.commandLine.hasSwitch(name), process.env)) {
+      return {
+        kind: "unavailable",
+        reason: "no-sandbox",
+        detail: "Electron runs with its sandbox off (--no-sandbox or ELECTRON_DISABLE_SANDBOX).",
+      };
+    }
+    return undefined;
+  };
   let analysisSession: Session | null = null;
   let current: Sandbox | null = null;
   let idle: ReturnType<typeof setTimeout> | undefined;
@@ -403,21 +421,8 @@ export function createElectronAnalysisRuntime(options: ElectronAnalysisOptions):
     });
 
   const runOne = async (job: AnalysisJob, signal: AbortSignal): Promise<AnalysisResult> => {
-    if (!versions) {
-      return endedBefore({
-        kind: "unavailable",
-        reason: "missing",
-        detail: `No Python files in ${options.folder}.`,
-      });
-    }
-    // With Chromium's sandbox off for every renderer, nothing would keep the code from this computer.
-    if (sandboxOff((name) => app.commandLine.hasSwitch(name), process.env)) {
-      return endedBefore({
-        kind: "unavailable",
-        reason: "no-sandbox",
-        detail: "Electron runs with its sandbox off (--no-sandbox or ELECTRON_DISABLE_SANDBOX).",
-      });
-    }
+    const problem = unavailable();
+    if (problem) return endedBefore(problem);
     if (signal.aborted) return endedBefore({ kind: "stopped" });
     clearTimeout(idle);
     current ??= open();
@@ -485,7 +490,12 @@ export function createElectronAnalysisRuntime(options: ElectronAnalysisOptions):
   };
 
   return {
-    languages: versions ? [versions] : [],
+    get languages() {
+      return versions && !unavailable() ? [versions] : [];
+    },
+    get unavailable() {
+      return unavailable();
+    },
     run(job, signal) {
       const result = queue.then(() => runOne(job, signal));
       queue = result.catch(() => undefined);

@@ -127,6 +127,8 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
+registerMenu("check", ["check.findSources"]);
+
 registerMenu("citation", [
   "citation.open",
   "citation.update",

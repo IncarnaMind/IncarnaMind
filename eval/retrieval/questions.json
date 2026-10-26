@@ -18,7 +18,12 @@
     "维基百科-梯度下降法": "eval/retrieval/fixtures/维基百科-梯度下降法.pdf",
     "维基百科-可持续发展目标": "eval/retrieval/fixtures/维基百科-可持续发展目标.pdf",
     "维基百科-环境-社会和公司治理": "eval/retrieval/fixtures/维基百科-环境、社会和公司治理.pdf",
-    "维基百科-注意力机制": "eval/retrieval/fixtures/维基百科-注意力机制.pdf"
+    "维基百科-注意力机制": "eval/retrieval/fixtures/维基百科-注意力机制.pdf",
+    "real-mamba": "data/real/Mamba Linear-Time Sequence Modeling with Selective State Spaces.pdf",
+    "real-wdr-2023": "data/real/World Development Report 2023 Overview.pdf",
+    "real-nrr-2023": "data/real/National Risk Register 2023.pdf",
+    "real-nbs-communique-2023": "data/real/中华人民共和国2023年国民经济和社会发展统计公报.pdf",
+    "real-fomc-1950": "data/real/FOMC Historical Minutes 13 June 1950.pdf"
   },
   "questions": [
     {

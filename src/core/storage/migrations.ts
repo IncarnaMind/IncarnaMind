@@ -1895,6 +1895,14 @@ export const migrations: readonly Migration[] = [
         CHECK (kind IN ('meeting', 'memo'));
     `,
   },
+  {
+    version: 109,
+    description: "Answers in conversations keep their Analyses, and a Question that asked for one",
+    sql: `
+      ALTER TABLE conversation_messages ADD COLUMN analyses TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE conversation_messages ADD COLUMN analyse INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 /**

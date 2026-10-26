@@ -36,7 +36,6 @@ test.afterEach(async () => {
 
 /** What the page keeps while a test watches: shifts, and the sidebar's rows frame by frame. */
 interface Watch {
-  firstRowAt: number | null;
   shifts: { at: number; moved: string[] }[];
   frames: {
     at: number;
@@ -48,7 +47,7 @@ interface Watch {
 /** Starts the watch: from now on the page records its layout shifts and, each frame, its rows. */
 const watchSidebar = (window: Page) =>
   window.evaluate(() => {
-    const watch: Watch = { firstRowAt: null, shifts: [], frames: [] };
+    const watch: Watch = { shifts: [], frames: [] };
     (globalThis as unknown as { watch: Watch }).watch = watch;
     const sidebar = () => document.querySelector('[data-testid="sidebar"]');
     const tree = () => sidebar()?.querySelector('[role="tree"]') ?? null;
@@ -81,9 +80,6 @@ const watchSidebar = (window: Page) =>
             marked: row.querySelector('[data-testid="tag-marks"]') !== null,
           };
         }
-      }
-      if (watch.firstRowAt === null && Object.keys(names).length > 0) {
-        watch.firstRowAt = performance.now();
       }
       watch.frames.push({
         at: performance.now(),
@@ -132,6 +128,27 @@ function shownTooShort(frames: Watch["frames"], leastMs: number): string[] {
   return short;
 }
 
+/**
+ * When the sidebar stopped making room for the Documents just added: the last frame whose rows,
+ * or a name's width, differed from the frame before. A loaded runner lays six out over a few
+ * hundred milliseconds rather than in one frame, and those moves are the User's own add (#1741);
+ * only what moves a row after it stopped counts.
+ */
+function rowsSettledAt(frames: Watch["frames"]): number | null {
+  let settled: number | null = null;
+  let previous = "";
+  for (const frame of frames) {
+    const rows = Object.keys(frame.names)
+      .toSorted()
+      .map((id) => `${id} ${frame.names[id]?.width ?? 0}`)
+      .join("|");
+    if (rows === previous) continue;
+    previous = rows;
+    settled = frame.at;
+  }
+  return settled;
+}
+
 /** Documents with names long enough to be cut in the sidebar, one a Chinese name; six unless fewer are asked for. */
 async function someDocuments(count = 6): Promise<string[]> {
   const names = [
@@ -176,8 +193,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await untilSettled(window);
       const seen = await watched(window);
 
-      // The User's own action: their files arriving, and the sidebar making room for them, at once.
-      const arrived = seen.firstRowAt ?? 0;
+      // The User's own action: their files arriving, and the sidebar making room for them,
+      // once the rows have stopped arriving and being cut to fit.
+      const arrived = rowsSettledAt(seen.frames) ?? 0;
       const unasked = seen.shifts.filter((shift) => shift.at > arrived + 100);
       expect(unasked, "layout shifts in the sidebar's rows").toEqual([]);
 
