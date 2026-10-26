@@ -119,10 +119,6 @@ You don't need an account. Your Minds and the search index stay in one data fold
 
 </details>
 
-## Coming next
-
-Planned, not available yet, with no dates (see the [roadmap](https://github.com/IncarnaMind/IncarnaMind/issues/74)): asking during a meeting, with answers that cite its live transcript; a reviewing pane for other people's tracked changes in a Word file; and research Tasks that run in the background.
-
 ## Contributing
 
 Code, testing with your own documents, translations and ideas are all welcome: start with [CONTRIBUTING.md](CONTRIBUTING.md), [open an issue](https://github.com/IncarnaMind/IncarnaMind/issues/new/choose) or ask in [Discussions](https://github.com/IncarnaMind/IncarnaMind/discussions).

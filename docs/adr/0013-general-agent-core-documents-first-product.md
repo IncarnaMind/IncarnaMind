@@ -138,3 +138,7 @@ The assistant can do what the User does with the app's commands. A **Commands** 
   - Undo leaves a Folder or Tag the Run made in place, and says so, when the User has put their own things in it since: Documents, Minds or conversations.
 - **Reported from results.** The card under the reply says only what each `run_command` call returned, including the failed and the denied ones.
 - **Not for every Run.** Check Runs and outside agents aren't offered them.
+
+## Amendment, 2026-10-26: names in this record (#2004)
+
+The action the amendments above call Find support is called Check against Documents in the interface (`editor.ai.checkAgainstDocuments`); stored Minds keep `find-support` as the action's name, and its ⌘K keywords keep "check find support". The `prototype/*` branches this ADR names are no longer on `origin`; the bake-off's scores stand as recorded.
