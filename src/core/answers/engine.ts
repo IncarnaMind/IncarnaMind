@@ -1228,8 +1228,10 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       let searched: SearchResultForModel | undefined;
       let searchedFor = request.question;
       const read = new Set<ReadThirdPartySource>();
-      async function* searchOnce(): AsyncGenerator<AnswerEngineEvent, SearchResultForModel> {
-        if (searched !== undefined) return searched;
+      async function* searchOnce(
+        translate = true,
+      ): AsyncGenerator<AnswerEngineEvent, SearchResultForModel> {
+        if (translate && searched !== undefined) return searched;
         // The quick-tasks model is asked for once, and only if a call needs it.
         let small: Promise<SmallCallModel> | undefined;
         const smallModel = () => {
@@ -1260,10 +1262,9 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         }
         // The Question's own search runs while the quick model translates it.
         yield* search("question-search", query);
-        const language = searchLanguage(
-          request.question,
-          request.documents.documentLanguages ?? [],
-        );
+        const language = translate
+          ? searchLanguage(request.question, request.documents.documentLanguages ?? [])
+          : null;
         const translation = language
           ? await inStep("search-translation", () =>
               translatedQuery(request, query, language, smallModel),
@@ -1302,12 +1303,13 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             };
           }
         }
-        searched =
+        const merged =
           results.length > 0
             ? mergeSearches(results)
             : { text: "The search of the User's Documents failed.", passageCount: 0 };
+        if (translate) searched = merged;
         yield { type: "phase", phase: "writing" };
-        return searched;
+        return merged;
       }
 
       // Structured output isn't tried for a model known to give none, unless it is where to start
@@ -1325,9 +1327,11 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         try {
           if (support === "tools") {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
-            // the Question's own search and answers in one call unless it needs more.
+            // the Question's own search and answers in one call unless it needs more. Not translated:
+            // the translation call cost what the one call saved, and the loop's model searches in the
+            // Documents' language when the Passages don't answer.
             const presearched = request.retrieveFirst
-              ? { result: yield* searchOnce(), query: searchedFor, read: [...read] }
+              ? { result: yield* searchOnce(false), query: searchedFor, read: [...read] }
               : undefined;
             if (signal.aborted) return;
             attempt = fitted(() =>

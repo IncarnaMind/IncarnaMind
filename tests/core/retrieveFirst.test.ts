@@ -4,6 +4,7 @@
  * searches on. A model it doesn't name runs the loop as before.
  */
 import { describe, expect, test } from "vitest";
+import { TRANSLATE_QUERY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { askAndFinish, citationsIn, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
@@ -46,6 +47,29 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     expect(model.doStreamCalls).toHaveLength(1);
     expect(searchCards).toEqual(["search_documents"]);
     expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
+  });
+
+  test("searches the Question as asked, with no call to translate it into the Documents' language", async () => {
+    const model = answering();
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [
+        { name: "Tides.md", contents: TIDES_MD },
+        {
+          name: "潮汐.md",
+          contents: "# 潮汐\n\n大潮出现在新月和满月的时候，那时太阳和月亮的引力叠加在一起。",
+        },
+      ],
+      { answerPaths: { retrievesFirst: () => true } },
+    );
+
+    await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    const translations = model.doGenerateCalls.filter((call) =>
+      JSON.stringify(call.prompt).includes(TRANSLATE_QUERY_INSTRUCTIONS.slice(0, 40)),
+    );
+    expect(translations).toHaveLength(0);
+    expect(model.doStreamCalls).toHaveLength(1);
   });
 
   test("falls back to the loop when the model searches again", async () => {
