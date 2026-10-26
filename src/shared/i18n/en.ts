@@ -2788,6 +2788,7 @@ export const en = {
   "answer.label": "Answer",
   "answer.status.streaming": "Writing…",
   "mind.writing": "Writing…",
+  "mind.opening": "Opening a new note…",
   "answer.phase.waiting-for-consent": "Waiting for your permission to send",
   "answer.phase.loading": "Loading the model…",
   "answer.phase.searching": "Searching your Documents…",
