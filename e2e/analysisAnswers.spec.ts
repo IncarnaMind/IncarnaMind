@@ -56,8 +56,8 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-async function launchWithSheets(language: "en" | "zh-CN" = "en", width = 1600) {
-  const launched = await launchApp(dataDir, { fakeChat: true, sandboxed: true });
+async function launchWithSheets(language: "en" | "zh-CN" = "en", width = 1600, sandboxed = true) {
+  const launched = await launchApp(dataDir, { fakeChat: true, sandboxed });
   const { app, window } = launched;
   await setWindowSize(app, window, width, 660);
   await dismissChatSetup(window);
@@ -101,6 +101,18 @@ async function storedAnswer(window: Page): Promise<ConversationAnswer> {
     return answer;
   });
 }
+
+test("an Answer does not offer Analysis when the app's sandbox is off", async () => {
+  const { app, window } = await launchWithSheets("en", 1600, false);
+  try {
+    await askInAssistant(window, "What was revenue by region?");
+    const answer = await storedAnswer(window);
+    expect(answer.analyses).toEqual([]);
+    expect(answer.toolCalls.some((call) => call.tool === "run_analysis")).toBe(false);
+  } finally {
+    await app.close();
+  }
+});
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const width of [900, 1600]) {

@@ -1185,7 +1185,6 @@ export function createAnswers(options: AnswersOptions) {
     /** Its `calculate` calls, as one Tool call (see `calculatedCall`), once a figure is recorded. */
     let calculated: AnswerToolCall | null = null;
     const recordedFigures = new Set<number>();
-    /** The Analyses it ran (#447), in order. */
     const analyses: AnswerAnalysis[] = [];
     const figures = createCalculationSession({
       documents: searched,
@@ -1311,6 +1310,7 @@ export function createAnswers(options: AnswersOptions) {
     /** Writes the Answer as it stands into its home; false if it is gone. */
     const write = (outcome?: Outcome): boolean => {
       const final = outcome !== undefined;
+      // Turned into their Citations when the Answer ends (`finish`): till then none shows.
       const text = withAnalysisResults(
         withoutFootnoteDefinitions(final ? markdown : withoutWrittenIds(markdown, ids)),
         analyses,

@@ -1,9 +1,6 @@
 import type { AnalysisCell } from "../../shared/analysis";
 import { cellNumber, columnName, parseCellRef, type UnitText } from "../../shared/units";
-
-/** The most rows, and cells, one range gives an Analysis: more, and only its first rows are read. */
-export const MAX_RANGE_ROWS = 20_000;
-export const MAX_RANGE_CELLS = 500_000;
+import { MAX_CELLS, MAX_ROWS } from "../documents/formats/grid";
 
 /** Rows and columns of a sheet, from 1 and 0 as A1 references count them; null ends: to the sheet's last. */
 export interface RangeBounds {
@@ -150,14 +147,14 @@ export function readRange(
   const columns = slice(headingRow).map((cell, offset) =>
     cell === null || cell === "" ? columnName(bounds.firstColumn + offset) : String(cell),
   );
-  const kept = Math.min(dataRows.length, MAX_RANGE_ROWS, Math.floor(MAX_RANGE_CELLS / width));
+  const kept = Math.min(dataRows.length, MAX_ROWS, Math.floor(MAX_CELLS / width));
   const read = dataRows.slice(0, kept);
   const lastStored = Math.max(...rows.keys());
   const cells = [...rows.values()].reduce(
     (sum, row) => sum + row.filter((cell) => cell !== null).length,
     0,
   );
-  const sheetCut = rows.size >= MAX_RANGE_ROWS || cells >= MAX_RANGE_CELLS;
+  const sheetCut = rows.size >= MAX_ROWS || cells >= MAX_CELLS;
   const toTheEnd = bounds.lastRow === null || bounds.lastRow > lastStored;
   const lastRead = read.at(-1) ?? headingRow;
   return {

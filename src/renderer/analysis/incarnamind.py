@@ -299,7 +299,10 @@ def step(label, data):
 
 
 def result(name, value, label=None, unit=None):
-    """Gives a figure (a number) or a table (a DataFrame or Series) the Answer can use, under `name`."""
+    """Gives a figure (a number) or a table (a DataFrame or Series) under `name`.
+
+    For a percent figure, unit="%" takes a fraction: 0.081 shows as 8.1%.
+    """
     name = _name_of(name, "result()")
     limits = _run.limits
     shown = {

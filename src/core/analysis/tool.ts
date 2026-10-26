@@ -208,7 +208,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     provider: ANALYSIS_PROVIDER,
     providerTool: ANALYSIS_TOOLS.run,
     description:
-      'Run Python with pandas over sheets and CSV files you found, to work out totals, groups, changes and tables. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, reads inputs["sales"] (a DataFrame) and inputs["rate"] (a number), and gives results with result(name, value, label, unit), each a number or a table; step(label, df) records each step that changes the rows, and chart(kind, df, x, y, title) a bar, line, pie or scatter chart. The result says each figure\'s marker [=n], each table\'s [=table n] and each chart\'s [=chart n].',
+      'Run Python with pandas over sheets and CSV files you found, to work out totals, groups, changes and tables. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, reads inputs["sales"] (a DataFrame) and inputs["rate"] (a number), and gives results with result(name, value, label, unit), each a number or a table. For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, and chart(kind, df, x, y, title) a bar, line, pie or scatter chart. The result says each figure\'s marker [=n], each table\'s [=table n] and each chart\'s [=chart n].',
     inputSchema: {
       type: "object",
       properties: {
@@ -266,15 +266,18 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         signal,
       );
       const output = run.result.end.kind === "unavailable" ? noAnalysisOutput() : run.result.output;
+      const usable = run.result.end.kind === "done";
       const markers: AnswerAnalysis["markers"] = { figures: [], tables: [], charts: [] };
-      for (const result of output.results) {
-        if (result.kind === "figure") {
-          markers.figures.push({ result: result.name, marker: shownFigure(result, number) });
-        } else {
-          markers.tables.push({ result: result.name, marker: ++tables });
+      if (usable) {
+        for (const result of output.results) {
+          if (result.kind === "figure") {
+            markers.figures.push({ result: result.name, marker: shownFigure(result, number) });
+          } else {
+            markers.tables.push({ result: result.name, marker: ++tables });
+          }
         }
+        for (const _chart of output.charts) markers.charts.push(++charts);
       }
-      for (const _chart of output.charts) markers.charts.push(++charts);
       const analysis: AnswerAnalysis = {
         number,
         title,

@@ -138,7 +138,6 @@ export const MIND_TOOLS = {
   create: "create_mind",
 } as const;
 
-/** The name of the Analyses' Tool (#447). */
 export const ANALYSIS_TOOLS = { run: "run_analysis" } as const;
 /** The names of the commands' Tools, offered to an Answer in the assistant (#1110). */
 export const COMMAND_TOOLS = { list: "list_commands", run: "run_command" } as const;

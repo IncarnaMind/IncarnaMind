@@ -1,5 +1,5 @@
 import type { AnswerToolCall } from "../../core/api";
-import { CRASHED_LINE, UNAVAILABLE_LINES } from "../../shared/analysis";
+import { ANALYSIS_TIME_LIMIT_MS, CRASHED_LINE, UNAVAILABLE_LINES } from "../../shared/analysis";
 import type { Translate } from "./objects";
 
 export function analysisCallText(t: Translate, call: AnswerToolCall): string {
@@ -13,7 +13,9 @@ export function analysisCallText(t: Translate, call: AnswerToolCall): string {
     case "error":
       return document ? t("analysis.call.error", { document }) : t("analysis.call.error.none");
     case "timed-out":
-      return t("analysis.call.timedOut", { seconds: Math.round((ran.limitMs ?? 60_000) / 1000) });
+      return t("analysis.call.timedOut", {
+        seconds: Math.round((ran.limitMs ?? ANALYSIS_TIME_LIMIT_MS) / 1000),
+      });
     case "out-of-memory":
       return t("analysis.call.outOfMemory");
     case "stopped":

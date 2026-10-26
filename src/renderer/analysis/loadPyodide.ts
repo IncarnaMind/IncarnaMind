@@ -8,6 +8,7 @@ export async function loadPython(base: string, moduleUrl = `${base}pyodide.mjs`)
     lockFileURL: `${base}pyodide-lock.json`,
     packageBaseUrl: base,
     fullStdLib: false,
+    // Sets and dicts of text iterate in the same order on every run.
     env: { PYTHONHASHSEED: "0" },
     stdout: () => {},
     stderr: () => {},

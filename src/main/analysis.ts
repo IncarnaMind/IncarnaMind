@@ -485,7 +485,10 @@ export function createElectronAnalysisRuntime(options: ElectronAnalysisOptions):
   };
 
   return {
-    languages: versions ? [versions] : [],
+    languages:
+      versions && !sandboxOff((name) => app.commandLine.hasSwitch(name), process.env)
+        ? [versions]
+        : [],
     run(job, signal) {
       const result = queue.then(() => runOne(job, signal));
       queue = result.catch(() => undefined);

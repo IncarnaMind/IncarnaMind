@@ -83,8 +83,12 @@ export function analysisReport(analysis: AnswerAnalysis): string {
   if (output.printed) {
     lines.push(`Printed:\n${output.printed.trimEnd()}${output.cut.printed ? "\n(cut)" : ""}`);
   }
-  const results = resultLines(analysis);
-  if (results.length > 0) lines.push("Results:", ...results);
+  if (end.kind === "done") {
+    const results = resultLines(analysis);
+    if (results.length > 0) lines.push("Results:", ...results);
+  } else {
+    lines.push("Its figures, tables and charts can't be used because this run did not finish.");
+  }
   const cut = [
     output.cut.figures > 0 ? `${count(output.cut.figures)} figures` : "",
     output.cut.tables > 0 ? `${count(output.cut.tables)} tables` : "",

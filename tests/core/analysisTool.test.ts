@@ -120,6 +120,132 @@ const totalOf = (): FakeAnswer => ({
 });
 
 describe("an Analysis an Answer runs", () => {
+  test.each(["error", "out-of-memory"] as const)(
+    "%s after giving results publishes no figure, table or chart",
+    async (kind) => {
+      const model = analysingModel({
+        query: "revenue",
+        runs: [salesRun()],
+        answer: "Revenue [=1].\n\n[=table 1]\n\n[=chart 1]",
+      });
+      const table = {
+        columns: ["Region", "Revenue"],
+        rows: [["North", 120]],
+        rowCount: 1,
+        columnCount: 2,
+      };
+      const { core } = await setUp(model, () => ({
+        end: kind === "error" ? { kind, line: 4, message: "Stopped after result()." } : { kind },
+        output: {
+          results: [
+            { kind: "figure", name: "partial", label: "Unfinished total", unit: "USD", value: 200 },
+            { kind: "table", name: "partial_table", label: "Unfinished table", unit: null, table },
+          ],
+          charts: [{ kind: "bar", title: "Unfinished chart", x: "Region", y: ["Revenue"], table }],
+        },
+      }));
+      const { answer } = await askAndRead(core, "What was the total revenue?");
+      expect(answer.figures).toEqual([]);
+      expect(answer.analyses[0]?.markers).toEqual({ figures: [], tables: [], charts: [] });
+      expect(answer.text).not.toContain("| Region | Revenue |");
+      const report = told(model, "run_analysis").join("\n");
+      expect(report).not.toContain("Unfinished total");
+      expect(report).not.toContain("Unfinished table");
+      expect(report).not.toContain("Unfinished chart");
+      expect(report).toContain("can't be used");
+    },
+  );
+
+  test("a percent figure keeps its fraction and shows 0.081 as 8.1%", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [
+        salesRun(
+          'result("growth", inputs["sales"]["Revenue"].iloc[1] / inputs["sales"]["Revenue"].iloc[0] - 1, "Growth", "%")',
+        ),
+      ],
+      answer: "Revenue grew [=1].",
+    });
+    const { core } = await setUp(
+      model,
+      () => ({
+        output: {
+          results: [{ kind: "figure", name: "growth", label: "Growth", unit: "%", value: 0.081 }],
+        },
+      }),
+      [{ name: "sales.csv", contents: "Revenue\n1000\n1081" }],
+    );
+    const { answer } = await askAndRead(core, "What was revenue growth?");
+    expect(answer.figures).toEqual([
+      expect.objectContaining({
+        value: 0.081,
+        shown: "8.1%",
+        unit: { kind: "percent" },
+        analysis: { analysis: 1, result: "growth" },
+      }),
+    ]);
+  });
+
+  test("calculate cannot replace an Analysis marker and can use a new marker", async () => {
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      const passages = searches.flatMap((each) => shownPassages(each.text));
+      if (!call.results.some((result) => result.tool === "run_analysis"))
+        return { calls: [salesRun()(passages)] };
+      if (!call.results.some((result) => result.tool === "cite"))
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: passageOf(passages, "sales"),
+                    location: "rows 2",
+                    quote: "120",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      const calculated = call.results.filter((result) => result.tool === "calculate").length;
+      if (calculated < 2)
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: calculated + 1,
+                    inputs: [{ name: "a", citation: 1, number: "120" }],
+                    formula: "a",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      return { text: "The Analysis gives [=1]. A separate calculation gives [=2]." };
+    });
+    const { core } = await setUp(model, totalOf);
+    const { answer, read } = await askAndRead(core, "What was the total revenue?");
+    expect(answer.figures).toEqual([
+      expect.objectContaining({
+        marker: 1,
+        value: 350.5,
+        analysis: { analysis: 1, result: "total" },
+      }),
+      expect.objectContaining({ marker: 2, value: 120 }),
+    ]);
+    expect(told(model, "calculate")[0]).toContain("belongs to an Analysis");
+    expect((await read()).figures).toEqual(answer.figures);
+  });
+
   test("reads the whole sheet into the sandbox, records each input's hash, and gives a figure the Answer shows, also when the conversation is reopened", async () => {
     const model = analysingModel({
       query: "revenue",

@@ -5746,7 +5746,6 @@ export interface AnswerFinished extends AnswerPlace {
   quoteRetry: QuoteRetry | null;
   /** Its calculated figures (ADR-0021), in the order of their markers in the text, each once. */
   figures: MarkedFigure[];
-  /** The Analyses it ran (#447), in order. */
   analyses: AnswerAnalysis[];
   /** Figure markers in its text that had no figure: left out, so their numbers are missing. */
   uncalculated: number;
