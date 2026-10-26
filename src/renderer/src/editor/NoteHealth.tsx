@@ -39,7 +39,7 @@ import {
   noteHealth,
 } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
-import { CheckedWhen } from "./MindCheckLine";
+import { CheckedWhen, RunningText } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
 import { UncoveredLine } from "./UncoveredLine";
 import { COUNT_IDLE_MS } from "./WordCount";
@@ -256,6 +256,11 @@ export function HealthCard({
   return (
     <>
       <AddedDocumentsLine doc={doc} mindId={mindId} />
+      {running && (
+        <div className="check-card-note">
+          <RunningText editor={editor} mindId={mindId} testId="card-progress" />
+        </div>
+      )}
       <div className="check-rows" data-testid="mind-health">
         {rows.map(row)}
         {health.noCitation.length > 0 && row("noCitation")}

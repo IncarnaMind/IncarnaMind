@@ -30,7 +30,7 @@ import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
 import { useCardPlace } from "./checkPlace";
 import { shownClaims } from "./claimChecks";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
-import { MindCheckAsk, MindUnchanged, useMindCheckProgress } from "./MindCheckLine";
+import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useVerifyState, VerifyCard, verifyDone } from "./VerifyLine";
@@ -144,23 +144,6 @@ function MindBadge({
       <div className="check-card-sep" />
       <CheckActions doc={doc} mindId={mindId} askingMind={askingMind} />
     </BadgeFrame>
-  );
-}
-
-function RunningText({ editor, mindId }: { editor: Editor; mindId: string }) {
-  const t = useT();
-  const language = useLanguage();
-  const running = useChecks((state) => state.running[mindId]);
-  const progress = useMindCheckProgress(editor, running?.requestId ?? null);
-  if (!running) return null;
-  if (running.action !== "whole-mind") return <>{t(`checks.running.${running.action}`)}</>;
-  const format = (value: number) => new Intl.NumberFormat(language).format(value);
-  return (
-    <span data-testid="badge-progress" className="tabular-nums">
-      {progress.total === 0
-        ? t("verify.finding")
-        : t("badge.checking", { done: format(progress.done), total: format(progress.total) })}
-    </span>
   );
 }
 

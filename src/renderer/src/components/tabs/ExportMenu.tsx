@@ -95,10 +95,14 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   const states = useMindNoteStates(menu.open && mind ? [mind] : []);
   const noteState = mind ? (states.get(mind.id) ?? null) : null;
   const running = useChecks((state) => state.running[mindId] !== undefined);
-  // The state's own line, never a block on the export (D266): not checked starts a Check, and
-  // needs a look opens the card at its marks, the action that fits what was found.
-  const stateLine =
-    noteState === null || noteState.kind === "checked"
+  // The state's own line, never a block on the export (D266): a run in flight opens the card at
+  // its progress, not checked starts a Check, and needs a look opens the card at its marks.
+  const stateLine = running
+    ? {
+        label: `${t("export.running")} · ${t("export.show")}`,
+        run: () => showCheckCard(mindId),
+      }
+    : noteState === null || noteState.kind === "checked"
       ? null
       : noteState.kind === "needs-look"
         ? {
@@ -164,13 +168,13 @@ export function ExportMenu({ mindId }: { mindId: string }) {
             {shown.map((format, index) => (
               <Fragment key={format}>
                 {formatItem(format, index === 0 ? shortcutLabel("mind.export") : undefined)}
-                {format === "docx" && !running && stateLine !== null && (
+                {format === "docx" && stateLine !== null && (
                   // Under Word, one entry for the note's state; it never blocks the export (D266).
                   <button
                     type="button"
                     role="menuitem"
                     data-testid="export-note-state"
-                    data-state={noteState?.kind}
+                    data-state={running ? "running" : noteState?.kind}
                     className={`${tallMenuItemClass} pl-2 text-[13px] leading-5 text-ink-secondary`}
                     onClick={() => {
                       menu.close();

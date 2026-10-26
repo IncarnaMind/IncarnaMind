@@ -3352,6 +3352,7 @@ export const en = {
   "export.format": "Format",
   "export.checkFirst": "Not checked since your last edit · Check first",
   "export.show": "Show",
+  "export.running": "A check is running",
   "export.format.docx": "Word (.docx)",
   "export.format.pdf": "PDF",
   "export.format.source-pack": "Source pack (PDF)",

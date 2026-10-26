@@ -49,6 +49,7 @@ const WORDS = {
     checked: "Checked ",
     checkFirst: "Not checked since your last edit · Check first",
     see: "Show",
+    running: "A check is running",
   },
   "zh-CN": {
     notChecked: "未核对",
@@ -56,6 +57,7 @@ const WORDS = {
     checked: "已核对 ",
     checkFirst: "上次编辑后未核对 · 先核对",
     see: "查看",
+    running: "正在核对",
   },
 } as const;
 
@@ -241,6 +243,55 @@ for (const language of ["en", "zh-CN"] as const) {
     await goHome(window);
     await expect(rowState(window, "Tides")).toHaveText(words.notChecked);
     await screenshot(window, `note-state-home-${language}-1600-not-checked`);
+    await app.close();
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Export says a check is running while it runs, and nothing once green (${language})`, async () => {
+    test.setTimeout(180_000);
+    const words = WORDS[language];
+    const { app, window } = await launchWithTides();
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 900, 900);
+    await newMind(window);
+    const editor = window.getByTestId("mind-editor");
+    await editor.click();
+    await window.keyboard.type("Tides");
+    await window.keyboard.press("Enter");
+    // Each check of a sentence that says "slowly" reports slowly (#96): the run holds while Export opens.
+    await window.keyboard.type(
+      "Spring tides happened 12 times in 2026 slowly. Spring and neap tides happen slowly. Spring tides happen in 2026 slowly. Spring and neap tides happened in 2026 slowly.",
+    );
+    await expect(editor).toContainText("slowly");
+
+    const card = await checkCard(window);
+    await pointAndClick(window, card.getByTestId("badge-check-mind"));
+    const ask = card.getByTestId("mind-check-ask");
+    await expect
+      .poll(
+        async () => (await ask.isVisible()) || (await window.getByTestId("badge-stop").isVisible()),
+      )
+      .toBe(true);
+    if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-check"));
+    await expect(window.getByTestId("badge-stop")).toBeVisible();
+
+    // While it runs, Export says so; clicking opens the card at its progress, never a second Check.
+    await pointAndClick(window, window.getByTestId("export-mind"));
+    const runningLine = window.getByTestId("export-menu").getByTestId("export-note-state");
+    await expect(runningLine).toHaveAttribute("data-state", "running");
+    await expect(runningLine).toHaveText(`${words.running} · ${words.see}`);
+    await screenshot(window, `note-state-export-${language}-running`);
+    await pointAndClick(window, runningLine);
+    await expect(window.getByTestId("check-card").getByTestId("card-progress")).toBeVisible();
+
+    // Every sentence holds when the run ends, so the line is gone.
+    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 60_000 });
+    await expect(badge(window)).toHaveAttribute("data-state", "checked", { timeout: 60_000 });
+    await window.keyboard.press("Escape");
+    await pointAndClick(window, window.getByTestId("export-mind"));
+    await expect(window.getByTestId("export-note-state")).toHaveCount(0);
+    await screenshot(window, `note-state-export-${language}-running-done`);
     await app.close();
   });
 }

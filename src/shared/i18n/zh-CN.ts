@@ -3219,6 +3219,7 @@ export const zhCN = {
   "export.format": "格式",
   "export.checkFirst": "上次编辑后未核对 · 先核对",
   "export.show": "查看",
+  "export.running": "正在核对",
   "export.format.docx": "Word（.docx）",
   "export.format.pdf": "PDF",
   "export.format.source-pack": "PDF 引用页面合集",
