@@ -33,6 +33,7 @@ interface Entry {
   packaged?: boolean;
   dataHeld?: boolean;
   visibleWindows?: number;
+  visible?: boolean;
   windowId?: number;
   args?: string[];
   options?: { message?: string; detail?: string; buttons?: string[]; args?: string[] };
@@ -132,9 +133,12 @@ async function expectOneSavedWindow(ports: number[]) {
   await expect
     .poll(async () => {
       const visible = new Map<string, boolean>();
-      for (const entry of await entries())
-        if (["window-shown", "window-hidden", "window-closed"].includes(entry.kind))
+      for (const entry of await entries()) {
+        if (entry.kind === "window-visibility")
+          visible.set(`${entry.pid}:${entry.windowId}`, entry.visible === true);
+        else if (["window-shown", "window-hidden", "window-closed"].includes(entry.kind))
           visible.set(`${entry.pid}:${entry.windowId}`, entry.kind === "window-shown");
+      }
       return [...visible.values()].filter(Boolean).length;
     })
     .toBe(1);

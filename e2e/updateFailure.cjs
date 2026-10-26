@@ -66,7 +66,13 @@ app.on("browser-window-created", (_event, window) => {
   window.on("show", () => record("window-shown", { windowId }));
   window.on("hide", () => record("window-hidden", { windowId }));
   window.on("closed", () => record("window-closed", { windowId }));
-  window.on("ready-to-show", () => record("window-ready-to-show", { windowId }));
+  window.on("ready-to-show", () => {
+    record("window-ready-to-show", { windowId });
+    queueMicrotask(() => {
+      if (!window.isDestroyed())
+        record("window-visibility", { windowId, visible: window.isVisible() });
+    });
+  });
   window.webContents.on("did-finish-load", () => {
     record("window-loaded", { url: window.webContents.getURL() });
   });
