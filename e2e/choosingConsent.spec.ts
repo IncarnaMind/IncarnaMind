@@ -157,16 +157,17 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await expect(window.getByTestId("consent-dialog")).toBeHidden();
   expect(await consentAsked()).toEqual([]);
 
-  // Settings › Privacy: OpenAI says once that it was allowed when it was chosen, for every use.
+  // Settings › Privacy: OpenAI was allowed when it was chosen, for the uses that run by
+  // themselves — Tags and sorting. Page images are a flow of their own and still ask.
   const settings = await openSettings(window, "privacy");
   const service = settings.getByTestId("data-service");
   await expect(service).toHaveCount(1);
-  await expect(service).toHaveAttribute("data-consent", "accepted");
+  await expect(service).toHaveAttribute("data-consent", "partly");
   await expect(service.getByTestId("data-service-decision")).toContainText(
-    /^Allowed when you chose OpenAI, /,
+    "Some uses aren’t allowed yet",
   );
   await service.getByTestId("data-service-decision-details").click();
-  for (const flow of ["chat", "edits", "checks", "suggestions", "tagging"]) {
+  for (const flow of ["chat", "edits", "checks", "suggestions", "tagging", "classification"]) {
     await expect(service.locator(`[data-testid="data-flow"][data-flow-id="${flow}"]`)).toHaveCount(
       1,
     );

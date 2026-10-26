@@ -158,7 +158,8 @@ export function useSorting() {
             : saved.kind === "auto"
               ? t("tagging.decision.auto")
               : saved.modelId,
-      provider: saved.kind === "jev" ? "TypeSafe" : null,
+      provider:
+        saved.kind === "jev" ? (jev === null ? "TypeSafe" : (jev.service?.name ?? null)) : null,
       decisionModel: saved.kind !== "chat",
       ...(saved.kind === "chat" && {
         modelName: nameOf(saved.choice.modelId, saved.choice.providerId).name,

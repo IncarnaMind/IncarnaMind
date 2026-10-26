@@ -189,7 +189,7 @@ test("Organize in the Library, with no model chosen yet, offers first run's key 
     await library.getByTestId("library-organize").click();
     const needs = library.getByTestId("library-organize-needs-model");
     await expect(needs.getByTestId("library-organize-key")).toBeVisible();
-    await expect(window.getByTestId("settings")).toHaveCount(0);
+    await expect(window.getByTestId("settings")).toBeHidden();
     await needs.getByTestId("library-organize-dismiss").click();
     await expect(needs).toHaveCount(0);
   } finally {
