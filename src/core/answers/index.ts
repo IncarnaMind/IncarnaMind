@@ -2341,12 +2341,15 @@ export function createAnswers(options: AnswersOptions) {
         },
       ];
       // Call help already searches first, and a check or a Task's Run keeps the loop it was measured
-      // with. Documents given whole with the Question are already there to answer from.
+      // with. So does a turn offered a Tool that writes a Mind, as every assistant turn is: answering
+      // from the search made first, a write was once said to be in a new Mind when it was in the
+      // open one, and that bar is 0.
+      const writesMinds = mindsTools?.tools.some((tool) => tool.name !== MIND_TOOLS.read) ?? false;
       const retrieveFirst =
         !help &&
         !input.task &&
         (input.toolSet ?? "answer") === "answer" &&
-        !sentDocuments?.size &&
+        !writesMinds &&
         (options.retrievesFirst?.(prepared) ?? false);
       // Its one call writes the Answer and then cites it (#1633 on #489's contract).
       const writeFirst = retrieveFirst || (options.writesThenCites?.(prepared) ?? false);
