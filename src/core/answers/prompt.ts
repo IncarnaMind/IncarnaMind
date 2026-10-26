@@ -469,7 +469,7 @@ const QUOTATION_MARKS =
  * `cite` takes every record. Exported for the paired evaluation, which compares it with citing first.
  */
 export const WRITE_THEN_CITE: readonly string[] = [
-  "- Once you have searched, write the Answer with a marker such as [^1] right after each claim a Passage supports, in a table's cell too, and add no list of sources.",
+  "- Write the Answer with a marker such as [^1] right after each claim a Passage supports, in a table's cell too, and add no list of sources.",
   `- Then, in the same reply, call cite once with a record for each marker: its number (1, 2, …), ${RECORD}.`,
   "- If cite asks you to fix records, give them fixed in another cite call: never write the Answer again.",
 ];
@@ -605,7 +605,7 @@ export function documentInstructions(
         QUOTATION_MARKS,
         ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
         ...(minds ? [MIND_TEXT_CITED_FIRST] : []),
-        "- Write nothing before your searches: only the Answer, after them.",
+        "- Write nothing before a search: only the Answer, once you have the Passages it needs.",
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
