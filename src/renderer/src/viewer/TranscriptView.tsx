@@ -257,7 +257,7 @@ function TranscriptContent({
     }
   };
 
-  // Opened at a Citation: the quote washed in the cited lines, else anywhere; the view goes there,
+  // Opened at a Citation: the quote washed in the cited lines; the view goes there,
   // once for each open request: lines arriving afterwards don't pull the view back.
   const shownRequest = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -278,8 +278,9 @@ function TranscriptContent({
       range.setEndAfter(last);
     }
     const marks =
-      (range && markQuote(textNodes(body, range), target.quote)) ??
-      markQuote(textNodes(body), target.quote);
+      target.pageFrom === undefined
+        ? markQuote(textNodes(body), target.quote)
+        : range && markQuote(textNodes(body, range), target.quote);
     setHighlighted((count) => (marks ? count + 1 : 0));
     const anchor = marks?.[0] ?? first ?? null;
     if (anchor) {

@@ -40,8 +40,8 @@ const NO_HIGHLIGHT: readonly TextRange[] = [];
  * text as written. Plain text is set in the Mind's serif, or in a monospaced
  * font when it looks like code. Opened at a Citation, it highlights the quote
  * in the cited section (Markdown) or lines (TXT), each part of a quote with
- * an ellipsis, and scrolls to it; a quote not found there is looked for in
- * the whole file. Without a quote, it opens at the cited Unit, or the top. A
+ * an ellipsis, and scrolls to it. Only a target without a place searches the
+ * whole file. Without a quote, it opens at the cited Unit, or the top. A
  * Markdown file's headings form an outline.
  */
 export function TextView({ document, target }: { document: Document; target: ViewerTarget }) {
@@ -194,11 +194,11 @@ function TextContent({
     return first && last ? { start: first.start, end: last.end, first } : null;
   }, [units, target.pageFrom, target.pageTo]);
 
-  // The quote: in the cited Units first, then anywhere in the file.
   const highlight = useMemo(() => {
     const quote = target.quote;
     if (!quote) return NO_HIGHLIGHT;
-    if (cited) {
+    if (target.pageFrom !== undefined) {
+      if (!cited) return NO_HIGHLIGHT;
       const inside = findQuote(text.slice(cited.start, cited.end), quote);
       if (inside) {
         return inside.map((range) => ({
@@ -206,9 +206,10 @@ function TextContent({
           end: range.end + cited.start,
         }));
       }
+      return NO_HIGHLIGHT;
     }
     return findQuote(text, quote) ?? NO_HIGHLIGHT;
-  }, [text, target.quote, cited]);
+  }, [text, target.quote, target.pageFrom, cited]);
   const blocks = useMemo(() => (markdown ? parseMarkdown(text) : null), [text, markdown]);
   const code = useMemo(() => !markdown && looksLikeCode(text), [text, markdown]);
   const citedHeading = useMemo(() => {

@@ -80,7 +80,7 @@ const read = async (bytes: Uint8Array): Promise<Loaded> => ({
  * pages: a Citation points at the section a quote sits under, which the
  * outline lists. Opened at a Citation, it goes to the cited section and
  * highlights the quote in it, else in a comment anchored there, in its note
- * in the margin (#76), else anywhere in the Document, with the Citation's
+ * in the margin (#76), with the Citation's
  * mark in the page's margin beside it. Images come as
  * `data:` URLs, so the app's Content-Security-Policy stays as it is.
  */
@@ -284,8 +284,6 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
   useCitedArea(rendered === "yes", citedArea);
   useCitedAreaFailure(rendered === "failed" ? failure : null);
 
-  // Each open request highlights its quote: in the cited section first, then in the comments
-  // anchored there, in their notes in the margin (#76), then anywhere.
   // biome-ignore lint/correctness/useExhaustiveDependencies: each open request goes there again
   useEffect(() => {
     const body = host.current;
@@ -307,10 +305,10 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
         ? comments.current.filter((comment) => section.range.intersectsNode(comment.anchor))
         : [];
       const find = () =>
-        (section && markQuote(textNodes(body, section.range), quote)) ??
-        inNotes(anchoredInSection) ??
-        markQuote(textNodes(body), quote) ??
-        inNotes(comments.current);
+        target.pageFrom === undefined
+          ? (markQuote(textNodes(body), quote) ?? inNotes(comments.current))
+          : ((section && markQuote(textNodes(body, section.range), quote)) ??
+            inNotes(anchoredInSection));
       found = find();
       if (!found) found = withoutFootnoteNumbers(body, find);
     }
