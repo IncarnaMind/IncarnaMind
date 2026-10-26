@@ -2340,11 +2340,13 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
       ];
-      // Call help already searches first, and a check or a Task's Run keeps the loop it was measured with.
+      // Call help already searches first, and a check or a Task's Run keeps the loop it was measured
+      // with. Documents given whole with the Question are already there to answer from.
       const retrieveFirst =
         !help &&
         !input.task &&
         (input.toolSet ?? "answer") === "answer" &&
+        !sentDocuments?.size &&
         (options.retrievesFirst?.(prepared) ?? false);
       // Its one call writes the Answer and then cites it (#1633 on #489's contract).
       const writeFirst = retrieveFirst || (options.writesThenCites?.(prepared) ?? false);

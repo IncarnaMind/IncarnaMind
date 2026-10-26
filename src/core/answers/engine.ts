@@ -400,8 +400,8 @@ export interface AnswerRequest {
   /** In the Tool loop, the model writes the Answer, then cites it in the same reply (#489). */
   writeThenCite?: boolean;
   /**
-   * In the Tool loop, search the Question (and its translation) before the first call, so the
-   * model can answer from those Passages in one call; it searches on when they aren't enough.
+   * In the Tool loop, search the Question's own words before the first call, so the model can
+   * answer from those Passages in one call; it searches on when they aren't enough.
    */
   retrieveFirst?: boolean;
   /** False: the model is known to give no structured output, so it isn't tried. */
@@ -1224,24 +1224,28 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
 
       // A model without Tools searches once, for the Question rewritten to stand on its own, and
       // again in the Documents' language if the Question is in another (see `searchLanguage`); the
-      // result is kept for the next way of answering if the provider refuses this one.
+      // result is kept for the next way of answering if the provider refuses this one. The search
+      // made before the Tool loop's first call (#1633) is `asAsked`, neither rewritten nor
+      // translated: a translation call cost most of what answering in one call saved, a rewrite is
+      // another such call, and the loop's model searches on in other words when the Passages don't
+      // answer.
       let searched: SearchResultForModel | undefined;
-      let searchedFor = request.question;
       const read = new Set<ReadThirdPartySource>();
       async function* searchOnce(
-        translate = true,
+        asAsked = false,
       ): AsyncGenerator<AnswerEngineEvent, SearchResultForModel> {
-        if (translate && searched !== undefined) return searched;
+        if (!asAsked && searched !== undefined) return searched;
         // The quick-tasks model is asked for once, and only if a call needs it.
         let small: Promise<SmallCallModel> | undefined;
         const smallModel = () => {
           small ??= smallCallModel(request, temperature());
           return small;
         };
-        const rewrite = await inStep("search-rewrite", () => searchQuery(request, smallModel));
+        const rewrite = asAsked
+          ? { value: request.question, usage: null }
+          : await inStep("search-rewrite", () => searchQuery(request, smallModel));
         if (rewrite.usage) yield { type: "usage", usage: rewrite.usage };
         const query = rewrite.value;
-        searchedFor = query;
         signal.throwIfAborted();
         yield { type: "phase", phase: "searching" };
         const searches: { id: string; result: Promise<SearchResultForModel> }[] = [];
@@ -1262,9 +1266,9 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         }
         // The Question's own search runs while the quick model translates it.
         yield* search("question-search", query);
-        const language = translate
-          ? searchLanguage(request.question, request.documents.documentLanguages ?? [])
-          : null;
+        const language = asAsked
+          ? null
+          : searchLanguage(request.question, request.documents.documentLanguages ?? []);
         const translation = language
           ? await inStep("search-translation", () =>
               translatedQuery(request, query, language, smallModel),
@@ -1307,7 +1311,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           results.length > 0
             ? mergeSearches(results)
             : { text: "The search of the User's Documents failed.", passageCount: 0 };
-        if (translate) searched = merged;
+        if (!asAsked) searched = merged;
         yield { type: "phase", phase: "writing" };
         return merged;
       }
@@ -1327,12 +1331,13 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         try {
           if (support === "tools") {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
-            // the Question's own search and answers in one call unless it needs more. Not translated:
-            // the translation call cost most of what the one call saved, and the loop's model searches
-            // in the Documents' language when the Passages don't answer.
-            const presearched = request.retrieveFirst
-              ? { result: yield* searchOnce(false), query: searchedFor, read: [...read] }
-              : undefined;
+            // the Question's own search and answers in one call unless it needs more. A library with
+            // nothing to search yet (web search on, or only unread Documents) leaves the first search
+            // to the model.
+            const presearched =
+              request.retrieveFirst && request.documents.documentCount > 0
+                ? { result: yield* searchOnce(true), query: request.question, read: [...read] }
+                : undefined;
             if (signal.aborted) return;
             attempt = fitted(() =>
               tempered((sent) =>
