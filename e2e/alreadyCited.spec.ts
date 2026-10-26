@@ -196,7 +196,7 @@ async function openCard(window: Page, mark: Locator) {
   return card;
 }
 
-async function checkThisMind(window: Page, label = "Check this Mind") {
+async function checkThisMind(window: Page, label = "Check") {
   await window.getByTestId("mind-tab").first().click({ button: "right" });
   await pointAndClick(window, window.getByRole("menuitem", { name: label }));
   await checkCard(window);
@@ -212,7 +212,7 @@ async function undoInNote(window: Page) {
   await window.keyboard.press("ControlOrMeta+z");
 }
 
-test("Check this Mind on a note whose sentences cite their Passages: the ones that already cite what was found get no +, however much was quoted, and none gets a second Citation; a different clause and another Document are still offered (#1620)", async () => {
+test("Check on a note whose sentences cite their Passages: the ones that already cite what was found get no +, however much was quoted, and none gets a second Citation; a different clause and another Document are still offered (#1620)", async () => {
   test.setTimeout(180_000);
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   await writeFile(join(sources, "Almanac.pdf"), ALMANAC);
@@ -412,7 +412,7 @@ test("a Citation that isn't found is replaced in place by the Passage the check 
   ]);
   await expect(lines.nth(0)).toContainText("Neap tides");
 
-  await checkThisMind(window, "核对此 Mind");
+  await checkThisMind(window, "核对");
   await expect(marks(window)).toHaveCount(1);
   await expect(marks(window).first()).toHaveAttribute("data-check", "supported");
   await expect(marks(window).first()).not.toHaveAttribute("data-addable");

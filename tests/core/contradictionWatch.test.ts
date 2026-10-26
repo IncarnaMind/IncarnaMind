@@ -223,6 +223,31 @@ describe("Check for contradictions", () => {
     ]);
   });
 
+  test("one Check may hand it several sentences: each is checked, and only the contradictions are marked", async () => {
+    const { core, tides, folder } = await setUp();
+    const { mind, client } = await mindCiting(core, tides, folder.id);
+    // The Mind's first paragraph holds both cited sentences: the first at its start, the second after its Citation.
+    const moonAt = YEARLY.length + 3;
+    expect(
+      await core.checkSentences({
+        requestId: "one-check",
+        mindId: mind.id,
+        action: "contradiction-watch",
+        from: { blockId: "cited", offset: 0 },
+        to: { blockId: "cited", offset: 1 },
+        more: [
+          {
+            from: { blockId: "cited", offset: moonAt },
+            to: { blockId: "cited", offset: moonAt + 1 },
+          },
+        ],
+      }),
+    ).toEqual({ kind: "checked", sentences: 2, checked: 2, smallModel: false });
+    expect((await shownChecks(core, client, folder.id)).map((each) => each.sentence)).toEqual([
+      YEARLY,
+    ]);
+  });
+
   test("an edited claim goes “needs re-check”, as #96's checks do", async () => {
     const { core, tides, folder } = await setUp();
     const { mind, client } = await mindCiting(core, tides, folder.id);

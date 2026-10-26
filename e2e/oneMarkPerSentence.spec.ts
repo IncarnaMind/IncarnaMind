@@ -66,7 +66,9 @@ const LANGUAGES = {
     notFound: /未在.*找到引文/,
     contradicted: /与文档矛盾/,
     cantCheck: /无法核对/,
-    marks: ["有依据", "无依据", "与文档矛盾", "有依据"].map((state) => `句子核对：${state}`),
+    marks: ["有依据", "需要留意：无依据", "需要留意：与文档矛盾", "有依据"].map(
+      (state) => `句子核对：${state}`,
+    ),
     health: { found: "3 处引用已找到", notFound: "2 处引用未找到" },
   },
 } as const;

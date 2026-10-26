@@ -451,7 +451,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     ]);
   });
 
-  // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and Check the rest), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.
+  // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and the one Check), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.
   test("a sentence with no Citation isn't checked as it lands", async () => {
     const { calls, client } = await write({
       content: "## Tides\n\nThe harbour is quiet in winter.",

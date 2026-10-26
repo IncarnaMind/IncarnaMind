@@ -36,6 +36,7 @@ import type {
   RecordAiUseInput,
   RunStop,
   TextPlace,
+  TextStretch,
 } from "../../api";
 import type { BackgroundQueue } from "../../backgroundQueue";
 import type { EvidenceScope } from "../../documents/evidence";
@@ -146,16 +147,16 @@ const citedIdsOf = (sentence: SelectedSentence) => [
 export function createContradictionWatch(options: WatchOptions) {
   const { content } = options;
 
-  /** What a check of the Mind's cited sentences (or those `from`..`to` touches) would check. */
-  function plan(mindId: string, range?: { from: TextPlace; to: TextPlace }): Plan {
+  /** What a check of the Mind's cited sentences (or those `stretches` touch) would check. */
+  function plan(mindId: string, stretches?: readonly TextStretch[]): Plan {
     const folderId = options.mindFolder(mindId);
     const read = content.read(mindId, (blocks) => {
-      if (!range) {
+      if (!stretches) {
         const marks = markedSentences(blocks);
         const sentences = everySentence(blocks).filter((each) => !keptAsView(marks, each));
         return { ok: true as const, sentences };
       }
-      return selectedSentences(blocks, [range]);
+      return selectedSentences(blocks, stretches);
     });
     if (!read.ok) return { kind: read.reason };
     const cited = read.sentences.filter(
@@ -438,11 +439,12 @@ export function createContradictionWatch(options: WatchOptions) {
         mindId: string;
         from: TextPlace;
         to: TextPlace;
+        more?: readonly TextStretch[];
         model: ChatModelChoice | null;
       },
       signal: AbortSignal,
     ): Promise<CheckSentencesResult> {
-      const ready = plan(input.mindId, input);
+      const ready = plan(input.mindId, [{ from: input.from, to: input.to }, ...(input.more ?? [])]);
       if (ready.kind !== "ready") return ready;
       const model = await options.prepare(input.model ?? options.defaultModel());
       if (!model.ok) return model.result;

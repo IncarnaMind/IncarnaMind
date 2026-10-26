@@ -14,9 +14,9 @@ import { contradictionOutcomeParts } from "./contradictionOutcome";
 import { AskBlock } from "./MindCheckLine";
 
 /**
- * Contradiction watch (#112) in the check badge's card: what a run on demand
- * found, and what the last run a new version of a Document started found and
- * cost. Each closes; the last for good.
+ * Contradiction watch (#112) in the check badge's card: what the last run a
+ * new version of a Document started found and cost. It closes, for good. A
+ * run on demand is the one Check's, whose result is the contradicted marks.
  */
 export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string }) {
   const t = useT();
@@ -24,27 +24,6 @@ export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string 
   const shown = useContradictionLine(doc, mindId);
   const outcome = (run: ContradictionCheckOutcome) => contradictionOutcomeParts(run, t, language);
 
-  if (shown?.kind === "found") {
-    const [first = "", ...rest] = outcome(shown.run);
-    return (
-      <>
-        <div className="check-card-sep" />
-        <ProblemLine
-          role="status"
-          testId="contradictions-found"
-          className="mind-health-line"
-          details={rest}
-          action={{
-            label: t("checks.close"),
-            testId: "contradictions-close",
-            onClick: () => dismissContradictions(mindId),
-          }}
-        >
-          {first}
-        </ProblemLine>
-      </>
-    );
-  }
   if (shown?.kind === "watched") {
     const watched = shown.run;
     const [first = "", ...rest] = outcome(watched);

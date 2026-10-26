@@ -1,20 +1,29 @@
 /**
- * Check this Mind (#737), the window's side: "Check this Mind" (the check
- * badge's card, ⌘K, the Mind's menu) checks what changed since the last
- * check; when nothing did it sends nothing and says so in the card, whose
- * "Check every sentence again" (also ⌘K) checks them all for real. The card
- * asks with the number of sentences to check, the one count the badge and its
- * card show (#1909), and, billed per token, the estimate; a run that only
- * checks again asks so when it is large, and, for the Documents added since
- * (#993), whatever their number. The model names the claims once it runs. Plans and models on
- * this computer run without asking. While it runs, the badge counts the
+ * The one Check (#1941), the window's side: "Check" (the check badge's card,
+ * ⌘K, the Note's menu) checks in one press everything a Note can be checked
+ * for — its Citations and uncited sentences, its calculated figures, and, in
+ * a Folder, the sentences it checks against the Folder's other Documents too —
+ * as one question with the one count (#1909) and one estimate. It composes
+ * the checks that stay separate: what changed since the last whole-Note check
+ * (#737), which "Check every sentence again" (also ⌘K) runs to check them all
+ * again, and the contradiction watch (#112), which ⌘K and the Note's menu
+ * still offer alone. When nothing is left to check it sends nothing and says
+ * so in the card. The model names the claims once it runs. Plans and models
+ * on this computer run without asking. While it runs, the badge counts the
  * claims checked, with Stop.
  */
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import { create } from "zustand";
-import type { CheckMindMode, MindCheckPlan, MindCheckRun } from "../../core/api";
+import type {
+  CheckMindMode,
+  CheckMindResult,
+  MindCheckPlan,
+  MindCheckRun,
+  TextStretch,
+} from "../../core/api";
 import { mindCheckOf, observeMindCheck } from "../../shared/mindCheck";
+import { isClaim } from "../../shared/sentences";
 import {
   type CheckProblem,
   dismissCheckProblem,
@@ -25,16 +34,22 @@ import {
   useChecks,
   withCheckAll,
 } from "./checks";
+import { dismissContradictions, watchSentencesNow } from "./contradictions";
 import { core } from "./core";
 import { type EstimateLine, estimateLine } from "./cost";
+import { selectionForEdit } from "./editor/editSelection";
+import { type SentencePlace, sentencesToCheck } from "./editor/healthCounts";
+import { mindEditor, whenMindEditor } from "./editor/openEditors";
+import { editorDoc } from "./editor/proposalReview";
 import { languageNow, translateNow } from "./i18n";
 import { frontTabOfMind, groupsMerged } from "./layoutSlice";
+import { modelInUseOf } from "./modelInUse";
 import { useAppStore } from "./store";
 
 interface MindCheckState {
-  /** By Mind: the question asked before a run billed per token, with its estimate. */
+  /** By Note: the question asked before a run billed per token, with its estimate. */
   asking: Readonly<Record<string, Asking>>;
-  /** By Mind: Check this Mind was asked and found nothing changed; the card says so while the Mind's plan still does. */
+  /** By Note: Check was asked and found nothing changed; the card says so while the Note's plan still does. */
   unchanged: Readonly<Record<string, true>>;
 }
 
@@ -43,16 +58,32 @@ interface Asking {
   allDocuments: boolean;
   /** The sentences the run will check: the one count the badge shows (#1909). */
   count: number;
-  /** Checked against the Mind's Folder: the question names it. */
+  /** Checked against the Note's Folder: the question names it. */
   inFolder: boolean;
+  /** The Note's Folder holds other Documents, which its cited sentences are checked against too. */
+  watch: boolean;
   /** Null for a plan or a model on this computer, or when `estimateRun` failed. */
   estimate: EstimateLine | null;
   /** `estimateRun` failed: the ask says the cost couldn't be estimated. */
   unestimated: boolean;
 }
 
+/** What a Check runs: what changed, and whether a Folder's other Documents are checked too. */
+interface CheckToRun {
+  mode: CheckMindMode;
+  allDocuments: boolean;
+  /** The Note is in a Folder with other Documents: its cited sentences are checked against them too. */
+  watch: boolean;
+}
+
 /** A run that only checks again asks first, with the estimate, when it checks this many or more. */
 const ASK_FROM = 10;
+
+/** A problem with the model or a stop ends the Check: the contradiction watch needs the model too. */
+const STOPS: ReadonlySet<string> = new Set(["failed", "not-ready", "local-mode", "cancelled"]);
+
+/** How long the Note's editor may take to open before a Check runs without the contradiction watch. */
+const OPEN_WAIT_MS = 10_000;
 
 export const useMindCheck = create<MindCheckState>()(() => ({ asking: {}, unchanged: {} }));
 
@@ -70,7 +101,7 @@ export function showCheckCard(mindId: string): void {
   setCheckCardOpen(tab?.id ?? mindId, true);
 }
 
-/** The Mind's last whole-Mind check, as it changes. */
+/** The Note's last whole-Note check, as it changes. */
 export function useMindCheckRun(doc: Y.Doc): MindCheckRun | null {
   const [run, setRun] = useState(() => mindCheckOf(doc));
   useEffect(() => {
@@ -83,7 +114,12 @@ export function useMindCheckRun(doc: Y.Doc): MindCheckRun | null {
 const everywhere = (problem: CheckProblem, mindId: string, mode: CheckMindMode) =>
   withCheckAll(problem, () => void startMindCheck(mindId, mode, { allDocuments: true }));
 
-/** Checks the Mind now, as `mode` says: against its Folder, or every Document. */
+/**
+ * Checks the Note's claims now, as `mode` says: what changed, every sentence,
+ * or what Documents added since could change. "Check every sentence again"
+ * and a retry of a whole-Note check start here, without the contradiction
+ * watch, which the one Check runs.
+ */
 export async function checkMind(
   mindId: string,
   mode: CheckMindMode,
@@ -95,17 +131,64 @@ export async function checkMind(
   const requestId = crypto.randomUUID();
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
   try {
+    await checkMindNow(mindId, mode, allDocuments, requestId);
+  } finally {
+    setCheckRunning(mindId, null);
+  }
+}
+
+/** The claims part of a run, with the running state left to its caller; the kind it ended in. */
+async function checkMindNow(
+  mindId: string,
+  mode: CheckMindMode,
+  allDocuments: boolean,
+  requestId: string,
+): Promise<CheckMindResult["kind"] | "error"> {
+  try {
     const result = await core.checkMind({ requestId, mindId, mode, allDocuments });
     if (result.kind === "checked") setCheckSmallModel(mindId, result.smallModel);
     else if (result.kind === "failed") {
       setCheckProblem(mindId, { kind: "find-failed", error: result.error, mode, allDocuments });
     } else if (result.kind === "nothing") setCheckProblem(mindId, { kind: "no-claims" });
     else if (result.kind !== "cancelled") setCheckProblem(mindId, everywhere(result, mindId, mode));
+    return result.kind;
   } catch (error) {
     setCheckProblem(mindId, { kind: "failed", error });
-  } finally {
-    setCheckRunning(mindId, null);
+    return "error";
   }
+}
+
+/**
+ * What a Check reads in the Note as it is now: the sentences it checks, and
+ * the cited ones among them, which a Folder's other Documents are checked
+ * against. A sentence's place, not its words: the mind check writes marks in
+ * place, which move nothing.
+ */
+interface SentencesToCheck {
+  /** The cited sentences' places, as the core reads a selection: where they are in the Note. */
+  cited: TextStretch[];
+  /** How many model checks the contradiction watch adds: one a cited sentence. */
+  count: number;
+  /** The model the Note uses, as its other checks do. */
+  model: ReturnType<typeof modelInUseOf>;
+}
+
+async function readSentencesToCheck(mindId: string): Promise<SentencesToCheck | null> {
+  const editor = mindEditor(mindId) ?? (await whenMindEditor(mindId, OPEN_WAIT_MS));
+  const doc = editor && editorDoc(editor);
+  if (!editor || editor.isDestroyed || !doc) return null;
+  const skipped = new Set(mindCheckOf(doc)?.skipped ?? []);
+  const cited = sentencesToCheck(editor.state, skipped).filter(
+    (place: SentencePlace) => place.citations.length > 0 && isClaim(place.text),
+  );
+  return {
+    count: cited.length,
+    model: modelInUseOf(doc),
+    cited: cited.flatMap(({ from, to }) => {
+      const read = selectionForEdit(editor.state, { from, to });
+      return read ? [{ from: read.from, to: read.to }] : [];
+    }),
+  };
 }
 
 /** What a run is to check, and what it would send. */
@@ -113,22 +196,24 @@ export interface Planned {
   mode: CheckMindMode;
   allDocuments: boolean;
   plan: MindCheckPlan;
+  /** The Note is in a Folder with other Documents: its cited sentences are checked against them too. */
+  watch: boolean;
 }
 
-/** Shows the Mind, plans the run, and says in place if it can't. */
+/** Shows the Note, plans the run, and says in place if it can't. */
 async function start(mindId: string, planned: () => Promise<Planned>): Promise<void> {
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
   if (useChecks.getState().running[mindId]) return;
   try {
-    const { mode, allDocuments, plan } = await planned();
-    await askOrCheck(mindId, mode, allDocuments, plan);
+    const { mode, allDocuments, plan, watch } = await planned();
+    await askOrCheck(mindId, { mode, allDocuments, watch }, plan);
   } catch (error) {
     setCheckProblem(mindId, { kind: "failed", error });
   }
 }
 
-/** Shows the Mind, then has the model name the claims to check as `mode` says, and asks with their number and the estimate. */
+/** Shows the Note, then has the model name the claims to check as `mode` says, and asks with their number and the estimate. */
 export function startMindCheck(
   mindId: string,
   mode: CheckMindMode,
@@ -140,35 +225,75 @@ export function startMindCheck(
       mode,
       allDocuments,
       plan: await core.planMindCheck(mindId, mode, allDocuments),
+      watch: false,
     }),
   );
 }
 
-/** What "Check this Mind" runs now: what changed; or, with nothing changed, the checks the Documents added since could change. */
+/**
+ * What the one Check runs now: what changed since the last whole-Note check
+ * (or, with nothing changed, the checks the Documents added since could
+ * change), and whether the Note's Folder holds other Documents to check its
+ * cited sentences against.
+ */
 export async function planCheckThisMind(mindId: string): Promise<Planned> {
   const changed = await core.planMindCheck(mindId, "changed", false);
+  let mode: CheckMindMode = "changed";
+  let plan = changed;
   if (changed.kind === "unchanged") {
     const added = await core.planMindCheck(mindId, "added", false);
-    if (added.kind === "ready") return { mode: "added", allDocuments: false, plan: added };
+    if (added.kind === "ready") {
+      mode = "added";
+      plan = added;
+    }
   }
-  return { mode: "changed", allDocuments: false, plan: changed };
+  const watch = await core.planContradictionCheck(mindId);
+  return { mode, allDocuments: false, plan, watch: watch.kind === "ready" };
 }
 
-/** "Check this Mind": what changed since the last check; when nothing did, no check, and the card says so. */
-export const startCheckThisMind = (mindId: string): Promise<void> =>
+/** The one Check: everything the Note can be checked for, in one press. */
+export const startCheck = (mindId: string): Promise<void> =>
   start(mindId, () => planCheckThisMind(mindId));
+
+/** Check, in the card's question before a run billed per token. */
+export function confirmCheck(mindId: string): Promise<void> {
+  const asking = useMindCheck.getState().asking[mindId];
+  if (!asking) return Promise.resolve();
+  return runCheck(mindId, asking);
+}
+
+/**
+ * Runs the one Check: the claims part, then the cited sentences among them
+ * against the Folder's other Documents, under one running state whose Stop
+ * takes whichever part runs. A problem with the model, or a stop, ends both.
+ */
+async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
+  if (useChecks.getState().running[mindId]) return;
+  dismissMindCheck(mindId);
+  dismissCheckProblem(mindId);
+  dismissContradictions(mindId);
+  // Read before the run: the marks it writes cover every sentence it checks.
+  const toCheck = run.watch ? await readSentencesToCheck(mindId) : null;
+  const requestId = crypto.randomUUID();
+  setCheckRunning(mindId, { requestId, action: "whole-mind" });
+  try {
+    const stopped = STOPS.has(await checkMindNow(mindId, run.mode, run.allDocuments, requestId));
+    if (!stopped && toCheck && toCheck.cited.length > 0) {
+      const watchRequest = crypto.randomUUID();
+      setCheckRunning(mindId, { requestId: watchRequest, action: "contradiction-watch" });
+      await watchSentencesNow(mindId, watchRequest, toCheck.cited, toCheck.model);
+    }
+  } finally {
+    setCheckRunning(mindId, null);
+  }
+}
 
 /**
  * A run of what changed that only checks again checks at once when small; any
  * run checks at once when nothing is billed per token and no claim is to be
  * named; the rest ask first, once the claims are named.
  */
-async function askOrCheck(
-  mindId: string,
-  mode: CheckMindMode,
-  allDocuments: boolean,
-  plan: MindCheckPlan,
-): Promise<void> {
+async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan): Promise<void> {
   if (plan.kind === "unchanged") {
     dismissMindCheck(mindId);
     dismissCheckProblem(mindId);
@@ -178,34 +303,42 @@ async function askOrCheck(
   }
   if (plan.kind !== "ready") {
     dismissMindCheck(mindId);
+    dismissCheckProblem(mindId);
     setCheckProblem(
       mindId,
-      plan.kind === "nothing" ? { kind: "no-claims" } : everywhere(plan, mindId, mode),
+      plan.kind === "nothing" ? { kind: "no-claims" } : everywhere(plan, mindId, run.mode),
     );
     return;
   }
-  if (mode === "changed" && !plan.findsClaims && plan.sentences < ASK_FROM)
-    return checkMind(mindId, mode, { allDocuments });
+  if (run.mode === "changed" && !plan.findsClaims && plan.sentences < ASK_FROM) {
+    return runCheck(mindId, run);
+  }
   dismissMindCheck(mindId);
   dismissCheckProblem(mindId);
-  const count = plan.sentences;
+  const extra = run.watch ? ((await readSentencesToCheck(mindId))?.count ?? 0) : 0;
   const estimated = await core
-    .estimateRun({ items: count, each: "check", ...(plan.model && { model: plan.model }) })
+    .estimateRun({
+      items: plan.sentences + extra,
+      each: "check",
+      ...(plan.model && { model: plan.model }),
+    })
     .catch((error: unknown) => {
-      console.warn(`Couldn't estimate checking Mind ${mindId}; it asks without one.`, error);
+      console.warn(`Couldn't estimate checking Note ${mindId}; it asks without one.`, error);
       return null;
     });
-  if (estimated && estimated.billing !== "per-token" && !plan.findsClaims)
-    return checkMind(mindId, mode, { allDocuments });
+  if (estimated && estimated.billing !== "per-token" && !plan.findsClaims) {
+    return runCheck(mindId, run);
+  }
   const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
   useMindCheck.setState((state) => ({
     asking: {
       ...state.asking,
       [mindId]: {
-        mode,
-        allDocuments,
-        count,
+        mode: run.mode,
+        allDocuments: run.allDocuments,
+        count: plan.sentences,
         inFolder: plan.inFolder,
+        watch: run.watch,
         estimate,
         unestimated: estimated === null,
       },

@@ -242,7 +242,27 @@ export function everythingChecked(
 }
 
 /**
- * The whole sentences a check still has to make in this Mind, as ranges to
+ * Every sentence a check reads that no check covers now, where it is and what
+ * it cites (#1909); `within` keeps only those a write's Blocks hold.
+ */
+export function sentencesToCheck(
+  state: EditorState,
+  skipped: ReadonlySet<string> = new Set(),
+  within?: (place: SentencePlace) => boolean,
+): SentencePlace[] {
+  const places: SentencePlace[] = [];
+  eachSentence(
+    state.doc,
+    { claims: shownClaims(state), skipped, kept: keptSpans(state) },
+    (place) => {
+      if (place.state.kind === "to-check" && (!within || within(place))) places.push(place);
+    },
+  );
+  return places;
+}
+
+/**
+ * The whole sentences a check still has to make in this Note, as ranges to
  * check (#1909); `within` keeps only those a write's Blocks hold.
  */
 export function toCheckRanges(
@@ -250,15 +270,5 @@ export function toCheckRanges(
   skipped: ReadonlySet<string> = new Set(),
   within?: (place: SentencePlace) => boolean,
 ): { from: number; to: number }[] {
-  const ranges: { from: number; to: number }[] = [];
-  eachSentence(
-    state.doc,
-    { claims: shownClaims(state), skipped, kept: keptSpans(state) },
-    (place) => {
-      if (place.state.kind === "to-check" && (!within || within(place))) {
-        ranges.push({ from: place.from, to: place.to });
-      }
-    },
-  );
-  return ranges;
+  return sentencesToCheck(state, skipped, within).map(({ from, to }) => ({ from, to }));
 }

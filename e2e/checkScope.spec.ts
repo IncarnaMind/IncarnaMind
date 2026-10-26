@@ -276,7 +276,7 @@ test("when the Mind's own scope holds nothing, the check says so and offers all 
   await expect(composer.getByTestId("composer-input")).toBeFocused();
   await window.keyboard.press("Escape");
 
-  // With no Document left at all, the selection offers to add some, and so does Check this Mind.
+  // With no Document left at all, the selection offers to add some, and so does Check.
   await remove("Seabirds");
   await slideSelect(window, line, "Harbours publish", { line, words: "spring." });
   await expect(
