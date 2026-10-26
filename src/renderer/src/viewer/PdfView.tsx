@@ -15,6 +15,7 @@ import {
 import type { Document } from "../../../core/api";
 import { readPdfPageText } from "../../../shared/pdfFormText";
 import { findQuoteInPages, lostLigatures, type TextPiece } from "../../../shared/quoteMatch";
+import { DocumentFix } from "../components/DocumentFix";
 import { core } from "../core";
 import { useT } from "../i18n";
 import { useAppStore, type ViewerTarget } from "../store";
@@ -36,7 +37,7 @@ import { type ScannedPage, scannedTextLayer, useScannedPages } from "./scannedTe
 import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
 import { HeaderDivider, ViewerHeader } from "./ViewerHeader";
-import { FileFixMessage, FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileGone, ViewerMessage } from "./ViewerMessage";
 import { createWheelZoom, MAX_ZOOM, MIN_ZOOM, stepZoom } from "./zoom";
 
 /** CSS pixels per PDF point: at 100% a page shows at its printed size. */
@@ -213,8 +214,9 @@ export function PdfView({
         <>
           <ViewerHeader onRetry={retry} />
           {banner}
-          <FileFixMessage
+          <DocumentFix
             document={document}
+            view
             message={loaded.message}
             reload={reopen}
             fallback={

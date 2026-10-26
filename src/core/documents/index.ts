@@ -166,6 +166,7 @@ interface DocumentRow {
   path: string;
   linked_folder_id: string | null;
   file_status: string;
+  source_kind: string;
   creation_date: string | null;
   title: string | null;
   own_file: string | null;
@@ -207,8 +208,8 @@ const toUnitText = (row: UnitRow): PageText => ({
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
-  creation_date, title, own_file, counted_as_evidence, not_cited, processing_version, file_mtime_ms,
-  created_at, updated_at`;
+  source_kind, creation_date, title, own_file, counted_as_evidence, not_cited, processing_version,
+  file_mtime_ms, created_at, updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
 const ownFileOf = (row: Pick<DocumentRow, "own_file" | "counted_as_evidence">): OwnFile | null =>
@@ -551,6 +552,7 @@ export function createDocuments(options: DocumentsOptions) {
       contentHash: row.content_hash,
       path: row.path,
       fileStatus: row.file_status as DocumentFileStatus,
+      keptByApp: row.source_kind === "data-folder",
       linkedFolderId: row.linked_folder_id,
       size: row.size,
       pageCount: row.page_count,

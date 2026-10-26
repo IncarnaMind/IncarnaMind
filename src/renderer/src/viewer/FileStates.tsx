@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import type { Document } from "../../../core/api";
+import { DocumentFix } from "../components/DocumentFix";
 import { useT } from "../i18n";
 import { useCitedAreaFailure } from "./citedArea";
 import type { LoadedFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
-import { FileFixMessage, FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileGone, ViewerMessage } from "./ViewerMessage";
 
 /**
  * A view while its file isn't ready to show: loading, gone (the quote is
@@ -51,8 +52,9 @@ export function FileStates<T>({
       return (
         <>
           <ViewerHeader />
-          <FileFixMessage
+          <DocumentFix
             document={document}
+            view
             message=""
             reload={reload}
             fallback={
@@ -67,8 +69,9 @@ export function FileStates<T>({
       return (
         <>
           <ViewerHeader />
-          <FileFixMessage
+          <DocumentFix
             document={document}
+            view
             message={loaded.message}
             reload={reload}
             fallback={

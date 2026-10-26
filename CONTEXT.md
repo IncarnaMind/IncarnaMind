@@ -306,7 +306,7 @@ What the User records alone, with the microphone, to think out loud: recorded an
 _Avoid_: dictation, voice note, audio note, recording
 
 **Transcript**:
-The words of a Meeting, in order and with times, kept as a Document so that a Citation can point at it. Its Location is a range of time.
+The words of a Meeting, in order and with times, kept as a Document in the Library so that a Citation can point at it; its file is IncarnaMind's own, inside the data folder, never one the User keeps. A `.vtt` file the User adds is their own file, as any Document is. Its Location is a range of time.
 _Avoid_: captions, subtitles, minutes
 
 **Speaker**:
@@ -320,7 +320,7 @@ A folder the User has allowed an Answer or a Task to read, once. It is not a Lin
 _Avoid_: shared folder, workspace, permission
 
 **Output location**:
-The folder the files IncarnaMind creates go in, such as exports, Transcripts and Documents a Task saves. Until the User picks one, it is IncarnaMind in their Documents folder (Documents › IncarnaMind; in Chinese, 文稿 › IncarnaMind on a Mac and 文档 › IncarnaMind on Windows and Linux): the first save goes there without asking and says where. IncarnaMind writes nowhere else without asking: a Linked folder asks first, and if the default can't be made or written to, the save asks where instead.
+The folder the files IncarnaMind creates go in, such as exports and Documents a Task saves. Until the User picks one, it is IncarnaMind in their Documents folder (Documents › IncarnaMind; in Chinese, 文稿 › IncarnaMind on a Mac and 文档 › IncarnaMind on Windows and Linux): the first save goes there without asking and says where. IncarnaMind writes nowhere else without asking: a Linked folder asks first, and if the default can't be made or written to, the save asks where instead.
 _Avoid_: export folder, downloads, save path
 
 **Workspace**:

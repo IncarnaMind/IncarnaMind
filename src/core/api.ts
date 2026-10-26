@@ -2806,6 +2806,12 @@ export interface Document {
   path: string;
   /** Where the file is: see `DocumentFileStatus`. */
   fileStatus: DocumentFileStatus;
+  /**
+   * Its file is IncarnaMind's own, inside the data folder: a saved web page's
+   * snapshot, or a Meeting's Transcript. It is not a file the User keeps on
+   * this computer, so it has no path to show and no app to open it in (#763).
+   */
+  keptByApp: boolean;
   /** The Linked folder the file is in, or null for a file added on its own ("Other Documents"). */
   linkedFolderId: string | null;
   /** In bytes. */

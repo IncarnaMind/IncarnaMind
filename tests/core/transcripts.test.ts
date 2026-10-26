@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
@@ -508,6 +508,43 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
       readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8"),
     );
     expect(gaps).toEqual([{ fromMs: PAUSED_AT, toMs: RESUMED_AT, reason: "muted" }]);
+  });
+
+  test("a .vtt the User added keeps its file and its path; a Meeting's Transcript is the Library's, and its file goes at permanent delete (#763)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sourcesDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(9 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const own = (await core.listDocuments()).find((each) => each.id === saved.documentId);
+    if (!own) throw new Error("The Transcript's Document isn't in the Library.");
+    expect(own).toMatchObject({ kind: "transcript", keptByApp: true });
+
+    const userFile = join(sourcesDir, "My notes.vtt");
+    writeFileSync(userFile, "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nA line of my own.\n");
+    await core.addDocuments([userFile]);
+    await vi.waitFor(async () => {
+      const found = (await core.listDocuments()).find((each) => each.name === "My notes");
+      if (found?.status !== "ready") throw new Error("Not ready yet.");
+    });
+    const user = (await core.listDocuments()).find((each) => each.name === "My notes");
+    if (!user) throw new Error("The User's .vtt isn't in the Library.");
+    expect(user).toMatchObject({ kind: "transcript", keptByApp: false });
+
+    const ownFile = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    expect(existsSync(ownFile)).toBe(true);
+    await core.deleteDocuments([own.id, user.id]);
+    await core.deletePermanently([
+      { kind: "document", id: own.id },
+      { kind: "document", id: user.id },
+    ]);
+    // IncarnaMind's own Transcript goes; the .vtt the User added stays theirs.
+    expect(existsSync(ownFile)).toBe(false);
+    expect(existsSync(userFile)).toBe(true);
   });
 
   test("Stop says the Transcript is saved only once its finished text is read, so the notes are filled from it (#763)", async () => {

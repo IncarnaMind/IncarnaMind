@@ -3181,11 +3181,19 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
+      purgedPaths: () =>
+        db
+          .all<{ path: string }>(
+            `SELECT path FROM documents
+             WHERE kind = 'transcript' AND source_kind = 'data-folder' AND purged_at IS NOT NULL`,
+          )
+          .map((row) => row.path),
       saved: (meetingId) => transcriptSaved(meetingId),
       changed: meetingsChanged,
       log: adapters.log ?? silentLogger,
     });
 
+  transcripts?.dropPurged();
   // Meetings (#135): while audio is being captured, background model work holds back.
   const meetings = createMeetings({
     db,
@@ -4307,6 +4315,7 @@ export function createCore(adapters: CoreAdapters): Core {
         wordImports.dropPurged(),
         documents.dropPurged(),
       ]);
+      transcripts?.dropPurged();
     },
     acceptAssignments: async (ids) => library.accept(ids),
     rejectAssignments: async (ids) => library.reject(ids),

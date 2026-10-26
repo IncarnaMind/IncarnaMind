@@ -250,6 +250,8 @@ export interface TranscriptsOptions {
   speakers?: SpeakerPass;
   /** Whether the Meeting is a voice memo (#1568), whose lines name no one. */
   memo?(meetingId: string): boolean;
+  /** The files of Transcript Documents IncarnaMind kept that were deleted permanently (#763). */
+  purgedPaths?(): readonly string[];
   decoded?(modelId: string, decodeMs: number, audioSeconds: number): void;
   /**
    * The Meeting's Transcript is finished (#142): saved, its Document in its place and its
@@ -1387,6 +1389,14 @@ export function createTranscripts(options: TranscriptsOptions) {
     },
 
     /** The Meeting's Transcript, as the window shows it. `audioKept`: its audio is still on this computer. */
+    /** Removes the files of Transcripts deleted permanently: the App's own, never a .vtt the User added. */
+    dropPurged(): void {
+      for (const path of options.purgedPaths?.() ?? []) {
+        rmSync(path, { force: true });
+        rmSync(path.replace(/\.vtt$/, ".json"), { force: true });
+      }
+    },
+
     of(meetingId: string, audioKept: boolean): MeetingTranscript {
       const state = load(meetingId);
       const status = model.status();

@@ -18,12 +18,12 @@ export const KIND_LABELS: Record<Document["kind"], MessageKey> = {
 };
 
 /**
- * A file the User keeps on this computer: every Document but a web page (its
- * snapshot) and a Transcript (kept in the Library, #763). Its path is the
- * User's to see, open and show.
+ * A file the User keeps on this computer: every Document but one whose file
+ * IncarnaMind keeps in the Library (a saved web page's snapshot, a Meeting's
+ * Transcript, #763). Its path is the User's to see, open and show; a .vtt the
+ * User added is theirs, so it counts.
  */
-export const userFile = (document: Pick<Document, "kind" | "web">): boolean =>
-  document.web === null && document.kind !== "transcript";
+export const userFile = (document: Pick<Document, "keptByApp">): boolean => !document.keptByApp;
 
 /** "Show in Finder" on macOS, "Show in folder" on Windows and Linux: what every action that shows a file says. */
 export const showFileLabelKey = (platform: string): MessageKey =>

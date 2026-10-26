@@ -18,6 +18,7 @@ const doc = (changes: Partial<Document> = {}): Document =>
     size: 2048,
     failure: null,
     web: null,
+    keptByApp: false,
     ...changes,
   }) as Document;
 
@@ -83,10 +84,12 @@ describe("A Document's fix (#763)", () => {
   });
 
   test("Open in default app is offered only where the file is the User's to open (#763)", () => {
-    // A web page's snapshot and a Transcript are kept by IncarnaMind, not the User.
+    // A saved web page's snapshot and a Meeting's Transcript are kept by IncarnaMind; a .vtt
+    // the User added is theirs, and keeps its Open.
     const web = { address: "https://x.test" } as Document["web"];
-    expect(canOpenFix(failed("unreadable", { kind: "web", web }))).toBe(false);
-    expect(canOpenFix(failed("unreadable", { kind: "transcript" }))).toBe(false);
+    expect(canOpenFix(failed("unreadable", { kind: "web", web, keptByApp: true }))).toBe(false);
+    expect(canOpenFix(failed("unreadable", { kind: "transcript", keptByApp: true }))).toBe(false);
+    expect(canOpenFix(failed("unreadable", { kind: "transcript", keptByApp: false }))).toBe(true);
     expect(canOpenFix(failed("unreadable"))).toBe(true);
     expect(canOpenFix(doc())).toBe(false);
   });

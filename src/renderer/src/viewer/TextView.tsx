@@ -11,6 +11,7 @@ import type { Document } from "../../../core/api";
 import { decodeText } from "../../../core/documents/decode";
 import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documents/formats/text";
 import { findQuote, type TextRange } from "../../../shared/quoteMatch";
+import { DocumentFix } from "../components/DocumentFix";
 import { useT } from "../i18n";
 import type { ViewerTarget } from "../store";
 import { type CitedArea, useCitedArea, useCitedAreaFailure } from "./citedArea";
@@ -22,7 +23,7 @@ import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./
 import { sourceSelection, useSelectionReader } from "./selectedText";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { ViewerHeader } from "./ViewerHeader";
-import { FileFixMessage, FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileGone, ViewerMessage } from "./ViewerMessage";
 
 type Loaded =
   | { kind: "loading" }
@@ -113,8 +114,9 @@ export function TextView({ document, target }: { document: Document; target: Vie
       ) : loaded.kind === "missing" ? (
         <FileGone quote={target.quote} />
       ) : loaded.kind === "failed" ? (
-        <FileFixMessage
+        <DocumentFix
           document={document}
+          view
           message={loaded.message}
           reload={reload}
           fallback={
