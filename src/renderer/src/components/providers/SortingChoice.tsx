@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatModelChoice, TaggingClassifier, TaggingModels } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
+import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
@@ -101,6 +102,8 @@ export function useSortingModels(): TaggingModels | null {
   const [models, setModels] = useState<TaggingModels | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: listed again whenever these change.
   useEffect(() => {
+    // The line that says what sorts names the User's model: its group is where the name is.
+    useAnswers.getState().loadModels();
     let current = true;
     core.getTaggingModels().then(
       (listed) => current && setModels(listed),
@@ -155,7 +158,7 @@ export function useSorting() {
             : saved.kind === "auto"
               ? t("tagging.decision.auto")
               : saved.modelId,
-      provider: null,
+      provider: saved.kind === "jev" ? "TypeSafe" : null,
       decisionModel: saved.kind !== "chat",
       ...(saved.kind === "chat" && {
         modelName: nameOf(saved.choice.modelId, saved.choice.providerId).name,

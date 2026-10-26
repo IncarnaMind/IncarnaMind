@@ -1067,7 +1067,7 @@ for (const height of [560, 700]) {
 for (const { value, line, chips, titles } of [
   {
     value: "en",
-    line: "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognised here.",
+    line: "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
     chips: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi", "Qwen"],
     titles: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi"],
   },

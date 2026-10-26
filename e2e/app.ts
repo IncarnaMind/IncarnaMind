@@ -872,7 +872,10 @@ export async function openServiceList(
   await field.fill(key);
   await field.press("Enter");
   await pointAndClick(window, card.getByTestId("setup-key-choose-service"));
-  await expect(card.getByTestId("provider-form")).toBeVisible();
+  const form = card.getByTestId("provider-form");
+  await expect(form).toBeVisible();
+  // The key only reached the list: the form starts as it would from Settings.
+  await form.locator('input[type="password"]').fill("");
 }
 
 /**

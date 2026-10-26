@@ -83,6 +83,10 @@ function YourAiRow({
   roles: ModelRoles | null;
 }) {
   const t = useT();
+  // A choice kept from before the row went (#1922): it still wins, so the line would not be true.
+  const following = useAppStore(
+    (state) => !state.settings?.user.quickTasksModel && !state.settings?.user.imageModel,
+  );
   return (
     <div data-testid="model-default-row-chatModel" className="flex flex-col gap-0.5 py-2">
       <label htmlFor={id} className="text-ui font-semibold text-ink">
@@ -95,9 +99,11 @@ function YourAiRow({
         <RoleSelect id={id} job="chatModel" groups={groups} providers={providers} roles={roles} />
         <ModelHealthLine />
       </div>
-      <p data-testid="models-follow-answers" className={hintClass}>
-        {t("models.defaults.followAnswers")}
-      </p>
+      {following && (
+        <p data-testid="models-follow-answers" className={hintClass}>
+          {t("models.defaults.followAnswers")}
+        </p>
+      )}
     </div>
   );
 }

@@ -122,22 +122,24 @@ function ChooseAnAi() {
                 <LocalWay ollama={ollama} running={running === true} />
               </>
             )}
-            <details
-              open={others}
-              onToggle={(event) => setOthers(event.currentTarget.open)}
-              className="flex flex-col gap-2"
-            >
-              <summary
-                data-testid="setup-other"
-                className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary"
+            {!localOnly && (
+              <details
+                open={others}
+                onToggle={(event) => setOthers(event.currentTarget.open)}
+                className="flex flex-col gap-2"
               >
-                {t("setup.other")}
-              </summary>
-              <div className="mt-2 flex flex-col gap-2">
-                {!localOnly && <CopilotSetupWay onKey={useKeyInstead} />}
-                {SHOW_CLAUDE_APP_SETUP && !chinese && <ClaudeWay />}
-              </div>
-            </details>
+                <summary
+                  data-testid="setup-other"
+                  className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary"
+                >
+                  {t("setup.other")}
+                </summary>
+                <div className="mt-2 flex flex-col gap-2">
+                  <CopilotSetupWay onKey={useKeyInstead} />
+                  {SHOW_CLAUDE_APP_SETUP && !chinese && <ClaudeWay />}
+                </div>
+              </details>
+            )}
           </>
         )
       ) : (

@@ -78,7 +78,7 @@ test("a pasted key is named by its form and works at once: the waiting Question 
     const field = card.getByTestId("setup-key");
     await expect(field).toBeFocused();
     await expect(card.getByTestId("setup-key-line")).toHaveText(
-      "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognised here.",
+      "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
     );
 
     await field.fill(ANTHROPIC_KEY);
@@ -137,6 +137,7 @@ test("with no key, the ChatGPT plan comes first, the Claude account second, and 
   try {
     await setWindowSize(app, window, 1100, 900);
     await interceptOpenExternal(app);
+    await acceptPlainTextKeys(window);
     const card = await askFirstQuestion(window);
     await expect(card.getByTestId("way-claude")).toBeVisible();
     const order = await card.evaluate((element) =>
@@ -223,7 +224,7 @@ test("a refused key, a key with no credit and a key from a service we don’t li
     await field.fill("pk-live-a-key-from-a-service-we-dont-list");
     await field.press("Enter");
     await expect(card.getByTestId("setup-key-unrecognised")).toHaveText(
-      "We don’t recognise this key’s service · Choose the service",
+      "We don’t recognize this key’s service · Choose the service",
     );
     await pointAndClick(window, card.getByTestId("setup-key-choose-service"));
     await expect(card.getByTestId("provider-form")).toBeVisible();
