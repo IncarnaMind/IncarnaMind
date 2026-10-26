@@ -229,11 +229,6 @@ export interface MessageAnchor {
   messageId: string;
 }
 
-export type ReferenceAnchor = BlockAnchor | MessageAnchor;
-
-/** What a reference points into: a Mind, or one of the assistant's conversations (ADR-0017). */
-export type ArtifactKind = "mind" | "conversation";
-
 /**
  * One reference from one artifact to another (ADR-0003, ADR-0017): a Block's
  * origin, or the link back from a Note to the Answer in the conversation it
@@ -2170,8 +2165,6 @@ export interface DeviceSettings {
   sidebarWidth: number;
   /** The User hid the sidebar (the shortcut, the button, View menu, or dragging it shut). Its width is kept. */
   sidebarHidden: boolean;
-  /** The User chose "set up later" on the first-run chat setup screen. */
-  chatSetupDismissed: boolean;
   /** The User dismissed the sidebar's line saying the app runs without its sandbox (#1179). */
   sandboxNoticeDismissed: boolean;
   /** The app has opened on this device before: from its second launch it opens on Home. */

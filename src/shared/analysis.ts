@@ -63,9 +63,6 @@ export const ANALYSIS_LIMITS = {
   errorCharacters: 4000,
 } as const;
 
-/** The limits, as the runtime is sent them with each job, to cut to itself. */
-export type AnalysisLimits = typeof ANALYSIS_LIMITS;
-
 /** A table a run gave, cut to the limits. */
 export interface AnalysisTable {
   columns: string[];
