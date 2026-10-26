@@ -1,5 +1,6 @@
 import type { Document } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
+import { userFile } from "./fileInfo";
 
 /** What a Document that needs attention says, in plain words, and what can be done about it. */
 export interface DocumentFix {
@@ -47,3 +48,10 @@ export function documentFix(doc: Document): DocumentFix | null {
       return null;
   }
 }
+
+/**
+ * Whether the fix's Open in default app applies: the file is the User's to
+ * open. A web page's snapshot and a Transcript have no such file (#763).
+ */
+export const canOpenFix = (doc: Document): boolean =>
+  documentFix(doc)?.open === true && userFile(doc);

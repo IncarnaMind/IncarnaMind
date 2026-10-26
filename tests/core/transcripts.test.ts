@@ -509,4 +509,34 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
     );
     expect(gaps).toEqual([{ fromMs: PAUSED_AT, toMs: RESUMED_AT, reason: "muted" }]);
   });
+
+  test("Stop says the Transcript is saved only once its finished text is read, so the notes are filled from it (#763)", async () => {
+    const dataDir = await createTempDataFolder();
+    const lines = Array.from({ length: 50 }, (_, i) => `Line ${i}: ${"word ".repeat(300)}`);
+    const { core, record } = await transcribingCore(dataDir, { engine: { lines } });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(100 * SECOND);
+    const live = await until(core, meeting.id, (transcript) => transcript.lines >= 40);
+    const documentId = live.documentId as string;
+
+    // When the Meeting says "saved", the Document's finished version must already be read: a
+    // ready status comes before saved, never after it.
+    const order: string[] = [];
+    core.on("document.status", (document) => {
+      if (document.id === documentId) order.push(document.status);
+    });
+    core.on("meetings.changed", (meetings) => {
+      const saved = meetings.some(
+        (each) => each.id === meeting.id && each.transcript?.state === "saved",
+      );
+      if (saved && !order.includes("saved")) order.push("saved");
+    });
+
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    await vi.waitFor(() => expect(order).toContain("saved"));
+    expect(order).toContain("ready");
+    expect(order.indexOf("saved")).toBeGreaterThan(order.lastIndexOf("ready"));
+  });
 });

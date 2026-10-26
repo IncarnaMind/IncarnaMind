@@ -49,8 +49,9 @@ export function TextView({ document, target }: { document: Document; target: Vie
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [source, setSource] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the file is read again when its version changes, as a retry re-reads it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the file is read again at the User's Retry, or when its version changes.
   useEffect(() => {
     const controller = new AbortController();
     loadDocumentBytes(document.id, controller.signal).then(
@@ -66,7 +67,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
       },
     );
     return () => controller.abort();
-  }, [document.id, document.contentHash]);
+  }, [document.id, document.contentHash, attempt]);
 
   useCitedAreaFailure(
     loaded.kind === "missing"
@@ -82,9 +83,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
     [loaded, markdown],
   );
   const outline = useMemo(() => (markdown ? headingsOf(units) : []), [markdown, units]);
-  const fix = (
-    <FileFixMessage document={document} message={loaded.kind === "failed" ? loaded.message : ""} />
-  );
+  const reload = () => setAttempt((count) => count + 1);
 
   return (
     <>
@@ -114,11 +113,18 @@ export function TextView({ document, target }: { document: Document; target: Vie
       ) : loaded.kind === "missing" ? (
         <FileGone quote={target.quote} />
       ) : loaded.kind === "failed" ? (
-        (fix ?? (
-          <ViewerMessage tone="error">
-            {loaded.message ? t("viewer.failed", { message: loaded.message }) : t("viewer.notText")}
-          </ViewerMessage>
-        ))
+        <FileFixMessage
+          document={document}
+          message={loaded.message}
+          reload={reload}
+          fallback={
+            <ViewerMessage tone="error">
+              {loaded.message
+                ? t("viewer.failed", { message: loaded.message })
+                : t("viewer.notText")}
+            </ViewerMessage>
+          }
+        />
       ) : (
         <MarkdownDocumentContext.Provider value={document.id}>
           <TextContent

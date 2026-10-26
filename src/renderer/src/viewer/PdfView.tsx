@@ -208,27 +208,30 @@ export function PdfView({
           <LockedPdf documentId={document.id} onUnlocked={reopen} />
         </>
       );
-    case "failed": {
-      const fix = <FileFixMessage document={document} message={loaded.message} reload={reopen} />;
+    case "failed":
       return (
         <>
           <ViewerHeader onRetry={retry} />
           {banner}
-          {fix ?? (
-            <ViewerMessage
-              tone="error"
-              action={{
-                label: t("documents.retryAction"),
-                testId: "viewer-retry",
-                onClick: retry,
-              }}
-            >
-              <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
-            </ViewerMessage>
-          )}
+          <FileFixMessage
+            document={document}
+            message={loaded.message}
+            reload={reopen}
+            fallback={
+              <ViewerMessage
+                tone="error"
+                action={{
+                  label: t("documents.retryAction"),
+                  testId: "viewer-retry",
+                  onClick: retry,
+                }}
+              >
+                <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
+              </ViewerMessage>
+            }
+          />
         </>
       );
-    }
     case "ready":
       return (
         <PdfPages

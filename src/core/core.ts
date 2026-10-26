@@ -3137,7 +3137,10 @@ export function createCore(adapters: CoreAdapters): Core {
         add: (id, name, file) => documents.addSnapshot(id, name, file, () => {}, "transcript"),
         file: (documentId, folderId) => library.assign(documentId, folderId),
         check: (path) => documents.check(path),
-        checkNow: (path) => documents.checkNow(path),
+        checkNow: async (documentId, path) => {
+          await documents.checkNow(path);
+          if (documentId) await processed(documentId);
+        },
         find: (id) => {
           try {
             return documents.get(id);
@@ -3283,8 +3286,8 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return result;
   };
-  /** Resolves once a Document's newest version has its Passages, or after `ms` with the last version's. */
-  const extracted = (documentId: string, ms: number) =>
+  /** Resolves once a Document is no longer queued or being read; `ms` null waits as long as it takes. */
+  const settled = (documentId: string, ms: number | null) =>
     new Promise<void>((resolve) => {
       const busy = (status: DocumentStatus | null) =>
         status === "queued" || status === "extracting";
@@ -3299,15 +3302,19 @@ export function createCore(adapters: CoreAdapters): Core {
         return;
       }
       const done = () => {
-        clearTimeout(timer);
+        if (timer !== null) clearTimeout(timer);
         stop();
         resolve();
       };
-      const timer = setTimeout(done, ms);
+      const timer = ms === null ? null : setTimeout(done, ms);
       const stop = events.on("document.status", (document) => {
         if (document.id === documentId && !busy(document.status)) done();
       });
     });
+  /** Resolves once a Document's newest version has its Passages, or after `ms` with the last version's. */
+  const extracted = (documentId: string, ms: number) => settled(documentId, ms);
+  /** Resolves once a Document's newest version is read: its Passages are then the file's text. */
+  const processed = (documentId: string) => settled(documentId, null);
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     content,

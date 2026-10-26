@@ -2,7 +2,7 @@ import { type ReactNode, useContext, useState } from "react";
 import type { Document } from "../../../core/api";
 import { commands } from "../commands/registry";
 import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
-import { documentFix } from "../documentFix";
+import { canOpenFix, documentFix } from "../documentFix";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { saidInLine } from "../lineNames";
@@ -52,21 +52,23 @@ export function ViewerMessage({
 /**
  * A file the viewer couldn't show, in the words its Document's fix uses
  * (#763): the plain reason, then its next step, with the reader's own message
- * on hover. Null for a failure the Document doesn't have a fix for.
+ * on hover. `fallback` shows instead when the Document has no fix.
  */
 export function FileFixMessage({
   document,
   message,
   reload,
+  fallback,
 }: {
   document: Document;
   message: string;
   /** Opens the file again in place, for a view that keeps its own copy of it. */
   reload?: () => void;
+  fallback: ReactNode;
 }) {
   const t = useT();
   const fix = documentFix(document);
-  if (!fix) return null;
+  if (!fix) return <>{fallback}</>;
   const open = () =>
     void commands
       .run("document.openExternally", {
@@ -75,6 +77,10 @@ export function FileFixMessage({
       })
       .catch(useAppStore.getState().reportError);
   const retry = () => {
+    if (fix.retry === "print") {
+      open();
+      return;
+    }
     reload?.();
     void useAppStore.getState().retryDocument(document.id);
   };
@@ -83,15 +89,21 @@ export function FileFixMessage({
       tone="error"
       title={message || undefined}
       action={
-        fix.open
+        canOpenFix(document)
           ? { label: t("library.fix.open"), testId: "viewer-fix-open", onClick: open }
           : undefined
       }
       also={
-        fix.retry
+        fix.retry && (fix.retry !== "print" || canOpenFix(document))
           ? {
-              label: t(fix.retry === "readAgain" ? "library.fix.readAgain" : "library.fix.retry"),
-              testId: "viewer-retry",
+              label: t(
+                fix.retry === "readAgain"
+                  ? "library.fix.readAgain"
+                  : fix.retry === "print"
+                    ? "documents.printToPdfAction"
+                    : "library.fix.retry",
+              ),
+              testId: fix.retry === "print" ? "viewer-fix-print" : "viewer-retry",
               onClick: retry,
             }
           : undefined

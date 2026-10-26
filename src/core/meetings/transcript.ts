@@ -223,8 +223,8 @@ export interface TranscriptDocuments {
   /** Files the Document in the Mind's Folder. */
   file(documentId: string, folderId: string): void;
   check(path: string): Promise<void>;
-  /** Reads the file again, and resolves once it has: the Document's text is then this file's. */
-  checkNow(path: string): Promise<void>;
+  /** Reads the file again, and resolves once the Document's text is this file's. */
+  checkNow(documentId: string | null, path: string): Promise<void>;
   /** The live Document, or null once deleted. */
   find(id: string): Document | null;
 }
@@ -1184,7 +1184,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     state.problem = null;
     log.info("transcript.saved", { meetingId: state.meetingId, lines: state.cues.length });
     if (options.speakers && !state.memo) state.speakers = "due";
-    await documents.checkNow(file.path);
+    await documents.checkNow(state.documentId, file.path);
     if (state.speakers !== "due") options.saved?.(state.meetingId);
   }
 

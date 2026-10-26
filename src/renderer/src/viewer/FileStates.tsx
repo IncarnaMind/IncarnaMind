@@ -15,11 +15,14 @@ export function FileStates<T>({
   loaded,
   quote,
   ready,
+  reload,
 }: {
   document: Document;
   loaded: LoadedFile<T>;
   quote: string | undefined;
   ready(value: T): ReactNode;
+  /** Reads the file again, for the fix's Retry: the bytes may not have changed. */
+  reload?: () => void;
 }) {
   const t = useT();
   useCitedAreaFailure(
@@ -48,26 +51,36 @@ export function FileStates<T>({
       return (
         <>
           <ViewerHeader />
-          <ViewerMessage tone="error">
-            {t("documents.status.failed", { reason: t("documents.failure.tooLarge") })}
-          </ViewerMessage>
+          <FileFixMessage
+            document={document}
+            message=""
+            reload={reload}
+            fallback={
+              <ViewerMessage tone="error">
+                {t("documents.status.failed", { reason: t("documents.failure.tooLarge") })}
+              </ViewerMessage>
+            }
+          />
         </>
       );
-    case "failed": {
-      const fix = <FileFixMessage document={document} message={loaded.message} />;
+    case "failed":
       return (
         <>
           <ViewerHeader />
-          {fix ?? (
-            <ViewerMessage tone="error">
-              {loaded.message
-                ? t("viewer.failed", { message: loaded.message })
-                : t("viewer.notText")}
-            </ViewerMessage>
-          )}
+          <FileFixMessage
+            document={document}
+            message={loaded.message}
+            reload={reload}
+            fallback={
+              <ViewerMessage tone="error">
+                {loaded.message
+                  ? t("viewer.failed", { message: loaded.message })
+                  : t("viewer.notText")}
+              </ViewerMessage>
+            }
+          />
         </>
       );
-    }
     case "ready":
       return <>{ready(loaded.value)}</>;
   }
