@@ -1,11 +1,24 @@
 import type { CitationAttributes, CitationCheck } from "../../core/api";
-import { NO_MIND, useComposer } from "./composer";
-import { groupsMerged } from "./layoutSlice";
+import { type CitedSource, useComposer } from "./composer";
+import { currentTabOf } from "./layoutSlice";
 import { useAppStore } from "./store";
 
 /** Whether opening the cited place washes the quote: it is there, unless the check could not find it. */
 export const quoteSaysSo = (check: CitationCheck) =>
   check === "found" || check === "unsupported" || check === "contradicted";
+
+/** The Citation's originating Note while its cited Document is the front tab. */
+export function useCitedSource(): CitedSource | null {
+  const source = useComposer((state) => state.citedSource);
+  return useAppStore((state) => {
+    const tab = currentTabOf(state.layout);
+    return source !== null &&
+      tab?.item.kind === "document" &&
+      tab.item.documentId === source.documentId
+      ? source
+      : null;
+  });
+}
 
 /**
  * Opens a Citation's cited place (a page, slide, section, rows or lines)
@@ -31,13 +44,12 @@ export function openCited(
     place?: { pageFrom: number | null; pageTo: number | null };
   },
 ): void {
-  // A merged source view replaces the Mind's composer with NO_MIND's. Keep its explicit scope;
-  // null still means the ordinary All Documents default (#1974).
-  if (groupsMerged()) {
-    const composer = useComposer.getState();
-    const seat = composer.seat;
-    if (seat) composer.update(NO_MIND, { scope: composer.draft(seat.mindId).scope });
-  }
+  const seat = useComposer.getState().seat;
+  useComposer.setState({
+    citedSource: seat
+      ? { mindId: seat.mindId, documentId: citation.documentId, doc: seat.doc }
+      : null,
+  });
   useAppStore.getState().openDocument(
     {
       documentId: citation.documentId,

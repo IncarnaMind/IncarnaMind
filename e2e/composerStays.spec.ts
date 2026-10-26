@@ -19,6 +19,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  sidebarFolder,
   tabMenu,
 } from "./app";
 
@@ -266,6 +267,19 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       expect(await storedScopes(window)).toEqual([restricted, restricted]);
 
+      await pointAndClick(window, window.getByTestId("open-library"));
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      await ask(window, "When do spring tides happen, anywhere?");
+      expect(await storedScopes(window)).toEqual([restricted, restricted, everywhere]);
+      await pointAndClick(window, window.getByTestId("sidebar-home"));
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      await ask(window, "When do spring tides happen, anywhere?");
+      expect(await storedScopes(window)).toEqual([restricted, restricted, everywhere, everywhere]);
+
       await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "Tide notes" }));
       await newMind(window);
       await openCitation(window, first);
@@ -287,7 +301,54 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(third.getByTestId("answer-steps")).toContainText(
         language === "en" ? "Searched All Documents" : "已搜索全部文档",
       );
-      expect(await storedScopes(window)).toEqual([restricted, restricted, everywhere]);
+      expect(await storedScopes(window)).toEqual([
+        restricted,
+        restricted,
+        everywhere,
+        everywhere,
+        everywhere,
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a Folder Note's own Folder scope survives Citation inspection (${language})`, async () => {
+    const cedarFinal = join(sources, "Cedar final.txt");
+    await writeFile(cedarFinal, "Spring tides happen at new moon and at full moon.\n");
+    const { app, window } = await start(900, 760, language, [cedarFinal]);
+    try {
+      const folderId = await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const folder = await bridge.createLibraryGroup({ name: "Cedar review", description: "" });
+        const document = (await bridge.listDocuments()).find((each) => each.name === "Cedar final");
+        if (!document) throw new Error("Cedar final is missing.");
+        await bridge.assignDocumentGroup(document.id, folder.id);
+        return folder.id;
+      });
+      const folder = sidebarFolder(window, "Cedar review");
+      await folder.getByTestId("folder-row").click({ button: "right" });
+      await folder.getByTestId("folder.newMind").click();
+      const composer = window.getByTestId("composer");
+      const chips = composer.getByTestId("scope-chip");
+      await expect(chips).toHaveAttribute("data-id", folderId);
+      await expect(chips).toHaveAttribute("data-own", "true");
+      const expected = { folderIds: [folderId], tagIds: [], documentIds: [] };
+
+      const first = await ask(window, "When do spring tides happen?");
+      await expect(first.getByTestId("citation-chip").first()).toHaveAttribute(
+        "data-check",
+        "found",
+      );
+      expect(await storedScopes(window)).toEqual([expected]);
+      await openCitation(window, first);
+      await expect(chips).toHaveText("Cedar review");
+      await expect(chips).toHaveAttribute("data-id", folderId);
+      await expect(chips).toHaveAttribute("data-own", "true");
+      await ask(window, "When do spring tides happen, again?");
+      expect(await storedScopes(window)).toEqual([expected, expected]);
     } finally {
       await app.close();
     }
