@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
+import { refuseWrites } from "../tests/helpers/failingStorage";
 import {
   coreOf,
   createDataFolder,
@@ -24,7 +25,13 @@ import {
   windowsOf,
 } from "./lifecycle";
 
-type Scenario = "pending" | "installing" | "base-error" | "squirrel-error";
+type Scenario =
+  | "pending"
+  | "pending-install"
+  | "pending-error"
+  | "installing"
+  | "base-error"
+  | "squirrel-error";
 interface Entry {
   kind: string;
   pid: number;
@@ -34,12 +41,16 @@ interface Entry {
   dataHeld?: boolean;
   visibleWindows?: number;
   visible?: boolean;
+  nativePrepared?: boolean;
+  readyPrompts?: number;
+  installRequests?: number;
   windowId?: number;
   args?: string[];
   options?: { message?: string; detail?: string; buttons?: string[]; args?: string[] };
 }
 
 const SAVED = "Saved before the update · 更新前保存的文字。";
+const PENDING_EDIT = " Extra typing while native preparation waits.";
 let data: string;
 let home: string;
 let tag: string;
@@ -113,7 +124,7 @@ async function saveTyping(window: Page, language: "en" | "zh-CN") {
     .toBeNull();
 }
 
-async function expectOneSavedWindow(ports: number[]) {
+async function expectOneSavedWindow(ports: number[], text = SAVED) {
   await expect
     .poll(
       async () => ({
@@ -127,7 +138,7 @@ async function expectOneSavedWindow(ports: number[]) {
   const index = counts.indexOf(1);
   await inCopyWindow(ports[index], async (window) => {
     await window.getByRole("treeitem", { name: /^Saved before the update/ }).click();
-    await expect(frontMind(window).locator(".mind-editor")).toContainText(SAVED);
+    await expect(frontMind(window).locator(".mind-editor")).toContainText(text);
     expect(await (await coreOf(window)).evaluate((api) => api.saveChangesAgain())).toBeNull();
   });
   await expect
@@ -149,7 +160,18 @@ async function expectOneSavedWindow(ports: number[]) {
   ).toBe(true);
 }
 
-test("a pending Squirrel restart preserves a Dock reopen during an ordinary quit", async () => {
+async function expectPreparationHeld() {
+  await expect.poll(() => has("wrapper-ready")).toBe(true);
+  await signal("check-preparation");
+  await expect.poll(() => has("preparation-checkpoint")).toBe(true);
+  expect((await entries()).find((entry) => entry.kind === "preparation-checkpoint")).toMatchObject({
+    nativePrepared: false,
+    readyPrompts: 0,
+    installRequests: 0,
+  });
+}
+
+test("pending native preparation offers no Restart and keeps the quit guard before a Dock reopen", async () => {
   test.skip(
     process.platform !== "darwin",
     "Squirrel and Dock activation are macOS lifecycle events",
@@ -160,14 +182,85 @@ test("a pending Squirrel restart preserves a Dock reopen during an ordinary quit
   await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
   await inCopyWindow(port, (window) => saveTyping(window, "en"));
   await signal("begin");
-  await expect.poll(() => has("install-requested")).toBe(true);
-  expect(await has("native-install-begun")).toBe(false);
-  await signal("ordinary-quit");
-  await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
+  await expectPreparationHeld();
+  let restoreWrites: (() => void) | undefined;
+  try {
+    restoreWrites = refuseWrites(data);
+    await inCopyWindow(port, async (window) => {
+      await frontMind(window).locator(".mind-editor").press("ControlOrMeta+End");
+      await window.keyboard.insertText(PENDING_EDIT);
+      await expect(frontMind(window).locator(".mind-editor")).toContainText(SAVED + PENDING_EDIT);
+      await expect
+        .poll(() => coreOf(window).then((core) => core.evaluate((api) => api.saveChangesAgain())))
+        .not.toBeNull();
+    });
+    await signal("ordinary-quit");
+    await expect.poll(() => has("unsaved-question")).toBe(true);
+    expect(old.exitCode).toBeNull();
+    expect((await entries()).filter((entry) => entry.kind === "relaunch")).toEqual([]);
+    restoreWrites();
+    restoreWrites = undefined;
+    await inCopyWindow(port, async (window) => {
+      await expect(frontMind(window).locator(".mind-editor")).toContainText(SAVED + PENDING_EDIT);
+      await expect
+        .poll(() => coreOf(window).then((core) => core.evaluate((api) => api.saveChangesAgain())))
+        .toBeNull();
+    });
+    await signal("ordinary-quit-again");
+    await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
+    const recorded = await entries();
+    expect(recorded.filter((entry) => entry.kind === "activate-during-quit")).toHaveLength(2);
+    expect(recorded.filter((entry) => entry.kind === "relaunch")).toHaveLength(1);
+    expect(recorded.filter((entry) => entry.kind === "startup-problem")).toEqual([]);
+    await expectOneSavedWindow([port], SAVED + PENDING_EDIT);
+  } finally {
+    restoreWrites?.();
+  }
+});
+
+test("native preparation finishing offers Restart once and then installs the update", async () => {
+  test.skip(process.platform !== "darwin", "Squirrel native preparation is a macOS lifecycle");
+  test.setTimeout(120_000);
+  const port = await freePort();
+  const nextPort = await freePort();
+  const old = start("pending-install", true, port, nextPort);
+  await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
+  await inCopyWindow(port, (window) => saveTyping(window, "en"));
+  await signal("begin");
+  await expectPreparationHeld();
+  await signal("prepare-native");
+  await expect.poll(() => has("install-quit-held")).toBe(true);
   const recorded = await entries();
-  expect(recorded.filter((entry) => entry.kind === "activate-during-quit")).toHaveLength(1);
-  expect(recorded.filter((entry) => entry.kind === "relaunch")).toHaveLength(1);
-  expect(recorded.filter((entry) => entry.kind === "startup-problem")).toEqual([]);
+  expect(recorded.filter((entry) => entry.kind === "ready-prompt")).toEqual([
+    expect.objectContaining({ nativePrepared: true }),
+  ]);
+  expect(recorded.findIndex((entry) => entry.kind === "native-prepared")).toBeLessThan(
+    recorded.findIndex((entry) => entry.kind === "ready-prompt"),
+  );
+  await signal("finish-install");
+  await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
+  await expectOneSavedWindow([port, nextPort]);
+  await expect.poll(() => windowsOf(nextPort)).toBe(1);
+});
+
+test("a native preparation error leaves the current window usable without committing a quit", async () => {
+  test.skip(process.platform !== "darwin", "Squirrel native preparation is a macOS lifecycle");
+  test.setTimeout(120_000);
+  const port = await freePort();
+  const old = start("pending-error", true, port, port);
+  await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
+  await inCopyWindow(port, (window) => saveTyping(window, "en"));
+  await signal("begin");
+  await expectPreparationHeld();
+  await signal("fail-native-preparation");
+  await expect
+    .poll(() => readFile(join(data, "logs", "incarnamind.log"), "utf8"))
+    .toContain("The local native preparation fixture failed.");
+  expect(old.exitCode).toBeNull();
+  expect((await entries()).filter((entry) => entry.kind === "ready-prompt")).toEqual([]);
+  expect((await entries()).filter((entry) => entry.kind === "install-requested")).toEqual([]);
+  expect((await entries()).filter((entry) => entry.kind === "problem")).toEqual([]);
+  expect((await entries()).filter((entry) => entry.kind === "relaunch")).toEqual([]);
   await expectOneSavedWindow([port]);
 });
 

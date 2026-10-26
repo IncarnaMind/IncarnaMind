@@ -9,6 +9,9 @@ const folder = process.env.INCARNAMIND_TEST_UPDATE_FOLDER;
 const first = process.env.INCARNAMIND_TEST_UPDATE_FIRST === "1";
 const appFolder = process.env.INCARNAMIND_TEST_UPDATE_APP;
 const scenario = process.env.INCARNAMIND_TEST_UPDATE_SCENARIO;
+let nativePrepared = false;
+let readyPrompts = 0;
+let installRequests = 0;
 delete process.env.INCARNAMIND_TEST_UPDATE_FIRST;
 
 const dataHeld = () => {
@@ -92,20 +95,41 @@ app.on("browser-window-created", (_event, window) => {
 });
 autoUpdater.checkForUpdates = async () => {
   if (!first) return null;
+  if (scenario?.startsWith("pending")) {
+    afterFile("prepare-native", prepareNative);
+    afterFile("fail-native-preparation", () => {
+      record("native-preparation-error");
+      nativeUpdater.emit("error", new Error("The local native preparation fixture failed."));
+    });
+    afterFile("check-preparation", () => {
+      setImmediate(() =>
+        record("preparation-checkpoint", { nativePrepared, readyPrompts, installRequests }),
+      );
+    });
+  }
   return {
     isUpdateAvailable: true,
     updateInfo: { version: "0.1.0-fixture" },
     downloadPromise: new Promise((resolve) => {
-      if (existsSync(join(folder, "begin"))) return resolve();
-      const watcher = watch(folder, () => {
-        if (!existsSync(join(folder, "begin"))) return;
-        watcher.close();
+      afterFile("begin", () => {
+        record("wrapper-ready");
         resolve();
+        if (process.platform === "darwin" && !scenario?.startsWith("pending"))
+          setImmediate(prepareNative);
       });
     }),
   };
 };
-dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false });
+dialog.showMessageBox = async (...args) => {
+  const options = args.at(-1);
+  if (options.type === "warning") {
+    record("unsaved-question", { options, dataHeld: dataHeld() });
+    return { response: options.cancelId, checkboxChecked: false };
+  }
+  readyPrompts += 1;
+  record("ready-prompt", { options, nativePrepared });
+  return { response: 0, checkboxChecked: false };
+};
 dialog.showErrorBox = (title, content) =>
   record("startup-problem", { title, content, ready: app.isReady(), dataHeld: dataHeld() });
 dialog.showMessageBoxSync = (options) => {
@@ -126,10 +150,11 @@ app.relaunch = (options) => {
   relaunch(options);
 };
 autoUpdater.quitAndInstall = () => {
+  installRequests += 1;
   if (scenario) {
     record("install-requested", { dataHeld: dataHeld() });
     writeFileSync(join(folder, "install-requested"), "");
-    if (scenario === "pending") return;
+    if (scenario === "pending" || scenario === "pending-error") return;
     if (scenario === "base-error" || scenario === "squirrel-error") {
       if (scenario === "squirrel-error") {
         for (const window of BrowserWindow.getAllWindows()) window.close();
@@ -141,7 +166,8 @@ autoUpdater.quitAndInstall = () => {
       });
       return;
     }
-    if (scenario !== "installing") throw new Error(`Unknown install scenario: ${scenario}`);
+    if (scenario !== "installing" && scenario !== "pending-install")
+      throw new Error(`Unknown install scenario: ${scenario}`);
     nativeUpdater.emit("before-quit-for-update");
     record("native-install-begun", { dataHeld: dataHeld() });
     writeFileSync(join(folder, "installing"), "");
@@ -222,14 +248,21 @@ function successorArgs() {
     );
 }
 
+function prepareNative() {
+  nativePrepared = true;
+  record("native-prepared");
+  nativeUpdater.emit("update-downloaded");
+}
+
 if (scenario === "pending" && first) {
-  afterFile("ordinary-quit", () => {
-    app.once("before-quit", () => {
-      record("activate-during-quit");
-      app.emit("activate", {}, false);
+  for (const name of ["ordinary-quit", "ordinary-quit-again"])
+    afterFile(name, () => {
+      app.once("before-quit", () => {
+        record("activate-during-quit");
+        app.emit("activate", {}, false);
+      });
+      app.quit();
     });
-    app.quit();
-  });
 }
 for (const kind of ["before-quit", "will-quit"]) app.on(kind, () => record(kind));
 app.whenReady().then(() => {
