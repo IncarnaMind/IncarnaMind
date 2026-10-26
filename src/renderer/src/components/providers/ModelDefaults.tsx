@@ -219,7 +219,7 @@ export function RoleSelect({
     setValue(next);
     void updateSettings(
       job === "chatModel"
-        ? // Quick tasks and reading images follow your AI model (#1922), with no choice of their own.
+        ? // Quick tasks and reading images are automatic, with no row of their own (#1922).
           {
             user: { chatModel: choice, quickTasksModel: null, imageModel: null },
             device: { lastChatModel: choice },

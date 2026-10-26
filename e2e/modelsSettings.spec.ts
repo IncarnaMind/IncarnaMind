@@ -158,7 +158,7 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     await expect(settings.getByTestId("models-add-provider")).toBeFocused();
     await answers.selectOption(`${added}\nb-strong`);
     await expect.poll(() => chatModel(window)).toEqual({ providerId: added, modelId: "b-strong" });
-    // Quick tasks and reading images have no row of their own: they follow Answers.
+    // Quick tasks and reading images have no row of their own: they are automatic.
     await expect(settings.getByTestId("model-default-quickTasksModel")).toHaveCount(0);
 
     // Removed, it leaves no default pointing at it, and one line says where Answers went.

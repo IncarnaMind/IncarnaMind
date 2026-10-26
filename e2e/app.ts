@@ -963,13 +963,17 @@ export async function addProviderPage(settings: Locator, catalogId: string): Pro
   return page;
 }
 
-/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+/**
+ * In Settings › Models, opens Advanced (#1570). Returns the Tagging section in it. It may already
+ * be open, as it is once first run has chosen what sorts (#1922).
+ */
 export async function openAdvancedModels(settings: Locator): Promise<Locator> {
   const advanced = settings.getByTestId("models-advanced");
   const toggle = advanced.getByTestId("models-advanced-toggle");
   await expect(toggle).toBeVisible();
-  await expect(advanced).not.toHaveAttribute("open");
-  await toggle.click();
+  if (!(await advanced.evaluate((element) => element.hasAttribute("open")))) {
+    await toggle.click();
+  }
   await expect(advanced).toHaveAttribute("open", "");
   const tagging = advanced.getByTestId("tagging-settings");
   await expect(tagging).toBeVisible();

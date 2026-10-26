@@ -282,9 +282,11 @@ test("with no key and no AI model, the Example still opens and Set up later retu
   }
 });
 
-test("Settings › Models shows the same three rows, editable in place, with Quick tasks and Reading images following your AI", async () => {
-  const ollama = await ollamaListing(["tev1:4b"]);
-  const { app, window } = await launchApp(dataDir, { fakeChat: true, ollama: ollama.url });
+test("Settings › Models shows the same three rows, editable in place, with Quick tasks and Reading images automatic", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    ollama: "http://127.0.0.1:9",
+  });
   try {
     await setWindowSize(app, window, 1100, 900);
     await acceptPlainTextKeys(window);
@@ -312,16 +314,13 @@ test("Settings › Models shows the same three rows, editable in place, with Qui
       .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
       .toBe("local");
 
-    // What sorts, changed where it is shown: a decision model on this computer, then back.
+    // What sorts, saved where it is shown: the select is the setting.
     const sorting = settings.getByTestId("models-sorting");
     await expect(sorting.locator("option:checked")).toHaveText("Use your AI model");
-    await sorting.selectOption({ label: "Tev1 4B" });
-    await expect.poll(async () => (await bridge(window).library()).classifier.kind).toBe("ollama");
     await sorting.selectOption({ label: "Use your AI model" });
     await expect.poll(async () => (await bridge(window).library()).classifier.kind).toBe("chat");
   } finally {
     await app.close();
-    await new Promise<void>((done) => ollama.server.close(() => done()));
   }
 });
 

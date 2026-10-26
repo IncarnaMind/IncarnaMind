@@ -542,7 +542,7 @@ test("a way that can't be used yet says why, with the next step: Ollama not runn
     await card.getByTestId("setup-other").click();
     const local = card.getByTestId("way-local");
     await expect(local).toContainText("Needs the free Ollama app");
-    await expect(local.locator("xpath=..").getByRole("link", { name: /Get Ollama/ })).toBeVisible();
+    await expect(local.getByTestId("ollama-get")).toHaveText("Get Ollama ↗");
     await language(window, "zh-CN");
     await expect(local).toContainText("需要免费的 Ollama 应用");
     await language(window, "en");
@@ -1087,7 +1087,7 @@ for (const { value, line, chips, titles } of [
       const card = await openKeyForm(window);
       await expect(card.getByTestId("setup-key-line")).toHaveText(line);
       const field = card.getByTestId("setup-key");
-      await field.fill("sk-unknown");
+      await field.fill("a-key-from-no-known-service");
       await field.press("Enter");
       await expect(card.getByTestId("setup-key-unrecognised")).toBeVisible();
       await card.getByTestId("setup-key-choose-service").click();

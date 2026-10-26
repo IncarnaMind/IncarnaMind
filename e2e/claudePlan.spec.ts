@@ -87,7 +87,7 @@ test("first run: the row follows the plan, says the usage limits first before an
     const card = await askFirstQuestion(window);
 
     await card.getByTestId("setup-other").click();
-    const ways = card.locator("[data-testid^='way-']:not([data-testid$='-open'])");
+    const ways = card.locator('[data-testid="way-claude"], [data-testid="way-local"]');
     await expect(ways.first()).toHaveAttribute("data-testid", "way-claude");
     const row = card.getByTestId("way-claude");
     await expect(row.getByText("Use my Claude plan", { exact: true })).toBeVisible();
@@ -319,7 +319,7 @@ test("in Chinese: the row follows the plan and comes before a model on this comp
     await acceptPlainTextKeys(window);
     const card = await askFirstQuestion(window);
     await card.getByTestId("setup-other").click();
-    const ways = card.locator("[data-testid^='way-']:not([data-testid$='-open'])");
+    const ways = card.locator('[data-testid="way-claude"], [data-testid="way-local"]');
     // Every plan comes before a model on this computer.
     await expect(ways.first()).toHaveAttribute("data-testid", "way-claude");
     await expect(ways.last()).toHaveAttribute("data-testid", "way-local");

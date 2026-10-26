@@ -760,7 +760,7 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await window.keyboard.press("Tab");
   await expect(setup.getByTestId("setup-transcription-use")).toBeFocused();
   await window.keyboard.press("Enter");
-  const sorting = setup.getByTestId("setup-sorting");
+  const sorting = setup.getByTestId("models-sorting");
   await expect(sorting).toBeFocused();
   // What goes to the provider, behind Details, comes before the button.
   await window.keyboard.press("Tab");

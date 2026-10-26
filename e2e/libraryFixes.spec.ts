@@ -156,7 +156,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, lib.getByTestId("library-organize"));
     const needs = lib.getByTestId("library-organize-needs-model");
     await expect(needs).toContainText(
-      language === "en" ? "Organize needs an AI model" : "“整理”需要 AI 模型",
+      language === "en" ? "Organize needs an AI model" : "整理需要一个 AI 模型",
     );
     // No AI model is connected yet: first run's key field, in place, and no step through Settings.
     await expect(needs.getByTestId("library-organize-use")).toHaveCount(0);

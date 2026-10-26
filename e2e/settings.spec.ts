@@ -166,7 +166,7 @@ test("the list of pages works by keyboard, with a focus ring", async () => {
   }
 });
 
-test("Organize in the Library, with no model chosen yet, opens Models at Tagging, with Advanced open", async () => {
+test("Organize in the Library, with no model chosen yet, offers first run's key field in place, and Dismiss puts the row away", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -185,14 +185,13 @@ test("Organize in the Library, with no model chosen yet, opens Models at Tagging
       }),
     );
     await window.getByTestId("open-library").click();
-    await window.getByTestId("library").getByTestId("library-organize").click();
-    await window.getByTestId("library").getByTestId("library-organize-set-up").click();
-    const settings = window.getByTestId("settings");
-    await expect(settings).toHaveAttribute("data-page", "models");
-    await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
-    const tagging = settings.getByTestId("tagging-settings");
-    await expect(tagging).toBeInViewport();
-    await expect(tagging.getByTestId("tagging-automatic").getByRole("radio")).toBeFocused();
+    const library = window.getByTestId("library");
+    await library.getByTestId("library-organize").click();
+    const needs = library.getByTestId("library-organize-needs-model");
+    await expect(needs.getByTestId("library-organize-key")).toBeVisible();
+    await expect(window.getByTestId("settings")).toHaveCount(0);
+    await needs.getByTestId("library-organize-dismiss").click();
+    await expect(needs).toHaveCount(0);
   } finally {
     await app.close();
   }
@@ -385,7 +384,7 @@ test("signed in with ChatGPT, the plan's model is chosen in one place: the Answe
 
     // With no model before, the plan became the default: Answers offers the account's models.
     await expect(settings.getByTestId("provider-row")).toHaveText([/^ChatGPT plan/]);
-    const model = settings.getByRole("combobox", { name: "Answers" });
+    const model = settings.getByRole("combobox", { name: "Your AI" });
     await expect(model.locator("option")).toHaveText([
       "GPT-6.1 Sol · ChatGPT plan",
       "GPT-6 Luna · ChatGPT plan",

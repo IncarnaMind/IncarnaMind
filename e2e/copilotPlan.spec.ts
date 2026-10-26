@@ -167,7 +167,7 @@ test("first run: an organization's block says so, with an API key or another way
   await setLanguage(window, "en");
 
   await pointAndClick(window, failure.getByTestId("copilot-way-back-paste-api-key"));
-  await expect(card.getByTestId("provider-form")).toBeVisible();
+  await expect(card.getByTestId("setup-key")).toBeFocused();
   await app.close();
 });
 

@@ -851,7 +851,7 @@ export function createChat(options: {
             [id, server.kind, server.baseUrl, server.catalogId, server.endpoint, at, at],
           );
         }
-        // Quick tasks and reading images follow the Answers model, with no choice of their own (#1922).
+        // Quick tasks and reading images go back to Automatic with the Answers model, with no row of their own (#1922).
         if (makeDefault) {
           settings.update({
             user: {

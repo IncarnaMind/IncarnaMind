@@ -106,7 +106,7 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     // Settings → Models: the Answers default by name, its id in its tooltip; on OpenAI's page its
     // models and Other models by name.
     const settings = await openSettings(window, "models");
-    const model = settings.getByRole("combobox", { name: "Answers" });
+    const model = settings.getByRole("combobox", { name: "Your AI" });
     await expect(model).toHaveValue(/\ngpt-6-luna$/);
     await expect
       .poll(() =>
@@ -168,7 +168,7 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await expect(answer.getByTestId("answer-timeline")).toContainText("GPT-6 Luna");
     await window.getByRole("button", { name: "设置" }).click();
     const settingsZh = await showSettingsPage(window, "models");
-    const modelZh = settingsZh.getByRole("combobox", { name: "回答" });
+    const modelZh = settingsZh.getByRole("combobox", { name: "你的 AI" });
     await expect(modelZh).toHaveValue(/\ngpt-6-luna$/);
     await expect(modelZh.locator("option:checked")).toHaveText("GPT-6 Luna · OpenAI");
     await screenshot(window, "model-names-settings-zh");
