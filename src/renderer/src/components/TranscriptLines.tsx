@@ -119,7 +119,7 @@ export function TranscriptLines({
     };
   } else if (state === "saved" && open) {
     line = {
-      // The first save says where it went (D209).
+      // The first save says where it went.
       text: transcript.savedDefaulted
         ? t("meetings.transcript.savedIn", { folder: defaultFolderLabel(t) })
         : t("meetings.transcript.saved"),

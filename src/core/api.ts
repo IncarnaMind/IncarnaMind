@@ -8070,7 +8070,7 @@ export interface SetMindCitationStyleOptions {
 export interface OutputSettings {
   /**
    * The folder new files go in, absolute, symbolic links resolved; null until
-   * the first save, which takes `suggested` without asking (D209).
+   * the first save, which takes `suggested` without asking.
    */
   location: string | null;
   /** The default: "IncarnaMind" in the User's Documents folder (文稿 on a Chinese Mac). */
@@ -8128,7 +8128,7 @@ export interface SavedFile {
   folder: string;
   /**
    * This save took the default Output location, Documents › IncarnaMind,
-   * none being chosen yet (D209): what shows it says where, with a way to change it.
+   * none being chosen yet: what shows it says where, with a way to change it.
    */
   defaulted: boolean;
   /** The folder is the default Output location, which a line names as this computer names Documents. */
