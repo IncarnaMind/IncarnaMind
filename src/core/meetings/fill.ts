@@ -1,7 +1,7 @@
 /**
- * After Stop, a Meeting's notes filled in from its Transcript (#142), with no question first.
- * Nothing is written until all of it is ready, then in one write after a Checkpoint, so a
- * failure or a quit leaves the Mind as it was.
+ * After Stop, a Meeting's notes filled in from its Transcript (#142), with no question first,
+ * and a voice memo's note written from it (#1568, ./memo). Nothing is written until all of it is
+ * ready, then in one write after a Checkpoint, so a failure or a quit leaves the Mind as it was.
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
@@ -15,6 +15,7 @@ import { estimateTokens } from "../answers/context";
 import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
+  type Citation,
   COMPARISON_TABLE_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
@@ -37,7 +38,17 @@ import {
   partsOf,
   sectionOf,
   sectionsContext,
+  textOf,
 } from "./fillPrompt";
+import {
+  asItIs,
+  type MemoCue,
+  memoBlocks,
+  memoContext,
+  memoTitle,
+  tidiedNote,
+  wordsAdded,
+} from "./memo";
 
 /** The most of a Transcript one Run reads: about two hours of talk. */
 export const FILL_PART_TOKENS = 24_000;
@@ -56,6 +67,17 @@ const CLAIMS_AT_ONCE = 4;
 export type FillRoute =
   | { model: ChatModelChoice; local: boolean; windowTokens: number | null }
   | { problem: MeetingFillProblem };
+
+type Routed = Extract<FillRoute, { model: ChatModelChoice }>;
+
+/** What a fill writes once all of it is ready: where it goes, and why it is as it is. */
+interface Written {
+  mode: NonNullable<StoredFill["mode"]>;
+  problem: MeetingFillProblem | null;
+  /** How many parts of the Transcript the model read. */
+  parts: number;
+  place(blocks: Y.XmlFragment): string[];
+}
 
 export interface MeetingFillOptions {
   content: Pick<MindContent, "read" | "edit">;
@@ -85,6 +107,15 @@ export interface MeetingFillOptions {
     transcriptId: string;
     model: ChatModelChoice;
   }): Promise<boolean>;
+  /** The Transcript's cues, as its Document holds them: one line each, in order. */
+  cues(documentId: string): Promise<readonly MemoCue[]>;
+  /** A Citation of a cue, checked: a voice memo's line, with its time. */
+  citeUnit(
+    passageId: string,
+    quote: string,
+    page: number,
+    at: { start: number; end: number },
+  ): Citation | null;
   /** Saves a Checkpoint of the Mind before the notes go in (#113). */
   checkpoint(mindId: string): void;
   language(): Language;
@@ -237,6 +268,23 @@ function placeSections(
   return withId.map(idOf);
 }
 
+const blank = (child: unknown) =>
+  child instanceof Y.XmlElement &&
+  LINE_TYPES.has(child.nodeName) &&
+  child.toArray().every((inside) => inside instanceof Y.XmlText) &&
+  readLine(child).text === "";
+
+/**
+ * A voice memo's note: in place of a Mind with nothing written in it yet, so its title line
+ * names the Mind; after what the User wrote, otherwise.
+ */
+function placeMemo(blocks: Y.XmlFragment, nodes: readonly NodeJSON[]): string[] {
+  const placed = withIds(nodes);
+  if (blocks.toArray().every(blank)) blocks.delete(0, blocks.length);
+  blocks.insert(blocks.length, placed.map(createElement));
+  return placed.map(idOf);
+}
+
 function untouched(element: Y.XmlElement): boolean {
   const lines: Y.XmlElement[] = LINE_TYPES.has(element.nodeName) ? [element] : [];
   const visit = (parent: Y.XmlElement) => {
@@ -309,6 +357,167 @@ export function createMeetingFill(options: MeetingFillOptions) {
 
   const words = (key: MessageKey) => translate(options.language(), key);
 
+  /** One part of the Transcript answered, or the problem that stops the fill. */
+  async function ask(
+    context: QuestionContext,
+    part: WindowedPassage[],
+    transcriptId: string,
+    route: Routed,
+    signal: AbortSignal,
+  ): Promise<CellAnswer> {
+    const answer = await options.answers.answerMeetingFill({
+      context,
+      passages: part,
+      documentIds: [transcriptId],
+      model: route.model,
+      signal,
+    });
+    if (answer.status === "stopped" || signal.aborted) {
+      throw new FillProblemError({ kind: "stopped", message: "" });
+    }
+    if (answer.status === "failed") {
+      throw new FillProblemError({
+        kind: "model",
+        message: answer.error?.message ?? words("meetings.fill.problem.model"),
+      });
+    }
+    return answer;
+  }
+
+  /** The Transcript's Passages, in reading order; none is a problem. */
+  async function passagesOf(transcriptId: string): Promise<WindowedPassage[]> {
+    const passages = await options.transcript(transcriptId);
+    if (passages.length === 0) {
+      throw new FillProblemError({
+        kind: "no-transcript",
+        message: words("meetings.fill.problem.noTranscript"),
+      });
+    }
+    return passages;
+  }
+
+  const partsFor = (passages: readonly WindowedPassage[], route: Routed) =>
+    transcriptParts(
+      passages,
+      Math.min(
+        FILL_PART_TOKENS,
+        route.windowTokens ? Math.floor(route.windowTokens / 2) : FILL_PART_TOKENS,
+      ),
+    );
+
+  /** A Meeting's notes: under the User's lines, or in sections when they wrote none. */
+  async function notes(
+    meeting: Meeting,
+    transcriptId: string,
+    route: Routed,
+    signal: AbortSignal,
+  ): Promise<Written> {
+    // Lines get an id if they had none, before the model reads them: an attribute, not text.
+    const lines = content.edit(meeting.mindId, (blocks) => userLines(blocks));
+    const mode = lines.some((line) => !line.heading) ? "notes" : "sections";
+    set(meeting.id, { state: "filling", mode, local: route.local, problem: null, blocks: [] });
+    const passages = await passagesOf(transcriptId);
+    const parts = partsFor(passages, route);
+    const question = words(
+      mode === "notes" ? "meetings.fill.question.notes" : "meetings.fill.question.sections",
+    );
+    const context = mode === "notes" ? notesContext(lines, question) : sectionsContext(question);
+    const gathered = new Map<string, NodeJSON[]>();
+    for (const part of parts) {
+      const answer = await ask(context, part, transcriptId, route, signal);
+      for (const [marker, blocks] of partsOf(answer.blocks)) {
+        const cited = citedOnly(blocks);
+        if (cited.length > 0) gathered.set(marker, [...(gathered.get(marker) ?? []), ...cited]);
+      }
+    }
+    if (gathered.size === 0) {
+      throw new FillProblemError({ kind: "model", message: words("meetings.fill.problem.empty") });
+    }
+    if (mode === "notes") {
+      return {
+        mode,
+        problem: null,
+        parts: parts.length,
+        place: (blocks) => placeUnderLines(blocks, lines, gathered),
+      };
+    }
+    const sections = new Map<FillSection, NodeJSON[]>();
+    for (const [marker, blocks] of gathered) {
+      const section = sectionOf(marker);
+      if (section) sections.set(section, blocks);
+    }
+    const claims = sections.get("claims");
+    if (claims) {
+      const unsupported = await notSupported(claims, meeting.mindId, transcriptId, route);
+      if (signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
+      if (unsupported.length > 0) sections.set("claims", unsupported);
+      else sections.delete("claims");
+    }
+    return {
+      mode,
+      problem: null,
+      parts: parts.length,
+      place: (blocks) => placeSections(blocks, sections, options.language()),
+    };
+  }
+
+  /**
+   * A voice memo's note (#1568): the speech tidied under a title line, or, with no model to
+   * tidy it or when the tidied note had words that weren't said, the Transcript as it is.
+   */
+  async function memo(
+    meeting: Meeting,
+    transcriptId: string,
+    route: FillRoute,
+    signal: AbortSignal,
+  ): Promise<Written> {
+    const title = memoTitle(options.language(), Date.parse(meeting.startedAt ?? meeting.createdAt));
+    const asIs = async (problem: MeetingFillProblem): Promise<Written> => {
+      const cues = await options.cues(transcriptId);
+      if (cues.length === 0) {
+        throw new FillProblemError({
+          kind: "no-transcript",
+          message: words("meetings.fill.problem.noTranscript"),
+        });
+      }
+      const nodes = asItIs(title, cues, options.citeUnit);
+      return { mode: "transcript", problem, parts: 0, place: (blocks) => placeMemo(blocks, nodes) };
+    };
+    if ("problem" in route) return asIs(route.problem);
+    set(meeting.id, {
+      state: "filling",
+      mode: "memo",
+      local: route.local,
+      problem: null,
+      blocks: [],
+    });
+    const passages = await passagesOf(transcriptId);
+    const parts = partsFor(passages, route);
+    const context = memoContext(words("memos.fill.question"));
+    const replies: NodeJSON[] = [];
+    for (const part of parts) {
+      replies.push(...(await ask(context, part, transcriptId, route, signal)).blocks);
+    }
+    const note = tidiedNote(replies);
+    if (note.paragraphs.length === 0) {
+      throw new FillProblemError({ kind: "model", message: words("meetings.fill.problem.empty") });
+    }
+    const said = passages.map((passage) => passage.text).join("\n");
+    const added = wordsAdded(note.paragraphs.map(textOf).join("\n"), said);
+    if (added.length > 0) {
+      log.warn("meeting.memoAddedWords", { meetingId: meeting.id, words: added.length });
+      return asIs({ kind: "added", message: words("memos.fill.problem.added") });
+    }
+    const named = note.title !== "" && wordsAdded(note.title, said).length === 0;
+    const nodes = memoBlocks(named ? note.title : title, note.paragraphs);
+    return {
+      mode: "memo",
+      problem: null,
+      parts: parts.length,
+      place: (blocks) => placeMemo(blocks, nodes),
+    };
+  }
+
   async function fill(meetingId: string): Promise<void> {
     const meeting = meetings.get(meetingId);
     const transcriptId = meeting.transcript?.documentId ?? null;
@@ -329,86 +538,31 @@ export function createMeetingFill(options: MeetingFillOptions) {
       });
       route = { problem: { kind: "no-model", message: words("meetings.fill.problem.noModel") } };
     }
-    if ("problem" in route) {
+    if ("problem" in route && meeting.kind === "meeting") {
       set(meetingId, { state: "off", problem: route.problem });
       return;
     }
     const controller = new AbortController();
     running.set(meetingId, controller);
-    // Lines get an id if they had none, before the model reads them: an attribute, not text.
-    const lines = content.edit(meeting.mindId, (blocks) => userLines(blocks));
-    const mode = lines.some((line) => !line.heading) ? "notes" : "sections";
-    set(meetingId, { state: "filling", mode, local: route.local, problem: null, blocks: [] });
     try {
-      const passages = await options.transcript(transcriptId);
-      if (passages.length === 0) {
-        throw new FillProblemError({
-          kind: "no-transcript",
-          message: words("meetings.fill.problem.noTranscript"),
-        });
-      }
-      const budget = Math.min(
-        FILL_PART_TOKENS,
-        route.windowTokens ? Math.floor(route.windowTokens / 2) : FILL_PART_TOKENS,
-      );
-      const parts = transcriptParts(passages, budget);
-      const question = words(
-        mode === "notes" ? "meetings.fill.question.notes" : "meetings.fill.question.sections",
-      );
-      const context = mode === "notes" ? notesContext(lines, question) : sectionsContext(question);
-      const gathered = new Map<string, NodeJSON[]>();
-      for (const part of parts) {
-        const answer = await options.answers.answerMeetingFill({
-          context,
-          passages: part,
-          documentIds: [transcriptId],
-          model: route.model,
-          signal: controller.signal,
-        });
-        if (answer.status === "stopped" || controller.signal.aborted) {
-          throw new FillProblemError({ kind: "stopped", message: "" });
-        }
-        if (answer.status === "failed") {
-          throw new FillProblemError({
-            kind: "model",
-            message: answer.error?.message ?? words("meetings.fill.problem.model"),
-          });
-        }
-        for (const [marker, blocks] of partsOf(answer.blocks)) {
-          const cited = citedOnly(blocks);
-          if (cited.length > 0) gathered.set(marker, [...(gathered.get(marker) ?? []), ...cited]);
-        }
-      }
-      if (gathered.size === 0) {
-        throw new FillProblemError({
-          kind: "model",
-          message: words("meetings.fill.problem.empty"),
-        });
-      }
-      let sections: Map<FillSection, NodeJSON[]> | null = null;
-      if (mode === "sections") {
-        sections = new Map();
-        for (const [marker, blocks] of gathered) {
-          const section = sectionOf(marker);
-          if (section) sections.set(section, blocks);
-        }
-        const claims = sections.get("claims");
-        if (claims) {
-          const unsupported = await notSupported(claims, meeting.mindId, transcriptId, route);
-          if (controller.signal.aborted)
-            throw new FillProblemError({ kind: "stopped", message: "" });
-          if (unsupported.length > 0) sections.set("claims", unsupported);
-          else sections.delete("claims");
-        }
-      }
+      const written =
+        meeting.kind === "memo" || "problem" in route
+          ? await memo(meeting, transcriptId, route, controller.signal)
+          : await notes(meeting, transcriptId, route, controller.signal);
       options.checkpoint(meeting.mindId);
-      const added = content.edit(meeting.mindId, (blocks) =>
-        sections
-          ? placeSections(blocks, sections, options.language())
-          : placeUnderLines(blocks, lines, gathered),
-      );
-      const done = set(meetingId, { state: "filled", blocks: added, problem: null });
-      log.info("meeting.filled", { meetingId, mode, parts: parts.length, blocks: added.length });
+      const added = content.edit(meeting.mindId, written.place);
+      const done = set(meetingId, {
+        state: "filled",
+        mode: written.mode,
+        problem: written.problem,
+        blocks: added,
+      });
+      log.info("meeting.filled", {
+        meetingId,
+        mode: written.mode,
+        parts: written.parts,
+        blocks: added.length,
+      });
       options.filled(done);
     } catch (error) {
       const problem =
@@ -429,7 +583,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     blocks: readonly NodeJSON[],
     mindId: string,
     transcriptId: string,
-    route: Extract<FillRoute, { model: ChatModelChoice }>,
+    route: Routed,
   ): Promise<NodeJSON[]> {
     const claims = claimsIn(blocks);
     const supported = await inTurns(claims, route.local ? 1 : CLAIMS_AT_ONCE, (claim) =>
@@ -451,21 +605,29 @@ export function createMeetingFill(options: MeetingFillOptions) {
     return items.length > 0 ? [{ type: "bulletList", content: items }] : [];
   }
 
+  /** A fill asked for but not yet running: `running` is set only after the route is awaited. */
+  const starting = new Set<string>();
+
   function start(meetingId: string): void {
-    if (running.has(meetingId)) return;
-    void inFlow("meeting-fill", () => fill(meetingId)).catch((error: unknown) => {
-      log.error("meeting.fillCrashed", {
-        meetingId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
+    if (running.has(meetingId) || starting.has(meetingId)) return;
+    starting.add(meetingId);
+    void inFlow("meeting-fill", () => fill(meetingId))
+      .catch((error: unknown) => {
+        log.error("meeting.fillCrashed", {
+          meetingId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => starting.delete(meetingId));
   }
 
   return {
     /** Stop was pressed: the notes wait for the Transcript. */
     stopped(meetingId: string): void {
-      // A copy that can't transcribe has no Transcript to wait for.
-      const transcribed = meetings.get(meetingId).transcript !== null;
+      // A copy that can't transcribe has no Transcript to wait for, and one that heard nothing
+      // is finished, empty, at Stop.
+      const transcript = meetings.get(meetingId).transcript;
+      const transcribed = transcript !== null && transcript.state !== "empty";
       meetings.setFill(meetingId, {
         state: transcribed ? "waiting" : "off",
         mode: null,

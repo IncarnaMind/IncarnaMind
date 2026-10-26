@@ -104,6 +104,15 @@ export const meetingCommands: readonly Command[] = [
     run: () => useMeetings.getState().record(),
   },
   {
+    id: "memo.record",
+    label: "memos.record",
+    keywords: ["memos.record.keywords"],
+    group: "main",
+    // A Mind it makes is taken back by Delete; the note it writes, by its Undo.
+    reversible: true,
+    run: () => useMeetings.getState().recordMemo(),
+  },
+  {
     id: "meeting.pauseResume",
     label: (_ctx, t) =>
       t(liveMeeting()?.status === "paused" ? "meetings.command.resume" : "meetings.command.pause"),

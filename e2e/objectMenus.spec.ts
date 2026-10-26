@@ -946,7 +946,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const exportMenu = window.getByTestId("export-menu");
       await expect(exportMenu, name).toBeVisible();
       await expect(menu, name).toBeHidden();
-      await expect(exportMenu.getByRole("menuitem"), name).toHaveCount(5);
+      // Word, the line that starts Check under it (D266), PDF, More formats, Citation style, Export options.
+      await expect(exportMenu.getByRole("menuitem"), name).toHaveCount(6);
       await window.keyboard.press("Escape");
       await expect(exportMenu, name).toBeHidden();
     }

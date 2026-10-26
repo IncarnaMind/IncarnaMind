@@ -196,6 +196,8 @@ test("Check this Mind from ⌘K: the estimate first on a cloud model, then every
   );
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
+  // Every sentence again is offered once that check is done.
+  await expect(marks(window).and(window.locator('[data-check="checking"]'))).toHaveCount(0);
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
   await window.keyboard.type("check every sentence");
@@ -259,7 +261,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(widen).toHaveCount(0);
   await expect(marks(window)).toHaveCount(15);
-  await expect(health.getByTestId("health-unsupported")).toContainText("11 条无依据");
+  await expect(health.getByTestId("health-unsupported")).toContainText("11 处需要留意");
   await screenshot(window, "mind-check-done-zh-narrow");
 
   // A sentence written since: "核对此 Mind" checks it alone, and the rest stay as they were.

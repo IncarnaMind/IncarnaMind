@@ -14,7 +14,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
 import { CLAIM_CHECK_MARK, type ClaimCalculation, type ClaimCheckAttributes } from "../../core/api";
 import { detectLanguage } from "../../core/documents/textLanguage";
-import { checkedScope } from "../../shared/claimChecks";
+import { checkedScope, saysNotFound } from "../../shared/claimChecks";
 import {
   type FigureContext,
   figureContextOf,
@@ -22,6 +22,7 @@ import {
   readFigures,
 } from "../../shared/figures";
 import { figureNumber } from "../../shared/formula";
+import type { MessageKey } from "../../shared/i18n";
 import { INLINE_NODE } from "../../shared/sentences";
 import { checkAgain, useChecks } from "./checks";
 import { makeMine } from "./editor/aiText";
@@ -65,6 +66,14 @@ export function offersNotFound(editor: Editor, claim: ShownClaim): boolean {
     citationsOf(editor.state, claim).length === 0
   );
 }
+
+/** Whether nothing in its scope was about the sentence (`saysNotFound`), with its Citations as the Mind has them now. */
+export const notFoundIn = (editor: Editor, claim: ShownClaim): boolean =>
+  saysNotFound(claim.shown, claim.check, citationsOf(editor.state, claim).length);
+
+/** The word a check's mark and card are headed with: "Not found" apart from "Unsupported". */
+export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
+  notFoundIn(editor, claim) ? "claim.state.notFound" : `claim.state.${claim.shown.state}`;
 
 export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
   return editor.isEditable && claim.shown.state === "contradicted";

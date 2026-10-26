@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
@@ -13,6 +14,8 @@ import {
   setLanguage,
   setWindowSize,
 } from "./app";
+
+import { startAnotherCopy } from "./secondCopy";
 
 /*
  * Typing after a change storage refused (#1119), as a person meets it: the
@@ -120,7 +123,26 @@ test("quitting while changes wait asks first, and Keep open keeps them", async (
     cancelId: 2,
   });
   await expect(editor).toHaveText("BASE LOST");
-  restore();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide());
+  const again = await startAnotherCopy(app);
+  try {
+    await expect.poll(() => again.exitCode, { timeout: 30_000 }).toBe(0);
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().map((each) => each.isVisible()),
+        ),
+      )
+      .toEqual([true]);
+    await expect(editor).toHaveText("BASE LOST");
+  } finally {
+    restore();
+    if (again.exitCode === null && again.signalCode === null) {
+      const gone = once(again, "exit");
+      again.kill("SIGKILL");
+      await gone;
+    }
+  }
   await notice(window).getByTestId("unsaved-try-again").click();
   await expect(notice(window)).toHaveCount(0);
 });

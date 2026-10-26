@@ -25,6 +25,6 @@ export const defaultFolderLabel = (t: Translate): string =>
 export const outputFolderLabel = (folder: string, suggested: string, t: Translate): string =>
   folder === suggested ? defaultFolderLabel(t) : folderName(folder);
 
-/** Opens Settings at the Output location, its Change… focused: a first save's Change folder… (D209). */
+/** Opens Settings at the Output location, its Change… focused: a first save's Change folder…. */
 export const showOutputLocationSetting = (): void =>
   useAppStore.getState().openSettings("general", "output-location");

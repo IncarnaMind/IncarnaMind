@@ -596,8 +596,19 @@ describe("making a Mind", () => {
 
   test("a Mind the core can't make is a problem, with no step to undo", async () => {
     method("createMind").mockRejectedValue(new Error("The disk is full."));
-    expect(await useAppStore.getState().createMind()).toBeUndefined();
+    expect(await useAppStore.getState().createMind()).toBeNull();
     expect(useUndo.getState().done).toEqual([]);
+    const { useNotices } = await import("../../src/renderer/src/notices");
+    for (const notice of useNotices.getState().errors)
+      useNotices.getState().dismissError(notice.id);
+  });
+
+  test("a Mind whose tab the core refuses is not shown, and asks for no focus", async () => {
+    method("changeLayout").mockRejectedValue(new Error("The layout was refused."));
+    const before = useAppStore.getState().layout;
+    expect(await useAppStore.getState().createMind({ titled: true })).toBeNull();
+    expect(useAppStore.getState().bodyToFocus).toBeNull();
+    expect(useAppStore.getState().layout).toBe(before);
     const { useNotices } = await import("../../src/renderer/src/notices");
     for (const notice of useNotices.getState().errors)
       useNotices.getState().dismissError(notice.id);

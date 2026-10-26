@@ -498,9 +498,11 @@ function TranscriptContent({
                   >
                     <span className="transcript-time">{paddedClockTime(partial.startMs)}</span>
                     <div className="min-w-0">
-                      <p data-testid="transcript-speaker" className="transcript-speaker">
-                        {speakerName(partial.speaker, t)}
-                      </p>
+                      {partial.speaker && (
+                        <p data-testid="transcript-speaker" className="transcript-speaker">
+                          {speakerName(partial.speaker, t)}
+                        </p>
+                      )}
                       <p className="transcript-text">{partial.text}</p>
                     </div>
                   </li>
