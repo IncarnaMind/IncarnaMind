@@ -62,6 +62,16 @@ describe("The quick model's verdict", () => {
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
 
+  test("a verdict's straight quotes match the reply's curly quotes", async () => {
+    const reply = "I've renamed the page to “Q3 summary”.";
+    const sentence = 'I\'ve renamed the page to "Q3 summary".';
+    const result = await check(
+      judge({ claims: [{ sentence, kind: "changed", backed: false }] }),
+      reply,
+    );
+    expect(result.claims).toEqual(["changed"]);
+  });
+
   test.each([
     "The page was created on 3 March 2021 to track the project.",
     "The new page replaces the version published in 2019.",

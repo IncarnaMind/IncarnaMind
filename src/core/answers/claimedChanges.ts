@@ -125,6 +125,10 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
   });
 }
 
+// A model may straighten the reply's typographic quotes even when asked to copy it.
+const comparableSentence = (text: string) =>
+  text.trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+
 function verdictOf(value: unknown, reply: string): ClaimedChange[] | null {
   if (!isRecord(value) || !Array.isArray(value.claims)) return null;
   const unbacked = new Set<ClaimedChange>();
@@ -134,12 +138,12 @@ function verdictOf(value: unknown, reply: string): ClaimedChange[] | null {
     if (
       typeof sentence !== "string" ||
       sentence.trim() === "" ||
-      !reply.includes(sentence.trim()) ||
+      !comparableSentence(reply).includes(comparableSentence(sentence)) ||
       typeof backed !== "boolean"
     ) {
       continue;
     }
-    if (!backed) unbacked.add(CLAIMED_CHANGES.some((claim) => claim === kind) ? kind : "changed");
+    if (!backed) unbacked.add(CLAIMED_CHANGES.find((claim) => claim === kind) ?? "changed");
   }
   return [...unbacked];
 }

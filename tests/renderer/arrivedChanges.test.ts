@@ -169,7 +169,13 @@ describe("Changes the User asked the assistant for", () => {
     replaceOwn(
       blocks,
       own,
-      [createElement({ type: "paragraph", attrs: { id: "Summary" }, content: [text("The quarter was good.")] })],
+      [
+        createElement({
+          type: "paragraph",
+          attrs: { id: "Summary" },
+          content: [{ type: "text", text: "The quarter was good." }],
+        }),
+      ],
       "second",
     );
     const undo = new Y.UndoManager(blocks, { trackedOrigins: new Set([Asked]) });
