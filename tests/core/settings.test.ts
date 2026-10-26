@@ -79,7 +79,6 @@ describe("Settings", () => {
       device: {
         sidebarWidth: 248,
         sidebarHidden: false,
-        chatSetupDismissed: false,
         sandboxNoticeDismissed: false,
         openedBefore: false,
         gettingStarted: {
@@ -189,7 +188,6 @@ describe("Settings", () => {
     expect(settings.device).toEqual({
       sidebarWidth: 320,
       sidebarHidden: false,
-      chatSetupDismissed: false,
       sandboxNoticeDismissed: false,
       openedBefore: false,
       gettingStarted: {
@@ -416,7 +414,6 @@ describe("Settings", () => {
     const device = {
       sidebarWidth: 300,
       sidebarHidden: true,
-      chatSetupDismissed: true,
       sandboxNoticeDismissed: true,
       openedBefore: true,
       gettingStarted: {

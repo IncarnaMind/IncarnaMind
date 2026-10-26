@@ -6,8 +6,8 @@
 
 <!-- Commands run, and what you checked by hand in the built app. -->
 
-- [ ] `npm run typecheck`, `npm run lint` and `npm test` pass
-- [ ] The smoke tests that touch this change pass (`npm run test:smoke`), and tests for changed or removed UI are updated
+- [ ] `npm run typecheck`, `npm run lint` and the unit tests of the files I changed pass
+- [ ] Tests for changed or removed UI are updated; a smoke spec was run locally only where I needed to see the UI I changed (CI runs every spec)
 - [ ] The edge cases in [the testing guide](https://github.com/IncarnaMind/IncarnaMind/blob/main/docs/agents/testing.md#edge-cases) that apply were tried: <!-- list them, and which don't apply -->
 - [ ] CI is green on this pull request: <!-- link the run -->
 
