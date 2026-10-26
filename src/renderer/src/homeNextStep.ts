@@ -1,6 +1,5 @@
 import type { ConversationAnswer, Mind } from "../../core/api";
-import { everythingChecked } from "./editor/healthCounts";
-import type { NoteState } from "./noteState";
+import { everythingChecked, type NoteHealth } from "./editor/healthCounts";
 
 export interface HomeAnswer {
   id: string;
@@ -10,7 +9,7 @@ export interface HomeAnswer {
 
 export interface HomeNote {
   mind: Mind;
-  health: NoteState["health"];
+  health: NoteHealth;
   busy?: boolean;
   problem?: boolean;
 }
@@ -25,7 +24,7 @@ export type HomeNextStep =
   | { kind: "add" | "ask" }
   | { kind: "write"; answer: HomeAnswer }
   | { kind: "check" | "look" | "export"; note: HomeNote; count: number }
-  | { kind: "exported"; note: HomeNote; saved: HomeSavedWord };
+  | { kind: "exported"; saved: HomeSavedWord };
 
 export const isExampleAnswer = (
   answer: Pick<ConversationAnswer, "id" | "steps">,
@@ -37,6 +36,11 @@ export const ownAnswer = (
   examples: ReadonlySet<string>,
 ): boolean => answer.status === "done" && !isExampleAnswer(answer, examples);
 
+/**
+ * The one step Home offers, from the newer of the User's latest unfiled Answer and their most
+ * recently updated note. After the first export of a note of their own, only the note's check
+ * states show, and an export this session stands in until it is opened.
+ */
 export function chooseHomeNextStep({
   hasDocuments,
   answers,
@@ -50,9 +54,7 @@ export function chooseHomeNextStep({
   exported: boolean;
   saved: HomeSavedWord | null;
 }): HomeNextStep | null {
-  if (note && saved?.mindId === note.mind.id) {
-    return { kind: "exported", note, saved };
-  }
+  if (saved) return { kind: "exported", saved };
   if (!exported) {
     const answer = answers.reduce<HomeAnswer | null>(
       (latest, each) => (!latest || each.updatedAt > latest.updatedAt ? each : latest),

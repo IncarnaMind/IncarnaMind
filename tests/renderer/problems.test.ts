@@ -270,10 +270,7 @@ describe("a failed Answer's problem line", () => {
       "Anthropic refused this request",
       "Choose another model",
     ]);
-    expect(shown("out-of-credit", "en")).toEqual([
-      "No credit on this key",
-      "Choose another model",
-    ]);
+    expect(shown("out-of-credit", "en")).toEqual(["No credit on this key", "Choose another model"]);
     expect(shown("region", "en")).toEqual([
       "Anthropic doesn’t accept requests from your region",
       "Choose another model",

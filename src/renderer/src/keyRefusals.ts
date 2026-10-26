@@ -5,7 +5,11 @@
  */
 import { create } from "zustand";
 import type { ChatProvider } from "../../core/api";
-import { KEY_PROVIDERS } from "../../core/providers/catalog/providers";
+import {
+  billingUrlOf,
+  catalogProviderOf,
+  KEY_PROVIDERS,
+} from "../../core/providers/catalog/providers";
 import { core } from "./core";
 import { useAppStore } from "./store";
 
@@ -26,15 +30,35 @@ interface KeyRefusalsState {
   showing: KeyRefusal | null;
   /** When a key was last saved here for each provider, by id: Answers it refused before then can be asked again. */
   savedAt: Readonly<Record<string, string>>;
+  /** When credit was last opened here for each provider, by id: its Answer offers to ask again. */
   billingOpenedAt: Readonly<Record<string, string>>;
   openBilling(providerId: string | null, url: string): void;
   /** Opens the key field of a refused provider; a provider with no key field opens Models as it is. */
-  check(providerId: string | null, modelId: string, at: string | null, kind?: KeyRefusal["kind"]): Promise<void>;
+  check(
+    providerId: string | null,
+    modelId: string,
+    at: string | null,
+    kind?: KeyRefusal["kind"],
+  ): Promise<void>;
   /** The same for background work, which knows the company it sends to, not the provider: the one saved for it. */
   checkService(serviceId: string | null): Promise<void>;
   saved(provider: ChatProvider): void;
   done(): void;
 }
+
+/** The id a provider's key field goes by; null when it takes no key, as a sign-in route does. */
+export const keyProviderOf = (provider: ChatProvider | undefined): string | null => {
+  if (!provider) return null;
+  const id = provider.catalogId ?? provider.kind;
+  return KEY_PROVIDERS.includes(id) ? id : null;
+};
+
+/** Where the provider's credit is added, when its catalog entry has a page for it. */
+export const billingUrlOfProvider = (provider: ChatProvider | undefined): string | null => {
+  if (!provider) return null;
+  const catalog = catalogProviderOf(provider.kind, provider.catalogId);
+  return (catalog && billingUrlOf(catalog, provider.endpoint)) || null;
+};
 
 export const useKeyRefusals = create<KeyRefusalsState>()((set, get) => ({
   showing: null,
@@ -42,7 +66,11 @@ export const useKeyRefusals = create<KeyRefusalsState>()((set, get) => ({
   billingOpenedAt: {},
   openBilling(providerId, url) {
     window.open(url, "_blank", "noreferrer");
-    if (providerId) set((state) => ({ billingOpenedAt: { ...state.billingOpenedAt, [providerId]: new Date().toISOString() } }));
+    if (providerId) {
+      set((state) => ({
+        billingOpenedAt: { ...state.billingOpenedAt, [providerId]: new Date().toISOString() },
+      }));
+    }
   },
 
   async check(providerId, modelId, at, kind = "auth") {
@@ -50,8 +78,8 @@ export const useKeyRefusals = create<KeyRefusalsState>()((set, get) => ({
     try {
       const providers = providerId ? await core.listChatProviders() : [];
       const provider = providers.find((each) => each.id === providerId);
-      const id = provider && (provider.catalogId ?? provider.kind);
-      if (provider && id && KEY_PROVIDERS.includes(id)) {
+      const id = keyProviderOf(provider);
+      if (provider && id) {
         set({ showing: { catalogId: id, endpoint: provider.endpoint, modelId, at, kind } });
       }
     } catch (error) {
@@ -86,6 +114,7 @@ export function useKeySavedSince(providerId: string | null, at: string | null): 
   });
 }
 
+/** Whether the User was sent to add credit for the provider after an Answer it refused. */
 export function useBillingOpenedSince(providerId: string | null, at: string | null): boolean {
   return useKeyRefusals((state) => {
     const opened = providerId ? state.billingOpenedAt[providerId] : undefined;

@@ -36,6 +36,7 @@ import {
   type UnitLabel,
   type UnitText,
 } from "../../shared/units";
+import { parseUnreadParts } from "../../shared/unreadFiles";
 import { silentLogger } from "../activityLog";
 import type { Logger } from "../adapters";
 import { cleanQuote } from "../answers/citations";
@@ -83,7 +84,7 @@ import {
 } from "./files";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
-import { createLibrary, FORGET_FILE_IDENTITY, type LibraryHooks } from "./library";
+import { createLibrary, type LibraryHooks } from "./library";
 import type { PageText } from "./passages";
 import {
   CURRENT_SINCE,
@@ -96,7 +97,6 @@ import {
   type ProcessingResult,
   SCAN_CURRENT_SINCE,
   type ScanJob,
-  unreadMessage,
 } from "./processing";
 import { createProcessor } from "./processor";
 import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
@@ -124,6 +124,7 @@ import {
   topsOfEach,
 } from "./searchTool";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
+import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
 import type { WatchFolder } from "./watcher";
 import type { SnapshotFile } from "./web";
@@ -155,6 +156,7 @@ interface DocumentRow {
   status: string;
   failure_reason: string | null;
   failure_message: string | null;
+  unread_parts: string | null;
   folder_id: string | null;
   tagging_status: string;
   tagging_error_kind: string | null;
@@ -164,6 +166,7 @@ interface DocumentRow {
   path: string;
   linked_folder_id: string | null;
   file_status: string;
+  source_kind: string;
   creation_date: string | null;
   title: string | null;
   own_file: string | null;
@@ -203,10 +206,10 @@ const toUnitText = (row: UnitRow): PageText => ({
 });
 
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
-  failure_reason, failure_message, folder_id, tagging_status, tagging_error_kind,
+  failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
-  creation_date, title, own_file, counted_as_evidence, not_cited, processing_version, file_mtime_ms,
-  created_at, updated_at`;
+  source_kind, creation_date, title, own_file, counted_as_evidence, not_cited, processing_version,
+  file_mtime_ms, created_at, updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
 const ownFileOf = (row: Pick<DocumentRow, "own_file" | "counted_as_evidence">): OwnFile | null =>
@@ -291,13 +294,13 @@ function taggingOf(status: string, stored: string): TaggingState {
 }
 
 /**
- * Whether the Document is shown as failed, with its failure and Retry: its
- * processing failed with no version to keep, or the latest version read
- * failed while the last good one stays indexed (stored "ready", with the
- * failure recorded; see `record`).
+ * A stored failure shows only once processing has settled. While a Document is
+ * read again, its status and scan progress belong to the new job, not the old failure.
  */
 const failedNow = (row: Pick<DocumentRow, "status" | "failure_reason">) =>
-  row.status === "failed" || (row.status === "ready" && row.failure_reason !== null);
+  row.status === "failed" ||
+  (row.failure_reason !== null &&
+    (row.status === "ready" || row.status === "embedding" || row.status === "waiting-for-model"));
 
 /** `searchPassages` options, checked and with their defaults. */
 function parseSearchOptions(options: unknown): {
@@ -328,6 +331,15 @@ function parseSearchOptions(options: unknown): {
 }
 
 /** A search's `limit`, checked: a whole number from 1 to 200, 20 when not given. */
+/** Documents a text search leaves out, as the core asks (the examples', see #1942). */
+function excludedIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id !== "")) {
+    throw new InvalidInputError({ key: "error.search.options" });
+  }
+  return value as string[];
+}
+
 function searchLimit(limit: unknown = DEFAULT_SEARCH_LIMIT): number {
   if (
     typeof limit !== "number" ||
@@ -403,8 +415,11 @@ export interface DocumentsOptions {
   model: SearchEmbedder;
   /** The Folders of Linked folders, which follow the disk. */
   folders: Folders;
-  /** Pushes the "document.status" event. */
-  emitStatus(document: Document): void;
+  /**
+   * Pushes the "document.status" event; `unchanged` when the Document is as it was (back from
+   * Recently deleted, or embedded again), so Organize doesn't file it anew.
+   */
+  emitStatus(document: Document, unchanged?: boolean): void;
   /** Pushes the "documents.moved" event. */
   emitMoved(documents: Document[]): void;
   /** Pushes the "documents.removed" event. */
@@ -526,7 +541,16 @@ export function createDocuments(options: DocumentsOptions) {
       [documentId],
     )?.mind_id ?? null;
 
+  // A damaged `unread_parts` is said once for each Document: a list reads every Document again
+  // and again, and the log would fill with the same line.
+  const loggedUnreadParts = new Set<string>();
   const toDocument = (row: DocumentRow): Document => {
+    const unreadParts = parseUnreadParts(row.unread_parts);
+    const unreadPartsUnknown = row.unread_parts !== null && unreadParts === null;
+    if (unreadPartsUnknown && !loggedUnreadParts.has(row.id)) {
+      loggedUnreadParts.add(row.id);
+      log.warn("documents.unreadPartsUnreadable", { documentId: row.id });
+    }
     const tagging = taggingOf(row.status, row.tagging_status);
     const status = statusOf(row);
     const failed = status === "failed";
@@ -537,6 +561,7 @@ export function createDocuments(options: DocumentsOptions) {
       contentHash: row.content_hash,
       path: row.path,
       fileStatus: row.file_status as DocumentFileStatus,
+      keptByApp: row.source_kind === "data-folder",
       linkedFolderId: row.linked_folder_id,
       size: row.size,
       pageCount: row.page_count,
@@ -551,6 +576,8 @@ export function createDocuments(options: DocumentsOptions) {
             ...(row.failure_reason === "pages-unread" && { pages: unreadPages(row) }),
           }
         : null,
+      unreadParts,
+      unreadPartsUnknown,
       folderId: row.folder_id,
       tags: tagsOfDocument(db, row.id),
       tagging,
@@ -588,10 +615,19 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists: Linked folders' progress follows their Documents.
   let progressed = (_linkedFolderId: string | null) => {};
 
-  const announce = (id: string) => {
+  /**
+   * Documents whose embeddings are being made again, their Passages as they
+   * were: reporting them is no change Organize should file (#2023).
+   */
+  const reembedding = new Set<string>();
+
+  const announce = (id: string, unchanged = false) => {
     const row = find(id);
     if (!row) return;
-    emitStatus(toDocument(row));
+    const reembedded = reembedding.has(id);
+    // Its re-embed ended, ready or failed: a Retry from here is a new run, filed as on main (#2023).
+    if (reembedded && (row.status === "ready" || row.status === "failed")) reembedding.delete(id);
+    emitStatus(toDocument(row), unchanged || reembedded);
     progressed(row.linked_folder_id);
   };
 
@@ -928,6 +964,8 @@ export function createDocuments(options: DocumentsOptions) {
         row.processing_version >= HAN_CURRENT_SINCE &&
         samePassages(row.id, result.passages);
       if (!unchanged) {
+        // Its content is new: Organize sees the Document anew (#2023).
+        reembedding.delete(job.documentId);
         db.run(
           `UPDATE passages SET deleted_at = ?, updated_at = ?, embedding = NULL
            WHERE document_id = ? AND deleted_at IS NULL`,
@@ -937,7 +975,7 @@ export function createDocuments(options: DocumentsOptions) {
       if (result.outcome === "crashed") {
         db.run(
           `UPDATE documents SET status = 'failed', failure_reason = 'processing-error',
-             failure_message = ?, updated_at = ? WHERE id = ?`,
+             failure_message = ?, unread_parts = NULL, updated_at = ? WHERE id = ?`,
           [result.message, at, job.documentId],
         );
         return { status: "failed", replaced: true };
@@ -964,16 +1002,21 @@ export function createDocuments(options: DocumentsOptions) {
       } else {
         status = result.outcome;
       }
-      // Scanned pages that couldn't be read are this version's failure: the rest is searched (#397).
+      // A partial read keeps the readable text searchable (#397, #1818).
       const failure =
         result.outcome === "failed"
           ? { reason: result.reason, message: result.message }
           : result.outcome === "ready" && result.unread
-            ? { reason: "pages-unread", message: unreadMessage(result.unread) }
+            ? {
+                reason: result.unread.forms ? "forms-unread" : "pages-unread",
+                message: unreadMessage(result.unread),
+              }
             : null;
+      const parts =
+        result.outcome === "failed" || result.parts == null ? null : JSON.stringify(result.parts);
       db.run(
         `UPDATE documents SET status = ?, page_count = ?, failure_reason = ?, failure_message = ?,
-           processing_version = ?, embedding_model = ?,
+           unread_parts = ?, processing_version = ?, embedding_model = ?,
            embedding_dimensions = CASE WHEN ? THEN embedding_dimensions END,
            content_hash = ?, size = ?, file_status = 'available', creation_date = ?,
            title = ?, metadata_version = ?, updated_at = ?
@@ -985,6 +1028,7 @@ export function createDocuments(options: DocumentsOptions) {
             : BigInt(result.pageCount),
           failure?.reason ?? null,
           failure?.message ?? null,
+          parts,
           BigInt(PROCESSING_VERSION),
           unchanged ? row.embedding_model : status === "embedding" ? model.id : null,
           unchanged ? 1 : 0,
@@ -1447,6 +1491,14 @@ export function createDocuments(options: DocumentsOptions) {
                                        AND p.deleted_at IS NULL AND p.text GLOB ?))`,
       [now(), BigInt(HAN_CURRENT_SINCE), HAS_HAN, HAS_HAN],
     );
+    // A workbook with no text to search can still have left sheets unread (#740): one read
+    // before that was recorded is read again, once, unlike a ready workbook above.
+    db.run(
+      `UPDATE documents SET status = 'queued', updated_at = ?
+       WHERE deleted_at IS NULL AND kind = 'xlsx' AND status = 'no-text'
+         AND processing_version < ?`,
+      [now(), BigInt(CURRENT_SINCE.xlsx)],
+    );
     // PDFs with a page of little or no text, or one read from its picture by an older
     // reader, are processed again, so their scanned pages are read (#397): only when there is
     // a model to read them. A page of text comes out as it was (see `samePassages`).
@@ -1488,7 +1540,7 @@ export function createDocuments(options: DocumentsOptions) {
       `SELECT id FROM documents
        WHERE deleted_at IS NULL AND file_status = 'available'
          AND status NOT IN ('queued', 'extracting')
-         AND (failure_reason = 'pages-unread' OR (kind = 'web' AND EXISTS (
+         AND (failure_reason IN ('pages-unread', 'forms-unread') OR (kind = 'web' AND EXISTS (
            SELECT 1 FROM document_pages dp, json_each(dp.label, '$.figures') figure
            WHERE dp.document_id = documents.id AND dp.content_hash = documents.content_hash
              AND dp.deleted_at IS NULL AND json_extract(figure.value, '$.unread') = 1)))
@@ -1602,6 +1654,7 @@ export function createDocuments(options: DocumentsOptions) {
          ORDER BY d.created_at, d.rowid`,
         [model.id, ...ids],
       );
+      for (const row of rows) reembedding.add(row.id);
       const target = ready ? "embedding" : "waiting-for-model";
       return rows.filter((row) => {
         if (row.status === target) return false;
@@ -1998,6 +2051,17 @@ export function createDocuments(options: DocumentsOptions) {
         .map((row) => ({ id: row.id, name: row.name, size: Number(row.size) }));
     },
 
+    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file. */
+    searchableHasSheets(documentIds: readonly string[] | undefined): boolean {
+      const { where, params } = searchable(documentIds);
+      return (
+        db.get<{ found: number }>(
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('xlsx', 'csv') LIMIT 1`,
+          params,
+        ) !== undefined
+      );
+    },
+
     /**
      * The languages the live Documents with Passages to search are in (of all
      * of them, or only of these), the most common first, with how many
@@ -2318,42 +2382,24 @@ export function createDocuments(options: DocumentsOptions) {
     /** Looks at a file again now, as when it is opened: a new version is processed. */
     check: (path: string) => library.check([path]),
 
+    /** As `check`, and resolves only once the file has been read: for a file just written. */
+    checkNow: (path: string) => library.check([path], true),
+
     /** Tells the windows a Document changed besides its processing, such as a web page's look. */
     announce,
-
-    /**
-     * Points a Document added on its own at a copy IncarnaMind just saved of
-     * its file, elsewhere: a Transcript saved at Stop to the Output location
-     * (#136). It keeps its id, Folder, Tags and Citations; a copy that differs
-     * is a new version.
-     */
-    async moveFile(id: string, path: string): Promise<void> {
-      const row = find(id);
-      if (!row) return;
-      // Out of the data folder, it is a file of its own (ADR-0020); the check finds the
-      // Linked folder it is in, if the Output location is inside one.
-      db.run(
-        `UPDATE documents SET path = ?, source_kind = 'file', relative_path = NULL,
-           file_status = 'available', file_mtime_ms = NULL, ${FORGET_FILE_IDENTITY}, updated_at = ?
-         WHERE id = ? AND deleted_at IS NULL`,
-        [path, now(), id],
-      );
-      library.documentsChanged(null);
-      announce(id);
-      await library.check([path]);
-    },
 
     list,
     names,
     ids,
 
-    /** The live Documents (of these, or all of them) that failed or have no text: the few `findUnreadDocuments` looks at. */
+    /** The live Documents (of these, or all of them) that failed, have no text or were read in part: the few `findUnreadDocuments` looks at. */
     unread(documentIds?: readonly string[]): Document[] {
       const { where, params } = filterWhere(documentIds ? { ids: documentIds } : {});
       return db
         .all<DocumentRow>(
           `SELECT ${COLUMNS} FROM documents
-           WHERE ${where} AND (status IN ('failed', 'no-text') OR failure_reason IS NOT NULL)
+           WHERE ${where} AND (status IN ('failed', 'no-text') OR failure_reason IS NOT NULL
+             OR unread_parts IS NOT NULL)
            ORDER BY created_at DESC, rowid DESC`,
           params,
         )
@@ -2549,12 +2595,14 @@ export function createDocuments(options: DocumentsOptions) {
             reportError(error);
           }
         }
-        if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id);
+        // Embedded again from here, before `embedWithCurrentModel` marks it below (#1433).
+        if (row.status === "embedding") reembedding.add(id);
+        if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id, true);
         if (row.status === "waiting-for-model") model.ensure();
       }
       // A Document back from an unlinked Linked folder lost its vectors with it: they are embedded again (#1292).
       for (const id of embedWithCurrentModel(true, ids))
-        if (!embedding.isEmbedding(id)) announce(id);
+        if (!embedding.isEmbedding(id)) announce(id, true);
       for (const linkedFolderId of linkedFolders) library.documentsChanged(linkedFolderId);
       const copies = db
         .all<{ path: string; relative_path: string }>(
@@ -2708,7 +2756,12 @@ export function createDocuments(options: DocumentsOptions) {
       if (options !== undefined && !isRecord(options)) {
         throw new InvalidInputError({ key: "error.search.options" });
       }
-      return textSearch(db, query, searchLimit(options?.limit));
+      return textSearch(
+        db,
+        query,
+        searchLimit(options?.limit),
+        excludedIds(options?.excludeDocumentIds),
+      );
     },
 
     /** Linked folders (see ./library). */

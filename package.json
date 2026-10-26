@@ -36,6 +36,7 @@
     "eval:scope": "vitest run --config eval/repeats/vitest.scope.config.ts",
     "eval:harness": "vitest run --config eval/harness/vitest.config.ts",
     "eval:speed": "vitest run --config eval/speed/vitest.config.ts",
+    "eval:speed:tokens": "INCARNAMIND_EVAL_SPEED_AUDIT=1 vitest run --config eval/speed/vitest.config.ts",
     "eval:word:fetch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON eval/word/fetch-extended.ts",
     "eval:dump": "vitest run --config eval/dumps/vitest.config.ts",
     "eval:references": "vitest run --config eval/references/vitest.config.ts",
@@ -52,7 +53,9 @@
     "dist": "electron-vite build && electron-builder --publish never",
     "dist:dir": "electron-vite build && electron-builder --dir --publish never",
     "check:package": "node scripts/check-package.mjs",
-    "icons": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/icons.ts"
+    "icons": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/icons.ts",
+    "samples:generate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs scripts/sampleDocuments/index.ts",
+    "eval:skills": "vitest run --config eval/skills/vitest.config.ts"
   },
   "dependencies": {
     "@ai-sdk/alibaba": "2.0.65",

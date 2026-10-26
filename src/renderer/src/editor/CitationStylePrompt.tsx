@@ -24,9 +24,10 @@ const fullWidthEnd = /[\u3000-\u303f\uff00-\uffef]$/u;
 /**
  * A Mind that is Numbered because it never chose a style, and cites papers or books (a
  * reference record of one of those kinds, with authors or a year): one quiet line at its end,
- * "Choose a citation style? APA · GB/T 7714 · More…", the interface language's own style first. A
- * Mind citing contracts, reports and pages never sees it. Closed, it doesn't come back in this
- * Mind; a style is still one menu away ("Citation style…").
+ * "Choose a citation style? APA · GB/T 7714 · More…", the interface language's own style first,
+ * once the User has a second note or exported one (interaction rule 14). A Mind citing contracts,
+ * reports and pages never sees it. Closed or used, it doesn't come back on this device; a style
+ * is still one menu away ("Citation style…").
  */
 export function CitationStylePrompt({
   mindId,
@@ -53,8 +54,14 @@ export function CitationStylePrompt({
     closeTip("citation-style");
     useUndo.getState().push({
       said: (t) => t("citationStyle.prompt.dismissed"),
-      undo: async () => { doc.transact(() => dismissCitationStylePrompt(settings, false)); restoreTip("citation-style", mindId); },
-      redo: async () => { doc.transact(() => dismissCitationStylePrompt(settings)); closeTip("citation-style"); },
+      undo: async () => {
+        doc.transact(() => dismissCitationStylePrompt(settings, false));
+        restoreTip("citation-style", mindId);
+      },
+      redo: async () => {
+        doc.transact(() => dismissCitationStylePrompt(settings));
+        closeTip("citation-style");
+      },
     });
     backToNote();
   };

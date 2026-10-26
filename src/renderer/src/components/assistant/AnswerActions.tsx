@@ -25,13 +25,14 @@ import { useGoesBy } from "../UndoLine";
 const COPIED_MS = 1500;
 
 /**
- * Under an Answer in the assistant (#201, #391; DESIGN.md, Answer): only
- * "Copy · Add to note ▾ · New Mind" (#1559), after "Stopped" for one stopped; on hover or focus,
+ * Under an Answer in the assistant (#201, #391; DESIGN.md, Answer): "Write as a note"
+ * first (#1940), which makes a note of the Answer and opens it beside, then
+ * "Add to note ▾" and Copy (#1559), after "Stopped" for one stopped; on hover or focus,
  * and always on the newest. Its model, scope and searches are in its steps.
  * While it is written, Stop is the composer's and the wait line's, not here.
  * Once added, "Added to “{Mind}” · Undo" (⌘Z too), while that can be taken
- * back. Tab reaches each by its name. In an empty Mind, or under a long Answer with
- * Citations, Add to note comes first and names its Mind.
+ * back. Tab reaches each by its name. In an empty note of the User's, or under a
+ * long Answer with Citations, Add to note names its note.
  */
 export function AnswerActions({
   answer,
@@ -41,7 +42,7 @@ export function AnswerActions({
   mindEmpty,
   onAdd,
   onPick,
-  onNewMind,
+  onWriteNote,
 }: {
   answer: ConversationAnswer;
   streaming: boolean;
@@ -53,8 +54,8 @@ export function AnswerActions({
   mindEmpty: boolean;
   onAdd(): void;
   onPick(anchor: HTMLElement): void;
-  /** The Answer as it is, in the empty Mind in front, else in a new Mind (`AddTarget` "new"). */
-  onNewMind(): void;
+  /** The Answer as it is, in the empty Mind in front, else in a new Mind it makes (`AddTarget` "new"). */
+  onWriteNote(): void;
 }) {
   const t = useT();
   const pick = useRef<HTMLButtonElement>(null);
@@ -80,8 +81,13 @@ export function AnswerActions({
   const room = useTipRoom("add-answer", answer.id);
   const first = useRef(!useAppStore.getState().settings?.device.gettingStarted.askedOwn);
   const noOwnNote = useOwnMinds().length === 0;
-  const exampleIds = useAppStore((state) => allExamples(state).map((each) => each.answerId).join("|"));
-  const eligible = first.current && noOwnNote && !isExampleAnswer(answer, new Set(exampleIds.split("|")));
+  const exampleIds = useAppStore((state) =>
+    allExamples(state)
+      .map((each) => each.answerId)
+      .join("|"),
+  );
+  const eligible =
+    first.current && noOwnNote && !isExampleAnswer(answer, new Set(exampleIds.split("|")));
   const tipWanted = room && canKeep && eligible && answer.status === "done";
   // Only an Answer seen being written gets the tip: one opened later, from History, doesn't.
   const [watched, setWatched] = useState(streaming);
@@ -102,8 +108,7 @@ export function AnswerActions({
     if (tipShown && (added || !eligible)) closeTip("add-answer");
   }, [added, tipShown, eligible]);
   const keepsRoom =
-    tipVisible ||
-    (watched && room && eligible && (streaming || answer.status === "done"));
+    tipVisible || (watched && room && eligible && (streaming || answer.status === "done"));
   // Once kept, the line stays until a later Question takes it back: closing the tip or adding the
   // Answer must not slide the Answer.
   const [kept, setKept] = useState(false);
@@ -184,18 +189,18 @@ export function AnswerActions({
       </span>
     </button>
   );
-  const newMindButton = mindEmpty ? null : (
+  const writeButton = (
     <button
       type="button"
-      data-testid="answer-new-mind"
-      aria-label={t("answer.newMind.label")}
-      title={t("answer.newMind.label")}
+      data-testid="answer-write-note"
+      aria-label={t("answer.writeNote.label")}
+      title={t("answer.writeNote.label")}
       onMouseDown={(event) => event.preventDefault()}
-      onClick={onNewMind}
-      className="assistant-answer-action assistant-answer-action--collapses"
+      onClick={onWriteNote}
+      className="assistant-answer-action"
     >
       <MindLineIcon className="size-3.5" />
-      <span className="assistant-answer-action-label">{t("answer.newMind")}</span>
+      <span className="assistant-answer-action-label">{t("answer.writeNote")}</span>
     </button>
   );
   const addButtons = (
@@ -247,18 +252,11 @@ export function AnswerActions({
             {t("answer.status.stopped")}
           </span>
         )}
-        {canKeep && named && (
+        {canKeep && (
           <>
+            {writeButton}
             {addButtons}
             {copyButton}
-            {newMindButton}
-          </>
-        )}
-        {canKeep && !named && (
-          <>
-            {copyButton}
-            {addButtons}
-            {newMindButton}
           </>
         )}
       </div>
@@ -272,7 +270,17 @@ export function AnswerActions({
                 addButton.current?.focus();
               }}
             >
-              <button type="button" data-testid="tip-write-note" onClick={() => { closeTip("add-answer"); onNewMind(); }} className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline">{t("tip.addAnswer")}</button>
+              <button
+                type="button"
+                data-testid="tip-write-note"
+                onClick={() => {
+                  closeTip("add-answer");
+                  onWriteNote();
+                }}
+                className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+              >
+                {t("tip.addAnswer")}
+              </button>
             </Tip>
           )}
         </TipRoom>

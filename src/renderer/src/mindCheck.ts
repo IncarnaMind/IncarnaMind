@@ -102,7 +102,11 @@ export async function checkMind(
     } else if (result.kind === "nothing") setCheckProblem(mindId, { kind: "no-claims" });
     else if (result.kind !== "cancelled") setCheckProblem(mindId, everywhere(result, mindId, mode));
   } catch (error) {
-    setCheckProblem(mindId, { kind: "failed", error, retry: () => void checkMind(mindId, mode, { allDocuments }) });
+    setCheckProblem(mindId, {
+      kind: "failed",
+      error,
+      retry: () => void checkMind(mindId, mode, { allDocuments }),
+    });
   } finally {
     setCheckRunning(mindId, null);
   }

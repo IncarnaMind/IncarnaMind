@@ -22,8 +22,8 @@ const YOUR_TEXT = /\byour text\b/i;
  * Counts, not a key list, keep the slices that run in parallel to one line each.
  */
 const MIND_LEFT: readonly { readonly name: string; readonly left: number }[] = [
-  { name: "en", left: 174 },
-  { name: "zh-CN", left: 173 },
+  { name: "en", left: 170 },
+  { name: "zh-CN", left: 169 },
   { name: "CONTEXT.md", left: 52 },
   { name: "docs/agents/zh-CN.md", left: 12 },
   { name: "README.md", left: 12 },
@@ -51,7 +51,6 @@ const RETIRED_NOTE: readonly RetiredNote[] = [
   { key: "palette.group.notes", old: 1, final: 0, englishOld: true },
   { key: "palette.searching", old: 1, final: 0, englishOld: true },
   { key: "providers.readiness.no-provider", old: 1, final: 0, englishOld: true },
-  { key: "providers.setup.body", old: 1, final: 0, englishOld: true },
   { key: "question.context.include", old: 1, final: 0, englishOld: false },
   { key: "skills.builtIn.mind-to-report", old: 1, final: 1, englishOld: true },
   { key: "skills.make.empty", old: 1, final: 1, englishOld: true },

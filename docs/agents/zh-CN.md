@@ -40,14 +40,14 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | English | Chinese | Notes |
 |---|---|---|
 | Note | 笔记 | The place the User writes in. 篇 counts it in prose ("3 篇笔记"); a label takes no measure word: "笔记（3）", "收起笔记". Where the User first meets it (the example's banner, the first empty Note, New Note's tooltip) one sentence says what it is: "笔记：在这里写作、向文档提问，每条引文都会核对。" |
-| Assistant | 助手 | The one per window. "显示助手", "收起助手". As Kimi, Doubao and Yuanbao call themselves (智能助手, AI 助手). |
+| Assistant | 助手 | The one per window. "展开助手", "收起助手". As Kimi, Doubao and Yuanbao call themselves (智能助手, AI 助手). |
 | Conversation | 对话 | New chat is "新对话", History "历史对话", counted with 个: "3 个对话". As Doubao, Yuanbao, DeepSeek, Qwen, Feishu, Cherry Studio and Open WebUI show it. |
 | Your text | 你写的内容 | A Block the User writes, as opposed to one the assistant wrote. Today's strings use 笔记 for it too ("笔记内容", "正在搜索笔记和文档…"); the string slices replace those, so 笔记 means the Note. |
 | Block | 块 | "块选项". As Feishu does. |
 | Question | 问题 | Ask: 提问. "就此文档提问". |
 | Answer | 回答 | Generate: 生成; Regenerate: 重新生成; Stop: 停止. |
 | Question context | 上下文 | |
-| Search scope | 搜索范围 | "仅搜索", "缩小范围". |
+| Search scope | 搜索范围 | "选择搜索范围", "缩小范围". |
 | Document | 文档 | Counted with 个. |
 | Missing Document | (status) 文件缺失 | Long form: "找不到文件：引用保留原文，搜索不再包含它。" |
 | Unavailable Document | (status) 无法访问 | |
@@ -82,7 +82,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Style (a Mind's font and text size) | 样式 | "样式…" in the Mind's menu. Its parts: 字体 (font), 字号 (text size: 小、默认、大) and "设为新建 Mind 的默认样式". The three fonts are 默认, 衬线 and 等宽, as Notion's; a font the computer lacks is "此电脑未安装该字体". |
 | Format (the selection menu's Aa) | 格式 | As Word and WPS name formatting: 字体、字号; alignment 左对齐、居中、右对齐、两端对齐; 行距 with 单倍、1.15、1.5、双倍、自定义…; space around a paragraph 添加/移除段前间距, 添加/移除段后间距, as Google Docs words it; 增加缩进, 减少缩进 and 首行缩进 2 字符; 文字颜色 with 自动; 上标, 下标. A Mind's own line spacing in 样式 is 行距 too, its first choice 默认. |
 | Folder | 文件夹 | |
-| Source location | 文件位置 | The sidebar view of the files as they are on disk. |
+| Source location | 磁盘上的文件夹 | The sidebar's name for the files as they are on disk; the Library's filter names it 文件位置. |
 | Tag | 标签 | Tagging is 打标签; automatic tagging is 自动打标签. |
 | Library | 资料库 | Where the User's files live in ChatGPT (资料库), Yuanbao (资料库, 加入资料库) and LobeChat. Not 知识库, which in Feishu and Yuque is a wiki and in AI clients a collection built for one assistant. |
 | Organize | 整理 | "整理此文件夹". As Tencent Docs (批量整理文档) and Apple Notes (整理备忘录). |
@@ -102,6 +102,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Citation check | 核对 | "正在核对引文…", "无法核对". |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
+| Not found (a sentence's check) | 未找到 | The card of an unsupported sentence that nothing in the scope states: "未找到", "未在“{scope}”中找到". Never 未找到引文, which is a Citation's quote. |
 | Contradicted | 与文档矛盾 | |
 | Needs re-check | 需重新核对 | |
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
@@ -111,7 +112,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Mind's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
 | Verify (a document) | 核对文档 | The verb is 核对, as for a Citation. |
-| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意". |
+| Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Note's health counts its unsupported sentences with 处: "2 处需要留意". |
 | Mark | 标记 | |
 | Run | 运行 | |
 | Task | 任务 | |
@@ -123,6 +124,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Source (of a chart's values) | 数据来源 | Under a chart in an export, as Chinese reports caption theirs: "数据来源：". |
 | Memory | 记忆 | |
 | Meeting | 会议 | |
+| Voice memo | 语音备忘 | "录一段语音备忘"; the + menu's item is 语音备忘. As Apple's 语音备忘录, without its 录. Its note: "已写入语音备忘". |
 | Transcript | 转写稿 | |
 | Speaker | 发言人 | |
 | Me, Them, Speaker ? (a live line before speakers are told apart) | 我, 对方, 发言人 ? | "Me" is the microphone, "Them" the computer's sound, "Speaker ?" a meeting in a room, with no computer sound. |
@@ -146,12 +148,30 @@ A figure in an Answer is written as reports write it, with no space between the 
 | Unchecked figure | 未核对的数字 | |
 | Analysis | 数据分析 | Can't run: "这台电脑上无法运行数据分析：…". |
 | Sandbox (where Skill scripts and Analyses run) | 沙盒 | Never 沙箱. |
+| Analyse data… (⌘K, and the composer's chip) | 分析数据… | The chip reads 分析数据; a step that ran one, 对“{document}”运行了数据分析. |
 | Recalculate | 重新计算 | |
 | Run again | 重新运行 | |
 | percentage points | 个百分点 | A difference of two percents: "2.3个百分点", never "2.3%". |
 | about (an approximate figure) | 约 | "约1.2亿元". |
 | times (a multiple) | 倍 | "4.00倍". |
 | yes / no (what a comparison gives) | 是 / 否 | |
+
+### Finance and law
+
+The words the finance and law Skills (#1938) use, as Chinese research, banking and legal products
+write them.
+
+| English | Chinese | Notes |
+|---|---|---|
+| Covenant (financial) | 财务约定 | A term of a facility agreement: its test, its level and the latest figure. The Skill's title is 财务约定摘要. |
+| Confidential information memorandum (CIM) | 保密信息备忘录（CIM） | Its short form is 信息备忘录. The Skill's title is 信息备忘录疑点核查. |
+| Data room | 数据室 | Not 资料库, which is the Library. |
+| Red flag (a CIM claim the data room doesn't support or contradicts) | 疑点 | A claim that needs a look; not 红旗, a literal translation. |
+| Credit memo / credit committee paper | 授信报告 | Its outline is 授信报告提纲, as banks word it. |
+| Deposition | 证词 | The transcript is 证词笔录; a summary is 证词摘要. |
+| Guidance (a company's) | 业绩指引 | The forward-looking figures a company gives, as announcements and research write it. |
+| Earnings review | 业绩回顾 | The quarter against the prior period and the guidance. |
+| Chronology | 事件时间线 | The dated list of a record's events. |
 
 ### Dates and times
 

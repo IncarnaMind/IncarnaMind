@@ -879,9 +879,11 @@ export function KeyRefusedLine({ id, refused }: { id: string; refused: KeyRefusa
   const when = refused.at ? dayOf(new Date(refused.at), new Date(), language, t) : null;
   return (
     <span id={id} data-testid="provider-key-refused" role="status" className={hintClass}>
-      {refused.kind === "out-of-credit" ? t("answer.error.out-of-credit") : when
-        ? t("providers.form.keyRefused", { provider, when })
-        : t("providers.form.keyRefusedNow", { provider })}
+      {refused.kind === "out-of-credit"
+        ? t("answer.error.out-of-credit")
+        : when
+          ? t("providers.form.keyRefused", { provider, when })
+          : t("providers.form.keyRefusedNow", { provider })}
     </span>
   );
 }

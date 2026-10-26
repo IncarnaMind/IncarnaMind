@@ -16,8 +16,8 @@ import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { core } from "./core";
 import { useT } from "./i18n";
 import { useAppStore } from "./store";
-import { useUndo } from "./undo";
 import { closeTip } from "./tips";
+import { useUndo } from "./undo";
 
 interface PickerState {
   /** The Mind whose style is being chosen, and what the picker opens beside; null: closed. */

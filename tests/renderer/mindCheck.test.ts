@@ -107,10 +107,14 @@ describe("Check this Mind", () => {
     const { setCheckProblem } = await import("../../src/renderer/src/checks");
     await startCheckThisMind("mind");
     const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
-    if (problem?.kind !== "failed" || !problem.retry) throw new Error("A failed check has no retry.");
+    if (problem?.kind !== "failed" || !problem.retry)
+      throw new Error("A failed check has no retry.");
     problem.retry();
     await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalledOnce());
-    expect(bridge.planMindCheck.mock.calls).toEqual([["mind", "changed", false], ["mind", "changed", false]]);
+    expect(bridge.planMindCheck.mock.calls).toEqual([
+      ["mind", "changed", false],
+      ["mind", "changed", false],
+    ]);
   });
 
   test("a failed check retries its existing mode and scope", async () => {
@@ -119,10 +123,15 @@ describe("Check this Mind", () => {
     const { setCheckProblem } = await import("../../src/renderer/src/checks");
     await checkMind("mind", "all", { allDocuments: true });
     const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
-    if (problem?.kind !== "failed" || !problem.retry) throw new Error("A failed check has no retry.");
+    if (problem?.kind !== "failed" || !problem.retry)
+      throw new Error("A failed check has no retry.");
     problem.retry();
     await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalledTimes(2));
-    expect(bridge.checkMind.mock.calls[1]?.[0]).toMatchObject({ mindId: "mind", mode: "all", allDocuments: true });
+    expect(bridge.checkMind.mock.calls[1]?.[0]).toMatchObject({
+      mindId: "mind",
+      mode: "all",
+      allDocuments: true,
+    });
   });
 
   test("when nothing changed it asks no model and opens the card on the line that says so", async () => {

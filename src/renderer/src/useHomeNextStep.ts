@@ -1,117 +1,96 @@
-import { useEffect, useState } from "react";
-import * as Y from "yjs";
+import { useEffect, useMemo, useState } from "react";
+import type { Mind } from "../../core/api";
 import { answerBlocks, hasText } from "../../shared/answerBlocks";
 import { useChecks } from "./checks";
 import { useConversations } from "./conversations";
 import { core } from "./core";
-import { useHomeChanges, useOwnMinds } from "./home";
-import {
-  chooseHomeNextStep,
-  type HomeAnswer,
-  type HomeNote,
-  type HomeSavedWord,
-  ownAnswer,
-} from "./homeNextStep";
-import { type NoteState, readNoteState } from "./noteState";
-import { allExamples, useAppStore } from "./store";
+import { useHomeChanges } from "./home";
+import { chooseHomeNextStep, type HomeAnswer, type HomeSavedWord, ownAnswer } from "./homeNextStep";
+import type { NoteReading } from "./noteState";
+import { allExamples, isOwnDocument, useAppStore } from "./store";
 
-export function useHomeNextStep(exported: boolean, saved: HomeSavedWord | null) {
-  const minds = useOwnMinds();
+/**
+ * Home's next step from the data Home already has: the User's most recently updated own note,
+ * their own Answers no note holds, and the state of their notes. Null while that is not known.
+ */
+export function useHomeNextStep(
+  minds: readonly Mind[],
+  notes: ReadonlyMap<string, NoteReading>,
+  exported: boolean,
+  saved: HomeSavedWord | null,
+) {
   const conversations = useConversations((state) => state.list);
-  const documents = useAppStore((state) => state.documents);
-  const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
   const examples = useAppStore((state) =>
     allExamples(state)
-      .map((each) => `${each.answerId}:${each.linkedFolderId}`)
+      .map((each) => each.answerId ?? "")
       .join("|"),
   );
   const revision = useHomeChanges();
   const running = useChecks((state) => state.running);
   const problems = useChecks((state) => state.problems);
-  const [source, setSource] = useState<{
-    notes: ReadonlyMap<string, NoteState>;
-    answers: HomeAnswer[];
-  } | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a saved change can alter health or an Answer's filing without changing a title.
+  const hasDocuments = useAppStore((state) =>
+    state.documents.some((document) => isOwnDocument(document, allExamples(state))),
+  );
+  const [made, setMade] = useState<HomeAnswer[] | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a saved change can finish an Answer without changing the list.
   useEffect(() => {
     let current = true;
-    const read = async () => {
-      const [notes, contents] = await Promise.all([
-        Promise.all(
-          minds.map(async (mind) => {
-            const opened = await core.openMind(mind.id);
-            const doc = new Y.Doc();
-            try {
-              if (opened.access === "update-required") return [mind.id, null] as const;
-              Y.applyUpdate(doc, opened.state);
-              return [
-                mind.id,
-                readNoteState({ doc, documents, keptCitationTexts, folderId: mind.folderId }),
-              ] as const;
-            } finally {
-              doc.destroy();
-              await core.closeMind(mind.id);
-            }
-          }),
-        ),
-        Promise.all(conversations.map((conversation) => core.getConversation(conversation.id))),
-      ]);
-      const filed = new Set(notes.flatMap(([, note]) => (note ? [...note.filedAnswers] : [])));
-      const excluded = new Set(
-        allExamples(useAppStore.getState()).flatMap((each) =>
-          each.answerId ? [each.answerId] : [],
-        ),
-      );
-      const answers = contents.flatMap(({ messages }) =>
-        messages.flatMap((answer) =>
-          answer.kind === "answer" &&
-          ownAnswer(answer, excluded) &&
-          !filed.has(answer.id) &&
-          hasText(answerBlocks(answer))
-            ? [
-                {
-                  id: answer.id,
-                  conversationId: answer.conversationId,
-                  updatedAt: answer.updatedAt,
-                },
-              ]
-            : [],
-        ),
-      );
-      if (current)
-        setSource({
-          notes: new Map(notes.flatMap(([id, note]) => (note ? [[id, note] as const] : []))),
-          answers,
-        });
-    };
-    void read().catch((error: unknown) => {
-      if (current) useAppStore.getState().reportError(error);
-    });
+    const examplesNow = () =>
+      new Set(allExamples(useAppStore.getState()).flatMap((each) => each.answerId ?? []));
+    Promise.all(conversations.map((conversation) => core.getConversation(conversation.id)))
+      .then((contents) => {
+        if (!current) return;
+        const excluded = examplesNow();
+        setMade(
+          contents.flatMap(({ messages }) =>
+            messages.flatMap((answer) =>
+              answer.kind === "answer" &&
+              ownAnswer(answer, excluded) &&
+              hasText(answerBlocks(answer))
+                ? [
+                    {
+                      id: answer.id,
+                      conversationId: answer.conversationId,
+                      updatedAt: answer.updatedAt,
+                    },
+                  ]
+                : [],
+            ),
+          ),
+        );
+      })
+      .catch((error: unknown) => {
+        if (current) useAppStore.getState().reportError(error);
+      });
     return () => {
       current = false;
     };
-  }, [minds, conversations, documents, keptCitationTexts, examples, revision]);
-  if (!source) return null;
-  const mind = minds[0];
-  const state = mind && source.notes.get(mind.id);
-  const note: HomeNote | null =
-    mind && state
-      ? {
-          mind,
-          health: state.health,
-          busy: running[mind.id] !== undefined,
-          problem: problems[mind.id] !== undefined,
-        }
-      : null;
-  const exampleFolders = new Set(
-    allExamples(useAppStore.getState()).map((each) => each.linkedFolderId),
+  }, [conversations, examples, revision]);
+  const filed = useMemo(
+    () => new Set([...notes.values()].flatMap((note) => [...note.filedAnswers])),
+    [notes],
   );
+  const answers = useMemo(
+    () => (made === null ? null : made.filter((answer) => !filed.has(answer.id))),
+    [made, filed],
+  );
+  const latest = minds[0];
+  if (answers === null) return null;
+  // Still reading that note, or its content this version can't read: no step rather than a wrong one.
+  const reading = latest ? notes.get(latest.id) : undefined;
+  if (latest && !reading) return null;
   return chooseHomeNextStep({
-    hasDocuments: documents.some(
-      (document) => !document.linkedFolderId || !exampleFolders.has(document.linkedFolderId),
-    ),
-    answers: source.answers,
-    note,
+    hasDocuments,
+    answers,
+    note:
+      latest && reading
+        ? {
+            mind: latest,
+            health: reading.health,
+            busy: running[latest.id] !== undefined,
+            problem: problems[latest.id] !== undefined,
+          }
+        : null,
     exported,
     saved,
   });

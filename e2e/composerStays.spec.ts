@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -18,6 +19,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  sidebarFolder,
   tabMenu,
 } from "./app";
 
@@ -53,13 +55,18 @@ test.afterEach(async () => {
   await removeDataFolder(home);
 });
 
-async function start(width: number, height: number, language: "en" | "zh-CN" = "en") {
+async function start(
+  width: number,
+  height: number,
+  language: "en" | "zh-CN" = "en",
+  additional: readonly string[] = [],
+) {
   const { app, window } = await launchApp(dataDir, { fakeChat: true, home });
   await setWindowSize(app, window, width, height);
   await dismissChatSetup(window);
   await connectLocalChatModel(window);
   await writeFile(join(sources, "Tides.pdf"), TIDES);
-  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  await addDocuments(window, [join(sources, "Tides.pdf"), ...additional]);
   if (language !== "en") await setLanguage(window, language);
   return { app, window };
 }
@@ -155,6 +162,285 @@ test("a follow-up from a Document's tab is answered from All Documents, and Add 
   await expect(mindEditor.locator(":scope > p")).toHaveText(["Spring tides come twice a month."]);
   await app.close();
 });
+
+async function storedScopes(window: Page) {
+  return window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [conversation] = await bridge.listConversations();
+    if (!conversation) return [];
+    const { messages } = await bridge.getConversation(conversation.id);
+    return messages.flatMap((message) => {
+      if (message.kind !== "question") return [];
+      const scope = message.scope ?? { folderIds: [], tagIds: [], documentIds: [] };
+      return [
+        {
+          folderIds: [...scope.folderIds],
+          tagIds: [...scope.tagIds],
+          documentIds: [...scope.documentIds].sort(),
+        },
+      ];
+    });
+  });
+}
+
+async function openCitation(window: Page, answer: Locator, keyboard = false) {
+  const chip = answer.getByTestId("citation-chip").first();
+  if (keyboard) {
+    await chip.focus();
+    await window.keyboard.press("Enter");
+  } else {
+    await pointAndClick(window, chip);
+  }
+  const card = window.getByTestId("citation-card");
+  if (await card.isVisible()) {
+    const open = card.getByTestId("citation-open");
+    if (keyboard) {
+      await open.focus();
+      await window.keyboard.press("Enter");
+    } else {
+      await pointAndClick(window, open);
+    }
+  }
+  await expect(window.getByTestId("viewer")).toBeVisible();
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`an explicit Document scope survives checking a Citation and a follow-up (${language})`, async () => {
+    const cedarFinal = join(sources, "Cedar final.txt");
+    const cedarNotes = join(sources, "Cedar notes.txt");
+    await writeFile(
+      cedarFinal,
+      "Neap tides are the smallest of the month.\nSpring tides happen at new moon and at full moon.\n",
+    );
+    await writeFile(
+      cedarNotes,
+      "The Cedar review notes the same tide dates.\nSpring tides happen at new moon and at full moon.\n",
+    );
+    const { app, window } = await start(1600, 900, language, [cedarFinal, cedarNotes]);
+    try {
+      await writeMind(window, "Tide notes", "Check the Cedar evidence before asking again.");
+      await pointAndClick(window, window.getByTestId("open-library"));
+      const library = window.getByTestId("library");
+      const finalRow = library.getByTestId("library-document").filter({ hasText: "Cedar final" });
+      const notesRow = library.getByTestId("library-document").filter({ hasText: "Cedar notes" });
+      await pointAndClick(window, finalRow.locator("[data-row-main]"), {
+        modifiers: ["ControlOrMeta"],
+      });
+      await pointAndClick(window, notesRow.locator("[data-row-main]"), {
+        modifiers: ["ControlOrMeta"],
+      });
+      await expect(library.getByTestId("library-selection")).toBeVisible();
+      const expectedIds = [
+        await finalRow.getAttribute("data-document-id"),
+        await notesRow.getAttribute("data-document-id"),
+      ]
+        .filter((id): id is string => id !== null)
+        .sort();
+      expect(expectedIds).toHaveLength(2);
+      await pointAndClick(
+        window,
+        library.getByTestId("library-selection").locator('[data-command="document.ask"]'),
+      );
+      const composer = window.getByTestId("composer");
+      const chips = composer.getByTestId("scope-chip");
+      await expect(chips).toHaveCount(2);
+      const restricted = { folderIds: [], tagIds: [], documentIds: expectedIds };
+      const everywhere = { folderIds: [], tagIds: [], documentIds: [] };
+
+      const first = await ask(window, "When do spring tides happen?");
+      await expect(first.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched 2 files" : "已搜索所选的 2 个文件",
+      );
+      await expect(first.getByTestId("citation-chip").first()).toHaveAttribute(
+        "data-check",
+        "found",
+      );
+      expect(await storedScopes(window)).toEqual([restricted]);
+
+      await setWindowSize(app, window, 900, 760);
+      await openCitation(window, first);
+      const citedId = await window
+        .locator('[data-testid="document-tab"][aria-selected="true"]')
+        .getAttribute("data-document-id");
+      if (!citedId) throw new Error("The cited Document tab has no id.");
+      await screenshot(window, `citation-scope-${language}`);
+      await expect(chips).toHaveCount(2);
+      await openCitation(window, first, true);
+      await expect(chips).toHaveCount(2);
+      const second = await ask(window, "And when are neap tides?");
+      await expect(second.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched 2 files" : "已搜索所选的 2 个文件",
+      );
+      expect(await storedScopes(window)).toEqual([restricted, restricted]);
+
+      await pointAndClick(window, window.getByTestId("open-library"));
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      await ask(window, "When do spring tides happen, anywhere?");
+      expect(await storedScopes(window)).toEqual([restricted, restricted, everywhere]);
+      await pointAndClick(window, window.getByTestId("sidebar-home"));
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      await ask(window, "When do spring tides happen, anywhere?");
+      expect(await storedScopes(window)).toEqual([restricted, restricted, everywhere, everywhere]);
+
+      await pointAndClick(window, window.getByTestId("open-library"));
+      await pointAndClick(
+        window,
+        library.locator(`[data-document-id="${citedId}"] [data-row-main]`),
+      );
+      await expect(window.getByTestId("viewer")).toBeVisible();
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const direct = await ask(window, "When do spring tides happen, anywhere?");
+      await expect(direct.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched All Documents" : "已搜索全部文档",
+      );
+      expect(await storedScopes(window)).toEqual([
+        restricted,
+        restricted,
+        everywhere,
+        everywhere,
+        everywhere,
+      ]);
+
+      await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "Tide notes" }));
+      await newMind(window);
+      await openCitation(window, first);
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const defaultAnswer = await ask(window, "When do spring tides happen, anywhere?");
+      await expect(defaultAnswer.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched All Documents" : "已搜索全部文档",
+      );
+      expect(await storedScopes(window)).toEqual([
+        restricted,
+        restricted,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+      ]);
+      const tideTab = window.getByTestId("mind-tab").filter({ hasText: "Tide notes" });
+      await tideTab.click();
+      await expect(tideTab).toHaveAttribute("aria-selected", "true");
+      await expect(window.getByTestId("mind-editor")).toBeVisible();
+      await expect(chips).toHaveCount(2);
+      await openCitation(window, first, true);
+      await expect(chips).toHaveCount(2);
+
+      for (let index = 0; index < 2; index++) {
+        await pointAndClick(window, chips.first().getByTestId("scope-chip-remove"));
+      }
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const third = await ask(window, "When do spring tides happen, anywhere?");
+      await expect(third.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched All Documents" : "已搜索全部文档",
+      );
+      expect(await storedScopes(window)).toEqual([
+        restricted,
+        restricted,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+      ]);
+      await tideTab.click();
+      await expect(tideTab).toHaveAttribute("aria-selected", "true");
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const fourth = await ask(window, "When do spring tides happen, one last time?");
+      await expect(fourth.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched All Documents" : "已搜索全部文档",
+      );
+      expect(await storedScopes(window)).toEqual([
+        restricted,
+        restricted,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+        everywhere,
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a Folder Note's own Folder scope survives Citation inspection (${language})`, async () => {
+    const cedarFinal = join(sources, "Cedar final.txt");
+    await writeFile(cedarFinal, "Spring tides happen at new moon and at full moon.\n");
+    const { app, window } = await start(900, 760, language, [cedarFinal]);
+    try {
+      const folderId = await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const folder = await bridge.createLibraryGroup({ name: "Cedar review", description: "" });
+        const document = (await bridge.listDocuments()).find((each) => each.name === "Cedar final");
+        if (!document) throw new Error("Cedar final is missing.");
+        await bridge.assignDocumentGroup(document.id, folder.id);
+        return folder.id;
+      });
+      const folder = sidebarFolder(window, "Cedar review");
+      await folder.getByTestId("folder-row").click({ button: "right" });
+      await folder.getByTestId("folder.newMind").click();
+      const composer = window.getByTestId("composer");
+      const chips = composer.getByTestId("scope-chip");
+      await expect(chips).toHaveAttribute("data-id", folderId);
+      await expect(chips).toHaveAttribute("data-own", "true");
+      const expected = { folderIds: [folderId], tagIds: [], documentIds: [] };
+      const everywhere = { folderIds: [], tagIds: [], documentIds: [] };
+
+      const first = await ask(window, "When do spring tides happen?");
+      await expect(first.getByTestId("citation-chip").first()).toHaveAttribute(
+        "data-check",
+        "found",
+      );
+      expect(await storedScopes(window)).toEqual([expected]);
+      await openCitation(window, first);
+      await expect(chips).toHaveText("Cedar review");
+      await expect(chips).toHaveAttribute("data-id", folderId);
+      await expect(chips).toHaveAttribute("data-own", "true");
+      await ask(window, "When do spring tides happen, again?");
+      expect(await storedScopes(window)).toEqual([expected, expected]);
+
+      const emptyFolderId = await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const folder = await bridge.createLibraryGroup({ name: "Empty review", description: "" });
+        return folder.id;
+      });
+      expect(emptyFolderId).not.toBe("");
+      const emptyFolder = sidebarFolder(window, "Empty review");
+      await emptyFolder.getByTestId("folder-row").click({ button: "right" });
+      await emptyFolder.getByTestId("folder.newMind").click();
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const emptyFirst = await ask(window, "When do spring tides happen, anywhere?");
+      await openCitation(window, emptyFirst);
+      await expect(composer.getByTestId("composer-scope-all")).toHaveText(
+        language === "en" ? "All Documents" : "全部文档",
+      );
+      const emptySecond = await ask(window, "When do spring tides happen, again?");
+      await expect(emptySecond.getByTestId("answer-steps")).toContainText(
+        language === "en" ? "Searched All Documents" : "已搜索全部文档",
+      );
+      expect(await storedScopes(window)).toEqual([expected, expected, everywhere, everywhere]);
+    } finally {
+      await app.close();
+    }
+  });
+}
 
 test("with the Library in front and no Mind open, a Question is answered from All Documents, and Add to note → New Mind makes a Mind beside the Library", async () => {
   const { app, window } = await start(1440, 900);

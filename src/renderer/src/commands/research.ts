@@ -23,7 +23,7 @@ export const researchCommands: readonly Command[] = [
     run: () => {
       const { seat, update } = useComposer.getState();
       if (!seat) return;
-      update(seat.mindId, { research: true, skill: null });
+      update(seat.mindId, { research: true, skill: null, analyse: false });
       focusComposer();
     },
   },

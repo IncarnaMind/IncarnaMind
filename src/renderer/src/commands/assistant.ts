@@ -1,5 +1,4 @@
 import type { AssistantDock, ConversationAnswer } from "../../../core/api";
-import { billingUrlOf, catalogProviderOf } from "../../../core/providers/catalog/providers";
 import { answerBlocks, hasText } from "../../../shared/answerBlocks";
 import type { MessageKey } from "../../../shared/i18n";
 import { addAnswer } from "../addToNote";
@@ -19,16 +18,16 @@ import {
 } from "../conversations";
 import { requestEditField } from "../editor/selectionCommands";
 import { startEditing } from "../editWithAi";
-import { useKeyRefusals } from "../keyRefusals";
+import { billingUrlOfProvider, keyProviderOf, useKeyRefusals } from "../keyRefusals";
 import { assistantTabOf, groupsMerged } from "../layoutSlice";
-import { useAppStore } from "../store";
+import { exampleMindIds, useAppStore } from "../store";
 import { assistantHandle, noteHandle, viewerSelectionHandle } from "./handles";
 import type { Command } from "./registry";
 
 /*
  * The assistant's commands (#253, #201): where it sits, folding it, ⌘J to its
  * composer, New chat and History; adding, copying, regenerating and stopping
- * an Answer, the last Answer to a new Mind, and clearing the conversation.
+ * an Answer, writing the last Answer as a note, and clearing the conversation.
  * Its ⋯ menu, its header and rail, its Answers' buttons and ⌘K run these, so
  * each has a keyboard and a menu way beside the drag.
  */
@@ -108,26 +107,30 @@ const keepable = (answer: ConversationAnswer | undefined): answer is Conversatio
   answer !== undefined && hasText(answerBlocks(answer));
 
 const noAnswer = (): true | { reason: MessageKey } =>
-  keepable(answerInFocus()) ? true : { reason: "assistant.lastToNewMind.unavailable" };
+  keepable(answerInFocus()) ? true : { reason: "assistant.writeNote.unavailable" };
+
+function providerInFocus() {
+  const providerId = answerInFocus()?.model?.providerId;
+  return useAnswers.getState().models?.find((group) => group.provider.id === providerId)?.provider;
+}
 
 function creditInFocus() {
   const answer = answerInFocus();
   if (answer?.status !== "failed" || answer.errorKind !== "out-of-credit") return null;
-  const provider = useAnswers.getState().models?.find((group) => group.provider.id === answer.model?.providerId)?.provider;
-  const catalog = provider && catalogProviderOf(provider.kind, provider.catalogId);
-  const url = catalog && billingUrlOf(catalog, provider.endpoint);
+  const url = billingUrlOfProvider(providerInFocus());
   return url ? { answer, url } : null;
 }
 
 /**
- * ⌘⇧A: adds the Answer in focus, or the newest, to the Mind in focus, as its
- * Add to note does; with no Mind in focus, its ▾ opens to choose one.
+ * ⌘⇧A: adds the Answer in focus, or the newest, to the note in focus, as its
+ * Add to note does; with no note in focus, or the example, its ▾ opens to
+ * choose one.
  */
 function addAnswerInFocus(): void {
   const answer = answerInFocus();
   if (!keepable(answer)) return;
   const item = assistantTabOf(store().layout, groupsMerged())?.item;
-  if (item?.kind !== "mind") {
+  if (item?.kind !== "mind" || exampleMindIds(store()).includes(item.mindId)) {
     if (folded()) void store().placeAssistant({ folded: false });
     document
       .querySelector<HTMLElement>(`[data-answer-id="${answer.id}"] [data-testid="answer-add-to"]`)
@@ -144,8 +147,8 @@ function addAnswerInFocus(): void {
   );
 }
 
-/** New Mind under the Answer in focus, or the newest (#1559), as Add to note ▾ → New Mind does. */
-function lastToNewMind(): void {
+/** "Write as a note" under the Answer in focus, or the newest (#1940): it makes the note beside the Answer. */
+function writeAsNote(): void {
   const answer = answerInFocus();
   if (!keepable(answer)) return;
   const conversation = conversationById(answer.conversationId);
@@ -231,7 +234,7 @@ export const assistantCommands: readonly Command[] = [
     // As Regenerate in a Mind: the Answer is written again in its place.
     reversible: true,
     when: isThere,
-    enabled: () => (answerInFocus() ? true : { reason: "assistant.lastToNewMind.unavailable" }),
+    enabled: () => (answerInFocus() ? true : { reason: "assistant.writeNote.unavailable" }),
     run: () => {
       const answer = answerInFocus();
       if (answer) void regenerateAnswer(answer.id);
@@ -264,24 +267,48 @@ export const assistantCommands: readonly Command[] = [
     run: stopWriting,
   },
   {
-    id: "assistant.lastToNewMind",
-    label: "assistant.lastToNewMind",
+    id: "assistant.writeNote",
+    label: "assistant.writeNote",
     group: "main",
-    // Filling the empty Mind in front is one step of its Undo; a Mind it makes, Delete takes back.
+    // Filling the empty Mind in front is one step of its Undo; what a Mind it makes holds is too.
     reversible: true,
     when: isThere,
     enabled: noAnswer,
-    run: lastToNewMind,
+    run: writeAsNote,
   },
   {
-    id: "answer.addCredit", label: "answer.error.addCredit", group: "main", reversible: true,
+    id: "answer.addCredit",
+    label: "answer.error.addCredit",
+    group: "main",
+    reversible: true,
     when: () => isThere() && creditInFocus() !== null,
-    run: () => { const credit = creditInFocus(); if (credit) useKeyRefusals.getState().openBilling(credit.answer.model?.providerId ?? null, credit.url); },
+    run: () => {
+      const credit = creditInFocus();
+      if (!credit) return;
+      useKeyRefusals.getState().openBilling(credit.answer.model?.providerId ?? null, credit.url);
+    },
   },
   {
-    id: "answer.useAnotherKey", label: "answer.error.useAnotherKey", group: "main", reversible: true,
-    when: () => isThere() && answerInFocus()?.errorKind === "out-of-credit",
-    run: () => { const answer = answerInFocus(); if (answer) return useKeyRefusals.getState().check(answer.model?.providerId ?? null, answer.model?.modelId ?? "", answer.updatedAt, "out-of-credit"); },
+    id: "answer.useAnotherKey",
+    label: "answer.error.useAnotherKey",
+    group: "main",
+    reversible: true,
+    when: () =>
+      isThere() &&
+      keyProviderOf(providerInFocus()) !== null &&
+      answerInFocus()?.errorKind === "out-of-credit",
+    run: () => {
+      const answer = answerInFocus();
+      if (!answer) return;
+      return useKeyRefusals
+        .getState()
+        .check(
+          answer.model?.providerId ?? null,
+          answer.model?.modelId ?? "",
+          answer.updatedAt,
+          "out-of-credit",
+        );
+    },
   },
   {
     id: "assistant.clear",

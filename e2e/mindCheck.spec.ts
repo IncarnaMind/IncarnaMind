@@ -8,6 +8,7 @@ import {
   acceptPlainTextKeys,
   addDocuments,
   checkCard,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -19,7 +20,6 @@ import {
   setLanguage,
   setWindowSize,
   slideSelect,
-  useLocalChatModel,
 } from "./app";
 
 /*
@@ -106,27 +106,48 @@ async function harbourNotes(window: Page) {
 
 const marks = (window: Page) => window.getByTestId("claim-mark");
 
+const mindCheckFinished = (window: Page, claims: number) =>
+  window.waitForFunction((count) => {
+    const card = document.querySelector('[data-testid="check-card"]');
+    const marks = document.querySelectorAll('[data-testid="claim-mark"]');
+    return (
+      card !== null &&
+      marks.length === count &&
+      [...marks].every((mark) => mark.getAttribute("data-check") !== "checking") &&
+      card.querySelector('[data-testid="card-progress"]') === null
+    );
+  }, claims);
+
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a temporarily unavailable check has a plain failure and a working retry (${language})`, async () => {
+  test(`a temporarily unavailable check says the problem in one line and Try again does it (${language})`, async () => {
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await dismissChatSetup(window);
-      await useLocalChatModel(window);
+      await connectLocalChatModel(window);
       await setLanguage(window, language);
       await setWindowSize(app, window, 900, 800);
       await addDocuments(window, [join(sources, "Tides.pdf")]);
-      await mindWrittenBefore(window, "Tide note", [{ note: "Spring tides come at new moon and at full moon." }]);
+      await mindWrittenBefore(window, "Tide note", [
+        { note: "Spring tides come at new moon and at full moon." },
+      ]);
       await window.getByTestId("mind-list-item").filter({ hasText: "Tide note" }).click();
       await app.evaluate(({ ipcMain }) => {
         const channel = "core:planMindCheck";
-        const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown> })._invokeHandlers;
+        const handlers = (
+          ipcMain as unknown as {
+            _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+          }
+        )._invokeHandlers;
         const original = handlers.get(channel);
         if (!original) throw new Error("The check handler is unavailable.");
         let fail = true;
         ipcMain.removeHandler(channel);
         ipcMain.handle(channel, (event, ...args) => {
-          if (fail) { fail = false; throw new Error("Checking is temporarily unavailable."); }
+          if (fail) {
+            fail = false;
+            throw new Error("Checking is temporarily unavailable.");
+          }
           return original(event, ...args);
         });
       });
@@ -141,14 +162,16 @@ for (const language of ["en", "zh-CN"] as const) {
         const box = await retry.boundingBox();
         if (!box) throw new Error("Retry is not drawn.");
         expect(box.x + box.width).toBeLessThanOrEqual(width);
-        await screenshot(window, `home-check-failed-${language}-${width}`);
+        await screenshot(window, `check-failed-${language}-${width}`);
       }
       await retry.focus();
       await window.keyboard.press("Enter");
       await expect(problem).toHaveCount(0);
       await window.getByTestId("mind-check-ask").getByTestId("mind-check-check").click();
       await expect(marks(window)).toHaveAttribute("data-check", "supported");
-    } finally { await app.close(); }
+    } finally {
+      await app.close();
+    }
   });
 }
 
@@ -202,6 +225,7 @@ test("Check this Mind from ⌘K: the estimate first on a cloud model, then every
   await checkCard(window);
   await screenshot(window, "mind-check-ask-en");
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
+  await mindCheckFinished(window, 15);
 
   const health = window.getByTestId("check-card");
   await expect(health.getByTestId("health-checked-all")).toContainText("Checked 15 claims, ");
@@ -244,6 +268,8 @@ test("Check this Mind from ⌘K: the estimate first on a cloud model, then every
   );
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
+  // Every sentence again is offered once that check is done.
+  await expect(marks(window).and(window.locator('[data-check="checking"]'))).toHaveCount(0);
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
   await window.keyboard.type("check every sentence");
@@ -265,7 +291,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   );
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
-  await useLocalChatModel(window);
+  await connectLocalChatModel(window);
   await addDocuments(window, [join(sources, "Tides.pdf"), join(sources, "Garden.pdf")]);
   await harbourNotes(window);
   // The Mind's Folder holds only the garden notes; the Tides PDF is outside it.
@@ -292,6 +318,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await expect(ask).not.toContainText("约");
   await checkCard(window);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
+  await mindCheckFinished(window, 15);
   await expect(health.getByTestId("health-checked-all")).toContainText("已核对 15 条说法，");
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(15);
 
@@ -307,7 +334,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(widen).toHaveCount(0);
   await expect(marks(window)).toHaveCount(15);
-  await expect(health.getByTestId("health-unsupported")).toContainText("11 条无依据");
+  await expect(health.getByTestId("health-unsupported")).toContainText("11 处需要留意");
   await screenshot(window, "mind-check-done-zh-narrow");
 
   // A sentence written since: "核对此 Mind" checks it alone, and the rest stay as they were.
@@ -334,7 +361,7 @@ test("when the provider can't be reached while the claims are named, Try again n
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   // The scripted model can't reach its provider the first time it names the claims.
-  await useLocalChatModel(window, "fake-model-claims-offline");
+  await connectLocalChatModel(window, "fake-model-claims-offline");
   await setWindowSize(app, window, 1440, 900);
   await addDocuments(window, [join(sources, "Tides.pdf")]);
   await harbourNotes(window);
@@ -450,7 +477,7 @@ test("the line that says nothing changed goes when a Document is edited, moved o
   );
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
-  await useLocalChatModel(window);
+  await connectLocalChatModel(window);
   await setWindowSize(app, window, 1440, 900);
   await addDocuments(window, [join(sources, "Tides.pdf"), join(sources, "Garden.pdf")]);
   await harbourNotes(window);

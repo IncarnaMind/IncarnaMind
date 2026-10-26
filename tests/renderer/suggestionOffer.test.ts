@@ -34,11 +34,31 @@ beforeAll(async () => {
 const settings = (on = false, offers = 0) =>
   ({
     user: { language: "en", chatModel: null, suggestWhileWriting: on },
-    device: { suggestionOffers: offers, gettingStarted: { started: false, citationChecked: false, mistakeSeen: false, indexed: false, askedOwn: false, askedReady: false, exported: false, hidden: false } },
+    device: {
+      suggestionOffers: offers,
+      gettingStarted: {
+        started: false,
+        citationChecked: false,
+        mistakeSeen: false,
+        indexed: false,
+        askedOwn: false,
+        askedReady: false,
+        exported: false,
+        hidden: false,
+      },
+    },
     language: "en",
   }) as unknown as Settings;
 
-const mind = (id: string): Mind => ({ id, title: id, autoTitle: "", kind: "mind", folderId: "folder", createdAt: "", updatedAt: "" });
+const mind = (id: string): Mind => ({
+  id,
+  title: id,
+  autoTitle: "",
+  kind: "mind",
+  folderId: "folder",
+  createdAt: "",
+  updatedAt: "",
+});
 
 const TWO_SENTENCES =
   "The harbour survey depends on the tides. Spring tides come twice a month, near the full moon";
@@ -52,7 +72,8 @@ beforeEach(() => {
   useAppStore.setState({
     settings: settings(),
     minds: [mind("mind"), mind("second")],
-    examples: null, otherExamples: [],
+    examples: null,
+    otherExamples: [],
   });
 });
 
@@ -63,19 +84,44 @@ describe("a pause while suggestions are off", () => {
   test("the first own note and examples wait, even with an export preference; the shared export milestone releases the offer", async () => {
     const one = settings();
     useAppStore.setState({
-      settings: { ...one, user: { ...one.user, exportOptions: { ...one.user.exportOptions, citationPlace: "footnotes" } } },
+      settings: {
+        ...one,
+        user: {
+          ...one.user,
+          exportOptions: { ...one.user.exportOptions, citationPlace: "footnotes" },
+        },
+      },
       minds: [mind("mind"), mind("example")],
-      examples: { group: "credit", available: true, mindId: "example", linkedFolderId: "examples", answerId: "example-answer", more: [], ready: null } satisfies Examples,
+      examples: {
+        group: "credit",
+        available: true,
+        mindId: "example",
+        linkedFolderId: "examples",
+        answerId: "example-answer",
+        more: [],
+        ready: null,
+      } satisfies Examples,
     });
     suggestNext.mockResolvedValue({ kind: "off", scopeHasDocuments: true });
     expect(await ask()).toBeNull();
     expect(suggestNext).not.toHaveBeenCalled();
     const current = useAppStore.getState().settings;
     if (!current) throw new Error("Settings have not loaded.");
-    useAppStore.setState({ settings: { ...current, device: { ...current.device, gettingStarted: { ...current.device.gettingStarted, exported: true } } } });
+    useAppStore.setState({
+      settings: {
+        ...current,
+        device: {
+          ...current.device,
+          gettingStarted: { ...current.device.gettingStarted, exported: true },
+        },
+      },
+    });
     expect(await ask()).toBeNull();
     expect(suggestNext).toHaveBeenCalledOnce();
-    expect(suggestions.useSuggestionOffer.getState().shown).toEqual({ mindId: "mind", line: "offer" });
+    expect(suggestions.useSuggestionOffer.getState().shown).toEqual({
+      mindId: "mind",
+      line: "offer",
+    });
   });
 
   test("offers to turn them on once a few sentences are written in a Mind whose scope has Documents", async () => {

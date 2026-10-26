@@ -79,7 +79,6 @@ describe("Settings", () => {
       device: {
         sidebarWidth: 248,
         sidebarHidden: false,
-        chatSetupDismissed: false,
         sandboxNoticeDismissed: false,
         openedBefore: false,
         gettingStarted: {
@@ -91,6 +90,7 @@ describe("Settings", () => {
           askedReady: false,
           exported: false,
           hidden: false,
+          seen: false,
         },
         skillScriptsEnabled: true,
         skillScriptTimeoutSeconds: 60,
@@ -189,7 +189,6 @@ describe("Settings", () => {
     expect(settings.device).toEqual({
       sidebarWidth: 320,
       sidebarHidden: false,
-      chatSetupDismissed: false,
       sandboxNoticeDismissed: false,
       openedBefore: false,
       gettingStarted: {
@@ -201,6 +200,7 @@ describe("Settings", () => {
         askedReady: false,
         exported: false,
         hidden: false,
+        seen: false,
       },
       skillScriptsEnabled: true,
       skillScriptTimeoutSeconds: 60,
@@ -355,6 +355,7 @@ describe("Settings", () => {
       ...kept,
       askedReady: false,
       exported: false,
+      seen: false,
     });
   });
 
@@ -383,6 +384,7 @@ describe("Settings", () => {
         exported: false,
         citationChecked,
         mistakeSeen,
+        seen: false,
       });
       after.close();
     }
@@ -438,7 +440,6 @@ describe("Settings", () => {
     const device = {
       sidebarWidth: 300,
       sidebarHidden: true,
-      chatSetupDismissed: true,
       sandboxNoticeDismissed: true,
       openedBefore: true,
       gettingStarted: {
@@ -450,6 +451,7 @@ describe("Settings", () => {
         askedReady: true,
         exported: true,
         hidden: true,
+        seen: false,
       },
       skillScriptsEnabled: false,
       skillScriptTimeoutSeconds: 15,

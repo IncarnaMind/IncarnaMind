@@ -4,8 +4,8 @@ import { shortcutLabel } from "../commands/keymap";
 import { CheckMarkIcon } from "../editor/icons";
 import { useGap, useT } from "../i18n";
 import { useLaterPromptsAllowed } from "../laterPrompts";
-import { closeTip, useFeatureTip } from "../tips";
 import { allExamples, useAppStore } from "../store";
+import { closeTip, useFeatureTip } from "../tips";
 import { useAddYourDocuments } from "./AddYourDocuments";
 import { AskIcon, PlugIcon } from "./icons";
 import { SLOT, Slotted } from "./Slotted";
@@ -212,12 +212,23 @@ export function StartGuide({ mindId }: { mindId: string }) {
               {t("startGuide.documents.addFiles")}
             </button>
           </div>
-          {connect && <Tip id="connect-app" onClose={() => closeTip("connect-app")}>
-            {t("startGuide.documents.apps")}{" "}
-            <button type="button" data-testid="start-connect-app" onClick={() => { closeTip("connect-app"); openSettings("connectors"); }} className="inline-flex items-center gap-1 rounded-sm font-semibold text-accent underline-offset-2 hover:underline">
-              <PlugIcon className="size-3.5" />{t("startGuide.documents.connectApp")}
-            </button>
-          </Tip>}
+          {connect && (
+            <Tip id="connect-app" onClose={() => closeTip("connect-app")}>
+              {t("startGuide.documents.apps")}{" "}
+              <button
+                type="button"
+                data-testid="start-connect-app"
+                onClick={() => {
+                  closeTip("connect-app");
+                  openSettings("connectors");
+                }}
+                className="inline-flex items-center gap-1 rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+              >
+                <PlugIcon className="size-3.5" />
+                {t("startGuide.documents.connectApp")}
+              </button>
+            </Tip>
+          )}
         </GuideStep>
 
         <GuideStep number={2} state={stateOf(1)} title={t("startGuide.ask.title")}>

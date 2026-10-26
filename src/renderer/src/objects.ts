@@ -16,7 +16,9 @@ export const OBJECT_KINDS = [
   "deleted",
   "citation",
   "chart",
+  "comparisonColumn",
   "answer",
+  "check",
   "block",
   "tab",
 ] as const;

@@ -11,6 +11,7 @@ vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: vi.fn() }));
 vi.mock("../../src/renderer/src/i18n", () => ({ translateNow: (key: string) => key }));
 
 const { figureFix } = await import("../../src/renderer/src/unsupportedFixes");
+const { translate } = await import("../../src/shared/i18n");
 
 const calculation = (
   stated: string,
@@ -49,6 +50,21 @@ describe("Use {figure} (#1247)", () => {
     const fix = figureFix(calculation("1.1x", "1.31x"), sentence);
     expect(fix).not.toBeNull();
     expect(sentence.slice(fix?.from, fix?.to)).toBe("1.1x");
+  });
+
+  // protects=a limit the figure breaks is the sentence's own number, so the card offers no Use {figure} for it (#1908); fails_when="inside the 3.25x covenant" is offered "Use 3.5x"; no_claim=none beyond protects.
+  test("a limit the figure breaks is not offered", () => {
+    const sentence = "Leverage should still be inside the 3.25x covenant.";
+    const broken = { ...calculation("3.25x", "3.5x"), relation: "at most" as const };
+    expect(figureFix(broken, sentence)).toBeNull();
+  });
+
+  // protects=the card and the exports say a limit as one ("at most 3.25x", "不超过 3.25x"), not as the figure; fails_when=a broken limit reads "The sentence says 3.25x"; no_claim=none beyond protects.
+  test("a limit is said as one, in English and Chinese", () => {
+    const says = (language: "en" | "zh-CN") =>
+      translate(language, "claim.calculated.stated.at most", { stated: "3.25x" });
+    expect(says("en")).toBe("The sentence says at most 3.25x.");
+    expect(says("zh-CN")).toBe("这句话写的是不超过 3.25x。");
   });
 
   test("a figure that agrees is not offered", () => {

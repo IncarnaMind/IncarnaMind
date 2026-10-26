@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import { checkedScope, claimCheckShown, coveredPart } from "../../shared/claimChecks";
+import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
 import { checkedSentences } from "../answers/checks/sentences";
 import type { CitationAttributes, SearchScope } from "../api";
@@ -39,7 +39,11 @@ export function failedSentences(
         says: check.says,
         worked:
           calculation && !calculation.agrees
-            ? { shown: calculation.figure.shown, stated: calculation.stated }
+            ? {
+                shown: calculation.figure.shown,
+                stated: calculation.stated,
+                ...(calculation.relation && { relation: calculation.relation }),
+              }
             : null,
       });
     } else if (shown.state === "unsupported" && check.citedCaseUnchecked) {
@@ -71,6 +75,8 @@ export function failedSentences(
           quote: covers.quote,
           source: context.sourceOf(covers.quoted),
         },
+        notFound: saysNotFound(shown, check, cited.length),
+        reason: why?.reason ?? null,
       });
     } else if (shown.state === "needs-recheck") {
       failed.set(id, { id, check: "needs-recheck", why: shown.why });

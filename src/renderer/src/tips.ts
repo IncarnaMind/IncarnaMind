@@ -67,6 +67,10 @@ export function useTipRoom(id: TipId, key: string | null): boolean {
   return left && free && quiet;
 }
 
+/**
+ * A tip a feature offers while it is useful: it is offered once each time the feature is met,
+ * at most twice on the device, and goes with the feature or its own ✕.
+ */
 export function useFeatureTip(id: TipId, key: string, wanted: boolean): boolean {
   const room = useTipRoom(id, key);
   const shown = useTipShown(id, key);
@@ -74,10 +78,10 @@ export function useFeatureTip(id: TipId, key: string, wanted: boolean): boolean 
   useEffect(() => {
     if (!wanted) {
       releaseTip(id, key);
-    } else {
-      const identity = `${id}:${key}`;
-      if (room && !offered.current.has(identity) && offerTip(id, key)) offered.current.add(identity);
+      return;
     }
+    const identity = `${id}:${key}`;
+    if (room && !offered.current.has(identity) && offerTip(id, key)) offered.current.add(identity);
   }, [wanted, room, id, key]);
   useEffect(() => () => releaseTip(id, key), [id, key]);
   return wanted && shown;

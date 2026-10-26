@@ -71,11 +71,13 @@ export const CLOUD_CELLS_AT_ONCE = 4;
 /** The kind of Task that fills a comparison table. */
 export const COMPARISON_TASK = "comparison";
 
-/** What a comparison table's Task fills: the table, with the model it was made with. */
+/** What a comparison table's Task fills: the table, or some of its columns, and the model. */
 interface ComparisonTaskInput {
   tableId: string;
   providerId: string;
   modelId: string;
+  /** The columns it fills, by their Questions' ids; absent: every cell to fill in the table. */
+  questionIds?: string[];
 }
 
 function taskInputOf(input: unknown): ComparisonTaskInput | null {
@@ -87,7 +89,19 @@ function taskInputOf(input: unknown): ComparisonTaskInput | null {
   ) {
     return null;
   }
-  return { tableId: input.tableId, providerId: input.providerId, modelId: input.modelId };
+  const questionIds = storedColumnIds(input.questionIds);
+  return {
+    tableId: input.tableId,
+    providerId: input.providerId,
+    modelId: input.modelId,
+    ...(questionIds && { questionIds }),
+  };
+}
+
+function storedColumnIds(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids = value.filter((each): each is string => typeof each === "string" && each !== "");
+  return ids.length > 0 ? ids : null;
 }
 
 /** What comparison tables need of Tasks (see ../runs/tasks). */
@@ -96,6 +110,8 @@ export interface ComparisonTasks {
   /** Unfinished Tasks, with their kind and input. */
   unfinished(): readonly { id: string; kind: string; mindId: string | null; input: unknown }[];
   isLive(taskId: string): boolean;
+  /** Changes what a Task fills, so a run resumed after a quit fills those columns too. */
+  updateInput(taskId: string, input: ComparisonTaskInput): void;
   resume(taskId: string): Promise<unknown>;
   stop(taskId: string): Promise<unknown>;
 }
@@ -159,6 +175,11 @@ interface Fill {
   task: TaskRun;
   /** Whether the model runs on this computer: one cell at a time, giving way to Answers. */
   local: boolean;
+  /**
+   * The columns it fills, by their Questions' ids, and any a later request added
+   * while it ran; null: every cell to fill in the table.
+   */
+  scope: Set<string> | null;
 }
 
 /** What a cell's attributes are set to, and its content (none: one empty paragraph). */
@@ -207,6 +228,16 @@ function parseRef(input: unknown, what: string): ComparisonTableRef {
   return { mindId: String(input.mindId ?? ""), tableId: input.tableId };
 }
 
+function parseFillRef(input: unknown): ComparisonTableRef & { questionIds: string[] | null } {
+  const ref = parseRef(input, "fillComparisonTable");
+  const value = isRecord(input) ? input.questionIds : undefined;
+  if (value === undefined || value === null) return { ...ref, questionIds: null };
+  if (!Array.isArray(value) || !value.every((each) => typeof each === "string" && each !== "")) {
+    throw new InvalidInputError({ key: "error.comparison.columnIds" });
+  }
+  return { ...ref, questionIds: value.length > 0 ? [...new Set(value)] : null };
+}
+
 /** A comparison table's Block, by its id: null once it was deleted or rejected. */
 const tableIn = (blocks: Y.XmlFragment, tableId: string) =>
   findBlock(blocks, COMPARISON_TABLE_NODE, tableId)?.element ?? null;
@@ -215,7 +246,7 @@ const elements = (parent: Y.XmlElement) =>
   parent.toArray().filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
 
 /** The cells to fill in a table, row by row, each row's in its columns' order. */
-function cellsToFill(table: Y.XmlElement): Cell[] {
+function cellsToFill(table: Y.XmlElement, only: ReadonlySet<string> | null = null): Cell[] {
   const questions = comparisonQuestionsOf(table.getAttributes());
   const cells: Cell[] = [];
   for (const row of elements(table)) {
@@ -225,6 +256,7 @@ function cellsToFill(table: Y.XmlElement): Cell[] {
       elements(row).map((cell) => [String(cell.getAttribute("questionId") ?? ""), cell]),
     );
     for (const question of questions) {
+      if (only && !only.has(question.id)) continue;
       const cell = byQuestion.get(question.id);
       if (!cell || !cellToFill(comparisonCellOf(cell.getAttributes()))) continue;
       cells.push({ documentId, questionId: question.id, question: question.text });
@@ -241,12 +273,16 @@ const cellJSON = (questionId: string): NodeJSON => ({
 });
 
 /** A table's cells settled (written, or without an Answer), and in all. */
-function progressOf(table: Y.XmlElement): { done: number; total: number } {
+function progressOf(
+  table: Y.XmlElement,
+  only: ReadonlySet<string> | null = null,
+): { done: number; total: number } {
   let done = 0;
   let total = 0;
   for (const row of elements(table)) {
     if (row.nodeName !== COMPARISON_ROW_NODE) continue;
     for (const cell of elements(row)) {
+      if (only && !only.has(String(cell.getAttribute("questionId") ?? ""))) continue;
       total++;
       const status = comparisonCellOf(cell.getAttributes()).status;
       if (status === "done" || status === "failed") done++;
@@ -259,6 +295,50 @@ export function createComparisons(options: ComparisonsOptions) {
   const { content } = options;
   /** The fills going, by table. */
   const fills = new Map<string, Fill>();
+  // Columns asked for while a table's Task runs or waits: its Task's scope plus these
+  // make the columns it fills; "all" is the whole table.
+  const extraScopes = new Map<string, Set<string> | "all">();
+
+  // Adds a request's columns to the Task's durable input, so a run resumed after a
+  // quit fills them too, and to its fill going, if any.
+  function widen(tableId: string, questionIds: readonly string[] | null): void {
+    const task = taskOf(tableId);
+    const input = task ? taskInputOf(task.input) : null;
+    const merged =
+      input?.questionIds && questionIds !== null
+        ? [...new Set([...input.questionIds, ...questionIds])]
+        : null;
+    if (task && input) {
+      const kept = input.questionIds ?? [];
+      const wider =
+        merged === null
+          ? questionIds === null && input.questionIds !== undefined
+          : merged.length !== kept.length || merged.some((id) => !kept.includes(id));
+      if (wider) {
+        options.tasks.updateInput(task.id, {
+          tableId: input.tableId,
+          providerId: input.providerId,
+          modelId: input.modelId,
+          ...(merged && { questionIds: merged }),
+        });
+      }
+    }
+    const fill = fills.get(tableId);
+    if (fill) {
+      if (merged === null) fill.scope = null;
+      else if (fill.scope) for (const id of merged) fill.scope.add(id);
+      return;
+    }
+    if (merged === null) {
+      extraScopes.set(tableId, "all");
+      return;
+    }
+    const current = extraScopes.get(tableId);
+    if (current === "all") return;
+    const ids = current ?? new Set<string>(input?.questionIds ?? []);
+    for (const id of merged) ids.add(id);
+    extraScopes.set(tableId, ids);
+  }
 
   /** The unfinished Task filling a table, if any. */
   const taskOf = (tableId: string) =>
@@ -398,7 +478,7 @@ export function createComparisons(options: ComparisonsOptions) {
   function reportProgress(fill: Fill, tableId: string): void {
     const progress = content.read(fill.mindId, (all) => {
       const table = tableIn(all, tableId);
-      return table ? progressOf(table) : null;
+      return table ? progressOf(table, fill.scope) : null;
     });
     if (progress) fill.task.progress(progress);
   }
@@ -491,8 +571,9 @@ export function createComparisons(options: ComparisonsOptions) {
   }
 
   /**
-   * Fills the table's cells to fill, again while a column added meanwhile
-   * leaves more. Returns the monthly cap or plan's limit that stopped it.
+   * Fills the table's cells to fill, again while a column added meanwhile, or
+   * asked for while it ran, leaves more. Returns the monthly cap or plan's
+   * limit that stopped it.
    */
   async function run(fill: Fill, tableId: string): Promise<RunStop | null> {
     const tried = new Set<string>();
@@ -501,7 +582,7 @@ export function createComparisons(options: ComparisonsOptions) {
       if (signal.aborted || !options.mindExists(fill.mindId)) return null;
       const cells = content.read(fill.mindId, (all) => {
         const table = tableIn(all, tableId);
-        return table ? cellsToFill(table) : null;
+        return table ? cellsToFill(table, fill.scope) : null;
       });
       if (cells === null) {
         fill.controller.abort();
@@ -532,7 +613,9 @@ export function createComparisons(options: ComparisonsOptions) {
         // A column added meanwhile isn't checked either: the same limit stands.
         const left = content.read(fill.mindId, (all) => {
           const table = tableIn(all, tableId);
-          return table ? cellsToFill(table).filter((cell) => !tried.has(keyOf(cell))) : [];
+          return table
+            ? cellsToFill(table, fill.scope).filter((cell) => !tried.has(keyOf(cell)))
+            : [];
         });
         for (const cell of left) record(fill, tableId, cell, { status: "not-checked", stop });
         return stop;
@@ -575,7 +658,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function fillAsTask(
     task: TaskRun,
     mindId: string,
-    { tableId, providerId, modelId }: ComparisonTaskInput,
+    { tableId, providerId, modelId, questionIds }: ComparisonTaskInput,
   ): Promise<TaskEnd> {
     const there = () =>
       options.mindExists(mindId) && content.read(mindId, (all) => !!tableIn(all, tableId));
@@ -586,12 +669,30 @@ export function createComparisons(options: ComparisonsOptions) {
     const controller = new AbortController();
     const abort = () => controller.abort();
     task.signal.addEventListener("abort", abort, { once: true });
+    // A column asked for before the Task ran joins the columns it was started with,
+    // and the Task's input records them, so a resume after a quit fills them too.
+    const extra = extraScopes.get(tableId);
+    extraScopes.delete(tableId);
+    const scope = !questionIds
+      ? null
+      : extra === "all"
+        ? null
+        : new Set([...questionIds, ...(extra ?? [])]);
+    if (extra !== undefined) {
+      options.tasks.updateInput(task.id, {
+        tableId,
+        providerId,
+        modelId,
+        ...(scope && { questionIds: [...scope] }),
+      });
+    }
     const fill: Fill = {
       mindId,
       model: ready.model,
       controller,
       task,
       local: options.chat.runsLocally(ready.model),
+      scope,
     };
     fills.set(tableId, fill);
     task.retain(rowVersions(mindId, tableId));
@@ -611,20 +712,32 @@ export function createComparisons(options: ComparisonsOptions) {
     } finally {
       task.signal.removeEventListener("abort", abort);
       if (fills.get(tableId) === fill) fills.delete(tableId);
+      extraScopes.delete(tableId);
     }
   }
 
-  /** Fills a table as a Task: resumes the one it has, or starts one; one going takes the cells up. */
-  function startFill(mindId: string, tableId: string, model: ChatModelChoice): void {
+  /**
+   * Fills a table as a Task: resumes the one it has, adding the columns this
+   * request wants to the columns it fills, or starts one.
+   */
+  function startFill(
+    mindId: string,
+    tableId: string,
+    model: ChatModelChoice,
+    questionIds: string[] | null = null,
+  ): void {
     const task = taskOf(tableId);
     if (task) {
+      widen(tableId, questionIds);
       if (!options.tasks.isLive(task.id)) options.tasks.resume(task.id).catch(options.reportError);
       return;
     }
+    extraScopes.delete(tableId);
     options.tasks.start(COMPARISON_TASK, mindId, {
       tableId,
       providerId: model.providerId,
       modelId: model.modelId,
+      ...(questionIds && { questionIds }),
     });
   }
 
@@ -773,7 +886,7 @@ export function createComparisons(options: ComparisonsOptions) {
     },
 
     async fillComparisonTable(input: unknown): Promise<ComparisonResult> {
-      const ref = parseRef(input, "fillComparisonTable");
+      const ref = parseFillRef(input);
       const mindId = options.requireMind(ref.mindId);
       const picked = content.read(mindId, (blocks) => {
         const table = tableIn(blocks, ref.tableId);
@@ -785,10 +898,14 @@ export function createComparisons(options: ComparisonsOptions) {
           : null;
       });
       const task = taskOf(ref.tableId);
-      if (task && options.tasks.isLive(task.id)) return { started: true, tableId: ref.tableId };
+      if (task && options.tasks.isLive(task.id)) {
+        // The Task going takes the columns this request wants with it.
+        widen(ref.tableId, ref.questionIds);
+        return { started: true, tableId: ref.tableId };
+      }
       const ready = await readyModel(picked);
       if (!("model" in ready)) return ready;
-      startFill(mindId, ref.tableId, ready.model);
+      startFill(mindId, ref.tableId, ready.model, ref.questionIds);
       return { started: true, tableId: ref.tableId };
     },
 

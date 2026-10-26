@@ -3,15 +3,25 @@ import type { ChatProvider, CoreBridge } from "../../src/core/api";
 
 const calls = vi.hoisted(() => ({
   providers: vi.fn<CoreBridge["listChatProviders"]>(),
-  settings: vi.fn(), error: vi.fn(), open: vi.fn(),
+  settings: vi.fn(),
+  error: vi.fn(),
+  open: vi.fn(),
 }));
 vi.mock("../../src/renderer/src/core", () => ({ core: { listChatProviders: calls.providers } }));
-vi.mock("../../src/renderer/src/store", () => ({ useAppStore: { getState: () => ({ openSettings: calls.settings, reportError: calls.error }) } }));
+vi.mock("../../src/renderer/src/store", () => ({
+  useAppStore: { getState: () => ({ openSettings: calls.settings, reportError: calls.error }) },
+}));
+
 import { useKeyRefusals } from "../../src/renderer/src/keyRefusals";
 
 const provider: ChatProvider = {
-  id: "provider", kind: "openai", catalogId: "openai", endpoint: "global",
-  baseUrl: null, hasApiKey: true, service: null,
+  id: "provider",
+  kind: "openai",
+  catalogId: "openai",
+  endpoint: "global",
+  baseUrl: null,
+  hasApiKey: true,
+  service: null,
 };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -22,9 +32,15 @@ beforeEach(() => {
 
 describe("a key problem's next action", () => {
   test("credit recovery opens the same provider's key form with its credit reason", async () => {
-    await useKeyRefusals.getState().check(provider.id, "model", "2026-10-12T09:00:00.000Z", "out-of-credit");
+    await useKeyRefusals
+      .getState()
+      .check(provider.id, "model", "2026-10-12T09:00:00.000Z", "out-of-credit");
     expect(useKeyRefusals.getState().showing).toEqual({
-      catalogId: "openai", endpoint: "global", modelId: "model", at: "2026-10-12T09:00:00.000Z", kind: "out-of-credit",
+      catalogId: "openai",
+      endpoint: "global",
+      modelId: "model",
+      at: "2026-10-12T09:00:00.000Z",
+      kind: "out-of-credit",
     });
     expect(calls.settings).toHaveBeenCalledWith("models");
     expect(calls.open).not.toHaveBeenCalled();
@@ -43,7 +59,9 @@ describe("a key problem's next action", () => {
     useKeyRefusals.getState().openBilling(provider.id, "https://example.test/billing");
     expect(calls.open).toHaveBeenCalledWith("https://example.test/billing", "_blank", "noreferrer");
     expect(Object.keys(useKeyRefusals.getState().billingOpenedAt)).toEqual([provider.id]);
-    expect(Number.isNaN(Date.parse(useKeyRefusals.getState().billingOpenedAt[provider.id] ?? ""))).toBe(false);
+    expect(
+      Number.isNaN(Date.parse(useKeyRefusals.getState().billingOpenedAt[provider.id] ?? "")),
+    ).toBe(false);
   });
 
   test("a provider-list failure is reported and leaves Models usable", async () => {

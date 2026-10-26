@@ -2,11 +2,16 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ tips: {} as Record<string, number> }));
 vi.mock("../../src/renderer/src/store", () => ({
-  useAppStore: { getState: () => ({
-    settings: { device: { tips: state.tips } },
-    updateSettings: async (patch: { device: { tips: Record<string, number> } }) => { state.tips = patch.device.tips; },
-  }) },
+  useAppStore: {
+    getState: () => ({
+      settings: { device: { tips: state.tips } },
+      updateSettings: async (patch: { device: { tips: Record<string, number> } }) => {
+        state.tips = patch.device.tips;
+      },
+    }),
+  },
 }));
+
 import { closeTip, offerTip, releaseTip, restoreTip } from "../../src/renderer/src/tips";
 
 beforeEach(() => {
@@ -16,15 +21,18 @@ beforeEach(() => {
 });
 
 describe("contextual device tips", () => {
-  test.each(["citation-style", "connect-app"] as const)("%s automatically offers at most twice across mounts", (id) => {
-    expect(offerTip(id, "note")).toBe(true);
-    expect(state.tips[id]).toBe(1);
-    releaseTip(id, "note");
-    expect(offerTip(id, "note")).toBe(true);
-    expect(state.tips[id]).toBe(2);
-    releaseTip(id, "note");
-    expect(offerTip(id, "note")).toBe(false);
-  });
+  test.each(["citation-style", "connect-app"] as const)(
+    "%s automatically offers at most twice across mounts",
+    (id) => {
+      expect(offerTip(id, "note")).toBe(true);
+      expect(state.tips[id]).toBe(1);
+      releaseTip(id, "note");
+      expect(offerTip(id, "note")).toBe(true);
+      expect(state.tips[id]).toBe(2);
+      releaseTip(id, "note");
+      expect(offerTip(id, "note")).toBe(false);
+    },
+  );
 
   test("closing ends automatic offers; explicit Undo can restore without changing their count", () => {
     expect(offerTip("citation-style", "note")).toBe(true);

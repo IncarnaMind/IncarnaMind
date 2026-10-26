@@ -5,15 +5,15 @@ import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
+  useOutputLocation as chooseOutputLocation,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  exportFromMenu,
   launchApp,
   newMind,
   pointAndClick,
   removeDataFolder,
-  useLocalChatModel as connectLocalChatModel,
-  useOutputLocation as chooseOutputLocation,
-  exportFromMenu,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -236,22 +236,49 @@ for (const language of ["en", "zh-CN"] as const) {
       ({ app, window } = await launchApp(dataDir, { fakeChat: true }));
       await setWindowSize(app, window, 900, 800);
       await window.getByTestId("mind-tab").first().click();
-      expect(await window.evaluate(async () => (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getSettings()).device.gettingStarted.exported)).toBe(false);
+      expect(
+        await window.evaluate(
+          async () =>
+            (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getSettings())
+              .device.gettingStarted.exported,
+        ),
+      ).toBe(false);
       await expect(window.getByTestId("suggestion-offer")).toHaveCount(0);
       await chooseOutputLocation(window, sources);
       await exportFromMenu(window, "markdown");
       await expect(window.getByTestId("export-done")).toBeVisible();
-      await expect.poll(() => window.evaluate(async () => (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getSettings()).device.gettingStarted.exported)).toBe(true);
+      await expect
+        .poll(() =>
+          window.evaluate(
+            async () =>
+              (
+                await (
+                  globalThis as unknown as { incarnamind: CoreBridge }
+                ).incarnamind.getSettings()
+              ).device.gettingStarted.exported,
+          ),
+        )
+        .toBe(true);
       await app.close();
       ({ app, window } = await launchApp(dataDir, { fakeChat: true }));
       await setWindowSize(app, window, 1600, 800);
       await window.getByTestId("mind-tab").first().click();
-      expect(await window.evaluate(async () => (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMinds()).length)).toBe(1);
+      expect(
+        await window.evaluate(
+          async () =>
+            (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMinds())
+              .length,
+        ),
+      ).toBe(1);
       const editor = window.getByTestId("mind-editor");
       await editor.click();
       await window.keyboard.press("ControlOrMeta+End");
-      await window.keyboard.type(" Spring tides come twice a month, near the new moon and the full moon.");
+      await window.keyboard.type(
+        " Spring tides come twice a month, near the new moon and the full moon.",
+      );
       await expect(window.getByTestId("suggestion-offer")).toBeVisible();
-    } finally { await app.close(); }
+    } finally {
+      await app.close();
+    }
   });
 }

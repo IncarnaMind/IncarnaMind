@@ -91,5 +91,8 @@ export function extractCsv(bytes: Uint8Array): CsvResult {
     columnCount,
     columnWidths: [],
   };
-  return { units: gridUnits([sheet], false), workbook: { sheets: [sheet], truncated } };
+  return {
+    units: gridUnits([sheet], false),
+    workbook: { sheets: [sheet], truncated, hiddenSheets: [], rowsCut: [], sheetsNotRead: [] },
+  };
 }

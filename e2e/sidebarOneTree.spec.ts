@@ -588,11 +588,12 @@ const NEW_MENU_ROWS: readonly MessageKey[] = [
   "menu.newMind",
   "sidebar.plus.addDocuments",
   "menu.newFolder",
+  "meetings.record",
   "sidebar.plus.more",
 ];
 const MORE_ROWS: readonly MessageKey[] = [
   "wordImport.command",
-  "meetings.record",
+  "memos.record.menu",
   "command.compareDocuments",
   "verify.command",
   "folder.fromStarters",
@@ -607,6 +608,7 @@ const IN_PALETTE: readonly MessageKey[] = [
   "sidebar.plus.linkFolder",
   "wordImport.command",
   "meetings.record",
+  "memos.record",
   "command.compareDocuments",
   "verify.command",
   "library.chooseStarters",
@@ -618,7 +620,7 @@ for (const [language, width] of [
   ["en", 1440],
   ["zh-CN", 900],
 ] as const) {
-  test(`the New menu's four rows and what is under More open by mouse and keyboard, and each is in ⌘K too (${language}, ${width}px)`, async () => {
+  test(`the New menu's five rows and what is under More open by mouse and keyboard, and each is in ⌘K too (${language}, ${width}px)`, async () => {
     const t = (key: MessageKey) => translate(language, key);
     const { app, window } = await launchApp(dataDir);
     try {
@@ -628,7 +630,7 @@ for (const [language, width] of [
       const rows = window.getByTestId("plus-menu-items").getByRole("menuitem");
       const more = window.getByTestId("plus-more-menu").getByRole("menuitem");
 
-      // By mouse: four rows in order, and More lists the rest.
+      // By mouse: five rows in order, and More lists the rest.
       await pointAt(window, plus);
       await window.mouse.down();
       await window.mouse.up();

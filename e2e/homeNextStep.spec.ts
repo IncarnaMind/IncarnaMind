@@ -121,7 +121,8 @@ for (const language of ["en", "zh-CN"] as const)
         );
         if (width === 900)
           await write.evaluate((button) => {
-            if (!(button instanceof HTMLButtonElement)) throw new Error("The next step is not a button.");
+            if (!(button instanceof HTMLButtonElement))
+              throw new Error("The next step is not a button.");
             button.click();
             button.click();
           });
