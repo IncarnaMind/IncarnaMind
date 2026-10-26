@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import { isRecord } from "../../src/core/errors";
 import { identity } from "../../src/main/instanceFiles";
 import { heldByAnotherCopy } from "../../src/main/instanceLock";
-import { prepareUpdate } from "../../src/main/instanceUpdate";
+import { failUpdate, prepareUpdate } from "../../src/main/instanceUpdate";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 let bundleFolder = "";
@@ -50,15 +50,17 @@ const tempFolder = async () => {
   return folder;
 };
 
-function start(folder: string, mode = "owner", wait = 10000) {
+function start(folder: string, mode = "owner", wait = 10000, recoveryId?: string) {
   const child = spawn(
     process.execPath,
     [
       ...(mode === "missed-watch" ? ["-r", join(root, "e2e/instanceWatch.cjs")] : []),
+      ...(mode === "unreadable-update" ? ["-r", join(root, "e2e/instanceUpdateRead.cjs")] : []),
       bundle,
       mode,
       folder,
       String(wait),
+      ...(recoveryId ? [recoveryId] : []),
     ],
     { stdio: "pipe" },
   );
@@ -280,4 +282,40 @@ test("corrupt pending update metadata cannot block the real data-folder owner", 
   ).toBe(true);
   expect(owner.errors.join("")).toContain("app.updateHandoffInvalid");
   expect(await readFile(join(folder, "instance-update.json"), "utf8")).toBe("{broken");
+});
+
+test("an unreadable update sidecar cannot block a writable SQLite data folder", async () => {
+  const folder = await tempFolder();
+  await writeFile(join(folder, "instance-update.json"), "{}");
+  const owner = start(folder, "unreadable-update");
+  await owner.message("owner");
+  expect(owner.child.exitCode).toBeNull();
+  expect(
+    heldByAnotherCopy(folder, (what, error) => {
+      throw new Error(what, { cause: error });
+    }),
+  ).toBe(true);
+  expect(owner.errors.join("")).toContain("app.updateHandoffReadFailed");
+  expect(owner.errors.join("")).toContain("EACCES");
+});
+
+test("a second start waits for the scheduled failed-install recovery after the original owner exits", async () => {
+  const folder = await tempFolder();
+  const old = start(folder);
+  const previous = await old.message("owner");
+  if (!identity(previous?.identity)) throw new Error("The owner did not publish its identity.");
+  const record = prepareUpdate(folder, previous.identity, "0.0.0", "0.1.0", true);
+  expect(failUpdate(folder, record.id)).toBe(true);
+  old.child.stdin.write("exit\n");
+  await old.done();
+  const second = start(folder, "wait-recovery", 2000);
+  await second.message("starting");
+  const recovery = start(folder, "owner", 2000, record.id);
+  await recovery.message("owner");
+  expect(await second.done()).toBe(0);
+  expect(second.messages).toContainEqual({ kind: "forwarded" });
+  expect(second.messages.some((row) => row.kind === "update" || row.kind === "owner")).toBe(false);
+  expect(await recovery.message("received")).toMatchObject({
+    input: { args: ["synthetic-app", "--open=synthetic"] },
+  });
 });

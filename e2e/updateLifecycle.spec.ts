@@ -34,6 +34,7 @@ type Scenario =
   | "post-install"
   | "target-crash"
   | "auto-quit-error"
+  | "unreadable-record"
   | "base-error"
   | "squirrel-error";
 interface Entry {
@@ -514,32 +515,35 @@ test("a target killed before its first usable window leaves the handoff for a la
   await expect.poll(() => existsSync(handoff.file)).toBe(false);
 });
 
-test("a corrupt update record leaves normal startup and its one saved-data owner intact", async () => {
-  test.setTimeout(120_000);
-  const firstPort = await freePort();
-  const first = start("post-install", false, firstPort, firstPort);
-  await expect.poll(() => windowsOf(firstPort), { timeout: 60_000 }).toBe(1);
-  await inCopyWindow(firstPort, (window) => saveTyping(window, "en"));
-  await quit(first);
-  const file = join(data, "instance-update.json");
-  const malformed = "{broken";
-  await writeFile(file, malformed);
-  const port = await freePort();
-  const owner = start("post-install", false, port, port);
-  await expectOneSavedWindow([firstPort, port]);
-  const contenderPort = await freePort();
-  const contender = start("post-install", false, contenderPort, port);
-  await expect.poll(() => contender.exitCode, { timeout: 30_000 }).toBe(0);
-  expect(await windowsOf(contenderPort)).toBe(0);
-  expect(copiesWith(tag)).toEqual([owner.pid]);
-  await expectOneSavedWindow([port, contenderPort]);
-  expect((await entries()).filter((entry) => entry.kind === "startup-problem")).toEqual([]);
-  expect((await entries()).filter((entry) => entry.kind === "pending-update")).toEqual([]);
-  expect(await readFile(file, "utf8")).toBe(malformed);
-  expect(await readFile(join(data, "logs", "incarnamind.log"), "utf8")).toContain(
-    "app.updateHandoffInvalid",
-  );
-});
+for (const kind of ["corrupt", "unreadable"] as const) {
+  test(`a ${kind} update record leaves normal startup and its one saved-data owner intact`, async () => {
+    test.setTimeout(120_000);
+    const firstPort = await freePort();
+    const first = start("post-install", false, firstPort, firstPort);
+    await expect.poll(() => windowsOf(firstPort), { timeout: 60_000 }).toBe(1);
+    await inCopyWindow(firstPort, (window) => saveTyping(window, "en"));
+    await quit(first);
+    const file = join(data, "instance-update.json");
+    const malformed = "{broken";
+    await writeFile(file, malformed);
+    const port = await freePort();
+    const scenario = kind === "corrupt" ? "post-install" : "unreadable-record";
+    const owner = start(scenario, false, port, port);
+    await expectOneSavedWindow([firstPort, port]);
+    const contenderPort = await freePort();
+    const contender = start(scenario, false, contenderPort, port);
+    await expect.poll(() => contender.exitCode, { timeout: 30_000 }).toBe(0);
+    expect(await windowsOf(contenderPort)).toBe(0);
+    expect(copiesWith(tag)).toEqual([owner.pid]);
+    await expectOneSavedWindow([port, contenderPort]);
+    expect((await entries()).filter((entry) => entry.kind === "startup-problem")).toEqual([]);
+    expect((await entries()).filter((entry) => entry.kind === "pending-update")).toEqual([]);
+    expect(await readFile(file, "utf8")).toBe(malformed);
+    expect(await readFile(join(data, "logs", "incarnamind.log"), "utf8")).toContain(
+      kind === "corrupt" ? "app.updateHandoffInvalid" : "app.updateHandoffReadFailed",
+    );
+  });
+}
 
 for (const scenario of ["base-error", "squirrel-error"] as const) {
   for (const language of ["en", "zh-CN"] as const) {

@@ -244,8 +244,10 @@ describe("invalid state never becomes an empty or accepted handoff", () => {
     expect(failUpdate(folder, first.id)).toBe(false);
     expect(completeUpdate(folder, first.id)).toBe(false);
     expect(failUpdate(folder, next.id)).toBe(true);
-    expect(() => prepare("1.10.0", "1.11.0")).toThrow("already pending");
-    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ ...next, status: "failed" });
+    const retry = prepare("1.10.0", "1.11.0");
+    expect(retry.id).not.toBe(next.id);
+    expect(failUpdate(folder, next.id)).toBe(false);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(retry);
   });
 
   test("a failed prepare write throws, preserving the earlier absence", () => {
@@ -277,4 +279,15 @@ describe("invalid state never becomes an empty or accepted handoff", () => {
     expect(() => updateAccess(folder, "1.9.0")).toThrow();
     expect(() => prepare()).toThrow();
   });
+});
+
+test("a real completed target replaces unreadable prior metadata through its writable parent", () => {
+  const error = Object.assign(new Error("The old metadata is unreadable."), { code: "EACCES" });
+  vi.spyOn(files, "readJson").mockImplementation(() => {
+    throw error;
+  });
+  expect(() => updateAccess(folder, "1.9.0")).toThrow(error);
+  const record = prepare();
+  expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(record);
+  expect(record.targetVersion).toBe("1.10.0");
 });

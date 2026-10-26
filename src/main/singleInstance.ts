@@ -195,9 +195,8 @@ export function acquireInstance(
   let sentTo: Identity | null = null;
   let previousOwner = false;
   let invalidUpdateReported = false;
-  try {
-    if (Buffer.byteLength(JSON.stringify(input)) > 32_768) return { kind: "busy", phase };
-    for (;;) {
+  const readUpdate = (): ReturnType<typeof updateAccess> => {
+    try {
       const update = updateAccess(folder, currentVersion, recoveryId);
       if (update.kind === "invalid" && !invalidUpdateReported) {
         invalidUpdateReported = true;
@@ -206,6 +205,44 @@ export function acquireInstance(
           new Error("The pending update metadata could not be read."),
         );
       }
+      return update;
+    } catch (error) {
+      if (!invalidUpdateReported) {
+        invalidUpdateReported = true;
+        report("app.updateHandoffReadFailed", error);
+      }
+      return { kind: "invalid" };
+    }
+  };
+  const observe = (info: unknown): info is Identity => {
+    if (!identity(info) || !alive(info.pid)) return false;
+    previousOwner = true;
+    if (isRecord(info)) {
+      phase =
+        info.phase === "starting" ||
+        info.phase === "ready" ||
+        info.phase === "quitting" ||
+        info.phase === "installing"
+          ? info.phase
+          : null;
+      if (phase)
+        waiting.observe(
+          `${info.pid}:${info.startedAt}`,
+          phase,
+          typeof info.progress === "number" &&
+            Number.isSafeInteger(info.progress) &&
+            info.progress >= 0
+            ? info.progress
+            : null,
+          performance.now(),
+        );
+    }
+    return true;
+  };
+  try {
+    if (Buffer.byteLength(JSON.stringify(input)) > 32_768) return { kind: "busy", phase };
+    for (;;) {
+      const update = readUpdate();
       const pending =
         update.kind === "blocked" || (update.kind === "allowed" && update.pendingTarget)
           ? update.record
@@ -220,8 +257,13 @@ export function acquireInstance(
         )
           return { kind: "installing" };
       }
-      if (update.kind === "blocked")
-        return { kind: "update", currentVersion, targetVersion: update.record.targetVersion };
+      if (update.kind === "blocked") {
+        if (update.record.reopens) observe(readJson(join(folder, "instance-info.json")));
+        if (!update.record.reopens || waiting.expired(performance.now()))
+          return { kind: "update", currentVersion, targetVersion: update.record.targetVersion };
+        pause();
+        continue;
+      }
       const reply = readJson(replyFile);
       if (
         sentTo &&
@@ -245,7 +287,7 @@ export function acquireInstance(
         // The installer can publish its target after our first read, before its owner exits (#2022).
         let confirmed: ReturnType<typeof updateAccess>;
         try {
-          confirmed = updateAccess(folder, currentVersion, recoveryId);
+          confirmed = readUpdate();
         } catch (error) {
           lock.release();
           throw error;
@@ -266,29 +308,7 @@ export function acquireInstance(
         };
       }
       const info = readJson(join(folder, "instance-info.json"));
-      if (identity(info) && alive(info.pid)) {
-        previousOwner = true;
-        if (isRecord(info)) {
-          phase =
-            info.phase === "starting" ||
-            info.phase === "ready" ||
-            info.phase === "quitting" ||
-            info.phase === "installing"
-              ? info.phase
-              : null;
-          if (phase) {
-            waiting.observe(
-              `${info.pid}:${info.startedAt}`,
-              phase,
-              typeof info.progress === "number" &&
-                Number.isSafeInteger(info.progress) &&
-                info.progress >= 0
-                ? info.progress
-                : null,
-              performance.now(),
-            );
-          }
-        }
+      if (observe(info)) {
         if (!sentTo || !same(info, sentTo)) {
           mkdirSync(requests, { recursive: true, mode: 0o700 });
           writeJson(requestFile, {

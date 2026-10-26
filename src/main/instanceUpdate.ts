@@ -87,9 +87,6 @@ export function prepareUpdate(
     throw new Error("The update handoff owner is invalid.");
   if (!isVersion(currentVersion) || !isVersion(targetVersion) || !gt(targetVersion, currentVersion))
     throw new Error("The update handoff needs a newer valid target version.");
-  const previous = stored(folder);
-  if (previous !== "invalid" && previous?.status === "failed")
-    throw new Error("An update handoff is already pending.");
   const record: UpdateHandoff = {
     id: randomUUID(),
     owner: { ...ownerIdentity },

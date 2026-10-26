@@ -10,6 +10,7 @@ const folder = process.env.INCARNAMIND_TEST_UPDATE_FOLDER;
 const first = process.env.INCARNAMIND_TEST_UPDATE_FIRST === "1";
 const appFolder = process.env.INCARNAMIND_TEST_UPDATE_APP;
 const scenario = process.env.INCARNAMIND_TEST_UPDATE_SCENARIO;
+if (scenario === "unreadable-record") require("./instanceUpdateRead.cjs");
 const language = process.env.INCARNAMIND_TEST_UPDATE_LANGUAGE;
 let nativePrepared = false;
 let readyPrompts = 0;

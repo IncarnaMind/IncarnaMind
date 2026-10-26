@@ -1,12 +1,13 @@
 import { acquireInstance } from "../../src/main/singleInstance";
 
-const [mode, folder, wait = "10000"] = process.argv.slice(2);
+const [mode, folder, wait = "10000", recoveryId] = process.argv.slice(2);
 if (!folder) throw new Error("A temporary data folder is required.");
+if (mode === "wait-recovery") console.log(JSON.stringify({ kind: "starting" }));
 const instance = acquireInstance(
   folder,
   { args: ["synthetic-app", "--open=synthetic"], cwd: process.cwd() },
   (what, error) => console.error(what, error),
-  { waitMs: Number(wait) },
+  { waitMs: Number(wait), recoveryId },
 );
 console.log(
   JSON.stringify(
