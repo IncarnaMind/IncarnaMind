@@ -217,6 +217,26 @@ const conversationWithChange = (application: AskedChangeApplication): Conversati
   updatedAt: "2026-01-01T00:00:00.000Z",
 });
 
+function conversationWithMadeChange(application: AskedChangeApplication): ConversationAnswer {
+  const answer = conversationWithChange(application);
+  answer.toolCalls.push({
+    id: "made-call",
+    tool: "create_mind",
+    source: "minds",
+    input: {},
+    status: "done",
+    resultCount: null,
+    mindChange: {
+      mindId: "made",
+      created: true,
+      request: "made-request",
+      proposals: 1,
+      paragraphs: 1,
+    },
+  });
+  return answer;
+}
+
 function emitConversation(answer: ConversationAnswer): void {
   for (const listener of listeners.get("conversation.message") ?? []) listener(answer);
 }
@@ -495,22 +515,7 @@ test("a background edit doesn't hold regeneration for its inactive editor", asyn
   const { applyWhatWasAsked, useAskedChanges } = await import(
     "../../src/renderer/src/askedChanges"
   );
-  const answer = conversationWithChange(application);
-  answer.toolCalls.push({
-    id: "made-call",
-    tool: "create_mind",
-    source: "minds",
-    input: {},
-    status: "done",
-    resultCount: null,
-    mindChange: {
-      mindId: "made",
-      created: true,
-      request: "made-request",
-      proposals: 1,
-      paragraphs: 1,
-    },
-  });
+  const answer = conversationWithMadeChange(application);
   await applyWhatWasAsked(answer.id);
   emitConversation(answer);
   await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
@@ -523,6 +528,38 @@ test("a background edit doesn't hold regeneration for its inactive editor", asyn
   const making = applyWhatWasAsked(answer.id);
   await eventually(() => (undoCalls === 1 ? true : null));
   await making;
+  doc.destroy();
+});
+
+// Value: protects=an editor activated during core apply gets Review and Undo immediately; fails_when=the background return misses its earlier open event; why_new=review found the activation race; seam=editor registration inside the core response; no_claim=inactive recovery (covered separately)
+test("an editor opened during a background core apply is followed immediately", async () => {
+  const { doc, application } = applicationWithChange(false);
+  let editor: Editor | null = null;
+  mountDom(
+    {
+      undoAskedChanges: async () => transitionOfMind(doc),
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async (input) => {
+        if (input.mindId !== "mind") return null;
+        editor = editorWith(doc);
+        onTestFinished(registerMindEditor("mind", editor));
+        return application;
+      },
+    },
+  );
+  const { applyWhatWasAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const { offersReview } = await import("../../src/renderer/src/appliedEdits");
+  const answer = conversationWithMadeChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  await eventually(() => (editor && offersReview(editor) ? true : null));
+  expect(useUndo.getState().done).toHaveLength(1);
   doc.destroy();
 });
 

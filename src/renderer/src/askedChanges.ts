@@ -223,11 +223,11 @@ async function finishIn(
     };
     asked.set(keyOf(answer.id, row.mindId), each);
     setOutcome(each, application.held ? "held" : "applied");
-    if (!(await openBeside(row.mindId, behind)) || behind) {
+    if (!(await openBeside(row.mindId, behind))) {
       each.application = refOf(application);
       return;
     }
-    const opened = await whenMindEditor(row.mindId, OPEN_WAIT_MS);
+    const opened = behind ? mindEditor(row.mindId) : await whenMindEditor(row.mindId, OPEN_WAIT_MS);
     if (opened && editorDoc(opened)) {
       applyArrived(opened, row.mindId, requests, facts, { application });
     }
