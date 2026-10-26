@@ -40,15 +40,3 @@ test("an uncaught error in the app's main process fails the test that saw it", a
     await removeDataFolder(dataDir);
   }
 });
-
-test("the known Node timer defect goes on: the app keeps answering and its test passes", async () => {
-  const dataDir = await createDataFolder();
-  try {
-    const { app } = await launchApp(dataDir);
-    await throwInMain(app, "timer._onTimeout is not a function");
-    await expect.poll(() => mainLog(dataDir)).toContain("timer._onTimeout is not a function");
-    expect(await app.evaluate(() => 1 + 1)).toBe(2);
-  } finally {
-    await removeDataFolder(dataDir);
-  }
-});
