@@ -29,6 +29,7 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   deleted: "deleted",
   citation: "citation",
   chart: "chart",
+  comparisonColumn: "comparison-column",
   answer: "answer",
   check: "check",
   block: "block",
