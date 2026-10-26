@@ -602,8 +602,9 @@ function MindEditorView({
   // The cursor is where Add to note puts an Answer while the focus is in the editor, or has gone
   // from it only to the assistant the composer is in (its Answers, its menus, its header);
   // anywhere else, Answers go at the end of the Mind. A dialog that asks something on the way
-  // (consent to send, say) gives the focus back: it doesn't count.
-  useEffect(() => {
+  // (consent to send, say) gives the focus back: it doesn't count. A layout effect, so it is
+  // listening before a Mind made with ⌘T takes the focus before its first frame (#2000).
+  useLayoutEffect(() => {
     const assistant = dock?.closest("[data-assistant]") ?? dock;
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target;
