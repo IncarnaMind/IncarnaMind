@@ -989,6 +989,25 @@ export function searchLanguage(
   return other?.language ?? null;
 }
 
+/**
+ * Whether none of the `documents` are in the Question's language, told as `searchLanguage`
+ * tells it: the Question's own words find little in them. Not while some of them are in a
+ * language that can't be told.
+ */
+function inNoDocumentsLanguage(
+  question: string,
+  languages: readonly DocumentLanguage[],
+  documents: number,
+): boolean {
+  const told = languages.reduce((sum, each) => sum + each.documents, 0);
+  if (languages.length === 0 || told < documents) return false;
+  const asked = detectLanguage(question);
+  return asked
+    ? languages.every(({ language }) => language !== asked)
+    : !CJK_SCRIPT.test(question) &&
+        languages.every(({ language }) => SCRIPT_LANGUAGES.has(language));
+}
+
 /** A Passage in a search's result, as the model reads it, with its id. */
 const PASSAGE_BLOCK = /<passage id="([^"]+)"[^>]*>[\s\S]*?<\/passage>/g;
 
@@ -1226,9 +1245,9 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       // again in the Documents' language if the Question is in another (see `searchLanguage`); the
       // result is kept for the next way of answering if the provider refuses this one. The search
       // made before the Tool loop's first call (#1633) is `asAsked`, neither rewritten nor
-      // translated: a translation call cost most of what answering in one call saved, a rewrite is
-      // another such call, and the loop's model searches on in other words when the Passages don't
-      // answer.
+      // translated: either is a call of its own before the first (the translation cost most of what
+      // answering in one call saved), and the loop's model searches on in other words when the
+      // Passages don't answer.
       let searched: SearchResultForModel | undefined;
       const read = new Set<ReadThirdPartySource>();
       async function* searchOnce(
@@ -1333,11 +1352,20 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
             // the Question's own search and answers in one call unless it needs more. A library with
             // nothing to search yet (web search on, or only unread Documents) leaves the first search
-            // to the model, and so does a follow-up: its own words lean on the Answers before it, and
-            // on paired runs their Passages set the model writing where the loop just replied.
+            // to the model, and so do a follow-up, whose own words lean on the Answers before it, and
+            // a Question in a language none of the Documents are in, whose own words find nothing
+            // there. On paired runs both set the model on another course than the loop's: writing
+            // where it just replied, or searching less where it searched each Document.
             const followUp = request.messages.some((message) => message.role === "assistant");
             const presearched =
-              request.retrieveFirst && !followUp && request.documents.documentCount > 0
+              request.retrieveFirst &&
+              !followUp &&
+              request.documents.documentCount > 0 &&
+              !inNoDocumentsLanguage(
+                request.question,
+                request.documents.documentLanguages ?? [],
+                request.documents.documentCount,
+              )
                 ? { result: yield* searchOnce(true), query: request.question, read: [...read] }
                 : undefined;
             if (signal.aborted) return;

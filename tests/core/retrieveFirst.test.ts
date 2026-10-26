@@ -1,7 +1,8 @@
 /**
  * Retrieve first (#1633): on a model the allowlist names, an Answer starts from the Question's
  * own search, answers from it in one call, and falls back to the Tool loop when the model
- * searches on. A model it doesn't name runs the loop as before.
+ * searches on. A model it doesn't name runs the loop as before, and so do a follow-up, a
+ * Question whose Documents go whole with it and one in a language none of them are in.
  */
 import { describe, expect, test } from "vitest";
 import {
@@ -207,6 +208,21 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
 
     expect(answer.toolCalls).toEqual([]);
     expect(answer.citations).toMatchObject([{ quote: SPRING, check: "found" }]);
+  });
+
+  test("a Question in a language none of the Documents are in leaves its first search to the model", async () => {
+    const model = answering();
+    const english =
+      "# Tides\n\nThe spring tides happen when the moon is new or full, and the neap tides are at the quarter moons.";
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: english }],
+      { answerPaths: { retrievesFirst: () => true } },
+    );
+
+    await askAndFinish(core, client, mind.id, "大潮什么时候出现？");
+
+    expect(model.doStreamCalls[0]?.prompt.some((message) => message.role === "tool")).toBe(false);
   });
 
   test("falls back to the loop when the model searches again", async () => {

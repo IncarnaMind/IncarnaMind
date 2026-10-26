@@ -42,8 +42,9 @@
  * unless the instructions say that Mind is an example.
  * Before its search it reasons, a line that quotes the Question, as a model
  * that thinks does; given the Question's search before its first call (#1633),
- * it answers from those Passages and reasons on that call. A Question asked "slowly" waits a moment before each step
- * and writes its Answer word by word, so a test sees each step of the Answer.
+ * it answers from those Passages and reasons on that call. A Question asked
+ * "slowly" waits a moment before each step and writes its Answer word by word,
+ * so a test sees each step of the Answer.
  *
  * With Skills: a Question that names a listed Skill gets it loaded with
  * use_skill first. An Answer that follows a Skill (forced, or loaded) starts
