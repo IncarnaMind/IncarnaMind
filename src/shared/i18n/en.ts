@@ -2355,7 +2355,8 @@ export const en = {
 
   "consent.flow.chat": "Chat",
   "consent.flow.chat.purpose": "answer your Questions",
-  "consent.data.blocks": "Your text and earlier Answers in this note, minus excluded text",
+  "consent.data.blocks":
+    "This note’s text, your text and earlier Questions and Answers, minus excluded text",
   "consent.data.document-names":
     "The names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50 Documents)",
   "consent.data.other-minds": "Part of another note, when a Question names it",

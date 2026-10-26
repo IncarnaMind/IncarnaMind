@@ -2253,7 +2253,7 @@ export const zhCN = {
 
   "consent.flow.chat": "对话",
   "consent.flow.chat.purpose": "回答你的问题",
-  "consent.data.blocks": "这篇笔记中你写的内容和之前的回答，不含已排除的内容",
+  "consent.data.blocks": "这篇笔记的正文、你写的内容和之前的问题和回答，不含已排除的内容",
   "consent.data.document-names": "问题或命令找到的文档和笔记：名称、文件夹和标签（最多 50 个文档）",
   "consent.data.other-minds": "问题中提到的另一篇笔记的部分内容",
   "consent.data.live-transcript": "会议转写稿：录制时的实时部分，停止录制后整份用于填写笔记",
