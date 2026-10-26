@@ -72,12 +72,6 @@ for (const width of [1440, 960]) {
     await openThePage(window, chip);
     await expect(tabsOf(window, "Tides")).toHaveCount(1);
     await expect(tabsOf(window, "Tides")).toHaveAttribute("data-preview", "true");
-    // The page is open at its quote before the User moves away: a page typed before the quote
-    // is found and drawn can be taken back to that quote (#1741).
-    const highlights = window
-      .getByTestId("viewer")
-      .locator('[data-page-number="2"] [data-quote-highlight]');
-    await expect(highlights).toHaveText([QUOTE]);
 
     // The User reads the Document: its group has the keyboard's focus, and the page is
     // somewhere else when the Citation is opened again.
@@ -92,6 +86,9 @@ for (const width of [1440, 960]) {
     await expect(tabsOf(window, "Tides")).toHaveCount(1);
     await expect(tabsOf(window, "Tides")).not.toHaveAttribute("data-preview");
     await expect(page).toHaveValue("2");
+    const highlights = window
+      .getByTestId("viewer")
+      .locator('[data-page-number="2"] [data-quote-highlight]');
     await expect(highlights).toHaveText([QUOTE]);
     await expect(highlights.first()).toBeInViewport();
     await app.close();

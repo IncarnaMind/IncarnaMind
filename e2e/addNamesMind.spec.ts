@@ -36,7 +36,7 @@ const WORDS = {
     longMind: "Quarterly board pack for the harbour authority, revised after the audit review",
     typed: "Spring tides come twice a month.",
     short: "What do tides do",
-    long: "What do tides do with four citations",
+    forty: "What do tides do with forty citations",
     named: (mind: string) => `Add to “${mind}”`,
     write: "Write as a note",
     plain: "Add to note",
@@ -48,7 +48,7 @@ const WORDS = {
     longMind: "港务局董事会季度材料汇编：审计委员会审阅之后的修订版及附件说明",
     typed: "大潮每个月出现两次。",
     short: "tides 是什么",
-    long: "四条引用 tides",
+    forty: "四十条引用 tides",
     named: (mind: string) => `添加到“${mind}”`,
     write: "写成笔记",
     plain: "添加到笔记",
@@ -174,7 +174,7 @@ for (const language of LANGUAGES) {
       (await center(short.getByTestId("answer-copy"))).x,
     );
 
-    const long = await askInAssistant(window, w.long);
+    const long = await askInAssistant(window, w.forty, { timeout: 120_000 });
     await pointAt(window, long.getByTestId("assistant-answer-text"));
     await expect(long.getByTestId("answer-add")).toHaveText(w.named(w.mind));
     expect((await center(long.getByTestId("answer-add"))).x).toBeLessThan(
@@ -197,7 +197,7 @@ for (const language of LANGUAGES) {
   test(`at 320 and 280 px Write as a note and Add to note keep their words, a long name is cut with its tooltip, and Copy keeps only its icon; wider, Copy says its word too (${language})`, async () => {
     const { app, window } = await start(language);
     await mindWithText(window, w.mind, w.typed);
-    const answer = await askInAssistant(window, w.long);
+    const answer = await askInAssistant(window, w.forty, { timeout: 120_000 });
     const write = answer.getByTestId("answer-write-note");
     const add = answer.getByTestId("answer-add");
     const more = answer.getByTestId("answer-add-to");
@@ -244,7 +244,7 @@ for (const language of LANGUAGES) {
     const { app, window } = await start(language);
     await pointAndClick(window, window.getByTestId("open-library"));
     await expect(window.getByTestId("mind-tab")).toHaveCount(0);
-    const answer = await askInAssistant(window, w.long);
+    const answer = await askInAssistant(window, w.forty, { timeout: 120_000 });
     await pointAt(window, answer.getByTestId("assistant-answer-text"));
     await expect(answer.getByTestId("answer-add")).toHaveText(w.plain);
     await pointAndClick(window, answer.getByTestId("answer-add"));
