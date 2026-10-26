@@ -26,8 +26,8 @@ const MIND_LEFT: readonly { readonly name: string; readonly left: number }[] = [
   { name: "zh-CN", left: 169 },
   { name: "CONTEXT.md", left: 52 },
   { name: "docs/agents/zh-CN.md", left: 12 },
-  { name: "README.md", left: 12 },
-  { name: "README.zh-CN.md", left: 13 },
+  { name: "README.md", left: 0 },
+  { name: "README.zh-CN.md", left: 0 },
 ];
 
 interface RetiredNote {
