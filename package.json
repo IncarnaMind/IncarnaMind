@@ -54,7 +54,8 @@
     "dist:dir": "electron-vite build && electron-builder --dir --publish never",
     "check:package": "node scripts/check-package.mjs",
     "icons": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/icons.ts",
-    "samples:generate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs scripts/sampleDocuments/index.ts"
+    "samples:generate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs scripts/sampleDocuments/index.ts",
+    "eval:skills": "vitest run --config eval/skills/vitest.config.ts"
   },
   "dependencies": {
     "@ai-sdk/alibaba": "2.0.65",

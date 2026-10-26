@@ -156,6 +156,23 @@ A figure in an Answer is written as reports write it, with no space between the 
 | times (a multiple) | 倍 | "4.00倍". |
 | yes / no (what a comparison gives) | 是 / 否 | |
 
+### Finance and law
+
+The words the finance and law Skills (#1938) use, as Chinese research, banking and legal products
+write them.
+
+| English | Chinese | Notes |
+|---|---|---|
+| Covenant (financial) | 财务约定 | A term of a facility agreement: its test, its level and the latest figure. The Skill's title is 财务约定摘要. |
+| Confidential information memorandum (CIM) | 保密信息备忘录（CIM） | Its short form is 信息备忘录. The Skill's title is 信息备忘录疑点核查. |
+| Data room | 数据室 | Not 资料库, which is the Library. |
+| Red flag (a CIM claim the data room doesn't support or contradicts) | 疑点 | A claim that needs a look; not 红旗, a literal translation. |
+| Credit memo / credit committee paper | 授信报告 | Its outline is 授信报告提纲, as banks word it. |
+| Deposition | 证词 | The transcript is 证词笔录; a summary is 证词摘要. |
+| Guidance (a company's) | 业绩指引 | The forward-looking figures a company gives, as announcements and research write it. |
+| Earnings review | 业绩回顾 | The quarter against the prior period and the guidance. |
+| Chronology | 事件时间线 | The dated list of a record's events. |
+
 ### Dates and times
 
 A date in a string is a `{date}` or `{time}` parameter, written by `src/shared/dates.ts`, never by a string or by code of its own: "会议，{date}", "{time} 后可重试". The module gives each language one style, and a test fails on a date built by hand elsewhere.
