@@ -163,8 +163,11 @@ function quoteFailure(
     return `${label}: its Locations ${from}-${to} aren't all Units of the Document`;
   }
   if (expected.length > 2) return `${label}: a Citation names at most two Units`;
-  if (expected.length === 2 && !sameRun(expected[0] as PageText, expected[1] as PageText)) {
-    return `${label}: its two Units aren't consecutive`;
+  if (expected.length === 2) {
+    const [first, second] = expected;
+    if (!first || !second || !sameRun(first, second)) {
+      return `${label}: its two Units aren't consecutive`;
+    }
   }
   if (quoteInUnits(expected, quote) === null) {
     return `${label}: the quote isn't at its Location`;

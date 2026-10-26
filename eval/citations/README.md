@@ -74,7 +74,7 @@ financial statements stand in for a filing.
 ## The Questions
 
 150 Questions: 75 asked in English and 75 in Simplified Chinese, 15 of them cross-lingual (9 asked in
-English about Chinese Documents, 6 asked in Chinese about English Documents). They hold 193 gold
+English about Chinese Documents, 6 asked in Chinese about English Documents). They hold 195 gold
 quotes, 170 figures and 10 decoys.
 
 | Kind | Count | What it tests |
@@ -126,8 +126,9 @@ Two checks, both recorded in the set:
    (`processFile` in `src/core/documents/processing`), then checks every gold quote with the app's
    own `findQuote` and Location code (`quoteInUnits` in `src/shared/locations`): the quote is at its
    cited Location, it is there verbatim after the app's normalisation, and it is on no other Unit of
-   its Document. It also checks every decoy the same way, that a table or calculated figure is
-   written in one of its quotes, and the set's shape: 150 Questions, the counts above, 75 in each
+   its Document. It also checks every decoy the same way, that every table-figure or superseded
+   figure is written in one of its quotes (a calculated answer's result is checked against the
+   arithmetic by the second reader, not by the script), and the set's shape: 150 Questions, the counts above, 75 in each
    language, 15 cross-lingual, and a `checked` day on every Question. `tests/eval/citationsSet.test.ts`
    runs it with `npm test`, so a quote or a hash that drifts fails CI.
 
