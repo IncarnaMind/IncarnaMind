@@ -72,15 +72,15 @@ export const notFoundIn = (editor: Editor, claim: ShownClaim): boolean =>
   saysNotFound(claim.shown, claim.check, citationsOf(editor.state, claim).length);
 
 /**
- * Whether the card offers Find sources: an unsupported sentence it can quote nothing for,
- * with no Citation and no court decision, so searching papers and the web could help.
+ * Whether the card offers Find sources: an unsupported sentence it can quote nothing for, with no
+ * court decision and none of the cited-sentence fixes, so searching papers and the web could help.
  */
 export function offersFindSources(editor: Editor, claim: ShownClaim): boolean {
   return (
     claim.shown.state === "unsupported" &&
     claim.check.evidence === null &&
     !claim.check.citedCaseUnchecked &&
-    citationsOf(editor.state, claim).length === 0
+    !offersFixes(editor, claim)
   );
 }
 

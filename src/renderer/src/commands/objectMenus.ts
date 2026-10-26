@@ -127,7 +127,6 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
-// A sentence's check, in its card (#1608).
 registerMenu("check", ["check.findSources"]);
 
 registerMenu("citation", [

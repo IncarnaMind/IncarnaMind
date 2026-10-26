@@ -27,6 +27,14 @@ const SLIDE_REST_MS = 300;
 const itemsOf = (menu: HTMLElement | null) =>
   Array.from(menu?.querySelectorAll<HTMLElement>(ITEMS) ?? []);
 
+/** Everything Tab reaches in the menu, in reading order: its items and any field it holds. */
+const tabbablesOf = (menu: HTMLElement | null) =>
+  Array.from(
+    menu?.querySelectorAll<HTMLElement>(
+      `${ITEMS}, input:not([disabled]), select:not([disabled]), textarea:not([disabled])`,
+    ) ?? [],
+  ).filter((each) => each.checkVisibility());
+
 /** Where a menu opened with a right-click or a key was asked for, if it was. */
 function pointOf(button: HTMLElement | null): { x: number; y: number; above: number } | null {
   const at = button?.dataset.menuAt?.split(",").map(Number);
@@ -336,9 +344,13 @@ export function usePopoverMenu({
       return;
     }
     if (event.key === "Tab") {
-      // A menu the focus is leaving goes with it, so Esc then belongs to the card or the page
-      // behind it, never to a menu no longer holding the focus (R85).
-      menu.current?.hidePopover();
+      // A menu closes only when Tab leaves it: from its last item, or its first with Shift. So the
+      // field a menu holds stays reachable, and Esc then belongs to the card or page behind it.
+      const tabbables = tabbablesOf(menu.current);
+      const leaving = event.shiftKey
+        ? document.activeElement === tabbables[0]
+        : document.activeElement === tabbables.at(-1);
+      if (leaving) menu.current?.hidePopover();
       return;
     }
     const next = itemForKey(event.key, itemsOf(menu.current));

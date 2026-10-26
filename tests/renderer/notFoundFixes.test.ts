@@ -18,8 +18,15 @@ vi.mock("../../src/renderer/src/editWithAi", () => ({
 vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: vi.fn() }));
 vi.mock("../../src/renderer/src/i18n", () => ({ translateNow: (key: string) => key }));
 
-const { checkStateKey, cutSentence, keepAsView, offersKeepAsView, offersNotFound, searchedLess } =
-  await import("../../src/renderer/src/unsupportedFixes");
+const {
+  checkStateKey,
+  cutSentence,
+  keepAsView,
+  offersFindSources,
+  offersKeepAsView,
+  offersNotFound,
+  searchedLess,
+} = await import("../../src/renderer/src/unsupportedFixes");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { useUndo } = await import("../../src/renderer/src/undo");
 
@@ -217,6 +224,31 @@ describe("a sentence that cites nothing and nothing backs", () => {
   test("is not offered them in a Mind that can't be edited", () => {
     const { editor } = editorHolding([paragraph("One cat.")], false);
     expect(offersNotFound(editor, claimOn(editor, 0, 0))).toBe(false);
+  });
+});
+
+describe("Find sources is offered where searching papers and the web could help", () => {
+  test("for an unsupported sentence it can quote nothing for, unless it has a Citation or a court decision", () => {
+    const { editor } = editorHolding([
+      paragraph("One cat.", citation),
+      paragraph("Two dogs."),
+      paragraph("Three birds."),
+    ]);
+    expect(offersFindSources(editor, claimOn(editor, 1, 0))).toBe(true);
+    expect(offersFindSources(editor, claimOn(editor, 0, 0))).toBe(false);
+    expect(offersFindSources(editor, claimOn(editor, 2, 0, { evidence: { quote: "x" } }))).toBe(
+      false,
+    );
+    expect(offersFindSources(editor, claimOn(editor, 2, 0, { citedCaseUnchecked: true }))).toBe(
+      false,
+    );
+  });
+
+  test("for an own-workings sentence with a Citation, whose card has no cited-sentence fixes", () => {
+    const { editor } = editorHolding([paragraph("One cat.", citation)]);
+    expect(
+      offersFindSources(editor, claimOn(editor, 0, 0, { excluded: [{ reason: "own-workings" }] })),
+    ).toBe(true);
   });
 });
 
