@@ -19,9 +19,15 @@ export function useUnreadFiles(scope: SearchScope | null): UnreadFile[] {
   const state = useAppStore((store) =>
     [
       ...store.documents
-        .filter((each) => each.status === "failed" || each.status === "no-text")
+        .filter(
+          (each) =>
+            each.status === "failed" || each.status === "no-text" || each.unreadParts !== null,
+        )
         .map(
-          (each) => `${each.id}:${each.status}:${each.failure?.reason ?? ""}:${each.fileStatus}`,
+          (each) =>
+            `${each.id}:${each.status}:${each.failure?.reason ?? ""}:${each.fileStatus}:${
+              each.unreadParts ? JSON.stringify(each.unreadParts) : ""
+            }`,
         ),
       ...store.linkedFolders.map((each) => `${each.id}:${each.unsupportedFiles}`),
       store.documents.length,

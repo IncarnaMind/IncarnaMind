@@ -1880,6 +1880,15 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 107,
+    description: "A workbook says which sheets and rows weren't read (#740)",
+    // JSON, an UnreadParts: hidden and very hidden sheets left out, sheets the reading limit cut
+    // short, and sheets after it. NULL when every part was read, and for every other kind.
+    sql: `
+      ALTER TABLE documents ADD COLUMN unread_parts TEXT;
+    `,
+  },
+  {
+    version: 108,
     description: "Answers in conversations keep their Analyses, and a Question that asked for one",
     sql: `
       ALTER TABLE conversation_messages ADD COLUMN analyses TEXT NOT NULL DEFAULT '[]';
