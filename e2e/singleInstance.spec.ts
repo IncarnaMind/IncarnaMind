@@ -1,4 +1,4 @@
-import type { ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
@@ -8,7 +8,14 @@ import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "@playwright/test";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
-import { coreOf, createDataFolder, dismissChatSetup, launchApp, removeDataFolder } from "./app";
+import {
+  coreOf,
+  createDataFolder,
+  dismissChatSetup,
+  forceQuit,
+  launchApp,
+  removeDataFolder,
+} from "./app";
 import {
   copiesWith,
   freePort,
@@ -86,14 +93,39 @@ test("a copy that was killed outright leaves the data folder free for the next s
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await (await coreOf(window)).evaluate(async (api) => api.createMind({ title: "Kept" }));
-  const gone = once(app.process(), "exit");
-  app.process().kill("SIGKILL");
-  await gone;
+  await forceQuit(app);
 
   const next = await launchApp(dataDir);
   const minds = await (await coreOf(next.window)).evaluate(async (api) => api.listMinds());
   expect(minds.map((each) => each.title)).toEqual(["Kept"]);
   await next.app.close();
+});
+
+test("a forced quit ends the real main even when the launcher is a different process", async () => {
+  const { app } = await launchApp(dataDir);
+  const launcher = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
+    stdio: ["pipe", "ignore", "ignore"],
+  });
+  const processOf = app.process;
+  let closed = false;
+  app.once("close", () => {
+    closed = true;
+  });
+  app.process = () => launcher;
+  try {
+    await forceQuit(app);
+    expect(closed).toBe(true);
+    expect(launcher.exitCode).toBeNull();
+    expect(launcher.signalCode).toBeNull();
+  } finally {
+    app.process = processOf;
+    if (launcher.exitCode === null && launcher.signalCode === null) {
+      const gone = once(launcher, "exit");
+      launcher.kill("SIGKILL");
+      await gone;
+    }
+    if (!closed) await app.close();
+  }
 });
 
 test("a live data owner receives the next start even after the native forwarding files disappear", async () => {
