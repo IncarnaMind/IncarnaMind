@@ -49,9 +49,7 @@ for (const examples of [false, true]) {
 
       await expect(window.getByTestId("chat-readiness")).toBeVisible();
       await expect(window.getByTestId("undo-message")).toHaveCount(0);
-      await expect(window.getByTestId("undo-line")).not.toContainText(
-        /Made a new Mind|已新建 Mind/,
-      );
+      await expect(window.getByTestId("undo-line")).not.toContainText(/Made a new Mind|已新建笔记/);
       const shown = await window.locator(MESSAGES).evaluateAll(
         (elements) =>
           elements.filter((element) => {

@@ -192,7 +192,7 @@ test("“Create a new note called Fieldwork plan” makes a Mind at once, its ti
   await screenshot(window, "empty-note-by-name");
 });
 
-test("with no Mind open, a request to change one says so, and New Mind makes one and asks it again there", async () => {
+test("with no Mind open, a request to change one says so, and New note makes one and asks it again there", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -203,7 +203,7 @@ test("with no Mind open, a request to change one says so, and New Mind makes one
   const answer = await askInAssistant(window, "Add a risks section");
   await expect(answer.getByTestId("assistant-answer-text")).toContainText("No Mind is open");
   const offer = answer.getByTestId("mind-changes-no-mind");
-  await expect(offer).toContainText("No Mind was open to change.");
+  await expect(offer).toContainText("No note was open to change.");
   await screenshot(window, "no-mind-open");
   await pointAndClick(window, offer.getByTestId("mind-changes-new-mind"));
 

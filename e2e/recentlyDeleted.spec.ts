@@ -419,7 +419,7 @@ test("emptying Recently deleted with many items asks once, counting what is lost
   await window.getByTestId("deleted-empty").click();
   const dialog = window.getByTestId("delete-permanently-dialog");
   await expect(dialog.getByRole("heading")).toHaveText("Empty Recently deleted?");
-  await expect(dialog).toContainText("The notes in 12 Minds are gone.");
+  await expect(dialog).toContainText("Your text in 12 notes is gone.");
   await dialog.getByTestId("confirm-delete-permanently").click();
   await nothingDeleted(window);
   expect(await deletedNames(window)).toEqual([]);

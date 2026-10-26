@@ -192,7 +192,7 @@ test("the Answers default applies on a fresh install, and changing it in Setting
   const settings = await openSettings(window, "models");
   const answers = settings.getByTestId("model-default-chatModel");
   await expect(answers).toHaveAccessibleDescription(
-    "A Mind or conversation with no model of its own uses the one you last chose; until then, this one.",
+    "A note or conversation with no model of its own uses the one you last chose; until then, this one.",
   );
   await answers.selectOption(`${providerId}\n${OPUS}`);
   await expect.poll(() => lastPick(window)).toEqual({ providerId, modelId: OPUS });
@@ -206,7 +206,7 @@ test("the Answers default applies on a fresh install, and changing it in Setting
   await window.getByRole("button", { name: "设置" }).click();
   const settingsZh = await showSettingsPage(window, "models");
   await expect(settingsZh.getByTestId("model-default-chatModel")).toHaveAccessibleDescription(
-    "没有自选模型的 Mind 和对话，用你上次选的模型；还没选过，就用这个。",
+    "没有自选模型的笔记和对话，用你上次选的模型；还没选过，就用这个。",
   );
 });
 

@@ -291,7 +291,7 @@ test("help during the call: the panel folds to level bars that become Stop, ⌘K
   await expect(panel.getByTestId("help-pin").last()).toHaveAttribute("aria-pressed", "true");
   await fromPalette(window, "Add the latest suggestion to notes");
   await expect(window.getByTestId("mind-editor")).toContainText("partner preview");
-  await expect(window.getByTestId("undo-message")).toHaveText("Added to notes");
+  await expect(window.getByTestId("undo-message")).toHaveText("Added to note");
   await pointAndClick(window, window.getByTestId("undo-action"));
   await expect(window.getByTestId("mind-editor")).not.toContainText("partner preview");
 

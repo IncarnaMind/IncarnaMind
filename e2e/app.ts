@@ -656,7 +656,7 @@ export const editItem = (app: ElectronApplication, id: "edit.undo" | "edit.redo"
   }, id);
 
 /**
- * "New Mind" from the sidebar header's "+" menu, the one place to add: a Mind
+ * "New note" from the sidebar header's "+" menu, the one place to add: a Mind
  * in no Folder. Returns once its first line has the cursor: keys a test
  * presses a millisecond apart can outrun the editor while frames are busy.
  * That line starts as an empty title; unless `title`, Backspace makes

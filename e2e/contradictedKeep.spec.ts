@@ -22,7 +22,7 @@ import {
 
 /*
  * A sentence a Document contradicts can be kept as the User's own view (#1768):
- * its card and ⌘K keep it with one Undo, a later Check this Mind leaves it, and
+ * its card and ⌘K keep it with one Undo, a later Check this note leaves it, and
  * a Verify Mind offers it too. The scripted model contradicts a sentence that
  * shares three words with a line whose numbers it doesn't have
  * (src/main/fakeChat/checks.ts). Set INCARNAMIND_SCREENSHOTS to a folder to
@@ -46,14 +46,14 @@ const LANGUAGES = {
     keptOne: "1 kept as your view",
     kept: "Kept as your view",
     contradicted: "Contradicted",
-    checkMind: "Check this Mind",
+    checkMind: "Check this note",
   },
   "zh-CN": {
     keep: "保留为我的观点",
     keptOne: "1 句已保留为你的观点",
     kept: "已保留为你的观点",
     contradicted: "与文档矛盾",
-    checkMind: "核对此 Mind",
+    checkMind: "核对此笔记",
   },
 } as const;
 
@@ -108,7 +108,7 @@ async function launchedWithContradictedSentence(language: "en" | "zh-CN") {
 for (const language of ["en", "zh-CN"] as const) {
   const words = LANGUAGES[language];
 
-  test(`a contradicted sentence's card keeps it as the User's own view, one Undo brings the ≠ and the card back, and Check this Mind leaves it (${language})`, async () => {
+  test(`a contradicted sentence's card keeps it as the User's own view, one Undo brings the ≠ and the card back, and Check this note leaves it (${language})`, async () => {
     test.setTimeout(180_000);
     const { app, window, editor, lines, marks, card } =
       await launchedWithContradictedSentence(language);
@@ -182,7 +182,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(marks).toHaveCount(2);
     await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
 
-    // Kept again with ⌘K: Check this Mind checks the other sentence and leaves this one.
+    // Kept again with ⌘K: Check this note checks the other sentence and leaves this one.
     await clickEndOf(window, lines.nth(0));
     await runCommand(window, "check.keepAsView", words.keep);
     await expect(marks).toHaveCount(1);
