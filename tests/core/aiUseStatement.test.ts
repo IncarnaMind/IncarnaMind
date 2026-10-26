@@ -587,6 +587,27 @@ describe("The AI use statement", () => {
         rows.slice(1).map((row) => row.filter((cell) => /^\d+$/.test(cell))),
       );
     expect(counts(chinese.parts)).toEqual(counts(english.parts));
+    // Not found is its own row, before Unsupported, in either language.
+    const sentenceRows = (parts: readonly Part[]) =>
+      tablesOf(parts)
+        .find((rows) => ["Sentences", "说法（条）"].includes(rows[0]?.[1] ?? ""))
+        ?.slice(1);
+    expect(sentenceRows(english.parts)).toEqual([
+      ["Supported", "1"],
+      ["Contradicted", "1"],
+      ["Not found", "1"],
+      ["Unsupported", "1"],
+      ["Needs re-check", "1"],
+      ["Not checked", "1"],
+    ]);
+    expect(sentenceRows(chinese.parts)).toEqual([
+      ["有依据", "1"],
+      ["与文档矛盾", "1"],
+      ["未找到", "1"],
+      ["无依据", "1"],
+      ["需重新核对", "1"],
+      ["未核对", "1"],
+    ]);
     expect(chinese.title).toBe("AI 使用声明：Thesis");
     expect(paragraphsOf(english.parts)).toContain(
       "Sentences the author had checked against the Documents, with Check against Documents, by result:",

@@ -2211,7 +2211,9 @@ export function createCore(adapters: CoreAdapters): Core {
     events,
     now,
     settings,
-    suggested: join(adapters.paths.documents, "IncarnaMind"),
+    get suggested() {
+      return join(adapters.paths.documents, "IncarnaMind");
+    },
     linkedFolders: () => documents.linkedFolders.list(),
     recordOwnFile,
   });
