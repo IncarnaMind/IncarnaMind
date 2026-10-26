@@ -612,6 +612,45 @@ async function mindWithChart(window: Page): Promise<string> {
   }, update);
 }
 
+/** A Mind holding one checked sentence the check found nothing in the Documents for (#1608). */
+async function mindWithCheck(window: Page): Promise<string> {
+  const doc = new Y.Doc();
+  const paragraph = new Y.XmlElement("paragraph");
+  paragraph.setAttribute("id", crypto.randomUUID());
+  const text = new Y.XmlText();
+  text.insert(0, "Penguins nest on the harbour cliffs.", {
+    claimCheck: {
+      id: crypto.randomUUID(),
+      request: "request-1",
+      action: "check-against-documents",
+      state: "unsupported",
+      reason: null,
+      detail: null,
+      text: "Penguins nest on the harbour cliffs.",
+      evidence: null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      scope: { folderId: null, widened: false },
+      versions: [],
+      excluded: [],
+      checkedAt: "2026-10-26T09:00:00.000Z",
+    },
+  });
+  paragraph.insert(0, [text]);
+  doc.getXmlFragment("blocks").push([paragraph]);
+  const update = Array.from(Y.encodeStateAsUpdate(doc));
+  return window.evaluate(async (change) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const mind = await core.createMind({ title: "Checks" });
+    await core.applyMindUpdate(mind.id, new Uint8Array(change));
+    await core.closeMind(mind.id);
+    return mind.id;
+  }, update);
+}
+
 const TIDES = buildPdf([
   { lines: ["Tides and the Moon", "The Moon raises two bulges of water on the Earth."] },
   { lines: ["Spring and neap tides", "Spring tides happen at new moon and at full moon."] },
@@ -782,6 +821,20 @@ const STAGES: Record<Staged, Stage> = {
     renameFrom: {
       doubleClick: ({ window }) => window.getByTestId("chart").getByTestId("chart-title"),
       focus: ({ window }) => window.getByTestId("chart").getByTestId("chart-show-table"),
+    },
+  },
+  check: {
+    inNote: true,
+    make: ({ window }) => mindWithCheck(window),
+    async show({ window }, key) {
+      await showMind(window, key);
+      await pointAndClick(window, mindTab(window, key).first());
+      const card = window.getByTestId("claim-card");
+      if (!(await card.isVisible())) {
+        await pointAndClick(window, window.getByTestId("claim-mark").first());
+      }
+      await expect(card).toBeVisible();
+      return (await window.getByTestId("claim-mark").first().getAttribute("data-claim")) ?? "";
     },
   },
 };

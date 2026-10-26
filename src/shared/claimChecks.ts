@@ -21,6 +21,7 @@ import {
   type SearchScope,
   type UnsupportedReason,
 } from "../core/api";
+import type { MessageKey } from "./i18n";
 import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
 import { comparableSentence, isClaim } from "./sentences";
 
@@ -382,12 +383,33 @@ export function toCheckCount(sentences: Iterable<CheckedSentence>): number {
 export type SentenceResult =
   | "supported"
   | "unsupported"
+  | "notFound"
   | "contradicted"
   | "needsRecheck"
   | "notChecked"
   | "changed";
 
-export function sentenceResultOf(shown: ClaimCheckShown): SentenceResult | null {
+/** Each result's words: the check record and the AI use statement say one result's name the same way. */
+export const SENTENCE_RESULT_LABELS: Readonly<Record<SentenceResult, MessageKey>> = {
+  supported: "aiStatement.sentences.supported",
+  contradicted: "aiStatement.sentences.contradicted",
+  notFound: "aiStatement.sentences.notFound",
+  unsupported: "aiStatement.sentences.unsupported",
+  needsRecheck: "aiStatement.sentences.recheck",
+  notChecked: "aiStatement.sentences.notChecked",
+  changed: "aiStatement.sentences.changed",
+};
+
+/**
+ * A sentence's result, as the record and the AI use statement count it: Not found apart from
+ * Unsupported by the card's own rule (`saysNotFound`), so an unsupported sentence the check
+ * found no Passage for is never counted as one it did.
+ */
+export function sentenceResultOf(
+  shown: ClaimCheckShown,
+  check: ClaimCheckAttributes,
+  citations: number,
+): SentenceResult | null {
   switch (shown.state) {
     case "checking":
     case "kept":
@@ -396,6 +418,8 @@ export function sentenceResultOf(shown: ClaimCheckShown): SentenceResult | null 
       return shown.why === "edited" ? "changed" : "needsRecheck";
     case "not-checked":
       return "notChecked";
+    case "unsupported":
+      return saysNotFound(shown, check, citations) ? "notFound" : "unsupported";
     default:
       return shown.state;
   }
