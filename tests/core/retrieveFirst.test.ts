@@ -31,7 +31,7 @@ function answering(more = 0) {
 
 const setUp = (model: ReturnType<typeof scriptedModel>, retrieveFirst: boolean) =>
   setUpWithDocuments(model, [{ name: "Tides.md", contents: TIDES_MD }], {
-    answerSearch: { retrieveFirst: () => retrieveFirst },
+    answerPaths: { retrievesFirst: () => retrieveFirst },
   });
 
 describe("An Answer that retrieves first", { timeout: 30_000 }, () => {

@@ -269,18 +269,14 @@ export function answerOptionsOf(config: {
 
 /** What the library gives the core so an Answer's searches are tuned and timed, from the run's settings. */
 export function answerSearchOf(
-  settings: Pick<AnswerSearchTuning, "rerankDepth" | "maxPassages" | "retrieveFirst">,
+  settings: Pick<AnswerSearchTuning, "rerankDepth" | "maxPassages">,
   recorder: TimingRecorder | null,
 ): AnswerSearchTuning | undefined {
-  const tuned =
-    settings.rerankDepth !== undefined ||
-    settings.maxPassages !== undefined ||
-    settings.retrieveFirst !== undefined;
+  const tuned = settings.rerankDepth !== undefined || settings.maxPassages !== undefined;
   if (!tuned && !recorder) return undefined;
   return {
     ...(settings.rerankDepth !== undefined && { rerankDepth: settings.rerankDepth }),
     ...(settings.maxPassages !== undefined && { maxPassages: settings.maxPassages }),
-    ...(settings.retrieveFirst && { retrieveFirst: settings.retrieveFirst }),
     ...(recorder && { observe: (search: ObservedSearch) => recorder.observe(search) }),
   };
 }

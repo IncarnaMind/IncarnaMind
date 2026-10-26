@@ -455,28 +455,50 @@ export const unrecordedMarkersNote = (markers: readonly number[]) =>
 const UNBROKEN_QUOTE =
   "- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.";
 
-/**
- * The Citation check also looks for the words an Answer puts in quotation marks (#483): a reader
- * takes them for the Document's own. An Answer written before its records quoted the Passage
- * tidied ("P E_{pos+k}" for "P Epos+k", "include[s]"), which the check doesn't find (#489).
- */
+/** The Citation check also looks for the words an Answer puts in quotation marks (#483): a reader takes them for the Document's own. */
 const QUOTATION_MARKS =
-  "- Use quotation marks only around a Document's exact words, copied character for character as its Passage reads, even where the text looks garbled (its spacing, symbols, a word cut short), with nothing changed or added in brackets, and give that same stretch as its record's quote. Quote it in its own language, never a translation of it: that goes after the closing mark, as “…”（译：…）. Words you would change, give in your own words, without quotation marks.";
+  "- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.";
 
-/**
- * How a model in the Tool loop cites (#489): the Answer first, then all its records in one
- * `cite` call in the same reply, so its words come a model call sooner; the Answer ends when
- * `cite` takes every record. Exported for the paired evaluation, which compares it with citing first.
- */
-export const WRITE_THEN_CITE: readonly string[] = [
-  "- Write the Answer once you have what it needs, searching again with other words while the Passages don't hold it. Put a marker such as [^1] right after each claim a Passage supports, in a table's cell too, and add no list of sources.",
-  `- Then, in the same reply, call cite once with a record for each marker: its number (1, 2, …), ${RECORD}.`,
-  "- If cite asks you to fix records, give them fixed in another cite call: never write the Answer again.",
+/** How a model in the Tool loop cites unless it is listed to write first (../providers/catalog/answerPaths). */
+const citeFirst = (keeps: boolean) => [
+  `- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), ${RECORD}.`,
+  UNBROKEN_QUOTE,
+  QUOTATION_MARKS,
+  "- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.",
+  ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
+  "- Write nothing before your Tool calls: only the Answer, after them.",
 ];
 
-/** Text written into a Mind isn't checked before the reply, so its records come first (mindInstructions). */
-const MIND_TEXT_CITED_FIRST =
-  "- Text you write into a Mind is the exception: call cite for it before the call that writes it.";
+/**
+ * How a listed model cites (#489): the Answer, then all its records in one `cite` call in the
+ * same reply, so it is done a model call sooner; the Answer ends when `cite` takes every record.
+ * Written before its records, an Answer quoted the Passage tidied ("P E_{pos+k}" for
+ * "P Epos+k", "include[s]"), which the quoted-words check doesn't find, hence its own rule on
+ * quotation marks. Text written into a Mind isn't checked before the reply, so its records
+ * still come first.
+ */
+const writeThenCite = (keeps: boolean, minds: boolean) => [
+  "- Write the Answer once you have what it needs, searching again with other words while the Passages don't hold it. Put a marker such as [^1] right after each claim a Passage supports, in a table's cell too, and add no list of sources.",
+  `- Then, in the same reply, right after the Answer's text, call cite once with a record for each marker: its number (1, 2, …), ${RECORD}. Your thinking isn't shown: the whole Answer goes in the text.`,
+  "- If cite asks you to fix records, give them fixed in another cite call: never write the Answer again.",
+  UNBROKEN_QUOTE,
+  "- Use quotation marks only around a Document's exact words, in its own language: copy them as its Passage reads, even where garbled, with nothing changed or added in brackets, and give the same stretch as the record's quote. A translation goes after the closing mark, as “…”（译：…）; words you would change go without quotation marks.",
+  ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
+  ...(minds
+    ? [
+        "- Text you write into a Mind is the exception: call cite for it before the call that writes it.",
+      ]
+    : []),
+  "- Write nothing before a search: only the Answer, once you have what it needs.",
+];
+
+/**
+ * What `cite` tells a listed model that gave its records before any of the Answer showed: Claude
+ * Sonnet 5.5 wrote the Answer in its thinking and, told to write it "if you haven't yet", wrote
+ * only a line pointing back to it.
+ */
+export const NOTHING_SHOWN_YET =
+  " Your reply has shown no text yet, and your thinking isn't shown: write the whole Answer now, with these markers.";
 
 /** The most Document names the instructions list: the most recently added. */
 export const LISTED_DOCUMENTS = 50;
@@ -570,8 +592,8 @@ function documentNames({ total, names }: ListedDocuments): string {
  * limited the Question to some of their Documents (its Search scope), and
  * `listed` covers only those. `calculate`: the model is offered the
  * `calculate` Tool (or `calculations` in its JSON), and steered to it. `keeps`: the
- * Question context shows Citations with ids, or a Mind read may. `minds`: the model is offered
- * the Tools that write into Minds.
+ * Question context shows Citations with ids, or a Mind read may. `writeFirst`: a model in the
+ * Tool loop writes the Answer, then cites it; `minds`: it is offered the Tools that write into Minds.
  */
 export function documentInstructions(
   mode: CitationSupport | "no-documents",
@@ -580,7 +602,7 @@ export function documentInstructions(
   scoped = false,
   calculate = false,
   keeps = false,
-  minds = false,
+  { writeFirst = false, minds = false }: { writeFirst?: boolean; minds?: boolean } = {},
 ): string {
   const documents = `${listed.total} Document${listed.total === 1 ? "" : "s"}`;
   const dated = datedDocumentsNote(passages);
@@ -600,12 +622,7 @@ export function documentInstructions(
         documentNames(listed),
         "",
         "Cite every claim you draw from a Passage:",
-        ...WRITE_THEN_CITE,
-        UNBROKEN_QUOTE,
-        QUOTATION_MARKS,
-        ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
-        ...(minds ? [MIND_TEXT_CITED_FIRST] : []),
-        "- Write nothing before a search: only the Answer, once you have what it needs.",
+        ...(writeFirst ? writeThenCite(keeps, minds) : citeFirst(keeps)),
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,

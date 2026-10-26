@@ -523,6 +523,8 @@ export interface AnswersOptions {
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
   ): Promise<PreparedChatModel["model"]>;
+  /** Whether this model writes the Answer, then cites it, in the Tool loop (#489). */
+  writesThenCites?(prepared: PreparedChatModel): boolean;
   /** Whether an Answer on this model searches its Question before the first call (#1633). */
   retrievesFirst?(prepared: PreparedChatModel): boolean;
   /** Searching the User's Documents, and what Citations point to. */
@@ -2338,6 +2340,14 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
       ];
+      // Call help already searches first, and a check or a Task's Run keeps the loop it was measured with.
+      const retrieveFirst =
+        !help &&
+        !input.task &&
+        (input.toolSet ?? "answer") === "answer" &&
+        (options.retrievesFirst?.(prepared) ?? false);
+      // Its one call writes the Answer and then cites it (#1633 on #489's contract).
+      const writeFirst = retrieveFirst || (options.writesThenCites?.(prepared) ?? false);
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -2365,7 +2375,7 @@ export function createAnswers(options: AnswersOptions) {
                   scoped,
                   calculating,
                   withMindTools || ids.size() > 0,
-                  withMindTools,
+                  { writeFirst, minds: withMindTools },
                 ),
             stillReadingNote(options.documents.reading(documentIds)),
             coverageInstructions(
@@ -2429,12 +2439,8 @@ export function createAnswers(options: AnswersOptions) {
         }),
         thirdParty: contextReasons,
         support: startingSupport(prepared.support, supportByModel.get(learntKey)),
-        // Call help already searches first, and a check or a Task's Run keeps the loop it was measured with.
-        retrieveFirst:
-          !help &&
-          !input.task &&
-          (input.toolSet ?? "answer") === "answer" &&
-          (options.retrievesFirst?.(prepared) ?? false),
+        writeThenCite: writeFirst,
+        retrieveFirst,
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
         window: prepared.window,

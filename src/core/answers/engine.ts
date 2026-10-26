@@ -106,11 +106,12 @@ import type {
 import { inStep } from "../timing/flows";
 import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
-import { asksForFixes } from "./citations";
+import { asksForFixes, WRITE_NOW } from "./citations";
 import { earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import { missingMarkerEvents, textEdits } from "./markerPlacement";
 import {
+  NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
   searchQueryPrompt,
   TRANSLATE_QUERY_INSTRUCTIONS,
@@ -396,6 +397,8 @@ export interface AnswerRequest {
   thirdParty?: readonly ThirdPartyReason[];
   /** How this model is known to cite, from its capabilities or earlier Answers. Unknown: try Tools first. */
   support?: CitationSupport;
+  /** In the Tool loop, the model writes the Answer, then cites it in the same reply (#489). */
+  writeThenCite?: boolean;
   /**
    * In the Tool loop, search the Question (and its translation) before the first call, so the
    * model can answer from those Passages in one call; it searches on when they aren't enough.
@@ -1648,6 +1651,7 @@ async function* toolLoop(
   };
   /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
   const askedForFixes = new Map<string, boolean>();
+  const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
   /**
    * A Tool as the engine calls it: one with untrusted results taints the Run
    * once it returns some; one that counts what it found (Find sources) says
@@ -1666,7 +1670,13 @@ async function* toolLoop(
         ? (results.get(context.toolCallId) ?? 0) > 0
         : result.trim() !== "";
       if (tool.untrustedResult && read) tainted = true;
-      if (tool === cite) askedForFixes.set(context.toolCallId, asksForFixes(result));
+      if (tool === cite) {
+        askedForFixes.set(context.toolCallId, asksForFixes(result));
+        // Records for text a Mind will hold come first; an Answer's come with its text (#489).
+        if (request.writeThenCite && !writesMinds && !MARKER.test(keptText + stepText)) {
+          return result.replace(WRITE_NOW, NOTHING_SHOWN_YET);
+        }
+      }
       if (tool === calculate) askedForFixes.set(context.toolCallId, asksForFigureFixes(result));
       return result;
     },
