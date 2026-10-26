@@ -10,6 +10,7 @@ import {
   type AskedChangeTransition,
   type ConversationAnswer,
   DEFAULT_ASSISTANT,
+  type LayoutChange,
   MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
   type WindowLayout,
@@ -111,7 +112,7 @@ interface UndoBridge {
 }
 
 type ApplyBridge = (input: ApplyAskedChangesInput) => Promise<AskedChangeApplication | null>;
-type LayoutBridge = () => Promise<WindowLayout>;
+type LayoutBridge = (change: LayoutChange) => Promise<WindowLayout>;
 
 const OPEN_LAYOUT: WindowLayout = {
   groups: [{ id: "group", tabs: [], activeTabId: null, width: 1 }],
@@ -131,7 +132,7 @@ const delegatedBridge = {
     return () => registered.delete(listener);
   },
   applyAskedChanges: (input: ApplyAskedChangesInput) => activeApply(input),
-  changeLayout: () => activeLayout(),
+  changeLayout: (_windowId: string, change: LayoutChange) => activeLayout(change),
   undoAskedChanges: (undoId: string) => {
     if (!activeUndoBridge) throw new Error("No Undo bridge.");
     return activeUndoBridge.undoAskedChanges(undoId);
@@ -468,6 +469,62 @@ test.each([
     doc.destroy();
   },
 );
+
+// Value: protects=a background tab never delays regeneration for its inactive editor; fails_when=finish waits for that editor; why_new=background opening preserves the made Mind in front; seam=real conversation finish and re-ask; no_claim=editor recovery (covered separately)
+test("a background edit doesn't hold regeneration for its inactive editor", async () => {
+  const { doc, application } = applicationWithChange(false);
+  let undoCalls = 0;
+  const opens: LayoutChange[] = [];
+  mountDom(
+    {
+      undoAskedChanges: async () => {
+        undoCalls += 1;
+        return transitionOfMind(doc);
+      },
+      redoAskedChanges: async () => null,
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async (input) => (input.mindId === "mind" ? application : null),
+      layout: async (change) => {
+        opens.push(change);
+        return OPEN_LAYOUT;
+      },
+    },
+  );
+  const { applyWhatWasAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  answer.toolCalls.push({
+    id: "made-call",
+    tool: "create_mind",
+    source: "minds",
+    input: {},
+    status: "done",
+    resultCount: null,
+    mindChange: {
+      mindId: "made",
+      created: true,
+      request: "made-request",
+      proposals: 1,
+      paragraphs: 1,
+    },
+  });
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  expect(opens).toContainEqual({
+    type: "open",
+    item: { kind: "mind", mindId: "mind" },
+    where: { in: "place" },
+    behind: true,
+  });
+  const making = applyWhatWasAsked(answer.id);
+  await eventually(() => (undoCalls === 1 ? true : null));
+  await making;
+  doc.destroy();
+});
 
 // Value: protects=regeneration waits for in-flight Redo then undoes once; fails_when=old text survives or the old stack entry remains; why_new=review reproduced the race; seam=real conversation-finish path and global Redo; no_claim=multi-window remote edits (single-window sequence)
 test("regeneration waits for in-flight core Redo and undoes it once", async () => {

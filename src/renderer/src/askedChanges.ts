@@ -150,10 +150,13 @@ const OPEN_WAIT_MS = 10_000;
 
 const refOf = ({ undoId, held }: AskedChangeApplication): ApplicationRef => ({ undoId, held });
 
-const openBeside = (mindId: string) =>
-  useAppStore
-    .getState()
-    .changeLayout({ type: "open", item: { kind: "mind", mindId }, where: { in: "place" } });
+const openBeside = (mindId: string, behind: boolean) =>
+  useAppStore.getState().changeLayout({
+    type: "open",
+    item: { kind: "mind", mindId },
+    where: { in: "place" },
+    behind,
+  });
 
 function follow(row: ChangedMind): void {
   const editor = mindEditor(row.mindId);
@@ -170,20 +173,26 @@ function follow(row: ChangedMind): void {
 
 /** Each Mind's changes apply at once, in its open editor or in the core. */
 const finish = (answer: ConversationAnswer): Promise<unknown> => {
-  const task = Promise.allSettled(changedMinds(answer).map((row) => finishIn(answer, row))).then(
-    (results) => {
-      for (const result of results) {
-        if (result.status === "rejected") useAppStore.getState().reportError(result.reason);
-      }
-    },
-  );
+  const rows = changedMinds(answer);
+  const made = rows.some((row) => row.created);
+  const task = Promise.allSettled(
+    rows.map((row) => finishIn(answer, row, made && !row.created)),
+  ).then((results) => {
+    for (const result of results) {
+      if (result.status === "rejected") useAppStore.getState().reportError(result.reason);
+    }
+  });
   finishing.set(answer.id, task);
   return task.finally(() => {
     if (finishing.get(answer.id) === task) finishing.delete(answer.id);
   });
 };
 
-async function finishIn(answer: ConversationAnswer, row: ChangedMind): Promise<void> {
+async function finishIn(
+  answer: ConversationAnswer,
+  row: ChangedMind,
+  behind: boolean,
+): Promise<void> {
   const editor = mindEditor(row.mindId);
   if (!editor) {
     const application = await core.applyAskedChanges({
@@ -214,7 +223,7 @@ async function finishIn(answer: ConversationAnswer, row: ChangedMind): Promise<v
     };
     asked.set(keyOf(answer.id, row.mindId), each);
     setOutcome(each, application.held ? "held" : "applied");
-    if (!(await openBeside(row.mindId))) {
+    if (!(await openBeside(row.mindId, behind)) || behind) {
       each.application = refOf(application);
       return;
     }

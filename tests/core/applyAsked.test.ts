@@ -245,9 +245,12 @@ describe("Applying an assistant's changes in the core", () => {
     const { core, mind } = await setUp(addingModel(["A decision."]));
     const answer = await askAssistant(core, { text: "Add a decision to Project plan" });
     const application = await applyFor(core, answer, mind.id);
+    await expect(Reflect.apply(core.applyAskedChanges, core, [null])).rejects.toMatchObject({
+      wording: { key: "error.askedChanges.input" },
+    });
     await expect(
       core.applyAskedChanges({ answerId: "", mindId: mind.id, requests: [] }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ wording: { key: "error.askedChanges.answer" } });
     await expect(
       core.applyAskedChanges({ answerId: answer.id, mindId: "missing", requests: [] }),
     ).rejects.toThrow();

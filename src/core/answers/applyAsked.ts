@@ -83,10 +83,10 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
   };
 
   const parseInput = (input: ApplyAskedChangesInput) => {
-    if (!isRecord(input)) throw new InvalidInputError("applyAskedChanges expects an object.");
+    if (!isRecord(input)) throw new InvalidInputError({ key: "error.askedChanges.input" });
     const { answerId, mindId, requests } = input;
     if (typeof answerId !== "string" || answerId === "") {
-      throw new InvalidInputError("An Answer id must be a non-empty string.");
+      throw new InvalidInputError({ key: "error.askedChanges.answer" });
     }
     return {
       answerId,

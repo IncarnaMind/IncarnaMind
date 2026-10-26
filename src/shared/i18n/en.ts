@@ -3874,6 +3874,10 @@ export const en = {
   "error.question.notInMind": "That Question isn’t in this Mind.",
   "error.answer.notInConversation": "That Answer isn’t in this conversation.",
   "error.answer.questionGone": "The Question of this Answer has been deleted.",
+  "error.askedChanges.input":
+    "IncarnaMind couldn’t read the assistant’s change request. Try again.",
+  "error.askedChanges.answer":
+    "IncarnaMind can’t tell which Answer these changes belong to. Try again.",
   "error.linkedFolder.notFound": "That Linked folder doesn’t exist or has been removed.",
   "error.path.noFolder": "There is no folder at that path.",
   "error.path.notFolder": "That path isn’t a folder.",
