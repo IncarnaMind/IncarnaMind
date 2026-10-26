@@ -30,6 +30,10 @@ export interface PdfPage {
    * lines, as a scanner makes it.
    */
   scan?: Uint8Array;
+  /** A landscape A4 scan, for a sideways source picture on an unrotated page. */
+  landscape?: boolean;
+  /** The page's /Rotate value in degrees, as a PDF viewer applies it. */
+  rotation?: number;
 }
 
 /** A JPEG's width, height and number of colour components, from its frame header. */
@@ -116,7 +120,9 @@ const toUcs2Hex = (text: string) =>
 
 function contentStream(page: PdfPage): string {
   // A scan's picture first: any lines are written over it, as a stamp is.
-  const parts: string[] = page.scan ? ["q 595 0 0 842 0 0 cm /Scan Do Q"] : [];
+  const parts: string[] = page.scan
+    ? [`q ${page.landscape ? "842 0 0 595" : "595 0 0 842"} 0 0 cm /Scan Do Q`]
+    : [];
   let y = TOP;
   for (const { text, size = 11 } of page.printed ?? []) {
     const chinese = /[^\x20-\xff]/.test(text);
@@ -271,9 +277,10 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
         `/Filter /DCTDecode /Length ${data.length} >>\nstream\n${data}\nendstream`;
       scan = ` /XObject << /Scan ${id} 0 R >>`;
     }
-    const size = page.scan ? "595 842" : "612 792";
+    const size = page.scan ? (page.landscape ? "842 595" : "595 842") : "612 792";
     objects[pageId] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size}] ` +
+      `${page.rotation === undefined ? "" : `/Rotate ${page.rotation} `}` +
       `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${scan} >> /Contents ${pageId + 1} 0 R >>`;
     objects[pageId + 1] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
   });

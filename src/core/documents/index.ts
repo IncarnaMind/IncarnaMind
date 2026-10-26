@@ -405,8 +405,11 @@ export interface DocumentsOptions {
   model: SearchEmbedder;
   /** The Folders of Linked folders, which follow the disk. */
   folders: Folders;
-  /** Pushes the "document.status" event. */
-  emitStatus(document: Document): void;
+  /**
+   * Pushes the "document.status" event; `restored` when the Document is back from Recently
+   * deleted, not changed.
+   */
+  emitStatus(document: Document, restored?: boolean): void;
   /** Pushes the "documents.moved" event. */
   emitMoved(documents: Document[]): void;
   /** Pushes the "documents.removed" event. */
@@ -601,10 +604,10 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists: Linked folders' progress follows their Documents.
   let progressed = (_linkedFolderId: string | null) => {};
 
-  const announce = (id: string) => {
+  const announce = (id: string, restored = false) => {
     const row = find(id);
     if (!row) return;
-    emitStatus(toDocument(row));
+    emitStatus(toDocument(row), restored);
     progressed(row.linked_folder_id);
   };
 
@@ -2566,12 +2569,12 @@ export function createDocuments(options: DocumentsOptions) {
             reportError(error);
           }
         }
-        if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id);
+        if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id, true);
         if (row.status === "waiting-for-model") model.ensure();
       }
       // A Document back from an unlinked Linked folder lost its vectors with it: they are embedded again (#1292).
       for (const id of embedWithCurrentModel(true, ids))
-        if (!embedding.isEmbedding(id)) announce(id);
+        if (!embedding.isEmbedding(id)) announce(id, true);
       for (const linkedFolderId of linkedFolders) library.documentsChanged(linkedFolderId);
       const copies = db
         .all<{ path: string; relative_path: string }>(

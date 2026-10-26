@@ -1871,6 +1871,15 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 106,
+    description: "Remote Connector transport and header names (#1995)",
+    sql: `
+      UPDATE connectors
+      SET config = json_set(config, '$.connection', 'http', '$.headers', json('[]'))
+      WHERE transport = 'http' AND json_valid(config);
+    `,
+  },
+  {
+    version: 107,
     description: "A workbook says which sheets and rows weren't read (#740)",
     // JSON, an UnreadParts: hidden and very hidden sheets left out, sheets the reading limit cut
     // short, and sheets after it. NULL when every part was read, and for every other kind.
