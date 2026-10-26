@@ -74,7 +74,7 @@ npm install && npm run dev
 | **Analyse** | Calculate and chart from spreadsheets, every input cited. From the next test build. |
 | **Check** | Check a Note or any PDF against your files, sentence by sentence. |
 | **Compare** | Ask many documents the same questions and get one cited table. |
-| **Export** | Word with footnotes in eight citation styles, or back into the original file. |
+| **Export** | Edit a Word file and save it back: untouched parts stay exactly as they were, and your edits can go in as tracked changes. Or export a Note to Word with footnotes in eight citation styles. |
 | **Meet** | A live transcript, help during the call, and notes that cite what was said. |
 
 Works fully offline with [Ollama](https://ollama.com): nothing leaves your computer.
@@ -107,7 +107,7 @@ Figures are compared as numbers. One rounded from the source passes, a different
 | Your ChatGPT or Claude plan, or your key | ✓ | ✗ | ◐ | ◐ |
 | Citation opens the page, quote highlighted | ✓ | ◐ | ✗ | ✗ |
 | Checks your own draft | ✓ | ✗ | ✗ | ✗ |
-| Word export with footnotes | ✓ | ◐ | ✗ | ◐ |
+| Edits your Word file and saves it back | ✓ | ✗ | ✗ | ✗ |
 | Spreadsheet analysis | ✓² | ✓ | ✗ | ◐ |
 | Meetings | ✓ | ✗ | ✗ | ✓ |
 
