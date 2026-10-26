@@ -39,6 +39,13 @@ export type {
  * This file must stay free of imports with side effects: the preload script and
  * the renderer import it.
  */
+import type {
+  AnalysisEnd,
+  AnalysisLanguage,
+  AnalysisOutput,
+  AnalysisUnavailableReason,
+  AnalysisVersions,
+} from "../shared/analysis";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
 import type { AppCommandId, AssistantCommandId } from "../shared/commands";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
@@ -859,8 +866,18 @@ export interface AnswerToolCall {
    * `read_mind`, `edit_mind`, `add_to_mind`, `create_mind`, see `mindChange`); "commands",
    * the commands it runs for the User (#1110: `list_commands`, `run_command`, see `command`);
    * "asks", a question it asked the User (#1374: `ask_user`, see `asked`).
+   * "analysis", `run_analysis` (#447, see `analysis`).
    */
-  source: "documents" | "skill" | "connector" | "sources" | "web" | "minds" | "commands" | "asks";
+  source:
+    | "documents"
+    | "skill"
+    | "connector"
+    | "sources"
+    | "web"
+    | "minds"
+    | "commands"
+    | "asks"
+    | "analysis";
   /** A Connector's Tool: which Connector, with its name when the call was made. */
   connector?: { id: string; name: string };
   /** What the model asked, e.g. `{ query }` for a search, or the arguments sent to a Connector. */
@@ -919,6 +936,8 @@ export interface AnswerToolCall {
   mindChange?: MindChange;
   /** A Minds' Tool that changed nothing: why, as its card says. Absent otherwise. */
   mindProblem?: MindProblem;
+  /** "run_analysis" only, once it ran: which of the Answer's Analyses, and what its step says. */
+  analysis?: AnalysisCall;
   /** `list_commands`, once it ended: the Documents or Minds it found (#1110). Absent otherwise. */
   found?: CommandsFound;
   /** `run_command`, once it ran: what it changed, from what the command returned (#1110). */
@@ -1020,6 +1039,20 @@ export interface CommandProblem {
   /** In English, for the log; `wording` says it in the interface language when there is one. */
   message: string;
   wording: ErrorWording | null;
+}
+
+/** What a `run_analysis` call's step says of its Analysis (#447): "Ran an analysis on Sales.xlsx". */
+export interface AnalysisCall {
+  /** Its number among the Answer's Analyses (`ConversationAnswer.analyses`). */
+  number: number;
+  title: string;
+  /** The Documents its inputs read, by name, each once. */
+  documents: string[];
+  end: AnalysisEnd["kind"];
+  /** Why it couldn't run, when `end` is "unavailable". */
+  reason?: AnalysisUnavailableReason;
+  /** Its time limit, when `end` is "timed-out". */
+  limitMs?: number;
 }
 
 /**
@@ -1965,6 +1998,8 @@ export interface CalculatedFigure {
    * figure, which the text then shows once.
    */
   written: string | null;
+  /** Given by an Analysis of the Answer, not worked out from a formula (#447). */
+  analysis?: FigureFromAnalysis;
 }
 
 /** How a calculated figure's result was shown (see `showResult` in src/shared/formula.ts). */
@@ -1979,6 +2014,74 @@ export interface FigureShowOptions {
 /** A calculated figure of an Answer: where it goes is its marker ("[=2]") in the text. */
 export interface MarkedFigure extends CalculatedFigure {
   marker: number;
+}
+
+export interface FigureFromAnalysis {
+  /** The Answer's Analysis, by its number. */
+  analysis: number;
+  /** The result's name in the code: "total_revenue". */
+  result: string;
+}
+
+/** A range of a sheet or CSV an Analysis read (#447), in one version of its Document (ADR-0010). */
+export interface AnalysisRangeInput {
+  kind: "range";
+  /** The name the code reads it by: `inputs["sales"]`. */
+  name: string;
+  /** Where it is: the rows read, under the Passage the model named, quoting the headings. */
+  citation: Citation;
+  /** As read, headings included: "A1:F1240". */
+  range: string;
+  /** Rows read under the headings, and columns. */
+  rows: number;
+  columns: number;
+  /** Rows the range has under its headings: more than `rows` when only its first ones were read. */
+  rowCount: number;
+  /** Only part of the range was read: it has more than an Analysis reads, or its sheet was cut when indexed. */
+  cut: boolean;
+  /** SHA-256 of its headings and rows as read. */
+  sha256: string;
+}
+
+/** A number an Analysis read from a quote (#447), as `calculate` reads one. */
+export interface AnalysisFigureInput {
+  kind: "figure";
+  name: string;
+  input: FigureInput;
+  sha256: string;
+}
+
+export type AnswerAnalysisInput = AnalysisRangeInput | AnalysisFigureInput;
+
+/**
+ * An Analysis an Answer ran (#447, ADR-0023): the code the model wrote, what
+ * it read, what it came to, and what that was recorded with, so it can be
+ * shown, checked and run again.
+ */
+export interface AnswerAnalysis {
+  /** From 1, in the order the Answer ran them: "Analysis 2". */
+  number: number;
+  title: string;
+  language: AnalysisLanguage;
+  code: string;
+  inputs: AnswerAnalysisInput[];
+  versions: AnalysisVersions | null;
+  /** SHA-256 of the code, and of what it came to (its end and output). */
+  codeSha256: string;
+  outputSha256: string;
+  end: AnalysisEnd;
+  output: AnalysisOutput;
+  ms: number;
+  ranAt: string;
+  /**
+   * The markers the Answer writes its results with: each figure's "[=3]", and
+   * each table's and chart's number, "[=table 1]", "[=chart 1]", counted across the Answer.
+   */
+  markers: {
+    figures: { result: string; marker: number }[];
+    tables: { result: string; marker: number }[];
+    charts: number[];
+  };
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
@@ -5656,6 +5759,7 @@ export interface AnswerFinished extends AnswerPlace {
   quoteRetry: QuoteRetry | null;
   /** Its calculated figures (ADR-0021), in the order of their markers in the text, each once. */
   figures: MarkedFigure[];
+  analyses: AnswerAnalysis[];
   /** Figure markers in its text that had no figure: left out, so their numbers are missing. */
   uncalculated: number;
   /**
@@ -5778,6 +5882,8 @@ export interface ConversationQuestion {
   model: ChatModelChoice | null;
   /** The Skill forced on it, by name; null: none. */
   forcedSkill: string | null;
+  /** Asked with "Analyse data…" (#447): its Answer may run an Analysis whatever its Search scope holds. */
+  analyse: boolean;
   /** The words the User selected in Documents to ask about, in order; empty: none. */
   quotes: AskedQuote[];
   /** ISO 8601, UTC. */
@@ -5806,6 +5912,8 @@ export interface ConversationAnswer {
   citations: MarkedCitation[];
   /** Its calculated figures (ADR-0021), in the order of their markers ("[=1]") in the text, each once. */
   figures: MarkedFigure[];
+  /** The Analyses it ran (#447), in order: a figure "From Analysis 2" names one by its number. */
+  analyses: AnswerAnalysis[];
   /** The model that wrote it; null for one that says its Search scope has no Documents. */
   model: ChatModelChoice | null;
   status: AnswerStatus;
@@ -5881,6 +5989,8 @@ export interface AskInConversationInput {
   model?: ChatModelChoice | null;
   /** A Skill to load up front, by name. */
   forcedSkill?: string | null;
+  /** "Analyse data…" was chosen (#447): its Answer may run an Analysis whatever its Search scope holds. */
+  analyse?: boolean;
 }
 
 /** An Answer in a conversation, for regenerating or stopping it. */
@@ -7552,6 +7662,7 @@ export type EffectScope =
   | { kind: "service"; serviceId: string; name: string } // an external service, as consent names it
   | { kind: "host"; host: string } // a web host
   | { kind: "mind"; mindId: string } // one of the User's Minds
+  | { kind: "sandbox" } // the analysis sandbox, with no files and no network (ADR-0023)
   | { kind: "library" } // the Library: its Documents' names, Folders and Tags, Recently deleted
   | { kind: "output" } // the Output location, the folder the User chose for new files
   | { kind: "anywhere" };
