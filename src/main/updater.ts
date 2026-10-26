@@ -37,14 +37,12 @@ interface SettingsSource {
 }
 
 let installing = false;
+let quittingToInstall = false;
 let reopening = false;
-let updaterOnQuit: { autoInstallOnAppQuit: boolean } | undefined;
 
 export function canReopenAfterUpdate(): boolean {
-  if (installing) return false;
+  if (installing || quittingToInstall) return false;
   reopening = true;
-  // An ordinary AppImage install does not run the app afterwards (#1448).
-  if (updaterOnQuit) updaterOnQuit.autoInstallOnAppQuit = false;
   return true;
 }
 
@@ -64,23 +62,22 @@ export function registerUpdateCheck(core: Pick<Core, "networkTraffic" | "getPriv
 export function startAutoUpdates(
   core: SettingsSource,
   settleQuit: () => Promise<boolean>,
-  installFailed: (error: unknown, language: Language) => void,
+  installFailed: (error: unknown, language: Language, reopens: boolean) => void,
   installStarted: (reopens: boolean) => void,
   prepareInstall: (targetVersion: string, reopens: boolean) => void,
 ): void {
   if (!app.isPackaged) return;
-  let installReopens = false;
   let preparedReopens: boolean | undefined;
   const prepare = (version: string, reopens: boolean): boolean => {
     if (preparedReopens !== undefined) return false;
     prepareInstall(version, reopens);
+    quittingToInstall = true;
     preparedReopens = reopens;
     return true;
   };
-  const beginInstall = (reopens = true) => {
-    if (installing && (!reopens || installReopens)) return;
+  const beginInstall = (reopens: boolean) => {
+    if (installing) return;
     installing = true;
-    installReopens = reopens;
     installStarted(reopens);
   };
   nativeUpdater.on("before-quit-for-update", () => {
@@ -97,38 +94,40 @@ export function startAutoUpdates(
 async function checkForUpdates(
   core: SettingsSource,
   settleQuit: () => Promise<boolean>,
-  installFailed: (error: unknown, language: Language) => void,
-  beginInstall: (reopens?: boolean) => void,
+  installFailed: (error: unknown, language: Language, reopens: boolean) => void,
+  beginInstall: (reopens: boolean) => void,
   prepare: (version: string, reopens: boolean) => boolean,
 ): Promise<void> {
   if (!(await core.getPrivacySettings()).automaticUpdateChecks) return;
+  const { language } = await core.getSettings();
   const { autoUpdater } = await import("./autoUpdater");
-  updaterOnQuit = autoUpdater;
-  autoUpdater.autoInstallOnAppQuit = false;
   let downloaded: { version: string; language: Language } | undefined;
   let failureHandled = false;
-  const failed = (error: unknown, language: Language) => {
+  const failed = (error: unknown, language: Language, reopens: boolean) => {
     if (failureHandled) return;
     failureHandled = true;
-    autoUpdater.autoInstallOnAppQuit = false;
-    beginInstall();
-    installFailed(error, language);
+    beginInstall(reopens);
+    installFailed(error, language, reopens);
   };
   app.on("quit", () => {
     const update = downloaded;
-    if (!update || !autoUpdater.autoInstallOnAppQuit || reopening) return;
+    if (!update) return;
     try {
-      if (prepare(update.version, false)) {
-        beginInstall(false);
-        autoUpdater.once("error", (error: unknown) => failed(error, update.language));
+      if (prepare(update.version, reopening)) {
+        beginInstall(reopening);
+        autoUpdater.once("error", (error: unknown) => failed(error, update.language, false));
       }
     } catch (error) {
-      failed(error, update.language);
+      failed(error, update.language, false);
     }
   });
   const installable = await canInstallUpdates();
   autoUpdater.autoDownload = installable;
   const preparing = process.platform === "darwin" && installable ? nativePreparation() : null;
+  const onDownloaded = (info: { version: string }) => {
+    downloaded = { version: info.version, language };
+  };
+  if (installable) autoUpdater.on("update-downloaded", onDownloaded);
   try {
     // Null when the updater is inactive, e.g. on Linux outside an AppImage and a .deb.
     const result = await autoUpdater.checkForUpdates();
@@ -136,7 +135,6 @@ async function checkForUpdates(
     const { version } = result.updateInfo;
 
     if (!installable) {
-      const { language } = await core.getSettings();
       if (await ask(language, "available", version)) {
         await systemBrowser.open(`${RELEASES_PAGE}/tag/v${version}`);
       }
@@ -147,27 +145,26 @@ async function checkForUpdates(
       result.downloadPromise,
       preparing?.result.then((failure) => {
         if (failure) {
-          autoUpdater.autoInstallOnAppQuit = false;
           throw failure.error;
         }
       }),
     ]);
-    const { language } = await core.getSettings();
-    downloaded = { version, language };
-    autoUpdater.autoInstallOnAppQuit = !reopening;
-    if (await ask(language, "ready", version)) {
+    const targetVersion = downloaded?.version;
+    if (!targetVersion)
+      throw new Error("The update download completed without its target version.");
+    if (await ask(language, "ready", targetVersion)) {
       await restartToInstall(
         {
           quitAndInstall() {
-            const onError = (error: unknown) => failed(error, language);
+            const onError = (error: unknown) => failed(error, language, true);
             try {
-              prepare(version, true);
-              if (process.platform !== "darwin") beginInstall();
+              prepare(targetVersion, true);
+              if (process.platform !== "darwin") beginInstall(true);
               autoUpdater.once("error", onError);
               autoUpdater.quitAndInstall();
             } catch (error) {
               autoUpdater.removeListener("error", onError);
-              failed(error, language);
+              failed(error, language, true);
             }
           },
         },
@@ -176,6 +173,7 @@ async function checkForUpdates(
       );
     }
   } finally {
+    autoUpdater.removeListener("update-downloaded", onDownloaded);
     preparing?.close();
   }
 }

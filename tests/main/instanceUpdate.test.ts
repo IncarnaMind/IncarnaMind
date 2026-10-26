@@ -47,7 +47,7 @@ test("only one complete recovery argument supplies its UUID", () => {
 });
 
 describe("an install handoff survives the old copy's exit", () => {
-  test("starts empty, then persists the immutable install identity and target", () => {
+  test("starts empty, then persists the install identity and target", () => {
     expect(updateAccess(folder, "1.9.0")).toEqual({ kind: "empty" });
     const record = prepare("1.9.0", "1.10.0", false);
     expect(record).toEqual({
@@ -60,16 +60,28 @@ describe("an install handoff survives the old copy's exit", () => {
       reopens: false,
     });
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(record);
-    expect(updateAccess(folder, "1.9.0")).toEqual({ kind: "blocked", record });
+    expect(updateAccess(folder, "1.9.0")).toEqual({
+      kind: "allowed",
+      record,
+      pendingTarget: record.targetVersion,
+    });
   });
 
   test.each(["1.10.0", "1.10.0+repair.1", "1.11.0", "2.0.0"])(
     "%s can take over without deleting the handoff during startup",
     (version) => {
       const record = prepare();
-      expect(updateAccess(folder, version)).toEqual({ kind: "allowed", id: record.id });
+      expect(updateAccess(folder, version)).toEqual({
+        kind: "allowed",
+        record,
+        pendingTarget: null,
+      });
       expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(record);
-      expect(updateAccess(folder, "1.9.0")).toEqual({ kind: "blocked", record });
+      expect(updateAccess(folder, "1.9.0")).toEqual({
+        kind: "allowed",
+        record,
+        pendingTarget: record.targetVersion,
+      });
     },
   );
 
@@ -77,18 +89,30 @@ describe("an install handoff survives the old copy's exit", () => {
     "%s remains below a stable target",
     (version) => {
       const record = prepare();
-      expect(updateAccess(folder, version)).toEqual({ kind: "blocked", record });
+      expect(updateAccess(folder, version)).toEqual({
+        kind: "allowed",
+        record,
+        pendingTarget: record.targetVersion,
+      });
     },
   );
 
   test("prerelease numeric identifiers use SemVer precedence", () => {
     const record = prepare("2.0.0-beta.2", "2.0.0-beta.10");
-    expect(updateAccess(folder, "2.0.0-beta.9")).toEqual({ kind: "blocked", record });
-    expect(updateAccess(folder, "2.0.0-beta.10")).toEqual({ kind: "allowed", id: record.id });
-    expect(updateAccess(folder, "2.0.0")).toEqual({ kind: "allowed", id: record.id });
+    expect(updateAccess(folder, "2.0.0-beta.9")).toEqual({
+      kind: "allowed",
+      record,
+      pendingTarget: record.targetVersion,
+    });
+    expect(updateAccess(folder, "2.0.0-beta.10")).toEqual({
+      kind: "allowed",
+      record,
+      pendingTarget: null,
+    });
+    expect(updateAccess(folder, "2.0.0")).toEqual({ kind: "allowed", record, pendingTarget: null });
   });
 
-  test("age and routing hints never authorize an older binary", () => {
+  test("age and routing hints never retire a pending target", () => {
     const record = prepare();
     vi.setSystemTime("2030-10-26T10:01:00.000Z");
     for (const hint of [
@@ -98,14 +122,22 @@ describe("an install handoff survives the old copy's exit", () => {
       "--started-again-after-stall",
       record.id,
     ])
-      expect(updateAccess(folder, "1.9.0", hint)).toEqual({ kind: "blocked", record });
+      expect(updateAccess(folder, "1.9.0", hint)).toEqual({
+        kind: "allowed",
+        record,
+        pendingTarget: record.targetVersion,
+      });
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(record);
   });
 
-  test("only a failed handoff with its exact recovery id admits the old binary", () => {
+  test("a known failed handoff admits the old binary only with its exact recovery id", () => {
     const record = prepare();
     expect(failUpdate(folder, randomUUID())).toBe(false);
-    expect(updateAccess(folder, "1.9.0", record.id)).toEqual({ kind: "blocked", record });
+    expect(updateAccess(folder, "1.9.0", record.id)).toEqual({
+      kind: "allowed",
+      record,
+      pendingTarget: record.targetVersion,
+    });
     expect(failUpdate(folder, record.id)).toBe(true);
     const failed = { ...record, status: "failed" };
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(failed);
@@ -117,7 +149,11 @@ describe("an install handoff survives the old copy's exit", () => {
       `--update-recovery=${record.id}`,
     ])
       expect(updateAccess(folder, "1.9.0", hint)).toEqual({ kind: "blocked", record: failed });
-    expect(updateAccess(folder, "1.9.0", record.id)).toEqual({ kind: "allowed", id: record.id });
+    expect(updateAccess(folder, "1.9.0", record.id)).toEqual({
+      kind: "allowed",
+      record: failed,
+      pendingTarget: null,
+    });
     expect(failUpdate(folder, record.id)).toBe(true);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(failed);
   });
@@ -166,14 +202,18 @@ describe("invalid state never becomes an empty or accepted handoff", () => {
     },
   );
 
-  test.each(["null", "[]", "{}", "{broken"])("retains malformed marker %j", (text) => {
-    writeFileSync(file, text);
-    expect(updateAccess(folder, "9.0.0")).toEqual({ kind: "invalid" });
-    expect(failUpdate(folder, randomUUID())).toBe(false);
-    expect(completeUpdate(folder, randomUUID())).toBe(false);
-    expect(() => prepare()).toThrow("already pending");
-    expect(readFileSync(file, "utf8")).toBe(text);
-  });
+  test.each(["null", "[]", "{}", "{broken"])(
+    "retains malformed marker %j until a real downloaded target replaces it",
+    (text) => {
+      writeFileSync(file, text);
+      expect(updateAccess(folder, "9.0.0")).toEqual({ kind: "invalid" });
+      expect(failUpdate(folder, randomUUID())).toBe(false);
+      expect(completeUpdate(folder, randomUUID())).toBe(false);
+      expect(readFileSync(file, "utf8")).toBe(text);
+      const replacement = prepare();
+      expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(replacement);
+    },
+  );
 
   test.each([
     { id: "not-a-uuid" },
@@ -195,12 +235,17 @@ describe("invalid state never becomes an empty or accepted handoff", () => {
     expect(completeUpdate(folder, record.id)).toBe(false);
   });
 
-  test("refuses to replace an installing or failed handoff", () => {
+  test("the next owned quit refreshes a pending target without accepting an older callback", () => {
     const first = prepare();
+    const nextOwner = { pid: 456, startedAt: "2026-10-26T10:02:00.000Z" };
+    const next = prepareUpdate(folder, nextOwner, "1.9.0", "1.11.0", false);
+    expect(next.id).not.toBe(first.id);
+    expect(next).toMatchObject({ owner: nextOwner, targetVersion: "1.11.0", reopens: false });
+    expect(failUpdate(folder, first.id)).toBe(false);
+    expect(completeUpdate(folder, first.id)).toBe(false);
+    expect(failUpdate(folder, next.id)).toBe(true);
     expect(() => prepare("1.10.0", "1.11.0")).toThrow("already pending");
-    expect(failUpdate(folder, first.id)).toBe(true);
-    expect(() => prepare("1.10.0", "1.11.0")).toThrow("already pending");
-    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ ...first, status: "failed" });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ ...next, status: "failed" });
   });
 
   test("a failed prepare write throws, preserving the earlier absence", () => {
@@ -220,7 +265,11 @@ describe("invalid state never becomes an empty or accepted handoff", () => {
     });
     expect(() => failUpdate(folder, record.id)).toThrow(error);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(record);
-    expect(updateAccess(folder, "1.9.0", record.id)).toEqual({ kind: "blocked", record });
+    expect(updateAccess(folder, "1.9.0", record.id)).toEqual({
+      kind: "allowed",
+      record,
+      pendingTarget: record.targetVersion,
+    });
   });
 
   test("I/O failures are not interpreted as an absent handoff", () => {

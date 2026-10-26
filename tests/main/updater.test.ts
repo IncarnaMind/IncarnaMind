@@ -12,6 +12,7 @@ const fixture = vi.hoisted(() => ({
   wrapperDownload: Promise.resolve(),
   autoInstallAtCheck: true,
   quitListenersAtCheck: 0,
+  checkVersion: "0.1.0-test",
 }));
 
 vi.mock("electron", async () => {
@@ -23,17 +24,6 @@ vi.mock("electron", async () => {
     }),
     autoUpdater: new EventEmitter(),
     BrowserWindow: { getAllWindows: () => [] },
-  };
-});
-vi.mock("../../src/main/autoUpdater", async () => {
-  const { EventEmitter } = await import("node:events");
-  return {
-    autoUpdater: Object.assign(new EventEmitter(), {
-      autoDownload: false,
-      autoInstallOnAppQuit: true,
-      checkForUpdates: fixture.checkForUpdates,
-      quitAndInstall: fixture.quitAndInstall,
-    }),
   };
 });
 vi.mock("../../src/main/platform", () => ({ systemBrowser: { open: fixture.openBrowser } }));
@@ -61,23 +51,38 @@ beforeEach(async () => {
   fixture.checked = Promise.withResolvers<void>();
   fixture.wrapperDownload = Promise.resolve();
   const { app, autoUpdater: native } = await import("electron");
-  const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { UpdaterAppFixture, UpdaterSdkFixture } = await import("../helpers/updaterSdk");
+  const sdk = Object.assign(
+    new UpdaterSdkFixture(
+      new UpdaterAppFixture(join(tmpdir(), "incarnamind-updater-unit"), app),
+      () => fixture.quitAndInstall(),
+      "0.1.0-test",
+    ),
+    { checkForUpdates: fixture.checkForUpdates, quitAndInstall: fixture.quitAndInstall },
+  );
+  vi.doMock("../../src/main/autoUpdater", () => ({ autoUpdater: sdk }));
   app.removeAllListeners();
   native.removeAllListeners();
   sdk.removeAllListeners();
   sdk.autoDownload = false;
   sdk.autoInstallOnAppQuit = true;
+  fixture.checkVersion = "0.1.0-test";
   fixture.autoInstallAtCheck = true;
   fixture.quitListenersAtCheck = 0;
   fixture.checkForUpdates.mockImplementation(async () => {
     fixture.autoInstallAtCheck = sdk.autoInstallOnAppQuit;
     fixture.quitListenersAtCheck = app.listenerCount("quit");
     fixture.checked.resolve();
-    if (fixture.prepareNative) queueMicrotask(() => native.emit("update-downloaded"));
+    const downloadPromise = fixture.wrapperDownload.then(async () => {
+      await sdk.completeFixtureDownload();
+      if (fixture.prepareNative) queueMicrotask(() => native.emit("update-downloaded"));
+    });
     return {
       isUpdateAvailable: true,
-      updateInfo: { version: "0.1.0-test" },
-      downloadPromise: fixture.wrapperDownload,
+      updateInfo: { version: fixture.checkVersion },
+      downloadPromise,
     };
   });
 });
@@ -127,7 +132,9 @@ async function start(
     settled.resolve();
     return options.settles ?? true;
   });
-  const failed = vi.fn((_error: unknown, _language: string) => failure.resolve());
+  const failed = vi.fn((_error: unknown, _language: string, _reopens: boolean) =>
+    failure.resolve(),
+  );
   const started = vi.fn((reopens: boolean) => order.push(`started:${reopens}`));
   const prepared = vi.fn((version: string, reopens: boolean) => {
     order.push(`prepare:${reopens}`);
@@ -159,18 +166,14 @@ const checkpoint = () => new Promise<void>((resume) => setImmediate(resume));
 
 async function quitWithLateSdkListener() {
   const { app } = await import("electron");
-  const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
-  app.on("quit", () => {
-    if (sdk.autoInstallOnAppQuit) sdk.quitAndInstall();
-  });
-  app.emit("quit");
+  app.emit("quit", {}, 0);
 }
 
-test("a new start during an ordinary quit defers the downloaded install and may reopen", async () => {
+test("a new start during an ordinary quit reopens without claiming the downloaded install was cancelled", async () => {
   const { updater } = await downloaded(1);
   const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
   expect(updater.canReopenAfterUpdate()).toBe(true);
-  expect(sdk.autoInstallOnAppQuit).toBe(false);
+  expect(sdk.autoInstallOnAppQuit).toBe(true);
   expect(fixture.quitAndInstall).not.toHaveBeenCalled();
 });
 
@@ -186,7 +189,7 @@ test("a native install owns reopening after quitting is settled", async () => {
   expect(fixture.quitAndInstall).toHaveBeenCalledOnce();
 });
 
-test("a prepared Restart awaiting the native installer still permits a requested reopen", async () => {
+test("a committed Restart awaiting the native install cannot reopen the old core", async () => {
   vi.stubGlobal("process", { ...process, platform: "darwin" });
   const { app } = await import("electron");
   const run = await start({
@@ -199,8 +202,8 @@ test("a prepared Restart awaiting the native installer still permits a requested
   const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
   expect(run.prepared).toHaveBeenCalledExactlyOnceWith("0.1.0-test", true);
   expect(run.started).not.toHaveBeenCalled();
-  expect(run.updater.canReopenAfterUpdate()).toBe(true);
-  expect(sdk.autoInstallOnAppQuit).toBe(false);
+  expect(run.updater.canReopenAfterUpdate()).toBe(false);
+  expect(sdk.autoInstallOnAppQuit).toBe(true);
 });
 
 test("an automatic install on ordinary quit says that its installer will not reopen the app", async () => {
@@ -239,8 +242,9 @@ test.each(["throws", "emits", "emits then throws"] as const)(
     expect(run.failed).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ message: "Installer failed" }),
       "en",
+      true,
     );
-    expect(sdk.autoInstallOnAppQuit).toBe(false);
+    expect(sdk.autoInstallOnAppQuit).toBe(true);
     expect(run.updater.canReopenAfterUpdate()).toBe(false);
   },
 );
@@ -256,14 +260,14 @@ test("pending native preparation offers no Restart, leaves quitting uncommitted 
   await download.promise;
   await checkpoint();
   expect(fixture.showMessageBox).not.toHaveBeenCalled();
-  expect(run.core.getSettings).not.toHaveBeenCalled();
+  expect(run.core.getSettings).toHaveBeenCalledOnce();
   expect(run.settleQuit).not.toHaveBeenCalled();
   expect(run.started).not.toHaveBeenCalled();
   expect(run.prepared).not.toHaveBeenCalled();
   expect(fixture.quitAndInstall).not.toHaveBeenCalled();
   expect(run.updater.canReopenAfterUpdate()).toBe(true);
   const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
-  expect(sdk.autoInstallOnAppQuit).toBe(false);
+  expect(sdk.autoInstallOnAppQuit).toBe(true);
 });
 
 test("native preparation releases Ready before settling quitting and invoking the installer", async () => {
@@ -309,7 +313,7 @@ test("a native preparation error stops automatic install in the background and l
   native.emit("error", error);
   await background.promise;
   expect(warn).toHaveBeenCalledExactlyOnceWith("The update check failed:", error);
-  expect(sdk.autoInstallOnAppQuit).toBe(false);
+  expect(sdk.autoInstallOnAppQuit).toBe(true);
   expect(fixture.showMessageBox).not.toHaveBeenCalled();
   expect(run.settleQuit).not.toHaveBeenCalled();
   expect(run.failed).not.toHaveBeenCalled();
@@ -337,7 +341,7 @@ test("an unsigned Mac offers its download without waiting for native preparation
     }),
   );
   expect(sdk.autoDownload).toBe(false);
-  expect(sdk.autoInstallOnAppQuit).toBe(false);
+  expect(sdk.autoInstallOnAppQuit).toBe(true);
   expect(native.listenerCount("update-downloaded")).toBe(0);
   expect(native.listenerCount("error")).toBe(0);
   expect(run.settleQuit).not.toHaveBeenCalled();
@@ -375,7 +379,7 @@ test("Restart prepares the target before publishing installing or invoking the S
 });
 
 test.each(["Restart", "ordinary quit"] as const)(
-  "failed persistence before %s delegates once and prevents the SDK from installing",
+  "failed persistence before %s delegates once without changing the SDK install flag",
   async (how) => {
     const error = new Error("The install handoff could not be saved");
     const run = await start({
@@ -391,16 +395,16 @@ test.each(["Restart", "ordinary quit"] as const)(
     await run.failure;
     const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
     expect(run.prepared).toHaveBeenCalledExactlyOnceWith("0.1.0-test", how === "Restart");
-    expect(run.failed).toHaveBeenCalledExactlyOnceWith(error, "en");
-    expect(sdk.autoInstallOnAppQuit).toBe(false);
-    expect(fixture.quitAndInstall).not.toHaveBeenCalled();
+    expect(run.failed).toHaveBeenCalledExactlyOnceWith(error, "en", how === "Restart");
+    expect(sdk.autoInstallOnAppQuit).toBe(true);
+    expect(fixture.quitAndInstall).toHaveBeenCalledTimes(how === "Restart" ? 0 : 1);
     expect(run.updater.canReopenAfterUpdate()).toBe(false);
   },
 );
 
 test("ordinary quit prepares the target as not reopening before the late SDK quit listener installs", async () => {
   const run = await downloaded(1);
-  expect(fixture.autoInstallAtCheck).toBe(false);
+  expect(fixture.autoInstallAtCheck).toBe(true);
   expect(fixture.quitListenersAtCheck).toBeGreaterThan(0);
   await quitWithLateSdkListener();
   await run.installed;
@@ -409,7 +413,7 @@ test("ordinary quit prepares the target as not reopening before the late SDK qui
   expect(run.order).toEqual(["ready", "prepare:false", "started:false", "install"]);
 });
 
-test("an automatic installer error uses the cached language and one failure delegate", async () => {
+test("an automatic installer error keeps the requested quit and cached language", async () => {
   const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
   const error = new Error("Automatic install failed");
   const run = await start({
@@ -422,27 +426,36 @@ test("an automatic installer error uses the cached language and one failure dele
   await quitWithLateSdkListener();
   await run.failure;
   expect(run.prepared).toHaveBeenCalledExactlyOnceWith("0.1.0-test", false);
-  expect(run.failed).toHaveBeenCalledExactlyOnceWith(error, "en");
-  expect(sdk.autoInstallOnAppQuit).toBe(false);
+  expect(run.failed).toHaveBeenCalledExactlyOnceWith(error, "en", false);
+  expect(run.started).toHaveBeenCalledExactlyOnceWith(false);
+  expect(sdk.autoInstallOnAppQuit).toBe(true);
   expect(fixture.quitAndInstall).toHaveBeenCalledOnce();
 });
 
-test("automatic install stays disabled until both downloads and the language are ready", async () => {
+test("language is cached before the SDK starts and its standard automatic install remains enabled", async () => {
   vi.stubGlobal("process", { ...process, platform: "darwin" });
   const settings = Promise.withResolvers<{ language: "en" }>();
   const run = await start({ response: 1, settings: settings.promise });
-  await fixture.checked.promise;
   await checkpoint();
   const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
-  expect(fixture.autoInstallAtCheck).toBe(false);
   expect(run.core.getSettings).toHaveBeenCalledOnce();
-  expect(sdk.autoInstallOnAppQuit).toBe(false);
-  await quitWithLateSdkListener();
+  expect(fixture.checkForUpdates).not.toHaveBeenCalled();
+  expect(sdk.autoInstallOnAppQuit).toBe(true);
   expect(run.prepared).not.toHaveBeenCalled();
-  expect(run.started).not.toHaveBeenCalled();
   expect(fixture.quitAndInstall).not.toHaveBeenCalled();
   settings.resolve({ language: "en" });
   await run.asked;
   expect(sdk.autoInstallOnAppQuit).toBe(true);
   expect(run.settleQuit).not.toHaveBeenCalled();
+});
+
+test("Restart persists and displays the completed download’s target, not earlier check metadata", async () => {
+  fixture.checkVersion = "0.9.0-check";
+  const run = await downloaded(0);
+  await run.installed;
+  expect(run.prepared).toHaveBeenCalledExactlyOnceWith("0.1.0-test", true);
+  expect(fixture.showMessageBox).toHaveBeenCalledWith(
+    null,
+    expect.objectContaining({ message: "IncarnaMind 0.1.0-test is ready to install" }),
+  );
 });

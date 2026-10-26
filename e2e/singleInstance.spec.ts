@@ -423,7 +423,7 @@ for (const { language, succeeds, quitDelay } of [
     const port = await freePort();
     const nextPort = await freePort();
     const startsEarly = succeeds && (process.platform === "linux" || quitDelay > 0);
-    const windowPort = startsEarly ? nextPort : port;
+    const windowPort = succeeds ? nextPort : port;
     const start = (first: boolean, debugPort: number) => {
       const copy = startCopy(
         home,

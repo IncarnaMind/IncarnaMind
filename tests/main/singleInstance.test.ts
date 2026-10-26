@@ -7,7 +7,9 @@ import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import { isRecord } from "../../src/core/errors";
+import { identity } from "../../src/main/instanceFiles";
 import { heldByAnotherCopy } from "../../src/main/instanceLock";
+import { prepareUpdate } from "../../src/main/instanceUpdate";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 let bundleFolder = "";
@@ -239,4 +241,43 @@ test("a dead owner leaves no stale gate, even while its PID and start time remai
   const current = await next.message("owner");
   expect(current).toMatchObject({ previousOwner: false });
   expect(current?.identity).not.toEqual(old?.identity);
+});
+
+test.each([true, false])(
+  "a committed update deflects a start before the native install event (reopens %s)",
+  async (reopens) => {
+    const folder = await tempFolder();
+    const owner = start(folder);
+    const message = await owner.message("owner");
+    if (!identity(message?.identity)) throw new Error("The owner did not publish its identity.");
+    prepareUpdate(folder, message.identity, "0.0.0", "0.1.0", reopens);
+    owner.child.stdin.write("quitting\n");
+    await owner.message("quitting");
+    const next = start(folder, "take", 400);
+    expect(await next.done()).toBe(0);
+    expect(next.messages).toEqual([
+      reopens ? { kind: "installing" } : { kind: "busy", phase: "quitting" },
+    ]);
+    expect(owner.messages.some((row) => row.kind === "received")).toBe(false);
+    expect(
+      heldByAnotherCopy(folder, (what, error) => {
+        throw new Error(what, { cause: error });
+      }),
+    ).toBe(true);
+  },
+);
+
+test("corrupt pending update metadata cannot block the real data-folder owner", async () => {
+  const folder = await tempFolder();
+  await writeFile(join(folder, "instance-update.json"), "{broken");
+  const owner = start(folder);
+  await owner.message("owner");
+  expect(owner.child.exitCode).toBeNull();
+  expect(
+    heldByAnotherCopy(folder, (what, error) => {
+      throw new Error(what, { cause: error });
+    }),
+  ).toBe(true);
+  expect(owner.errors.join("")).toContain("app.updateHandoffInvalid");
+  expect(await readFile(join(folder, "instance-update.json"), "utf8")).toBe("{broken");
 });

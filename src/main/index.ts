@@ -192,7 +192,7 @@ let core: Core | undefined;
 let startupComplete = false;
 let instanceReady = false;
 let closingForUpdate = false;
-let onReadyToUse: (() => void) | undefined;
+let onReadyToUse: (() => Promise<void>) | undefined;
 const shownWindows = new WeakSet<BrowserWindow>();
 
 /** The app's windows: not the hidden one that records a Meeting's audio, nor the floating panel. */
@@ -238,7 +238,9 @@ function finishStartup(): void {
     return;
   instanceReady = true;
   if (instance.kind === "owner") instance.owner.ready(secondLaunch);
-  onReadyToUse?.();
+  void onReadyToUse?.().catch((error: unknown) =>
+    logger.exception("app.updateStartupFailed", error),
+  );
 }
 
 function isFromOurRenderer(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
@@ -453,14 +455,26 @@ app.whenReady().then(async () => {
   installMenuInLanguage(core);
   // Only a packaged app checks for updates; the smoke tests must never reach GitHub.
   const startedCore = core;
-  onReadyToUse = () => {
+  onReadyToUse = async () => {
     if (testHooks) return;
+    if (instance.kind === "owner" && instance.owner.pendingUpdate) {
+      const { language } = await startedCore.getSettings();
+      await dialog.showMessageBox({
+        type: "info",
+        message: translate(language, "update.pending.detail"),
+        buttons: [translate(language, "update.pending.dismiss")],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+    }
     let handoff: UpdateHandoff | undefined;
     startAutoUpdates(
       startedCore,
       settleQuit,
-      (error, language) => {
+      (error, language, reopens) => {
         closingForUpdate = true;
+        logger.exception("app.updateInstallFailed", error);
         let recoveryId: string | undefined;
         try {
           if (handoff) {
@@ -472,8 +486,8 @@ app.whenReady().then(async () => {
           }
         } catch (recoveryError) {
           logger.exception("app.updateRecoveryFailed", recoveryError);
-          logger.exception("app.updateInstallFailed", error);
           for (const window of BrowserWindow.getAllWindows()) window.hide();
+          if (!reopens) return;
           void showUpdateProblem(language, app.getVersion(), handoff?.targetVersion)
             .catch((problemError: unknown) =>
               logger.exception("app.updateProblemFailed", problemError),
@@ -481,11 +495,12 @@ app.whenReady().then(async () => {
             .finally(() => exitAfterFailedUpdate(app, () => core?.close(), null));
           return;
         }
+        // Automatic installation is already inside Electron’s terminal quit event.
+        if (!reopens) return;
         restartAfterFailedUpdate(
           app,
           () => {
             for (const window of BrowserWindow.getAllWindows()) window.hide();
-            logger.exception("app.updateInstallFailed", error);
             dialog.showMessageBoxSync({
               type: "error",
               title: translate(language, "update.failed.title"),
@@ -515,6 +530,9 @@ app.whenReady().then(async () => {
           version,
           reopens,
         );
+        closingForUpdate = true;
+        instance.owner.quitting();
+        for (const window of BrowserWindow.getAllWindows()) window.hide();
       },
     );
   };

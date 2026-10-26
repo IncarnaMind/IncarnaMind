@@ -17,7 +17,7 @@ export interface UpdateHandoff {
 
 export type UpdateAccess =
   | { kind: "empty" }
-  | { kind: "allowed"; id: string }
+  | { kind: "allowed"; record: UpdateHandoff; pendingTarget: string | null }
   | { kind: "blocked"; record: UpdateHandoff }
   | { kind: "invalid" };
 
@@ -87,7 +87,9 @@ export function prepareUpdate(
     throw new Error("The update handoff owner is invalid.");
   if (!isVersion(currentVersion) || !isVersion(targetVersion) || !gt(targetVersion, currentVersion))
     throw new Error("The update handoff needs a newer valid target version.");
-  if (stored(folder) !== null) throw new Error("An update handoff is already pending.");
+  const previous = stored(folder);
+  if (previous !== "invalid" && previous?.status === "failed")
+    throw new Error("An update handoff is already pending.");
   const record: UpdateHandoff = {
     id: randomUUID(),
     owner: { ...ownerIdentity },
@@ -119,10 +121,19 @@ export function updateAccess(
   if (record === null) return { kind: "empty" };
   if (record === "invalid") return { kind: "invalid" };
   if (
+    record.status === "installing" ||
     gte(currentVersion, record.targetVersion) ||
     (record.status === "failed" && isUuid(recoveryId) && recoveryId === record.id)
   )
-    return { kind: "allowed", id: record.id };
+    return {
+      kind: "allowed",
+      record,
+      pendingTarget: gte(currentVersion, record.targetVersion)
+        ? null
+        : record.status === "installing"
+          ? record.targetVersion
+          : null,
+    };
   return { kind: "blocked", record };
 }
 

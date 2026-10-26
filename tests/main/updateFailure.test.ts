@@ -10,6 +10,7 @@ const fixture = vi.hoisted(() => ({
     autoInstallOnAppQuit: false,
     checkForUpdates: vi.fn(),
     quitAndInstall: vi.fn(),
+    on: vi.fn(),
     once: vi.fn(),
     removeListener: vi.fn(),
   },
@@ -46,15 +47,24 @@ vi.mock("node:child_process", () => ({
   },
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetModules();
   vi.resetAllMocks();
   vi.stubEnv("APPIMAGE", "/tmp/IncarnaMind.AppImage");
+  fixture.updater.autoInstallOnAppQuit = true;
   fixture.showMessageBox.mockResolvedValue({ response: 0 });
-  fixture.updater.checkForUpdates.mockResolvedValue({
-    isUpdateAvailable: true,
-    updateInfo: { version: "0.1.0-test" },
-    downloadPromise: Promise.resolve(),
+  const { autoUpdater: native } = await import("electron");
+  fixture.updater.checkForUpdates.mockImplementation(async () => {
+    const listener = fixture.updater.on.mock.calls.find(
+      ([event]) => event === "update-downloaded",
+    )?.[1];
+    if (typeof listener === "function") listener({ version: "0.1.0-test" });
+    queueMicrotask(() => native.emit("update-downloaded"));
+    return {
+      isUpdateAvailable: true,
+      updateInfo: { version: "0.1.0-test" },
+      downloadPromise: Promise.resolve(),
+    };
   });
 });
 
@@ -101,7 +111,7 @@ test("the real quit guard keeps SQLite ownership through the install attempt", a
 });
 
 test.each(["throws", "emits", "emits then throws"] as const)(
-  "a declined second start still reopens after the installer %s, and the old core exits owned",
+  "an installer that %s before any quit event reopens once and the old core exits owned",
   async (how) => {
     const dataDir = await createTempDataFolder();
     const report = vi.fn();
@@ -111,9 +121,7 @@ test.each(["throws", "emits", "emits then throws"] as const)(
     const { app } = await import("electron");
     const { guardQuit } = await import("../../src/main/unsavedChanges");
     const { startAutoUpdates, canReopenAfterUpdate } = await import("../../src/main/updater");
-    const { reopenAfterQuit, restartAfterFailedUpdate } = await import(
-      "../../src/main/startDuringQuit"
-    );
+    const { restartAfterFailedUpdate } = await import("../../src/main/startDuringQuit");
     const settled = vi.spyOn(core, "saveChangesAgain");
     const calls: string[] = [];
     const ownership: boolean[] = [];
@@ -129,20 +137,14 @@ test.each(["throws", "emits", "emits then throws"] as const)(
       app.emit("quit", {}, 0);
       exited.resolve();
     });
-    const startCame = reopenAfterQuit(app, canReopenAfterUpdate, { info: vi.fn() });
+    const beforeQuit = vi.fn();
+    app.on("before-quit", beforeQuit);
     const error = new Error("Installer failed");
     let declined = false;
     let relaunchedBeforeFailure = -1;
     fixture.updater.quitAndInstall.mockImplementation(() => {
       record("install");
-      const event = {
-        defaultPrevented: false,
-        preventDefault() {
-          this.defaultPrevented = true;
-        },
-      };
-      app.emit("before-quit", event);
-      declined = startCame();
+      declined = !canReopenAfterUpdate();
       relaunchedBeforeFailure = fixture.relaunch.mock.calls.length;
       const listener = fixture.updater.once.mock.calls.at(-1)?.[1];
       if (how !== "throws" && typeof listener === "function") listener(error);
@@ -169,6 +171,7 @@ test.each(["throws", "emits", "emits then throws"] as const)(
       await exited.promise;
       expect(settled).toHaveBeenCalledOnce();
       expect(declined).toBe(true);
+      expect(beforeQuit).not.toHaveBeenCalled();
       expect(relaunchedBeforeFailure).toBe(0);
       expect(calls).toEqual(["install", "problem", "relaunch", "closeCore", "exit"]);
       expect(ownership).toEqual([true, true, true, true, true]);
@@ -178,7 +181,7 @@ test.each(["throws", "emits", "emits then throws"] as const)(
         "--started-again-after-stall",
       ]);
       expect(heldByAnotherCopy(dataDir, report)).toBe(false);
-      expect(fixture.updater.autoInstallOnAppQuit).toBe(false);
+      expect(fixture.updater.autoInstallOnAppQuit).toBe(true);
       expect(report).not.toHaveBeenCalled();
       const reopened = startCore(dataDir);
       expect((await reopened.listMinds()).map((it) => it.id)).toEqual([mind.id]);

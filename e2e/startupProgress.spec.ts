@@ -21,6 +21,7 @@ let data: string;
 let home: string;
 let tag: string;
 let port: number;
+const SLOW_FIXTURE_OBSERVATION_MS = 30_000;
 
 test.beforeEach(async () => {
   data = await createDataFolder();
@@ -95,8 +96,17 @@ function visibleCount(recorded: Record<string, unknown>[], pid: number): number 
   return [...windows.values()].filter(Boolean).length;
 }
 
+async function ownerState(): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(join(data, "instance-info.json"), "utf8"));
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 async function ownerPid(): Promise<number> {
-  const owner: unknown = JSON.parse(await readFile(join(data, "instance-info.json"), "utf8"));
+  const owner = await ownerState();
   if (!isRecord(owner) || typeof owner.pid !== "number")
     throw new Error("The startup fixture has no owner process.");
   return owner.pid;
@@ -171,12 +181,14 @@ test("a lost request-watch event still brings the existing window forward", asyn
 test("a slow first startup keeps the next start waiting until the same owner is ready", async () => {
   test.setTimeout(90_000);
   const owner = start("slow");
-  await expect
-    .poll(async () => JSON.parse(await readFile(join(data, "instance-info.json"), "utf8")))
-    .toMatchObject({ pid: owner.pid, phase: "starting" });
+  await expect.poll(ownerState).toMatchObject({ pid: owner.pid, phase: "starting" });
   const next = start("ready", [], "en", await freePort());
   await expect
-    .poll(async () => (await events()).some((event) => event.kind === "delay-elapsed"))
+    .poll(
+      async () =>
+        (await events()).some((event) => event.pid === owner.pid && event.kind === "delay-elapsed"),
+      { timeout: SLOW_FIXTURE_OBSERVATION_MS },
+    )
     .toBe(true);
   expect((await events()).filter((event) => event.kind === "problem")).toEqual([]);
   expect(
@@ -201,8 +213,10 @@ test("a killed copy leaves a slow fresh launch alone and keeps its saved text", 
   port = await freePort();
   const next = start("slow");
   await expect
-    .poll(async () =>
-      (await events()).some((event) => event.pid === next.pid && event.kind === "delay-elapsed"),
+    .poll(
+      async () =>
+        (await events()).some((event) => event.pid === next.pid && event.kind === "delay-elapsed"),
+      { timeout: SLOW_FIXTURE_OBSERVATION_MS },
     )
     .toBe(true);
   expect(next.exitCode).toBeNull();
@@ -221,6 +235,33 @@ test("a killed copy leaves a slow fresh launch alone and keeps its saved text", 
 });
 
 for (const language of ["en", "zh-CN"]) {
+  test(`a starting copy without progress gives a starting problem (${language})`, async () => {
+    test.setTimeout(90_000);
+    const owner = start("slow", [], language);
+    await expect.poll(ownerState).toMatchObject({ pid: owner.pid, phase: "starting", progress: 0 });
+    const next = start("ready", [], language, await freePort());
+    await done(next);
+    const problems = (await events()).filter((event) => event.kind === "problem");
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatchObject({
+      pid: next.pid,
+      visibleWindows: 0,
+      content:
+        language === "en"
+          ? "Another copy hasn’t finished starting. Wait a moment, then open IncarnaMind again."
+          : "另一个副本尚未完成启动。请稍候，再重新打开 IncarnaMind。",
+    });
+    expect(owner.exitCode).toBeNull();
+    expect(copiesWith(tag)).toEqual([owner.pid]);
+    expect(await windowsOf(port)).toBe(0);
+    expect(await ownerState()).toMatchObject({ pid: owner.pid, phase: "starting", progress: 0 });
+    expect(
+      heldByAnotherCopy(data, (what, error) => {
+        throw new Error(what, { cause: error });
+      }),
+    ).toBe(true);
+  });
+
   test(`a quitting copy that stops exiting gives a quitting problem (${language})`, async () => {
     test.setTimeout(90_000);
     start("quitting", [], language);

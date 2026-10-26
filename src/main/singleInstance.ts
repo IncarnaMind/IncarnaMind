@@ -56,7 +56,7 @@ export class InstanceOwner {
     private readonly lock: InstanceLock,
     private readonly report: Report,
     readonly previousOwner: boolean,
-    private readonly acceptedUpdate?: string,
+    private readonly acceptedUpdate?: { record: { id: string }; pendingTarget: string | null },
   ) {
     this.requests = join(folder, "instance-requests");
     mkdirSync(this.requests, { recursive: true, mode: 0o700 });
@@ -72,6 +72,10 @@ export class InstanceOwner {
     setInterval(() => this.receive(), 1_000).unref();
   }
 
+  get pendingUpdate(): string | null {
+    return this.acceptedUpdate?.pendingTarget ?? null;
+  }
+
   starting(): void {
     if (this.phase !== "starting") return;
     this.progress += 1;
@@ -82,9 +86,9 @@ export class InstanceOwner {
     this.onStart = onStart;
     this.phase = "ready";
     this.publishState();
-    if (this.acceptedUpdate) {
+    if (this.acceptedUpdate && !this.acceptedUpdate.pendingTarget) {
       try {
-        if (!completeUpdate(this.folder, this.acceptedUpdate))
+        if (!completeUpdate(this.folder, this.acceptedUpdate.record.id))
           throw new Error("The accepted update handoff changed before startup completed.");
       } catch (error) {
         this.report("app.updateHandoffCleanupFailed", error);
@@ -190,27 +194,34 @@ export function acquireInstance(
   let phase: InstancePhase | null = null;
   let sentTo: Identity | null = null;
   let previousOwner = false;
+  let invalidUpdateReported = false;
   try {
     if (Buffer.byteLength(JSON.stringify(input)) > 32_768) return { kind: "busy", phase };
     for (;;) {
       const update = updateAccess(folder, currentVersion, recoveryId);
-      if (update.kind === "invalid") return { kind: "update", currentVersion };
-      if (update.kind === "blocked") {
+      if (update.kind === "invalid" && !invalidUpdateReported) {
+        invalidUpdateReported = true;
+        report(
+          "app.updateHandoffInvalid",
+          new Error("The pending update metadata could not be read."),
+        );
+      }
+      const pending =
+        update.kind === "blocked" || (update.kind === "allowed" && update.pendingTarget)
+          ? update.record
+          : null;
+      if (pending?.reopens) {
         const info = readJson(join(folder, "instance-info.json"));
         if (
           identity(info) &&
-          same(info, update.record.owner) &&
+          same(info, pending.owner) &&
           alive(info.pid) &&
           heldByAnotherCopy(folder, report)
         )
-          return update.record.reopens || update.record.status === "failed"
-            ? { kind: "installing" }
-            : { kind: "busy", phase: "installing" };
-        if (update.record.status === "failed" || waiting.expired(performance.now()))
-          return { kind: "update", currentVersion, targetVersion: update.record.targetVersion };
-        pause();
-        continue;
+          return { kind: "installing" };
       }
+      if (update.kind === "blocked")
+        return { kind: "update", currentVersion, targetVersion: update.record.targetVersion };
       const reply = readJson(replyFile);
       if (
         sentTo &&
@@ -239,7 +250,7 @@ export function acquireInstance(
           lock.release();
           throw error;
         }
-        if (confirmed.kind === "blocked" || confirmed.kind === "invalid") {
+        if (confirmed.kind === "blocked") {
           lock.release();
           continue;
         }
@@ -250,7 +261,7 @@ export function acquireInstance(
             lock,
             report,
             previousOwner,
-            confirmed.kind === "allowed" ? confirmed.id : undefined,
+            confirmed.kind === "allowed" ? confirmed : undefined,
           ),
         };
       }

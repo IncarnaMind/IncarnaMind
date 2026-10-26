@@ -4091,6 +4091,8 @@ export const zhCN = {
   "update.ready.message": "IncarnaMind {version} 已准备好安装",
   "update.ready.detail": "将在下次退出 IncarnaMind 时自动安装。也可以立即重启，马上完成安装。",
   "update.ready.confirm": "立即重启",
+  "update.pending.detail": "下次退出 IncarnaMind 时将完成更新。",
+  "update.pending.dismiss": "知道了",
   "update.later": "稍后",
   "update.failed.title": "未能安装更新",
   "update.failed.detail": "关闭此提示后，IncarnaMind 会重新打开。之后可以再安装更新。",

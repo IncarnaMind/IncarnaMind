@@ -4288,6 +4288,8 @@ export const en = {
   "update.ready.detail":
     "It installs the next time you quit IncarnaMind. Restart now to install it straight away.",
   "update.ready.confirm": "Restart now",
+  "update.pending.detail": "The update will finish the next time you quit IncarnaMind.",
+  "update.pending.dismiss": "Got it",
   "update.later": "Later",
   "update.failed.title": "The update couldn’t be installed",
   "update.failed.detail":
