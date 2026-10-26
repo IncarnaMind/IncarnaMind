@@ -125,7 +125,7 @@ async function exampleOverFakes() {
     checksRelyOn: () => false,
     citationsRelyOn: (documentIds, exceptMindId) =>
       documentIds.some((id) => cited.has(id) && cited.get(id) !== exceptMindId),
-    recheck: () => {
+    cite: () => {
       throw new Error("No Document has been read.");
     },
     changed: (value) => {

@@ -428,9 +428,8 @@ type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" 
 
 /**
  * Checks a Citation again against its Document's current version (see
- * `CoreApi.recheckCitation`): in the cited Units first, then in each Unit,
- * and each two consecutive Units of one run, of the current version, in
- * order. The Passage given is one of the current version that holds the
+ * `CoreApi.recheckCitation`): at its cited Units, without relocating it.
+ * The Passage given is one of the current version that holds the
  * Units, preferably one whose text holds the quote too. Given the version it
  * quotes, once the Document has a newer one: its check in that version too,
  * and its words as they changed when the current one doesn't hold them.
