@@ -505,6 +505,45 @@ export function searchParts(tool: string, query: string): StreamPart[] {
   ];
 }
 
+const BY_REGION = /\bby region\b|按地区/i;
+const WITH_MANAGERS = /\bmanager|负责人/i;
+
+function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const ran = toolResults(prompt, "run_analysis");
+  const chinese = /\p{Script=Han}/u.test(question);
+  if (ran.length > 0) {
+    return {
+      text: chinese
+        ? "各地区收入如下：\n\n[=table 1]\n\n合计 [=1]。"
+        : "Revenue by region:\n\n[=table 1]\n\nIn total, [=1].",
+    };
+  }
+  const passages = passagesIn(searched);
+  const sales = passages.find((passage) => /sales|销售/i.test(passage.document));
+  if (!sales) return null;
+  const regions = passages.find((passage) => /regions|地区/i.test(passage.document));
+  const joining = WITH_MANAGERS.test(question) && regions;
+  const code = [
+    'sales = step("Read the sales", inputs["sales"])',
+    'sales["Revenue"] = pd.to_numeric(sales["Revenue"], errors="coerce")',
+    'totals = sales.groupby("Region", sort=True)["Revenue"].sum()',
+    'result("by_region", totals, "Revenue by region")',
+    'result("total", totals.sum(), "Total revenue")',
+    ...(joining ? ['merged = sales.merge(inputs["regions"], on="Region", how="left")'] : []),
+  ].join("\n");
+  return {
+    tool: "run_analysis",
+    input: {
+      title: chinese ? "各地区收入" : "Revenue by region",
+      inputs: [
+        { name: "sales", passage: sales.id },
+        ...(joining ? [{ name: "regions", passage: regions.id }] : []),
+      ],
+      code,
+    },
+  };
+}
+
 /** What the model does next, apart from Connector Tools: call a Tool, or stream its Answer. */
 export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const question = lastQuestion(prompt);
@@ -524,6 +563,10 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
       input: { query: question },
       reasoning: reasoningFor(question),
     };
+  }
+  if (tools.includes("run_analysis") && BY_REGION.test(question)) {
+    const reply = analysisReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
   }
   if (THINKING_ALOUD.test(question)) return { text: WORKING_NOTES };
   if (WITHOUT_CITING.test(question)) return { text: uncitedAnswer(question) };

@@ -355,12 +355,6 @@ function pythonFolder(): string {
     : join(app.getAppPath(), "resources", "python");
 }
 
-/**
- * The analysis sandbox. A test build also gives it to the smoke tests as
- * `globalThis.incarnamindAnalysis`, which runs a job through the core's
- * record of it, stopped after `stopAfterMs` when given: no part of the app
- * runs Analyses yet.
- */
 function analysisRuntime(log: Logger): AnalysisRuntime {
   const runtime = createElectronAnalysisRuntime({
     log,
