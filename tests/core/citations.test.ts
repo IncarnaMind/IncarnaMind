@@ -505,7 +505,7 @@ describe("The Citation check", { timeout: 30_000 }, () => {
     expect(citationsIn(client, answerId)).toEqual([
       expect.objectContaining({ quote, check: "found", checkReason: null }),
     ]);
-    expect(citeFeedback(model)).toMatch(/^Recorded \[\^1\]\. Write the Answer now/);
+    expect(citeFeedback(model)).toMatch(/^Recorded \[\^1\]\. Your reply has shown no text yet/);
   });
 
   test("a quote with an ellipsis is found when each part is on the cited page, and 'not found' when a part is too short", async () => {

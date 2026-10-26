@@ -102,6 +102,9 @@ const sameSearch = (query: string) =>
 
 const FIX_THESE = "Fix these with another cite call:";
 
+/** What `cite` tells the model once it has taken every record. */
+export const WRITE_NOW = " Write the Answer now if you haven't yet; don't repeat it.";
+
 /** Whether what `cite` told the model asks it to fix records, which the Tool loop must not end before. */
 export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
 
@@ -1403,9 +1406,7 @@ export function createCitationSession(
     const done = recorded.length
       ? `Recorded ${recorded.map((marker) => `[^${marker}]`).join(", ")}.`
       : "Nothing was recorded.";
-    const fix = problems.length
-      ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}`
-      : " Write the Answer now if your reply's text hasn't given it yet (your thinking isn't shown); don't repeat it.";
+    const fix = problems.length ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}` : WRITE_NOW;
     return `${done}${fix}`;
   }
 

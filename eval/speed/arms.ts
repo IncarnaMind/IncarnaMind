@@ -7,7 +7,8 @@
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory, Core } from "../../src/core";
-import { WRITE_THEN_CITE } from "../../src/core/answers/prompt";
+import { WRITE_NOW } from "../../src/core/answers/citations";
+import { NOTHING_SHOWN_YET, WRITE_THEN_CITE } from "../../src/core/answers/prompt";
 
 export interface Arm {
   id: string;
@@ -24,10 +25,7 @@ const LAST_LINE = "- Write nothing before a search: only the Answer, once you ha
 const SAME_REPLY =
   "- Then, in the same reply, right after the Answer's text, call cite once with a record for each marker: its number (1, 2, …), ";
 const IN_THE_TEXT = ". Your thinking isn't shown: the whole Answer goes in the text.";
-const WRITE_NOW = [
-  " Write the Answer now if your reply's text hasn't given it yet (your thinking isn't shown); don't repeat it.",
-  " Write the Answer now if you haven't yet; don't repeat it.",
-] as const;
+
 const QUOTED =
   /^- Use quotation marks only around a Document's exact words, in its own language: copy them.*$/m;
 
@@ -78,7 +76,10 @@ export const ARMS: readonly Arm[] = [
             part.type === "tool-result" && part.output.type === "text"
               ? {
                   ...part,
-                  output: { ...part.output, value: part.output.value.replace(...WRITE_NOW) },
+                  output: {
+                    ...part.output,
+                    value: part.output.value.replace(NOTHING_SHOWN_YET, WRITE_NOW),
+                  },
                 }
               : part,
           ),

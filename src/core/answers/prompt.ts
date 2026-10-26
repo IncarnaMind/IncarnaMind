@@ -474,6 +474,14 @@ export const WRITE_THEN_CITE: readonly string[] = [
   "- If cite asks you to fix records, give them fixed in another cite call: never write the Answer again.",
 ];
 
+/**
+ * What `cite` tells a model that gave its records before any of the Answer showed: Claude Sonnet
+ * 5.5 wrote the Answer in its thinking, and, told to write it "if you haven't yet", wrote only
+ * a line pointing back to it (#489).
+ */
+export const NOTHING_SHOWN_YET =
+  " Your reply has shown no text yet, and your thinking isn't shown: write the whole Answer now, with these markers.";
+
 /** Text written into a Mind isn't checked before the reply, so its records come first (mindInstructions). */
 const MIND_TEXT_CITED_FIRST =
   "- Text you write into a Mind is the exception: call cite for it before the call that writes it.";

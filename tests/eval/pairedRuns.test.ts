@@ -151,7 +151,7 @@ describe("the cite-first arm", () => {
               output: {
                 type: "text",
                 value:
-                  "Recorded [^1]. Write the Answer now if your reply's text hasn't given it yet (your thinking isn't shown); don't repeat it.",
+                  "Recorded [^1]. Your reply has shown no text yet, and your thinking isn't shown: write the whole Answer now, with these markers.",
               },
             },
           ],

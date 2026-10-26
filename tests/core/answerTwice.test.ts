@@ -97,6 +97,34 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
     expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
   });
 
+  test("a model that cites before any text is told none of its reply has shown yet", async () => {
+    const replies: string[] = [];
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched) {
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      }
+      const cited = call.results.find((result) => result.tool === "cite");
+      if (cited) {
+        replies.push(cited.text);
+        return { text: ANSWER };
+      }
+      const passage = shownPassages(searched.text)[0]?.id ?? "P1";
+      return {
+        reasoning: ANSWER,
+        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+      };
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Tides.md", contents: TIDES_MD },
+    ]);
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(replies).toEqual([expect.stringContaining("Your reply has shown no text yet")]);
+    expect(shown(client, answerId)).toBe("Spring tides come at new and full moon[c].");
+  });
+
   test("a model that still cites first, then writes: the Answer is there once", async () => {
     const model = scriptedModel((call: ModelCall): ScriptedReply => {
       const searched = call.results.find((result) => result.tool === "search_documents");
