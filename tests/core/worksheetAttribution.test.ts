@@ -92,9 +92,10 @@ describe("Worksheet input provenance", () => {
         : { chineseLines: ["修订 B 当前有效 2026-10-23", row] },
     ]);
     for (const recorded of [false, true]) {
-      test(`refuses the unlabelled punctuation-separated ${recorded ? "recorded" : "direct"} row ${quote}, ${language}`, async () => {
+      test(`keeps the unique punctuation-separated ${recorded ? "recorded" : "direct"} row ${quote}, ${language}`, async () => {
         const answer = await calculate(quote, "p. 1", "0.075", recorded, contents);
-        expect(answer.figures).toEqual([]);
+        expect(answer.figures).toHaveLength(1);
+        expect(answer.figures[0]?.inputs[0]?.citation.pageFrom).toBe(1);
       });
       test(`keeps the labelled punctuation-separated ${recorded ? "recorded" : "direct"} row ${quote}, ${language}`, async () => {
         const answer = await calculate(row, "p. 1", "0.075", recorded, contents);
@@ -122,9 +123,8 @@ describe("Worksheet input provenance", () => {
   for (const recorded of [false, true]) {
     test.each([
       ["2", "p. 2", "2"],
-      ["0.150", "p. 1", "0.150"],
-      ["0.250", "p. 1", "0.250"],
-      ["0.050 2 0.100", "p. 2", "0.050"],
+      ["0.150", "pp. 1-2", "0.150"],
+      ["0.250", "pp. 1-2", "0.250"],
     ])(
       `refuses the context-free ${recorded ? "recorded" : "direct"} quote %s at %s`,
       async (quote, location, number) => {
@@ -155,9 +155,9 @@ describe("Worksheet input provenance", () => {
   );
 });
 
-describe("Numerical Citation context", () => {
-  test.each(["2", "0.150", "0.050 2 0.100"])(
-    "asks for context for a new numeric Citation of %s without changing quote presence",
+describe("Numerical Citation place", () => {
+  test.each(["2", "0.250"])(
+    "asks for a unique place for a repeated numeric Citation of %s without changing quote presence",
     async (quote) => {
       const model = citingModel({
         query: "current worksheet",

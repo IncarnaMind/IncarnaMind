@@ -340,8 +340,8 @@ function notCovered(cite: boolean): string {
 const CITED_SAYS_ONLY_ITS_QUOTE =
   '- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: "This suggests…" / "这意味着…".';
 
-const NUMERIC_EVIDENCE =
-  "- Quote a number's labelled row with its revision/period, never a bare number or an equal value elsewhere.";
+const UNIQUE_QUOTES =
+  "- Quote enough surrounding words to identify one place in the cited Units. For figures, keep the row's label and revision/period context.";
 
 /**
  * A model read "54,000" in a UK contract as pounds and wrote "£54,000", cited (#1332): a
@@ -614,7 +614,7 @@ export function documentInstructions(
         "- Write nothing before your Tool calls: only the Answer, after them.",
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
-        NUMERIC_EVIDENCE,
+        UNIQUE_QUOTES,
         FIGURES_AS_STATED,
         readingRules(true),
         ...(calculate ? ["", CALCULATE] : []),
@@ -640,7 +640,7 @@ export function documentInstructions(
         ...(calculate ? [CALCULATIONS] : []),
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
-        NUMERIC_EVIDENCE,
+        UNIQUE_QUOTES,
         FIGURES_AS_STATED,
         readingRules(true),
       ].join("\n");

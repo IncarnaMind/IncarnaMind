@@ -1750,8 +1750,8 @@ export interface RecheckCitationInput {
 /**
  * A Citation checked again against its Document's current version: the
  * attributes to store on its node in place of the old ones. The quote is
- * looked for in the cited Units first, then in any Unit (or two consecutive
- * ones) of the current version, so `pageFrom`, `pageTo` and `location` may change.
+ * checked in its cited Units in the current version. A quote elsewhere never
+ * changes the Citation's Unit bounds; a whole-Document Citation stays whole.
  */
 export interface CitationRecheck {
   check: Exclude<CitationCheck, "checking">;
@@ -5717,7 +5717,7 @@ export interface RejectedRecord {
   /** Null when it wasn't a number. */
   marker: number | null;
   passage: string;
-  /** "marker": invalid marker. "passage": unknown Passage. "quote-context": numbers without their row or role. */
+  /** "marker": invalid marker. "passage": unknown Passage. "quote-context": more than one place in its cited Units. */
   reason: "marker" | "passage" | "quote-context";
 }
 
@@ -5729,7 +5729,7 @@ export interface AnswerFinished extends AnswerPlace {
   citations: Citation[];
   /** Markers the model wrote with no valid record: removed, leaving their sentences uncited. */
   droppedMarkers: number;
-  /** Records with an invalid marker, unknown Passage or insufficient numeric context: dropped. */
+  /** Records with an invalid marker, unknown Passage or ambiguous quote: dropped. */
   droppedRecords: number;
   /**
    * The records among those that the core couldn't take, as the model gave
