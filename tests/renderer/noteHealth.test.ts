@@ -83,15 +83,7 @@ const docOf = (...blocks: JSONContent[]) => schema.nodeFromJSON({ type: "doc", c
 /** The Mind's health as its header counts it. */
 function healthOf(
   doc: ProseMirrorNode,
-  {
-    skipped = [],
-    kept,
-    answered = [],
-  }: {
-    skipped?: readonly string[];
-    kept?: readonly KeptMark[];
-    answered?: readonly string[];
-  } = {},
+  { skipped = [], kept }: { skipped?: readonly string[]; kept?: readonly KeptMark[] } = {},
 ): NoteHealth {
   const claims = claimsOf(doc, { versions: null, folderId: null, scope: null });
   return noteHealth(doc, {
@@ -99,7 +91,6 @@ function healthOf(
     citationCheck: (attributes) => attributes.check,
     skipped: new Set(skipped),
     kept: kept ?? claims.kept,
-    writtenByAnswer: (blockId) => typeof blockId === "string" && answered.includes(blockId),
   });
 }
 
@@ -171,17 +162,15 @@ describe("A Mind's health", () => {
     expect(health.checkable).toBe(3);
   });
 
-  test("a failed check on a plain note shows the badge, a plain note with no check does not (#1194, #1909)", () => {
+  test("a failed check on a plain note is a claim to check, as a plain note with no check is (#1909)", () => {
     const failed = docOf(
       paragraph(
         checked("The rate limit stopped this sentence's check.", "not-checked", "rate-limit"),
       ),
     );
     expect(healthOf(failed).toCheck).toHaveLength(1);
-    expect(healthOf(failed).citable).toHaveLength(1);
     const plain = docOf(paragraph(text("Spring tides come at full moon.")));
     expect(healthOf(plain).toCheck).toHaveLength(1);
-    expect(healthOf(plain).citable).toHaveLength(0);
   });
 
   // protects=a Citation's state shows only on its marker, so every Citation is counted and reachable, in sentences with a verdict too; fails_when=a Citation in an unsupported, contradicted or unchecked sentence stops counting, or such a sentence also counts as having no Citation; no_claim=how the card sets it.
@@ -254,7 +243,7 @@ describe("A Mind's health", () => {
     expect(parts(healthOf(after))).toEqual({ ...NOTHING, found: 1, toCheck: 1 });
   });
 
-  test("knows which claims an Answer wrote or a Citation makes citable, and those the last whole-Mind check found make no claim (#737, #1194)", () => {
+  test("counts the claims a check reads, and those the last whole-Mind check found make no claim (#737, #1909)", () => {
     const opinion = "We think the tides are lovely in spring.";
     const doc = docOf(
       paragraph(checked("Spring tides come at full moon.", "supported")),
@@ -265,17 +254,11 @@ describe("A Mind's health", () => {
       heading("A heading that claims a lot about tides"),
     );
 
-    expect(healthOf(doc, { answered: ["answer"] }).toCheck).toHaveLength(3);
-    expect(healthOf(doc, { answered: ["answer"] }).citable).toHaveLength(2);
-    expect(
-      healthOf(doc, { skipped: [sentenceKey(opinion)], answered: ["answer"] }).toCheck,
-    ).toHaveLength(2);
-    // Without an Answer's words only the cited claim makes the badge show.
     expect(healthOf(doc).toCheck).toHaveLength(3);
-    expect(healthOf(doc).citable).toHaveLength(1);
+    expect(healthOf(doc, { skipped: [sentenceKey(opinion)] }).toCheck).toHaveLength(2);
   });
 
-  test("a sentence is in one part only: a claim with a Citation, an Answer's words or no Citation is counted once", () => {
+  test("a sentence is in one part only: a claim with a Citation or no Citation is counted once", () => {
     const doc = docOf(
       paragraph(checked("Spring tides come at full moon.", "supported")),
       paragraph(text("Neap tides come at the quarter moons "), citation("found"), text(".")),
@@ -285,7 +268,7 @@ describe("A Mind's health", () => {
         content: [text("The harbour master thinks the tides are lovely in spring.")],
       },
     );
-    const health = healthOf(doc, { answered: ["answer"] });
+    const health = healthOf(doc);
 
     expect(health.toCheck).toHaveLength(2);
     expect(health.noCitation).toHaveLength(1);
@@ -301,6 +284,7 @@ describe("A Mind's health", () => {
     const health = healthOf(doc);
     expect(parts(health)).toEqual({ ...NOTHING, contradicted: 1 });
     expect(health.toCheck).toHaveLength(0);
+    expect(health.kept).toHaveLength(1);
     expect(everythingChecked(health, { running: false, problem: false })).toBe(false);
   });
 
@@ -319,22 +303,37 @@ describe("A Mind's health", () => {
     const doc = docOf(paragraph(checked(sentence, "not-checked", "failed")));
     const health = healthOf(doc, { skipped: [sentenceKey(sentence)] });
     expect(parts(health)).toEqual({ ...NOTHING, toCheck: 1 });
-    expect(health.citable).toHaveLength(1);
+    expect(health.failed).toHaveLength(1);
   });
 
-  test("the card says everything is checked only with nothing left and no unsupported or contradicted sentence (#1909)", () => {
+  test("the card says everything is checked only with nothing left and no unsupported, contradicted or not-found Citation (#1909, D266)", () => {
     const supported = healthOf(
       docOf(paragraph(checked("Spring tides come at full moon.", "supported"))),
     );
     expect(everythingChecked(supported, { running: false, problem: false })).toBe(true);
+    expect(supported.checkedAt).toBe("2026-10-12T09:00:00.000Z");
     expect(everythingChecked(supported, { running: true, problem: false })).toBe(false);
     expect(everythingChecked(supported, { running: false, problem: true })).toBe(false);
     const contradicted = healthOf(docOf(paragraph(checked("100", "contradicted"))));
     expect(everythingChecked(contradicted, { running: false, problem: false })).toBe(false);
     const unsupported = healthOf(docOf(paragraph(checked("38.6%", "unsupported"))));
     expect(everythingChecked(unsupported, { running: false, problem: false })).toBe(false);
+    const notFound = healthOf(docOf(paragraph(text("Spring tides "), citation("not-found"))));
+    expect(parts(notFound)).toEqual({ ...NOTHING, notFound: 1 });
+    expect(everythingChecked(notFound, { running: false, problem: false })).toBe(false);
     const empty = healthOf(docOf(paragraph(text("Thanks!"))));
     expect(everythingChecked(empty, { running: false, problem: false })).toBe(false);
+  });
+
+  test("counts a claim still checking as read but not done, so nothing can say everything is checked (#1915)", () => {
+    const checking = healthOf(
+      docOf(paragraph(checked("Spring tides come at full moon.", "checking"))),
+    );
+    expect(parts(checking)).toEqual(NOTHING);
+    expect(checking.checkable).toBe(1);
+    expect(checking.checking).toHaveLength(1);
+    expect(checking.toCheck).toHaveLength(0);
+    expect(everythingChecked(checking, { running: false, problem: false })).toBe(false);
   });
 
   test("counts a table cell's claim, on its own line (#1909)", () => {

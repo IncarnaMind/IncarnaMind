@@ -6,6 +6,7 @@
  */
 import type { Expected, RepeatSentence } from "./cases";
 import type { Outcome, RepeatResult } from "./repeat";
+import type { WatchedRequest } from "./requests";
 
 export interface RepeatRow extends RepeatResult {
   set: string;
@@ -14,6 +15,8 @@ export interface RepeatRow extends RepeatResult {
   kind: RepeatSentence["kind"];
   expected: Expected;
   knownMiss?: number;
+  /** The model requests of this sentence's check; none in a report written before they were kept. */
+  requests?: readonly WatchedRequest[];
 }
 
 const OUTCOMES: readonly Outcome[] = [
@@ -21,6 +24,7 @@ const OUTCOMES: readonly Outcome[] = [
   "partly",
   "absent",
   "differs",
+  "unsupported",
   "contradicted",
   "not-checked",
   "no-mark",
@@ -60,8 +64,8 @@ export interface GroupSummary {
   sentences: SentenceSummary[];
   /** Supported, for a sentence its Documents don't state. */
   falseSupported: number;
-  /** Absent, for a sentence its Documents state. */
-  absentOnStated: number;
+  /** Not found or Unsupported, for a sentence its Documents state. */
+  unsupportedOnStated: number;
   /** The partly-supported card, for a sentence whose topic no Document is about. */
   partlyOnAbsent: number;
   /** Repeats whose verdicts differ from the one before on any sentence, of those that follow one. */
@@ -73,6 +77,38 @@ export interface GroupSummary {
   misses: RepeatRow[];
   /** The results of the sentences a known miss is filed for, apart. */
   known: RepeatRow[];
+  cost: CheckCost;
+}
+
+/** What a sentence's check cost, on average over the checks of a group; the claims request isn't any sentence's. */
+export interface CheckCost {
+  requests: number;
+  searches: number;
+  /** Checks that searched more than once. */
+  searchedAgain: number;
+  /** Checks asked to search again before saying the sentence isn't found. */
+  askedAgain: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** The requests' time, end to end, as one after another. */
+  seconds: number;
+}
+
+export function costOf(rows: readonly RepeatRow[]): CheckCost {
+  const mean = (of: (row: RepeatRow) => number) =>
+    rows.length === 0 ? 0 : rows.reduce((total, row) => total + of(row), 0) / rows.length;
+  const sum = (row: RepeatRow, of: (request: WatchedRequest) => number) =>
+    (row.requests ?? []).reduce((total, request) => total + of(request), 0);
+  const searches = (row: RepeatRow) => sum(row, (request) => request.asked.length);
+  return {
+    requests: mean((row) => row.requests?.length ?? 0),
+    searches: mean(searches),
+    searchedAgain: rows.filter((row) => searches(row) > 1).length,
+    askedAgain: rows.filter((row) => row.requests?.some((request) => request.searchAgain)).length,
+    inputTokens: mean((row) => sum(row, (request) => request.inputTokens)),
+    outputTokens: mean((row) => sum(row, (request) => request.outputTokens)),
+    seconds: mean((row) => sum(row, (request) => request.ms)) / 1000,
+  };
 }
 
 export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
@@ -129,8 +165,10 @@ export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
       ).length,
       partlyOnAbsent: group.filter((row) => row.kind === "absent" && row.outcome === "partly")
         .length,
-      absentOnStated: group.filter((row) => STATED.has(row.expected) && row.outcome === "absent")
-        .length,
+      unsupportedOnStated: group.filter(
+        (row) =>
+          STATED.has(row.expected) && (row.outcome === "absent" || row.outcome === "unsupported"),
+      ).length,
       disagreeing: pairs.filter(([before, after]) => verdictsIn(before) !== verdictsIn(after))
         .length,
       followed: pairs.length,
@@ -143,6 +181,7 @@ export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
             },
       misses: counted.filter((row) => !meetsExpected(row)),
       known: group.filter((row) => row.knownMiss !== undefined),
+      cost: costOf(group),
     };
   });
 }
@@ -162,7 +201,7 @@ function knownLines(known: readonly RepeatRow[]): string[] {
         const own = ofIssue.filter((row) => row.key === key);
         const count = (outcomes: readonly Outcome[]) =>
           own.filter((row) => outcomes.includes(row.outcome)).length;
-        return `- ${key}: ${count(["contradicted"])} of ${own.length} Contradicted, ${count(["supported"])} Supported, ${count(["partly", "absent", "differs"])} unsupported, ${count(["not-checked", "no-mark"])} not checked or not named`;
+        return `- ${key}: ${count(["contradicted"])} of ${own.length} Contradicted, ${count(["supported"])} Supported, ${count(["partly", "absent", "differs", "unsupported"])} unsupported, ${count(["not-checked", "no-mark"])} not checked or not named`;
       }),
     ];
   });
@@ -180,15 +219,15 @@ export function report(
     ...summaries.flatMap((group) => [
       `## ${group.set} · ${group.model} · ${group.repeats} checks`,
       "",
-      "| Sentence | Kind | Expected | Supported | Partly | Absent | Differs | Contradicted | Not checked | Same verdict |",
-      "|---|---|---|---|---|---|---|---|---|---|",
+      "| Sentence | Kind | Expected | Supported | Partly | Absent | Differs | Unsupported | Contradicted | Not checked | Same verdict |",
+      "|---|---|---|---|---|---|---|---|---|---|---|",
       ...group.sentences.map(
         (each) =>
-          `| ${each.key} | ${each.kind} | ${each.expected} | ${each.outcomes.supported} | ${each.outcomes.partly} | ${each.outcomes.absent} | ${each.outcomes.differs} | ${each.outcomes.contradicted} | ${each.outcomes["not-checked"] + each.outcomes["no-mark"]} | ${each.steady} of ${each.repeats} |`,
+          `| ${each.key} | ${each.kind} | ${each.expected} | ${each.outcomes.supported} | ${each.outcomes.partly} | ${each.outcomes.absent} | ${each.outcomes.differs} | ${each.outcomes.unsupported} | ${each.outcomes.contradicted} | ${each.outcomes["not-checked"] + each.outcomes["no-mark"]} | ${each.steady} of ${each.repeats} |`,
       ),
       "",
       `- False Supported: ${group.falseSupported}`,
-      `- Absent, for a sentence they state: ${group.absentOnStated}`,
+      `- Not found or Unsupported, for a sentence they state: ${group.unsupportedOnStated}`,
       `- The partly-supported card, for a sentence whose topic they don't hold: ${group.partlyOnAbsent}`,
       `- Checks whose verdicts differ from the one before: ${group.disagreeing} of ${group.followed}`,
       ...(group.conflicts
@@ -196,6 +235,7 @@ export function report(
             `- Genuine conflicts Contradicted: ${group.conflicts.contradicted} of ${group.conflicts.checked}`,
           ]
         : []),
+      `- A sentence's check, on average: ${group.cost.requests.toFixed(2)} requests, ${group.cost.searches.toFixed(2)} searches (more than one in ${group.cost.searchedAgain} of ${group.sentences.reduce((total, each) => total + each.repeats, 0)}, asked to search again in ${group.cost.askedAgain}), ${Math.round(group.cost.inputTokens)} tokens in, ${Math.round(group.cost.outputTokens)} out, ${group.cost.seconds.toFixed(1)} s of requests`,
       ...knownLines(group.known),
       "",
       ...(group.misses.length > 0

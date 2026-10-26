@@ -11,12 +11,13 @@
  * INCARNAMIND_EVAL_SPEED_LANGUAGES: "en", "zh-CN" or both (default: both).
  * INCARNAMIND_EVAL_SPEED_RUNS: how many times each flow runs per model and language (default: 3).
  * INCARNAMIND_EVAL_SPEED_STOP_USD: stops before the next run once this much is spent (default: 12).
+ * INCARNAMIND_EVAL_SPEED_AUDIT: "1" adds the token audit (#1634, ./tokens): what each part of each
+ *   request carries, with the cached share, in the report and in tokens.json.
  */
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { cpus, loadavg, tmpdir, totalmem } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "vitest";
-import { type Core, chatProviderKinds, type SaveChatProviderInput } from "../../src/core";
 import { createOnnxTextRecognizer } from "../../src/core/documents/scan/onnx";
 import { queryDatabase } from "../../tests/helpers/core";
 import { buildPdf } from "../../tests/helpers/pdf";
@@ -28,39 +29,10 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { FLOWS, type Language } from "./flows";
 import { type FlowRun, flowTable, percentile, requestTable, type TimingRecord } from "./report";
+import { env, list, modelsAsked, spentUsd } from "./settings";
+import { createTokenAuditor, type TokenAuditRun, tokenReport } from "./tokens";
 
 const ROOT = resolve(__dirname, "../..");
-const CNY_PER_USD = 7.1;
-const env = (name: string) => process.env[`INCARNAMIND_EVAL_SPEED_${name}`]?.trim() || null;
-const list = (name: string) =>
-  env(name)
-    ?.split(",")
-    .map((each) => each.trim())
-    .filter(Boolean) ?? null;
-
-const spentUsd = async (core: Core) =>
-  (await core.getCostSummary()).spent.reduce((sum, each) => {
-    if (each.currency === "USD") return sum + each.amount;
-    return each.currency === "CNY" ? sum + each.amount / CNY_PER_USD : sum;
-  }, 0);
-
-function modelsAsked(): SaveChatProviderInput[] {
-  return (list("MODELS") ?? []).map((each) => {
-    const [kind, ...rest] = each.split("/");
-    const found = chatProviderKinds.find((known) => known === kind);
-    if (!found || found === "chatgpt" || rest.length === 0) {
-      throw new Error(`INCARNAMIND_EVAL_SPEED_MODELS: "${each}" isn't "<kind>/<model id>".`);
-    }
-    const apiKey = env(`KEY_${found.toUpperCase().replaceAll("-", "_")}`);
-    const endpoint = env(`ENDPOINT_${found.toUpperCase().replaceAll("-", "_")}`);
-    return {
-      kind: found,
-      modelId: rest.join("/"),
-      ...(apiKey && { apiKey }),
-      ...(endpoint && { endpoint }),
-    };
-  });
-}
 
 // The scan set's pictures as one scanned PDF, read as a Document, for the text recognition step.
 async function readScans(cacheDir: string, log: ReturnType<typeof createLog>) {
@@ -105,7 +77,10 @@ const NOT_MEASURED = [
   "- The first sign of the flows that aren't Answers is the first one the core sends; the window's own pending state, shown at once, isn't seen here.",
 ];
 
-test("the speed of every AI flow, on each model and language", async () => {
+// A paired run (./paired.speed) times its own items instead.
+const baseline = env("PAIRED") === null ? test : test.skip;
+
+baseline("the speed of every AI flow, on each model and language", async () => {
   const log = createLog();
   const config = readConfig(ROOT);
   const models = modelsAsked();
@@ -115,6 +90,8 @@ test("the speed of every AI flow, on each model and language", async () => {
   const languages = (list("LANGUAGES") ?? ["en", "zh-CN"]) as Language[];
   const runs = Number(env("RUNS") ?? "3");
   const stopUsd = Number(env("STOP_USD") ?? "12");
+  const audit = env("AUDIT") === "1" ? createTokenAuditor() : null;
+  const tokenRuns: TokenAuditRun[] = [];
   const results: FlowRun[] = [];
   const loads: number[] = [];
   let stopped: string | null = null;
@@ -129,6 +106,7 @@ test("the speed of every AI flow, on each model and language", async () => {
     embeddings: false,
     keep: config.keepData,
     log,
+    ...(audit && { chatModels: audit.chatModels }),
   });
   try {
     const { core, dataDir, documents } = library;
@@ -158,11 +136,19 @@ test("the speed of every AI flow, on each model and language", async () => {
             log(`${name} · ${flow.id} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}`);
             let signs: FlowRun["signs"] = null;
             let error: string | null = null;
+            audit?.begin({ flow: flow.id, model: name, language });
             try {
               signs = await flow.run({ core, language, documents });
             } catch (thrown) {
               error = thrown instanceof Error ? thrown.message : String(thrown);
               log(`  failed: ${error}`);
+            } finally {
+              tokenRuns.push({
+                flow: flow.id,
+                model: name,
+                language,
+                requests: audit?.end() ?? [],
+              });
             }
             // From the User's action: what a flow set up first (an earlier Answer) isn't its.
             const records = queryDatabase<TimingRecord>(
@@ -222,12 +208,25 @@ test("the speed of every AI flow, on each model and language", async () => {
     "",
     ...NOT_MEASURED,
     "",
+    ...(audit
+      ? [
+          "## Tokens",
+          "",
+          tokenReport(tokenRuns),
+          "",
+          "### Call help",
+          "",
+          "Call help has no flow: it needs a Meeting's audio and live transcript, which this runner doesn't record (see Not measured here). Its calls are not in the tables above.",
+          "",
+        ]
+      : []),
   ].join("\n");
   console.log(report);
   const out = join(config.resultsDir, `speed-${new Date().toISOString().replace(/[:.]/g, "-")}`);
   await mkdir(out, { recursive: true });
   await writeFile(join(out, "report.md"), report);
   await writeFile(join(out, "report.json"), JSON.stringify(results, null, 2));
+  if (audit) await writeFile(join(out, "tokens.json"), JSON.stringify(tokenRuns, null, 2));
   log(`Report in ${out}`);
   if (!stopped) expect(results.length).toBe(models.length * flows.length * languages.length * runs);
 });

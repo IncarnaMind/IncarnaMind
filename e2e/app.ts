@@ -605,6 +605,13 @@ export const clickEditItem = (
     item.click();
   }, id);
 
+/** The Edit menu's Undo or Redo, as the application menu has it now. */
+export const editItem = (app: ElectronApplication, id: "edit.undo" | "edit.redo") =>
+  app.evaluate(({ Menu }, itemId) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(itemId);
+    return item ? { label: item.label, enabled: item.enabled } : null;
+  }, id);
+
 /**
  * "New Mind" from the sidebar header's "+" menu, the one place to add: a Mind
  * in no Folder. Returns once its first line has the cursor: keys a test
@@ -639,6 +646,12 @@ export async function newMind(
   await expect(first).toHaveJSProperty("tagName", "H1");
   await window.keyboard.press("Backspace");
   await expect(first).toHaveJSProperty("tagName", "P");
+}
+
+/** Makes a Mind with ⌘T and types into it with nothing in between, as a fast typist's hands do (#2000). */
+export async function newMindAndType(window: Page, typed: string): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+t");
+  await window.keyboard.type(typed);
 }
 
 /** Runs a command from ⌘K by its label, as the User types and clicks it. */
@@ -2080,6 +2093,37 @@ export async function enterContent(window: Page): Promise<void> {
 export async function focusSettled(window: Page, editor: Locator): Promise<void> {
   await expect(editor).toBeFocused();
   await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 20)));
+}
+
+/**
+ * Arms a check that the Mind made next shows with its text already focused: when an editor
+ * that wasn't there appears, it reads where the focus is. `newEditorShownFocused` reads what
+ * it saw.
+ */
+export async function watchNewEditorFocus(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const state: { focused: boolean | null } = { focused: null };
+    (window as unknown as { newEditorFocus?: typeof state }).newEditorFocus = state;
+    const known = new WeakSet<Element>(document.querySelectorAll('[data-testid="mind-editor"]'));
+    const observer = new MutationObserver(() => {
+      const fresh = [...document.querySelectorAll('[data-testid="mind-editor"]')].find(
+        (each) => !known.has(each),
+      );
+      if (!fresh) return;
+      observer.disconnect();
+      state.focused = fresh.contains(document.activeElement);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
+/** Whether the new Mind's text had the focus as its editor first showed; null until it has shown. */
+export function newEditorShownFocused(window: Page): Promise<boolean | null> {
+  return window.evaluate(
+    () =>
+      (window as unknown as { newEditorFocus?: { focused: boolean | null } }).newEditorFocus
+        ?.focused ?? null,
+  );
 }
 
 /** The words of the sentences the User keeps as their own view, in the Mind's order. */

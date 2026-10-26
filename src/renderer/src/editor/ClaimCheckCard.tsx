@@ -12,7 +12,12 @@ import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import type { ClaimCalculation } from "../../../core/api";
 import { shownDocumentName } from "../../../shared/citations";
-import { checkedScope, coveredPart, SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
+import {
+  checkedScope,
+  coveredPart,
+  SENTENCES_CHECKED_AT_MOST,
+  saysNotFound,
+} from "../../../shared/claimChecks";
 import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { comparableSentence } from "../../../shared/sentences";
@@ -43,6 +48,7 @@ import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
   applyFigure,
+  checkStateKey,
   cutSentence,
   cutUnsupported,
   keepAsView,
@@ -143,6 +149,7 @@ export function ClaimMark({
   const decision = state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
   const plus = decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
+  const heading = t(checkStateKey(editor, claim));
 
   const hold = useCallback((source: string, on: boolean) => {
     if (on) askers.current.add(source);
@@ -270,7 +277,7 @@ export function ClaimMark({
             }}
             initialFocus={initialFocus}
             aria-label={t("claim.card.label", {
-              state: t(`claim.state.${state}`),
+              state: heading,
               sentence: comparableSentence(claim.sentence.text),
             })}
             data-testid="claim-card"
@@ -284,6 +291,7 @@ export function ClaimMark({
             <ClaimCard
               rootRef={card}
               claim={claim}
+              heading={heading}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
               fixes={offersFixes(editor, claim)}
@@ -448,6 +456,7 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
 function ClaimCard({
   rootRef,
   claim,
+  heading,
   verified,
   cited,
   fixes,
@@ -473,6 +482,7 @@ function ClaimCard({
 }: {
   rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
+  heading: string;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
   verified: string | null;
   cited: readonly NumberedCitation[];
@@ -542,8 +552,7 @@ function ClaimCard({
       savedPage.versions.find((each) => each.contentHash === evidence?.contentHash)?.fetchedAt ??
       savedPage.fetchedAt,
   };
-  const saysNotFound =
-    state === "unsupported" && !differs && !decisionMissing && !fixes && !covers && !ownWorkings;
+  const nothingFound = saysNotFound(shown, check, cited.length);
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
@@ -566,9 +575,7 @@ function ClaimCard({
       <div className="citation-card-head">
         <p data-testid="claim-badge" data-check={state} className="citation-badge">
           <ClaimMarkIcon state={state} className="citation-badge-icon" />
-          <span>
-            {decisionMissing ? t("claim.courtDecision.title") : t(`claim.state.${state}`)}
-          </span>
+          <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
         </p>
         {sentence && (
           <p data-testid="claim-sentence" className="claim-card-sentence">
@@ -673,20 +680,25 @@ function ClaimCard({
               onOpen={onOpen}
             />
           )}
-          {!fixes && !covers && (
-            <p
-              data-testid={ownWorkings ? "claim-own-workings" : "claim-nothing"}
-              className="citation-card-note"
-            >
-              {ownWorkings
-                ? t("claim.unsupported.ownWorkings")
-                : looked && looked.more > 0
-                  ? t("claim.unsupported.notFound.more", {
-                      scope: lookedIn,
-                      count: looked.more,
-                      total: looked.more + 1,
-                    })
-                  : t("claim.unsupported.notFound", { scope: lookedIn })}
+          {ownWorkings && (
+            <p data-testid="claim-own-workings" className="citation-card-note">
+              {t("claim.unsupported.ownWorkings")}
+            </p>
+          )}
+          {nothingFound && (
+            <p data-testid="claim-nothing" className="citation-card-note">
+              {looked && looked.more > 0
+                ? t("claim.unsupported.notFound.more", {
+                    scope: lookedIn,
+                    count: looked.more,
+                    total: looked.more + 1,
+                  })
+                : t("claim.unsupported.notFound", { scope: lookedIn })}
+            </p>
+          )}
+          {!fixes && !covers && !ownWorkings && !nothingFound && check.unsupported?.reason && (
+            <p data-testid="claim-why" className="claim-card-says">
+              {check.unsupported.reason}
             </p>
           )}
         </>
@@ -747,7 +759,7 @@ function ClaimCard({
           />
         </div>
       )}
-      {checkedIn && !saysNotFound && (
+      {checkedIn && !nothingFound && (
         <p data-testid="claim-checked-in" className="citation-card-note">
           {looked && looked.more > 0
             ? t("claim.checkedIn.more", {

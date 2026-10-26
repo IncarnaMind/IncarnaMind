@@ -194,13 +194,17 @@ export interface CreateMindInput {
  *   Document changed (#99): `keptOver` on the Citation, which an older
  *   version's editor would strip, so it would ask again to be checked. Older
  *   content is version 28 content as it is.
- * - 29: a comparison table's columns have a `label` of their own, beside
+ * - 29: whether a check found a Passage about the sentence that doesn't back
+ *   it (#1608): `found` in the `claimCheck` mark's `unsupported` reason, which
+ *   an older version's editor would strip, so its card would say Not found.
+ *   Older content is version 29 content as it is.
+ * - 30: a comparison table's columns have a `label` of their own, beside
  *   their Question (#1833), and room for their `width` and whether they are
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
- *   content is version 29 content as it is.
+ *   content is version 30 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 29;
+export const CONTENT_SCHEMA_VERSION = 30;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -233,11 +237,6 @@ export interface MessageAnchor {
   kind: "message";
   messageId: string;
 }
-
-export type ReferenceAnchor = BlockAnchor | MessageAnchor;
-
-/** What a reference points into: a Mind, or one of the assistant's conversations (ADR-0017). */
-export type ArtifactKind = "mind" | "conversation";
 
 /**
  * One reference from one artifact to another (ADR-0003, ADR-0017): a Block's
@@ -2181,8 +2180,6 @@ export interface DeviceSettings {
   sidebarWidth: number;
   /** The User hid the sidebar (the shortcut, the button, View menu, or dragging it shut). Its width is kept. */
   sidebarHidden: boolean;
-  /** The User chose "set up later" on the first-run chat setup screen. */
-  chatSetupDismissed: boolean;
   /** The User dismissed the sidebar's line saying the app runs without its sandbox (#1179). */
   sandboxNoticeDismissed: boolean;
   /** The app has opened on this device before: from its second launch it opens on Home. */
@@ -2733,6 +2730,16 @@ export interface Document {
   scan: DocumentScanProgress | null;
   /** Set when `status` is "failed": why the latest version read failed. */
   failure: DocumentFailure | null;
+  /**
+   * What of it wasn't read when the rest was (#740): a workbook's hidden sheets and the sheets
+   * the reading limit cut short. Null when all of it was, and for every other kind.
+   */
+  unreadParts: UnreadParts | null;
+  /**
+   * Its stored `unreadParts` couldn't be read (damaged data): what it left unread is unknown,
+   * never taken for everything read. The unread list says so, and the log names the Document.
+   */
+  unreadPartsUnknown: boolean;
   /**
    * The Folder its file is in: the Linked folder's own Folder, or one inside
    * it. Null for a file added on its own.
@@ -3715,9 +3722,28 @@ export interface UnsupportedFile {
  *   (`unlockDocument`, #763); another kind needs its password removed;
  * - "damaged": the file is broken, or couldn't be read;
  * - "too-large": too large to open;
- * - "pages": a scan some of whose pages haven't been read yet.
+ * - "pages": a scan some of whose pages haven't been read yet;
+ * - "parts": a workbook read in part, whose hidden sheets or rows past the reading limit were
+ *   left out (`UnreadFile.parts` says which). The rest of it is searched.
  */
-export type UnreadReason = "format" | "scan" | "password" | "damaged" | "too-large" | "pages";
+export type UnreadReason =
+  | "format"
+  | "scan"
+  | "password"
+  | "damaged"
+  | "too-large"
+  | "pages"
+  | "parts";
+
+/** What of a Document wasn't read when the rest was (#740). */
+export interface UnreadParts {
+  /** Hidden and very hidden sheets left out, by name, in the file's order. */
+  hiddenSheets: string[];
+  /** Sheets with rows left out at the reading limit: the first row not read, from 1. */
+  rowsCut: { sheet: string; from: number }[];
+  /** Sheets after the limit was reached, from which nothing was read. */
+  sheetsNotRead: string[];
+}
 
 /** A file in a Search scope that couldn't be read, with why (#740). */
 export interface UnreadFile {
@@ -3732,6 +3758,8 @@ export interface UnreadFile {
   documentId: string | null;
   /** For "pages": the scanned pages that couldn't be read, from 1; empty when none could be, and for every other reason. */
   pages: number[];
+  /** For "parts": what wasn't read; absent for every other reason. */
+  parts?: UnreadParts;
 }
 
 /**
@@ -4979,6 +5007,12 @@ export interface UnsupportedReason {
   /** A short phrase for what they don't ("memory and robustness"); null when none. */
   uncovered: string | null;
   /**
+   * True when the check found a Passage about the sentence that doesn't back it: its card says
+   * Unsupported, never Not found (#1608). Absent when nothing in its scope was about it, and on
+   * checks made before it was kept.
+   */
+  found?: true;
+  /**
    * The Passage the check quoted for what is covered, as a Citation whose quote the
    * Citation check found; absent when it quoted none.
    */
@@ -5976,6 +6010,12 @@ export interface ConversationMatch {
 export interface MindSnippet {
   mindId: string;
   text: string;
+}
+
+/** A Mind's whole Yjs document, as stored (`CoreApi.readMindContents`), for Home's state line (D266). */
+export interface MindContentSnapshot {
+  mindId: string;
+  state: Uint8Array;
 }
 
 /**
@@ -7085,6 +7125,7 @@ export type ConnectorErrorKind =
   | "stopped"
   /** Remote: its server can't be reached, e.g. no network, or nothing answers at its URL. */
   | "unreachable"
+  | "key-refused"
   /** Anything else, e.g. it doesn't speak MCP. */
   | "failed";
 
@@ -7195,12 +7236,13 @@ export interface RemoteConnectorSignIn {
 }
 
 /**
- * A remote Connector: an MCP server reached by its URL over Streamable HTTP.
- * If it requires a sign-in, the User signs in in their browser (OAuth 2.1
- * with PKCE, as the MCP authorization spec describes).
+ * A remote Connector using Streamable HTTP or older SSE, with device-only
+ * header secrets or browser sign-in (OAuth 2.1 with PKCE).
  */
 export interface RemoteConnector extends ConnectorBase {
   transport: "http";
+  connection?: "http" | "sse";
+  headers?: string[];
   /** Its MCP endpoint, e.g. "https://mcp.example.com/mcp". */
   url: string;
   /**
@@ -7240,6 +7282,8 @@ export interface AddRemoteConnectorInput {
    * "http://127.0.0.1:8000/mcp"). Its sign-in, if any, starts with `signInToConnector`.
    */
   url: string;
+  connection?: "http" | "sse";
+  headers?: Record<string, string>;
   /** Only for a service that can't register IncarnaMind by itself (see `ConnectorClientInput`). */
   client?: ConnectorClientInput;
 }
@@ -7257,8 +7301,7 @@ export type ConnectorSignInResult =
  * - "add": it is added as a Connector;
  * - "exists": a Connector with its name already exists (or the configuration
  *   lists the name twice), so it is skipped;
- * - "remote": it is a remote server IncarnaMind can't connect to: one that
- *   uses the older SSE transport, or needs custom headers;
+ * - "remote": it uses a transport IncarnaMind can't connect to;
  * - "invalid": it has neither a command nor a URL, or its arguments,
  *   environment or URL aren't valid.
  */
@@ -7271,6 +7314,8 @@ export interface ConnectorImportEntry {
   env: string[];
   /** A remote server's URL. Absent for a local one. */
   url?: string;
+  connection?: "http" | "sse";
+  headers?: string[];
   action: "add" | "exists" | "remote" | "invalid";
 }
 
@@ -7869,6 +7914,8 @@ export interface MindExportPreview {
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
 export interface SentenceChecksExported {
   contradicted: number;
+  /** Nothing in its scope was about it, as its card says (`saysNotFound`): its comment says Not found. */
+  notFound: number;
   unsupported: number;
   needsRecheck: number;
   /** They went into the file as comments: a Word file, with `commentFailedChecks` on. Otherwise they went out unmarked. */
@@ -8055,7 +8102,7 @@ export interface SetMindCitationStyleOptions {
 export interface OutputSettings {
   /**
    * The folder new files go in, absolute, symbolic links resolved; null until
-   * the first save, which takes `suggested` without asking (D209).
+   * the first save, which takes `suggested` without asking.
    */
   location: string | null;
   /** The default: "IncarnaMind" in the User's Documents folder (文稿 on a Chinese Mac). */
@@ -8113,7 +8160,7 @@ export interface SavedFile {
   folder: string;
   /**
    * This save took the default Output location, Documents › IncarnaMind,
-   * none being chosen yet (D209): what shows it says where, with a way to change it.
+   * none being chosen yet: what shows it says where, with a way to change it.
    */
   defaulted: boolean;
   /** The folder is the default Output location, which a line names as this computer names Documents. */
@@ -8134,6 +8181,13 @@ export type AudioSource = "microphone" | "system";
  * - "stopped": over. Its audio is kept until it expires.
  */
 export type MeetingStatus = "ready" | "recording" | "paused" | "stopped";
+
+/**
+ * What is recorded: a call ("meeting"), or a voice memo (#1568), the User alone, with the
+ * microphone only, no help during the call and no Speakers, whose note after Stop is the speech
+ * tidied under a title line.
+ */
+export type MeetingKind = "meeting" | "memo";
 
 /**
  * How one source is recorded right now:
@@ -8172,6 +8226,7 @@ export interface Meeting {
   id: string;
   /** The Mind it belongs to, where its notes are written. */
   mindId: string;
+  kind: MeetingKind;
   status: MeetingStatus;
   /** Why it is paused: the User did, or IncarnaMind closed while it was recording. Null unless paused. */
   pausedBy: "user" | "interrupted" | null;
@@ -8224,11 +8279,19 @@ export interface Meeting {
  * - "failed": nothing was written, and `problem` says why; Try again fills it in;
  * - "off": not run, and `problem` says why: "Keep everything on this computer" is on and the
  *   Mind's model isn't on this computer, or the model isn't ready or allowed yet.
+ *
+ * A voice memo's note (#1568) is its speech tidied into paragraphs under a title line, each citing
+ * its time ("memo"), at the start of a Mind with no text yet, so the title line names it. With no
+ * model to tidy it, or when the tidied note had words that weren't said, the Transcript goes in as
+ * it is instead, a line a paragraph ("transcript"), and `problem` says why.
  */
 export interface MeetingFill {
   state: "waiting" | "filling" | "filled" | "undone" | "failed" | "off";
-  /** Under the User's lines ("notes"), or in sections because they wrote none. Null before it knows. */
-  mode: "notes" | "sections" | null;
+  /**
+   * Under the User's lines ("notes"), or in sections because they wrote none; a voice memo's
+   * note tidied ("memo") or its Transcript as it is ("transcript"). Null before it knows.
+   */
+  mode: "notes" | "sections" | "memo" | "transcript" | null;
   /** The model that wrote it runs on this computer. */
   local: boolean;
   problem: MeetingFillProblem | null;
@@ -8241,10 +8304,11 @@ export interface MeetingFill {
  * - "local-mode": "Keep everything on this computer" is on and the Mind's model isn't local;
  * - "not-allowed": the User hasn't allowed sending to the model's service yet (`service`);
  * - "no-model": no model is set up, or it needs a key or a sign-in;
- * - "no-transcript": the Transcript has no lines.
+ * - "no-transcript": the Transcript has no lines;
+ * - "added": a voice memo's tidied note had words that weren't said.
  */
 export interface MeetingFillProblem {
-  kind: "model" | "stopped" | "local-mode" | "not-allowed" | "no-model" | "no-transcript";
+  kind: "model" | "stopped" | "local-mode" | "not-allowed" | "no-model" | "no-transcript" | "added";
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
@@ -8406,9 +8470,10 @@ export interface MeetingTranscript {
   lines: number;
   /**
    * The speech being transcribed now, while live: where it starts, in the Meeting's time, its
-   * words so far, and whose they are ("Me", "Them" or "Speaker ?", see src/shared/speakers.ts).
+   * words so far, and whose they are ("Me", "Them" or "Speaker ?", see src/shared/speakers.ts;
+   * null in a voice memo).
    */
-  partial: { startMs: number; text: string; speaker: string } | null;
+  partial: { startMs: number; text: string; speaker: string | null } | null;
   /** The speech-to-text model, while it is downloading or failed to. */
   model: TranscriptionModelStatus | null;
   /** The cloud service transcribing the live audio now (#141); null: this computer. */
@@ -8950,6 +9015,12 @@ export interface CoreApi {
    * ago are; Minds with none, or not read yet, are left out.
    */
   listMindSnippets(): Promise<MindSnippet[]>;
+  /**
+   * Home's Recent (D266): each named Mind's whole Yjs document as stored, the one reader of
+   * its health there. Reads only: nothing is settled, compacted or written, and a Mind that
+   * isn't there or is deleted is left out.
+   */
+  readMindContents(mindIds: readonly string[]): Promise<MindContentSnapshot[]>;
   /**
    * ⌘K's "In your Documents" and the Library's search: live Documents whose Passages hold every
    * word of `query`, as `searchMinds` reads it, best match first, one Passage each, at most
@@ -9991,6 +10062,8 @@ export interface CoreApi {
    * automatically. Either way it signs out first.
    */
   setConnectorClient(connectorId: string, client: ConnectorClientInput | null): Promise<Connector>;
+  /** Replaces device-only header secrets and restarts; an empty map removes them and disconnects. Values are never returned. */
+  setConnectorHeaders(connectorId: string, headers: Record<string, string>): Promise<Connector>;
   /**
    * What importing an `mcpServers` configuration (Claude Desktop's or
    * Cursor's JSON, pasted or read from a file) would add, without adding anything.
@@ -10249,6 +10322,12 @@ export interface CoreApi {
    * no other Meeting recording.
    */
   startMeeting(input: StartMeetingInput): Promise<Meeting>;
+  /**
+   * Records a voice memo at once (#1568): the microphone alone, in the empty Mind given, else in
+   * a new Mind with no title, in the Folder given, so the note's title line names it. Needs what
+   * `startMeeting` does; nothing is made when it can't start.
+   */
+  recordMemo(input?: CreateMeetingInput): Promise<Meeting>;
   pauseMeeting(meetingId: string): Promise<Meeting>;
   /** Records again after a pause, the User's or one IncarnaMind closing made. */
   resumeMeeting(meetingId: string): Promise<Meeting>;
@@ -10606,6 +10685,7 @@ const methods: Record<CoreApiMethod, true> = {
   searchConversations: true,
   searchMinds: true,
   listMindSnippets: true,
+  readMindContents: true,
   searchDocumentText: true,
   renameConversation: true,
   deleteConversation: true,
@@ -10823,6 +10903,7 @@ const methods: Record<CoreApiMethod, true> = {
   cancelConnectorSignIn: true,
   signOutOfConnector: true,
   setConnectorClient: true,
+  setConnectorHeaders: true,
   previewConnectorImport: true,
   importConnectors: true,
   listConnectorDirectory: true,
@@ -10875,6 +10956,7 @@ const methods: Record<CoreApiMethod, true> = {
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,
+  recordMemo: true,
   pauseMeeting: true,
   resumeMeeting: true,
   stopMeeting: true,

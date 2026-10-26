@@ -188,8 +188,6 @@ export interface AiUseOptions {
   reportError(error: unknown): void;
 }
 
-export type AiUse = ReturnType<typeof createAiUse>;
-
 export function createAiUse(options: AiUseOptions) {
   const { db, content } = options;
 
