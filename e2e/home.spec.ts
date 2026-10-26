@@ -196,8 +196,9 @@ for (const [language, width] of [
 
       await goHome(window);
       await expect(recentRows(window).first().getByTestId("row-text")).toHaveText("Harbour plan");
-      await expect(recentRows(window).first().getByTestId("home-recent-snippet")).toHaveText(
-        "Tide tables for the spring.",
+      // A note under its title says where it stands (D266): nothing has checked it yet.
+      await expect(recentRows(window).first().getByTestId("home-recent-state")).toHaveText(
+        t("health.state.notChecked"),
       );
 
       await window.getByTestId("plus-menu").click();
@@ -577,8 +578,8 @@ test("Home beside a Mind follows it as it is saved, and tabs opened behind Home 
     const shownTitle = await window
       .locator('[data-testid="mind-tab"][aria-selected="true"] [data-testid="tab-title"]')
       .textContent();
-    await expect(recentRow(window, shownTitle ?? "").getByTestId("home-recent-snippet")).toHaveText(
-      "Harbour dues are due on the first of June.",
+    await expect(recentRow(window, shownTitle ?? "").getByTestId("home-recent-state")).toHaveText(
+      "Not checked",
     );
   } finally {
     await app.close();

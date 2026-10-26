@@ -2,7 +2,7 @@
  * The files IncarnaMind creates (#124): exports now, and later transcripts,
  * saved web pages and what Tasks make. Each goes to the Output location, which
  * each device keeps: Documents › IncarnaMind until the User picks another, the
- * first save taking it without asking (D209); or inside a Linked folder,
+ * first save taking it without asking; or inside a Linked folder,
  * e.g. next to the original it was made from, once the User has allowed that
  * folder (ADR-0010). A new file never replaces anything: it takes the next
  * free name. Folders are checked with symbolic links resolved, so nothing
@@ -265,7 +265,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
 
   /**
    * The Output location, made again if it was removed from a folder still
-   * there. None chosen yet, the default, without asking (D209), kept once a
+   * there. None chosen yet, the default, without asking, kept once a
    * file is written there; asking, saying why, if it can't take files.
    */
   const outputFolder = async (

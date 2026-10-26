@@ -173,19 +173,43 @@ describe("unreadDocumentsNote", () => {
     expect(note).not.toContain("F.pdf");
   });
 
+  test("leaves out a workbook read in part: the rest of it gives Passages", () => {
+    const note = unreadDocumentsNote([
+      {
+        ...scan("Budget 2026.xlsx"),
+        reason: "parts",
+        parts: { hiddenSheets: ["Q3 raw"], rowsCut: [], sheetsNotRead: [] },
+      },
+      scan("Scan.pdf"),
+    ]);
+
+    expect(note).toContain('"Scan.pdf" (a scan with no text)');
+    expect(note).not.toContain("Budget 2026.xlsx");
+  });
+
   test("says why each couldn't be read, and which pages", () => {
     const note = unreadDocumentsNote([
       { ...scan("Pages.pdf"), reason: "pages", pages: [3, 7] },
-      { ...scan("Whole.pdf"), reason: "pages", pages: [] },
+      { ...scan("Whole.pdf"), reason: "pages", pages: [], forms: true },
       { ...scan("Locked.docx"), reason: "password" },
       { ...scan("Broken.pdf"), reason: "damaged" },
       { ...scan("Huge.docx"), reason: "too-large" },
     ]);
 
     expect(note).toContain('"Pages.pdf" (scanned pages 3, 7 weren\'t read)');
-    expect(note).toContain('"Whole.pdf" (its scanned pages weren\'t read)');
+    expect(note).toContain('"Whole.pdf" (some page content couldn\'t be read)');
+    expect(note).toContain("Values missing from its Passages are unknown");
+    expect(note).toContain("[?] is IncarnaMind's unreadable-field status");
     expect(note).toContain('"Locked.docx" (password-protected)');
     expect(note).toContain('"Broken.pdf" (damaged or couldn\'t be opened)');
     expect(note).toContain('"Huge.docx" (too large to open)');
+  });
+
+  test("ordinary scanned pages do not get the PDF form marker explanation", () => {
+    const note = unreadDocumentsNote([{ ...scan("Scan.pdf"), reason: "pages", pages: [2] }]);
+
+    expect(note).toContain('"Scan.pdf" (scanned page 2 wasn\'t read)');
+    expect(note).not.toContain("PDF form text");
+    expect(note).not.toContain("unreadable-field status");
   });
 });

@@ -366,6 +366,8 @@ for (const language of ["en", "zh-CN"] as const) {
       },
       {
         check: "unsupported",
+        // Nothing in its scope was about it (#1608).
+        heading: "claim.state.notFound",
         sentence: words.nothing,
         starts: words.nothing.slice(0, 20),
         first: "claim-cut-sentence" as const,
@@ -381,7 +383,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card).toHaveAttribute("data-check", state.check);
       await expect(card).toHaveAccessibleName(
         t("claim.card.label", {
-          state: t(`claim.state.${state.check}` as MessageKey),
+          state: t(
+            ("heading" in state ? state.heading : `claim.state.${state.check}`) as MessageKey,
+          ),
           sentence: comparableSentence(state.sentence),
         }),
       );

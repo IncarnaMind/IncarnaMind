@@ -10,9 +10,6 @@ const SQLITE_NOTADB = 26;
 // database, so the app doesn't start.
 const GIVE_UP_AFTER_MS = 10_000;
 
-// A copy killed or crashing keeps its locks for a moment while the system takes the process down.
-const LEAVING_MS = 2_000;
-
 export interface InstanceLock {
   held: boolean;
   /** The folder stayed busy until the deadline: nothing should start, and the User is told. */
@@ -83,11 +80,10 @@ export function heldByAnotherCopy(
  * a copy really has the folder and this one gives up; free, the busy lock was another copy's try,
  * which lets go in a moment, so this one asks again. That way exactly one of two copies holds the
  * folder, however the two are scheduled. A file that isn't a database is emptied in place and
- * asked for again. `report` gets a failure that isn't one of these; the app then starts, as it did
- * without the lock.
+ * asked for again. `report` gets any other failure; no core starts without proven ownership.
  *
  * `holderMayBeLeaving`: this copy got Electron's lock from one that held the folder a moment ago,
- * and may still be ending (#1448), so a held folder is asked for again for a short while first.
+ * and may still be ending (#1448), so it waits until the deadline and reports a busy folder.
  */
 export function lockInstance(
   folder: string,
@@ -97,7 +93,6 @@ export function lockInstance(
   const lockFile = join(folder, "instance.lock");
   const ownerFile = join(folder, "instance.owner");
   const give = performance.now() + giveUpAfterMs;
-  const holderGoneBy = performance.now() + (holderMayBeLeaving ? LEAVING_MS : 0);
   const held: DatabaseSync[] = [];
   let emptyings = 0;
   const emptied = (error: unknown, file: string) => {
@@ -122,7 +117,7 @@ export function lockInstance(
         if (code(error) !== SQLITE_BUSY) throw error;
       }
       try {
-        if (isHeld(ownerFile) && performance.now() >= holderGoneBy) return NOT_HELD;
+        if (!holderMayBeLeaving && isHeld(ownerFile)) return NOT_HELD;
       } catch (error) {
         if (!emptied(error, ownerFile)) throw error;
         continue;
@@ -134,7 +129,7 @@ export function lockInstance(
   } catch (error) {
     for (const db of held.splice(0)) db.close();
     report("app.instanceLockFailed", error);
-    return { held: true, timedOut: false, release: () => undefined };
+    return { held: false, timedOut: true, release: () => undefined };
   }
 }
 
