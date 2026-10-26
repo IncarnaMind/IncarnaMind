@@ -1606,6 +1606,17 @@
       outline-offset: 1px;
     }
   }
+  /* A running or just-checked badge keeps one width, so its words changing move nothing; at rest it
+     takes only its words' width, clear of the page's foot. The button fills the pill, so it can't
+     move either. */
+  .check-badge[data-stable] {
+    justify-content: center;
+    min-width: 252px;
+  }
+  .check-badge[data-stable] .check-badge-open {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
   .check-badge-stop {
     font-weight: 600;
   }
@@ -1829,6 +1840,9 @@
     }
   }
   @container group (width < 400px) {
+    .check-badge[data-stable] {
+      min-width: 0;
+    }
     .check-badge-words {
       display: none;
     }

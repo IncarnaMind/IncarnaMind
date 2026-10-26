@@ -23,7 +23,12 @@ import { readableQuoteText } from "../../shared/readableQuote";
 import type { ScopeKind } from "../../shared/searchScope";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
-import { checkUnreadOf, unreadFileNamesOf, unreadSection } from "../../shared/unreadFiles";
+import {
+  checkUnreadOf,
+  unreadFileNamesOf,
+  unreadPartsCounts,
+  unreadSection,
+} from "../../shared/unreadFiles";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
 import { checkRequests } from "../answers/checks/sentences";
@@ -165,7 +170,7 @@ function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: 
   if (unread.length === 0) return [];
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const line = (text: string) => ({ kind: "text" as const, text, marks: NO_MARKS });
-  const section = unreadSection(unread, t, names);
+  const section = unreadSection(unread, t, names, unreadPartsCounts(unread, t));
   return [
     { kind: "heading", level: 2, content: [line(section.heading)] },
     { kind: "paragraph", content: [line(section.count)] },
@@ -180,7 +185,10 @@ function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: 
             ]),
           },
         ]
-      : []),
+      : section.counts.map((count) => ({
+          kind: "paragraph" as const,
+          content: [line(count)],
+        }))),
   ];
 }
 

@@ -7,7 +7,7 @@
 import type { SentenceResult } from "../../shared/claimChecks";
 import { formatDate } from "../../shared/dates";
 import { type MessageKey, translate } from "../../shared/i18n";
-import { unreadFileText } from "../../shared/unreadFiles";
+import { unreadFileText, unreadPartsCounts } from "../../shared/unreadFiles";
 import type { NodeJSON } from "../answers/blocks";
 import type { Language } from "../language";
 import {
@@ -195,7 +195,9 @@ export function statementBlocks(
                   count: number(unread.length),
                 }),
           ),
-          ...(unreadNames ? [bulletList(unread.map((file) => unreadFileText(file, t)))] : []),
+          ...(unreadNames
+            ? [bulletList(unread.map((file) => unreadFileText(file, t, true)))]
+            : unreadPartsCounts(unread, t).map(paragraph)),
         ];
   const checksPart =
     citationTotal === 0 && sentenceTotal === 0

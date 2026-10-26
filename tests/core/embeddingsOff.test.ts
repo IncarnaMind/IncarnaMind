@@ -7,10 +7,11 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { type Core, DATABASE_FILE, type Document, InvalidInputError } from "../../src/core";
 import { fuseRankingScores } from "../../src/core/documents/search";
 import { openDatabase } from "../../src/core/storage";
+import { organizeState } from "../../src/renderer/src/libraryPage";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
@@ -18,8 +19,14 @@ import {
   waitForDocuments,
   writeSourceFile,
 } from "../helpers/documents";
-import { createControlledEmbedder, startModelServer, turnOnEmbeddings } from "../helpers/embedding";
+import {
+  type ControlledEmbedder,
+  createControlledEmbedder,
+  startModelServer,
+  turnOnEmbeddings,
+} from "../helpers/embedding";
 import { mockEmbeddingModels } from "../helpers/embeddingProviders";
+import { classifierModel } from "../helpers/library";
 
 const PLANTS = `Photosynthesis converts light energy into chemical energy stored in glucose.
 
@@ -243,6 +250,134 @@ describe("Embeddings off, the default", { timeout: 30_000 }, () => {
     await expect(core.saveEmbeddingProvider({ kind: "off", modelId: "x" })).rejects.toThrow(
       InvalidInputError,
     );
+  });
+});
+
+describe("Turning embeddings on leaves every Document's Organize state as it was", {
+  timeout: 30_000,
+}, () => {
+  /** Waits until turning embeddings on has embedded the Documents again. */
+  const embeddedAgain = (core: Core, embedder: ControlledEmbedder) =>
+    vi.waitFor(async () => {
+      expect(embedder.texts.length).toBeGreaterThan(0);
+      expect((await core.listDocuments()).map((document) => document.status)).toEqual(
+        expect.not.arrayContaining(["embedding", "waiting-for-model"]),
+      );
+    });
+
+  /** Where Get info says Organize is with the Document: no assignment reads Not organized yet. */
+  const organizeStateOf = async (core: Core, id: string) =>
+    organizeState((await core.getLibrary()).assignments.find((each) => each.documentId === id));
+
+  test("a Document added before the first Folder stays Not organized yet", async () => {
+    const embedder = createControlledEmbedder();
+    const core = startCore(await createTempDataFolder(), { embedder });
+    const [plants] = await addAndProcess(core, [
+      await writeSourceFile(await createSourceFolder(), "plants.md", PLANTS),
+    ]);
+    const id = plants?.id as string;
+    // The first Folder comes after it: Organize never had it to file.
+    await core.createLibraryGroup({ name: "Research", description: "Scientific papers." });
+    expect(await organizeStateOf(core, id)).toBe("library.notClassified");
+
+    await turnOnEmbeddings(core);
+    await embeddedAgain(core, embedder);
+
+    expect((await core.getLibrary()).assignments).toEqual([]);
+    expect(await organizeStateOf(core, id)).toBe("library.notClassified");
+  });
+
+  test("a Document restored from Recently deleted stays Not organized yet", async () => {
+    const embedder = createControlledEmbedder();
+    const core = startCore(await createTempDataFolder(), { embedder });
+    const [plants] = await addAndProcess(core, [
+      await writeSourceFile(await createSourceFolder(), "plants.md", PLANTS),
+    ]);
+    const id = plants?.id as string;
+    await core.deleteDocument(id);
+    await core.createLibraryGroup({ name: "Research", description: "Scientific papers." });
+    await core.restore([{ kind: "document", id }]);
+    await waitForDocuments(core, (documents) => expect(documents[0]?.id).toBe(id));
+    expect(await organizeStateOf(core, id)).toBe("library.notClassified");
+
+    await turnOnEmbeddings(core);
+    await embeddedAgain(core, embedder);
+
+    expect((await core.getLibrary()).assignments).toEqual([]);
+    expect(await organizeStateOf(core, id)).toBe("library.notClassified");
+  });
+
+  test("a Document that had an assignment keeps it", async () => {
+    const fake = classifierModel();
+    const embedder = createControlledEmbedder();
+    const core = startCore(await createTempDataFolder(), {
+      embedder,
+      createChatModel: () => fake.model,
+    });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    const group = await core.createLibraryGroup({
+      name: "Research",
+      description: "Scientific papers.",
+    });
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "classifier" } },
+      automatic: true,
+    });
+    const [plants] = await addAndProcess(core, [
+      await writeSourceFile(await createSourceFolder(), "plants.md", PLANTS),
+    ]);
+    const id = plants?.id as string;
+    const before = await vi.waitFor(async () => {
+      const assignment = (await core.getLibrary()).assignments.find(
+        (each) => each.documentId === id,
+      );
+      expect(assignment).toMatchObject({ groupId: group.id, status: "classified" });
+      return assignment;
+    });
+
+    await turnOnEmbeddings(core);
+    await embeddedAgain(core, embedder);
+
+    expect((await core.getLibrary()).assignments).toEqual([before]);
+  });
+
+  test("a re-embed that fails, retried, is filed as it would be on main", async () => {
+    const fake = classifierModel();
+    const embedder = createControlledEmbedder();
+    const core = startCore(await createTempDataFolder(), {
+      embedder,
+      createChatModel: () => fake.model,
+    });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    // Added before the first Folder: nothing Organize had it to file.
+    const [plants] = await addAndProcess(core, [
+      await writeSourceFile(await createSourceFolder(), "plants.md", PLANTS),
+    ]);
+    const id = plants?.id as string;
+    const group = await core.createLibraryGroup({
+      name: "Research",
+      description: "Scientific papers.",
+    });
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "classifier" } },
+      automatic: true,
+    });
+    expect(await organizeStateOf(core, id)).toBe("library.notClassified");
+
+    // Making its vectors again fails, and its restart too: still nothing Organize files.
+    embedder.failEmbeds = 2;
+    await turnOnEmbeddings(core);
+    await vi.waitFor(async () =>
+      expect((await core.listDocuments()).find((each) => each.id === id)?.status).toBe("failed"),
+    );
+    expect(await organizeStateOf(core, id)).toBe("library.notClassified");
+
+    // Retried from the failed status, it is embedded and filed as main files it.
+    await core.retryDocument(id);
+    await vi.waitFor(async () => expect(await organizeStateOf(core, id)).toBe("library.suggested"));
+    expect(
+      (await core.getLibrary()).assignments.find((each) => each.documentId === id),
+    ).toMatchObject({ groupId: group.id, status: "classified", suggested: true });
   });
 });
 
