@@ -200,6 +200,8 @@ export interface LibraryHooks {
    * A job still queued, waiting its turn in the scan lane or under way keeps its place.
    */
   stillQueued(documentId: string): void;
+  /** Stop a Document's processing job before its result can arrive. */
+  cancel(documentId: string): void;
   /** Push a Document's current state. */
   announce(documentId: string): void;
   /** A new Document was stored and announced; its processing isn't queued yet. */
@@ -1575,6 +1577,7 @@ export function createLibrary(options: LibraryOptions) {
       );
       const ids = live.filter((each) => !keep.has(each.id)).map((each) => each.id);
       const kept = live.filter((each) => keep.has(each.id));
+      for (const id of ids) hooks.cancel(id);
       let foldersChanged = false;
       db.transaction(() => {
         hooks.remove(ids, at);

@@ -1408,6 +1408,7 @@ export function createDocuments(options: DocumentsOptions) {
         if (find(id)?.status === "queued" && !processor.has(id)) process(id);
       },
       announce,
+      cancel: (id) => processor.cancel(id),
       added: (id) => options.onFound?.(id),
       moved: (ids) => {
         const moved = ids.flatMap((id) => {
