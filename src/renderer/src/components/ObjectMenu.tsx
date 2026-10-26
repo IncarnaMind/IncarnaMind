@@ -31,6 +31,7 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   chart: "chart",
   comparisonColumn: "comparison-column",
   answer: "answer",
+  check: "check",
   block: "block",
   tab: "tab",
 };

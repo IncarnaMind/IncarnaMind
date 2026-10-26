@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
-import { cp, readdir, readFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, _electron as electron } from "@playwright/test";
+import { homeEnv } from "../../tests/helpers/home";
 
 const root = resolve(__dirname, "../..");
 export const packagedExecutable =
@@ -17,8 +18,15 @@ const modelCache = process.env.INCARNAMIND_MODEL_CACHE;
 export async function launchPackaged(
   home: string,
   data: string,
-  { speech, testHooks }: { speech?: string; testHooks?: boolean } = {},
+  {
+    speech,
+    testHooks,
+    documents,
+  }: { speech?: string; testHooks?: boolean; documents?: boolean } = {},
 ): Promise<ElectronApplication> {
+  const temp = join(home, "Temp");
+  await mkdir(temp, { recursive: true });
+  if (documents) await mkdir(join(home, "Documents"), { recursive: true });
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && !/KEY|TOKEN|SECRET|PASSWORD/.test(name)) env[name] = value;
@@ -40,7 +48,10 @@ export async function launchPackaged(
     ],
     env: {
       ...env,
-      HOME: home,
+      ...homeEnv(home),
+      TMPDIR: temp,
+      TMP: temp,
+      TEMP: temp,
       INCARNAMIND_DATA_DIR: data,
       ...(testHooks ? { INCARNAMIND_TEST_HOOKS: "1" } : {}),
     },

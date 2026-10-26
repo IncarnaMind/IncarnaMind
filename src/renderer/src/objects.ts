@@ -18,6 +18,7 @@ export const OBJECT_KINDS = [
   "chart",
   "comparisonColumn",
   "answer",
+  "check",
   "block",
   "tab",
 ] as const;

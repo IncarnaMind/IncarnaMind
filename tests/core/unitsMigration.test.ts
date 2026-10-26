@@ -239,11 +239,14 @@ describe("a workbook stamped by an older pipeline", () => {
     expect(blank.status).toBe("no-text");
     first.close();
 
-    // As a database main opened since #2016 left them: stamped 12, with no parts recorded.
+    // Workbooks are stamped 12, before #1924; the PDF is current and is not read again.
     expect(12).toBeLessThan(PROCESSING_VERSION);
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
-      db.run("UPDATE documents SET processing_version = 12, unread_parts = NULL");
+      db.run(
+        "UPDATE documents SET processing_version = CASE WHEN kind = 'pdf' THEN ? ELSE 12 END, unread_parts = NULL",
+        [BigInt(CURRENT_SINCE.pdf)],
+      );
     } finally {
       db.close();
     }
