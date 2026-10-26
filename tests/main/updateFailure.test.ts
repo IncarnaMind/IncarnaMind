@@ -48,6 +48,7 @@ vi.mock("node:child_process", () => ({
 beforeEach(() => {
   vi.resetModules();
   vi.resetAllMocks();
+  vi.stubEnv("APPIMAGE", "/tmp/IncarnaMind.AppImage");
   fixture.showMessageBox.mockResolvedValue({ response: 0 });
   fixture.updater.checkForUpdates.mockResolvedValue({
     isUpdateAvailable: true,
@@ -59,6 +60,7 @@ beforeEach(() => {
 afterEach(async () => {
   const { app } = await import("electron");
   app.removeAllListeners();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 

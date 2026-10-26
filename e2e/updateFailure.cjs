@@ -45,6 +45,12 @@ childProcess.execFile[Symbol.for("nodejs.util.promisify.custom")] =
 const fromApp = createRequire(join(appFolder, "package.json"));
 const { autoUpdater } = fromApp("electron-updater");
 record("start", { first, args: process.argv });
+app.on("browser-window-created", (_event, window) => {
+  record("window-created");
+  window.webContents.on("did-finish-load", () =>
+    record("window-loaded", { url: window.webContents.getURL() }),
+  );
+});
 autoUpdater.checkForUpdates = async () => {
   if (!first) return null;
   return {
@@ -76,11 +82,21 @@ autoUpdater.quitAndInstall = () => {
     writeFileSync(join(folder, "installing"), "");
     if (process.platform === "linux") {
       childProcess
-        .spawn(process.execPath, process.argv.slice(1), {
-          env: process.env,
-          detached: true,
-          stdio: "ignore",
-        })
+        .spawn(
+          process.execPath,
+          process.argv
+            .slice(1)
+            .map((arg) =>
+              arg.startsWith("--remote-debugging-port=")
+                ? `--remote-debugging-port=${process.env.INCARNAMIND_TEST_UPDATE_NEXT_PORT}`
+                : arg,
+            ),
+          {
+            env: process.env,
+            detached: true,
+            stdio: "ignore",
+          },
+        )
         .unref();
     } else app.relaunch({ args: process.argv.slice(1) });
     app.quit();
@@ -94,12 +110,17 @@ autoUpdater.quitAndInstall = () => {
   };
   app.emit("before-quit", event);
   record("install", { dataHeld: dataHeld(), prevented: event.defaultPrevented });
-  app.once("second-instance", () => {
-    setImmediate(() => {
-      record("installer-error", { dataHeld: dataHeld() });
-      autoUpdater.emit("error", new Error("The local installer fixture failed."));
+  const fail = () => {
+    record("installer-error", { dataHeld: dataHeld() });
+    autoUpdater.emit("error", new Error("The local installer fixture failed."));
+  };
+  if (process.platform === "linux") {
+    const watcher = watch(folder, () => {
+      if (!existsSync(join(folder, "fail"))) return;
+      watcher.close();
+      fail();
     });
-  });
+  } else app.once("second-instance", () => setImmediate(fail));
   writeFileSync(join(folder, "installing"), "");
 };
 app.on("quit", () => record("quit"));

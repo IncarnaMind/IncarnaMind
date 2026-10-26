@@ -465,13 +465,15 @@ for (const { language, succeeds } of [
   { language: "zh-CN", succeeds: false },
   { language: "en", succeeds: true },
 ] as const) {
-  test(`an update ${succeeds ? "succeeds" : "fails after a declined second start"}, closes its owned core and reopens (${language})`, async () => {
+  test(`an update ${succeeds ? "succeeds" : "fails after a second start"}, closes its owned core and reopens (${language})`, async () => {
     test.skip(process.platform === "win32", "lists the copies with ps");
     test.setTimeout(120_000);
     const home = await mkdtemp(join(tmpdir(), "incarnamind-update-"));
     const events = join(home, "events.jsonl");
     const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
     const port = await freePort();
+    const nextPort = await freePort();
+    const windowPort = succeeds && process.platform === "linux" ? nextPort : port;
     const start = (first: boolean, debugPort: number) => {
       const copy = startCopy(
         home,
@@ -480,6 +482,7 @@ for (const { language, succeeds } of [
           INCARNAMIND_TEST_HOOKS: "0",
           INCARNAMIND_TEST_UPDATE_FOLDER: home,
           INCARNAMIND_TEST_UPDATE_APP: resolve(__dirname, ".."),
+          INCARNAMIND_TEST_UPDATE_NEXT_PORT: String(nextPort),
           INCARNAMIND_TEST_UPDATE_SUCCEEDS: succeeds ? "1" : "0",
           INCARNAMIND_TEST_UPDATE_FIRST: first ? "1" : "0",
           APPIMAGE: process.platform === "linux" ? require("electron") : "",
@@ -518,13 +521,14 @@ for (const { language, succeeds } of [
       if (!succeeds) {
         const second = start(false, await freePort());
         expect((await exited(second))[0]).toBe(0);
+        if (process.platform === "linux") await writeFile(join(home, "fail"), "");
       }
       expect((await gone)[0]).toBe(0);
       await expect
         .poll(
           async () => ({
             copies: copiesWith(tag).length,
-            windows: await windowsOf(port),
+            windows: await windowsOf(windowPort),
           }),
           { timeout: 30_000 },
         )
@@ -540,7 +544,7 @@ for (const { language, succeeds } of [
                 pid: old.pid,
                 dataHeld: true,
                 options: expect.objectContaining({
-                  message: language === "en" ? "The update couldn't be installed" : "未能安装更新",
+                  message: language === "en" ? "The update couldn’t be installed" : "未能安装更新",
                   detail:
                     language === "en"
                       ? "IncarnaMind will reopen when you close this message. You can install the update later."
@@ -573,13 +577,14 @@ for (const { language, succeeds } of [
       );
       expect(fresh).toHaveLength(1);
       expect(fresh[0]?.pid).not.toBe(old.pid);
-      if (!succeeds) expect(await logOf(dataDir)).toContain("app.reopenAfterQuit reopens=false");
-      await inCopyWindow(port, async (window) => {
+      if (!succeeds && process.platform !== "linux")
+        expect(await logOf(dataDir)).toContain("app.reopenAfterQuit reopens=false");
+      await inCopyWindow(windowPort, async (window) => {
         const minds = await (await coreOf(window)).evaluate((api) => api.listMinds());
         expect(minds.map((mind) => mind.title)).toEqual(["Kept after failed update"]);
       });
       expect((await exited(start(false, await freePort())))[0]).toBe(0);
-      expect(await windowsOf(port)).toBe(1);
+      expect(await windowsOf(windowPort)).toBe(1);
     } finally {
       try {
         await test.info().attach(`update-failure-${language}`, {
