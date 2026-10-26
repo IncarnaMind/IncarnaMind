@@ -155,8 +155,11 @@ function besideStaying(
 }
 
 /** The requests' changes, read before they are applied, as `anchorChanges` places them after. */
-export function planChanges(state: EditorState, requests: ReadonlySet<string>): Planned[] {
-  const { doc } = state;
+export function planChanges(
+  state: EditorState | ProseMirrorNode,
+  requests: ReadonlySet<string>,
+): Planned[] {
+  const doc = "doc" in state ? state.doc : state;
   return proposalsIn(doc)
     .filter((proposal) => requests.has(proposal.request))
     .flatMap((proposal: PendingProposal): Planned[] => {

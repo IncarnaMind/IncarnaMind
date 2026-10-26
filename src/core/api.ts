@@ -5572,6 +5572,8 @@ export interface AskedChangeApplication {
   undoId: string;
   /** The original text with the turn's Proposals still marked, for Review. */
   reviewBefore: Uint8Array;
+  /** The version after acceptance; Review is offered only while the editor is still at it. */
+  afterVector: Uint8Array;
   requests: readonly string[];
   held: boolean;
 }
@@ -8971,6 +8973,10 @@ export interface CoreApi {
   applyAskedChanges(input: ApplyAskedChangesInput): Promise<AskedChangeApplication | null>;
   /** Takes back a core-applied change if nothing in its Mind followed it. */
   undoAskedChanges(undoId: string): Promise<boolean>;
+  /** Does a core-applied change again after its Undo. */
+  redoAskedChanges(undoId: string): Promise<boolean>;
+  /** Lets go of a core-applied change's in-session Review and Undo records. */
+  releaseAskedChanges(undoId: string): Promise<void>;
   /**
    * "Add to note" (#201) into a Mind that isn't open in the editor: Blocks at the
    * end of its note (in place of its empty last line), each Citation in them
@@ -10610,6 +10616,8 @@ const methods: Record<CoreApiMethod, true> = {
   addToNote: true,
   applyAskedChanges: true,
   undoAskedChanges: true,
+  redoAskedChanges: true,
+  releaseAskedChanges: true,
   undoAddToNote: true,
   listNoteConversations: true,
   getSettings: true,

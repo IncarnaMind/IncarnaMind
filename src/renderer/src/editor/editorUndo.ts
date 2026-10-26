@@ -98,7 +98,9 @@ export interface FollowedSteps {
   /** Done, and nothing done in the note since: Undo takes back these steps alone. */
   onTop(): boolean;
   add(step: UndoStep): void;
-  undo(): void;
+  undo(): void | Promise<void>;
+  redo?(): void | Promise<void>;
+  canRedo?(): boolean;
   observe(listener: () => void): () => void;
 }
 

@@ -30,8 +30,7 @@ import { mindEditor, whenMindEditor } from "./editor/openEditors";
 import { applyingIn, editorDoc, setApplying } from "./editor/proposalReview";
 import { useAppStore } from "./store";
 
-/** "opening": its Mind isn't open in an editor yet (Open on its line). */
-export type AskedOutcome = "applied" | "held" | "opening";
+export type AskedOutcome = "applied" | "held";
 
 interface AskedChangesState {
   /** By Answer, then by Mind: whether the changes the User asked for there applied or wait. */
@@ -58,6 +57,7 @@ interface Asked {
 
 const asked = new Map<string, Asked>();
 const askedHere = new Set<string>();
+const finishing = new Map<string, Promise<unknown>>();
 
 /** Whether this window has a Question in flight whose request, as the Mind's record has it, asks for these changes. */
 export function askedInThisWindow(state: EditorState, request: string): boolean {
@@ -87,8 +87,13 @@ export const useAskedFacts = (answerId: string, mindId: string): ChangedMind | u
  * nothing was done in the Mind since. `keepWritten`: asked again from every Document, the text it
  * wrote stays, which the core writes over as one change, so Undo brings it back (#1149).
  */
-export function applyWhatWasAsked(answerId: string, { keepWritten = false } = {}): void {
+export async function applyWhatWasAsked(
+  answerId: string,
+  { keepWritten = false } = {},
+): Promise<void> {
   askedHere.add(answerId);
+  const pending = finishing.get(answerId);
+  if (pending) await pending.catch(useAppStore.getState().reportError);
   const stayed: string[] = [];
   for (const [key, each] of asked) {
     if (each.answerId !== answerId) continue;
@@ -96,7 +101,7 @@ export function applyWhatWasAsked(answerId: string, { keepWritten = false } = {}
     const { created, wrote, tables, charts } = each.facts;
     if (keepWritten && (created || wrote + tables + charts > 0)) continue;
     const followed = each.applied?.followed;
-    if (followed?.onTop()) followed.undo();
+    if (followed?.onTop()) await followed.undo();
     else if (followed && followed.state() !== "undone") stayed.push(key);
   }
   useAskedChanges.setState((state) => {
@@ -136,8 +141,13 @@ function follow(row: ChangedMind): void {
 }
 
 /** Each Mind's changes apply at once, in its open editor or in the core. */
-const finish = (answer: ConversationAnswer): Promise<unknown> =>
-  Promise.all(changedMinds(answer).map((row) => finishIn(answer, row)));
+const finish = (answer: ConversationAnswer): Promise<unknown> => {
+  const task = Promise.all(changedMinds(answer).map((row) => finishIn(answer, row)));
+  finishing.set(answer.id, task);
+  return task.finally(() => {
+    if (finishing.get(answer.id) === task) finishing.delete(answer.id);
+  });
+};
 
 async function finishIn(answer: ConversationAnswer, row: ChangedMind): Promise<void> {
   const editor = mindEditor(row.mindId);

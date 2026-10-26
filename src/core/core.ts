@@ -1466,7 +1466,10 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const askedChanges = createAskedChanges(content, {
     now,
+    requireMind: (mindId) => writableMind(mindId).id,
     recordAiUse: (inputs) => void aiUse.record(inputs),
+    reportError: (mindId, error) =>
+      console.error(`AI use recording failed for Mind ${mindId}:`, error),
   });
   const answers = createAnswers({
     content,
@@ -3627,6 +3630,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     applyAskedChanges: async (input) => askedChanges.apply(input),
     undoAskedChanges: async (undoId) => askedChanges.undo(undoId),
+    redoAskedChanges: async (undoId) => askedChanges.redo(undoId),
+    releaseAskedChanges: async (undoId) => askedChanges.release(undoId),
     addToNote: (input) => noteAdding.add(input),
     undoAddToNote: async (input) => noteAdding.undo(input),
     listNoteConversations: async () => noteConversations.list(),
