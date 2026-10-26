@@ -24,7 +24,7 @@ export async function startHeaderMcp(
   const sessions = new Map<string, StreamableHTTPServerTransport | SSEServerTransport>();
   const servers: Server[] = [];
   const requests: { method: string; path: string; authenticated: boolean }[] = [];
-  let activeStreams = 0;
+  const streams = new Set<ServerResponse>();
   let toolCalls = 0;
   const makeServer = () => {
     const server = new Server(
@@ -92,8 +92,6 @@ export async function startHeaderMcp(
           sessions.set(transport.sessionId, transport);
           await makeServer().connect(transport);
         }
-        activeStreams++;
-        response.on("close", () => activeStreams--);
         return;
       }
       const session = sessions.get(path.searchParams.get("sessionId") ?? "");
@@ -135,20 +133,23 @@ export async function startHeaderMcp(
     response.writeHead(404);
     response.end();
   };
-  const http = createServer(
-    (request, response) =>
-      void handle(request, response).catch(() => {
-        if (!response.headersSent) response.writeHead(500);
-        response.end();
-      }),
-  );
+  const http = createServer((request, response) => {
+    if (request.method === "GET") {
+      streams.add(response);
+      response.once("close", () => streams.delete(response));
+    }
+    void handle(request, response).catch(() => {
+      if (!response.headersSent) response.writeHead(500);
+      response.end();
+    });
+  });
   await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`;
   return {
     url,
     requests,
     get activeStreams() {
-      return activeStreams;
+      return streams.size;
     },
     get toolCalls() {
       return toolCalls;
@@ -158,6 +159,15 @@ export async function startHeaderMcp(
     },
     setFailure(status: number) {
       options.failure = status;
+    },
+    setRefusal(status: 401 | 403 | undefined) {
+      options.refusal = status;
+    },
+    dropStreams() {
+      for (const response of streams) response.destroy();
+    },
+    endStreams() {
+      for (const response of streams) response.end();
     },
     async close() {
       await Promise.all(servers.map((server) => server.close()));

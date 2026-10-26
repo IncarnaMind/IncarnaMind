@@ -123,11 +123,15 @@ describe("Remote Connector keys and older connections", () => {
     },
   );
 
-  test.each(["Authorization", "X-API-Key"])(
-    "%s connects with the installed SDK, keeping only names and references in stored metadata",
-    async (name) => {
+  test.each([
+    ["Authorization", "Bearer"],
+    ["Authorization", "Basic"],
+    ["X-API-Key", ""],
+  ])(
+    "%s %s connects with the installed SDK, keeping only names in stored metadata",
+    async (name, scheme) => {
       const secret = planted();
-      const value = name === "Authorization" ? `Bearer ${secret}` : secret;
+      const value = scheme ? `${scheme} ${secret}` : secret;
       const { core, server, keychain, dataDir } = await setup({
         header: name,
         value,
@@ -280,7 +284,12 @@ describe("Remote Connector keys and older connections", () => {
 
   test("rotating, removing, revoking and closing a key stop the old SSE socket", async () => {
     const value = planted();
-    const { core, server, keychain } = await setup({ legacy: true, header: "X-Key", value });
+    const { core, server, keychain } = await setup({
+      legacy: true,
+      header: "X-Key",
+      value,
+      echo: value,
+    });
     const added = await core.addConnector({
       name: "Tides",
       url: server.url,
@@ -291,7 +300,8 @@ describe("Remote Connector keys and older connections", () => {
     const next = planted();
     server.setKey(next);
     await core.setConnectorHeaders(added.id, { "X-Key": next });
-    await waitForState(core, added.id, "ready");
+    const ready = await waitForState(core, added.id, "ready");
+    expect(ready.tools).toMatchObject([{ description: "[redacted]" }]);
     expect([...keychain.secrets.values()].some((stored) => stored.includes(value))).toBe(false);
     await core.revokeConsent("connectors", new URL(server.url).origin);
     await vi.waitFor(() => expect(server.activeStreams).toBe(0));
@@ -461,7 +471,7 @@ describe("Remote Connector keys and older connections", () => {
     }
   });
 
-  test("overlapping key changes discard a superseded staged secret", async () => {
+  test("overlapping key changes run in order and leave only the latest device key", async () => {
     const value = planted();
     const { core, server, keychain } = await setup({ header: "X-Key", value });
     const connector = await core.addConnector({
@@ -499,9 +509,10 @@ describe("Remote Connector keys and older connections", () => {
     );
     await started;
     server.setKey(latest);
-    await core.setConnectorHeaders(connector.id, { "X-Key": latest });
+    const second = core.setConnectorHeaders(connector.id, { "X-Key": latest });
     release();
-    expect(await settled).toBe("superseded");
+    expect(await settled).toBe("saved");
+    await second;
     await waitForState(core, connector.id, "ready");
     expect(
       [...keychain.secrets.values()].some(

@@ -106,6 +106,29 @@ for (const language of ["en", "zh-CN"] as const)
         await expect(connector.getByTestId("connector-key-mask")).toContainText("••••••••");
         expect((await page.textContent())?.includes(key)).toBe(false);
         await shot("connected");
+        const readyHeight = await connector.evaluate(
+          (element) => element.getBoundingClientRect().height,
+        );
+        const beforeDrop = server.requests.length;
+        server.setRefusal(403);
+        server.dropStreams();
+        await expect(connector).toHaveAttribute("data-state", "error");
+        await expect(connector.getByTestId("connector-error")).toHaveAttribute(
+          "data-error-kind",
+          "key-refused",
+        );
+        expect(server.requests.slice(beforeDrop)).toHaveLength(1);
+        const failedHeight = await connector.evaluate(
+          (element) => element.getBoundingClientRect().height,
+        );
+        expect(Math.abs(failedHeight - readyHeight)).toBeLessThanOrEqual(1);
+        await expect(connector.getByTestId("connector-change-key")).toBeFocused();
+        await shot("reconnect-refused");
+        server.setRefusal(undefined);
+        await connector.getByTestId("connector-change-key").click();
+        await replacement.fill(key);
+        await replacement.press("Enter");
+        await expect(connector).toHaveAttribute("data-state", "ready");
         await server.close();
         await window.evaluate(async () => {
           const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -117,6 +140,12 @@ for (const language of ["en", "zh-CN"] as const)
           "unreachable",
         );
         await expect(connector.getByTestId("connector-error")).toContainText("Tides");
+        await expect(connector.getByTestId("connector-error")).toContainText(
+          translate(language, "remoteConnectors.error.unreachable", { name: "Tides" }),
+        );
+        await expect(connector.getByTestId("connector-error")).not.toContainText(
+          t("connectors.restarting"),
+        );
         await connector.getByRole("button", { name: t("connectors.retry"), exact: true }).hover();
         await connector.getByRole("button", { name: t("connectors.retry"), exact: true }).click();
         await expect(connector.getByTestId("connector-error")).toHaveAttribute(
@@ -134,6 +163,7 @@ for (const language of ["en", "zh-CN"] as const)
             JSON.stringify({
               mcpServers: {
                 Imported: { type: "sse", url: imported.url, headers: { "X-Custom-Key": key } },
+                Unknown: { type: "websocket", url: imported.url },
               },
             }),
           )
@@ -144,6 +174,7 @@ for (const language of ["en", "zh-CN"] as const)
           .getByRole("button", { name: t("connectors.import.preview"), exact: true })
           .click();
         await expect(importing).toContainText("X-Custom-Key");
+        await expect(importing).toContainText(t("connectors.import.action.remote"));
         await expect(importing).toContainText(t("remoteConnectors.connection.sse"));
         await expect(importing.locator("textarea")).toHaveCount(0);
         expect((await importing.textContent())?.includes(key)).toBe(false);

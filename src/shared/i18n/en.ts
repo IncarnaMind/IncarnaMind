@@ -4371,8 +4371,7 @@ export const en = {
   "connectors.import.preview": "Show what will be added",
   "connectors.import.action.add": "Will be added",
   "connectors.import.action.exists": "Skipped: a Connector with this name exists",
-  "connectors.import.action.remote":
-    "Skipped: it uses the older SSE transport or custom headers, which aren’t supported",
+  "connectors.import.action.remote": "Skipped: IncarnaMind can’t connect with its connection type",
   "connectors.import.action.invalid": "Skipped: it has no command or valid URL",
   "connectors.import.env": "Environment: {names} (kept in your keychain)",
   "connectors.import.confirm": "Add {count} Connectors",

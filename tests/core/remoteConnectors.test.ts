@@ -186,7 +186,6 @@ describe("Adding a remote Connector", { timeout: 30_000 }, () => {
           clientId: null,
           connection: "http",
           headers: [],
-          headerKey: added.id,
         }),
         enabled: 1,
       },

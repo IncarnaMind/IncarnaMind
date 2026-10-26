@@ -21,9 +21,9 @@ export async function saveHeaders(
   }
 }
 
-export function hideHeaders(headers: Record<string, string>): (text: string) => string {
-  const hidden = Object.values(headers)
-    .flatMap((value) => [value, value.replace(/^Bearer\s+/i, "")])
+export function hideHeaders(values: Iterable<string>): (text: string) => string {
+  const hidden = [...values]
+    .flatMap((value) => [value, value.replace(/^\S+\s+/, "")])
     .flatMap((value) => [value, encodeURIComponent(value), JSON.stringify(value).slice(1, -1)])
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);

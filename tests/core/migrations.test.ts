@@ -34,7 +34,6 @@ describe("Migrations", () => {
       ...config,
       connection: "http",
       headers: [],
-      headerKey: null,
     });
     db.close();
   });

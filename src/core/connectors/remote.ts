@@ -65,7 +65,16 @@ export async function remoteTransport(
   };
   return options.connection === "sse"
     ? new SSEClientTransport(new URL(url), settings)
-    : new StreamableHTTPClientTransport(new URL(url), settings);
+    : new StreamableHTTPClientTransport(new URL(url), {
+        ...settings,
+        // Connector lifecycle owns bounded retries and their visible state (#1995).
+        reconnectionOptions: {
+          maxRetries: 0,
+          initialReconnectionDelay: 1_000,
+          maxReconnectionDelay: 16_000,
+          reconnectionDelayGrowFactor: 2,
+        },
+      });
 }
 
 export class OpeningRejectedError extends Error {
@@ -84,11 +93,14 @@ export function connectionFetch(options: {
   check(): void;
   opening: boolean;
   onKeyRefused?(): void;
+  onUnreachable?(): void;
 }): FetchLike {
   const origin = new URL(options.url).origin;
   const headerSignIn = Object.keys(options.headers).length > 0;
   let opening = options.opening;
+  let refused = false;
   return async (input, init) => {
+    if (refused) throw new KeyRefusedError("The server refused this key.");
     options.check();
     options.signal.throwIfAborted();
     const url = new URL(String(input));
@@ -101,16 +113,23 @@ export function connectionFetch(options: {
     for (const [name, value] of Object.entries(options.headers)) headers.set(name, value);
     const isOpening = opening && init?.method === "POST";
     if (isOpening) opening = false;
-    const response = await options.fetch(input, {
-      ...init,
-      headers,
-      ...(headerSignIn ? { redirect: "manual" as const } : {}),
-      signal: init?.signal ? AbortSignal.any([options.signal, init.signal]) : options.signal,
-    });
+    let response: Response;
+    try {
+      response = await options.fetch(input, {
+        ...init,
+        headers,
+        ...(headerSignIn ? { redirect: "manual" as const } : {}),
+        signal: init?.signal ? AbortSignal.any([options.signal, init.signal]) : options.signal,
+      });
+    } catch (error) {
+      if (!options.signal.aborted && !init?.signal?.aborted) options.onUnreachable?.();
+      throw error;
+    }
     if (
       Object.keys(options.headers).length > 0 &&
       (response.status === 401 || response.status === 403)
     ) {
+      refused = true;
       options.onKeyRefused?.();
       await response.body?.cancel();
       throw new KeyRefusedError("The server refused this key.");

@@ -4170,7 +4170,7 @@ export const zhCN = {
   "connectors.import.preview": "查看将要添加的内容",
   "connectors.import.action.add": "将会添加",
   "connectors.import.action.exists": "跳过：已有同名连接器",
-  "connectors.import.action.remote": "跳过：它使用旧版 SSE 传输或自定义请求头，暂不支持",
+  "connectors.import.action.remote": "跳过：IncarnaMind 无法使用它的连接方式",
   "connectors.import.action.invalid": "跳过：没有命令或有效的 URL",
   "connectors.import.env": "环境变量：{names}（加密保存在系统中）",
   "connectors.import.confirm": "添加 {count} 个连接器",

@@ -155,7 +155,6 @@ type StoredConfig =
       clientId: string | null;
       connection: "http" | "sse";
       headers: string[];
-      headerKey: string | null;
     };
 
 interface ToolInfo extends ConnectorTool {
@@ -192,6 +191,7 @@ interface Runtime {
   heldBack: boolean;
   controller: AbortController | null;
   connection: "http" | "sse" | null;
+  headerValues: Set<string>;
   redact(value: string): string;
 }
 
@@ -239,7 +239,6 @@ function storedConfig(row: ConnectorRow): StoredConfig {
           clientId,
           connection: parsed.connection === "sse" ? "sse" : "http",
           headers: texts(parsed.headers),
-          headerKey: typeof parsed.headerKey === "string" ? parsed.headerKey : null,
         };
       }
       // Unreadable: a URL that can't connect.
@@ -249,7 +248,6 @@ function storedConfig(row: ConnectorRow): StoredConfig {
         clientId: null,
         connection: "http",
         headers: [],
-        headerKey: null,
       };
     }
     if (isRecord(parsed) && typeof parsed.command === "string") {
@@ -372,7 +370,22 @@ export function createConnectors(options: ConnectorsOptions) {
   const timing: ConnectorTiming = { ...CONNECTOR_TIMING, ...options.timing };
   const runtimes = new Map<string, Runtime>();
   const auths = new Map<string, ConnectorAuth>();
+  const secretChanges = new Map<string, Promise<void>>();
   let closed = false;
+
+  // Stable device secret names must not be overwritten or deleted by overlapping changes (#1995).
+  const changeSecrets = <T>(id: string, change: () => Promise<T>): Promise<T> => {
+    const next = (secretChanges.get(id) ?? Promise.resolve()).then(change);
+    const settled = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    secretChanges.set(id, settled);
+    void settled.then(() => {
+      if (secretChanges.get(id) === settled) secretChanges.delete(id);
+    });
+    return next;
+  };
 
   const paused = (row: ConnectorRow) => options.localOnly() && awayFromHere(row);
 
@@ -539,6 +552,7 @@ export function createConnectors(options: ConnectorsOptions) {
         heldBack: false,
         controller: null,
         connection: null,
+        headerValues: new Set(),
         redact: (value) => value,
       };
       runtimes.set(id, runtime);
@@ -628,6 +642,8 @@ export function createConnectors(options: ConnectorsOptions) {
     if (closed || runtime.generation !== generation) return;
     // Anything else this connection does from now on stands down, including its closing.
     runtime.generation++;
+    runtime.controller?.abort();
+    runtime.controller = null;
     const session = runtime.session;
     runtime.session = null;
     runtime.client = null;
@@ -778,19 +794,21 @@ export function createConnectors(options: ConnectorsOptions) {
     const controller = new AbortController();
     runtime.controller = controller;
     let keyRefused = false;
+    let unreachable = false;
     try {
       gate.check("connectors", serviceOf(requireRow(id)));
       const headers = Object.fromEntries(
         await Promise.all(
           config.headers.map(async (name) => {
-            const value = await secrets.tryGet(headerSecret(config.headerKey ?? id, name));
+            const value = await secrets.tryGet(headerSecret(id, name));
             if (value === null)
               throw new MissingSecretsError("The Connector's key can't be read on this device.");
-            return [name, value];
+            return [name, value] as const;
           }),
         ),
       );
-      runtime.redact = hideHeaders(headers);
+      for (const value of Object.values(headers)) runtime.headerValues.add(value);
+      runtime.redact = hideHeaders(runtime.headerValues);
       await auth.load();
       // An access token that has expired is renewed first, rather than sent to be refused.
       if (config.headers.length === 0) await auth.refreshIfStale();
@@ -808,6 +826,13 @@ export function createConnectors(options: ConnectorsOptions) {
             opening: kind === "http",
             onKeyRefused: () => {
               keyRefused = true;
+              if (runtime.state === "ready")
+                lost(id, runtime, generation, () =>
+                  remoteError(new KeyRefusedError("The server refused this key.")),
+                );
+            },
+            onUnreachable: () => {
+              unreachable = true;
             },
           }),
         });
@@ -817,8 +842,7 @@ export function createConnectors(options: ConnectorsOptions) {
         }
         connectionState.transport = connection;
         runtime.session = { close: () => connection.close(), kill: () => void connection.close() };
-        runtime.connection = kind;
-        return handshake(runtime, generation, connection, () =>
+        const connected = await handshake(runtime, generation, connection, () =>
           lost(id, runtime, generation, () => ({
             kind: "stopped",
             command: null,
@@ -827,6 +851,8 @@ export function createConnectors(options: ConnectorsOptions) {
             retrying: false,
           })),
         );
+        if (current()) runtime.connection = kind;
+        return connected;
       };
       let connected: Awaited<ReturnType<typeof open>>;
       try {
@@ -843,6 +869,21 @@ export function createConnectors(options: ConnectorsOptions) {
         return;
       }
       ready();
+      client.onerror = (error) => {
+        if (!current()) return;
+        // The call's failure path keeps the sign-in explanation before changing generation.
+        if (causedBy(error, HeldBackError) || auth.heldBackCount() > held || needsSignIn(error))
+          return;
+        lost(id, runtime, generation, () =>
+          remoteError(
+            keyRefused
+              ? new KeyRefusedError("The server refused this key.")
+              : unreachable
+                ? new TypeError("fetch failed")
+                : error,
+          ),
+        );
+      };
       becameReady(runtime, client, tools);
     } catch (error) {
       connectionState.transport?.close().catch(() => undefined);
@@ -872,12 +913,20 @@ export function createConnectors(options: ConnectorsOptions) {
                 message: error.message,
                 retrying: false,
               }
-            : remoteError(keyRefused ? new KeyRefusedError("The server refused this key.") : error),
+            : remoteError(
+                keyRefused
+                  ? new KeyRefusedError("The server refused this key.")
+                  : unreachable
+                    ? new TypeError("fetch failed")
+                    : error,
+              ),
         );
     }
   }
 
   async function connect(id: string, runtime: Runtime, generation: number): Promise<void> {
+    await secretChanges.get(id);
+    if (closed || runtime.generation !== generation) return;
     const row = rowById(id);
     if (row?.enabled !== 1) return;
     const config = storedConfig(row);
@@ -941,7 +990,6 @@ export function createConnectors(options: ConnectorsOptions) {
         clientId: config.client?.clientId ?? null,
         connection: config.connection,
         headers: Object.keys(config.headers),
-        headerKey: id,
       };
     } else {
       const envNames = Object.keys(config.env);
@@ -1238,31 +1286,36 @@ export function createConnectors(options: ConnectorsOptions) {
     },
 
     async delete(id: unknown): Promise<void> {
-      const row = requireRow(id);
-      const service = serviceOf(row);
-      const config = storedConfig(row);
-      const runtime = runtimes.get(row.id);
-      stop(row.id);
-      await cancelSignIn(runtime);
-      runtimes.delete(row.id);
-      const at = now();
-      db.run("UPDATE connectors SET deleted_at = ?, updated_at = ? WHERE id = ?", [at, at, row.id]);
-      // Added again later, it is a new Connector: it asks again. A server another Connector still uses keeps its decision.
-      if (!liveRows().some((other) => serviceOf(other).id === service.id)) {
-        consent.revoke("connectors", service.id);
-      }
-      if (config.transport === "http") {
-        for (const name of config.headers)
-          await secrets
-            .delete(headerSecret(config.headerKey ?? row.id, name))
-            .catch(options.reportError);
-        await authOf(row.id, config.url).deleteAll().catch(options.reportError);
-        auths.delete(row.id);
-      } else {
-        await secrets.delete(envSecret(row.id)).catch(options.reportError);
-      }
-      changed();
-      options.onEnabledChange();
+      const connectorId = requireRow(id).id;
+      return changeSecrets(connectorId, async () => {
+        const row = requireRow(connectorId);
+        const service = serviceOf(row);
+        const config = storedConfig(row);
+        const runtime = runtimes.get(row.id);
+        stop(row.id);
+        await cancelSignIn(runtime);
+        runtimes.delete(row.id);
+        const at = now();
+        db.run("UPDATE connectors SET deleted_at = ?, updated_at = ? WHERE id = ?", [
+          at,
+          at,
+          row.id,
+        ]);
+        // Added again later, it is a new Connector: it asks again. A server another Connector still uses keeps its decision.
+        if (!liveRows().some((other) => serviceOf(other).id === service.id)) {
+          consent.revoke("connectors", service.id);
+        }
+        if (config.transport === "http") {
+          for (const name of config.headers)
+            await secrets.delete(headerSecret(row.id, name)).catch(options.reportError);
+          await authOf(row.id, config.url).deleteAll().catch(options.reportError);
+          auths.delete(row.id);
+        } else {
+          await secrets.delete(envSecret(row.id)).catch(options.reportError);
+        }
+        changed();
+        options.onEnabledChange();
+      });
     },
 
     /**
@@ -1270,7 +1323,9 @@ export function createConnectors(options: ConnectorsOptions) {
      * Starting again cancels a sign-in still waiting.
      */
     async signIn(id: unknown): Promise<ConnectorSignInResult> {
-      const { row, config } = requireRemote(id);
+      const connectorId = requireRemote(id).row.id;
+      await secretChanges.get(connectorId);
+      const { row, config } = requireRemote(connectorId);
       if (config.headers.length > 0)
         throw new InvalidInputError({ key: "error.connector.changeKeyInstead" });
       if (row.enabled !== 1) throw new InvalidInputError({ key: "error.connector.off" });
@@ -1350,87 +1405,112 @@ export function createConnectors(options: ConnectorsOptions) {
 
     /** Deletes a remote Connector's tokens and disconnects it: it waits for a sign-in. */
     async signOut(id: unknown): Promise<Connector> {
-      const { row, config } = requireRemote(id);
-      const runtime = runtimeOf(row.id);
-      await cancelSignIn(runtime);
-      stop(row.id);
-      for (const name of config.headers)
-        await secrets.delete(headerSecret(config.headerKey ?? row.id, name));
-      await authOf(row.id, config.url).signOut();
-      runtime.signInError = null;
-      if (rowById(row.id)?.enabled === 1) waitForSignIn(runtime);
-      else changed();
-      return toConnector(requireRow(row.id));
+      const connectorId = requireRemote(id).row.id;
+      return changeSecrets(connectorId, async () => {
+        const { row, config } = requireRemote(connectorId);
+        const runtime = runtimeOf(row.id);
+        await cancelSignIn(runtime);
+        stop(row.id);
+        for (const name of config.headers) await secrets.delete(headerSecret(row.id, name));
+        await authOf(row.id, config.url).signOut();
+        runtime.signInError = null;
+        if (rowById(row.id)?.enabled === 1) waitForSignIn(runtime);
+        else changed();
+        return toConnector(requireRow(row.id));
+      });
     },
 
     /** Sets (or, with null, clears) the OAuth app a remote Connector signs in with. Signs out first. */
     async setClient(id: unknown, input: unknown): Promise<Connector> {
-      const { row, config } = requireRemote(id);
-      if (config.headers.length > 0)
-        throw new InvalidInputError({ key: "error.connector.authChoice" });
-      const client = parseClient(input);
-      if (client?.clientSecret) {
-        const { canSave, protection } = secrets.status();
-        if (!canSave) throw new SecretStorageError(protection);
-      }
-      const runtime = runtimeOf(row.id);
-      await cancelSignIn(runtime);
-      db.run("UPDATE connectors SET config = ?, updated_at = ? WHERE id = ?", [
-        JSON.stringify({
-          url: config.url,
-          clientId: client?.clientId ?? null,
-          connection: config.connection,
-          headers: config.headers,
-          headerKey: config.headerKey,
-        }),
-        now(),
-        row.id,
-      ]);
-      await authOf(row.id, config.url).setManualSecret(client?.clientSecret ?? null);
-      runtime.signInError = null;
-      if (rowById(row.id)?.enabled === 1) waitForSignIn(runtime);
-      else changed();
-      return toConnector(requireRow(row.id));
-    },
-
-    async setHeaders(id: unknown, input: unknown): Promise<Connector> {
-      const { row, config } = requireRemote(id);
-      const headers = parseHeaders(input);
-      if (Object.keys(headers).length > 0) {
-        const { canSave, protection } = secrets.status();
-        if (!canSave) throw new SecretStorageError(protection);
-      }
-      const runtime = runtimeOf(row.id);
-      await cancelSignIn(runtime);
-      stop(row.id);
-      const generation = runtime.generation;
-      const headerKey = randomUUID();
-      changed();
-      await saveHeaders(secrets, headerKey, headers);
-      try {
-        if (closed || runtime.generation !== generation || !rowById(row.id)) {
-          throw new InvalidInputError({ key: "error.connector.keyChangeCancelled" });
+      const connectorId = requireRemote(id).row.id;
+      return changeSecrets(connectorId, async () => {
+        const { row, config } = requireRemote(connectorId);
+        if (config.headers.length > 0)
+          throw new InvalidInputError({ key: "error.connector.authChoice" });
+        const client = parseClient(input);
+        if (client?.clientSecret) {
+          const { canSave, protection } = secrets.status();
+          if (!canSave) throw new SecretStorageError(protection);
         }
-        const { transport: _, ...stored } = config;
+        const runtime = runtimeOf(row.id);
+        await cancelSignIn(runtime);
         db.run("UPDATE connectors SET config = ?, updated_at = ? WHERE id = ?", [
-          JSON.stringify({ ...stored, headers: Object.keys(headers), headerKey }),
+          JSON.stringify({
+            url: config.url,
+            clientId: client?.clientId ?? null,
+            connection: config.connection,
+            headers: config.headers,
+          }),
           now(),
           row.id,
         ]);
-      } catch (error) {
-        for (const name of Object.keys(headers))
-          await secrets.delete(headerSecret(headerKey, name)).catch(options.reportError);
-        throw error;
-      }
-      for (const name of config.headers)
-        await secrets
-          .delete(headerSecret(config.headerKey ?? row.id, name))
-          .catch(options.reportError);
-      if (runtime.generation !== generation || closed) return toConnector(requireRow(row.id));
-      if (row.enabled === 1 && Object.keys(headers).length > 0) start(row.id);
-      else waitForSignIn(runtime);
-      changed();
-      return toConnector(requireRow(row.id));
+        await authOf(row.id, config.url).setManualSecret(client?.clientSecret ?? null);
+        runtime.signInError = null;
+        if (rowById(row.id)?.enabled === 1) waitForSignIn(runtime);
+        else changed();
+        return toConnector(requireRow(row.id));
+      });
+    },
+
+    async setHeaders(id: unknown, input: unknown): Promise<Connector> {
+      const connectorId = requireRemote(id).row.id;
+      const headers = parseHeaders(input);
+      return changeSecrets(connectorId, async () => {
+        const { row, config } = requireRemote(connectorId);
+        if (Object.keys(headers).length > 0) {
+          const { canSave, protection } = secrets.status();
+          if (!canSave) throw new SecretStorageError(protection);
+        }
+        const names = [
+          ...new Set(
+            [...config.headers, ...Object.keys(headers)].map((name) => name.toLowerCase()),
+          ),
+        ];
+        const previous = await Promise.all(
+          names.map(async (name) => ({
+            name,
+            value: await secrets.get(headerSecret(row.id, name)),
+          })),
+        );
+        const runtime = runtimeOf(row.id);
+        await cancelSignIn(runtime);
+        stop(row.id);
+        const generation = runtime.generation;
+        changed();
+        try {
+          await saveHeaders(secrets, row.id, headers);
+          if (closed || runtime.generation !== generation || !rowById(row.id)) {
+            throw new InvalidInputError({ key: "error.connector.keyChangeCancelled" });
+          }
+          const kept = new Set(Object.keys(headers).map((name) => name.toLowerCase()));
+          for (const name of config.headers) {
+            if (!kept.has(name.toLowerCase())) await secrets.delete(headerSecret(row.id, name));
+          }
+          if (closed || runtime.generation !== generation || !rowById(row.id)) {
+            throw new InvalidInputError({ key: "error.connector.keyChangeCancelled" });
+          }
+          const { transport: _, ...stored } = config;
+          db.run("UPDATE connectors SET config = ?, updated_at = ? WHERE id = ?", [
+            JSON.stringify({ ...stored, headers: Object.keys(headers) }),
+            now(),
+            row.id,
+          ]);
+        } catch (error) {
+          for (const { name, value } of previous) {
+            await (value === null
+              ? secrets.delete(headerSecret(row.id, name))
+              : secrets.set(headerSecret(row.id, name), value)
+            ).catch(options.reportError);
+          }
+          if (!closed && rowById(row.id)?.enabled === 1) start(row.id);
+          throw error;
+        }
+        if (runtime.generation !== generation || closed) return toConnector(requireRow(row.id));
+        if (row.enabled === 1 && Object.keys(headers).length > 0) start(row.id);
+        else waitForSignIn(runtime);
+        changed();
+        return toConnector(requireRow(row.id));
+      });
     },
 
     previewImport: (json: unknown): ConnectorImportEntry[] =>
@@ -1475,6 +1555,7 @@ export function createConnectors(options: ConnectorsOptions) {
     localModeChanged(): void {
       for (const row of liveRows()) {
         if (row.enabled !== 1) continue;
+        if (runtimes.get(row.id)?.error?.kind === "key-refused") continue;
         const away = awayFromHere(row);
         if (!away && !runtimes.get(row.id)?.heldBack) continue;
         if (!options.localOnly()) start(row.id);

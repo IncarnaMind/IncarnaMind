@@ -1871,10 +1871,10 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 106,
-    description: "Remote Connector transport and header-secret references (#1995)",
+    description: "Remote Connector transport and header names (#1995)",
     sql: `
       UPDATE connectors
-      SET config = json_set(config, '$.connection', 'http', '$.headers', json('[]'), '$.headerKey', NULL)
+      SET config = json_set(config, '$.connection', 'http', '$.headers', json('[]'))
       WHERE transport = 'http' AND json_valid(config);
     `,
   },
