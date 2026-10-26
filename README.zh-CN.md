@@ -71,7 +71,7 @@ npm install && npm run dev
 | **整理** | 关联你的文件夹，“整理”推荐文件夹和标签。 |
 | **提问** | 一次问遍所有文档，每一页都有引用。 |
 | **写作** | 一篇笔记就是为一个主题准备的笔记本。助手写的字在你修改前是灰色的，一键就能撤销。 |
-| **分析** | 用表格计算、画图，每个输入都有引用。 |
+| **分析** | 用表格计算、画图，每个输入都有引用。下一个测试版起提供。 |
 | **核对** | 把笔记或任何 PDF 对照你的文件逐句核对。 |
 | **对比** | 向多份文档问同样的问题，得到一张带引用的表。 |
 | **导出** | 导出带脚注的 Word，八种引用格式；也能写回原文件。 |
@@ -84,7 +84,7 @@ npm install && npm run dev
 
 - 在 OpenAlex、arXiv 和 PubMed 里搜索论文，保存网页，从 Zotero、BibTeX、RIS 或 CSL JSON 导入引用信息。
 - 添加 MCP 服务器和 `SKILL.md` 技能。凡是可能改动内容的操作，都会先问你。
-- 把你选的文件夹交给 [Claude Code](docs/claude-code.md)、[Codex](docs/codex.md) 或 [Cursor](docs/cursor.md)，引用都经过核对。
+- 把你选的文件夹交给 [Claude Code](docs/claude-code.md)、[Codex](docs/codex.md) 或 [Cursor](docs/cursor.md)，引用都经过核对（下一个测试版起提供）。
 - 整个应用都有中文和英文。
 
 </details>
@@ -103,15 +103,15 @@ npm install && npm run dev
 |---|:-:|:-:|:-:|:-:|
 | 开源 | ✓ | ✗ | ✓ | ◐ |
 | 桌面应用，不需要账号 | ✓ | ✗ | ◐ | ✓ |
-| 在原处读取你的文件夹 | ✓ | ✗ | ✗ | ◐ |
+| 在原处读取本地文件夹 | ✓ | ✗ | ✗ | ◐ |
 | 用 ChatGPT、Claude 订阅或你的密钥 | ✓ | ✗ | ◐ | ◐ |
 | 点开引用到原文那一页，引文高亮 | ✓ | ◐ | ✗ | ✗ |
 | 核对你自己写的草稿 | ✓ | ✗ | ✗ | ✗ |
 | 导出带脚注的 Word | ✓ | ◐ | ✗ | ◐ |
-| 表格数据分析 | ✓ | ✓ | ✗ | ◐ |
+| 表格数据分析 | ✓² | ✓ | ✗ | ◐ |
 | 会议 | ✓ | ✗ | ✗ | ✓ |
 
-<sub>✓ 支持 · ◐ 部分支持 · ✗ 不支持。¹ 原名 NotebookLM。依据各产品 2026 年 10 月的官方文档：[Gemini Notebook](https://support.google.com/gemininotebook/)、[Open Notebook](https://github.com/lfnovo/open-notebook)、[AnythingLLM](https://docs.anythingllm.com/)。</sub>
+<sub>✓ 支持 · ◐ 部分支持或未说明 · ✗ 官方文档中没有。¹ 原名 NotebookLM。² 下一个测试版起提供。依据各产品 2026 年 10 月的官方文档：[Gemini Notebook](https://support.google.com/gemininotebook/)、[Open Notebook](https://github.com/lfnovo/open-notebook)、[AnythingLLM](https://docs.anythingllm.com/)。</sub>
 
 ## 隐私
 
