@@ -586,7 +586,7 @@ for (const { language, width } of SCOPE_VARIANTS) {
     await expect(counted).toHaveText(words.counted(1, 22));
     await expect(make).toBeEnabled();
     await expect(selectAll).toHaveJSProperty("indeterminate", true);
-    await expect(estimate).toContainText("About $");
+    await expect(estimate).toHaveText(/(About|约) \$/);
     await expect(estimate).not.toContainText("model calls");
     const [estimateBox, makeBox, sheetBox] = [
       await estimate.boundingBox(),
