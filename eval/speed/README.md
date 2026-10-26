@@ -46,7 +46,7 @@ npm run eval:speed
 
 ### Adding an arm
 
-An arm is a path the core can take between two items without being opened again (`arms.ts`): its `prepare(core)` saves the settings it needs, as the User saves them (the quick-tasks model, say), and its `request(params)` changes each model request as it is sent (a prompt's wording, a provider option). Add it to `ARMS`, and name it after `today`. A change the product makes behind a switch of its own (an allowlist, a setting) is best paired through that switch; a change that replaces today's path keeps today's as an arm until the comparison is made. `today` against `today` shows how much two runs of the same path differ.
+An arm is a path the core can take between two items without being opened again (`arms.ts`): its `prepare(core)` saves the settings it needs, as the User saves them (the quick-tasks model, say), its `request(params)` changes each model request as it is sent (a prompt's wording, a provider option), and its `paths` decide which faster Answer paths every model takes instead of the lists beside the catalog (`src/core/providers/catalog/answerPaths.ts`): `cite-first` and `write-then-cite` (#489) compare the two ways of citing on any model. Add it to `ARMS`, and name it after `today`. A change the product makes behind a switch of its own (an allowlist, a setting) is best paired through that switch; a change that replaces today's path keeps today's as an arm until the comparison is made. `today` against `today` shows how much two runs of the same path differ.
 
 ## The token audit (#1634)
 
