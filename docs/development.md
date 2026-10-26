@@ -44,7 +44,7 @@ Embeddings can also come from OpenAI, Google, an OpenAI-compatible server or Oll
 
 ## Evaluation
 
-`npm run eval` measures retrieval, and optionally Citation quality, against the project's targets. It adds the sample PDFs in `data/` and the Chinese articles in `eval/retrieval/fixtures/` to a temporary data folder and searches for each Question in `eval/retrieval/questions.json`. Retrieval needs no keys; the first run downloads the embedding and reranking models into `~/.cache/incarnamind-eval/`. It isn't part of `npm test` or CI's default run. See [`eval/README.md`](../eval/README.md) for the Citation part, the variables and the latest results.
+`npm run eval` measures retrieval, and optionally Citation quality, against the project's targets. It adds the sample PDFs in `data/` (made for this repository; [`data/README.md`](../data/README.md)) and the Chinese articles in `eval/retrieval/fixtures/` to a temporary data folder and searches for each Question in `eval/retrieval/questions.json`. Retrieval needs no keys; the first run downloads the embedding and reranking models into `~/.cache/incarnamind-eval/`. It isn't part of `npm test` or CI's default run. See [`eval/README.md`](../eval/README.md) for the Citation part, the variables and the latest results.
 
 ## Model catalog
 

@@ -24,7 +24,7 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
   {
     model: "anthropic/claude-haiku-5-5",
     since: "2026-10-26",
-    gate: "Against citing first: gating 65, 2.98 → 2.29 calls, done −0.6 s, cited 56 → 56, judged right 59 → 59, every Citation found 58 → 61; hard tier 225, cited 150 → 155, right 207 → 209; hard 30 twice and everyday 30 within one in 30; no new duplicate, false Supported or unmade change.",
+    gate: "Against citing first, paired, within one item in 30: gating 65, 3.09 → 2.25 calls, done −0.8 s, cited 56 → 57, judged right 61 → 59, every Citation found 60 → 64; hard tier 225, cited 150 → 155, right 207 → 209; hard 30, done −1.6 s, right 28 → 27; everyday 39; no new duplicate, false Supported or unmade change.",
   },
 ];
 
