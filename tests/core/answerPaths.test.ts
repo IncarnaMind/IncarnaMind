@@ -3,7 +3,7 @@
  * cites it; every other model is sent the Tool loop's citing lines as they were before.
  */
 import { describe, expect, test } from "vitest";
-import { writesThenCites } from "../../src/core/providers/catalog/answerPaths";
+import { retrievesFirst, writesThenCites } from "../../src/core/providers/catalog/answerPaths";
 import { askAndFinish, citingModel, setUpWithDocuments } from "../helpers/citations";
 import { promptOf } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
@@ -39,6 +39,12 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
     );
     expect(writesThenCites({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" })).toBe(false);
     expect(writesThenCites({ catalogId: null, modelId: "claude-haiku-5-5" })).toBe(false);
+  });
+
+  test("Claude Haiku 5.5 retrieves first; Sonnet 5.5 and models not in the catalog don't", () => {
+    expect(retrievesFirst({ catalogId: "anthropic", modelId: "claude-haiku-5-5" })).toBe(true);
+    expect(retrievesFirst({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" })).toBe(false);
+    expect(retrievesFirst({ catalogId: null, modelId: "claude-haiku-5-5" })).toBe(false);
   });
 
   test("an override decides over the list, and one that says nothing leaves it to the list", () => {
