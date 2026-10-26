@@ -33,9 +33,11 @@ export function CitationPlaceLine({
         className="min-w-0 text-[14px] leading-5 text-ink-secondary"
       >
         {t("export.citationPlace")}{" "}
-        <span data-testid="export-place-count" className="text-ink-meta">
-          {citedCountText(t, count)}
-        </span>
+        {count.citations > 0 && (
+          <span data-testid="export-place-count" className="text-ink-meta">
+            {citedCountText(t, count)}
+          </span>
+        )}
       </p>
       <span className="flex shrink-0 gap-2">
         {CITATION_PLACES.map((each) => (

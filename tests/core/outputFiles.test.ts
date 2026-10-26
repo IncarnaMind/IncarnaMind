@@ -155,6 +155,7 @@ describe("The Output location", () => {
       unreadFileNames: false,
       needsDetails: [],
       citedDocuments: 0,
+      numbered: true,
       citationPlace: null,
       markAiText: null,
     });

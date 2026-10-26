@@ -96,6 +96,8 @@ export type ExportResult = { tableId?: string } & (
       /** The Citations in the file, and the Documents they cite. */
       citations: number;
       citedDocuments: number;
+      /** Whether the note's style is Numbered, the one whose Citations the User places. */
+      numbered: boolean;
       /** Where the file puts its Citations; null when nothing placed them (#1945). */
       citationPlace: CitationPlace | null;
       /** Whether a Word file marks the text IncarnaMind wrote; null for a format that can't (#1945). */
@@ -177,11 +179,13 @@ export function changeExportChoices(mindId: string): void {
   if (result?.mindId !== mindId || result.state !== "saved") return;
   const { format } = result;
   if (format !== "docx" && format !== "pdf") return;
-  const mark = result.markAiText !== null;
+  // The line is where the User sees the choice (D277): a Word file always has the marking, and a
+  // Numbered PDF the place of its Citations, whether or not this file placed any.
+  const mark = format === "docx";
   const places =
-    result.citationPlace === null
-      ? null
-      : { citations: result.citations, documents: result.citedDocuments };
+    result.citationPlace !== null || (format === "pdf" && result.numbered)
+      ? { citations: result.citations, documents: result.citedDocuments }
+      : null;
   if (!mark && places === null) return;
   useExports.setState({ result: { ...result, changing: { format, mark, places } } });
 }
@@ -274,6 +278,7 @@ function savedResult(
       defaulted: saved.file.defaulted,
       citations: "citations" in saved ? saved.citations : 0,
       citedDocuments: "citedDocuments" in saved ? saved.citedDocuments : 0,
+      numbered: "numbered" in saved ? saved.numbered : false,
       citationPlace: "citationPlace" in saved ? saved.citationPlace : null,
       markAiText: "markAiText" in saved ? saved.markAiText : null,
     };

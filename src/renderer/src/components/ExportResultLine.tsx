@@ -376,7 +376,9 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
     ...withFile,
     ...unchecked.map((text) => ({ testId: "export-unchecked", text })),
   ];
-  const canChange = result.markAiText !== null || result.citationPlace !== null;
+  // A Word file always has the marking to change; a Numbered PDF the place of its Citations (D277).
+  const canChange =
+    result.markAiText !== null || result.citationPlace !== null || result.numbered;
   return (
     <p
       role="status"

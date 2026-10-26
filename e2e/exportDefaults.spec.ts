@@ -322,3 +322,33 @@ test("a note with nothing to check says nothing about checks; a sentence it hold
   await expect(unchecked).toHaveText(["Not checked"]);
   await app.close();
 });
+
+test("Change is on a PDF's Saved line too, even for a note with no Citations, and writes the file again (D277)", async () => {
+  test.setTimeout(240_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setLanguage(window, "en");
+  await useOutputLocation(window, out);
+  await newMind(window);
+  await nameMind(window, "Tides");
+  const editor = window.getByTestId("mind-editor");
+  await editor.click();
+  await window.keyboard.type("Spring tides come twice a month.");
+  const result = window.getByTestId("export-result");
+  const done = result.getByTestId("export-done");
+
+  await exportFromMenu(window, "pdf");
+  await expect(done).toContainText(savedLine("Tides.pdf", out));
+  const change = result.getByTestId("export-change");
+  await expect(change).toHaveText("Change");
+  await pointAndClick(window, change);
+  // No Citation to count, and the place is still the User's to choose: the row shows without one.
+  await expect(result.getByTestId("export-place-question")).toBeVisible();
+  await expect(result.getByTestId("export-place-count")).toHaveCount(0);
+  await pointAndClick(window, result.getByTestId("export-place-ask-list"));
+  await expect(done).toContainText(savedLine("Tides 2.pdf", out));
+  await expect.poll(() => readdir(out)).toEqual(["Tides 2.pdf", "Tides.pdf"]);
+  await expect(window.getByTestId("undo-line")).toContainText("Citations now go in a list at the end");
+  await app.close();
+});
