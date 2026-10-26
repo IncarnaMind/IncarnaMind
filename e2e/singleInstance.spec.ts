@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { chromium, expect, type Page, test } from "@playwright/test";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
@@ -292,16 +292,30 @@ for (const gap of [0, 20, 40, 60, 80]) {
  * The copies started with this switch, and those they started again: main processes only, or
  * with `relaunching` the helpers waiting to start one too.
  */
-function copiesWith(tag: string, relaunching = false): number[] {
-  const listing = execFileSync("ps", ["-A", "-ww", "-o", "pid=", "-o", "args="], {
+function listedCopies(): { pid: number; args: string }[] {
+  const electron = join(dirname(require.resolve("electron/package.json")), "dist") + sep;
+  const listing = execFileSync("ps", ["-A", "-ww", "-o", "uid=", "-o", "pid=", "-o", "args="], {
     encoding: "utf8",
   });
   return listing.split("\n").flatMap((line) => {
-    const [, pid, args = ""] = line.trim().match(/^(\d+)\s+(.*)$/) ?? [];
-    const main = !args.includes("--type=") || (relaunching && args.includes("--type=relauncher"));
-    return pid && args.includes(tag) && main ? [Number(pid)] : [];
+    const [, uid, pid, args = ""] = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/) ?? [];
+    return pid && Number(uid) === process.getuid?.() && args.startsWith(electron)
+      ? [{ pid: Number(pid), args }]
+      : [];
   });
 }
+
+function copiesWith(tag: string, relaunching = false): number[] {
+  return listedCopies().flatMap(({ pid, args }) => {
+    const main = !args.includes("--type=") || (relaunching && args.includes("--type=relauncher"));
+    return args.includes(tag) && main ? [pid] : [];
+  });
+}
+
+const copiesToClean = (tag: string) =>
+  listedCopies().flatMap(({ pid, args }) =>
+    args.includes(tag) || args.includes(dataDir) ? [pid] : [],
+  );
 
 const killAll = (pids: number[]) => {
   for (const pid of pids) {
@@ -331,7 +345,6 @@ async function startWhileQuitting(
   const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
   const ports: number[] = [];
   const late = how === "after-release";
-  const spawned: ChildProcess[] = [];
   const start = async (extraEnv: Record<string, string> = {}) => {
     const port = await freePort();
     ports.push(port);
@@ -349,7 +362,6 @@ async function startWhileQuitting(
         ...extraEnv,
       },
     );
-    spawned.push(copy);
     return copy;
   };
   const left = async () => ({
@@ -441,9 +453,8 @@ async function startWhileQuitting(
       await expect
         .poll(
           () => {
-            killAll(copiesWith(tag, true));
-            killAll(spawned.flatMap((copy) => (copy.pid ? [-copy.pid] : [])));
-            return copiesWith(tag, true);
+            killAll(copiesToClean(tag));
+            return copiesToClean(tag);
           },
           { timeout: 30_000 },
         )
