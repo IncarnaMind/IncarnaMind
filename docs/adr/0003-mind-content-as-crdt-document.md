@@ -129,3 +129,10 @@ A check that can quote nothing says what it did find, so a sentence whose topic 
 ## Amendment: the action is called Check against Documents (2026-10-26, #2004)
 
 The action the amendments above call Find support is called Check against Documents in the interface (`editor.ai.checkAgainstDocuments`). A check made now stores `check-against-documents` as its mark's action; an older stored Note carries `find-support`, which still reads and runs as Check against Documents (`claimCheckActions` in `src/core/api.ts`, `src/shared/claimChecks.ts`, `src/renderer/src/checks.ts`). The command's ⌘K keywords keep "check find support", so the old name still finds it.
+
+## Amendment: a comparison table's columns have a label (2026-10-25, #1833)
+
+A comparison table's column has a short **label**, its heading, beside its Question, the words each Document is asked. The label starts as the Question shortened: a column with none is headed by its Question shortened, so tables written before this need no migration.
+
+- **Content schema version 30** adds `label` to each column of a table's `questions`, with room for its `width` and whether it is `hidden`. An older version's editor writes the columns back as `{ id, text }` when it changes one, which would lose all three, so it opens these Minds read-only. Older content is version 30 content as it is.
+- **A heading shortens; a file doesn't.** The table's headings and the commands that name a column in the app read `label ?? shortened(text)`, because a heading has room for about 40 characters. The Excel and Word exports read `label ?? text`, so a Question longer than a heading, or one a label hasn't replaced, reaches a file whole. Either way a column has one name, its label when it has one.
