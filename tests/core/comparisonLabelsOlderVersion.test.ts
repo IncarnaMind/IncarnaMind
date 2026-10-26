@@ -15,16 +15,16 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 
 /*
  * The version before a comparison table's columns had a label (#1833): a build that
- * reads content schema 28, the release before this one, whose editor writes a column
+ * reads content schema 29, the release before this one, whose editor writes a column
  * back as `{ id, text }` when it changes one, which would lose its label.
  */
 vi.mock("../../src/core/api", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  CONTENT_SCHEMA_VERSION: 28,
+  CONTENT_SCHEMA_VERSION: 29,
 }));
 
 /** The content schema version labels came with: what a Mind written since records. */
-const LABELS = 29;
+const LABELS = 30;
 
 const QUESTION = "Termination notice";
 const LABEL = "Notice";
@@ -50,7 +50,7 @@ const table: NodeJSON = {
 describe("a version from before a comparison table's columns had a label", () => {
   // protects=a version that doesn't know a column's label opens a Mind holding one read-only, so its editor can't write the columns back as `{ id, text }` and lose the label; fails_when=it opens writable, or its write reaches the stored columns; no_claim=how the newer version shows it.
   test("opens a Mind with a labelled column read-only, and its columns can't be written back without the label", async () => {
-    expect(CONTENT_SCHEMA_VERSION).toBe(28);
+    expect(CONTENT_SCHEMA_VERSION).toBe(29);
     const doc = new Y.Doc();
     doc.getXmlFragment(MIND_CONTENT_FIELD).push([createElement(table)]);
     doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, LABELS);
