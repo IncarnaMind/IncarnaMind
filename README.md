@@ -43,14 +43,14 @@
 
 | | |
 |---|---|
-| **Sort** | Link the folders you already use. Organize suggests a Folder and Tags for each file. |
-| **Ask** | Ask all your documents at once. Each answer cites the pages it used. |
-| **Write** | A Note is a notebook for one topic. Tell the assistant what to change, and its text stays grey until you edit it. Undo takes it back. |
-| **Analyse** | Calculate and chart from your spreadsheets. Every input is cited, and the code runs on your computer with no network. |
-| **Check** | Check a Note, or someone else's PDF, sentence by sentence against your files. |
-| **Compare** | Put the same questions to many documents and get a table, every cell cited. |
-| **Export** | Word with footnotes and a bibliography in eight styles, or back into the Word file you opened, untouched parts unchanged. |
-| **Meet** | A live transcript, one-click help during the call from your files, and notes that cite what was said. |
+| **Sort** | Link your folders. Organize suggests Folders and Tags. |
+| **Ask** | Ask all your documents at once, every page cited. |
+| **Write** | A Note is a notebook for one topic. AI text stays grey until you edit it, and Undo takes it back. |
+| **Analyse** | Calculate and chart from spreadsheets, every input cited. |
+| **Check** | Check a Note or any PDF against your files, sentence by sentence. |
+| **Compare** | Ask many documents the same questions and get one cited table. |
+| **Export** | Word with footnotes in eight citation styles, or back into the original file. |
+| **Meet** | A live transcript, help during the call, and notes that cite what was said. |
 
 Works fully offline with [Ollama](https://ollama.com): nothing leaves your computer.
 
@@ -73,20 +73,19 @@ Works fully offline with [Ollama](https://ollama.com): nothing leaves your compu
 
 ## How it compares
 
-| | IncarnaMind | Gemini Notebook (formerly NotebookLM) | Open Notebook | AnythingLLM |
-|---|---|---|---|---|
-| Open source | Yes, Apache 2.0 | No | Yes, MIT | The repo is MIT; the desktop app has its own terms |
-| Where it runs | Desktop app | Google's cloud | Self-hosted (Docker) | Desktop, self-hosted or cloud |
-| Account | Not needed | Google Account | Not needed | Not needed on desktop |
-| Reads your folders where they are | Yes | No, it keeps copies | No, it keeps copies | Partly, single files |
-| Your AI | Your key, or your ChatGPT, Claude or Copilot plan | Gemini only | Your key | Your key |
-| A citation opens its page, quote highlighted | Yes | Shows the quote in context | Links the whole source | Shows the retrieved text, no page |
-| Checks your own draft | Yes, sentence by sentence | No | No | No |
-| Long-document editor, Word export with footnotes | Yes | Short notes; can generate Word files | No | An agent can generate Word files |
-| Spreadsheet analysis | Yes, the code runs on your computer | Yes, in Google's cloud, depending on plan | No | Charts and SQL queries |
-| Meetings | Live transcript, in-call help, cited notes | No | No | Records and summarises (Mac, Windows) |
+| | IncarnaMind | Gemini Notebook¹ | Open Notebook | AnythingLLM |
+|---|:-:|:-:|:-:|:-:|
+| Open source | ✓ | ✗ | ✓ | ◐ |
+| Desktop app, no account | ✓ | ✗ | ◐ | ✓ |
+| Reads your folders in place | ✓ | ✗ | ✗ | ◐ |
+| Your ChatGPT or Claude plan, or your key | ✓ | ✗ | ◐ | ◐ |
+| Citation opens the page, quote highlighted | ✓ | ◐ | ✗ | ✗ |
+| Checks your own draft | ✓ | ✗ | ✗ | ✗ |
+| Word export with footnotes | ✓ | ◐ | ✗ | ◐ |
+| Spreadsheet analysis | ✓ | ✓ | ✗ | ◐ |
+| Meetings | ✓ | ✗ | ✗ | ✓ |
 
-<sub>From each product's own documentation in October 2026: [Gemini Notebook Help](https://support.google.com/gemininotebook/), [Open Notebook](https://github.com/lfnovo/open-notebook), [AnythingLLM Docs](https://docs.anythingllm.com/).</sub>
+<sub>✓ yes · ◐ partly · ✗ no. ¹ Formerly NotebookLM. From each product's documentation, October 2026: [Gemini Notebook](https://support.google.com/gemininotebook/), [Open Notebook](https://github.com/lfnovo/open-notebook), [AnythingLLM](https://docs.anythingllm.com/).</sub>
 
 ## Your files stay yours
 
@@ -94,14 +93,14 @@ No account. Your files are read where they are and never changed, and only what 
 
 | What | Where it goes |
 |---|---|
-| Your files, Notes and search index | One data folder on your computer |
-| Questions, writing and checks | The AI model you chose: the Note, the passages found, the Document names and any analysis results. With Ollama, nowhere |
+| Your files, Notes and search index | Your computer |
+| Questions, writing and checks | The AI model you chose, with only what each needs. With Ollama, nowhere |
 | Meeting audio | Transcribed on your computer |
-| Finding papers, tagging and sorting, scanned pages, cloud transcription | Only after you say yes. Each is listed in **Settings → Privacy** |
-| Usage data and crash reports | Only if you turn them on. Never your files or questions |
+| Finding papers, tagging, scans, cloud transcription | Only after you say yes |
+| Usage data and crash reports | Only if you turn them on, never with your files |
 | API keys | Your system's secure storage |
 
-Where a provider offers the choice, IncarnaMind asks it not to keep your requests. It can't make a provider comply. Every detail is in [docs/privacy.md](docs/privacy.md), and for client work, the [client data statement](docs/client-data-statement.md).
+Where a provider offers the choice, IncarnaMind asks it not to keep your requests. It can't make a provider comply. What each one sends, and how to turn it off, is in [docs/privacy.md](docs/privacy.md) and **Settings → Privacy**. For client work, read the [client data statement](docs/client-data-statement.md).
 
 ## Download
 
