@@ -989,25 +989,6 @@ export function searchLanguage(
   return other?.language ?? null;
 }
 
-/**
- * Whether none of the `documents` are in the Question's language, told as `searchLanguage`
- * tells it: the Question's own words find little in them. Not while some of them are in a
- * language that can't be told.
- */
-function inNoDocumentsLanguage(
-  question: string,
-  languages: readonly DocumentLanguage[],
-  documents: number,
-): boolean {
-  const told = languages.reduce((sum, each) => sum + each.documents, 0);
-  if (languages.length === 0 || told < documents) return false;
-  const asked = detectLanguage(question);
-  return asked
-    ? languages.every(({ language }) => language !== asked)
-    : !CJK_SCRIPT.test(question) &&
-        languages.every(({ language }) => SCRIPT_LANGUAGES.has(language));
-}
-
 /** A Passage in a search's result, as the model reads it, with its id. */
 const PASSAGE_BLOCK = /<passage id="([^"]+)"[^>]*>[\s\S]*?<\/passage>/g;
 
@@ -1350,22 +1331,10 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         try {
           if (support === "tools") {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
-            // the Question's own search and answers in one call unless it needs more. A library with
-            // nothing to search yet (web search on, or only unread Documents) leaves the first search
-            // to the model, and so do a follow-up, whose own words lean on the Answers before it, and
-            // a Question in a language none of the Documents are in, whose own words find nothing
-            // there. On paired runs both set the model on another course than the loop's: writing
-            // where it just replied, or searching less where it searched each Document.
-            const followUp = request.messages.some((message) => message.role === "assistant");
+            // the Question's own search and answers in one call unless it needs more. Not while
+            // there is nothing to search yet (web search on, or only unread Documents).
             const presearched =
-              request.retrieveFirst &&
-              !followUp &&
-              request.documents.documentCount > 0 &&
-              !inNoDocumentsLanguage(
-                request.question,
-                request.documents.documentLanguages ?? [],
-                request.documents.documentCount,
-              )
+              request.retrieveFirst && request.documents.documentCount > 0
                 ? { result: yield* searchOnce(true), query: request.question, read: [...read] }
                 : undefined;
             if (signal.aborted) return;

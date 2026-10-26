@@ -1,9 +1,8 @@
 /**
  * Retrieve first (#1633): on a model the allowlist names, an Answer starts from the Question's
  * own search, answers from it in one call, and falls back to the Tool loop when the model
- * searches on. A model it doesn't name runs the loop as before, and so do a turn offered the
- * Tools that write Minds (every assistant turn), a follow-up and a Question in a language none
- * of the Documents are in.
+ * searches on. A model it doesn't name runs the loop as before, and so does a turn offered the
+ * Tools that write Minds (every assistant turn).
  */
 import { describe, expect, test } from "vitest";
 import {
@@ -18,7 +17,7 @@ import {
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
-import { heading, note, question, readMind, writeMind } from "../helpers/minds";
+import { heading, note, question, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
@@ -165,23 +164,6 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     ]);
   });
 
-  test("a follow-up leaves its first search to the model", async () => {
-    const model = answering();
-    const { core, client, mind } = await setUp(model, true);
-    await askAndFinish(core, client, mind.id, "When are spring tides?");
-    const firstCalls = model.doStreamCalls.length;
-    const asked = question("And at full moon only?");
-    writeMind(client, [...(readMind(client).toJSON().content ?? []), asked]);
-    await client.settled();
-
-    const result = await core.askQuestion({ mindId: mind.id, questionId: asked.attrs.id });
-    if (!result.asked) throw new Error("The Question wasn't asked.");
-    expect((await answerEnded(core, result.answerId)).event).toBe("finished");
-
-    expect(firstCalls).toBe(1);
-    expect(model.doStreamCalls.length - firstCalls).toBe(2);
-  });
-
   test("an assistant turn, offered the Tools that write Minds, sends the model what it did before, word for word", async () => {
     const recipes = Array.from({ length: 12 }, (_, at) => ({
       name: `Recipe ${at + 1}.md`,
@@ -210,21 +192,6 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
 
     expect(listed).toEqual(await requests(false));
     expect(listed[0]).not.toContain("question-search");
-  });
-
-  test("a Question in a language none of the Documents are in leaves its first search to the model", async () => {
-    const model = answering();
-    const english =
-      "# Tides\n\nThe spring tides happen when the moon is new or full, and the neap tides are at the quarter moons.";
-    const { core, client, mind } = await setUpWithDocuments(
-      model,
-      [{ name: "Tides.md", contents: english }],
-      { answerPaths: { retrievesFirst: () => true } },
-    );
-
-    await askAndFinish(core, client, mind.id, "大潮什么时候出现？");
-
-    expect(model.doStreamCalls[0]?.prompt.some((message) => message.role === "tool")).toBe(false);
   });
 
   test("falls back to the loop when the model searches again", async () => {
