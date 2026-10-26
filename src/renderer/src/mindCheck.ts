@@ -272,11 +272,13 @@ async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
   dismissMindCheck(mindId);
   dismissCheckProblem(mindId);
   dismissContradictions(mindId);
-  // Read before the run: the marks it writes cover every sentence it checks.
-  const toCheck = run.watch ? await readSentencesToCheck(mindId) : null;
   const requestId = crypto.randomUUID();
+  // Recorded before the sentences are read: reading waits for an editor that may not be open
+  // yet, and a second press during that wait must find the run already on (#1941).
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
   try {
+    // Read before the run: the marks it writes cover every sentence it checks.
+    const toCheck = run.watch ? await readSentencesToCheck(mindId) : null;
     const stopped = STOPS.has(await checkMindNow(mindId, run.mode, run.allDocuments, requestId));
     if (!stopped && toCheck && toCheck.cited.length > 0) {
       const watchRequest = crypto.randomUUID();
