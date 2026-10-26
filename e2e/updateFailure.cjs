@@ -284,11 +284,15 @@ app.on("quit", () => record("quit"));
 function afterFile(name, use) {
   const file = join(folder, name);
   if (existsSync(file)) return use();
-  const watcher = watch(folder, () => {
-    if (!existsSync(file)) return;
+  let used = false;
+  const consume = () => {
+    if (used || !existsSync(file)) return;
+    used = true;
     watcher.close();
     use();
-  });
+  };
+  const watcher = watch(folder, consume);
+  consume();
 }
 
 function successorArgs() {

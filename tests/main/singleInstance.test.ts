@@ -385,7 +385,7 @@ test("a second start waits for the scheduled failed-install recovery after the o
   expect(failUpdate(folder, record.id)).toBe(true);
   old.child.stdin.write("exit\n");
   await old.done();
-  const second = start(folder, "wait-recovery", 2000);
+  const second = start(folder, "wait-recovery");
   await second.message("starting");
   const recovery = start(folder, "owner", 2000, record.id);
   await recovery.message("owner");
