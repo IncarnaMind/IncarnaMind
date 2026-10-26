@@ -341,7 +341,8 @@ test("at the narrowest sidebar a downloading model's figure is whole beside +1, 
         expect(
           Math.abs(figureBox.y + figureBox.height / 2 - (moreBox.y + moreBox.height / 2)),
         ).toBeLessThanOrEqual(2);
-        expect(rowBox.height).toBeCloseTo(28, 0);
+        // Two lines' room, kept whether the row needs them or not, so the footer never moves (#763).
+        expect(rowBox.height).toBeCloseTo(48, 0);
         // Whole: nothing of it is clipped.
         expect(await figure.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
           true,

@@ -66,7 +66,7 @@ export const KNOWN: readonly Known[] = [
     flow: "library-2000",
     step: "add 2,000 Documents",
     kind: "shift",
-    moved: ["library-row-count", "tagging-waiting", "tagging-waiting-setup", "document-list-item"],
+    moved: ["library-row-count", "document-list-item"],
     max: 0.0413,
     sometimes: true,
     issue: 1329,

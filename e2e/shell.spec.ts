@@ -389,7 +389,7 @@ test("Linked folder and Document rows stay 28px, on the shared text edge, throug
   await running.app.close();
 });
 
-test("the status footer never moves the tree's rows; a two-line status takes one more line, and one-line statuses don't change it", async () => {
+test("the status footer doesn't move the tree when tagging starts or stops", async () => {
   const paper = join(sources, "Report on attention.txt");
   await writeFile(paper, "A report on attention in language models.\n");
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -424,14 +424,10 @@ test("the status footer never moves the tree's rows; a two-line status takes one
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
   await expect(status.getByTestId("tagging-waiting")).toBeVisible();
   await screenshot(window, "sidebar-tagging-waits", window.getByTestId("sidebar"));
-  // Its plain words take a second line (#763): the rows above the footer hold their place,
-  // the footer and its status take one 20px line more.
-  const waiting = await layout();
-  expect(waiting.rows).toEqual(before.rows);
-  expect(waiting.footer.height).toBeCloseTo(before.footer.height + 20, 0);
-  expect(waiting.status.height).toBeCloseTo(before.status.height + 20, 0);
+  // The two-line plain words have their room reserved (#763), so the footer keeps its height.
+  expect(await layout()).toEqual(before);
 
-  // A chat model: tagging starts, then stops. The footer is as it was.
+  // A chat model: tagging starts, then stops. Nothing above the footer moves.
   await useLocalChatModel(window);
   await expect(item).toHaveAttribute("data-tagging", "tagged");
   await expect(status.locator("[role]")).toHaveCount(0);

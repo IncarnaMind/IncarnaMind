@@ -99,8 +99,8 @@ interface Status {
  * model, a failure to retry, a web page that couldn't be added, skipped
  * files, files that were in IncarnaMind already). One line:
  * the most pressing status, and "+N" for the others, which lists them above
- * the row. Its 28px are kept even when there is nothing to say, so the tree
- * above moves only for a status that takes two lines. A status that is only
+ * the row. The room of two lines is kept even when there is nothing to say,
+ * so the tree above never moves for a status that wraps. A status that is only
  * progress shows after it has lasted 300 ms and stays at least 500 ms once shown,
  * so none flashes; a failure or a question shows at once.
  */
@@ -133,7 +133,9 @@ export function SidebarStatus({ problemsOnly = false }: { problemsOnly?: boolean
   ];
   if (problemsOnly && !first) return null;
   return (
-    <div data-testid="sidebar-status" className="flex min-h-7 shrink-0 flex-col">
+    // Two 20px lines and their 4px padding (#763): a status that wraps keeps its room, so the
+    // tree above the footer never moves when it comes or goes.
+    <div data-testid="sidebar-status" className="flex min-h-12 shrink-0 flex-col">
       {first && (
         <StatusRow status={first}>
           {others.length > 0 && <MoreStatuses others={others} />}
@@ -162,7 +164,7 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
       data-testid={status.testId}
       title={full}
       className={`flex shrink-0 gap-2 pr-1 pl-2 text-[13px] leading-5 text-ink-meta ${
-        wraps ? "min-h-7 items-start py-1" : "h-7 items-center"
+        wraps ? "min-h-12 items-start py-1" : "h-12 items-center"
       }`}
     >
       <span aria-hidden="true" className="flex h-5 w-4 shrink-0 items-center justify-center">
@@ -212,7 +214,13 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
         </span>
       )}
       <span className="sr-only">{full}</span>
-      {children}
+      {wraps ? (
+        // "+N" comes and goes: its room is kept in a wrapping row, so the line beside it keeps
+        // its width and the action in it never moves (#763).
+        <span className="flex w-9 shrink-0 justify-end">{children}</span>
+      ) : (
+        children
+      )}
       {action && !wraps && (
         <button
           type="button"
