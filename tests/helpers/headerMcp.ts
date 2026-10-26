@@ -19,17 +19,20 @@ export async function startHeaderMcp(
     endpoint?: string;
     echo?: string;
     structured?: boolean;
+    optionalGetStatus?: 400 | 404 | 405;
   } = {},
 ) {
   const sessions = new Map<string, StreamableHTTPServerTransport | SSEServerTransport>();
   const servers: Server[] = [];
   const requests: { method: string; path: string; authenticated: boolean }[] = [];
   const streams = new Set<ServerResponse>();
+  const optionalGet = Promise.withResolvers<void>();
+  const optionalGetReplied = Promise.withResolvers<void>();
   let toolCalls = 0;
   const makeServer = () => {
     const server = new Server(
       { name: "test-service", version: "1.0.0" },
-      { capabilities: { tools: {} } },
+      { capabilities: { tools: { listChanged: true } } },
     );
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
@@ -75,6 +78,12 @@ export async function startHeaderMcp(
     if (options.redirect) {
       response.writeHead(307, { location: options.redirect });
       response.end();
+      return;
+    }
+    if (!options.legacy && method === "GET" && options.optionalGetStatus) {
+      await optionalGet.promise;
+      response.writeHead(options.optionalGetStatus);
+      response.end("No server-sent stream", () => optionalGetReplied.resolve());
       return;
     }
     if (options.legacy) {
@@ -169,7 +178,18 @@ export async function startHeaderMcp(
     endStreams() {
       for (const response of streams) response.end();
     },
+    async answerOptionalGet() {
+      optionalGet.resolve();
+      await optionalGetReplied.promise;
+    },
+    sendLateResponse() {
+      for (const response of streams)
+        response.write(
+          'event: message\ndata: {"jsonrpc":"2.0","id":"retired-request","result":{}}\n\nevent: message\ndata: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n\n',
+        );
+    },
     async close() {
+      optionalGet.resolve();
       await Promise.all(servers.map((server) => server.close()));
       await new Promise<void>((resolve) => {
         http.close(() => resolve());

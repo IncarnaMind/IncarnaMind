@@ -88,6 +88,7 @@ import {
   OpeningRejectedError,
   remoteError,
   remoteService,
+  remoteStreamEnded,
   remoteTransport,
   signInError,
   signInRemote,
@@ -874,6 +875,7 @@ export function createConnectors(options: ConnectorsOptions) {
         // The call's failure path keeps the sign-in explanation before changing generation.
         if (causedBy(error, HeldBackError) || auth.heldBackCount() > held || needsSignIn(error))
           return;
+        if (!keyRefused && !unreachable && !remoteStreamEnded(error)) return;
         lost(id, runtime, generation, () =>
           remoteError(
             keyRefused
@@ -1412,7 +1414,8 @@ export function createConnectors(options: ConnectorsOptions) {
         const runtime = runtimeOf(row.id);
         await cancelSignIn(runtime);
         stop(row.id);
-        for (const name of config.headers) await secrets.delete(headerSecret(row.id, name));
+        for (const name of config.headers)
+          await secrets.delete(headerSecret(row.id, name)).catch(options.reportError);
         await authOf(row.id, config.url).signOut();
         runtime.signInError = null;
         if (rowById(row.id)?.enabled === 1) waitForSignIn(runtime);

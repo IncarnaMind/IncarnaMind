@@ -48,6 +48,16 @@ async function loadSdk(): Promise<typeof import("./sdk")> {
   return sdk;
 }
 
+export function remoteStreamEnded(error: unknown): boolean {
+  return (
+    (sdk !== null && error instanceof sdk.SseError) ||
+    // The pinned SDK reports exhausted stream retries as a plain Error (#1995).
+    (error instanceof Error &&
+      error.constructor === Error &&
+      /^Maximum reconnection attempts \(\d+\) exceeded\.$/.test(error.message))
+  );
+}
+
 /** A transport to the server that signs its requests with the stored tokens, renewing them as needed. */
 export async function remoteTransport(
   url: string,

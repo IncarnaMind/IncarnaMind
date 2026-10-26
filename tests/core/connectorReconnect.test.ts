@@ -1,5 +1,6 @@
 import { expect, onTestFinished, test, vi } from "vitest";
 import { connectionFetch } from "../../src/core/connectors/remote";
+import { askAndFinish } from "../helpers/citations";
 import { waitForState } from "../helpers/connectors";
 import {
   createMemoryKeychain,
@@ -8,6 +9,8 @@ import {
   startCore,
 } from "../helpers/core";
 import { startHeaderMcp } from "../helpers/headerMcp";
+import { connectToMind } from "../helpers/mindClient";
+import { scriptedModel, scriptedModels } from "../helpers/models";
 
 test("a refused header is never sent again by a stale transport", async () => {
   const fetcher = vi.fn(async () => new Response("refused", { status: 403 }));
@@ -233,3 +236,100 @@ test("two removals queued together both finish and leave no device header values
   expect(await core.listConnectors()).toEqual([]);
   expect([...keychain.secrets.keys()].some((name) => name.includes(":header:"))).toBe(false);
 });
+
+test("signing out still clears later headers and OAuth tokens when one header cannot be deleted", async () => {
+  const server = await startHeaderMcp();
+  onTestFinished(() => server.close());
+  const keychain = createMemoryKeychain();
+  const core = startCore(await createTempDataFolder(), { keychain });
+  const added = await core.addConnector({
+    name: "Tides",
+    url: server.url,
+    headers: { "X-Key": "synthetic-device-key", "X-Tenant": "synthetic-tenant" },
+  });
+  await waitForState(core, added.id, "ready");
+  const failed = new Error("Synthetic device key could not be deleted");
+  const remove = keychain.delete;
+  const deletion = vi.spyOn(keychain, "delete").mockImplementation(async (name) => {
+    if (name.endsWith(":header:x-key")) throw failed;
+    await remove(name);
+  });
+  const report = vi.spyOn(console, "error").mockImplementation(() => {});
+  onTestFinished(() => {
+    deletion.mockRestore();
+    report.mockRestore();
+  });
+  const signedOut = await core.signOutOfConnector(added.id);
+  expect(signedOut).toMatchObject({ state: "needs-sign-in", tools: null });
+  expect(keychain.secrets.has(`connector:${added.id}:header:x-tenant`)).toBe(false);
+  expect(deletion).toHaveBeenCalledWith(`connector:${added.id}:oauth-tokens`);
+  expect(report).toHaveBeenCalledWith(failed);
+});
+
+test.each([
+  { status: 400, header: true },
+  { status: 404, header: true },
+  { status: 405, header: true },
+  { status: 404, header: false },
+] as const)(
+  "a POST-only server stays ready after a late optional GET $status (header: $header)",
+  async ({ status, header }) => {
+    const server = await startHeaderMcp({ optionalGetStatus: status });
+    onTestFinished(() => server.close());
+    const model = scriptedModel((call) =>
+      call.results.length
+        ? { text: "The Tool worked." }
+        : { calls: [{ tool: "tides__lookup", input: {} }] },
+    );
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const errors: string[] = [];
+    core.on("connectors.changed", (list) => {
+      for (const connector of list)
+        if (connector.state === "error") errors.push(connector.error?.kind ?? "unknown");
+    });
+    const added = await core.addConnector({
+      name: "Tides",
+      url: server.url,
+      ...(header ? { headers: { "X-Key": "synthetic-device-key" } } : {}),
+    });
+    await waitForState(core, added.id, "ready");
+    await server.answerOptionalGet();
+    const mind = await core.createMind({ title: "POST-only service" });
+    await askAndFinish(core, await connectToMind(core, mind.id), mind.id, "Look up the tide.");
+    expect(server.toolCalls).toBe(1);
+    expect(errors).toEqual([]);
+    expect((await core.listConnectors()).find((it) => it.id === added.id)?.state).toBe("ready");
+  },
+);
+
+test.each(["http", "sse"] as const)(
+  "a late unknown response id does not disconnect a ready %s server",
+  async (connection) => {
+    const server = await startHeaderMcp({ legacy: connection === "sse" ? true : undefined });
+    onTestFinished(() => server.close());
+    const core = startCore(await createTempDataFolder());
+    const added = await core.addConnector({
+      name: "Tides",
+      url: server.url,
+      connection,
+      headers: { "X-Key": "synthetic-device-key" },
+    });
+    await waitForState(core, added.id, "ready");
+    await vi.waitFor(() => expect(server.activeStreams).toBe(1));
+    const errors: string[] = [];
+    const refreshed = Promise.withResolvers<void>();
+    core.on("connectors.changed", (list) => {
+      for (const connector of list)
+        if (connector.state === "error") errors.push(connector.error?.kind ?? "unknown");
+      if (list.find((connector) => connector.id === added.id)?.state === "ready")
+        refreshed.resolve();
+    });
+    server.sendLateResponse();
+    await refreshed.promise;
+    expect(errors).toEqual([]);
+    expect((await core.listConnectors()).find((it) => it.id === added.id)?.state).toBe("ready");
+  },
+);

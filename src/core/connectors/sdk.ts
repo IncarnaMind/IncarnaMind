@@ -6,7 +6,7 @@
  */
 export { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 export { Client } from "@modelcontextprotocol/sdk/client/index.js";
-export { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+export { SSEClientTransport, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
 export {
   StreamableHTTPClientTransport,
   StreamableHTTPError,
