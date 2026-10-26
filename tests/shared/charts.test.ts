@@ -503,6 +503,162 @@ describe("series of different units (#1392)", () => {
   });
 });
 
+interface Words {
+  head: readonly string[];
+  rows: readonly (readonly string[])[];
+}
+
+const tableChart = (table: Words, language: string): ChartAttributes =>
+  fromTable(
+    [table.head.map(head), ...table.rows.map((row) => row.map((text) => cell(text)))],
+    language,
+  ) as ChartAttributes;
+
+const drawnOf = (chart: ChartAttributes) => chartPoints(chart).map((point) => point.value.value);
+
+const panelUnits = (chart: ChartAttributes) =>
+  unitGroups(chart).map((group) => group.unit?.kind ?? null);
+
+interface SwitchCase {
+  name: string;
+  en: Words;
+  zh: Words;
+  /** What the chart draws as it stands, and each panel's unit. */
+  before: { drawn: number[]; panels: (string | null)[] };
+  /** What the Switch would draw; null when it is refused and nothing changes. */
+  after: { drawn: number[]; panels: (string | null)[] } | null;
+}
+
+const PERCENT_AND_BARE: SwitchCase = {
+  name: "a percent beside a bare number",
+  en: { head: ["Metric", "Margin", "Leverage"], rows: [["Q1", "41.2%", "2.8"]] },
+  zh: { head: ["指标", "毛利率", "杠杆"], rows: [["一季度", "41.2%", "2.8"]] },
+  before: { drawn: [0.412, 2.8], panels: ["percent", null] },
+  after: null,
+};
+
+/**
+ * A Switch is decided on every value a row would draw (#1392): a row whose
+ * numbers don't share one unit refuses it, a bare number counting as its own.
+ * Each case runs in English and Simplified Chinese, the same table and answer.
+ */
+const SWITCH_CASES: readonly SwitchCase[] = [
+  PERCENT_AND_BARE,
+  {
+    name: "bare numbers outnumbering their column's unit",
+    en: {
+      head: ["Metric", "Margin", "Leverage"],
+      rows: [
+        ["Q1", "41.2%", "2.8"],
+        ["Q2", "39.0", "3.1"],
+        ["Q3", "38.1", "3.4"],
+      ],
+    },
+    zh: {
+      head: ["指标", "毛利率", "杠杆"],
+      rows: [
+        ["一季度", "41.2%", "2.8"],
+        ["二季度", "39.0", "3.1"],
+        ["三季度", "38.1", "3.4"],
+      ],
+    },
+    before: { drawn: [0.412, 39, 38.1, 2.8, 3.1, 3.4], panels: ["percent", null] },
+    after: null,
+  },
+  {
+    name: "a percent beside times",
+    en: { head: ["Metric", "Margin", "Leverage"], rows: [["Q1", "41.2%", "2.8 times"]] },
+    zh: { head: ["指标", "毛利率", "杠杆"], rows: [["一季度", "41.2%", "2.8倍"]] },
+    before: { drawn: [0.412, 2.8], panels: ["percent", "times"] },
+    after: null,
+  },
+  {
+    name: "a percent beside percentage points",
+    en: {
+      head: ["Metric", "Margin", "Change"],
+      rows: [["Q1", "41.2%", "2.8 percentage points"]],
+    },
+    zh: {
+      head: ["指标", "毛利率", "变动"],
+      rows: [["一季度", "41.2%", "2.8个百分点"]],
+    },
+    before: { drawn: [0.412, 0.028], panels: ["percent", "points"] },
+    after: null,
+  },
+  {
+    name: "a percent beside a percent",
+    en: {
+      head: ["Metric", "Margin", "Forward margin"],
+      rows: [["Q1", "41.2%", "42.0%"]],
+    },
+    zh: { head: ["指标", "毛利率", "预测毛利率"], rows: [["一季度", "41.2%", "42.0%"]] },
+    before: { drawn: [0.412, 0.42], panels: ["percent"] },
+    after: { drawn: [0.412, 0.42], panels: ["percent"] },
+  },
+  {
+    name: "bare numbers only",
+    en: { head: ["Metric", "Margin", "Leverage"], rows: [["Q1", "2.8", "3.1"]] },
+    zh: { head: ["指标", "毛利率", "杠杆"], rows: [["一季度", "2.8", "3.1"]] },
+    before: { drawn: [2.8, 3.1], panels: [null] },
+    after: { drawn: [2.8, 3.1], panels: [null] },
+  },
+  {
+    name: "one currency in two scales",
+    en: {
+      head: ["Metric", "Revenue", "Cost"],
+      rows: [["Q1", "$289.4 million", "$341.5"]],
+    },
+    zh: { head: ["指标", "营业收入", "成本"], rows: [["一季度", "$289.4 million", "$341.5"]] },
+    before: { drawn: [289_400_000, 341.5], panels: ["currency"] },
+    after: { drawn: [289_400_000, 341.5], panels: ["currency"] },
+  },
+];
+
+for (const { name, en, zh, before, after } of SWITCH_CASES) {
+  for (const [language, table] of [
+    ["en", en],
+    ["zh-CN", zh],
+  ] as const) {
+    test(`${language}: ${name} decides the Switch on every value the row would draw`, () => {
+      const chart = tableChart(table, language);
+      expect(drawnOf(chart)).toEqual(before.drawn);
+      expect(panelUnits(chart)).toEqual(before.panels);
+
+      expect(switchMixesUnits(chart)).toBe(after === null);
+      expect(canSwitch(chart)).toBe(after !== null);
+      expect(switchedChart(chart) === null).toBe(after === null);
+      if (after === null) return;
+
+      const switched = switchedChart(chart);
+      expect(switched).not.toBeNull();
+      if (!switched) return;
+      const afterChart: ChartAttributes = { ...chart, ...switched };
+      expect(drawnOf(afterChart)).toEqual(after.drawn);
+      expect(panelUnits(afterChart)).toEqual(after.panels);
+    });
+  }
+}
+
+for (const [language, table] of [
+  ["en", PERCENT_AND_BARE.en],
+  ["zh-CN", PERCENT_AND_BARE.zh],
+] as const) {
+  test(`${language}: a chart already stored as the mixed series still switches back to one chart per unit`, () => {
+    const chart = tableChart(table, language);
+    const stored: ChartAttributes = {
+      ...chart,
+      data: switchedData(chart.data) as ChartAttributes["data"],
+      source: { kind: "table", blockId: "table-1", switched: true },
+    };
+    expect(canSwitch(stored)).toBe(true);
+    const back = switchedChart(stored);
+    expect(back).not.toBeNull();
+    if (!back) return;
+    expect(drawnOf({ ...stored, ...back })).toEqual([0.412, 2.8]);
+    expect(panelUnits({ ...stored, ...back })).toEqual(["percent", null]);
+  });
+}
+
 const YEARS_BY_METRICS: SourceGrid = [
   [head("Metric"), head("2023"), head("2024"), head("2025")],
   [cell("Revenue", cited(22)), cell("289.4", cited(22)), cell("301.2"), cell("330.6")],

@@ -693,13 +693,25 @@ const switchableData = (chart: Pick<ChartAttributes, "data" | "source">): boolea
   chart.data.cutFrom === null &&
   chart.data.rows.length * chart.data.series.length > 1;
 
+/**
+ * A bare number is its own unit: `unitlessRows` would drop it beside a
+ * column's unit, so a Switch that makes such a series loses it or draws it
+ * on the unit's axis (#1392).
+ */
 function mixesUnits(data: ChartData, series: number): boolean {
-  return seriesUnit(data, series).key.startsWith("mixed:");
+  const keys = new Set<string>();
+  for (const row of data.rows) {
+    const value = row.values[series];
+    if (!value || value.value === null) continue;
+    keys.add(saysUnit(value) ? unitKey(value) : "none");
+  }
+  return keys.size > 1;
 }
 
 /**
- * Whether the Switch would turn a row of mixed units into one series: their
- * values would share one scale, and one unit would hide the other (#1392).
+ * Whether the Switch would turn a row whose numbers don't share one unit
+ * into one series — different units, or a bare number beside a unit: their
+ * values would share one scale, and one would hide the other (#1392).
  */
 export function switchMixesUnits(chart: Pick<ChartAttributes, "data" | "source">): boolean {
   if (!switchableData(chart)) return false;
