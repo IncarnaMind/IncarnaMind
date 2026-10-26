@@ -1,1 +1,2 @@
+*.pdf binary
 tests/fixtures/rotated-scans/*.pdf binary

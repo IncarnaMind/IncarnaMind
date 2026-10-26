@@ -229,11 +229,6 @@ export interface MessageAnchor {
   messageId: string;
 }
 
-export type ReferenceAnchor = BlockAnchor | MessageAnchor;
-
-/** What a reference points into: a Mind, or one of the assistant's conversations (ADR-0017). */
-export type ArtifactKind = "mind" | "conversation";
-
 /**
  * One reference from one artifact to another (ADR-0003, ADR-0017): a Block's
  * origin, or the link back from a Note to the Answer in the conversation it
@@ -2170,8 +2165,6 @@ export interface DeviceSettings {
   sidebarWidth: number;
   /** The User hid the sidebar (the shortcut, the button, View menu, or dragging it shut). Its width is kept. */
   sidebarHidden: boolean;
-  /** The User chose "set up later" on the first-run chat setup screen. */
-  chatSetupDismissed: boolean;
   /** The User dismissed the sidebar's line saying the app runs without its sandbox (#1179). */
   sandboxNoticeDismissed: boolean;
   /** The app has opened on this device before: from its second launch it opens on Home. */
@@ -7065,6 +7058,7 @@ export type ConnectorErrorKind =
   | "stopped"
   /** Remote: its server can't be reached, e.g. no network, or nothing answers at its URL. */
   | "unreachable"
+  | "key-refused"
   /** Anything else, e.g. it doesn't speak MCP. */
   | "failed";
 
@@ -7175,12 +7169,13 @@ export interface RemoteConnectorSignIn {
 }
 
 /**
- * A remote Connector: an MCP server reached by its URL over Streamable HTTP.
- * If it requires a sign-in, the User signs in in their browser (OAuth 2.1
- * with PKCE, as the MCP authorization spec describes).
+ * A remote Connector using Streamable HTTP or older SSE, with device-only
+ * header secrets or browser sign-in (OAuth 2.1 with PKCE).
  */
 export interface RemoteConnector extends ConnectorBase {
   transport: "http";
+  connection?: "http" | "sse";
+  headers?: string[];
   /** Its MCP endpoint, e.g. "https://mcp.example.com/mcp". */
   url: string;
   /**
@@ -7220,6 +7215,8 @@ export interface AddRemoteConnectorInput {
    * "http://127.0.0.1:8000/mcp"). Its sign-in, if any, starts with `signInToConnector`.
    */
   url: string;
+  connection?: "http" | "sse";
+  headers?: Record<string, string>;
   /** Only for a service that can't register IncarnaMind by itself (see `ConnectorClientInput`). */
   client?: ConnectorClientInput;
 }
@@ -7237,8 +7234,7 @@ export type ConnectorSignInResult =
  * - "add": it is added as a Connector;
  * - "exists": a Connector with its name already exists (or the configuration
  *   lists the name twice), so it is skipped;
- * - "remote": it is a remote server IncarnaMind can't connect to: one that
- *   uses the older SSE transport, or needs custom headers;
+ * - "remote": it uses a transport IncarnaMind can't connect to;
  * - "invalid": it has neither a command nor a URL, or its arguments,
  *   environment or URL aren't valid.
  */
@@ -7251,6 +7247,8 @@ export interface ConnectorImportEntry {
   env: string[];
   /** A remote server's URL. Absent for a local one. */
   url?: string;
+  connection?: "http" | "sse";
+  headers?: string[];
   action: "add" | "exists" | "remote" | "invalid";
 }
 
@@ -9969,6 +9967,8 @@ export interface CoreApi {
    * automatically. Either way it signs out first.
    */
   setConnectorClient(connectorId: string, client: ConnectorClientInput | null): Promise<Connector>;
+  /** Replaces device-only header secrets and restarts; an empty map removes them and disconnects. Values are never returned. */
+  setConnectorHeaders(connectorId: string, headers: Record<string, string>): Promise<Connector>;
   /**
    * What importing an `mcpServers` configuration (Claude Desktop's or
    * Cursor's JSON, pasted or read from a file) would add, without adding anything.
@@ -10801,6 +10801,7 @@ const methods: Record<CoreApiMethod, true> = {
   cancelConnectorSignIn: true,
   signOutOfConnector: true,
   setConnectorClient: true,
+  setConnectorHeaders: true,
   previewConnectorImport: true,
   importConnectors: true,
   listConnectorDirectory: true,

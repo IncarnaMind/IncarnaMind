@@ -99,7 +99,7 @@ A number a Calculated figure or an Analysis is worked out from: a number in a Ci
 _Avoid_: argument, variable, source
 
 **Footnote**:
-A note the User writes at a point in the text, shown there by its number; its text can hold Citations. Footnotes and Citations share one numbering, in the order they appear, in the Mind and in every export, where a Citation's footnote is its reference.
+Text the User attaches to a point in the text, shown there by its number; it can hold Citations. Footnotes and Citations share one numbering, in the order they appear, in the Mind and in every export, where a Citation's footnote is its reference.
 _Avoid_: endnote, annotation, comment
 
 **Reference record**:
@@ -147,7 +147,7 @@ The Library's view of what Organize suggested and the User hasn't accepted yet: 
 _Avoid_: inbox, queue, pending
 
 **Source location**:
-The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind.
+The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind; the sidebar lists them as Folders on disk.
 
 **Tag**:
 A label with a short description that a Document can carry. A Document can have many Tags. IncarnaMind applies Tags automatically, and the User can add or remove them.
@@ -294,8 +294,8 @@ _Avoid_: subscription key, membership
 ### Meetings
 
 **Meeting**:
-A conversation the User records with the microphone and the computer's sound, which becomes a Transcript and the Notes written during it.
-_Avoid_: call, recording, session
+A conversation the User records with the microphone and the computer's sound, which becomes a Transcript and the Notes written during it; the help panel beside it is Call help.
+_Avoid_: recording, session
 
 **Transcript**:
 The words of a Meeting, in order and with times, kept as a Document so that a Citation can point at it. Its Location is a range of time.
