@@ -14,6 +14,9 @@ const ANSWER = "Spring tides come at new and full moon[^1].";
 
 const TIDES_MD = ["# Tides", "", SPRING, "", "Neap tides happen at the quarter moons."].join("\n");
 
+/** A model the list beside the catalog names as writing first (#489). */
+const WRITES_THEN_CITES = { answerPaths: { writesThenCites: () => true } };
+
 /** A model that searches, then writes its Answer and calls `cite` in one turn, as Claude Haiku 5.5 does. */
 function writesBesideCite(quotes: string[]) {
   return scriptedModel((call: ModelCall): ScriptedReply => {
@@ -85,9 +88,11 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
         calls: [{ tool: "cite", input: { citations: [record] } }],
       };
     });
-    const { core, client, mind } = await setUpWithDocuments(model, [
-      { name: "Tides.md", contents: TIDES_MD },
-    ]);
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
 
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 
@@ -115,9 +120,11 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
         calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
       };
     });
-    const { core, client, mind } = await setUpWithDocuments(model, [
-      { name: "Tides.md", contents: TIDES_MD },
-    ]);
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
 
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 

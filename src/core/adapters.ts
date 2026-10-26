@@ -28,6 +28,7 @@ import type { WatchFolder } from "./documents/watcher";
 import type { FetchLimits, PageFetch } from "./documents/web/fetch";
 import type { PictureLimits } from "./documents/web/pictures";
 import type { ModelCopies } from "./embedding/modelSources";
+import type { AnswerPathsOverride } from "./providers/catalog/answerPaths";
 import type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 import type { AnthropicOAuthConfig } from "./providers/claudeAccount/config";
 import type { CopilotProfile } from "./providers/copilot/config";
@@ -1050,6 +1051,11 @@ export interface CoreAdapters {
    * Voyage key (an alternative search layer plugs in here). None by default.
    */
   reranker?: Reranker;
+  /**
+   * Which models take the faster Answer paths, instead of the lists beside the catalog
+   * (../providers/catalog/answerPaths). Only tests and the evaluation pass one.
+   */
+  answerPaths?: AnswerPathsOverride;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the

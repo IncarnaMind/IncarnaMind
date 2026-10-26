@@ -8,7 +8,6 @@ import { describe, expect, test } from "vitest";
 import { type Arm, armNamed, armSwitch } from "../../eval/speed/arms";
 import type { ArmRun } from "../../eval/speed/paired";
 import { guards, newFalseSupported, type PairedRow } from "../../eval/speed/pairedReport";
-import { documentInstructions, WRITE_THEN_CITE } from "../../src/core/answers/prompt";
 
 const RUN: ArmRun = {
   status: "done",
@@ -137,69 +136,14 @@ describe("the arm switch", () => {
   });
 });
 
-describe("the cite-first arm", () => {
-  test("gives cite's replies their words of before #489", () => {
-    const sent = armNamed("cite-first").request?.({
-      prompt: [
-        {
-          role: "tool",
-          content: [
-            {
-              type: "tool-result",
-              toolCallId: "c1",
-              toolName: "cite",
-              output: {
-                type: "text",
-                value:
-                  "Recorded [^1]. Your reply has shown no text yet, and your thinking isn't shown: write the whole Answer now, with these markers.",
-              },
-            },
-          ],
-        },
-      ],
+describe("the arms' Answer paths", () => {
+  test("cite-first and write-then-cite decide for every model; today leaves it to the lists", () => {
+    const switcher = armSwitch();
+    const model = { catalogId: "anthropic", modelId: "claude-sonnet-5-5" };
+    const seen = ["cite-first", "write-then-cite", "today"].map((id) => {
+      switcher.use(armNamed(id));
+      return switcher.answerPaths.writesThenCites?.(model);
     });
-    const part = sent?.prompt[0]?.role === "tool" ? sent.prompt[0].content[0] : undefined;
-    expect(part?.type === "tool-result" && part.output).toEqual({
-      type: "text",
-      value: "Recorded [^1]. Write the Answer now if you haven't yet; don't repeat it.",
-    });
-  });
-
-  test("gives a request the Tool loop's citing lines of before #489, in their order", () => {
-    const today = documentInstructions(
-      "tools",
-      { total: 1, names: ["Tides"] },
-      "",
-      false,
-      false,
-      true,
-      true,
-    );
-    const arm = armNamed("cite-first");
-    const sent = arm.request?.({ prompt: [{ role: "system", content: today }] });
-    const system = sent?.prompt[0]?.role === "system" ? sent.prompt[0].content : "";
-    const lines = system.split("\n");
-    const at = (start: string) => lines.findIndex((line) => line.startsWith(start));
-
-    for (const line of WRITE_THEN_CITE) expect(lines).not.toContain(line);
-    expect(system).not.toContain("Text you write into a Mind is the exception");
-    expect(at("- Before writing the Answer, call cite once")).toBe(at("Cite every claim") + 1);
-    expect(at("- Copy each quote as one unbroken")).toBeGreaterThan(at("- Before writing"));
-    expect(lines).toContain(
-      "- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.",
-    );
-    expect(at("- In the Answer, put the marker")).toBeGreaterThan(at("- Use quotation marks"));
-    expect(at("- A Citation shown with an id")).toBeGreaterThan(at("- In the Answer"));
-    expect(at("- Write nothing before your Tool calls")).toBe(
-      at("- A Citation shown with an id") + 1,
-    );
-    expect(system.slice(system.indexOf("- Write nothing before your Tool calls"))).toBe(
-      today
-        .slice(today.indexOf("- Write nothing before a search"))
-        .replace(
-          "- Write nothing before a search: only the Answer, once you have what it needs.",
-          "- Write nothing before your Tool calls: only the Answer, after them.",
-        ),
-    );
+    expect(seen).toEqual([false, true, undefined]);
   });
 });

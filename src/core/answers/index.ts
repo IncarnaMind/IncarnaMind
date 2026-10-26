@@ -523,6 +523,8 @@ export interface AnswersOptions {
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
   ): Promise<PreparedChatModel["model"]>;
+  /** Whether this model writes the Answer, then cites it, in the Tool loop (#489). */
+  writesThenCites?(prepared: PreparedChatModel): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** What an Answer is written in when its Question has no language of its own. */
@@ -2336,6 +2338,7 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
       ];
+      const writeFirst = options.writesThenCites?.(prepared) ?? false;
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -2363,7 +2366,7 @@ export function createAnswers(options: AnswersOptions) {
                   scoped,
                   calculating,
                   withMindTools || ids.size() > 0,
-                  withMindTools,
+                  { writeFirst, minds: withMindTools },
                 ),
             stillReadingNote(options.documents.reading(documentIds)),
             coverageInstructions(
@@ -2427,6 +2430,7 @@ export function createAnswers(options: AnswersOptions) {
         }),
         thirdParty: contextReasons,
         support: startingSupport(prepared.support, supportByModel.get(learntKey)),
+        writeThenCite: writeFirst,
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
         window: prepared.window,

@@ -397,6 +397,8 @@ export interface AnswerRequest {
   thirdParty?: readonly ThirdPartyReason[];
   /** How this model is known to cite, from its capabilities or earlier Answers. Unknown: try Tools first. */
   support?: CitationSupport;
+  /** In the Tool loop, the model writes the Answer, then cites it in the same reply (#489). */
+  writeThenCite?: boolean;
   /** False: the model is known to give no structured output, so it isn't tried. */
   structuredOutput?: boolean;
   /**
@@ -1623,7 +1625,7 @@ async function* toolLoop(
       if (tool === cite) {
         askedForFixes.set(context.toolCallId, asksForFixes(result));
         // Records for text a Mind will hold come first; an Answer's come with its text (#489).
-        if (!writesMinds && !MARKER.test(keptText + stepText)) {
+        if (request.writeThenCite && !writesMinds && !MARKER.test(keptText + stepText)) {
           return result.replace(WRITE_NOW, NOTHING_SHOWN_YET);
         }
       }
