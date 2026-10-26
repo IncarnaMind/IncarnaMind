@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { heldByAnotherCopy } from "../src/main/instanceLock";
 import {
   coreOf,
   createDataFolder,
@@ -32,6 +33,7 @@ interface Entry {
   packaged?: boolean;
   dataHeld?: boolean;
   visibleWindows?: number;
+  windowId?: number;
   args?: string[];
   options?: { message?: string; detail?: string; buttons?: string[]; args?: string[] };
 }
@@ -123,9 +125,24 @@ async function expectOneSavedWindow(ports: number[]) {
   const counts = await Promise.all(ports.map(windowsOf));
   const index = counts.indexOf(1);
   await inCopyWindow(ports[index], async (window) => {
-    await expect(window.locator(".mind-editor")).toContainText(SAVED);
+    await window.getByRole("treeitem", { name: /^Saved before the update/ }).click();
+    await expect(frontMind(window).locator(".mind-editor")).toContainText(SAVED);
     expect(await (await coreOf(window)).evaluate((api) => api.saveChangesAgain())).toBeNull();
   });
+  await expect
+    .poll(async () => {
+      const visible = new Map<string, boolean>();
+      for (const entry of await entries())
+        if (["window-shown", "window-hidden", "window-closed"].includes(entry.kind))
+          visible.set(`${entry.pid}:${entry.windowId}`, entry.kind === "window-shown");
+      return [...visible.values()].filter(Boolean).length;
+    })
+    .toBe(1);
+  expect(
+    heldByAnotherCopy(data, (what, error) => {
+      throw new Error(what, { cause: error });
+    }),
+  ).toBe(true);
 }
 
 test("a pending Squirrel restart preserves a Dock reopen during an ordinary quit", async () => {
@@ -159,13 +176,12 @@ test("an installing update refuses an unrelated start and keeps its own replacem
   await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
   await inCopyWindow(port, (window) => saveTyping(window, "en"));
   await signal("begin");
-  await expect.poll(() => has("native-install-begun")).toBe(true);
+  await expect.poll(() => has("install-quit-held")).toBe(true);
   const contender = start("installing", false, contenderPort, nextPort);
   await expect.poll(() => contender.exitCode, { timeout: 30_000 }).toBe(0);
   expect(await windowsOf(contenderPort)).toBe(0);
   expect((await entries()).filter((entry) => entry.kind === "startup-problem")).toEqual([]);
   expect(old.exitCode).toBeNull();
-  await signal("start-successor");
   if (process.platform === "linux") {
     await expect
       .poll(async () =>

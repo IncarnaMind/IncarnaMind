@@ -46,7 +46,10 @@ childProcess.execFile = (file, args, ...rest) => {
 childProcess.execFile[Symbol.for("nodejs.util.promisify.custom")] =
   execFile[Symbol.for("nodejs.util.promisify.custom")];
 const fromApp = createRequire(
-  join(process.env.INCARNAMIND_PACKAGED_APP ? app.getAppPath() : appFolder, "package.json"),
+  join(
+    process.env.INCARNAMIND_PACKAGED_APP ? join(process.resourcesPath, "app.asar") : appFolder,
+    "package.json",
+  ),
 );
 const { autoUpdater } = fromApp("electron-updater");
 record("start", {
@@ -57,7 +60,10 @@ record("start", {
   successor: process.env.INCARNAMIND_TEST_UPDATE_SUCCESSOR === "1",
 });
 app.on("browser-window-created", (_event, window) => {
-  record("window-created");
+  record("window-created", { windowId: window.id });
+  window.on("show", () => record("window-shown", { windowId: window.id }));
+  window.on("hide", () => record("window-hidden", { windowId: window.id }));
+  window.on("closed", () => record("window-closed", { windowId: window.id }));
   window.webContents.on("did-finish-load", () => {
     window.setContentSize(1280, 660);
     record("window-loaded", { url: window.webContents.getURL() });
@@ -118,21 +124,24 @@ autoUpdater.quitAndInstall = () => {
     nativeUpdater.emit("before-quit-for-update");
     record("native-install-begun", { dataHeld: dataHeld() });
     writeFileSync(join(folder, "installing"), "");
-    afterFile("start-successor", () => {
-      const args = successorArgs();
-      if (process.platform !== "linux") {
-        if (process.platform === "win32") args.push("--updated");
-        app.relaunch({ args });
-        return;
-      }
+    const args = successorArgs();
+    if (process.platform === "linux") {
       const env = {
         ...process.env,
         INCARNAMIND_TEST_UPDATE_SUCCESSOR: "1",
         APPIMAGE_SILENT_INSTALL: "true",
       };
       childProcess.spawn(process.execPath, args, { env, detached: true, stdio: "ignore" }).unref();
+    } else {
+      if (process.platform === "win32") args.push("--updated");
+      app.relaunch({ args });
+    }
+    app.once("quit", () => {
+      record("install-quit-held", { dataHeld: dataHeld() });
+      const pause = new Int32Array(new SharedArrayBuffer(4));
+      while (!existsSync(join(folder, "finish-install"))) Atomics.wait(pause, 0, 0, 5);
     });
-    afterFile("finish-install", () => app.quit());
+    app.quit();
     return;
   }
   if (process.env.INCARNAMIND_TEST_UPDATE_SUCCEEDS === "1") {
@@ -219,3 +228,6 @@ if (scenario === "pending" && first) {
   });
 }
 for (const kind of ["before-quit", "will-quit"]) app.on(kind, () => record(kind));
+app
+  .whenReady()
+  .then(() => record("ready", { appPath: app.getAppPath(), resourcesPath: process.resourcesPath }));
