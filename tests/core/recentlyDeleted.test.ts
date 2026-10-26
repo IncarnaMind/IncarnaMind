@@ -1,7 +1,13 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import type { CitationAttributes, Core, CoreAdapters, Document } from "../../src/core";
+import type {
+  CitationAttributes,
+  Core,
+  CoreAdapters,
+  Document,
+  DocumentGroupAssignment,
+} from "../../src/core";
 import { citationState } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
 import {
@@ -34,6 +40,9 @@ const byId = <T extends { id: string }>(items: readonly T[]) =>
 /** Restoring is a change, so only `updatedAt` may differ from before the delete. */
 const withoutTimes = <T extends { id: string; updatedAt: string }>(items: readonly T[]) =>
   byId(items).map((item) => ({ ...item, updatedAt: "" }));
+
+/** An assignment without the Document's tagging row it was read with: a restore writes that row anew. */
+const withoutTagging = ({ tagging: _tagging, ...item }: DocumentGroupAssignment) => item;
 
 /** A core on a clock that moves only when the test moves it, so each change has its own time. */
 async function start(overrides: Partial<CoreAdapters> = {}, dataDir?: string) {
@@ -80,6 +89,13 @@ const documentOf = async (core: Core, id: string) =>
 
 const assignmentOf = async (core: Core, id: string) =>
   (await core.getLibrary()).assignments.find((each) => each.documentId === id);
+
+/** An assignment as a change carries it: its own fields, without its Document or tagging row. */
+const withoutDocument = ({
+  documentId: _id,
+  tagging: _tagging,
+  ...fields
+}: DocumentGroupAssignment) => fields;
 
 describe("Restoring what was deleted", { timeout: 30_000 }, () => {
   test("Minds come back with their content", async () => {
@@ -137,6 +153,7 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     await core.assignDocumentGroup(document.id, ocean.id);
     const before = { ...(await documentOf(core, document.id)), updatedAt: "" };
     const assignment = await assignmentOf(core, document.id);
+    if (!assignment) throw new Error("No assignment.");
     const file = { bytes: await readFile(path), mtimeMs: (await stat(path)).mtimeMs };
 
     clock.advance(1000);
@@ -161,9 +178,11 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     await core.restore([{ kind: "document", id: document.id }]);
 
     expect((await status).id).toBe(document.id);
-    expect(await assigned).toEqual([assignment]);
+    expect((await assigned).map(withoutTagging)).toEqual([withoutTagging(assignment)]);
     expect({ ...(await documentOf(core, document.id)), updatedAt: "" }).toEqual(before);
-    expect(await assignmentOf(core, document.id)).toEqual(assignment);
+    const restored = await assignmentOf(core, document.id);
+    if (!restored) throw new Error("No assignment.");
+    expect(withoutTagging(restored)).toEqual(withoutTagging(assignment));
     expect(ids(await core.listDocuments({ tagId: paper.id }))).toEqual([document.id]);
     expect((await core.searchPassages("spring tides"))[0]?.documentId).toBe(document.id);
     expect((await core.searchPassages("moon", { mode: "vector" }))[0]?.documentId).toBe(
@@ -231,10 +250,10 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     ]);
 
     expect(
-      (await core.getLibrary()).assignments.toSorted((a, b) =>
-        a.documentId.localeCompare(b.documentId),
-      ),
-    ).toEqual(before);
+      (await core.getLibrary()).assignments
+        .toSorted((a, b) => a.documentId.localeCompare(b.documentId))
+        .map(withoutTagging),
+    ).toEqual(before.map(withoutTagging));
     expect(await assignmentOf(core, tides.id)).toBeUndefined();
   });
 
@@ -479,38 +498,30 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
     const { core, finance, research, suggest } = await startOrganizing();
     const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
     const filed = await suggest(invoice.id, finance.id);
+    if (!filed) throw new Error("No assignment.");
     expect(filed).toMatchObject({ source: "automatic", suggested: true });
-    const invoiceNow = async () =>
-      (await core.listDocuments()).find((each) => each.id === invoice.id);
-    const beforeAssign = await invoiceNow();
-    if (!beforeAssign) throw new Error("The Document is gone.");
-
     const previous = await core.assignDocumentGroup(invoice.id, research.id);
-    expect(previous).toEqual({
-      ...filed,
-      tagging: { status: beforeAssign.tagging, error: beforeAssign.taggingError },
-    });
+    // The assign moved the place alone: its tagging was already up to date, so nothing of it is carried.
+    expect(previous.before.assignment).toEqual(withoutDocument(filed));
+    expect(previous.before.tagging).toBeNull();
+    expect(previous.after.assignment).toMatchObject({ groupId: research.id, source: "user" });
+    expect(previous.after.tagging).toBeNull();
     const assigned = nextEvent(core, "library.assignments");
-    await core.restoreAssignment(invoice.id, previous);
+    await core.restoreAssignment(invoice.id, previous.before, previous.after);
     expect(await assigned).toEqual([filed]);
     expect(await assignmentOf(core, invoice.id)).toEqual(filed);
 
     // The same through a move, as the sidebar's drag and "Move to…" make one.
-    const beforeMove = await invoiceNow();
-    if (!beforeMove) throw new Error("The Document is gone.");
     const move = await core.moveToFolder({ documentIds: [invoice.id], folderId: research.id });
-    expect(move.documents).toEqual([
-      {
-        id: invoice.id,
-        from: finance.id,
-        previous: {
-          ...filed,
-          tagging: { status: beforeMove.tagging, error: beforeMove.taggingError },
-        },
-      },
-    ]);
+    const moved = move.documents[0];
+    if (!moved) throw new Error("Not moved.");
+    expect(moved.from).toBe(finance.id);
+    expect(moved.change.before.assignment).toEqual(withoutDocument(filed));
+    expect(moved.change.before.tagging).toBeNull();
+    expect(moved.change.after.assignment).toMatchObject({ groupId: research.id, source: "user" });
+    expect(moved.change.after.tagging).toBeNull();
     expect(await assignmentOf(core, invoice.id)).toMatchObject({ source: "user" });
-    await core.restoreAssignment(invoice.id, move.documents[0]?.previous ?? null);
+    await core.restoreAssignment(invoice.id, moved.change.before, moved.change.after);
     expect(await assignmentOf(core, invoice.id)).toEqual(filed);
 
     // Still automatic: Organize may file it elsewhere.
@@ -518,8 +529,9 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
 
     // One that had no assignment has none again.
     const budget = await addText(core, "Budget.txt", "The budget for next year.");
-    expect(await core.assignDocumentGroup(budget.id, finance.id)).toBeNull();
-    await core.restoreAssignment(budget.id, null);
+    const first = await core.assignDocumentGroup(budget.id, finance.id);
+    expect(first.before.assignment).toBeNull();
+    await core.restoreAssignment(budget.id, first.before, first.after);
     expect(await assignmentOf(core, budget.id)).toBeUndefined();
   });
 
@@ -530,7 +542,9 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
 
     const move = await core.moveToFolder({ documentIds: [invoice.id], folderId: research.id });
     expect(await assignmentOf(core, invoice.id)).toMatchObject({ suggested: false });
-    await core.restoreAssignment(invoice.id, move.documents[0]?.previous ?? null);
+    const moved = move.documents[0];
+    if (!moved) throw new Error("Not moved.");
+    await core.restoreAssignment(invoice.id, moved.change.before, moved.change.after);
     expect(await assignmentOf(core, invoice.id)).toEqual(suggested);
 
     expect(await core.rejectAssignments([invoice.id])).toHaveLength(1);

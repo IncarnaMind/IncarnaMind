@@ -138,10 +138,7 @@ export interface DocumentGroupAssignment {
   status: ClassificationStatus;
   error: ProviderError | null;
   model: ClassificationModel | null;
-  /**
-   * The Document's own tagging row as it was before the change, for Undo: only on a change's
-   * `before` or a move's `previous`, never on the assignments a Library snapshot lists.
-   */
+  /** The Document's own tagging row as it was, on the assignments a snapshot or event lists and on a move's change. */
   tagging?: DocumentTagging;
 }
 
@@ -150,13 +147,25 @@ export interface DocumentTagging {
   /** As stored; "skipped" is worked out from the Document's status, never stored. */
   status: Exclude<TaggingState, "skipped">;
   error: ProviderError | null;
+  /** When the row last changed: the same state written again is still a newer one. */
+  updatedAt: string;
 }
 
-/** One Document's assignment as `acceptAssignments` or `rejectAssignments` changed it. */
+/**
+ * A Document's place as a change found or left it: its assignment, or none, and the Document's
+ * own tagging row when the change moved it. Undo compares the current rows with `after`.
+ */
+export interface AssignmentState {
+  assignment: Omit<DocumentGroupAssignment, "documentId"> | null;
+  /** Null when the change left the Document's tagging alone. */
+  tagging: DocumentTagging | null;
+}
+
+/** One Document's assignment as a change left it, for Undo: the real rows before and after. */
 export interface AssignmentChange {
-  /** As it was: what undo puts back, with the Document's tagging when the change recorded it. */
-  before: DocumentGroupAssignment;
-  after: DocumentGroupAssignment;
+  documentId: string;
+  before: AssignmentState;
+  after: AssignmentState;
 }
 
 /** Documents added together, by one `addDocuments` or `addLinkedFolder`. */

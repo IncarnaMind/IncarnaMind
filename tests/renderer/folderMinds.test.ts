@@ -194,7 +194,17 @@ describe("moving Minds and Documents", () => {
           { id: "already", from: "finance" },
         ],
         // Documents go back with `restoreAssignment`, each with who chose its Folder.
-        documents: [{ id: "moon", from: "research", previous: null }],
+        documents: [
+          {
+            id: "moon",
+            from: "research",
+            change: {
+              documentId: "moon",
+              before: { assignment: null, tagging: null },
+              after: { assignment: null, tagging: null },
+            },
+          },
+        ],
         conversations: [
           { id: "asked", from: null },
           { id: "here", from: "finance" },

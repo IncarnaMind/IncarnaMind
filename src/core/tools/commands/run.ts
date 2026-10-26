@@ -319,7 +319,7 @@ async function folderNamed(core: CommandsCore, name: string) {
 async function moveBack(core: CommandsCore, move: FolderMove): Promise<void> {
   for (const document of move.documents) {
     if (document.from !== move.folderId) {
-      await core.restoreAssignment(document.id, document.previous);
+      await core.restoreAssignment(document.id, document.change.before, document.change.after);
     }
   }
   const back = new Map<string | null, string[]>();

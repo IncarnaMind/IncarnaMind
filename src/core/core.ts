@@ -4288,7 +4288,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     },
     assignDocumentGroup: async (id, groupId) => library.assign(id, groupId),
-    restoreAssignment: async (id, previous) => library.restoreAssignment(id, previous),
+    restoreAssignment: async (id, before, after) => library.restoreAssignment(id, before, after),
     restore: async (refs) => recentlyDeleted.restore(refs),
     undoCommands: async (run) => commandSteps.undo(run),
     redoCommands: async (run) => commandSteps.redo(run),
