@@ -104,6 +104,18 @@ async function harbourNotes(window: Page) {
 
 const marks = (window: Page) => window.getByTestId("claim-mark");
 
+const mindCheckFinished = (window: Page, claims: number) =>
+  window.waitForFunction((count) => {
+    const card = document.querySelector('[data-testid="check-card"]');
+    const marks = document.querySelectorAll('[data-testid="claim-mark"]');
+    return (
+      card !== null &&
+      marks.length === count &&
+      [...marks].every((mark) => mark.getAttribute("data-check") !== "checking") &&
+      card.querySelector('[data-testid="card-progress"]') === null
+    );
+  }, claims);
+
 /** A model billed per token, whose requests the cost meter counts, with the checks allowed to use it. */
 async function useCloudChatModel(window: Page) {
   await window.evaluate(async () => {
@@ -154,6 +166,7 @@ test("Check this Mind from ⌘K: the estimate first on a cloud model, then every
   await checkCard(window);
   await screenshot(window, "mind-check-ask-en");
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
+  await mindCheckFinished(window, 15);
 
   const health = window.getByTestId("check-card");
   await expect(health.getByTestId("health-checked-all")).toContainText("Checked 15 claims, ");
@@ -196,6 +209,8 @@ test("Check this Mind from ⌘K: the estimate first on a cloud model, then every
   );
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
+  // Every sentence again is offered once that check is done.
+  await expect(marks(window).and(window.locator('[data-check="checking"]'))).toHaveCount(0);
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
   await window.keyboard.type("check every sentence");
@@ -244,6 +259,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await expect(ask).not.toContainText("约");
   await checkCard(window);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
+  await mindCheckFinished(window, 15);
   await expect(health.getByTestId("health-checked-all")).toContainText("已核对 15 条说法，");
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(15);
 
@@ -259,7 +275,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(widen).toHaveCount(0);
   await expect(marks(window)).toHaveCount(15);
-  await expect(health.getByTestId("health-unsupported")).toContainText("11 条无依据");
+  await expect(health.getByTestId("health-unsupported")).toContainText("11 处需要留意");
   await screenshot(window, "mind-check-done-zh-narrow");
 
   // A sentence written since: "核对此 Mind" checks it alone, and the rest stay as they were.

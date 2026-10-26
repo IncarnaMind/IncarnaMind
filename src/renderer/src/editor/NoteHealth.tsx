@@ -25,12 +25,12 @@ import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
+import { type NoteState, unreadForCard } from "../noteState";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
-import { originOf } from "./blockOrigins";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
@@ -40,7 +40,7 @@ import {
   noteHealth,
 } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
-import { CheckedWhen } from "./MindCheckLine";
+import { CheckedWhen, RunningText } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
 import { UncoveredLine } from "./UncoveredLine";
 import { COUNT_IDLE_MS } from "./WordCount";
@@ -51,10 +51,14 @@ const NO_HEALTH: Health = {
   unsupported: [],
   contradicted: [],
   toCheck: [],
+  failed: [],
+  recheck: [],
+  checking: [],
+  kept: [],
   tableCells: [],
-  citable: [],
   noCitation: [],
   checkable: 0,
+  checkedAt: null,
 };
 
 /** A count's words with the number in bold, as the badge shows it: "**3** claims not checked yet". */
@@ -68,6 +72,34 @@ export function Counted({ text, count }: { text: string; count: string }) {
       {text.slice(at + count.length)}
     </>
   );
+}
+
+/**
+ * A part's words, with its count as `shown`. Unsupported sentences "need a look", as Verify counts
+ * them, whether their card says not found or unsupported (#1608).
+ */
+export function partLabel(
+  t: ReturnType<typeof useT>,
+  part: HealthPart | "notChecked",
+  count: number,
+  shown: string,
+): string {
+  const params = { count: shown };
+  switch (part) {
+    case "found":
+      return count === 1 ? t("health.found.one") : t("health.found", params);
+    case "notFound":
+      return count === 1 ? t("health.notFound.one") : t("health.notFound", params);
+    case "unsupported":
+      return count === 1 ? t("health.needLook.one") : t("health.needLook", params);
+    case "toCheck":
+      return t(count === 1 ? "health.toCheck.one" : "health.toCheck", params);
+    case "notChecked":
+      // Verify's own part: the Mind folds a failed check into its sentences to check (#1909).
+      return t("verify.notChecked", params);
+    default:
+      return t(`health.${part}`, params);
+  }
 }
 
 /** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
@@ -108,7 +140,6 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
             citationState(attributes, documents, kept).check,
           skipped,
           kept: keptSpans(editor.state),
-          writtenByAnswer: (blockId) => originOf(editor.state, blockId) !== null,
         }),
       );
     };
@@ -139,17 +170,20 @@ export function HealthCard({
   doc,
   mindId,
   health,
+  state,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   health: Health;
+  state: NoteState | null;
 }) {
   const t = useT();
   const language = useLanguage();
   const place = useCardPlace(mindId);
   const checkedAll = useMindCheckRun(doc);
   const unread = useCheckUnread(editor, doc);
+  const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   const asking = useMindCheck((state) => state.asking[mindId] !== undefined);
   const coverage = useEditorState({
     editor,
@@ -158,6 +192,10 @@ export function HealthCard({
   });
   const runModel = useRunModel(doc);
   const running = useChecks((state) => state.running[mindId]);
+  const [ranHere, setRanHere] = useState(false);
+  useEffect(() => {
+    if (running !== undefined) setRanHere(true);
+  }, [running]);
   const problem = useChecks((state) => state.problems[mindId]);
   const smallModel = useChecks((state) => state.smallModel[mindId] === true);
   const contradictions = useContradictionLine(doc, mindId);
@@ -173,19 +211,7 @@ export function HealthCard({
   );
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
 
-  const label = (part: HealthPart, count: number) => {
-    const shown = { count: format(count) };
-    switch (part) {
-      case "found":
-        return count === 1 ? t("health.found.one") : t("health.found", shown);
-      case "notFound":
-        return count === 1 ? t("health.notFound.one") : t("health.notFound", shown);
-      case "toCheck":
-        return t(count === 1 ? "health.toCheck.one" : "health.toCheck", shown);
-      default:
-        return t(`health.${part}`, shown);
-    }
-  };
+  const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
 
   /**
    * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just
@@ -193,7 +219,7 @@ export function HealthCard({
    * centred by its own position, not its paragraph's, which can be taller than the page, and clear
    * of the fade and the badge at the page's foot.
    */
-  const goToNext = (part: HealthPart) => {
+  const goToNext = (part: HealthPart | "checking") => {
     if (editor.isDestroyed) return;
     const cited = part === "found" || part === "notFound";
     const targets = health[part].map((pos) => (cited ? pos + 1 : pos));
@@ -224,22 +250,27 @@ export function HealthCard({
     testId: "checks-problem-close",
     onClick: () => dismissCheckProblem(mindId),
   };
-  const row = (part: HealthPart) => {
-    const text = label(part, health[part].length);
+  const row = (part: HealthPart | "checking") => {
+    const text =
+      part === "checking"
+        ? t(health.checking.length === 1 ? "health.checking.one" : "health.checking", {
+            count: format(health.checking.length),
+          })
+        : label(part, health[part].length);
     return (
       <button
         key={part}
         type="button"
         data-testid={`health-${part}`}
         data-count={health[part].length}
-        data-part={part}
+        data-part={part === "checking" ? "toCheck" : part}
         className="check-row"
         aria-label={t("health.next", { part: text })}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => goToNext(part)}
       >
         <span className="check-row-mark">
-          <PartMark part={part} />
+          <PartMark part={part === "checking" ? "toCheck" : part} />
         </span>
         <span className="check-row-text">
           <Counted text={text} count={format(health[part].length)} />
@@ -257,7 +288,17 @@ export function HealthCard({
       <div className="check-rows" data-testid="mind-health">
         {rows.map(row)}
         {health.noCitation.length > 0 && row("noCitation")}
+        {/* A claim being checked keeps its row: the card is as tall while a run is on as after
+            it, so nothing under it moves when the run ends (#1312). */}
+        {health.checking.length > 0 && row("checking")}
       </div>
+      {health.kept.length > 0 && (
+        <p data-testid="health-kept" className="mind-health-line">
+          {t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
+            count: format(health.kept.length),
+          })}
+        </p>
+      )}
       {health.tableCells.length > 0 && (
         <p data-testid="health-table-cells" className="mind-health-line">
           {t("health.tableCells", { count: format(health.tableCells.length) })}
@@ -271,9 +312,17 @@ export function HealthCard({
           {t("health.allChecked")}
         </p>
       )}
-      {checkedAll && !running && (
+      {/* One line of note, in one place, from the moment the check starts: the sentence it is
+          on, then when it was checked. Rows above it never move as the run ends (#1312). It
+          stays once a run has started here: a run ends a moment before its record reaches the
+          Mind, and the line must not go in between. */}
+      {(running || checkedAll || ranHere) && (
         <div className="check-card-note">
-          <CheckedWhen run={checkedAll} />
+          {running ? (
+            <RunningText editor={editor} mindId={mindId} testId="card-progress" />
+          ) : (
+            checkedAll && <CheckedWhen run={checkedAll} />
+          )}
         </div>
       )}
       {((smallModel && rows.length > 0) ||
@@ -441,7 +490,11 @@ export function HealthCard({
                 : t(`checks.problem.${problem.kind}`)}
           </ProblemLine>
         )}
-      <UnreadFilesLine files={unread} testId="checks-unread" className="mind-unread" />
+      <UnreadFilesLine
+        files={unreadForCard(unread, narrowUnread, state)}
+        testId="checks-unread"
+        className="mind-unread"
+      />
     </>
   );
 }

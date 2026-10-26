@@ -99,7 +99,7 @@ A number a Calculated figure or an Analysis is worked out from: a number in a Ci
 _Avoid_: argument, variable, source
 
 **Footnote**:
-A note the User writes at a point in the text, shown there by its number; its text can hold Citations. Footnotes and Citations share one numbering, in the order they appear, in the Mind and in every export, where a Citation's footnote is its reference.
+Text the User attaches to a point in the text, shown there by its number; it can hold Citations. Footnotes and Citations share one numbering, in the order they appear, in the Mind and in every export, where a Citation's footnote is its reference.
 _Avoid_: endnote, annotation, comment
 
 **Reference record**:
@@ -147,7 +147,7 @@ The Library's view of what Organize suggested and the User hasn't accepted yet: 
 _Avoid_: inbox, queue, pending
 
 **Source location**:
-The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind.
+The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind; the sidebar lists them as Folders on disk.
 
 **Tag**:
 A label with a short description that a Document can carry. A Document can have many Tags. IncarnaMind applies Tags automatically, and the User can add or remove them.
@@ -244,12 +244,16 @@ A number in an Answer that is neither in a quote of its sentence's Citations nor
 _Avoid_: hallucinated number, unsupported (a claim check's result)
 
 **Quote not found**:
-The result of a Citation check when the Citation's quote, or words its sentence puts in quotation marks, are not in the text at its Location. It says nothing about whether the claim is true. "Not found" is used only for this.
+The result of a Citation check when the Citation's quote, or words its sentence puts in quotation marks, are not in the text at its Location. It says nothing about whether the claim is true. The interface always says what wasn't found: "Quote not found" (未找到引文) on a Citation's card, "1 Citation not found" (1 处引用未找到) in the Note's health. "Not found" alone is a sentence's (Not found).
 _Avoid_: broken, invalid, failed
 
 **Unsupported**:
-The result for a sentence when Check against Documents, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
-_Avoid_: not found, unverified, false
+The result for a sentence when Check against Documents, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. Its card is headed Unsupported when the check found a Passage about the sentence that doesn't back it: one that says something different, states only part of it, or names another party, period or duty. When nothing in the scope is about the sentence, the card is headed Not found instead. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
+_Avoid_: unverified, false
+
+**Not found**:
+The heading of an unsupported sentence's card when nothing in the check's scope is about the sentence, after the check searched a second time with other words: "I didn't find this in “{scope}”" (未在“{scope}”中找到). It is a fact about the search, never a finding that the sentence is wrong. Once the check finds a Passage about the sentence that doesn't back it, the card says Unsupported. The mark is the same amber "!", and the Note's health counts both as need a look. Not the same as Quote not found, which is about a Citation's quote.
+_Avoid_: nothing says this, missing, not in your Documents
 
 **Contradicted**:
 The result for a sentence when Verify or contradiction watch finds a Passage that says the opposite. It is not the same as unsupported, where nothing is found either way.
@@ -294,8 +298,12 @@ _Avoid_: subscription key, membership
 ### Meetings
 
 **Meeting**:
-A conversation the User records with the microphone and the computer's sound, which becomes a Transcript and the Notes written during it.
-_Avoid_: call, recording, session
+A conversation the User records with the microphone and the computer's sound, which becomes a Transcript and the Notes written during it; the help panel beside it is Call help.
+_Avoid_: recording, session
+
+**Voice memo**:
+What the User records alone, with the microphone, to think out loud: recorded and transcribed as a Meeting is, without a call's parts (the computer's sound, Speakers, help during the call). After Stop, the speech is written into a Note as one change: a title line that names the Note, then that speech tidied into paragraphs in the User's own words, nothing added, each citing its time in the Transcript; with no model to tidy it, the Transcript as it is.
+_Avoid_: dictation, voice note, audio note, recording
 
 **Transcript**:
 The words of a Meeting, in order and with times, kept as a Document so that a Citation can point at it. Its Location is a range of time.

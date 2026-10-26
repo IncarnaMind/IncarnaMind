@@ -80,7 +80,9 @@ export function sectionsContext(question: string): QuestionContext {
   return { messages: [{ role: "user", content: `${framing}\n\n${question}` }], question };
 }
 
-const textOf = (node: NodeJSON): string => node.text ?? (node.content ?? []).map(textOf).join("");
+/** A node's plain text: a Citation has none. */
+export const textOf = (node: NodeJSON): string =>
+  node.text ?? (node.content ?? []).map(textOf).join("");
 
 /** The marker a reply's heading is, if it is one: "L3", or a section's. */
 function markerOf(node: NodeJSON): string | null {

@@ -1,8 +1,10 @@
 # Connect your AI agent to IncarnaMind
 
-*Experimental, and hidden in the alpha builds while we decide its future.* [中文版](agents.zh-CN.md)
+Available from the public alpha. Connections stay off until you enable them and approve a pairing. [中文版](agents.zh-CN.md)
 
 If you already use an AI agent, such as Claude, ChatGPT, Codex, Cursor or Antigravity, you can let it search the folders you choose in IncarnaMind and quote them. Every quote it gets from IncarnaMind is checked against your Document, and you can open any of them in IncarnaMind to see it in place.
+
+Agent guides: [Claude Code](claude-code.md), [Codex](codex.md), [Cursor](cursor.md). Each covers connection, shared content and revocation in English and Chinese.
 
 ## Before you start
 
@@ -79,7 +81,7 @@ Your agent passes on what IncarnaMind says, in plain words.
 - **"IncarnaMind isn't open"**: open IncarnaMind, check that **Connect AI agents** is on, then restart the agent or reconnect it to IncarnaMind.
 - **"This agent can't read any Documents yet"**: choose its folders in Settings → Agents → **Folders…**.
 - **"Agents are paused"**: turn off **Keep everything on this computer** in Settings → Privacy.
-- **"This agent isn't connected to IncarnaMind any more"**: it was disconnected. Click **Connect** again.
+- **"This agent is no longer connected"**: it was disconnected. Connect it again in Settings → Agents.
 - **An answer from IncarnaMind takes long**: asking IncarnaMind writes a whole Answer on your own chat model. Some agents stop waiting after a minute; Codex is given two minutes when IncarnaMind sets it up.
 
 ## For technical users

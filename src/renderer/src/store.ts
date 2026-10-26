@@ -219,7 +219,8 @@ export interface AppState extends LayoutSlice {
    * Creates a Mind, in `folderId` if given, else where `filingFolder` says (#1362), and opens it
    * in a new tab after the shown one, in the focused group or `groupId`, with its title focused,
    * or with a Question started in it (with a Search scope, if given). It says nothing and leaves
-   * nothing to undo: ⌘Z stays the editor's own, and Delete takes the Mind back.
+   * nothing to undo: ⌘Z stays the editor's own, and Delete takes the Mind back. Resolves to its
+   * id once it is shown, or null if it wasn't made or the core refused its tab.
    */
   createMind(options?: {
     startQuestion?: boolean;
@@ -233,7 +234,7 @@ export interface AppState extends LayoutSlice {
     groupId?: string;
     /** Runs once it is made and shown, with its id. */
     made?(mindId: string): void;
-  }): Promise<void>;
+  }): Promise<string | null>;
   /**
    * Moves Minds and Documents into a Folder, or out of every Folder (null):
    * shown at once, then as the core has it, with "Moved … · Undo" (and ⌘Z).
@@ -259,8 +260,8 @@ export interface AppState extends LayoutSlice {
   deleteFolder(folderId: string): Promise<void>;
   /** Deletes the Minds, Documents and Folders given, together, with one Undo. */
   deleteSelection(items: readonly ObjectRef[]): Promise<void>;
-  /** Lists a Mind just made and opens it in a new tab after the shown one, in the focused group or `groupId`. */
-  showNewMind(mind: Mind, groupId?: string): Promise<void>;
+  /** Lists a Mind just made and opens it in a new tab after the shown one, in the focused group or `groupId`; false if the core refused it. */
+  showNewMind(mind: Mind, groupId?: string): Promise<boolean>;
   /** Called once the new Mind's text has the focus. */
   bodyFocused(): void;
   /** Starts a Question at the end of the open Mind, or of a new Mind if none is open. */
@@ -278,7 +279,7 @@ export interface AppState extends LayoutSlice {
    * "Start a Mind from this Folder": a new Mind titled as the Library's
    * sheet, whose first Block is a Question with the bridge's Search scope.
    */
-  startMindFrom(bridge: LibraryBridge): Promise<void>;
+  startMindFrom(bridge: LibraryBridge): Promise<string | null>;
   /** Opens the first-run example Mind, making the examples again if they were removed. */
   openExamples(): Promise<void>;
   /** Makes the first-run example again and opens it, with Undo. */
@@ -1012,6 +1013,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     createMind: async (options) => {
+      let made: string | null = null;
       await attempt(async () => {
         const { layout, minds } = get();
         const inFront = minds.find((each) => each.id === currentMindIdOf(layout));
@@ -1029,19 +1031,27 @@ export const useAppStore = create<AppState>()((set, get) => {
             ? { questionToStart: { mindId: mind.id, scope: options.scope ?? null } }
             : { bodyToFocus: mind.id },
         );
-        await get().showNewMind(mind, options?.groupId);
+        if (!(await get().showNewMind(mind, options?.groupId))) {
+          // The core refused the tab: no editor comes to take the focus it was given.
+          if (get().bodyToFocus === mind.id) get().bodyFocused();
+          return;
+        }
+        made = mind.id;
         options?.made?.(mind.id);
       });
+      return made;
     },
 
     showNewMind: async (mind, groupId) => {
       // The "minds.changed" event may have listed it already.
       set((state) => ({ minds: [mind, ...state.minds.filter((each) => each.id !== mind.id)] }));
-      await get().changeLayout({
-        type: "open",
-        item: { kind: "mind", mindId: mind.id },
-        where: { in: "group", ...(groupId && { groupId }) },
-      });
+      return (
+        (await get().changeLayout({
+          type: "open",
+          item: { kind: "mind", mindId: mind.id },
+          where: { in: "group", ...(groupId && { groupId }) },
+        })) !== null
+      );
     },
 
     bodyFocused: () => set({ bodyToFocus: null }),
@@ -1062,7 +1072,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         openMindId: currentMindIdOf(layout),
         exampleMindIds: exampleMindIds(get()),
       });
-      if (!mindId) return get().createMind({ startQuestion: true, scope });
+      if (!mindId) {
+        await get().createMind({ startQuestion: true, scope });
+        return;
+      }
       get().openMind(mindId);
       set({ questionToStart: { mindId, scope } });
     },

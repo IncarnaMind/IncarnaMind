@@ -594,6 +594,7 @@ const NEW_MENU_ROWS: readonly MessageKey[] = [
 const MORE_ROWS: readonly MessageKey[] = [
   "wordImport.command",
   "meetings.record",
+  "memos.record.menu",
   "command.compareDocuments",
   "verify.command",
   "folder.fromStarters",
@@ -607,6 +608,7 @@ const IN_PALETTE: readonly MessageKey[] = [
   "sidebar.plus.linkFolder",
   "wordImport.command",
   "meetings.record",
+  "memos.record",
   "command.compareDocuments",
   "verify.command",
   "library.chooseStarters",

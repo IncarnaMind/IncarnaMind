@@ -16,6 +16,27 @@ function relaunchOptions(extra: string[] = []): RelaunchOptions {
   return { args, ...(appImage && { execPath: appImage }) };
 }
 
+/** The quit guard has committed: a failed installer must not leave that core running (#1448). */
+export function restartAfterFailedUpdate(
+  app: Pick<App, "relaunch" | "exit">,
+  showProblem: () => void,
+  closeCore: () => void,
+): void {
+  try {
+    showProblem();
+  } finally {
+    try {
+      app.relaunch(relaunchOptions([STARTED_AGAIN]));
+    } finally {
+      try {
+        closeCore();
+      } finally {
+        app.exit(0);
+      }
+    }
+  }
+}
+
 /**
  * Wires the quitting copy's side. The returned function is called for each start that reaches this
  * copy: true when the windows are closing for a quit, so the start must not open or show one, and
@@ -50,24 +71,22 @@ export function reopenAfterQuit(
 }
 
 /**
- * For a copy that found the data folder held by another and then got it, because that copy was
- * quitting. On macOS such a copy can take Electron's lock and never get `ready`: it has no window
- * and keeps the lock and the folder, so every later start quits. If `ready` hasn't come in a few
- * seconds, this copy lets go of both and starts again; a copy started again that stalls too shows
- * the problem and quits.
+ * A start that waited for a previous data owner retries a stalled native startup once (#1448).
+ * Its SQLite ownership lasts through actual process exit, including native cleanup.
+ * An ordinary fresh launch with no previous owner is left alone.
  */
 export function startAgainIfStalled(
   app: Pick<App, "whenReady" | "releaseSingleInstanceLock" | "relaunch" | "exit">,
-  letGoOfFolder: () => void,
   showProblem: () => void,
   logger: Pick<Logger, "error">,
+  previousOwner: boolean,
 ): void {
+  if (!previousOwner && !process.argv.includes(STARTED_AGAIN)) return;
   const timer = setTimeout(() => {
     const again = process.argv.includes(STARTED_AGAIN);
     logger.error("app.startStalled", { again });
-    // Electron's lock first: a start that comes in between still finds the folder held, and watches too.
+    // SQLite ownership ends with the process, after Electron's native cleanup (#1448).
     app.releaseSingleInstanceLock();
-    letGoOfFolder();
     try {
       if (again) showProblem();
       else app.relaunch(relaunchOptions([STARTED_AGAIN]));

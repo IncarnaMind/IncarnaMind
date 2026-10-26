@@ -327,6 +327,10 @@ export function serveConnection(
       if (opening.length > AGENT_HANDSHAKE_MAX_BYTES) socket.destroy();
       return;
     }
+    if (end > AGENT_HANDSHAKE_MAX_BYTES) {
+      socket.destroy();
+      return;
+    }
     clearTimeout(timer);
     const line = opening.subarray(0, end).toString("utf8");
     const rest = opening.subarray(end + 1);

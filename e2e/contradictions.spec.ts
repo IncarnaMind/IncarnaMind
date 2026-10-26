@@ -213,9 +213,9 @@ test("A new version of a Document in the Folder has the Mind's cited claims chec
   });
   await expect(line.locator(".claim-wash--contradicted").first()).toBeVisible();
   await expect(window.getByTestId("check-card")).toHaveCount(0);
-  await expect(window.getByTestId("check-badge").locator('[data-part="contradicted"]')).toHaveText(
-    "1",
-  );
+  await expect(
+    window.getByTestId("check-badge").locator('[data-part="contradicted"] .check-badge-words'),
+  ).toHaveText("1 needs a look");
   const checks = await checkCard(window);
   const watched = checks.getByTestId("contradictions-watched");
   await expect(watched).toContainText("After “Office” changed: 1 of 1 cited claims contradicted");

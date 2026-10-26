@@ -12,6 +12,7 @@ import {
   DocumentLineIcon,
   FindSourcesLineIcon,
   FolderLineIcon,
+  MicLineIcon,
   MindLineIcon,
   MoreLineIcon,
   PlusLineIcon,
@@ -51,6 +52,7 @@ const NEW_ITEMS: readonly NewItem[] = [
 const MORE_ITEMS: readonly NewItem[] = [
   { id: "word.import", testId: "plus-import-word", icon: WordIcon },
   { id: "meeting.record", testId: "plus-record-meeting", icon: RecordingLineIcon },
+  { id: "memo.record", testId: "plus-record-memo", icon: MicLineIcon, label: "memos.record.menu" },
   { id: "comparison.start", testId: "plus-compare-documents", icon: TableIcon },
   { id: "verify.document", testId: "plus-verify-document", icon: VerifyLineIcon },
   {
