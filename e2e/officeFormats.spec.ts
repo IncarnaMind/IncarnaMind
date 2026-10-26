@@ -697,16 +697,18 @@ test("a Word file over 500 MB fails as too large to open, in English and Chinese
 
     // Opened, the viewer says why it can't show it.
     const viewer = window.getByTestId("viewer");
+    // Opened, it says why in the same plain words as its row, with the way on (#763).
     await refused.getByTestId("open-document").click();
-    await expect(viewer.getByRole("alert")).toHaveText("Failed: the file is too large to open", {
-      timeout: 30_000,
-    });
+    const tooLarge = viewer.getByRole("alert");
+    await expect(tooLarge).toContainText("This file is too large to open", { timeout: 30_000 });
+    await expect(viewer.getByTestId("viewer-fix-open")).toHaveText("Open in default app");
     await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
         user: { language: "zh-CN" },
       }),
     );
-    await expect(viewer.getByRole("alert")).toHaveText("失败：文件太大，无法打开");
+    await expect(tooLarge).toContainText("这个文件太大，无法打开");
+    await expect(viewer.getByTestId("viewer-fix-open")).toHaveText("用默认应用打开");
     await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
         user: { language: "en" },

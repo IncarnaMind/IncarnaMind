@@ -422,6 +422,14 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   await (await coreOf(window)).evaluate(async (core, file) => core.addDocuments([file]), paper);
   const item = window.getByTestId("document-list-item");
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
+  // Tags are named only once a Tag exists (#1942), so the User gives this one one first.
+  await (await coreOf(window)).evaluate(async (core) => {
+    const [document] = (await core.listDocuments()).filter((each) =>
+      each.name.startsWith("Report"),
+    );
+    const tag = await core.createTag({ name: "Reports", description: "" });
+    if (document) await core.addTagToDocuments([document.id], tag.id);
+  });
   await expect(status.getByTestId("tagging-waiting")).toBeVisible();
   await screenshot(window, "sidebar-tagging-waits", window.getByTestId("sidebar"));
   expect(await layout()).toEqual(before);

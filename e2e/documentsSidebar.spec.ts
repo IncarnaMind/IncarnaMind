@@ -1,6 +1,7 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import type { TestHooks } from "../src/shared/testHooks";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -149,6 +150,13 @@ test("the footer shows the most pressing status, keeps the others a click away, 
   // Once the paper is read, two things to say, whatever the machine's speed: the skipped
   // file first, and tagging, which waits for a model, behind "+1".
   await expect(window.getByTestId("document-list-item")).toHaveAttribute("data-status", "ready");
+  // A Tag of its own: the model it waits for is named only once a Tag exists (#1942).
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [document] = await core.listDocuments();
+    const tag = await core.createTag({ name: "Papers", description: "" });
+    if (document) await core.addTagToDocuments([document.id], tag.id);
+  });
   await expect(status.getByTestId("skipped-files")).toBeVisible();
   const more = status.getByTestId("status-more");
   await expect(more).toHaveText("+1");

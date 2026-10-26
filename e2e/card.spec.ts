@@ -195,7 +195,7 @@ test("the divider in the gap before the card is grabbed with the mouse and moved
   await app.close();
 });
 
-test("the + menu in the sidebar header offers New Mind, Add Documents…, New Folder and More, with the rest under More, by mouse and by keyboard", async () => {
+test("the + menu in the sidebar header offers New Mind, Add Documents…, New Folder, Record a meeting and More, with the rest under More, by mouse and by keyboard", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const plus = window.getByTestId("plus-menu");
@@ -210,7 +210,7 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   await expect(plus).toHaveAccessibleName("New or add");
   await expect(plus).toHaveAttribute("aria-haspopup", "menu");
 
-  // Opened by the mouse, its four rows are menu items, each with its keys, and the first has the focus.
+  // Opened by the mouse, its five rows are menu items, each with its keys, and the first has the focus.
   await window.mouse.move(button.x - 40, button.y + 14);
   await window.mouse.move(button.x + 14, button.y + 14, { steps: 6 });
   await window.mouse.down();
@@ -218,7 +218,13 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   await expect(menu).toBeVisible();
   const items = menu.getByRole("menuitem");
   const add = addFilesLabel("en").replace(/…$/, "…");
-  await expect(items).toHaveText([/New Mind/, new RegExp(add), /New Folder/, /More/]);
+  await expect(items).toHaveText([
+    /New Mind/,
+    new RegExp(add),
+    /New Folder/,
+    /Record a meeting/,
+    /More/,
+  ]);
   const mod = process.platform === "darwin" ? "⌘" : "Ctrl+";
   await expect(items.nth(0)).toContainText(`${mod}T`);
   // The one way in has no key of its own: ⌘O still opens the file picker, and ⌘K finds this.
@@ -228,11 +234,10 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "shell-menu-en.png") });
 
   // More opens beside it as the pointer comes onto it, with the rest.
-  await items.nth(3).hover();
+  await items.nth(4).hover();
   await expect(more).toBeVisible();
   await expect(more.getByRole("menuitem")).toHaveText([
     /Import a Word file…/,
-    /Record a meeting/,
     /Voice memo/,
     /Compare Documents…/,
     /Verify a document…/,
@@ -247,12 +252,12 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   await window.keyboard.press("ArrowDown");
   await expect(items.nth(1)).toBeFocused();
   await window.keyboard.press("End");
-  await expect(items.nth(3)).toBeFocused();
+  await expect(items.nth(4)).toBeFocused();
   await window.keyboard.press("ArrowRight");
   await expect(more.getByRole("menuitem").first()).toBeFocused();
   await window.keyboard.press("ArrowLeft");
   await expect(more).toBeHidden();
-  await expect(items.nth(3)).toBeFocused();
+  await expect(items.nth(4)).toBeFocused();
   await window.keyboard.press("ArrowDown");
   await expect(items.first()).toBeFocused();
   await window.keyboard.press("Escape");
@@ -312,12 +317,12 @@ test("the + menu and the shell speak Chinese too", async () => {
     /新建 Mind/,
     new RegExp(addFilesLabel("zh-CN")),
     /新建文件夹/,
+    /录制会议/,
     /更多/,
   ]);
   await window.getByTestId("plus-more").hover();
   await expect(window.getByRole("menu", { name: "更多" }).getByRole("menuitem")).toHaveText([
     /导入 Word 文件…/,
-    /录制会议/,
     /语音备忘/,
     /对比文档…/,
     /核对文档…/,
