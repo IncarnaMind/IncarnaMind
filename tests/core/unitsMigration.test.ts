@@ -237,14 +237,6 @@ describe("a workbook stamped by an older pipeline", () => {
       await writeSourceFile(sources, "Notes.md", "# Notes\n\nSpring tides.\n"),
     ])) as [Document, Document, Document, Document];
     expect(blank.status).toBe("no-text");
-    const passagesOf = (documentId: string) =>
-      queryDatabase(
-        dataDir,
-        "SELECT id FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY id",
-        [documentId],
-      );
-    const pdfPassages = passagesOf(pdf.id);
-    const notesPassages = passagesOf(notes.id);
     first.close();
 
     // As a database main opened since #2016 left them: stamped 12, with no parts recorded.
@@ -257,6 +249,16 @@ describe("a workbook stamped by an older pipeline", () => {
     }
 
     const second = startCore(dataDir);
+    const waiting = Object.fromEntries(
+      (await second.listDocuments()).map((document) => [document.id, document.status]),
+    );
+    // Only the workbooks are read again; a PDF or Markdown read would be queued too.
+    expect(waiting).toEqual({
+      [book.id]: "queued",
+      [blank.id]: "queued",
+      [pdf.id]: "ready",
+      [notes.id]: "ready",
+    });
     await waitForProcessing(second, [book.id, blank.id]);
     // Both workbooks said what they left out, so both were read again.
     for (const id of [book.id, blank.id]) {
@@ -267,9 +269,6 @@ describe("a workbook stamped by an older pipeline", () => {
       );
       expect(row?.unread_parts).toContain("Q3 raw");
     }
-    // The PDF was not read: its Passages are the ones it had. The Markdown neither.
-    expect(passagesOf(pdf.id)).toEqual(pdfPassages);
-    expect(passagesOf(notes.id)).toEqual(notesPassages);
     // All say this pipeline's version now, so a later start reads none of them again.
     expect(
       queryDatabase<{ processing_version: number }>(
