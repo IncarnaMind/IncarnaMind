@@ -3,7 +3,7 @@ import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
 import { Selection } from "@tiptap/pm/state";
 import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from "@tiptap/react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
@@ -63,7 +63,7 @@ import { FootnoteArea } from "../editor/FootnoteArea";
 import { FootnotePopover } from "../editor/FootnotePopover";
 import { type FootnoteLabel, footnoteView } from "../editor/FootnoteView";
 import { FindInMind } from "../editor/findInMind";
-import { FootnoteKeys } from "../editor/footnoteSchema";
+import { FootnoteKeys, focusNow } from "../editor/footnoteSchema";
 import { HeldSelection } from "../editor/heldSelection";
 import { LinkBubble } from "../editor/LinkBubble";
 import { ListKeys } from "../editor/listKeys";
@@ -122,6 +122,7 @@ import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPlaceOf } from "../mindWriting";
+import { takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
@@ -643,10 +644,24 @@ function MindEditorView({
     });
   }, [editor, mindId]);
 
-  // A Mind just made: its text has the cursor, under its title when it starts with one (#908).
+  // A Mind made with ⌘T: the keys typed while it was being drawn go in first, and its text has the
+  // focus before the first frame shows it, so a fast typist loses nothing and sees no unfocused page (#2000).
   const bodyHere = useAppStore((state) => state.bodyToFocus === mindId);
-  useEffect(() => {
+  const tookTypedKeys = useRef(false);
+  useLayoutEffect(() => {
     if (!bodyHere || editor.isDestroyed) return;
+    const typed = takeNewMindKeys();
+    if (typed === null) return;
+    tookTypedKeys.current = true;
+    editor.commands.focus("end");
+    if (typed) editor.view.dispatch(editor.state.tr.insertText(typed));
+    focusNow(editor);
+    useAppStore.getState().bodyFocused();
+  }, [bodyHere, editor]);
+
+  // A Mind just made: its text has the cursor, under its title when it starts with one (#908).
+  useEffect(() => {
+    if (!bodyHere || editor.isDestroyed || tookTypedKeys.current) return;
     editor.commands.focus("end");
     useAppStore.getState().bodyFocused();
   }, [bodyHere, editor]);

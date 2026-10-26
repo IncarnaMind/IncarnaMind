@@ -648,6 +648,12 @@ export async function newMind(
   await expect(first).toHaveJSProperty("tagName", "P");
 }
 
+/** Makes a Mind with ⌘T and types into it with nothing in between, as a fast typist's hands do (#2000). */
+export async function newMindAndType(window: Page, typed: string): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+t");
+  await window.keyboard.type(typed);
+}
+
 /** Runs a command from ⌘K by its label, as the User types and clicks it. */
 export async function runFromPalette(window: Page, label: string): Promise<void> {
   await window.keyboard.press("ControlOrMeta+k");
@@ -2087,6 +2093,37 @@ export async function enterContent(window: Page): Promise<void> {
 export async function focusSettled(window: Page, editor: Locator): Promise<void> {
   await expect(editor).toBeFocused();
   await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 20)));
+}
+
+/**
+ * Arms a check that the Mind made next shows with its text already focused: when an editor
+ * that wasn't there appears, it reads where the focus is. `newEditorShownFocused` reads what
+ * it saw.
+ */
+export async function watchNewEditorFocus(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const state: { focused: boolean | null } = { focused: null };
+    (window as unknown as { newEditorFocus?: typeof state }).newEditorFocus = state;
+    const known = new WeakSet<Element>(document.querySelectorAll('[data-testid="mind-editor"]'));
+    const observer = new MutationObserver(() => {
+      const fresh = [...document.querySelectorAll('[data-testid="mind-editor"]')].some(
+        (each) => !known.has(each),
+      );
+      if (!fresh) return;
+      observer.disconnect();
+      state.focused = document.activeElement?.closest('[data-testid="mind-editor"]') !== null;
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
+/** Whether the new Mind's text had the focus as its editor first showed; null until it has shown. */
+export function newEditorShownFocused(window: Page): Promise<boolean | null> {
+  return window.evaluate(
+    () =>
+      (window as unknown as { newEditorFocus?: { focused: boolean | null } }).newEditorFocus
+        ?.focused ?? null,
+  );
 }
 
 /** The words of the sentences the User keeps as their own view, in the Mind's order. */

@@ -14,6 +14,7 @@ import { useHistory } from "../history";
 import { startSkillFromMind } from "../makeSkill";
 import { showCheckCard, startCheckThisMind, startMindCheck } from "../mindCheck";
 import { useMindTools } from "../mindTools";
+import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
 import { citationStepOpen } from "../nudges";
 import { useReferenceImport } from "../referenceImport";
 import { useAppStore } from "../store";
@@ -105,7 +106,12 @@ const appCommands: readonly Command[] = [
     group: "main",
     top: 20,
     reversible: true,
-    run: () => useAppStore.getState().createMind({ titled: true }),
+    run: async () => {
+      holdNewMindKeys();
+      await useAppStore.getState().createMind({ titled: true });
+      // A Mind that wasn't made has no text to put the keys in.
+      if (useAppStore.getState().bodyToFocus === null) forgetNewMindKeys();
+    },
   },
   {
     id: "home.open",
