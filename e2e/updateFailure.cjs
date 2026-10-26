@@ -192,6 +192,7 @@ autoUpdater.quitAndInstall = () => {
     record("install", { dataHeld: dataHeld() });
     writeFileSync(join(folder, "installing"), "");
     launchSuccessor(process.platform === "linux" || delay > 0);
+    nativeUpdater.emit("before-quit-for-update");
     app.quit();
     return;
   }
