@@ -117,18 +117,28 @@ export class InstanceOwner {
   ready(onStart: (start: SecondStart) => boolean): void {
     this.onStart = onStart;
     this.phase = "ready";
-    this.publish();
+    this.publishState();
     this.receive();
   }
 
   quitting(prevented = false): void {
-    this.phase = prevented ? "ready" : "quitting";
-    this.publish();
+    const next = prevented ? "ready" : "quitting";
+    if (this.phase === next) return;
+    this.phase = next;
+    this.publishState();
     if (prevented) this.receive();
   }
 
   private publish(): void {
     writeJson(join(this.folder, "instance-info.json"), { ...this.identity, phase: this.phase });
+  }
+
+  private publishState(): void {
+    try {
+      this.publish();
+    } catch (error) {
+      this.report("app.instanceStateFailed", error);
+    }
   }
 
   private receive(): void {

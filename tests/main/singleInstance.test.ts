@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,6 +52,7 @@ function start(folder: string, mode = "owner", wait = 10000) {
   const child = spawn(process.execPath, [bundle, mode, folder, String(wait)], { stdio: "pipe" });
   children.push(child);
   const messages: Record<string, unknown>[] = [];
+  const errors: string[] = [];
   let pending = "";
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => {
@@ -64,9 +65,12 @@ function start(folder: string, mode = "owner", wait = 10000) {
       if (isRecord(value)) messages.push(value);
     }
   });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => errors.push(chunk));
   child.stderr.pipe(process.stderr);
   return {
     child,
+    errors,
     messages,
     async message(kind: string) {
       await vi.waitFor(() => expect(messages.some((row) => row.kind === kind)).toBe(true));
@@ -153,6 +157,24 @@ test("a quitting owner keeps SQLite until its actual exit, then the waiting star
   expect(await next.done()).toBe(0);
   expect(await next.message("owner")).toMatchObject({ previousOwner: true });
   expect(owner.messages.some((message) => message.kind === "received")).toBe(false);
+});
+
+test("a failed state-file write cannot interrupt quitting or release the data gate", async () => {
+  const folder = await tempFolder();
+  const owner = start(folder);
+  await owner.message("owner");
+  const file = join(folder, "instance-info.json");
+  await rm(file);
+  await mkdir(file);
+  owner.child.stdin.write("quitting\n");
+  await owner.message("quitting");
+  expect(owner.child.exitCode).toBeNull();
+  expect(
+    heldByAnotherCopy(folder, (what, error) => {
+      throw new Error(what, { cause: error });
+    }),
+  ).toBe(true);
+  await vi.waitFor(() => expect(owner.errors.join("")).toContain("app.instanceStateFailed"));
 });
 
 test.each(["pid", "startedAt"])(
