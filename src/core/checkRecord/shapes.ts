@@ -9,6 +9,7 @@ const SHAPES: Readonly<Record<RecordItem["result"], string>> = {
   found: CHECK,
   supported: `${CHECK}<path d="M26 6v8M22 10h8"/>`,
   unsupported: BANG,
+  notFound: BANG,
   "not-found": BANG,
   contradicted: '<path d="M6 9.5h12M6 14.5h12M15 5l-6 14"/>',
   "cant-check": '<path d="M7 12h10"/>',

@@ -749,6 +749,34 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     };
   }
 
+  function inputRecord(read: ReadInput, number: FormulaInput & { reading: Reading }): FigureInput {
+    return {
+      name: read.given.name,
+      label: read.given.label,
+      citation: read.quoted.citation,
+      number: {
+        chars: read.figure.chars,
+        at: read.figure.start,
+        value: number.value,
+        scale: number.scale,
+        scaleWord: number.scaleWord,
+        unit: number.unit,
+        decimals: number.decimals,
+        approximate: number.approximate,
+        reading: read.chosen,
+      },
+      cell: read.cell,
+      unitStatement: read.unit
+        ? {
+            citation: read.unit.quoted.citation,
+            scale: read.unit.stated.scale,
+            scaleWord: read.unit.stated.scaleWord,
+            currency: read.unit.stated.unit.kind === "currency" ? read.unit.stated.unit.code : null,
+          }
+        : null,
+    };
+  }
+
   const sameValue = (a: FormulaResult["value"], b: FormulaResult["value"]) =>
     typeof a === "number" && typeof b === "number"
       ? Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b))
@@ -841,35 +869,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const figure: CalculatedFigure = {
       label: given.label,
       formula: given.formula,
-      inputs: reads.map((read, index): FigureInput => {
-        const number = inputs[index] as FormulaInput & { reading: Reading };
-        return {
-          name: read.given.name,
-          label: read.given.label,
-          citation: read.quoted.citation,
-          number: {
-            chars: read.figure.chars,
-            at: read.figure.start,
-            value: number.value,
-            scale: number.scale,
-            scaleWord: number.scaleWord,
-            unit: number.unit,
-            decimals: number.decimals,
-            approximate: number.approximate,
-            reading: read.chosen,
-          },
-          cell: read.cell,
-          unitStatement: read.unit
-            ? {
-                citation: read.unit.quoted.citation,
-                scale: read.unit.stated.scale,
-                scaleWord: read.unit.stated.scaleWord,
-                currency:
-                  read.unit.stated.unit.kind === "currency" ? read.unit.stated.unit.code : null,
-              }
-            : null,
-        };
-      }),
+      inputs: reads.map((read, index) =>
+        inputRecord(read, inputs[index] as FormulaInput & { reading: Reading }),
+      ),
       value: result.value,
       unit: result.unit,
       approximate: result.approximate,
@@ -920,6 +922,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         problems.push("A figure needs a marker number (1, 2, …) that is in the Answer as [=n].");
         continue;
       }
+      if (recorded.get(marker)?.figure.analysis !== undefined) {
+        problems.push(
+          `[=${marker}] belongs to an Analysis. Keep that marker for its result; choose a new marker for this calculation.`,
+        );
+        continue;
+      }
       const outcome = work(given, marker);
       if ("problems" in outcome) {
         problems.push(...outcome.problems);
@@ -967,6 +975,42 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
   return {
     calculate,
+
+    /**
+     * A number in a quote, read as an input of `calculate` is, for an
+     * Analysis (#447): checked now, as the Analysis runs on it now. A number
+     * with no unit of its own where its page states one needs that line as
+     * `unitQuote`: alone, its scale always matters.
+     */
+    number(raw: unknown): { input: FigureInput } | { problem: string } {
+      const read = readInput(givenInput(raw));
+      if (typeof read === "string") return { problem: read };
+      if (read.candidate && !read.unit) {
+        return {
+          problem: `${read.figure.chars} has no unit, and ${read.where} says "${read.candidate.statement}"; give that line as unitQuote.`,
+        };
+      }
+      const input = inputRecord(read, numberOf(read, read.unit?.stated ?? null));
+      const unit = input.unitStatement;
+      return {
+        input: {
+          ...input,
+          citation: { ...input.citation, ...read.quoted.check() },
+          unitStatement:
+            unit && read.unit
+              ? { ...unit, citation: { ...unit.citation, ...read.unit.quoted.check() } }
+              : unit,
+        },
+      };
+    },
+
+    /** Records a figure an Analysis gave (#447) under the next marker no figure has: that marker. */
+    record(figure: CalculatedFigure): number {
+      const marker = Math.max(0, ...recorded.keys()) + 1;
+      recorded.set(marker, { figure, note: "", signAsked: false, quotes: [] });
+      options.onRecord?.(marker, figure);
+      return marker;
+    },
 
     /** The figures given in structured output that couldn't be worked out, by marker. */
     problems(): FigureProblem[] {
