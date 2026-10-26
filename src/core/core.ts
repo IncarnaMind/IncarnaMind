@@ -3364,7 +3364,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!version) return [];
       const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
       const covering = (page: number) =>
-        passages.find(
+        passages.filter(
           (passage) =>
             passage.pageFrom !== null &&
             passage.pageTo !== null &&
@@ -3374,11 +3374,15 @@ export function createCore(adapters: CoreAdapters): Core {
       const cues: MemoCue[] = [];
       for (const unit of documents.pageTexts(documentId, version, null, null)) {
         if (unit.page === null) continue;
-        const passage = covering(unit.page);
-        if (!passage) continue;
+        const candidates = covering(unit.page);
+        const [first] = candidates;
+        if (!first) continue;
         for (const anchor of unit.anchors ?? []) {
+          const text = unit.text.slice(anchor.start, anchor.end);
+          // A Passage's pages can cover the Unit while its text holds only part of it (#2031).
+          const passage = candidates.find((each) => each.text.includes(text)) ?? first;
           cues.push({
-            text: unit.text.slice(anchor.start, anchor.end),
+            text,
             passageId: passage.passageId,
             page: unit.page,
             at: { start: anchor.start, end: anchor.end },
