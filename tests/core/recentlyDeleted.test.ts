@@ -175,6 +175,101 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
     expect((await stat(path)).mtimeMs).toBe(file.mtimeMs);
   });
 
+  test("a Document restored outside any Folder comes back with no Organize assignment to wait for (#1433)", async () => {
+    const { core, clock } = await start();
+    const tides = await addText(core, "Tides.txt", "Spring tides follow the new moon.");
+    // A Folder for Organize to file into: without one it claims nothing.
+    await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    expect(await assignmentOf(core, tides.id)).toBeUndefined();
+
+    clock.advance(1000);
+    await core.deleteDocument(tides.id);
+    clock.advance(1000);
+    await core.restore([{ kind: "document", id: tides.id }]);
+
+    expect(await assignmentOf(core, tides.id)).toBeUndefined();
+    expect((await core.getLibrary()).assignments).toEqual([]);
+  });
+
+  test("a Document restored outside any Folder has no assignment again, and ones in a Folder or with a suggestion keep theirs whole (#1433)", async () => {
+    const fake = classifierModel();
+    const { core, clock } = await start({ createChatModel: () => fake.model });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    // Added before any Folder exists, so none is filed or waits.
+    const tides = await addText(core, "Tides.txt", "Spring tides follow the new moon.");
+    const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
+    const paper = await addText(core, "Paper.txt", "A paper about tides.");
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    const research = await core.createLibraryGroup({ name: "Research", description: "Papers." });
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "classifier" } },
+      automatic: true,
+    });
+    await core.assignDocumentGroup(invoice.id, finance.id);
+    fake.choose(research.id);
+    await core.classifyDocuments([paper.id]);
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, paper.id)).toMatchObject({
+        groupId: research.id,
+        source: "automatic",
+        suggested: true,
+        status: "classified",
+      }),
+    );
+    const before = (await core.getLibrary()).assignments.toSorted((a, b) =>
+      a.documentId.localeCompare(b.documentId),
+    );
+    expect(before).toHaveLength(2);
+
+    clock.advance(1000);
+    await core.deleteDocuments([tides.id, invoice.id, paper.id]);
+    clock.advance(1000);
+    await core.restore([
+      { kind: "document", id: tides.id },
+      { kind: "document", id: invoice.id },
+      { kind: "document", id: paper.id },
+    ]);
+
+    expect(
+      (await core.getLibrary()).assignments.toSorted((a, b) =>
+        a.documentId.localeCompare(b.documentId),
+      ),
+    ).toEqual(before);
+    expect(await assignmentOf(core, tides.id)).toBeUndefined();
+  });
+
+  test("a Document waiting for Organize when it was deleted goes on once it is back (#1433)", async () => {
+    const fake = classifierModel();
+    const { core, clock } = await start({ createChatModel: () => fake.model });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    // No Organize model yet: the new Document waits for one.
+    const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({
+        groupId: null,
+        status: "waiting",
+      }),
+    );
+
+    clock.advance(1000);
+    await core.deleteDocument(invoice.id);
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "classifier" } },
+      automatic: true,
+    });
+
+    clock.advance(1000);
+    await core.restore([{ kind: "document", id: invoice.id }]);
+    await vi.waitFor(async () =>
+      expect(await assignmentOf(core, invoice.id)).toMatchObject({
+        groupId: finance.id,
+        suggested: true,
+        status: "classified",
+      }),
+    );
+  });
+
   test("a Document in a Linked folder comes back, and the next scan keeps it", async () => {
     const { core, clock } = await start();
     const folder = await createSourceFolder();
