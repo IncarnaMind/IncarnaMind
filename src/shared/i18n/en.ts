@@ -3603,6 +3603,7 @@ export const en = {
   "export.parts.last": " and ",
   "export.commented": "{list}, as comments",
   "export.commented.contradicted": "{count} Contradicted",
+  "export.commented.notFound": "{count} Not found",
   "export.commented.unsupported": "{count} Unsupported",
   "export.commented.recheck": "{count} Needs re-check",
   "export.tracked.one": "1 change waiting, as tracked changes",
@@ -3610,6 +3611,7 @@ export const en = {
   "export.unmarked.one": "{list} sentence went out unmarked",
   "export.unmarked.other": "{list} sentences went out unmarked",
   "export.unmarked.contradicted": "{count} Contradicted",
+  "export.unmarked.notFound": "{count} Not found",
   "export.unmarked.unsupported": "{count} Unsupported",
   "export.unmarked.recheck": "{count} Needs re-check",
   "export.unmarked.word": "Export as Word instead",
@@ -3659,8 +3661,8 @@ export const en = {
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
   "export.comment.sentence.unsupported.reason": "Unsupported: {reason}",
   "export.comment.sentence.unsupported.plain": "Unsupported by your Documents.",
-  "export.comment.sentence.unsupported": "Not found: I didn’t find this in “{scope}”.",
-  "export.comment.sentence.unsupported.more":
+  "export.comment.sentence.notFound": "Not found: I didn’t find this in “{scope}”.",
+  "export.comment.sentence.notFound.more":
     "Not found: I didn’t find this in “{scope}” or {count} more.",
   "export.comment.sentence.citedCaseUnchecked": "Cited case not checked: not in the Documents.",
   "export.comment.sentence.ownWorkings": "Unsupported: only your own working file says this.",

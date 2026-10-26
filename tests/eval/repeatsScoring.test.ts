@@ -118,7 +118,7 @@ describe("the repeated checks", () => {
     expect(summary).toMatchObject({
       repeats: 3,
       falseSupported: 1,
-      absentOnStated: 1,
+      unsupportedOnStated: 1,
       partlyOnAbsent: 0,
     });
     expect(summary?.disagreeing).toBe(2);
@@ -132,6 +132,16 @@ describe("the repeated checks", () => {
       [3, "notice"],
       [3, "car"],
     ]);
+  });
+
+  test("count a stated sentence that comes back Unsupported with the Not found ones", () => {
+    const [summary] = summarise([
+      row(1, "notice", "absent"),
+      row(2, "notice", "unsupported"),
+      row(3, "notice", "partly"),
+    ]);
+    expect(summary?.unsupportedOnStated).toBe(2);
+    expect(summary?.misses).toHaveLength(3);
   });
 
   test("expect the partly-supported card for a general word for the agreement's term", () => {
@@ -155,7 +165,7 @@ describe("the repeated checks", () => {
     const [summary] = summarise(rows);
     expect(summary?.known).toHaveLength(4);
     expect(summary?.misses).toEqual([]);
-    expect(summary?.absentOnStated).toBe(0);
+    expect(summary?.unsupportedOnStated).toBe(0);
   });
 
   test("count a genuine conflict Supported as a false Supported, and a known miss apart", () => {

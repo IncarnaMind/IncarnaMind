@@ -422,7 +422,7 @@ describe("sentences whose check isn't good", () => {
     const plain = await core.exportMind(id, { format: "docx", commentFailedChecks: false });
     const markdown = await core.exportMind(id, { format: "markdown" });
 
-    const counts = { contradicted: 1, unsupported: 1, needsRecheck: 1 };
+    const counts = { contradicted: 1, notFound: 1, unsupported: 0, needsRecheck: 1 };
     expect(commented.sentenceChecks).toEqual({ ...counts, commented: true });
     expect(plain.sentenceChecks).toEqual({ ...counts, commented: false });
     expect(markdown.sentenceChecks).toEqual({ ...counts, commented: false });
@@ -452,6 +452,7 @@ describe("sentences whose check isn't good", () => {
 
     expect(exported.sentenceChecks).toEqual({
       contradicted: 0,
+      notFound: 0,
       unsupported: 0,
       needsRecheck: 0,
       commented: true,

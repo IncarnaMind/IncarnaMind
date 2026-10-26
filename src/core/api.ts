@@ -7894,6 +7894,8 @@ export interface MindExportPreview {
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
 export interface SentenceChecksExported {
   contradicted: number;
+  /** Nothing in its scope was about it, as its card says (`saysNotFound`): its comment says Not found. */
+  notFound: number;
   unsupported: number;
   needsRecheck: number;
   /** They went into the file as comments: a Word file, with `commentFailedChecks` on. Otherwise they went out unmarked. */

@@ -64,8 +64,8 @@ export interface GroupSummary {
   sentences: SentenceSummary[];
   /** Supported, for a sentence its Documents don't state. */
   falseSupported: number;
-  /** Absent, for a sentence its Documents state. */
-  absentOnStated: number;
+  /** Not found or Unsupported, for a sentence its Documents state. */
+  unsupportedOnStated: number;
   /** The partly-supported card, for a sentence whose topic no Document is about. */
   partlyOnAbsent: number;
   /** Repeats whose verdicts differ from the one before on any sentence, of those that follow one. */
@@ -165,8 +165,10 @@ export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
       ).length,
       partlyOnAbsent: group.filter((row) => row.kind === "absent" && row.outcome === "partly")
         .length,
-      absentOnStated: group.filter((row) => STATED.has(row.expected) && row.outcome === "absent")
-        .length,
+      unsupportedOnStated: group.filter(
+        (row) =>
+          STATED.has(row.expected) && (row.outcome === "absent" || row.outcome === "unsupported"),
+      ).length,
       disagreeing: pairs.filter(([before, after]) => verdictsIn(before) !== verdictsIn(after))
         .length,
       followed: pairs.length,
@@ -225,7 +227,7 @@ export function report(
       ),
       "",
       `- False Supported: ${group.falseSupported}`,
-      `- Absent, for a sentence they state: ${group.absentOnStated}`,
+      `- Not found or Unsupported, for a sentence they state: ${group.unsupportedOnStated}`,
       `- The partly-supported card, for a sentence whose topic they don't hold: ${group.partlyOnAbsent}`,
       `- Checks whose verdicts differ from the one before: ${group.disagreeing} of ${group.followed}`,
       ...(group.conflicts

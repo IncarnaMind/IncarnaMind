@@ -789,7 +789,8 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
 
     expect(result.sentenceChecks).toEqual({
       contradicted: 1,
-      unsupported: 1,
+      notFound: 1,
+      unsupported: 0,
       needsRecheck: 0,
       commented: true,
     });
@@ -860,7 +861,11 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
       const comments = textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
 
-      expect(result.sentenceChecks).toMatchObject({ unsupported: 2, commented: true });
+      expect(result.sentenceChecks).toMatchObject({
+        unsupported: 1,
+        notFound: 1,
+        commented: true,
+      });
       expect(comments).toContain(covers);
       expect(comments).toContain(nothing);
     },
