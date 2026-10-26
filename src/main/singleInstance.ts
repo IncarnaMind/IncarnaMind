@@ -1,22 +1,19 @@
 import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  watch,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readdirSync, renameSync, watch } from "node:fs";
 import { join } from "node:path";
 import { isRecord } from "../core/errors";
-import { type InstanceLock, lockInstance } from "./instanceLock";
+import {
+  type Identity,
+  identity,
+  missing,
+  readJson,
+  remove,
+  same,
+  writeJson,
+} from "./instanceFiles";
+import { heldByAnotherCopy, type InstanceLock, lockInstance } from "./instanceLock";
 import { type InstancePhase, InstanceProgress } from "./instanceProgress";
-
-interface Identity {
-  pid: number;
-  startedAt: string;
-}
+import { completeUpdate, updateAccess } from "./instanceUpdate";
 
 export interface SecondStart {
   args: string[];
@@ -26,50 +23,6 @@ export interface SecondStart {
 type Report = (what: string, error: unknown) => void;
 const startedAt = new Date(Date.now() - process.uptime() * 1_000).toISOString();
 const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
-const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
-
-function readJson(file: string): unknown {
-  try {
-    return JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    if (missing(error)) return null;
-    throw error;
-  }
-}
-
-function writeJson(file: string, value: unknown): void {
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 });
-    renameSync(temporary, file);
-  } finally {
-    remove(temporary);
-  }
-}
-
-function remove(file: string): void {
-  try {
-    unlinkSync(file);
-  } catch (error) {
-    if (!missing(error)) throw error;
-  }
-}
-
-function identity(value: unknown): value is Identity {
-  return (
-    isRecord(value) &&
-    typeof value.pid === "number" &&
-    Number.isSafeInteger(value.pid) &&
-    value.pid > 0 &&
-    typeof value.startedAt === "string" &&
-    Number.isFinite(Date.parse(value.startedAt))
-  );
-}
-
-function same(one: Identity, other: Identity): boolean {
-  return one.pid === other.pid && one.startedAt === other.startedAt;
-}
-
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -103,6 +56,7 @@ export class InstanceOwner {
     private readonly lock: InstanceLock,
     private readonly report: Report,
     readonly previousOwner: boolean,
+    private readonly acceptedUpdate?: string,
   ) {
     this.requests = join(folder, "instance-requests");
     mkdirSync(this.requests, { recursive: true, mode: 0o700 });
@@ -128,6 +82,14 @@ export class InstanceOwner {
     this.onStart = onStart;
     this.phase = "ready";
     this.publishState();
+    if (this.acceptedUpdate) {
+      try {
+        if (!completeUpdate(this.folder, this.acceptedUpdate))
+          throw new Error("The accepted update handoff changed before startup completed.");
+      } catch (error) {
+        this.report("app.updateHandoffCleanupFailed", error);
+      }
+    }
     this.receive();
   }
 
@@ -206,6 +168,7 @@ export type Instance =
   | { kind: "owner"; owner: InstanceOwner }
   | { kind: "forwarded" }
   | { kind: "installing" }
+  | { kind: "update"; currentVersion: string; targetVersion?: string }
   | { kind: "busy"; phase: InstancePhase | null };
 
 /** SQLite owns the folder until process exit; PID/start-time-bound requests never take Electron's lock. */
@@ -213,7 +176,11 @@ export function acquireInstance(
   folder: string,
   input: SecondStart,
   report: Report,
-  { waitMs = 10_000, updateRelaunch = false } = {},
+  {
+    waitMs = 10_000,
+    currentVersion = "0.0.0",
+    recoveryId,
+  }: { waitMs?: number; currentVersion?: string; recoveryId?: string } = {},
 ): Instance {
   const id = randomUUID();
   const requests = join(folder, "instance-requests");
@@ -226,6 +193,24 @@ export function acquireInstance(
   try {
     if (Buffer.byteLength(JSON.stringify(input)) > 32_768) return { kind: "busy", phase };
     for (;;) {
+      const update = updateAccess(folder, currentVersion, recoveryId);
+      if (update.kind === "invalid") return { kind: "update", currentVersion };
+      if (update.kind === "blocked") {
+        const info = readJson(join(folder, "instance-info.json"));
+        if (
+          identity(info) &&
+          same(info, update.record.owner) &&
+          alive(info.pid) &&
+          heldByAnotherCopy(folder, report)
+        )
+          return update.record.reopens || update.record.status === "failed"
+            ? { kind: "installing" }
+            : { kind: "busy", phase: "installing" };
+        if (update.record.status === "failed" || waiting.expired(performance.now()))
+          return { kind: "update", currentVersion, targetVersion: update.record.targetVersion };
+        pause();
+        continue;
+      }
       const reply = readJson(replyFile);
       if (
         sentTo &&
@@ -245,8 +230,30 @@ export function acquireInstance(
         { giveUpAfterMs: 0 },
       );
       if (failed) return { kind: "busy", phase };
-      if (lock.held)
-        return { kind: "owner", owner: new InstanceOwner(folder, lock, report, previousOwner) };
+      if (lock.held) {
+        // The installer can publish its target after our first read, before its owner exits (#2022).
+        let confirmed: ReturnType<typeof updateAccess>;
+        try {
+          confirmed = updateAccess(folder, currentVersion, recoveryId);
+        } catch (error) {
+          lock.release();
+          throw error;
+        }
+        if (confirmed.kind === "blocked" || confirmed.kind === "invalid") {
+          lock.release();
+          continue;
+        }
+        return {
+          kind: "owner",
+          owner: new InstanceOwner(
+            folder,
+            lock,
+            report,
+            previousOwner,
+            confirmed.kind === "allowed" ? confirmed.id : undefined,
+          ),
+        };
+      }
       const info = readJson(join(folder, "instance-info.json"));
       if (identity(info) && alive(info.pid)) {
         previousOwner = true;
@@ -258,8 +265,6 @@ export function acquireInstance(
             info.phase === "installing"
               ? info.phase
               : null;
-          if (phase === "installing" && !updateRelaunch)
-            return info.reopens === true ? { kind: "installing" } : { kind: "busy", phase };
           if (phase) {
             waiting.observe(
               `${info.pid}:${info.startedAt}`,

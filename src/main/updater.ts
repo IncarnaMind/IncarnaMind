@@ -66,20 +66,32 @@ export function startAutoUpdates(
   settleQuit: () => Promise<boolean>,
   installFailed: (error: unknown, language: Language) => void,
   installStarted: (reopens: boolean) => void,
+  prepareInstall: (targetVersion: string, reopens: boolean) => void,
 ): void {
   if (!app.isPackaged) return;
   let installReopens = false;
+  let preparedReopens: boolean | undefined;
+  const prepare = (version: string, reopens: boolean): boolean => {
+    if (preparedReopens !== undefined) return false;
+    prepareInstall(version, reopens);
+    preparedReopens = reopens;
+    return true;
+  };
   const beginInstall = (reopens = true) => {
     if (installing && (!reopens || installReopens)) return;
     installing = true;
     installReopens = reopens;
     installStarted(reopens);
   };
-  nativeUpdater.on("before-quit-for-update", () => beginInstall());
-  checkForUpdates(core, settleQuit, installFailed, beginInstall).catch((error: unknown) => {
-    // Offline, rate-limited, or no release yet: the next start tries again.
-    console.warn("The update check failed:", error);
+  nativeUpdater.on("before-quit-for-update", () => {
+    if (preparedReopens !== undefined) beginInstall(preparedReopens);
   });
+  checkForUpdates(core, settleQuit, installFailed, beginInstall, prepare).catch(
+    (error: unknown) => {
+      // Offline, rate-limited, or no release yet: the next start tries again.
+      console.warn("The update check failed:", error);
+    },
+  );
 }
 
 async function checkForUpdates(
@@ -87,18 +99,35 @@ async function checkForUpdates(
   settleQuit: () => Promise<boolean>,
   installFailed: (error: unknown, language: Language) => void,
   beginInstall: (reopens?: boolean) => void,
+  prepare: (version: string, reopens: boolean) => boolean,
 ): Promise<void> {
   if (!(await core.getPrivacySettings()).automaticUpdateChecks) return;
   const { autoUpdater } = await import("./autoUpdater");
   updaterOnQuit = autoUpdater;
-  let downloaded = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  let downloaded: { version: string; language: Language } | undefined;
+  let failureHandled = false;
+  const failed = (error: unknown, language: Language) => {
+    if (failureHandled) return;
+    failureHandled = true;
+    autoUpdater.autoInstallOnAppQuit = false;
+    beginInstall();
+    installFailed(error, language);
+  };
   app.on("quit", () => {
-    if (downloaded && autoUpdater.autoInstallOnAppQuit && !reopening) beginInstall(false);
+    const update = downloaded;
+    if (!update || !autoUpdater.autoInstallOnAppQuit || reopening) return;
+    try {
+      if (prepare(update.version, false)) {
+        beginInstall(false);
+        autoUpdater.once("error", (error: unknown) => failed(error, update.language));
+      }
+    } catch (error) {
+      failed(error, update.language);
+    }
   });
   const installable = await canInstallUpdates();
   autoUpdater.autoDownload = installable;
-  autoUpdater.autoInstallOnAppQuit = installable && !reopening;
-
   const preparing = process.platform === "darwin" && installable ? nativePreparation() : null;
   try {
     // Null when the updater is inactive, e.g. on Linux outside an AppImage and a .deb.
@@ -123,29 +152,22 @@ async function checkForUpdates(
         }
       }),
     ]);
-    downloaded = true;
     const { language } = await core.getSettings();
+    downloaded = { version, language };
+    autoUpdater.autoInstallOnAppQuit = !reopening;
     if (await ask(language, "ready", version)) {
       await restartToInstall(
         {
           quitAndInstall() {
-            // Squirrel may only subscribe to a later download here; its native event starts the install.
-            if (process.platform !== "darwin") beginInstall();
-            let failureHandled = false;
-            const failed = (error: unknown) => {
-              if (failureHandled) return;
-              failureHandled = true;
-              beginInstall();
-              autoUpdater.autoInstallOnAppQuit = false;
-              installFailed(error, language);
-            };
-            autoUpdater.once("error", failed);
+            const onError = (error: unknown) => failed(error, language);
             try {
+              prepare(version, true);
+              if (process.platform !== "darwin") beginInstall();
+              autoUpdater.once("error", onError);
               autoUpdater.quitAndInstall();
             } catch (error) {
-              autoUpdater.removeListener("error", failed);
-              if (failureHandled) throw error;
-              failed(error);
+              autoUpdater.removeListener("error", onError);
+              failed(error, language);
             }
           },
         },

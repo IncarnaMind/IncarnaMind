@@ -29,6 +29,13 @@ import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
 import { serveFileActions } from "./files";
+import {
+  failUpdate,
+  prepareUpdate,
+  type UpdateHandoff,
+  updateAccess,
+  updateRecoveryId,
+} from "./instanceUpdate";
 import { handle } from "./ipc";
 import { startLogging } from "./logging";
 import { isCaptureWindow } from "./meetings/capture";
@@ -38,8 +45,19 @@ import { installAppMenu } from "./menu";
 import { createSystemNotifications } from "./notifications";
 import { chooseExecutor, createElectronAdapters, homeFolder, systemBrowser } from "./platform";
 import { acquireInstance } from "./singleInstance";
-import { reopenAfterQuit, restartAfterFailedUpdate, startAgainIfStalled } from "./startDuringQuit";
-import { DOWNLOAD_BUTTON, RELEASES_PAGE, startupDialog, startupProblem } from "./startupError";
+import {
+  exitAfterFailedUpdate,
+  reopenAfterQuit,
+  restartAfterFailedUpdate,
+  startAgainIfStalled,
+} from "./startDuringQuit";
+import {
+  DOWNLOAD_BUTTON,
+  RELEASES_PAGE,
+  startupDialog,
+  startupProblem,
+  updateStartupDialog,
+} from "./startupError";
 import { realHomeProblem } from "./testHome";
 import { reportFullScreen, titleBarOptions } from "./titleBar";
 import { guardQuit } from "./unsavedChanges";
@@ -66,18 +84,25 @@ const logger = startLogging(app.getPath("userData"));
 
 const reportLock = (what: string, error: unknown) => logger.exception(what, error);
 const systemLanguage = () => resolveLanguage("system", app.getPreferredSystemLanguages());
-const updateRelaunch =
-  process.argv.includes("--updated") ||
-  (process.platform === "linux" && process.env.APPIMAGE_SILENT_INSTALL === "true");
 delete process.env.APPIMAGE_SILENT_INSTALL;
 const instance = acquireInstance(
   app.getPath("userData"),
   { args: process.argv, cwd: process.cwd() },
   reportLock,
-  { updateRelaunch },
+  { currentVersion: app.getVersion(), recoveryId: updateRecoveryId(process.argv) },
 );
 const ownsDataFolder = instance.kind === "owner";
-if (instance.kind === "busy") {
+if (instance.kind === "update") {
+  app.whenReady().then(async () => {
+    try {
+      await showUpdateProblem(systemLanguage(), instance.currentVersion, instance.targetVersion);
+    } catch (error) {
+      logger.exception("app.updateProblemFailed", error);
+    } finally {
+      app.exit(0);
+    }
+  });
+} else if (instance.kind === "busy") {
   logger.error("app.dataFolderBusy", { folder: app.getPath("userData") });
   // Before `ready`, Linux writes an error box to stderr and shows nothing (#1493).
   app.whenReady().then(() => {
@@ -164,6 +189,11 @@ async function testTaskKinds(): Promise<TaskKind[]> {
 }
 
 let core: Core | undefined;
+let startupComplete = false;
+let instanceReady = false;
+let closingForUpdate = false;
+let onReadyToUse: (() => void) | undefined;
+const shownWindows = new WeakSet<BrowserWindow>();
 
 /** The app's windows: not the hidden one that records a Meeting's audio, nor the floating panel. */
 const appWindows = () =>
@@ -176,6 +206,7 @@ const listeningWindows = () =>
   BrowserWindow.getAllWindows().filter((window) => !isCaptureWindow(window));
 
 function showFront(): void {
+  if (closingForUpdate) return;
   const [front] = appWindows();
   if (!front) {
     // Before the core is there, the start in progress makes the first window itself.
@@ -189,12 +220,26 @@ function showFront(): void {
 }
 
 const secondLaunch = () => {
+  if (closingForUpdate) return false;
   const waits = startWaitsForQuit();
   logger.info("app.secondLaunch", { quitting: waits });
   if (!waits) showFront();
   return !waits;
 };
 app.on("second-instance", secondLaunch);
+
+function finishStartup(): void {
+  if (
+    !startupComplete ||
+    instanceReady ||
+    closingForUpdate ||
+    !appWindows().some((window) => shownWindows.has(window))
+  )
+    return;
+  instanceReady = true;
+  if (instance.kind === "owner") instance.owner.ready(secondLaunch);
+  onReadyToUse?.();
+}
 
 function isFromOurRenderer(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
   const url = event.senderFrame?.url ?? "";
@@ -215,6 +260,7 @@ function exposeCore(core: Core): void {
   core.onAnyEvent((name, payload) => {
     // An outside agent asked to show a Citation (#351): the app comes in front to show it, in
     // a new window once loaded if none is open.
+    if (name === "agents.citationShown" && closingForUpdate) return;
     if (name === "agents.citationShown" && appWindows().length === 0) {
       const window = createWindow();
       window.webContents.once("did-finish-load", () =>
@@ -257,8 +303,11 @@ function createWindow(): BrowserWindow {
     },
   });
   window.once("ready-to-show", () => {
+    if (closingForUpdate) return;
     if (place.maximized) window.maximize();
     window.show();
+    shownWindows.add(window);
+    finishStartup();
   });
   keepWindowPlace(window, dataDir);
   reportFullScreen(window);
@@ -327,6 +376,20 @@ async function showStartupError(error: unknown): Promise<void> {
   }
 }
 
+async function showUpdateProblem(
+  language: Language,
+  currentVersion?: string,
+  targetVersion?: string,
+): Promise<void> {
+  const options = updateStartupDialog(language, currentVersion, targetVersion);
+  const { response } = await dialog.showMessageBox({ type: "error", ...options });
+  if (response === DOWNLOAD_BUTTON) {
+    await systemBrowser.open(RELEASES_PAGE).catch((error: unknown) => {
+      logger.exception("app.updateDownloadFailed", error);
+    });
+  }
+}
+
 app.whenReady().then(async () => {
   if (!ownsDataFolder) return;
   if (instance.kind === "owner") instance.owner.starting();
@@ -364,7 +427,6 @@ app.whenReady().then(async () => {
   );
   if (instance.kind === "owner") {
     app.on("before-quit", (event) => instance.owner.quitting(event.defaultPrevented));
-    instance.owner.ready(secondLaunch);
   }
   if (taskKinds.length > 0) {
     const started = core;
@@ -390,11 +452,35 @@ app.whenReady().then(async () => {
   servePermissionGuide({ rendererUrl, appWindows, trusted: isFromOurRenderer, testHooks });
   installMenuInLanguage(core);
   // Only a packaged app checks for updates; the smoke tests must never reach GitHub.
-  if (!testHooks) {
+  const startedCore = core;
+  onReadyToUse = () => {
+    if (testHooks) return;
+    let handoff: UpdateHandoff | undefined;
     startAutoUpdates(
-      core,
+      startedCore,
       settleQuit,
       (error, language) => {
+        closingForUpdate = true;
+        let recoveryId: string | undefined;
+        try {
+          if (handoff) {
+            if (!failUpdate(app.getPath("userData"), handoff.id))
+              throw new Error("The failed install no longer owns its update handoff.");
+            recoveryId = handoff.id;
+          } else if (updateAccess(app.getPath("userData"), app.getVersion()).kind !== "empty") {
+            throw new Error("The failed install could not confirm its update handoff.");
+          }
+        } catch (recoveryError) {
+          logger.exception("app.updateRecoveryFailed", recoveryError);
+          logger.exception("app.updateInstallFailed", error);
+          for (const window of BrowserWindow.getAllWindows()) window.hide();
+          void showUpdateProblem(language, app.getVersion(), handoff?.targetVersion)
+            .catch((problemError: unknown) =>
+              logger.exception("app.updateProblemFailed", problemError),
+            )
+            .finally(() => exitAfterFailedUpdate(app, () => core?.close(), null));
+          return;
+        }
         restartAfterFailedUpdate(
           app,
           () => {
@@ -412,21 +498,36 @@ app.whenReady().then(async () => {
             });
           },
           () => core?.close(),
+          recoveryId,
         );
       },
       (reopens) => {
+        closingForUpdate = true;
         if (instance.kind === "owner") instance.owner.installing(reopens);
       },
+      (version, reopens) => {
+        if (instance.kind !== "owner")
+          throw new Error("Only the data owner can install an update.");
+        handoff = prepareUpdate(
+          app.getPath("userData"),
+          instance.owner.identity,
+          app.getVersion(),
+          version,
+          reopens,
+        );
+      },
     );
-  }
+  };
 
   app.on("activate", () => {
-    if (!startWaitsForQuit() && appWindows().length === 0) createWindow();
+    if (!closingForUpdate && !startWaitsForQuit() && appWindows().length === 0) createWindow();
   });
 
   // A Meeting saves what it has before the computer sleeps, and records again when it wakes.
   powerMonitor.on("suspend", () => core?.systemSleeping());
   powerMonitor.on("resume", () => core?.systemAwake());
+  startupComplete = true;
+  finishStartup();
 });
 
 // Electron would answer a site's request with the first certificate in the system's store: on

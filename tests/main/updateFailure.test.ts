@@ -84,6 +84,7 @@ test("the real quit guard keeps SQLite ownership through the install attempt", a
       guardQuit(core, () => null),
       failed,
       vi.fn(),
+      vi.fn(),
     );
     await installed.promise;
     expect(settled).toHaveBeenCalledOnce();
@@ -163,6 +164,7 @@ test.each(["throws", "emits", "emits then throws"] as const)(
           );
         },
         vi.fn(),
+        vi.fn(),
       );
       await exited.promise;
       expect(settled).toHaveBeenCalledOnce();
@@ -211,6 +213,7 @@ test("Keep open with real refused writes retains ownership and never starts the 
         return quits;
       },
       failed,
+      vi.fn(),
       vi.fn(),
     );
     expect(await settled.promise).toBe(false);

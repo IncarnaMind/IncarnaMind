@@ -3616,6 +3616,15 @@ export const zhCN = {
   "error.startup.starting": "另一个副本尚未完成启动。请稍候，再重新打开 IncarnaMind。",
   "error.startup.quitting": "另一个副本尚未退出。请等待它退出，再重新打开 IncarnaMind。",
   "error.startup.installing": "正在安装更新。请等待安装完成，再重新打开 IncarnaMind。",
+  "error.startup.update.title": "需要安装最新版本",
+  "error.startup.update.body":
+    "更新到 {new} 可能没有完成。当前版本是 {old}，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
+  "error.startup.update.withCurrent":
+    "更新可能没有完成。当前版本是 {old}，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
+  "error.startup.update.withTarget":
+    "更新到 {new} 可能没有完成。当前版本不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
+  "error.startup.update.unknown":
+    "更新可能没有完成。当前版本不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
   "error.startup.stalled":
     "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。",
   "error.startup.newer.title": "更新 IncarnaMind 才能打开你的数据",

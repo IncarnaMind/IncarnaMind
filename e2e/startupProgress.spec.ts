@@ -29,6 +29,9 @@ test.beforeEach(async () => {
   port = await freePort();
 });
 test.afterEach(async () => {
+  const path = test.info().outputPath("startup-events.json");
+  await writeFile(path, JSON.stringify(await events(), null, 2));
+  await test.info().attach("startup-events", { path, contentType: "application/json" });
   killCopies(tag);
   await expect.poll(() => copiesWith(tag, true)).toEqual([]);
   await removeDataFolder(data);
@@ -81,27 +84,57 @@ async function done(child: ChildProcess): Promise<void> {
   expect(child.exitCode).toBe(0);
 }
 
+function visibleCount(recorded: Record<string, unknown>[], pid: number): number {
+  const windows = new Map<number, boolean>();
+  for (const event of recorded) {
+    if (event.pid !== pid || typeof event.windowId !== "number") continue;
+    if (event.kind === "window-closed") windows.set(event.windowId, false);
+    else if (event.kind === "window-visibility" && typeof event.visible === "boolean")
+      windows.set(event.windowId, event.visible);
+  }
+  return [...windows.values()].filter(Boolean).length;
+}
+
+async function ownerPid(): Promise<number> {
+  const owner: unknown = JSON.parse(await readFile(join(data, "instance-info.json"), "utf8"));
+  if (!isRecord(owner) || typeof owner.pid !== "number")
+    throw new Error("The startup fixture has no owner process.");
+  return owner.pid;
+}
+
 async function ownerWindow(): Promise<void> {
   await expect.poll(() => windowsOf(port)).toBe(1);
+  const pid = await ownerPid();
+  await expect.poll(async () => visibleCount(await events(), pid)).toBe(1);
+  expect(
+    heldByAnotherCopy(data, (what, error) => {
+      throw new Error(what, { cause: error });
+    }),
+  ).toBe(true);
   await inCopyWindow(port, async (window) => {
     await dismissChatSetup(window);
     expect(await window.getByTestId("plus-menu").isVisible()).toBe(true);
+    const native = (await events()).findLast(
+      (event) => event.kind === "window" && event.pid === pid,
+    );
+    if (!native || !isRecord(native.bounds))
+      throw new Error("The startup fixture recorded no native window bounds.");
+    const viewport = await window.evaluate(() => ({
+      width: globalThis.innerWidth,
+      height: globalThis.innerHeight,
+    }));
+    expect(viewport.width).toBe(native.bounds.width);
+    expect(viewport.height).toBeGreaterThan(0);
+    expect(viewport.height).toBeLessThanOrEqual(Number(native.bounds.height));
   });
-  await expect
-    .poll(async () => {
-      const owner: unknown = JSON.parse(await readFile(join(data, "instance-info.json"), "utf8"));
-      if (!isRecord(owner)) return false;
-      return (await events()).some(
-        (event) => event.kind === "shown" && event.pid === owner.pid && event.visible === true,
-      );
-    })
-    .toBe(true);
   if (process.env.INCARNAMIND_PACKAGED_APP) {
     const starts = (await events()).filter((event) => event.kind === "start");
     expect(starts.length).toBeGreaterThan(0);
     for (const event of starts) {
       expect(event.packaged).toBe(true);
-      expect(String(event.appPath).replaceAll("\\", "/")).toMatch(/\/resources\/app\.asar$/);
+      expect(String(event.appPath).replaceAll("\\", "/").toLowerCase()).toMatch(
+        /\/resources\/app\.asar$/,
+      );
     }
   }
 }
@@ -128,7 +161,7 @@ test("a lost request-watch event still brings the existing window forward", asyn
   );
   expect(recorded.slice(hiddenAt + 1)).toContainEqual(
     expect.objectContaining({
-      kind: "shown",
+      kind: "window-visibility",
       pid: owner.pid,
       visible: true,
     }),

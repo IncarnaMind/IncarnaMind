@@ -1,6 +1,7 @@
 const { appendFileSync, existsSync, watch } = require("node:fs");
 const { join } = require("node:path");
 const { app, BrowserWindow, dialog } = require("electron");
+const { createVisibilitySampler } = require("./lifecycleVisibility.cjs");
 
 const folder = process.env.INCARNAMIND_TEST_STARTUP_DIR;
 if (!folder) throw new Error("A lifecycle fixture folder is required.");
@@ -18,6 +19,13 @@ record("start", {
   appPath: app.getAppPath(),
   executable: process.execPath,
 });
+const sampleVisibility = createVisibilitySampler(BrowserWindow, record);
+app.whenReady().then(() => {
+  sampleVisibility();
+  setImmediate(sampleVisibility);
+  setInterval(sampleVisibility, 250).unref();
+});
+
 app.getPreferredSystemLanguages = () => [process.env.INCARNAMIND_TEST_STARTUP_LANGUAGE || "en"];
 dialog.showErrorBox = (title, content) =>
   record("problem", {
@@ -27,8 +35,14 @@ dialog.showErrorBox = (title, content) =>
   });
 app.on("browser-window-created", (_event, window) => {
   window.setContentSize(1280, 660);
-  window.once("ready-to-show", () => record("window", { bounds: window.getContentBounds() }));
-  window.on("show", () => record("shown", { visible: window.isVisible() }));
+  window.once("ready-to-show", () => {
+    record("window", { windowId: window.id, bounds: window.getContentBounds() });
+    setImmediate(sampleVisibility);
+  });
+  window.on("closed", () => {
+    record("window-closed", { windowId: window.id });
+    setImmediate(sampleVisibility);
+  });
 });
 
 let hidden = false;
@@ -37,6 +51,7 @@ watch(folder, () => {
   hidden = true;
   for (const window of BrowserWindow.getAllWindows()) window.hide();
   record("hidden");
+  sampleVisibility();
 }).unref();
 
 if (mode === "slow") {
