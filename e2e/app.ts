@@ -2797,10 +2797,19 @@ async function closeOrKill(app: ElectronApplication): Promise<void> {
 }
 
 /**
+ * The one main-process error a test-driven app may log and go on: Node 24's timer internals
+ * (Electron's bundled Node) throw it whatever the test does, so no spec could pass while it is
+ * not exempt. Delete this when #1244 is fixed.
+ */
+const KNOWN_RUNTIME_UNCAUGHT = "timer._onTimeout is not a function";
+
+/**
  * Removes a data folder, after closing an app the test left open on it. If
  * the test failed, a screenshot of that app's window as the test left it is
  * kept first, as app-window.png with the test's results, which CI uploads
  * (Playwright's own screenshots and traces leave an Electron app's window out).
+ * A test whose app logged an uncaught main-process error fails here, except for
+ * the known runtime timer defect: see `KNOWN_RUNTIME_UNCAUGHT`.
  */
 export async function removeDataFolder(dataDir: string): Promise<void> {
   const info = test.info();
@@ -2817,17 +2826,27 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
   }
   // The app's log goes with a failed test's traces: what happened on CI's machine is gone after.
   const log = join(dataDir, "logs", "incarnamind.log");
+  const uncaught: string[] = [];
   if (existsSync(log)) {
     if (info.status !== info.expectedStatus) {
       await info.attach("app-log", { path: log, contentType: "text/plain" });
     }
-    // A test-driven app goes on after an uncaught main-process error (#1741): a pass must not
-    // take the error away with the folder, so it is said in the test's output too.
+    // A test-driven app logs an uncaught main-process error and goes on (#1741), so the test
+    // that saw one fails here: an error in product code must not pass every spec silently.
+    // The one that may go on is Node's timer defect, which the app can't prevent and no test
+    // causes; it is only said in the output. Delete the exemption when #1244 is fixed.
     for (const line of uncaughtLogLines(dataDir)) {
-      console.warn(`The app's main process logged: ${line}`);
+      if (line.includes(KNOWN_RUNTIME_UNCAUGHT)) {
+        console.warn(`The app's main process logged the known Node timer defect: ${line}`);
+      } else {
+        uncaught.push(line);
+      }
     }
   }
   await rm(dataDir, { recursive: true, force: true, maxRetries: 3 });
+  if (uncaught.length > 0) {
+    throw new Error(`The app's main process threw an uncaught error:\n${uncaught.join("\n")}`);
+  }
 }
 
 /** The core's bridge in the page, for a test to set things up or read them: `(await coreOf(window)).evaluate(...)`. */
