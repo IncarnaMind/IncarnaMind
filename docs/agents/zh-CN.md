@@ -148,6 +148,7 @@ A figure in an Answer is written as reports write it, with no space between the 
 | Unchecked figure | 未核对的数字 | |
 | Analysis | 数据分析 | Can't run: "这台电脑上无法运行数据分析：…". |
 | Sandbox (where Skill scripts and Analyses run) | 沙盒 | Never 沙箱. |
+| Analyse data… (⌘K, and the composer's chip) | 分析数据… | The chip reads 分析数据; a step that ran one, 对“{document}”运行了数据分析. |
 | Recalculate | 重新计算 | |
 | Run again | 重新运行 | |
 | percentage points | 个百分点 | A difference of two percents: "2.3个百分点", never "2.3%". |

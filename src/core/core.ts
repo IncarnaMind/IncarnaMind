@@ -1472,6 +1472,7 @@ export function createCore(adapters: CoreAdapters): Core {
     content,
     events,
     engine: answerEngine,
+    ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     requireMind: (mindId) => writableMind(mindId).id,
     mindExists,
     readableMindName: (mindId) => {
@@ -1505,6 +1506,7 @@ export function createCore(adapters: CoreAdapters): Core {
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
+      searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       recheckWhereSelected: (quote) => recheckWhereSelected(documents, quote),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
@@ -2206,7 +2208,9 @@ export function createCore(adapters: CoreAdapters): Core {
     events,
     now,
     settings,
-    suggested: join(adapters.paths.documents, "IncarnaMind"),
+    get suggested() {
+      return join(adapters.paths.documents, "IncarnaMind");
+    },
     linkedFolders: () => documents.linkedFolders.list(),
     recordOwnFile,
   });
@@ -3617,6 +3621,7 @@ export function createCore(adapters: CoreAdapters): Core {
           scope: null,
           model: null,
           forcedSkill: null,
+          analyse: false,
           quotes: [],
         },
         null,
@@ -3626,6 +3631,7 @@ export function createCore(adapters: CoreAdapters): Core {
         text: ready.answer,
         citations: ready.citations,
         figures: [],
+        analyses: [],
         toolCalls: [],
         support: null,
         textOrigin: null,

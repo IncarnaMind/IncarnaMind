@@ -13,6 +13,7 @@ import { describe, expect, test } from "vitest";
 import {
   type ConversationAnswer,
   type Core,
+  type CoreAdapters,
   DATABASE_FILE,
   type MarkedFigure,
 } from "../../src/core";
@@ -188,10 +189,12 @@ async function setUpCalculating(
   model: MockLanguageModelV4,
   files: readonly { name: string; contents: string | Uint8Array }[],
   dataDir?: string,
+  overrides: Partial<CoreAdapters> = {},
 ) {
   const core = startCore(dataDir ?? (await createTempDataFolder()), {
     createChatModel: scriptedModels(model).createChatModel,
-    answerPaths: { retrievesFirst: () => false },
+    ...overrides,
+    answerPaths: { retrievesFirst: () => false, ...overrides.answerPaths },
   });
   const saved = await core.saveChatProvider({
     kind: "anthropic",
@@ -2068,4 +2071,117 @@ describe("A number takes the unit its row gives it in a cell of its own (#1798)"
       },
     ]);
   });
+});
+
+/** The margin's change from the row the Answer cites as `citation`, read with `numbers`. */
+const marginChange = (citation: number, numbers = ["41.2%", "38.9%"]) => [
+  {
+    marker: 1,
+    label: "Change in gross margin",
+    formula: "gm2025 - gm2024",
+    inputs: [
+      { name: "gm2025", label: "Gross margin 2025", citation, number: numbers[0] },
+      { name: "gm2024", label: "Gross margin 2024", citation, number: numbers[1] },
+    ],
+  },
+];
+
+/**
+ * A model that searches, then makes each of `steps` in turn, one request each, from the Passage
+ * its search showed it; asked again after the last, it writes nothing more.
+ */
+function steppingModel(steps: ((passage: string) => { text?: string; calls: Call[] })[]) {
+  let made = 0;
+  return scriptedModel((call) => {
+    const searched = call.results.find((result) => result.tool === "search_documents");
+    if (!searched) {
+      return { calls: [{ tool: "search_documents", input: { query: "Acme revenue margin" } }] };
+    }
+    const step = steps[made++];
+    return step ? step(passageOf(shownPassages(searched.text), "Acme")) : { text: "" };
+  });
+}
+
+describe("A fix asked for in one step is still owed in the next (#489)", {
+  timeout: 60_000,
+}, () => {
+  test.each([
+    ["writes then cites", true],
+    ["cites first", false],
+  ])(
+    "%s: a quote cite refused, then a step that only calculates: the Run goes on until the quote is fixed",
+    async (_, writes) => {
+      const model = steppingModel([
+        (passage) => ({
+          text: "Revenue was $1,482.6 million in 2025[^1]; gross margin rose [=1][^2].",
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage,
+                    location: "p. 1",
+                    quote: "Revenue was $9 million in 2025.",
+                  },
+                  { marker: 2, passage, location: "p. 2", quote: MARGIN },
+                ],
+              },
+            },
+          ],
+        }),
+        () => ({ calls: [{ tool: "calculate", input: { figures: marginChange(2) } }] }),
+        (passage) => ({
+          calls: [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 1, passage, location: "p. 1", quote: REVENUE }] },
+            },
+          ],
+        }),
+      ]);
+      const { core } = await setUpCalculating(model, [ACME], undefined, {
+        answerPaths: { writesThenCites: () => writes },
+      });
+
+      const { answer } = await askAndRead(core, "How did Acme do in 2025?");
+
+      expect(model.doStreamCalls).toHaveLength(4);
+      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+      expect(answer.figures.map((figure) => figure.shown)).toEqual(["2.3 percentage points"]);
+    },
+  );
+
+  test.each([
+    ["writes then cites", true],
+    ["cites first", false],
+  ])(
+    "%s: a figure calculate refused, then a step that only cites: the Run goes on until the figure is fixed",
+    async (_, writes) => {
+      const cited = (passage: string): Call => ({
+        tool: "cite",
+        input: { citations: [{ marker: 1, passage, location: "p. 2", quote: MARGIN }] },
+      });
+      const model = steppingModel([
+        (passage) => ({
+          text: "Gross margin rose [=1][^1].",
+          calls: [
+            cited(passage),
+            { tool: "calculate", input: { figures: marginChange(1, ["45.0%", "38.9%"]) } },
+          ],
+        }),
+        (passage) => ({ calls: [cited(passage)] }),
+        () => ({ calls: [{ tool: "calculate", input: { figures: marginChange(1) } }] }),
+      ]);
+      const { core } = await setUpCalculating(model, [ACME], undefined, {
+        answerPaths: { writesThenCites: () => writes },
+      });
+
+      const { answer } = await askAndRead(core, "How did Acme's margin change in 2025?");
+
+      expect(model.doStreamCalls).toHaveLength(4);
+      expect(answer.figures.map((figure) => figure.shown)).toEqual(["2.3 percentage points"]);
+    },
+  );
 });

@@ -1895,6 +1895,23 @@ export const migrations: readonly Migration[] = [
         CHECK (kind IN ('meeting', 'memo'));
     `,
   },
+  {
+    version: 109,
+    description: "Answers in conversations keep their Analyses, and a Question that asked for one",
+    sql: `
+      ALTER TABLE conversation_messages ADD COLUMN analyses TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE conversation_messages ADD COLUMN analyse INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 110,
+    description: "Outside-agent connections need new approval for the public alpha",
+    sql: `
+      UPDATE device_settings
+      SET value = 'false', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE key = 'agentsEnabled' AND deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**
