@@ -22,9 +22,14 @@ export interface Arm {
 const CITING = "Cite every claim you draw from a Passage:\n";
 const LAST_LINE = "- Write nothing before a search: only the Answer, once you have what it needs.";
 const SAME_REPLY =
-  "- Then, in the same reply, call cite once with a record for each marker: its number (1, 2, …), ";
+  "- Then, in the same reply, right after the Answer's text, call cite once with a record for each marker: its number (1, 2, …), ";
+const IN_THE_TEXT = ". Your thinking isn't shown: the whole Answer goes in the text.";
+const WRITE_NOW = [
+  " Write the Answer now if your reply's text hasn't given it yet (your thinking isn't shown); don't repeat it.",
+  " Write the Answer now if you haven't yet; don't repeat it.",
+] as const;
 const QUOTED =
-  /^- Use quotation marks only around a Document's exact words, copied character for character.*$/m;
+  /^- Use quotation marks only around a Document's exact words, in its own language: copy them.*$/m;
 
 /** The Tool loop's citing lines before #489, the records first, in the order they were. */
 function citingFirst(system: string): string {
@@ -36,7 +41,9 @@ function citingFirst(system: string): string {
   const to = quoted.indexOf(LAST_LINE, from);
   if (from < CITING.length) return quoted;
   const lines = quoted.slice(from, to).split("\n");
-  const record = lines.find((line) => line.startsWith(SAME_REPLY))?.slice(SAME_REPLY.length, -1);
+  const record = lines
+    .find((line) => line.startsWith(SAME_REPLY) && line.endsWith(IN_THE_TEXT))
+    ?.slice(SAME_REPLY.length, -IN_THE_TEXT.length);
   if (to < 0 || !record || !WRITE_THEN_CITE.every((line) => lines.includes(line))) {
     throw new Error("cite-first: the Tool loop's citing lines aren't the ones this arm replaces.");
   }
@@ -62,9 +69,21 @@ export const ARMS: readonly Arm[] = [
     label: "the Tool loop's records first, then the Answer, as before #489",
     request: (params) => ({
       ...params,
-      prompt: params.prompt.map((message) =>
-        message.role === "system" ? { ...message, content: citingFirst(message.content) } : message,
-      ),
+      prompt: params.prompt.map((message) => {
+        if (message.role === "system") return { ...message, content: citingFirst(message.content) };
+        if (message.role !== "tool") return message;
+        return {
+          ...message,
+          content: message.content.map((part) =>
+            part.type === "tool-result" && part.output.type === "text"
+              ? {
+                  ...part,
+                  output: { ...part.output, value: part.output.value.replace(...WRITE_NOW) },
+                }
+              : part,
+          ),
+        };
+      }),
     }),
   },
 ];

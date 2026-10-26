@@ -138,6 +138,33 @@ describe("the arm switch", () => {
 });
 
 describe("the cite-first arm", () => {
+  test("gives cite's replies their words of before #489", () => {
+    const sent = armNamed("cite-first").request?.({
+      prompt: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "c1",
+              toolName: "cite",
+              output: {
+                type: "text",
+                value:
+                  "Recorded [^1]. Write the Answer now if your reply's text hasn't given it yet (your thinking isn't shown); don't repeat it.",
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const part = sent?.prompt[0]?.role === "tool" ? sent.prompt[0].content[0] : undefined;
+    expect(part?.type === "tool-result" && part.output).toEqual({
+      type: "text",
+      value: "Recorded [^1]. Write the Answer now if you haven't yet; don't repeat it.",
+    });
+  });
+
   test("gives a request the Tool loop's citing lines of before #489, in their order", () => {
     const today = documentInstructions(
       "tools",

@@ -1405,7 +1405,7 @@ export function createCitationSession(
       : "Nothing was recorded.";
     const fix = problems.length
       ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}`
-      : " Write the Answer now if you haven't yet; don't repeat it.";
+      : " Write the Answer now if your reply's text hasn't given it yet (your thinking isn't shown); don't repeat it.";
     return `${done}${fix}`;
   }
 

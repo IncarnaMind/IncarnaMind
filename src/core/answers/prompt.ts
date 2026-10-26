@@ -461,7 +461,7 @@ const UNBROKEN_QUOTE =
  * tidied ("P E_{pos+k}" for "P Epos+k", "include[s]"), which the check doesn't find (#489).
  */
 const QUOTATION_MARKS =
-  "- Use quotation marks only around a Document's exact words, copied character for character as its Passage reads, even where the text looks garbled (its spacing, symbols, a word cut short), with nothing changed or added in brackets, and give that same stretch as its record's quote. Quote it in its own language, never a translation of it: that goes after the closing mark, as “…”（译：…）. Words you would change, give in your own words, without quotation marks.";
+  "- Use quotation marks only around a Document's exact words, in its own language: copy them as its Passage reads, even where garbled, with nothing changed or added in brackets, and give the same stretch as the record's quote. A translation goes after the closing mark, as “…”（译：…）; words you would change go without quotation marks.";
 
 /**
  * How a model in the Tool loop cites (#489): the Answer first, then all its records in one
@@ -470,7 +470,7 @@ const QUOTATION_MARKS =
  */
 export const WRITE_THEN_CITE: readonly string[] = [
   "- Write the Answer once you have what it needs, searching again with other words while the Passages don't hold it. Put a marker such as [^1] right after each claim a Passage supports, in a table's cell too, and add no list of sources.",
-  `- Then, in the same reply, call cite once with a record for each marker: its number (1, 2, …), ${RECORD}.`,
+  `- Then, in the same reply, right after the Answer's text, call cite once with a record for each marker: its number (1, 2, …), ${RECORD}. Your thinking isn't shown: the whole Answer goes in the text.`,
   "- If cite asks you to fix records, give them fixed in another cite call: never write the Answer again.",
 ];
 
