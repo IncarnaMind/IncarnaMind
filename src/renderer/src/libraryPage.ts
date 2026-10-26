@@ -18,6 +18,7 @@ import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { modelName } from "../../shared/modelName";
 import { type LibraryFacet, type LibraryStatus, libraryStatus } from "./libraryFilters";
 import { joinRanges, matchName } from "./matcher";
+import { organizeStateOf } from "./organizeOutcome";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -233,17 +234,16 @@ export const addedLabel = (iso: string, now: Date, language: Language): string =
   formatShortDate(iso, language, { now });
 
 /** Where Organize is with a Document, in a word, for Get info. */
-export function organizeState(assignment: DocumentGroupAssignment | undefined): MessageKey {
-  if (assignment?.status === "pending" || assignment?.status === "classifying") {
-    return "library.working";
-  }
-  if (assignment?.status === "waiting" || assignment?.status === "failed") {
-    return "library.needsAttention";
-  }
-  if (assignment?.source === "user") return "library.manual";
-  if (assignment?.status === "classified") {
-    return assignment.suggested ? "library.suggested" : "library.saved";
-  }
+export function organizeState(
+  document: Pick<Document, "tagging"> | undefined,
+  assignment: DocumentGroupAssignment | undefined,
+): MessageKey {
+  const state = organizeStateOf(document, assignment);
+  if (state.run === "working") return "library.working";
+  if (state.manual) return "library.manual";
+  if (state.run === "waiting" || state.run === "failed") return "library.needsAttention";
+  if (state.suggested) return "library.suggested";
+  if (state.run === "done" || state.run === "stopped") return "library.saved";
   return "library.notClassified";
 }
 
