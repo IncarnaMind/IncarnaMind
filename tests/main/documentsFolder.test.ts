@@ -1,12 +1,10 @@
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, onTestFinished, test, vi } from "vitest";
-import { createEventHub } from "../../src/core/events";
-import { createOutputFiles } from "../../src/core/outputFiles";
-import { createSettings } from "../../src/core/settings";
-import { migrate, openDatabase } from "../../src/core/storage";
+import { describe, expect, test, vi } from "vitest";
 import { documentsFolder } from "../../src/main/documentsFolder";
-import { createTempDataFolder } from "../helpers/core";
+import { createTempDataFolder, startCore } from "../helpers/core";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 
 describe("The Documents folder", () => {
   test("keeps the system's redirected folder", async () => {
@@ -38,41 +36,35 @@ describe("The Documents folder", () => {
       const getPath = vi.fn(() => {
         throw new Error("Failed to get Documents path");
       });
-      const db = openDatabase(":memory:");
-      onTestFinished(() => db.close());
-      migrate(db);
-      const now = () => "2026-10-26T00:00:00.000Z";
-      const outputs = createOutputFiles({
-        db,
-        events: createEventHub(),
-        now,
-        settings: createSettings(db, now, () => ["en-US"], "none"),
-        get suggested() {
-          return join(documentsFolder(getPath, home, { warn: vi.fn() }), "IncarnaMind");
+      const core = startCore(await createTempDataFolder(), {
+        paths: {
+          home,
+          get documents() {
+            return documentsFolder(getPath, home, { warn: vi.fn() });
+          },
         },
-        linkedFolders: () => [],
-        recordOwnFile: () => undefined,
       });
+      const mind = await core.createMind({ title: "Tides" });
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [note("Spring tides come twice a month.")]);
+      await client.settled();
       expect(getPath).not.toHaveBeenCalled();
-      const saving = outputs.save({
-        name: "Tides.md",
-        data: new TextEncoder().encode("Tides"),
-        ownFile: null,
-      });
+      const saving = core.saveMindExport(mind.id, { format: "markdown" });
       let folder = join(home, "Documents", "IncarnaMind");
       if (blocked) {
-        await vi.waitFor(() =>
-          expect(outputs.requests()).toMatchObject([
+        await vi.waitFor(async () =>
+          expect(await core.listFileWriteRequests()).toMatchObject([
             { kind: "output-location", problem: "missing", fileName: "Tides.md" },
           ]),
         );
         folder = await createTempDataFolder();
-        await outputs.setLocation(folder);
+        await core.setOutputLocation(folder);
       }
       const saved = await saving;
-      expect(saved.path).toBe(join(await realpath(folder), "Tides.md"));
-      expect(await readFile(saved.path, "utf8")).toBe("Tides");
-      expect(outputs.requests()).toEqual([]);
+      if (saved.status !== "saved") throw new Error("The export was not saved");
+      expect(saved.file.path).toBe(join(await realpath(folder), "Tides.md"));
+      expect(await readFile(saved.file.path, "utf8")).toContain("Spring tides come twice a month.");
+      expect(await core.listFileWriteRequests()).toEqual([]);
     },
   );
 });

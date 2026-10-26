@@ -101,27 +101,22 @@ async function hashes(root: string): Promise<Record<string, string>> {
 }
 
 describe("The Output location", () => {
-  test("does not resolve Documents while starting", async () => {
-    const db = openDatabase(":memory:");
-    migrate(db);
-    const now = () => "2026-10-26T00:00:00.000Z";
-    const resolveDocuments = vi.fn(() => {
-      throw new Error("Failed to get Documents path");
-    });
-    const outputs = createOutputFiles({
-      db,
-      events: createEventHub(),
-      now,
-      settings: createSettings(db, now, () => ["en-US"], "none"),
-      get suggested() {
-        return resolveDocuments();
+  test("does not resolve Documents while starting, and exposes the default through Core", async () => {
+    const data = await createTempDataFolder();
+    const resolveDocuments = vi.fn(() => join(data, "Documents"));
+    const core = startCore(data, {
+      paths: {
+        get documents() {
+          return resolveDocuments();
+        },
       },
-      linkedFolders: () => [],
-      recordOwnFile: createOwnFiles(db, now).record,
     });
     expect(resolveDocuments).not.toHaveBeenCalled();
-    expect(outputs.requests()).toEqual([]);
-    db.close();
+    expect(await core.getOutputSettings()).toMatchObject({
+      location: null,
+      suggested: join(data, "Documents", "IncarnaMind"),
+    });
+    expect(resolveDocuments).toHaveBeenCalledOnce();
   });
 
   test("the first save goes to IncarnaMind in Documents without asking, making it, says it took the default, and later saves go there too", async () => {
