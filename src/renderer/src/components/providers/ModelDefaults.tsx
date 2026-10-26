@@ -41,6 +41,8 @@ export function useModelRoles(groups: readonly ChatModelGroup[]): ModelRoles | n
 }
 
 export const jobSelectClass = `${fieldClass} w-full max-w-[26rem] min-w-0 flex-1 basis-60`;
+/** A row of its own: the field keeps one line's height, where the flex row above grows sideways. */
+const rowSelectClass = `${fieldClass} w-full max-w-[26rem]`;
 
 /**
  * Settings › Models: the same three rows as first run (#1922), each editable in place — your AI,
@@ -116,7 +118,7 @@ function TranscriptionRow({ id }: { id: string }) {
       <label htmlFor={id} className="text-ui font-semibold text-ink">
         {t("models.defaults.transcription")}
       </label>
-      <TranscriptionRouteSelect id={id} className={jobSelectClass} localOnly={localOnly} />
+      <TranscriptionRouteSelect id={id} className={rowSelectClass} localOnly={localOnly} />
     </div>
   );
 }
@@ -131,7 +133,7 @@ function SortingRow({ id }: { id: string }) {
       </label>
       <SortingSelect
         id={id}
-        className={jobSelectClass}
+        className={rowSelectClass}
         options={options}
         current={current}
         onChange={(option) => void choose(option)}

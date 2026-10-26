@@ -1,9 +1,13 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { createFakeAnthropic } from "../tests/helpers/fakeAnthropic";
 import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
+  addDocuments,
   assistantAnswers,
   createDataFolder,
   dismissChatSetup,
@@ -306,17 +310,19 @@ test("Settings › Models shows the same three rows, editable in place, with Qui
       "Quick tasks and reading images are automatic.",
     );
 
-    // Meeting transcription, changed where it is shown.
+    // Meeting transcription, changed where it is shown: one line tall, as a field in its row.
     const meetings = settings.getByTestId("meetings-route");
     await expect(meetings).toHaveValue("soniox");
+    expect((await meetings.boundingBox())?.height ?? 0).toBeLessThan(48);
     await meetings.selectOption("local");
     await expect
       .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
       .toBe("local");
 
-    // What sorts, saved where it is shown: the select is the setting.
+    // What sorts, saved where it is shown: the select is the setting, one line tall.
     const sorting = settings.getByTestId("models-sorting");
     await expect(sorting.locator("option:checked")).toHaveText("Use your AI model");
+    expect((await sorting.boundingBox())?.height ?? 0).toBeLessThan(48);
     await sorting.selectOption({ label: "Use your AI model" });
     await expect.poll(async () => (await bridge(window).library()).classifier.kind).toBe("chat");
   } finally {
@@ -478,5 +484,51 @@ test("call help with no model offers the key field where the help was asked, and
     await expect(window.getByTestId("meeting-starters")).toBeVisible();
   } finally {
     await app.close();
+  }
+});
+
+test("Compare Documents with no model offers the key field in place, and the comparison runs once a key works", async () => {
+  const sources = await mkdtemp(join(tmpdir(), "incarnamind-1922-compare-"));
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    ollama: "http://127.0.0.1:9",
+  });
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await acceptPlainTextKeys(window);
+    const corvane = join(sources, "Corvane.txt");
+    const altmark = join(sources, "Altmark.txt");
+    await writeFile(corvane, "Termination needs 90 days' notice.\n");
+    await writeFile(altmark, "Termination needs 30 days' notice.\n");
+    await addDocuments(window, [corvane, altmark]);
+
+    await newMind(window);
+    await window.keyboard.type("Shortlist: contract terms");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("Two suppliers made the shortlist.");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("/compare");
+    await expect(window.getByTestId("slash-item-compare")).toBeVisible();
+    await window.keyboard.press("Enter");
+    const sheet = window.getByTestId("compare-sheet");
+    await expect(sheet.getByTestId("compare-sheet-question").first()).toBeFocused();
+    await window.keyboard.type("Termination notice");
+    await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
+
+    const needs = sheet.getByTestId("compare-sheet-needs-model");
+    await expect(needs).toContainText(
+      "Compare Documents needs an AI model. It sends the Documents you chose to the model you set up.",
+    );
+    const field = needs.getByTestId("compare-sheet-needs-model-key");
+    await expect(field).toBeVisible();
+    await field.fill(ANTHROPIC_KEY);
+    await field.press("Enter");
+
+    // The comparison goes on by itself once the key works.
+    await expect(window.getByTestId("comparison-table")).toBeVisible({ timeout: 30_000 });
+    await expect(sheet).toHaveCount(0);
+  } finally {
+    await app.close();
+    await rm(sources, { recursive: true, force: true });
   }
 });

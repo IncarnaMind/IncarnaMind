@@ -168,7 +168,8 @@ function TranscriptionStep({ onDone }: { onDone(): void }) {
     <>
       <TranscriptionRouteSelect
         id={`${id}-route`}
-        className={fieldClass}
+        // Its focus leaves the step's title in view in the short card, not just the field (#1922).
+        className={`${fieldClass} scroll-mt-12`}
         localOnly={localOnly}
         saveOnChange={false}
         focusOnShow
@@ -228,6 +229,7 @@ function SortingStep({ onDone, autoFocus }: { onDone(): void; autoFocus: boolean
     <>
       <SortingSelect
         id="setup-sorting"
+        className={`${fieldClass} scroll-mt-12`}
         autoFocus={autoFocus}
         options={options}
         current={chosen}

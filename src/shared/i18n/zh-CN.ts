@@ -1947,7 +1947,7 @@ export const zhCN = {
   "models.sorting.chat": "用你的 AI 模型",
   "setup.sorting.uses": "标签、文件夹和会议提示都使用这个模型",
   "setup.sorting.here": "标签、文件夹和会议提示都在本机运行 · 免费 · 不离开这台电脑",
-  "setup.sorting.jev.sends": "文档文字会发送给 {service}",
+  "setup.sorting.sends": "文档名称和摘录会发送给 {service}",
   "setup.sorting.chat": "标签和文件夹使用 {model}",
   "setup.sorting.chatHere": "标签和文件夹在本机使用 {model} · 不会离开这台电脑",
   "setup.sorting.chat.hints": "选择分类模型前，会议提示不会开启",

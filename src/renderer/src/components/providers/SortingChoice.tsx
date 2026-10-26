@@ -7,7 +7,6 @@ import { useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
 import { fieldClass } from "../ui";
-import { SendsLine } from "./SendsLine";
 import { useJevSettings } from "./useJevSettings";
 
 export const sortingKey = (classifier: TaggingClassifier): string => JSON.stringify(classifier);
@@ -261,7 +260,7 @@ export function SortingLine({ option }: { option: SortingOption | null }) {
         </p>
         {option.provider && (
           <p className="text-[12px] leading-5 text-ink-meta">
-            {t("setup.sorting.jev.sends", { service: option.provider })}
+            {t("setup.sorting.sends", { service: option.provider })}
           </p>
         )}
       </div>
@@ -275,7 +274,11 @@ export function SortingLine({ option }: { option: SortingOption | null }) {
         })}
       </p>
       <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.chat.hints")}</p>
-      {option.provider && <SendsLine provider={option.provider} testId="setup-sorting-sends" />}
+      {option.provider && (
+        <p className="text-[12px] leading-5 text-ink-meta">
+          {t("setup.sorting.sends", { service: option.provider })}
+        </p>
+      )}
     </div>
   );
 }

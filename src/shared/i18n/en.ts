@@ -2036,7 +2036,7 @@ export const en = {
   "setup.sorting.uses": "Tags, Folders and meeting hints use this model",
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
-  "setup.sorting.jev.sends": "Document text goes to {service}",
+  "setup.sorting.sends": "Documents’ names and excerpts go to {service}",
   "setup.sorting.chat": "Tags and Folders use {model}",
   "setup.sorting.chatHere": "Tags and Folders use {model} on this computer \u00b7 nothing leaves",
   "setup.sorting.chat.hints": "Meeting hints stay off until a decision model is chosen",
