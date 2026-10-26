@@ -60,12 +60,14 @@ record("start", {
   successor: process.env.INCARNAMIND_TEST_UPDATE_SUCCESSOR === "1",
 });
 app.on("browser-window-created", (_event, window) => {
-  record("window-created", { windowId: window.id });
-  window.on("show", () => record("window-shown", { windowId: window.id }));
-  window.on("hide", () => record("window-hidden", { windowId: window.id }));
-  window.on("closed", () => record("window-closed", { windowId: window.id }));
+  const windowId = window.id;
+  window.setContentSize(1280, 660);
+  record("window-created", { windowId });
+  window.on("show", () => record("window-shown", { windowId }));
+  window.on("hide", () => record("window-hidden", { windowId }));
+  window.on("closed", () => record("window-closed", { windowId }));
+  window.on("ready-to-show", () => record("window-ready-to-show", { windowId }));
   window.webContents.on("did-finish-load", () => {
-    window.setContentSize(1280, 660);
     record("window-loaded", { url: window.webContents.getURL() });
   });
 });
