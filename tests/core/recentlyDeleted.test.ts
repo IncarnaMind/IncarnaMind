@@ -480,17 +480,35 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
     const invoice = await addText(core, "Invoice.txt", "Invoice for the harbour dues.");
     const filed = await suggest(invoice.id, finance.id);
     expect(filed).toMatchObject({ source: "automatic", suggested: true });
+    const invoiceNow = async () =>
+      (await core.listDocuments()).find((each) => each.id === invoice.id);
+    const beforeAssign = await invoiceNow();
+    if (!beforeAssign) throw new Error("The Document is gone.");
 
     const previous = await core.assignDocumentGroup(invoice.id, research.id);
-    expect(previous).toEqual(filed);
+    expect(previous).toEqual({
+      ...filed,
+      tagging: { status: beforeAssign.tagging, error: beforeAssign.taggingError },
+    });
     const assigned = nextEvent(core, "library.assignments");
     await core.restoreAssignment(invoice.id, previous);
     expect(await assigned).toEqual([filed]);
     expect(await assignmentOf(core, invoice.id)).toEqual(filed);
 
     // The same through a move, as the sidebar's drag and "Move to…" make one.
+    const beforeMove = await invoiceNow();
+    if (!beforeMove) throw new Error("The Document is gone.");
     const move = await core.moveToFolder({ documentIds: [invoice.id], folderId: research.id });
-    expect(move.documents).toEqual([{ id: invoice.id, from: finance.id, previous: filed }]);
+    expect(move.documents).toEqual([
+      {
+        id: invoice.id,
+        from: finance.id,
+        previous: {
+          ...filed,
+          tagging: { status: beforeMove.tagging, error: beforeMove.taggingError },
+        },
+      },
+    ]);
     expect(await assignmentOf(core, invoice.id)).toMatchObject({ source: "user" });
     await core.restoreAssignment(invoice.id, move.documents[0]?.previous ?? null);
     expect(await assignmentOf(core, invoice.id)).toEqual(filed);

@@ -150,11 +150,9 @@ const STORED_TAGGING_STATES: readonly DocumentTagging["status"][] = [
   "off",
 ];
 
-type PreviousAssignment = Omit<DocumentGroupAssignment, "documentId"> & {
-  tagging?: DocumentTagging;
-};
-
-function parsePreviousAssignment(input: unknown): PreviousAssignment | null {
+function parsePreviousAssignment(
+  input: unknown,
+): Omit<DocumentGroupAssignment, "documentId"> | null {
   if (input === null) return null;
   const invalid = new InvalidInputError("A previous assignment is an assignment, or null.");
   if (!isRecord(input)) throw invalid;
@@ -467,6 +465,13 @@ export function createLibrary(options: {
               }),
             },
     };
+  };
+  // The one path that writes a Document's new tagging inside a change: it gives back the row the
+  // change found, for that change's `before`, so Undo can put exactly that back (#1928).
+  const changeTagging = (id: string, write: () => void): DocumentTagging | null => {
+    const previous = taggingSnapshot(id);
+    write();
+    return previous;
   };
   const state = (id: string, status: ClassificationStatus, error?: ProviderError) => {
     db.run(
@@ -900,14 +905,16 @@ export function createLibrary(options: {
           const before = assignment(doc.id);
           write(doc, groupId, "user", "classified");
           // A manual choice cancels an in-flight suggestion, including its busy indicator.
-          db.run(
-            "UPDATE documents SET tagging_status = 'waiting-for-provider' WHERE id = ? AND tagging_status IN ('pending', 'tagging')",
-            [doc.id],
+          const tagging = changeTagging(doc.id, () =>
+            db.run(
+              "UPDATE documents SET tagging_status = 'waiting-for-provider' WHERE id = ? AND tagging_status IN ('pending', 'tagging')",
+              [doc.id],
+            ),
           );
           return {
             id: doc.id,
             from: before?.group_id ?? null,
-            previous: before ? assignmentOf(before) : null,
+            previous: before ? { ...assignmentOf(before), ...(tagging && { tagging }) } : null,
           };
         }),
       );
@@ -1126,13 +1133,15 @@ export function createLibrary(options: {
       const previous = assignment(doc.id);
       write(doc, groupId as string | null, "user", "classified");
       // A manual correction cancels an in-flight suggestion, including its busy indicator.
-      db.run(
-        "UPDATE documents SET tagging_status = 'waiting-for-provider' WHERE id = ? AND tagging_status IN ('pending', 'tagging')",
-        [doc.id],
+      const tagging = changeTagging(doc.id, () =>
+        db.run(
+          "UPDATE documents SET tagging_status = 'waiting-for-provider' WHERE id = ? AND tagging_status IN ('pending', 'tagging')",
+          [doc.id],
+        ),
       );
       options.tagged([doc.id]);
       announce([doc.id]);
-      return previous ? assignmentOf(previous) : null;
+      return previous ? { ...assignmentOf(previous), ...(tagging && { tagging }) } : null;
     },
     /** See `CoreApi.restoreAssignment`. */
     restoreAssignment(id: unknown, input: unknown) {
@@ -1225,7 +1234,7 @@ export function createLibrary(options: {
         // Only the tagging Organize held is the Reject's to settle; a state the tagger set, for a
         // retag the User asked for, stays the tagger's (#1955). The settled ones keep the row they
         // had, so Undo can put exactly that back (#1928).
-        const tagging = isOrganizing(row.document_id) ? taggingSnapshot(row.document_id) : null;
+        const organizing = isOrganizing(row.document_id);
         const at = now();
         // The User's decision settles the Document, so a run that failed before the rejection
         // doesn't outlive it: it is finished, not one Organize couldn't sort (#1928).
@@ -1233,10 +1242,10 @@ export function createLibrary(options: {
           "UPDATE document_groups SET group_id = NULL, suggested = 0, status = 'classified', error_kind = NULL, error_message = NULL, error_wording = NULL, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
           [randomUUID(), at, row.document_id],
         );
-        if (tagging) {
-          tagState(row.document_id, "classified");
-          settled.set(row.document_id, tagging);
-        }
+        const tagging = organizing
+          ? changeTagging(row.document_id, () => tagState(row.document_id, "classified"))
+          : null;
+        if (tagging) settled.set(row.document_id, tagging);
         if (row.group_id && !rejected(row.document_id).has(row.group_id))
           db.run(
             "INSERT INTO document_group_rejections (id, document_id, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",

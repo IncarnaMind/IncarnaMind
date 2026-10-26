@@ -115,18 +115,27 @@ describe("A Mind in a Folder", () => {
       assignments.push(changed.map((each) => each.documentId).sort()),
     );
 
+    const moonNow = (await core.listDocuments()).find((each) => each.id === id("Moon"));
+    if (!moonNow) throw new Error("The Document is gone.");
     const move = await core.moveToFolder({
       mindIds: [mind.id],
       documentIds: [id("Moon"), id("Harbour")],
       folderId: finance.id,
     });
 
-    // Where each was, for Undo.
+    // Where each was, for Undo: its assignment and the Document's own tagging row.
     expect(move).toEqual({
       folderId: finance.id,
       minds: [{ id: mind.id, from: null }],
       documents: [
-        { id: id("Moon"), from: research.id, previous: filed },
+        {
+          id: id("Moon"),
+          from: research.id,
+          previous: {
+            ...filed,
+            tagging: { status: moonNow.tagging, error: moonNow.taggingError },
+          },
+        },
         { id: id("Harbour"), from: null, previous: null },
       ],
       conversations: [],

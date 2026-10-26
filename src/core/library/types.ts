@@ -138,6 +138,11 @@ export interface DocumentGroupAssignment {
   status: ClassificationStatus;
   error: ProviderError | null;
   model: ClassificationModel | null;
+  /**
+   * The Document's own tagging row as it was before the change, for Undo: only on a change's
+   * `before` or a move's `previous`, never on the assignments a Library snapshot lists.
+   */
+  tagging?: DocumentTagging;
 }
 
 /** A Document's own tagging row as it was, for an Undo to put back. */
@@ -149,11 +154,8 @@ export interface DocumentTagging {
 
 /** One Document's assignment as `acceptAssignments` or `rejectAssignments` changed it. */
 export interface AssignmentChange {
-  /**
-   * As it was: what undo puts back. `tagging` is there only when the change settled the Document's
-   * own tagging (a Reject of a Document Organize held); Undo leaves it alone otherwise.
-   */
-  before: DocumentGroupAssignment & { tagging?: DocumentTagging };
+  /** As it was: what undo puts back, with the Document's tagging when the change recorded it. */
+  before: DocumentGroupAssignment;
   after: DocumentGroupAssignment;
 }
 

@@ -8901,7 +8901,8 @@ export interface CoreApi {
    * Puts a Document's assignment back as it was (null: none), with who chose it, so an
    * automatic choice stays automatic and Organize may change it again, and a Suggested
    * Folder is a suggestion again, which also takes back its rejection: Organize may offer that
-   * Folder for the Document again. Other rejections stay.
+   * Folder for the Document again. Other rejections stay. With `tagging`, the Document's own row
+   * is put back too, error and reason included; without it, its tagging is left alone.
    */
   restoreAssignment(
     documentId: string,
