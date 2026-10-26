@@ -561,11 +561,11 @@ describe("IncarnaMind's comments in an imported file (#107)", () => {
 });
 
 describe("The Word copy offered when quitting follows the User's answer about marking (#1536)", () => {
-  // protects=the quit-time copy of a Mind with text IncarnaMind wrote carries the comment on it only when the User chose Mark it, and none with Leave it out or no answer yet; fails_when=it marks for an answer of "leave" or none, or leaves out the mark for "mark"; no_claim=the save dialog.
+  // protects=the quit-time copy of a Mind with text IncarnaMind wrote carries the comment on it unless the User chose Leave it out, and with no answer yet it does, as the default (#1945); fails_when=it marks for an answer of "leave", or leaves out the mark for "mark" or none; no_claim=the save dialog.
   test.each([
     { answer: "mark" as const, marked: true },
     { answer: "leave" as const, marked: false },
-    { answer: null, marked: false },
+    { answer: null, marked: true },
   ])("with the answer $answer, the copy marked is $marked", async ({ answer, marked }) => {
     const { core, mindId, client } = await setUp({ body: paragraph(run("Due in May.")) });
     editMind(client, (blocks) => [

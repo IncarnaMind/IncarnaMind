@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
-import { hasCitationPlace, optionsFor } from "../shared/exportOptions";
+import { optionsFor } from "../shared/exportOptions";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
@@ -85,11 +85,13 @@ import {
   type EmbeddingSettings,
   type ExportMindOptions,
   type ExternalService,
+  type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
   type Mind,
   type MindCitationStyle,
   type MindContentSnapshot,
+  type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
@@ -163,10 +165,8 @@ import { type AnyEventListener, createEventHub } from "./events";
 import { createExamples } from "./examples";
 import { createLocalExecutor } from "./execution";
 import { createExports, type ExportsDependencies } from "./exports";
-import { citationPlaceQuestion } from "./exports/citationPlaceQuestion";
 import { createComparisonExport } from "./exports/comparisonExport";
 import { exportLabels } from "./exports/labels";
-import { markAiTextQuestion } from "./exports/markAiTextQuestion";
 import { renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { createFileLock } from "./fileLock";
@@ -1399,70 +1399,31 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     outputFolder: async () => outputs.settings().location,
     exportMind: async (mindId, format, folder, approved, marking) => {
-      let options = optionsFor(format, settings.get().user.exportOptions);
+      const options = optionsFor(format, settings.get().user.exportOptions);
+      let written = options;
       let settled: MarkingSettled | null = null;
+      let oneOff: MarkAiTextChoice | null = null;
       if (format === "docx") {
-        const { docx } = settings.get().user.exportOptions;
-        if (docx.markAiText === null) {
-          const ask = markAiTextQuestion(settings.get().language);
-          const asked =
-            marking.named === null && marking.asking ? await marking.asking(ask.question) : null;
-          const choice = marking.named ?? ask.choiceOf(asked);
-          if (choice === null) {
-            throw new InvalidInputError({
-              key: marking.asking
-                ? "error.commands.markAiTextClosed"
-                : "error.commands.markAiTextAsk",
-            });
-          }
-          const preferences = settings.get().user.exportOptions;
-          await api?.updateSettings({
-            user: {
-              exportOptions: { ...preferences, docx: { ...preferences.docx, markAiText: choice } },
-            },
-          });
-          settled = { choice, how: "kept" };
-          options = optionsFor(format, settings.get().user.exportOptions);
-        } else if (marking.named !== null && marking.named !== docx.markAiText && options) {
-          options = { ...options, markAiText: marking.named === "mark" };
-          settled = { choice: marking.named, how: "this-file" };
-        } else {
-          settled = { choice: docx.markAiText, how: "earlier" };
-        }
+        const saved = settings.get().user.exportOptions.docx.markAiText;
+        const choice = marking.named ?? saved ?? "mark";
+        written = { ...options, markAiText: choice === "mark" };
+        // A request that names another marking settles it for its own file, never for the saved choice.
+        if (choice !== (saved ?? "mark")) oneOff = choice;
+        settled = { choice, how: oneOff ? "this-file" : saved === null ? "default" : "earlier" };
       }
-      if (!options) throw new InvalidInputError({ key: "error.commands.markAiTextAsk" });
-      if (
-        hasCitationPlace(format) &&
-        settings.get().user.exportOptions.citationPlace === undefined
-      ) {
-        const { numbered, citations, citedDocuments } = mindExports.preview(mindId, { format });
-        if (numbered && citations > 0 && marking.asking) {
-          const ask = citationPlaceQuestion(settings.get().language, {
-            citations,
-            documents: citedDocuments,
-          });
-          const choice = ask.choiceOf(await marking.asking(ask.question));
-          if (choice === null)
-            throw new InvalidInputError({ key: "error.commands.citationPlaceClosed" });
-          const preferences = settings.get().user.exportOptions;
-          await api?.updateSettings({
-            user: { exportOptions: { ...preferences, citationPlace: choice } },
-          });
-          options = { ...options, citationPlace: choice };
-        }
-      }
-      const { fileName, data, word } = await mindExports.export(mindId, options);
+      const exported = await mindExports.export(mindId, written);
       // The window shows first what a Word file can't keep (#105); the assistant can't.
-      if (word && word.notKept.length > 0) {
+      if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
       const file = await outputs.save({
-        name: fileName,
-        data,
-        ownFile: ownFileOf(options),
+        name: exported.fileName,
+        data: exported.data,
+        ownFile: ownFileOf(written),
         ...(folder !== null && { folder, approved }),
       });
-      recordExport(options);
+      await rememberExportChoices(exported, oneOff);
+      recordExport(written);
       return { file, marking: settled };
     },
   };
@@ -2163,6 +2124,38 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
+  /**
+   * Keeps where Citations went and whether a Word file marks AI text, the first time an export
+   * settles them, so Export options and the next file say the choice rather than the default
+   * again (#1945). A request that named the marking for its own file leaves the saved choice as
+   * it was.
+   */
+  async function rememberExportChoices(
+    exported: Pick<MindExportPreview, "markAiText" | "citationPlace">,
+    named: MarkAiTextChoice | null,
+  ): Promise<void> {
+    const preferences = settings.get().user.exportOptions;
+    const markAiText =
+      named === null && exported.markAiText !== null && preferences.docx.markAiText === null
+        ? exported.markAiText
+          ? "mark"
+          : "leave"
+        : null;
+    const citationPlace =
+      exported.citationPlace !== null && preferences.citationPlace === undefined
+        ? exported.citationPlace
+        : null;
+    if (markAiText === null && citationPlace === null) return;
+    await api?.updateSettings({
+      user: {
+        exportOptions: {
+          ...preferences,
+          ...(citationPlace !== null && { citationPlace }),
+          docx: { ...preferences.docx, ...(markAiText !== null && { markAiText }) },
+        },
+      },
+    });
+  }
   /** Usage data: which format, and whether Questions went with it. */
   const recordExport = (options: ExportMindOptions) =>
     usageData.record({
@@ -4562,7 +4555,6 @@ export function createCore(adapters: CoreAdapters): Core {
         fileName,
         fromWord: _,
         theirChanges: _waiting,
-        citedDocuments: _cited,
         numbered: _numbered,
         data,
         word,
@@ -4577,7 +4569,9 @@ export function createCore(adapters: CoreAdapters): Core {
         () => recordExport(options),
         ownFileOf(options),
       );
-      return saved.status === "saved" ? { ...saved, ...counts, word } : saved;
+      if (saved.status !== "saved") return saved;
+      await rememberExportChoices(counts, null);
+      return { ...saved, ...counts, word };
     },
     saveCheckRecord: async (mindId) => {
       const saved: { format: CheckRecordFormat; file: SavedFile }[] = [];

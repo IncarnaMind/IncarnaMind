@@ -201,17 +201,6 @@ export interface LaunchOptions {
    * of the app as the User runs it.
    */
   realEngines?: boolean;
-  /**
-   * The first Word export asks whether to mark the text IncarnaMind wrote. Without this, a launch
-   * answers it "Mark it" if nobody has, so a test that exports to Word is not stopped by it;
-   * with it, the app is left asking.
-   */
-  askToMarkAiText?: boolean;
-  /**
-   * The first Word or PDF export of a Mind with Citations asks where they go. Without this, a
-   * launch answers it "Footnotes" if nobody has; with it, the app is left asking.
-   */
-  askCitationPlace?: boolean;
 }
 
 /**
@@ -279,8 +268,6 @@ export async function launchApp(
     sandboxed = false,
     sandboxNotice,
     realEngines = false,
-    askToMarkAiText = false,
-    askCitationPlace = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const env: Record<string, string> = {};
@@ -386,7 +373,6 @@ export async function launchApp(
       message: `the window is ${WINDOW_SIZE.width} × ${WINDOW_SIZE.height}: is the screen too short for it?`,
     });
   }
-  await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
 }
 
@@ -428,32 +414,6 @@ async function waitUntilLive(app: ElectronApplication, window: Page): Promise<vo
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function answerExportQuestions(
-  window: Page,
-  markAiText: boolean,
-  citationPlace: boolean,
-): Promise<void> {
-  await window.evaluate(
-    async ([mark, place]) => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const { exportOptions } = (await bridge.getSettings()).user;
-      const docx =
-        mark && exportOptions.docx.markAiText === null
-          ? { ...exportOptions.docx, markAiText: "mark" as const }
-          : exportOptions.docx;
-      const citations =
-        place && exportOptions.citationPlace === undefined
-          ? { citationPlace: "footnotes" as const }
-          : {};
-      if (docx === exportOptions.docx && Object.keys(citations).length === 0) return;
-      await bridge.updateSettings({
-        user: { exportOptions: { ...exportOptions, docx, ...citations } },
-      });
-    },
-    [markAiText, citationPlace],
-  );
 }
 
 /**

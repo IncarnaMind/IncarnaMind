@@ -36,6 +36,7 @@ import {
   CITATION_PLACES,
   type CitationAttributes,
   type CitationFormatRequest,
+  type CitationPlace,
   type Document,
   EXPORT_FORMATS,
   type ExportFormat,
@@ -64,6 +65,7 @@ import {
   type Footnote,
   footnotesIn,
   NO_MARKS,
+  namedLineOf,
   type ReadOptions,
   readBlocks,
   reviewReading,
@@ -154,6 +156,17 @@ const EXTENSIONS: Readonly<Record<ExportFormat, string>> = {
   html: "html",
   "share-page": "html",
 };
+
+/**
+ * What the note's file is called (#1945): the title the User gave it; else, when an Answer wrote
+ * the note's first line, the Question that made it; else that line. A file name is only cut where
+ * a file name can't hold it (`safeFileName`), never to a title's width.
+ */
+function exportName(mind: Mind, blocks: Y.XmlFragment): string {
+  if (mind.title !== "") return mind.title;
+  const { line, question } = namedLineOf(blocks);
+  return question || line;
+}
 
 /** A new Mind's title line left empty says nothing in a file: no empty heading at its top. */
 function withoutEmptyTitle(blocks: Block[]): Block[] {
@@ -251,6 +264,7 @@ export function createExports(deps: ExportsDependencies) {
       (style.form === "numbered" && !listed) || (format === "share-page" && options.citationCards);
 
     const live = new Set(documents.map((document) => document.id));
+    let name = mindName(mind);
     const readOptions: ReadOptions = {
       includeQuestions,
       footnote,
@@ -263,6 +277,7 @@ export function createExports(deps: ExportsDependencies) {
       mind.id,
       (fragment) => {
         const { doc } = fragment;
+        name = exportName(mind, fragment);
         const fromWord = doc !== null && wordFileOf(doc) !== null;
         // A Word file shows what is waiting as tracked changes, and can mark AI text (#107); the
         // others show someone's changes from the Word file as changes, or accepted (#734).
@@ -305,9 +320,13 @@ export function createExports(deps: ExportsDependencies) {
       format === "source-pack"
         ? numberCitations(blocks, style.form, attributesOf).map((each) => each.footnote)
         : footnotesIn(blocks);
-    const name = safeFileName(mindName(mind) || translate(language, "mind.untitled"), "Mind");
+    const fileStem = safeFileName(name || translate(language, "mind.untitled"), "Mind");
+    const listedPlace: CitationPlace | null =
+      (format === "docx" || format === "pdf") && style.form === "numbered" && footnotes.length > 0
+        ? (options.citationPlace ?? "footnotes")
+        : null;
     const preview: MindExportPreview = {
-      fileName: `${format === "source-pack" ? translate(language, "export.pack.fileName", { name }) : name}.${EXTENSIONS[format]}`,
+      fileName: `${format === "source-pack" ? translate(language, "export.pack.fileName", { name: fileStem }) : fileStem}.${EXTENSIONS[format]}`,
       citations: footnotes.length,
       citedDocuments: sourcesOf(
         footnotes.map((each) => attributesOf.get(each) ?? {}),
@@ -320,6 +339,8 @@ export function createExports(deps: ExportsDependencies) {
       theirChanges,
       unreadFiles: unread.length,
       unreadFileNames: unreadNames,
+      citationPlace: listedPlace,
+      markAiText: format === "docx" ? options.markAiText === true : null,
     };
     const failed = new Map<string, FailedSentence>();
     for (const { sentence } of piecesOf(blocks)) if (sentence) failed.set(sentence.id, sentence);

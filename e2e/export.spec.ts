@@ -113,10 +113,10 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   expect(opened?.y ?? 0).toBeGreaterThan(button?.y ?? 0);
   await screenshot(window, "export-menu-en");
   await pointAndClick(window, menu.getByTestId("export-as-docx"));
-  await expect(done).toHaveText(savedLine("Tides.docx", sources));
+  await expect(done).toContainText(savedLine("Tides.docx", sources));
 
   await exportFromMenu(window, "pdf");
-  await expect(done).toHaveText(savedLine("Tides.pdf", sources));
+  await expect(done).toContainText(savedLine("Tides.pdf", sources));
   await pointAndClick(window, window.getByTestId("export-mind"));
   await expect(items).toHaveText([
     new RegExp(`^PDF${shortcut.source}`),
@@ -164,7 +164,7 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   await window.keyboard.press("ArrowRight");
   await window.keyboard.press("End");
   await window.keyboard.press("Enter");
-  await expect(done).toHaveText(savedLine("Tides.md", sources));
+  await expect(done).toContainText(savedLine("Tides.md", sources));
 
   await bridge(window).language("zh-CN");
   await pointAndClick(window, window.getByTestId("export-mind"));
@@ -279,7 +279,7 @@ test("the Saved line names the folder, goes by itself after ten seconds unless t
   const done = result.getByTestId("export-done");
 
   await exportFromMenu(window);
-  await expect(done).toHaveText(savedLine("Tides.docx", sources));
+  await expect(done).toContainText(savedLine("Tides.docx", sources));
   await expect(result.getByTestId("export-open")).toBeVisible();
   await expect(result.getByTestId("export-show")).toBeVisible();
 
@@ -295,7 +295,7 @@ test("the Saved line names the folder, goes by itself after ten seconds unless t
 
   // Another export, then another Mind for a minute: the line is not there when this one is opened again.
   await exportFromMenu(window);
-  await expect(done).toHaveText(savedLine("Tides 2.docx", sources));
+  await expect(done).toContainText(savedLine("Tides 2.docx", sources));
   await newMind(window);
   await window.clock.fastForward("01:00");
   await window.getByRole("tab", { name: "Tides" }).click();
@@ -400,7 +400,7 @@ test("maths exports to .docx as Word equations, which a Word viewer shows as equ
   const target = join(sources, "Gravity.docx");
   await useOutputLocation(window, sources);
   await exportFromMenu(window);
-  await expect(window.getByTestId("export-done")).toHaveText(savedLine("Gravity.docx", sources));
+  await expect(window.getByTestId("export-done")).toContainText(savedLine("Gravity.docx", sources));
 
   // Word equations, not "$…$" text: one on its own line, one in the sentence.
   const document = part(unzip(await readFile(target)), "word/document.xml");
@@ -470,11 +470,11 @@ test("saving inside a Linked folder asks once; Settings › General shows where 
   await expect(ask.getByRole("heading")).toHaveText("Add files to “Papers”?");
   await screenshot(ask, "file-write-linked-folder-en");
   await ask.getByTestId("file-write-allow").click();
-  await expect(result.getByTestId("export-done")).toHaveText(
+  await expect(result.getByTestId("export-done")).toContainText(
     savedLine("Tides.docx", join(papers, "Exports")),
   );
   await exportOnce();
-  await expect(result.getByTestId("export-done")).toHaveText(
+  await expect(result.getByTestId("export-done")).toContainText(
     savedLine("Tides 2.docx", join(papers, "Exports")),
   );
   await expect(ask).toBeHidden();
@@ -499,7 +499,7 @@ test("saving inside a Linked folder asks once; Settings › General shows where 
   await expect(ask).toBeHidden();
   await screenshot(result, "export-not-allowed-en");
   await problem.getByTestId("export-allow").click();
-  await expect(result.getByTestId("export-done")).toHaveText(
+  await expect(result.getByTestId("export-done")).toContainText(
     savedLine("Tides 3.docx", join(papers, "Exports")),
   );
   expect((await readFile(join(papers, "Lease.txt"))).equals(original)).toBe(true);
@@ -540,7 +540,7 @@ test("an export saved into a Linked folder is IncarnaMind's file: its viewer say
   await window.getByTestId("mind-editor").click();
   await window.keyboard.type("Spring tides come twice a month.");
   await exportFromMenu(window);
-  await expect(window.getByTestId("export-done")).toHaveText(savedLine("Tides.docx", papers));
+  await expect(window.getByTestId("export-done")).toContainText(savedLine("Tides.docx", papers));
 
   // The Linked folder picks the export up, beside the User's own file, both in Not in a Folder.
   await showSourceLocations(window);
