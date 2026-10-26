@@ -139,6 +139,7 @@ const DOCUMENT_ERRORS = [
   "file-missing",
   "processing-error",
   "pages-unread",
+  "forms-unread",
   "app-stopped",
 ] as const;
 const CONNECTOR_ERRORS = [

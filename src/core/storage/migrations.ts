@@ -1878,6 +1878,23 @@ export const migrations: readonly Migration[] = [
       WHERE transport = 'http' AND json_valid(config);
     `,
   },
+  {
+    version: 107,
+    description: "A workbook says which sheets and rows weren't read (#740)",
+    // JSON, an UnreadParts: hidden and very hidden sheets left out, sheets the reading limit cut
+    // short, and sheets after it. NULL when every part was read, and for every other kind.
+    sql: `
+      ALTER TABLE documents ADD COLUMN unread_parts TEXT;
+    `,
+  },
+  {
+    version: 108,
+    description: "A Meeting can be a voice memo, the User alone (#1568)",
+    sql: `
+      ALTER TABLE meetings ADD COLUMN kind TEXT NOT NULL DEFAULT 'meeting'
+        CHECK (kind IN ('meeting', 'memo'));
+    `,
+  },
 ];
 
 /**

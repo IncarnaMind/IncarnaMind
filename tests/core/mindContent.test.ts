@@ -209,4 +209,27 @@ describe("Mind content", () => {
     await expect(core.openMind(42 as never)).rejects.toThrow(InvalidInputError);
     await expect(core.closeMind(missing)).resolves.toBeUndefined();
   });
+
+  test("reads the stored state of the Minds Home asks about, and leaves out one that is gone", async () => {
+    const core = startCore(await createTempDataFolder());
+    const written = await core.createMind({ title: "Written" });
+    const empty = await core.createMind({ title: "Empty" });
+    const deleted = await core.createMind({ title: "Deleted" });
+    await core.applyMindUpdate(written.id, paragraphUpdate("Tides at the harbour"));
+    await core.deleteMind(deleted.id);
+    // Closed first: Home usually asks about a Mind no window has open, read from storage.
+    await core.closeMind(written.id);
+
+    const snapshots = await core.readMindContents([written.id, empty.id, deleted.id, randomUUID()]);
+
+    expect(snapshots.map(({ mindId }) => mindId)).toEqual([written.id, empty.id]);
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, snapshots[0]?.state ?? new Uint8Array());
+    expect(doc.getXmlFragment(MIND_CONTENT_FIELD).toString()).toBe(
+      "<paragraph>Tides at the harbour</paragraph>",
+    );
+    expect(snapshots[1]?.state).toBeInstanceOf(Uint8Array);
+    await expect(core.readMindContents("mind" as never)).rejects.toThrow(InvalidInputError);
+    await expect(core.readMindContents([42] as never)).rejects.toThrow(InvalidInputError);
+  });
 });
