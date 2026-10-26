@@ -854,6 +854,7 @@ export async function continueSetup(window: Page): Promise<void> {
   if (await transcription.isVisible()) await pointAndClick(window, transcription);
   const sorting = card.getByTestId("setup-sorting-use");
   await expect(sorting).toBeVisible();
+  await expect(sorting).toBeEnabled();
   await pointAndClick(window, sorting);
   await expect(card).toBeHidden();
 }

@@ -138,6 +138,7 @@ test("with no key, the ChatGPT plan comes first, the Claude account second, and 
     await setWindowSize(app, window, 1100, 900);
     await interceptOpenExternal(app);
     const card = await askFirstQuestion(window);
+    await expect(card.getByTestId("way-claude")).toBeVisible();
     const order = await card.evaluate((element) =>
       [
         ...element.querySelectorAll(
