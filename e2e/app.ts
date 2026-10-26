@@ -397,15 +397,13 @@ export async function launchApp(
  */
 async function waitUntilLive(window: Page): Promise<void> {
   try {
-    await window.evaluate(
-      () =>
-        new Promise<void>((live) => {
-          const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-          void bridge
-            .getSettings()
-            .then(() => requestAnimationFrame(() => requestAnimationFrame(() => live())));
-        }),
-    );
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.getSettings();
+      await new Promise<void>((drawn) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => drawn())),
+      );
+    });
   } catch (error) {
     throw new Error("The app did not come up: its window stopped before the core answered.", {
       cause: error,
