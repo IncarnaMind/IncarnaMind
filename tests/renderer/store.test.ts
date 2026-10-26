@@ -605,8 +605,10 @@ describe("making a Mind", () => {
 
   test("a Mind whose tab the core refuses is not shown, and asks for no focus", async () => {
     method("changeLayout").mockRejectedValue(new Error("The layout was refused."));
+    const before = useAppStore.getState().layout;
     expect(await useAppStore.getState().createMind({ titled: true })).toBeNull();
     expect(useAppStore.getState().bodyToFocus).toBeNull();
+    expect(useAppStore.getState().layout).toBe(before);
     const { useNotices } = await import("../../src/renderer/src/notices");
     for (const notice of useNotices.getState().errors)
       useNotices.getState().dismissError(notice.id);

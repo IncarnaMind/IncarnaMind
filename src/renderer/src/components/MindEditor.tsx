@@ -122,7 +122,7 @@ import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPlaceOf } from "../mindWriting";
-import { takeNewMindKeys } from "../newMindKeys";
+import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
@@ -147,17 +147,21 @@ const ASK = "\uE000";
  * look at: the editor's binding deletes what its schema doesn't know from the
  * copy, and nothing is ever sent from it.
  */
-function useMindDocument(mindId: string): OpenedCopy | null {
+function useMindDocument(mindId: string, whenUnavailable: () => void): OpenedCopy | null {
   const [opened, setOpened] = useState<OpenedCopy | null>(null);
   const reportError = useAppStore((state) => state.reportError);
 
   useEffect(() => {
-    const close = openMindCopy(mindId, setOpened, reportError);
+    const close = openMindCopy(mindId, setOpened, (error) => {
+      // A copy that can't open means no editor will come to take a new Mind's keys.
+      whenUnavailable();
+      reportError(error);
+    });
     return () => {
       close();
       setOpened(null);
     };
-  }, [mindId, reportError]);
+  }, [mindId, reportError, whenUnavailable]);
 
   return opened;
 }
@@ -183,7 +187,11 @@ function rememberMindExplained(): void {
 
 /** The open Mind's Blocks, edited with Tiptap and saved through the core as they change. */
 export function MindEditor({ mindId }: { mindId: string }) {
-  const opened = useMindDocument(mindId);
+  const opened = useMindDocument(mindId, forgetNewMindKeys);
+  // A copy to look at only has no editor either: the keys held for it go back where they were.
+  useEffect(() => {
+    if (opened && !opened.doc) forgetNewMindKeys();
+  }, [opened]);
   if (!opened) return null;
   if (!opened.doc) return <MindNotice kind="update" />;
   return (
