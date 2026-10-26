@@ -34,13 +34,7 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
  * Sonnet 5.5 was measured and left out (2026-10-26): it still gave its records first, so it
  * answered in one call once in 94 and finished no sooner (+0.3 s on the gating set).
  */
-const RETRIEVES_FIRST: readonly Admitted[] = [
-  {
-    model: "anthropic/claude-haiku-5-5",
-    since: "2026-10-26",
-    gate: "Against the Tool loop with write-then-cite, paired, within one item in 30: gating 65 twice, done −1.7 s, 2.14 → 1.25 calls, one call in 102 of 130, cited 125 → 129, judged right 125 → 122, every Citation found 127 → 127; hard 60, done −0.9 s, cited 43 → 45, right 56 → 56; everyday 30, done −0.9 s, one unmade change in four runs of owner-2 against none; no new false Supported or duplicate.",
-  },
-];
+const RETRIEVES_FIRST: readonly Admitted[] = [];
 
 /** A model as an Answer runs it. */
 export interface ListedModel {
