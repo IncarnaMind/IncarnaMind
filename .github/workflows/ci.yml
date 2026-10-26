@@ -108,9 +108,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item e2e/lifecycleMain.cjs out/main/lifecycle.cjs
           $versions = Get-Content tests/fixtures/lifecycle-versions.json | ConvertFrom-Json
-          npx electron-builder --win --x64 --dir --publish never -c.directories.output=dist/lifecycle-old -c.extraMetadata.main=./out/main/lifecycle.cjs "-c.extraMetadata.version=$($versions.old)"
+          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/lifecycle-old" "--config.extraMetadata.main=./out/main/lifecycle.cjs" "--config.extraMetadata.version=$($versions.old)"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npx electron-builder --win --x64 --dir --publish never -c.directories.output=dist/lifecycle-updated -c.extraMetadata.main=./out/main/lifecycle.cjs "-c.extraMetadata.version=$($versions.updated)"
+          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/lifecycle-updated" "--config.extraMetadata.main=./out/main/lifecycle.cjs" "--config.extraMetadata.version=$($versions.updated)"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/check-lifecycle-packages.mjs dist/lifecycle-old/win-unpacked/resources/app.asar dist/lifecycle-updated/win-unpacked/resources/app.asar
       - name: Exercise the packaged startup and update lifecycle

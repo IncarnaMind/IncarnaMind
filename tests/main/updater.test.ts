@@ -104,7 +104,7 @@ async function start(
     privacy?: boolean;
     install?: () => void;
     prepare?: (version: string, reopens: boolean) => void;
-    settings?: Promise<{ language: "en" }>;
+    settings?: Promise<{ language: "en" | "zh-CN" }>;
   } = {},
 ) {
   const asked = Promise.withResolvers<void>();
@@ -431,6 +431,34 @@ test("an automatic installer error keeps the requested quit and cached language"
   expect(sdk.autoInstallOnAppQuit).toBe(true);
   expect(fixture.quitAndInstall).toHaveBeenCalledOnce();
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test.each(["installer", "persistence"] as const)(
+    `a quit-time %s failure preserves a requested reopen and its cached language (${language})`,
+    async (source) => {
+      const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
+      const error = new Error("The prepared update failed");
+      const run = await start({
+        response: 1,
+        settings: Promise.resolve({ language }),
+        install: () => {
+          if (source === "installer") sdk.emit("error", error);
+        },
+        prepare: () => {
+          if (source === "persistence") throw error;
+        },
+      });
+      await run.asked;
+      expect(run.updater.canReopenAfterUpdate()).toBe(true);
+      await quitWithLateSdkListener();
+      await run.failure;
+      expect(run.prepared).toHaveBeenCalledExactlyOnceWith("0.1.0-test", true);
+      expect(run.started).toHaveBeenCalledExactlyOnceWith(true);
+      expect(run.failed).toHaveBeenCalledExactlyOnceWith(error, language, true);
+      expect(sdk.autoInstallOnAppQuit).toBe(true);
+    },
+  );
+}
 
 test("language is cached before the SDK starts and its standard automatic install remains enabled", async () => {
   vi.stubGlobal("process", { ...process, platform: "darwin" });

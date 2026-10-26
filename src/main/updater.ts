@@ -112,13 +112,14 @@ async function checkForUpdates(
   app.on("quit", () => {
     const update = downloaded;
     if (!update) return;
+    const reopens = reopening;
     try {
-      if (prepare(update.version, reopening)) {
-        beginInstall(reopening);
-        autoUpdater.once("error", (error: unknown) => failed(error, update.language, false));
+      if (prepare(update.version, reopens)) {
+        beginInstall(reopens);
+        autoUpdater.once("error", (error: unknown) => failed(error, update.language, reopens));
       }
     } catch (error) {
-      failed(error, update.language, false);
+      failed(error, update.language, reopens);
     }
   });
   const installable = await canInstallUpdates();

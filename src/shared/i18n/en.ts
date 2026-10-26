@@ -3777,13 +3777,13 @@ export const en = {
     "An update is being installed. Wait for it to finish, then open IncarnaMind again.",
   "error.startup.update.title": "IncarnaMind needs the latest version",
   "error.startup.update.body":
-    "The update to {new} may not have finished. This copy is {old}, so it won't open your data folder. Download and install the latest version, then open IncarnaMind again.",
+    "The update to {new} may not have finished. This copy is {old}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
   "error.startup.update.withCurrent":
-    "The update may not have finished. This copy is {old}, so it won't open your data folder. Download and install the latest version, then open IncarnaMind again.",
+    "The update may not have finished. This copy is {old}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
   "error.startup.update.withTarget":
-    "The update to {new} may not have finished. This copy won't open your data folder. Download and install the latest version, then open IncarnaMind again.",
+    "The update to {new} may not have finished. This copy won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
   "error.startup.update.unknown":
-    "The update may not have finished. This copy won't open your data folder. Download and install the latest version, then open IncarnaMind again.",
+    "The update may not have finished. This copy won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
   "error.startup.stalled":
     "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
   "error.startup.newer.title": "Update IncarnaMind to open your data",

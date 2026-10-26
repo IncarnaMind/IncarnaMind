@@ -20,6 +20,7 @@ beforeAll(async () => {
     configFile: false,
     root,
     logLevel: "warn",
+    ssr: { noExternal: true },
     build: {
       ssr: fileURLToPath(new URL("../helpers/singleInstanceChild.ts", import.meta.url)),
       outDir: bundleFolder,

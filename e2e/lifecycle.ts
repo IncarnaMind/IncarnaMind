@@ -51,9 +51,6 @@ export const mainArguments = (
 
 export const lifecycleHomeEnv = (home: string): Record<string, string> => ({
   ...homeEnv(home),
-  TMPDIR: home,
-  TMP: home,
-  TEMP: home,
   APPDATA: join(home, "AppData", "Roaming"),
   LOCALAPPDATA: join(home, "AppData", "Local"),
 });

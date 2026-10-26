@@ -1,10 +1,11 @@
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { isRecord } from "../src/core/errors";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
 import { refuseWrites } from "../tests/helpers/failingStorage";
 import {
@@ -47,6 +48,7 @@ interface Entry {
   visibleWindows?: number;
   visible?: boolean;
   nativePrepared?: boolean;
+  debugPort?: string;
   readyPrompts?: number;
   installRequests?: number;
   version?: string;
@@ -69,8 +71,10 @@ let data: string;
 let home: string;
 let tag: string;
 let apps: Awaited<ReturnType<typeof prepareLifecycleApps>>;
+let diagnosticPorts: number[] = [];
 
 test.beforeEach(async () => {
+  diagnosticPorts = [];
   data = await createDataFolder();
   home = await mkdtemp(join(tmpdir(), "incarnamind-update-lifecycle-"));
   tag = `--incarnamind-smoke-copy=${randomUUID()}`;
@@ -79,6 +83,8 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   try {
+    if (test.info().status !== test.info().expectedStatus && diagnosticPorts.length)
+      await attachDevToolsFailure();
     const events = join(home, "events.jsonl");
     if (existsSync(events))
       await test
@@ -96,6 +102,83 @@ test.afterEach(async () => {
     await rm(home, { recursive: true, force: true, maxRetries: 3 });
   }
 });
+
+async function attachDevToolsFailure() {
+  const diagnostics = await Promise.all(
+    diagnosticPorts.map(async (port) => {
+      let status: number | undefined;
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/json/list`, {
+          signal: AbortSignal.timeout(1_000),
+          redirect: "manual",
+        });
+        status = response.status;
+        const targets: unknown = await response.json();
+        return {
+          port,
+          status,
+          targetCount: Array.isArray(targets) ? targets.length : null,
+          targets: Array.isArray(targets)
+            ? targets.slice(0, 20).map((target: unknown) => {
+                if (!isRecord(target)) return { type: typeof target };
+                let url: string | undefined;
+                if (typeof target.url === "string") {
+                  const parsed = URL.parse(target.url);
+                  if (parsed && ["file:", "http:", "https:"].includes(parsed.protocol)) {
+                    parsed.username = "";
+                    parsed.password = "";
+                    parsed.search = "";
+                    parsed.hash = "";
+                    url = parsed.toString().slice(0, 512);
+                  }
+                }
+                return {
+                  type: typeof target.type === "string" ? target.type.slice(0, 64) : undefined,
+                  url,
+                };
+              })
+            : null,
+        };
+      } catch (error) {
+        return {
+          port,
+          status,
+          error: {
+            name: error instanceof Error ? error.name : typeof error,
+            causeCode:
+              error instanceof Error &&
+              isRecord(error.cause) &&
+              typeof error.cause.code === "string"
+                ? error.cause.code.slice(0, 64)
+                : undefined,
+          },
+        };
+      }
+    }),
+  );
+  await test.info().attach("devtools-failure", {
+    body: JSON.stringify(diagnostics, null, 2),
+    contentType: "application/json",
+  });
+  const path = join(home, "early-successor.stderr.log");
+  if (existsSync(path)) {
+    const file = await open(path, "r");
+    try {
+      const { size } = await file.stat();
+      const buffer = Buffer.alloc(Math.min(size, 32_768));
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, size - buffer.length);
+      await test.info().attach("early-successor-stderr", {
+        body: buffer
+          .subarray(0, bytesRead)
+          .toString("utf8")
+          .replace(/\bwss?:\/\/[^\s"'<>]+/g, "<websocket>"),
+        contentType: "text/plain",
+      });
+    } finally {
+      await file.close();
+    }
+  }
+}
 
 async function entries(): Promise<Entry[]> {
   const file = join(home, "events.jsonl");
@@ -179,7 +262,7 @@ async function expectRepair(
   const problem = recorded.filter((entry) => entry.kind === "startup-problem");
   const detail =
     language === "en"
-      ? `${targetVersion ? `The update to ${targetVersion}` : "The update"} may not have finished. This copy is ${apps.oldVersion}, so it won't open your data folder. Download and install the latest version, then open IncarnaMind again.`
+      ? `${targetVersion ? `The update to ${targetVersion}` : "The update"} may not have finished. This copy is ${apps.oldVersion}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.`
       : `${targetVersion ? `更新到 ${targetVersion} ` : "更新"}可能没有完成。当前版本是 ${apps.oldVersion}，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。`;
   expect(problem).toEqual([
     expect.objectContaining({
@@ -425,6 +508,7 @@ test("an installing update refuses an unrelated start and keeps its own replacem
   const port = await freePort();
   const nextPort = await freePort();
   const contenderPort = await freePort();
+  diagnosticPorts = [...new Set([port, nextPort, contenderPort])];
   const old = start("installing", true, port, nextPort);
   await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
   await inCopyWindow(port, (window) => saveTyping(window, "en"));
@@ -632,6 +716,70 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
+  test(`a failed automatic install keeps an accepted reopen and recovers saved typing (${language})`, async () => {
+    test.setTimeout(120_000);
+    const port = await freePort();
+    const nextPort = await freePort();
+    const old = start("auto-quit-error", true, port, nextPort, "old", { language });
+    await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
+    await inCopyWindow(port, (window) => saveTyping(window, language));
+    await signal("begin");
+    await expect.poll(() => has("ready-prompt")).toBe(true);
+    expect((await entries()).filter((entry) => entry.kind === "auto-quit-listener")).toEqual([
+      expect.objectContaining({ added: 1, autoDownload: true, autoInstallOnAppQuit: true }),
+    ]);
+    expect((await entries()).filter((entry) => entry.kind === "install-requested")).toEqual([]);
+    await signal("ordinary-quit-reopen");
+    await expect.poll(() => has("problem")).toBe(true);
+    const beforeDismiss = await entries();
+    expect(beforeDismiss.filter((entry) => entry.kind === "activate-during-quit")).toHaveLength(1);
+    expect(beforeDismiss.filter((entry) => entry.kind === "auto-install-on-quit")).toEqual([
+      expect.objectContaining({
+        pid: old.pid,
+        isSilent: true,
+        isForceRunAfter: false,
+        autoDownload: true,
+        autoInstallOnAppQuit: true,
+        dataHeld: true,
+      }),
+    ]);
+    expect(beforeDismiss.findIndex((entry) => entry.kind === "activate-during-quit")).toBeLessThan(
+      beforeDismiss.findIndex((entry) => entry.kind === "auto-install-on-quit"),
+    );
+    expect(beforeDismiss.filter((entry) => entry.kind === "problem")).toEqual([
+      expect.objectContaining({
+        pid: old.pid,
+        dataHeld: true,
+        visibleWindows: 0,
+        options: expect.objectContaining({
+          message: language === "en" ? "The update couldn’t be installed" : "未能安装更新",
+          buttons: [language === "en" ? "Reopen IncarnaMind" : "重新打开 IncarnaMind"],
+        }),
+      }),
+    ]);
+    const handoff: unknown = JSON.parse(await readFile(join(data, "instance-update.json"), "utf8"));
+    expect(handoff).toMatchObject({
+      status: "failed",
+      reopens: true,
+      fromVersion: apps.oldVersion,
+      targetVersion: apps.updatedVersion,
+    });
+    if (!isRecord(handoff) || typeof handoff.id !== "string")
+      throw new Error("The failed install did not retain its recovery identity.");
+    await signal("dismiss-problem");
+    await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
+    await expectOneSavedWindow([port, nextPort]);
+    const owner = await readyOwner();
+    expect(owner).toMatchObject({ version: apps.oldVersion, dataHeld: true });
+    const recorded = await entries();
+    expect(
+      recorded.find((entry) => entry.kind === "start" && entry.pid === owner?.pid)?.args,
+    ).toContain(`--update-recovery=${handoff.id}`);
+    expect(recorded.filter((entry) => entry.kind === "problem")).toHaveLength(1);
+    expect(recorded.filter((entry) => entry.kind === "startup-problem")).toEqual([]);
+    expect(recorded.filter((entry) => entry.kind === "install-requested")).toEqual([]);
+  });
+
   test(`a failed automatic install finishes quitting without a relaunch and repairs a later start (${language})`, async () => {
     test.setTimeout(120_000);
     const port = await freePort();

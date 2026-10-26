@@ -1,4 +1,11 @@
-const { appendFileSync, existsSync, watch, writeFileSync } = require("node:fs");
+const {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  openSync,
+  watch,
+  writeFileSync,
+} = require("node:fs");
 const { join } = require("node:path");
 const { createRequire } = require("node:module");
 const { DatabaseSync } = require("node:sqlite");
@@ -85,6 +92,7 @@ record("start", {
   executable: process.execPath,
   packaged: app.isPackaged,
   successor: process.env.INCARNAMIND_TEST_UPDATE_SUCCESSOR === "1",
+  debugPort: app.commandLine.getSwitchValue("remote-debugging-port"),
 });
 app.on("browser-window-created", (_event, window) => {
   const windowId = window.id;
@@ -310,13 +318,19 @@ function launchSuccessor(beforeExit) {
     ...(process.platform === "linux" && { APPIMAGE_SILENT_INSTALL: "true" }),
   };
   if (beforeExit) {
-    childProcess
-      .spawn(executable, args, {
-        env: { ...process.env, ...changes },
-        detached: true,
-        stdio: "ignore",
-      })
-      .unref();
+    // A pipe would lose the child's later output when this installing parent exits.
+    const stderr = openSync(join(folder, "early-successor.stderr.log"), "a", 0o600);
+    try {
+      childProcess
+        .spawn(executable, args, {
+          env: { ...process.env, ...changes },
+          detached: true,
+          stdio: ["ignore", "ignore", stderr],
+        })
+        .unref();
+    } finally {
+      closeSync(stderr);
+    }
     return;
   }
   const previous = Object.fromEntries(
@@ -339,16 +353,17 @@ function prepareNative() {
   nativeUpdater.emit("update-downloaded");
 }
 
-if (scenario === "pending" && first) {
-  for (const name of ["ordinary-quit", "ordinary-quit-again"])
-    afterFile(name, () => {
-      app.once("before-quit", () => {
-        record("activate-during-quit");
-        app.emit("activate", {}, false);
-      });
-      app.quit();
-    });
+function quitAndActivate() {
+  app.once("before-quit", () => {
+    record("activate-during-quit");
+    app.emit("activate", {}, false);
+  });
+  app.quit();
 }
+
+if (scenario === "pending" && first)
+  for (const name of ["ordinary-quit", "ordinary-quit-again"]) afterFile(name, quitAndActivate);
+if (scenario === "auto-quit-error" && first) afterFile("ordinary-quit-reopen", quitAndActivate);
 afterFile(`quit-${process.pid}`, () => app.quit());
 for (const kind of ["before-quit", "will-quit"]) app.on(kind, () => record(kind));
 app.whenReady().then(() => {
@@ -357,6 +372,7 @@ app.whenReady().then(() => {
     resourcesPath: process.resourcesPath,
     version: app.getVersion(),
     dataHeld: dataHeld(),
+    debugPort: app.commandLine.getSwitchValue("remote-debugging-port"),
   });
   sampleVisibility();
   setInterval(sampleVisibility, 250).unref();

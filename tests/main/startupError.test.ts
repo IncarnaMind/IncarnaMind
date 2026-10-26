@@ -59,7 +59,7 @@ describe("an update that has not produced the expected version", () => {
     const dialog = updateStartupDialog("en", "1.9.0", "1.10.0");
     expect(dialog.title).toBe("IncarnaMind needs the latest version");
     expect(dialog.detail).toBe(
-      "The update to 1.10.0 may not have finished. This copy is 1.9.0, so it won't open your data folder. Download and install the latest version, then open IncarnaMind again.",
+      "The update to 1.10.0 may not have finished. This copy is 1.9.0, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
     );
     expect(dialog.buttons).toEqual(["Download the latest version", "Quit"]);
   });
