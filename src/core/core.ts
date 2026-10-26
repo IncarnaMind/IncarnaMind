@@ -1125,6 +1125,7 @@ export function createCore(adapters: CoreAdapters): Core {
     onChange: (list) => events.emit("connectors.changed", list),
     onEnabledChange: () => connectorsToggled(),
     reportError: (error) => console.error(error),
+    fetch: adapters.connectorFetch ?? globalThis.fetch,
     ...(adapters.connectorSignInTimeoutMs !== undefined && {
       timing: { signInTimeoutMs: adapters.connectorSignInTimeoutMs },
     }),
@@ -4100,6 +4101,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     revokeConsent: async (flowId, serviceId) => {
       const revokedAt = consent.revoke(flowId, serviceId);
+      connectors.consentChanged();
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
       }
@@ -4110,6 +4112,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
       consent.restore(flowId, serviceId, revokedAt);
+      connectors.consentChanged();
       transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
@@ -4117,6 +4120,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listRegisteredDataFlows: () => consent.listRegistered(),
     allowDataFlow: async (flowId, serviceId) => {
       await consent.allow(flowId, serviceId);
+      connectors.consentChanged();
       await dataFlowsChanged();
     },
 
@@ -4365,6 +4369,7 @@ export function createCore(adapters: CoreAdapters): Core {
     cancelConnectorSignIn: (connectorId) => connectors.cancelSignIn(connectorId),
     signOutOfConnector: (connectorId) => connectors.signOut(connectorId),
     setConnectorClient: (connectorId, client) => connectors.setClient(connectorId, client),
+    setConnectorHeaders: (connectorId, headers) => connectors.setHeaders(connectorId, headers),
     listConnectorDirectory: async () => directory,
     addConnectorFromDirectory: async (entryId, client) => {
       const entry = directory.find((each) => each.id === entryId);

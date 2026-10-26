@@ -79,7 +79,7 @@ Your agent passes on what IncarnaMind says, in plain words.
 - **"IncarnaMind isn't open"**: open IncarnaMind, check that **Connect AI agents** is on, then restart the agent or reconnect it to IncarnaMind.
 - **"This agent can't read any Documents yet"**: choose its folders in Settings → Agents → **Folders…**.
 - **"Agents are paused"**: turn off **Keep everything on this computer** in Settings → Privacy.
-- **"This agent isn't connected to IncarnaMind any more"**: it was disconnected. Click **Connect** again.
+- **"This agent is no longer connected"**: it was disconnected. Connect it again in Settings → Agents.
 - **An answer from IncarnaMind takes long**: asking IncarnaMind writes a whole Answer on your own chat model. Some agents stop waiting after a minute; Codex is given two minutes when IncarnaMind sets it up.
 
 ## For technical users
