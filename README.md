@@ -71,10 +71,10 @@ npm install && npm run dev
 | **Sort** | Link your folders. Organize suggests Folders and Tags. |
 | **Ask** | Ask all your documents at once, every page cited. |
 | **Write** | A Note is a notebook for one topic. The assistant's text stays grey until you edit it, and Undo takes it back. |
-| **Analyse** | Calculate and chart from spreadsheets, every input cited. |
+| **Analyse** | Calculate and chart from spreadsheets, every input cited. From the next test build. |
 | **Check** | Check a Note or any PDF against your files, sentence by sentence. |
 | **Compare** | Ask many documents the same questions and get one cited table. |
-| **Export** | Word with footnotes in eight citation styles, or back into the original file. |
+| **Export** | Edit a Word file and save it back: untouched parts stay exactly as they were, and your edits can go in as tracked changes. Or export a Note to Word with footnotes in eight citation styles. |
 | **Meet** | A live transcript, help during the call, and notes that cite what was said. |
 
 Works fully offline with [Ollama](https://ollama.com): nothing leaves your computer.
@@ -84,7 +84,7 @@ Works fully offline with [Ollama](https://ollama.com): nothing leaves your compu
 
 - Search OpenAlex, arXiv and PubMed for papers, save web pages, and import references from Zotero, BibTeX, RIS or CSL JSON.
 - Add MCP servers and `SKILL.md` Skills. Anything that could change something asks you first.
-- Give [Claude Code](docs/claude-code.md), [Codex](docs/codex.md) or [Cursor](docs/cursor.md) the Folders you choose, with checked citations.
+- Give [Claude Code](docs/claude-code.md), [Codex](docs/codex.md) or [Cursor](docs/cursor.md) the Folders you choose, with checked citations (from the next test build).
 - The whole app is in English and Chinese.
 
 </details>
@@ -103,15 +103,15 @@ Figures are compared as numbers. One rounded from the source passes, a different
 |---|:-:|:-:|:-:|:-:|
 | Open source | ✓ | ✗ | ✓ | ◐ |
 | Desktop app, no account | ✓ | ✗ | ◐ | ✓ |
-| Reads your folders in place | ✓ | ✗ | ✗ | ◐ |
+| Reads local folders in place | ✓ | ✗ | ✗ | ◐ |
 | Your ChatGPT or Claude plan, or your key | ✓ | ✗ | ◐ | ◐ |
 | Citation opens the page, quote highlighted | ✓ | ◐ | ✗ | ✗ |
 | Checks your own draft | ✓ | ✗ | ✗ | ✗ |
-| Word export with footnotes | ✓ | ◐ | ✗ | ◐ |
-| Spreadsheet analysis | ✓ | ✓ | ✗ | ◐ |
+| Edits your Word file and saves it back | ✓ | ✗ | ✗ | ✗ |
+| Spreadsheet analysis | ✓² | ✓ | ✗ | ◐ |
 | Meetings | ✓ | ✗ | ✗ | ✓ |
 
-<sub>✓ yes · ◐ partly · ✗ no. ¹ Formerly NotebookLM. From each product's documentation, October 2026: [Gemini Notebook](https://support.google.com/gemininotebook/), [Open Notebook](https://github.com/lfnovo/open-notebook), [AnythingLLM](https://docs.anythingllm.com/).</sub>
+<sub>✓ yes · ◐ partly, or not stated · ✗ not in their documentation. ¹ Formerly NotebookLM. ² From the next test build. From each product's documentation, October 2026: [Gemini Notebook](https://support.google.com/gemininotebook/), [Open Notebook](https://github.com/lfnovo/open-notebook), [AnythingLLM](https://docs.anythingllm.com/).</sub>
 
 ## Privacy
 
