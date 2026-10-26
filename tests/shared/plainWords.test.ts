@@ -76,9 +76,7 @@ describe("the quick fixes keep one plain name for each thing (#763, item 27)", (
   });
 
   test("Keep everything on this computer is the one name, in both languages", () => {
-    expect(said.en("embeddingProviders.localOnly.label")).toBe(
-      "Keep everything on this computer",
-    );
+    expect(said.en("embeddingProviders.localOnly.label")).toBe("Keep everything on this computer");
     expect(said.zh("embeddingProviders.localOnly.label")).toBe("所有内容都留在这台电脑上");
     expect(said.en("localMode.turnOff")).toBe("Allow cloud models");
     expect(said.zh("localMode.turnOff")).toBe("允许使用云端模型");

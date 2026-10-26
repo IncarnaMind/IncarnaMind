@@ -466,7 +466,10 @@ test("empty states from the + menu, and the monthly cap: every cell left says it
   await expect(model).toBeVisible();
   await expect
     .poll(() =>
-      model.locator("span").first().evaluate((element) => element.scrollWidth <= element.clientWidth),
+      model
+        .locator("span")
+        .first()
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
     )
     .toBe(true);
   await screenshot(window, "compare-sheet-zh-900");
