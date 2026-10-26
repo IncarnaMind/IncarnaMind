@@ -125,6 +125,78 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect(firstLine?.quad).toHaveLength(8);
   });
 
+  test("a turned scanned page is laid out upright and anchored to its displayed page", async () => {
+    const dataDir = await createTempDataFolder();
+    const fake = createFakeTextRecognizer({
+      script: {
+        pages: {
+          1: { lines: linesOf("en-clean") },
+          2: {
+            lines: [
+              { text: "Glass beads", quad: [0.1, 0.1, 0.4, 0.1, 0.4, 0.12, 0.1, 0.12] },
+              {
+                text: "0.075 kg × 2 = 0.150 kg",
+                quad: [0.5, 0.1, 0.9, 0.1, 0.9, 0.12, 0.5, 0.12],
+              },
+            ],
+          },
+        },
+      },
+    });
+    const recognizer: TextRecognizer = {
+      load: (files) => fake.load(files),
+      async read(picture, page) {
+        if (page === 2 && picture.width > picture.height) {
+          return [
+            {
+              text: "N",
+              quad: [
+                [0, 0],
+                [10, 0],
+                [10, 100],
+                [0, 100],
+              ],
+              confidence: 0.98,
+              characters: [{ text: "N", confidence: 0.98, at: 0.5 }],
+            },
+          ];
+        }
+        return fake.read(picture, page);
+      },
+      readFile: (file, page) => fake.readFile(file, page),
+      close: () => fake.close(),
+    };
+    const core = startCore(dataDir, scanning(recognizer));
+    const document = await addPdf(
+      core,
+      "Turned worksheet.pdf",
+      buildPdf([{ scan: picture("en-clean") }, { scan: picture("table"), rotation: 90 }]),
+    );
+
+    expect(document.status).toBe("ready");
+    const scanned = await core.readScannedText(document.id);
+    const turned = scanned.pages.find((page) => page.page === 2);
+    expect(turned?.text).toBe("Glass beads\t0.075 kg × 2 = 0.150 kg");
+    expect(turned?.label?.scan?.turn).toBe(270);
+    expect(scanned.pages.find((page) => page.page === 1)?.label?.scan?.turn).toBeUndefined();
+    const quantity = turned?.anchors.find((anchor) =>
+      turned.text.slice(anchor.start, anchor.end).includes("0.075"),
+    );
+    const expected = [0.9, 0.5, 0.9, 0.9, 0.88, 0.9, 0.88, 0.5];
+    for (const [index, value] of (quantity?.quad ?? []).entries()) {
+      expect(value).toBeCloseTo(expected[index] ?? 0, 12);
+    }
+    expect(
+      await core.readScannedQuote({
+        documentId: document.id,
+        contentHash: null,
+        pageFrom: 2,
+        pageTo: 2,
+        quote: "0.075 kg × 2 = 0.150 kg",
+      }),
+    ).toEqual({ from: "scan", unsure: [] });
+  });
+
   test("a mixed PDF keeps its text pages as they were, and reads only its scanned one", async () => {
     const dataDir = await createTempDataFolder();
     const { recognizer, read } = countingRecognizer({

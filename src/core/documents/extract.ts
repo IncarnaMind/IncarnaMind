@@ -11,14 +11,16 @@ import { readPdfPageText } from "../../shared/pdfFormText";
 import { CJK } from "../../shared/text";
 import type { Anchor, TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
-import type { DocumentKind } from "../api";
+import type { DocumentKind, UnreadParts } from "../api";
 import { isRecord } from "../errors";
 import { ExtractionError, extractUnits } from "./formats";
 import { type FigureReading, readWebPage, webUnits } from "./formats/web";
+import { extractXlsx, unreadPartsOf } from "./formats/xlsx";
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
 import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
+import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
 import { findTables, type TableGrid, textItemOf, textLayerRows } from "./tables";
 import { PICTURE_LIMITS, pictureSize, pictureType } from "./web/pictures";
 
@@ -53,6 +55,8 @@ export interface ExtractedText {
   units: TextUnit[];
   /** PDF pages with unread content, and why; null when all could be read. */
   unread: { pages: number[]; message: string; forms?: true } | null;
+  /** What of the file wasn't read when the rest was (#740): a workbook's hidden sheets and rows; null when all was. */
+  parts: UnreadParts | null;
 }
 
 /**
@@ -69,9 +73,18 @@ export async function extractText(
 ): Promise<ExtractedText> {
   if (kind === "pdf") return extractPdf(bytes, reading, password);
   if (kind === "web" && reading && readPicture) {
-    return { pageCount: null, units: await extractWeb(bytes, reading, readPicture), unread: null };
+    return {
+      pageCount: null,
+      units: await extractWeb(bytes, reading, readPicture),
+      unread: null,
+      parts: null,
+    };
   }
-  return { pageCount: null, units: await extractUnits(kind, bytes), unread: null };
+  if (kind === "xlsx") {
+    const { units, workbook } = await extractXlsx(bytes);
+    return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook) };
+  }
+  return { pageCount: null, units: await extractUnits(kind, bytes), unread: null, parts: null };
 }
 
 /**
@@ -452,7 +465,7 @@ async function extractPdf(
       pages.map((unit) => unit.text),
     );
     const units = pages.map((unit, index) => withPrintedName(unit, names[index] ?? null));
-    return { pageCount: pages.length, units, unread };
+    return { pageCount: pages.length, units, unread, parts: null };
   } catch (error) {
     if (reading?.signal.aborted) throw reading.signal.reason;
     const name = error instanceof Error ? error.name : "";
@@ -500,9 +513,22 @@ async function readScannedPages(
       const page = await document.getPage(number);
       try {
         const picture = await pagePicture(page, factory);
-        // The core answers no read for a job it has told to stop, so a read asked for now would wait for ever.
-        reading.signal.throwIfAborted();
-        unit = scannedUnit(number, await reading.read(number, picture), picture, reading.reader);
+        const oriented = await readWithQuarterTurn(picture, page.rotate, async (readingPicture) => {
+          // The core answers no read for a job it has told to stop, so a read asked for now would wait for ever.
+          reading.signal.throwIfAborted();
+          return reading.read(number, readingPicture);
+        });
+        const scanned = scannedUnit(
+          number,
+          oriented.lines,
+          oriented.picture,
+          reading.reader,
+          oriented.turn,
+        );
+        unit = {
+          ...scanned,
+          anchors: scanned.anchors ? anchorsBack(scanned.anchors, oriented.turn) : null,
+        };
       } catch (error) {
         reading.signal.throwIfAborted();
         message ??= error instanceof Error ? error.message : String(error);

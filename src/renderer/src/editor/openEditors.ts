@@ -22,6 +22,10 @@ export function registerMindEditor(mindId: string, editor: Editor): () => void {
 export const mindEditor = (mindId: string): Editor | null =>
   open.get(mindId)?.find((each) => !each.isDestroyed) ?? null;
 
+/** Every editor open in this window, each Mind's. */
+export const openMindEditors = (): Editor[] =>
+  [...open.values()].flat().filter((each) => !each.isDestroyed);
+
 /** The Mind's editor once one is open, or null after `timeoutMs`; null `timeoutMs`: however long that takes. */
 export function whenMindEditor(mindId: string, timeoutMs: number | null): Promise<Editor | null> {
   const found = mindEditor(mindId);

@@ -973,6 +973,7 @@ export interface CoreAdapters {
    * Defaults to five minutes; tests shorten it.
    */
   connectorSignInTimeoutMs?: number;
+  connectorFetch?: typeof fetch;
   /**
    * Contradiction watch's timings (#112), which tests shorten: how long after
    * a new version of a Document its Folder's Minds are checked (30 seconds),

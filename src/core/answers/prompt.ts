@@ -483,8 +483,12 @@ function listedName(name: string): string {
 /** How many Documents `unreadDocumentsNote` names before "and N more". */
 const NAMED_UNREAD = 5;
 
+// "parts" is left out: a workbook read in part keeps its Passages, so it is not a Document the
+// search finds no text in.
+type WholeReason = Exclude<UnreadReason, "parts">;
+
 /** Why a Document couldn't be read, as the note tells the model. */
-const UNREAD_WORDS: Record<UnreadReason, (pages: readonly number[]) => string> = {
+const UNREAD_WORDS: Record<WholeReason, (pages: readonly number[]) => string> = {
   scan: () => "a scan with no text",
   pages: (pages) => {
     if (pages.length === 0) return "some page content couldn't be read";
@@ -507,12 +511,16 @@ const UNREAD_WORDS: Record<UnreadReason, (pages: readonly number[]) => string> =
  * why; empty when there are none.
  */
 export function unreadDocumentsNote(unread: readonly UnreadFile[]): string {
-  if (unread.length === 0) return "";
-  const named = unread
+  // The line beside the Answer still names a workbook read in part (#740).
+  const whole = unread.filter(
+    (file): file is UnreadFile & { reason: WholeReason } => file.reason !== "parts",
+  );
+  if (whole.length === 0) return "";
+  const named = whole
     .slice(0, NAMED_UNREAD)
     .map((file) => `"${listedName(file.name)}" (${UNREAD_WORDS[file.reason](file.pages)})`);
-  const more = unread.length - named.length;
-  const partial = unread.some((file) => file.reason === "pages")
+  const more = whole.length - named.length;
+  const partial = whole.some((file) => file.forms === true)
     ? ` A partially read page may still have searchable Passages. Values missing from its Passages are unknown, not evidence that a field is blank or absent. In PDF form text, ${PDF_UNREAD_FIELD} is IncarnaMind's unreadable-field status, not text written in the PDF or a field value. It does not show whether that field is blank or filled. ${PDF_BLANK_FIELD} denotes a readable blank field. Never report a ${PDF_UNREAD_FIELD} field as blank, absent, or a recorded value.`
     : "";
   return `IncarnaMind couldn't read the text of some Documents in the search, so no Passage comes from that text: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. If the Passages don't clearly answer the Question and it may be about one of them, say in one sentence that it couldn't be read, so the answer may be there, rather than taking another Document's figure for it.${partial}`;

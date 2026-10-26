@@ -47,3 +47,15 @@ npm run eval:speed
 ### Adding an arm
 
 An arm is a path the core can take between two items without being opened again (`arms.ts`): its `prepare(core)` saves the settings it needs, as the User saves them (the quick-tasks model, say), and its `request(params)` changes each model request as it is sent (a prompt's wording, a provider option). Add it to `ARMS`, and name it after `today`. A change the product makes behind a switch of its own (an allowlist, a setting) is best paired through that switch; a change that replaces today's path keeps today's as an arm until the comparison is made. `today` against `today` shows how much two runs of the same path differ.
+
+## The token audit (#1634)
+
+`INCARNAMIND_EVAL_SPEED_AUDIT=1` adds the token audit to the same run, or `npm run eval:speed:tokens`. For each model call it measures the exact prompt the core assembled and writes, per request kind and per flow:
+
+- the tokens of the instructions, each Tool's description and schema, the Passages and their windows, the conversation history, and anything else, with the provider's counted input, cached input and output;
+- the Tools each kind is offered and how often it called each one, so a Tool it never calls is named;
+- the instruction blocks each kind carries, and whether a step of that kind relied on each block (its Tool was called) or no step used it.
+
+The input, cached input and output are what the provider counted, from the same finish part the core's timing records keep. Every other number is estimated locally with the core's own estimator (`src/core/answers/context` `estimateTokens`) from the exact prompt text, and scaled per request by `counted input / local estimate`, so the parts sum to the counted input. The report says how far the local estimate was from the counted total before scaling; the split between the parts is as good as that estimator, and a part the prompt doesn't let apart (a selection before the Question, the provider's own framing) is named rather than guessed. Only numbers and Tool names are kept, never a prompt's or a reply's text.
+
+The tables are in the run's report and in `tokens.json` beside it. A count the provider doesn't give, or gives malformed, is shown as a dash. If a column contains an unknown count, its aggregate remains unknown instead of averaging the remaining values, and no total or share includes it. A request's outcome (finished, failed or stopped) comes from what its stream did, never from whether its usage was complete. A kind with no flow of its own and no request of its kind shows as not run, with no numbers, rather than as zeros; a written check inside a write still counts as a Check when no check flow was selected.

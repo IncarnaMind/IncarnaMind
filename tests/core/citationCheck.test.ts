@@ -17,34 +17,34 @@ import { describe, expect, test } from "vitest";
 import type { CitationCheckReason } from "../../src/core";
 import { type CheckResult, checkCitation } from "../../src/core/answers/citations";
 
-/** Gradient Descent The Ultimate Optimizer, p. 8, as stored. */
+/** Tuning the Tuner, p. 8, as stored. */
 const HYPEROPTIMIZERS = [
-  "with towers of hyperoptimizers of increasing heights, and with bottom-level step sizes ↵ initialized",
-  "across many orders of magnitude. In practice we find that if the initial hyper-step sizes are too large,",
-  "the computation diverges for networks larger than the MNIST MLP. So, we initialize each level’s",
-  "hyperparameter to be smaller than that of the previous level.",
+  "with stacks of hyperoptimizers of increasing heights, and with bottom-level step sizes ↵ initialized",
+  "across many orders of magnitude. In practice we find that when the starting hyper-step sizes are far too large,",
+  "training blows up on anything bigger than the small dense task. Each level therefore starts",
+  "below the one beneath it.",
 ].join("\n");
 
-/** Attention Is All You Need, p. 8, as stored: "[36]" is a reference to the paper's bibliography. */
+/** Weighted Keys, Shorter Paths, p. 8, as stored: "[3]" is a reference to the paper's bibliography. */
 const LABEL_SMOOTHING = [
   "Pdrop = 0.1.",
-  "Label Smoothing During training, we employed label smoothing of value ϵls = 0.1 [36]. This",
-  "hurts perplexity, as the model learns to be more unsure, but improves accuracy and BLEU score.",
-  "6 Results",
+  "Label smoothing of ε = 0.04 [3] was applied throughout. It costs perplexity,",
+  "since the model is less sure of itself, but it gains accuracy and BLEU.",
+  "4 Results",
 ].join("\n");
 
-/** ABPI Code of Practice for the Pharmaceutical Industry 2021, pp. 35 and 36, as stored. */
+/** MPMA Code of Practice 2021, pp. 35 and 36, as stored. */
 const PACKAGE_DEALS = [
   [
-    "Where the use of a medicine requires specific testing prior to",
-    "prescription, companies can arrange to provide such testing",
-    "as a package deal even when the outcome of the testing does",
-    "not support the use of the medicine in some of those tested.",
-    "Clause 19.1 (18.1) Outcome or Risk Sharing Agreements",
-    "Clause 19.1 does not preclude the use of outcome or",
-    "risk sharing agreements.",
+    "Where a medicine needs a test before it can be prescribed, a",
+    "company may offer the test as part of a package deal, even if",
+    "the test shows that the medicine will not help some of the",
+    "patients tested.",
+    "Clause 19.1: Shared-Risk Supply Agreements",
+    "Clause 19.1 does not prevent the use of shared-risk supply",
+    "agreements.",
   ].join("\n"),
-  "medicine in a patient fails to meet certain criteria. That is\nto say, its therapeutic effect does not meet expectations.",
+  "Where a medicine fails to meet the criteria agreed with the\npayer, the agreement must say how the payment or the price reduction is calculated.",
 ];
 
 /** 维基百科-梯度下降法, p. 1, as stored: "[2]" is a reference, and "⾸" a Kangxi radical. */
@@ -72,9 +72,9 @@ interface Case {
   expected: "found" | CitationCheckReason;
 }
 
-/** JP Morgan 2022 Environmental Social Governance Report, p. 8, as stored: its text lost its f-ligatures. */
+/** Vantrell Financial Group 2022 ESG Report, p. 8, as stored: its text lost its f-ligatures. */
 const TARGET =
-  "set our Sustainable Development Target (the “Target”) with the goal to fnance and\nfacilitate more than $2.5 trillion over 10 years—from 2021 through the end of 2030—";
+  "set our Sustainable Development Target (the “Target”) with the goal to fnance and\nfacilitate more than $1.4 trillion over eight years—from 2022 through the end of 2029—";
 
 const cases: Case[] = [
   // Hyphenation at line ends
@@ -168,10 +168,10 @@ const cases: Case[] = [
     language: "en",
     topic: "full-width punctuation",
     name: "full-width letters, digits and hyphen in the quote match ASCII on the page",
-    pages: ["GPT-3 has 175 billion parameters in total."],
+    pages: ["Alder-LM has 175 billion parameters in total."],
     cited: [1, 1],
     passage: [1, 1],
-    quote: "ＧＰＴ－３ has １７５ billion parameters",
+    quote: "ＡＬＤＥＲ－ＬＭ has １７５ billion parameters",
     expected: "found",
   },
   {
@@ -243,12 +243,12 @@ const cases: Case[] = [
   {
     language: "en",
     topic: "letter case",
-    name: "a quote that starts mid-sentence, given a capital (Gradient Descent The Ultimate Optimizer, p. 8)",
+    name: "a quote that starts mid-sentence, given a capital (Tuning the Tuner, p. 8)",
     pages: [HYPEROPTIMIZERS],
     cited: [1, 1],
     passage: [1, 1],
     quote:
-      "If the initial hyper-step sizes are too large, the computation diverges for networks larger than the MNIST MLP.",
+      "When the starting hyper-step sizes are far too large, training blows up on anything bigger than the small dense task.",
     expected: "found",
   },
   {
@@ -266,11 +266,11 @@ const cases: Case[] = [
   {
     language: "en",
     topic: "Greek letters",
-    name: "ε in the quote matches the lunate ϵ on the page, with its subscript run on",
+    name: "ε in the quote matches the page, with its subscript run on",
     pages: [LABEL_SMOOTHING],
     cited: [1, 1],
     passage: [1, 1],
-    quote: "we employed label smoothing of value εls = 0.1 [36]. This hurts perplexity",
+    quote: "label smoothing of ε = 0.04 [3] was applied throughout. It costs perplexity",
     expected: "found",
   },
   {
@@ -298,12 +298,12 @@ const cases: Case[] = [
   {
     language: "en",
     topic: "reference marks",
-    name: "a reference [36] on the page, written [^36] in the quote (Attention Is All You Need, p. 8)",
+    name: "a reference [3] on the page, written [^3] in the quote (Weighted Keys, p. 8)",
     pages: [LABEL_SMOOTHING],
     cited: [1, 1],
     passage: [1, 1],
     quote:
-      "During training, we employed label smoothing of value ϵls = 0.1 [^36]. This hurts perplexity, as the model learns to be more unsure, but improves accuracy and BLEU score.",
+      "Label smoothing of ε = 0.04 [^3] was applied throughout. It costs perplexity, since the model is less sure of itself, but it gains accuracy and BLEU.",
     expected: "found",
   },
   {
@@ -323,7 +323,7 @@ const cases: Case[] = [
     pages: [LABEL_SMOOTHING],
     cited: [1, 1],
     passage: [1, 1],
-    quote: "we employed label smoothing of value ϵls = 0.1 [^37]. This hurts perplexity",
+    quote: "label smoothing of ε = 0.04 [^9] was applied throughout. It costs perplexity",
     expected: "quote-not-on-pages",
   },
   {
@@ -342,12 +342,12 @@ const cases: Case[] = [
   {
     language: "en",
     topic: "ellipsis",
-    name: "an ellipsis where the page has a full stop and a heading (ABPI Code of Practice, pp. 35–36)",
+    name: "an ellipsis where the page has a full stop and a heading (MPMA Code of Practice, pp. 35–36)",
     pages: PACKAGE_DEALS,
     cited: [1, 2],
     passage: [1, 2],
     quote:
-      "prescription, companies can arrange to provide such testing as a package deal even when the outcome of the testing does not support the use of the medicine in some of those tested... Clause 19.1 (18.1) Outcome or Risk Sharing Agreements",
+      "a company may offer the test as part of a package deal, even if the test shows that the medicine will not help some of the patients tested... Clause 19.1: Shared-Risk Supply Agreements",
     expected: "found",
   },
   {
@@ -358,7 +358,7 @@ const cases: Case[] = [
     cited: [1, 2],
     passage: [1, 2],
     quote:
-      "Where the use of a medicine requires specific testing … the outcome of the testing does not support … its therapeutic effect does not meet expectations.",
+      "Where a medicine needs a test … the test shows that the medicine will not help … the agreement must say how the payment",
     expected: "found",
   },
   {
@@ -368,7 +368,7 @@ const cases: Case[] = [
     pages: PACKAGE_DEALS,
     cited: [1, 2],
     passage: [1, 2],
-    quote: "Where the use of a medicine requires specific testing ... those tested.",
+    quote: "Where a medicine needs a test before it can be prescribed ... patients tested.",
     expected: "quote-not-on-pages",
   },
   {
@@ -378,7 +378,7 @@ const cases: Case[] = [
     pages: PACKAGE_DEALS,
     cited: [1, 2],
     passage: [1, 2],
-    quote: "Where the use of a medicine requires specific testing ... the use of",
+    quote: "Where a medicine needs a test before it can be prescribed ... the use of",
     expected: "quote-not-on-pages",
   },
   {
@@ -388,8 +388,7 @@ const cases: Case[] = [
     pages: PACKAGE_DEALS,
     cited: [1, 2],
     passage: [1, 2],
-    quote:
-      "Clause 19.1 (18.1) Outcome or Risk Sharing Agreements ... prescription, companies can arrange to provide such testing",
+    quote: "Clause 19.1: Shared-Risk Supply Agreements ... a company may offer the test",
     expected: "quote-not-on-pages",
   },
   {
@@ -439,10 +438,10 @@ const cases: Case[] = [
     language: "zh",
     topic: "CJK",
     name: "radical look-alikes and the spaces pdf.js adds around Latin words and numbers",
-    pages: ["例如 GPT-3 含 1750 亿参数，是一个 ⼤型语⾔模型。"],
+    pages: ["例如 Alder-LM 含 1750 亿参数，是一个 ⼤型语⾔模型。"],
     cited: [1, 1],
     passage: [1, 1],
-    quote: "GPT-3含1750亿参数,是一个大型语言模型",
+    quote: "Alder-LM含1750亿参数,是一个大型语言模型",
     expected: "found",
   },
   {
@@ -480,25 +479,25 @@ const cases: Case[] = [
   {
     language: "en",
     topic: "lost ligatures",
-    name: "a quote of the page as it shows, in a Document whose text lost its f-ligatures (JP Morgan, p. 8)",
+    name: "a quote of the page as it shows, in a Document whose text lost its f-ligatures (Vantrell, p. 8)",
     pages: [TARGET],
     cited: [1, 1],
     passage: [1, 1],
-    quote: "with the goal to finance and facilitate more than $2.5 trillion over 10 years",
+    quote: "with the goal to finance and facilitate more than $1.4 trillion over eight years",
     lostLigatures: true,
     expected: "found",
   },
   {
     language: "en",
     topic: "lost ligatures",
-    name: "a quote with ligatures the text lost and one it kept: 'Firm' kept its 'Fi' (JP Morgan, p. 9, en-19)",
+    name: "a quote with ligatures the text lost and one it kept: 'Firm' kept its 'Fi' (Vantrell, p. 9, en-19)",
     pages: [
-      "In 2022, our Firm fnanced and facilitated approximately $197 billion toward the\nTarget; $70 billion toward green, $87 billion toward development fnance and $40\nbillion toward community development.",
+      "In 2022, our Firm fnanced and facilitated approximately $118 billion toward the\nTarget; $41 billion toward green, $52 billion toward development fnance and $25\nbillion toward community development.",
     ],
     cited: [1, 1],
     passage: [1, 1],
     quote:
-      "In 2022, our Firm financed and facilitated approximately $197 billion toward the Target; $70 billion toward green, $87 billion toward development finance and $40 billion toward community development.",
+      "In 2022, our Firm financed and facilitated approximately $118 billion toward the Target; $41 billion toward green, $52 billion toward development finance and $25 billion toward community development.",
     lostLigatures: true,
     expected: "found",
   },
@@ -651,7 +650,7 @@ const cases: Case[] = [
     cited: [1, 1],
     passage: [1, 1],
     quote:
-      "If the initial hyper-step sizes are too big, the computation diverges for networks larger than the MNIST MLP.",
+      "When the starting hyper-step sizes are too big, training blows up on anything bigger than the small dense task.",
     expected: "quote-not-on-pages",
   },
   {
@@ -661,7 +660,7 @@ const cases: Case[] = [
     pages: [HYPEROPTIMIZERS, LABEL_SMOOTHING],
     cited: [1, 1],
     passage: [1, 2],
-    quote: "During training, we employed label smoothing of value ϵls = 0.1 [36].",
+    quote: "Label smoothing of ε = 0.04 [3] was applied throughout.",
     expected: "quote-not-on-pages",
   },
   {
