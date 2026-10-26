@@ -1,24 +1,22 @@
 /**
  * The faster Answer paths beside the catalog (#489): a listed model writes the Answer, then
- * cites it; every other model is sent the Tool loop's citing lines as they were before.
+ * cites it. Every other model is sent what main sends it (./unlistedRequests.test.ts).
  */
 import { describe, expect, test } from "vitest";
 import { writesThenCites } from "../../src/core/providers/catalog/answerPaths";
-import { askAndFinish, citingModel, setUpWithDocuments } from "../helpers/citations";
-import { promptOf } from "../helpers/models";
+import {
+  askAndFinish,
+  citationsIn,
+  citingModel,
+  setUpWithDocuments,
+  shownPassages,
+} from "../helpers/citations";
+import { answerText } from "../helpers/minds";
+import { type ModelCall, promptOf, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
-const TIDES = buildPdf([{ lines: ["Tides", "Spring tides happen at new moon and at full moon."] }]);
-
-/** The Tool loop's citing lines before #489, word for word: what an unlisted model is still sent. */
-const CITING_FIRST = [
-  "Cite every claim you draw from a Passage:",
-  '- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage\'s id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14").',
-  "- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.",
-  "- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.",
-  "- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.",
-  "- Write nothing before your Tool calls: only the Answer, after them.",
-].join("\n");
+const SPRING = "Spring tides happen at new moon and at full moon.";
+const TIDES = buildPdf([{ lines: ["Tides", SPRING] }]);
 
 async function systemFor(writes: boolean | undefined) {
   const model = citingModel({ query: "spring tides", records: () => [], answer: "Twice a month." });
@@ -49,8 +47,35 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
     expect(writesThenCites(other, { writesThenCites: () => true })).toBe(true);
   });
 
-  test("a model not listed is sent the citing lines it was sent before, word for word", async () => {
-    expect(await systemFor(undefined)).toContain(`\n${CITING_FIRST}\n`);
+  test("Claude Haiku 5.5, as the list names it, writes the Answer and cites it in one reply", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched)
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      const passage = shownPassages(searched.text)[0]?.id;
+      return {
+        text: "Spring tides come at new and full moon[^1].",
+        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+      };
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Tides.pdf", contents: TIDES },
+    ]);
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(promptOf(model)[0]?.text).toContain(
+      "- Then, in the same reply, right after the Answer's text, call cite",
+    );
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(answerText(client, answerId)).toBe("Spring tides come at new and full moon.");
+    expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
   });
 
   test("a listed model is told to write the Answer, then cite it in the same reply", async () => {

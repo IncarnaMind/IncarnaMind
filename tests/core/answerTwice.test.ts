@@ -144,9 +144,11 @@ describe("An Answer written in the turn that calls cite", { timeout: 30_000 }, (
         calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
       };
     });
-    const { core, client, mind } = await setUpWithDocuments(model, [
-      { name: "Tides.md", contents: TIDES_MD },
-    ]);
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      WRITES_THEN_CITES,
+    );
 
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 
