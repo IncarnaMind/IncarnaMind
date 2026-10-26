@@ -520,23 +520,19 @@ export function createContradictionWatch(options: WatchOptions) {
       if (!READ.includes(document.status)) return;
       const before = versions.get(document.id);
       // One this watch has never seen was added while IncarnaMind runs: wait until it can be
-      // searched, so the run reads it; a version that changes is read already.
+      // searched, so the run reads it. A version that changes is read already.
       if (before === undefined && document.status !== "ready") return;
       versions.set(document.id, document.contentHash);
       if (before === document.contentHash) return;
-      // A Document this watch has never seen was added while IncarnaMind runs: no Document
-      // changed, so the run names none.
+      // An added Document changed nothing, so the run names none.
       const documentName = before === undefined ? null : document.name;
-      const folders = new Map<string, boolean>();
-      for (const mind of options.minds()) {
-        const folderId = mind.folderId;
-        if (folderId === null) continue;
-        let holds = folders.get(folderId);
-        if (holds === undefined) {
-          holds = options.folderDocuments(folderId).includes(document.id);
-          folders.set(folderId, holds);
+      const folders = new Set(
+        options.minds().flatMap((mind) => (mind.folderId === null ? [] : [mind.folderId])),
+      );
+      for (const folderId of folders) {
+        if (options.folderDocuments(folderId).includes(document.id)) {
+          watchFolder(folderId, documentName);
         }
-        if (holds) watchFolder(folderId, documentName);
       }
     },
 
