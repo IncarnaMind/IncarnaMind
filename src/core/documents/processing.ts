@@ -50,10 +50,10 @@ import { documentTitle } from "./title";
  * web page's pictures are read, their text in its section; see
  * `PICTURES_CURRENT_SINCE`). 11: #901 (a PDF's pages keep the name they
  * print, from its page labels or its headers and footers). 12: #1819 (a
- * scanned page's quarter-turn is normalized before it is read) and #740 (a
+ * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
  * workbook records the hidden sheets and rows past the limit it left out).
  */
-export const PROCESSING_VERSION = 12;
+export const PROCESSING_VERSION = 13;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -66,9 +66,9 @@ export const PROCESSING_VERSION = 12;
  * 10 only web pages with saved pictures, which `PICTURES_CURRENT_SINCE` reads;
  * version 11 only PDFs', whose pages gain their printed names and whose
  * Passages come out as they were; version 12 only PDFs' scanned pages, whose
- * orientation `SCAN_CURRENT_SINCE` reads again, and workbooks', which record
- * the hidden sheets and rows past the limit they left out, their Units as
- * they were.
+ * orientation `SCAN_CURRENT_SINCE` reads again; version 13 only workbooks',
+ * which record the hidden sheets and rows past the limit they left out, their
+ * Units as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 11,
@@ -76,7 +76,7 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   markdown: 5,
   docx: 7,
   pptx: 5,
-  xlsx: 12,
+  xlsx: 13,
   csv: 5,
   web: 7,
   transcript: 7,

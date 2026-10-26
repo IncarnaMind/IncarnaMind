@@ -1466,6 +1466,14 @@ export function createDocuments(options: DocumentsOptions) {
                                        AND p.deleted_at IS NULL AND p.text GLOB ?))`,
       [now(), BigInt(HAN_CURRENT_SINCE), HAS_HAN, HAS_HAN],
     );
+    // A workbook with no text to search can still have left sheets unread (#740): one read
+    // before that was recorded is read again, once, unlike a ready workbook above.
+    db.run(
+      `UPDATE documents SET status = 'queued', updated_at = ?
+       WHERE deleted_at IS NULL AND kind = 'xlsx' AND status = 'no-text'
+         AND processing_version < ?`,
+      [now(), BigInt(CURRENT_SINCE.xlsx)],
+    );
     // PDFs with a page of little or no text, or one read from its picture by an older
     // reader, are processed again, so their scanned pages are read (#397): only when there is
     // a model to read them. A page of text comes out as it was (see `samePassages`).
