@@ -6,7 +6,7 @@
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { type Core, DATABASE_FILE, type Document } from "../../src/core";
-import { PROCESSING_VERSION } from "../../src/core/documents/processing";
+import { CURRENT_SINCE } from "../../src/core/documents/processing";
 import { openDatabase } from "../../src/core/storage";
 import { citationReference, citationSource } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
@@ -175,7 +175,7 @@ describe("A PDF indexed before pages kept their names", () => {
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
       db.run("UPDATE document_pages SET label = NULL");
-      db.run("UPDATE documents SET processing_version = ?", [BigInt(PROCESSING_VERSION - 1)]);
+      db.run("UPDATE documents SET processing_version = ?", [BigInt(CURRENT_SINCE.pdf - 1)]);
     } finally {
       db.close();
     }
@@ -200,7 +200,7 @@ describe("A PDF indexed before pages kept their names", () => {
     try {
       db.run("UPDATE document_pages SET label = NULL");
       db.run("UPDATE documents SET status = 'extracting', processing_version = ?", [
-        BigInt(PROCESSING_VERSION - 1),
+        BigInt(CURRENT_SINCE.pdf - 1),
       ]);
     } finally {
       db.close();
