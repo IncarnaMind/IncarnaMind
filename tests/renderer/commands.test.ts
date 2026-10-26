@@ -147,6 +147,32 @@ describe("New Folder with these", () => {
   });
 });
 
+describe("Output location", () => {
+  const command = () => {
+    const found = commands.get("settings.outputLocation");
+    if (!found) throw new Error("There is no Output location command.");
+    return found;
+  };
+
+  test("is in ⌘K under the name of the setting it opens, in English and in Chinese", () => {
+    expect(labelOf(command(), NOWHERE, translator("en"))).toBe("Output location");
+    expect(labelOf(command(), NOWHERE, translator("zh-CN"))).toBe("保存位置");
+  });
+
+  test("opens where files are saved, as a Linked folder's not-checked line does", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const openSettings = useAppStore.getState().openSettings;
+    const opened = vi.fn();
+    useAppStore.setState({ openSettings: opened });
+    try {
+      await commands.run("settings.outputLocation", NOWHERE);
+      expect(opened.mock.calls).toEqual([["general", "output-location"]]);
+    } finally {
+      useAppStore.setState({ openSettings });
+    }
+  });
+});
+
 /**
  * In the note, the note's own keymap tries a Block's command first, and the window's acts where
  * it isn't offered: ⌘K edits the link on selected text, and opens ⌘K anywhere else.

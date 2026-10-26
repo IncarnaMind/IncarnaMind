@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { channelFor } from "../src/shared/bridge";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addFilesLabel,
@@ -212,3 +213,76 @@ test("⌘K finds the one way in, and running it opens the one sheet, at 1,600 px
     await app.close();
   }
 });
+
+/**
+ * The row's "not checked" line, when the answer about writing couldn't be read: its action is
+ * beside the row's own button, never in it, so one click reaches one action (#1942), and ⌘K
+ * opens the same place for a keyboard.
+ */
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the not-checked line opens where files are saved, and not the Library, in ${language}`, async () => {
+    test.setTimeout(240_000);
+    const folder = join(sources, "Contracts");
+    await mkdir(folder);
+    await writeFile(join(folder, "Lease.txt"), "The lease term is five years.\n");
+    const NOT_CHECKED = language === "en" ? "not checked" : "未确认";
+    const OUTPUT_LOCATION = language === "en" ? "Output location" : "保存位置";
+    const { app, window } = await start();
+    try {
+      await setLanguage(window, language);
+      // The answer can't be read once, as a settings read that fails leaves the row.
+      const recorded = await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        return core.getOutputSettings();
+      });
+      await app.evaluate(
+        ({ ipcMain }, { channel, settings }) => {
+          ipcMain.removeHandler(channel);
+          let failed = false;
+          ipcMain.handle(channel, () => {
+            if (failed) return settings;
+            failed = true;
+            throw new Error("The settings couldn't be read.");
+          });
+        },
+        { channel: channelFor("getOutputSettings"), settings: recorded },
+      );
+      await window.evaluate(async (path) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.addLinkedFolder(path);
+      }, folder);
+
+      const row = linkedFolderRow(window, "Contracts");
+      const line = row.getByTestId("linked-folder-writing-unchecked");
+      await expect(line).toHaveText(NOT_CHECKED, { timeout: 60_000 });
+      // Beside the row's button, not inside it: a control inside a control runs both at once.
+      await expect(
+        row.getByTestId("linked-folder-open").getByTestId("linked-folder-writing-unchecked"),
+      ).toHaveCount(0);
+      await shot(window, `not-checked-line-${language}`);
+
+      const onlyTheOutputLocation = async () => {
+        await expect(window.getByTestId("settings")).toBeVisible();
+        await expect(window.getByTestId("output-location-settings")).toContainText(OUTPUT_LOCATION);
+        await expect(window.getByTestId("output-location-change")).toBeFocused();
+        // The row's own action, opening the Library, did not run.
+        await expect(window.getByTestId("library")).toHaveCount(0);
+        await window.getByTestId("settings-close").click();
+        await expect(window.getByTestId("settings")).toBeHidden();
+      };
+
+      await line.click();
+      await onlyTheOutputLocation();
+
+      await window.keyboard.press("ControlOrMeta+k");
+      await expect(window.getByTestId("palette-search")).toBeFocused();
+      await window.keyboard.type(OUTPUT_LOCATION);
+      await expect(paletteFound(window).filter({ hasText: OUTPUT_LOCATION })).toHaveCount(1);
+      await window.keyboard.press("Enter");
+      await expect(window.getByTestId("palette")).toBeHidden();
+      await onlyTheOutputLocation();
+    } finally {
+      await app.close();
+    }
+  });
+}

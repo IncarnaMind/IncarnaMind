@@ -164,23 +164,6 @@ function LinkedFolderRow({
               {t("linkedFolders.readOnly")}
             </span>
           )}
-          {!status && !isExample && unchecked && (
-            // Not read-only, only unknown: saying where the answer lives is the honest line (#1942).
-            <span
-              data-testid="linked-folder-writing-unchecked"
-              className="shrink-0 text-label font-semibold text-ink-meta"
-            >
-              <button
-                type="button"
-                title={t("linkedFolders.readOnly.unchecked.title")}
-                onClick={showOutputLocationSetting}
-                className="rounded-sm hover:text-ink hover:underline"
-                tabIndex={-1}
-              >
-                {t("linkedFolders.readOnly.unchecked")}
-              </button>
-            </span>
-          )}
           {status && (
             <span
               data-testid="folder-status"
@@ -198,6 +181,21 @@ function LinkedFolderRow({
             </span>
           )}
         </button>
+        {!status && !isExample && unchecked && (
+          // Not read-only, only unknown: saying where the answer lives is the honest line (#1942).
+          // Beside the row's button, never in it: one control inside another runs both on one click.
+          // Its 33px keep it clear of the row's actions, which take that room when the row is pointed at.
+          <button
+            type="button"
+            data-testid="linked-folder-writing-unchecked"
+            title={t("linkedFolders.readOnly.unchecked.title")}
+            onClick={showOutputLocationSetting}
+            tabIndex={-1}
+            className="mr-[33px] shrink-0 rounded-sm text-label font-semibold text-ink-meta hover:text-ink hover:underline"
+          >
+            {t("linkedFolders.readOnly.unchecked")}
+          </button>
+        )}
         {progress !== null && (
           <span
             aria-hidden="true"
