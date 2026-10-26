@@ -4245,6 +4245,10 @@ export const en = {
     "It installs the next time you quit IncarnaMind. Restart now to install it straight away.",
   "update.ready.confirm": "Restart now",
   "update.later": "Later",
+  "update.failed.title": "The update couldn’t be installed",
+  "update.failed.detail":
+    "IncarnaMind will reopen when you close this message. You can install the update later.",
+  "update.failed.reopen": "Reopen IncarnaMind",
 
   "connectors.settings.title": "Connectors",
   "connectors.directory.intro": "Services the assistant can search. Nothing goes until you agree.",

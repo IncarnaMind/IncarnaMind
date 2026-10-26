@@ -4052,6 +4052,9 @@ export const zhCN = {
   "update.ready.detail": "将在下次退出 IncarnaMind 时自动安装。也可以立即重启，马上完成安装。",
   "update.ready.confirm": "立即重启",
   "update.later": "稍后",
+  "update.failed.title": "未能安装更新",
+  "update.failed.detail": "关闭此提示后，IncarnaMind 会重新打开。之后可以再安装更新。",
+  "update.failed.reopen": "重新打开 IncarnaMind",
 
   "connectors.settings.title": "连接器",
   "connectors.directory.intro": "助手可查询的服务。你同意之前不会发送任何内容。",
