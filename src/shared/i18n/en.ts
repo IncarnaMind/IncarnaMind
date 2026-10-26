@@ -2016,7 +2016,7 @@ export const en = {
   "setup.key.credit": "No credit on this key",
   "setup.key.addCredit": "Add credit",
   "setup.key.another": "Use another key",
-  "setup.localMode": "Cloud models are off: “Keep everything on this computer” is on.",
+  "setup.localMode": "Cloud models are off: “Keep everything on this computer”.",
   "setup.back": "Back",
   "setup.ready": "{name} works",
   "setup.ready.generic": "Your AI model works",

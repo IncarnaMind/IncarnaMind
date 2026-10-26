@@ -370,7 +370,7 @@ test("Local mode offers only choices on this computer, in step 1 and in the step
       await core.setLocalOnly(true);
     });
     await expect(card.getByTestId("setup-local-mode")).toContainText(
-      "Cloud models are off: “Keep everything on this computer” is on.",
+      "Cloud models are off: “Keep everything on this computer”.",
     );
     await expect(card.getByTestId("setup-key")).toHaveCount(0);
     await expect(card.getByTestId("setup-chatgpt")).toHaveCount(0);

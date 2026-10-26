@@ -92,6 +92,12 @@ const CONSENT_FACTS = [
   "providers.sends.onRequest",
   "rerank.settings.sends",
   "tagging.automatic.sends",
+  // What first run's key field and sorting choice send, and where (ADR-0022).
+  "needsModel.organize",
+  "needsModel.compare",
+  "needsModel.help",
+  "setup.sorting.here",
+  "setup.sorting.chatHere",
 ];
 
 describe("The Settings pages", () => {
