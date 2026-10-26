@@ -337,8 +337,10 @@ try {
     expect(existsSync(boxes)).toBe(false);
   } finally {
     try {
-      await test.info().attach("mapped-shm-restart", {
-        body: JSON.stringify({
+      const path = test.info().outputPath("mapped-shm-restart.json");
+      await writeFile(
+        path,
+        JSON.stringify({
           firstMain,
           successorPid,
           successorError,
@@ -350,6 +352,9 @@ try {
           instanceTrace: existsSync(instanceTrace) ? await readFile(instanceTrace, "utf8") : "",
           log: await logOf(dataDir),
         }),
+      );
+      await test.info().attach("mapped-shm-restart", {
+        path,
         contentType: "application/json",
       });
     } finally {

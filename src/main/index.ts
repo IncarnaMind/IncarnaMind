@@ -404,9 +404,12 @@ app.whenReady().then(async () => {
   // The window's page starts loading while the core starts. Its calls reach the core once
   // `exposeCore` has run, below: they wait until this synchronous run is done.
   createWindow();
+  logger.info("app.startup.windowReturned");
   try {
+    const adapters = createElectronAdapters(logger);
+    logger.info("app.startup.adaptersReady");
     core = createCore({
-      ...createElectronAdapters(logger),
+      ...adapters,
       notifications: createSystemNotifications(appWindows),
       ...(executor && { executor }),
       ...(createChatModel && { createChatModel }),
@@ -418,6 +421,7 @@ app.whenReady().then(async () => {
       }),
       ...(taskKinds.length > 0 && { taskKinds }),
     });
+    logger.info("app.startup.coreReady");
   } catch (error) {
     await showStartupError(error);
     app.quit();
@@ -547,6 +551,7 @@ app.whenReady().then(async () => {
   powerMonitor.on("resume", () => core?.systemAwake());
   startupComplete = true;
   finishStartup();
+  logger.info("app.startup.hostReady");
 });
 
 // Electron would answer a site's request with the first certificate in the system's store: on
