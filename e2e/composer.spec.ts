@@ -249,9 +249,11 @@ test("typing in the composer and pressing Enter shows the Question in the assist
   await expect(answer.getByTestId("answer-stop")).toHaveCount(0);
   const live = composer.getByTestId("composer-live");
   await expect(live).toHaveAttribute("aria-live", "polite");
-  await expect(live).toHaveText(/Writing the Answer…|Your Documents answer this/);
+  await expect(live).toHaveText(/^(?:Writing the Answer…|Your Documents answer this[\s\S]*)$/);
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-  await expect(live).toHaveText("Your Documents answer this. That is all. The Answer is done.");
+  // The announcer reads a whole sentence at a time, up to 1.5 s apart, so a batch may already
+  // have read the first sentence, which the last text doesn't say again (#1741).
+  await expect(live).toHaveText(/^(?:.*\s)?The Answer is done\.$/);
   // The Mind is as it was written.
   await expect.poll(() => order(editor)).toEqual(["Spring tides come twice a month."]);
 

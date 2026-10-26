@@ -40,14 +40,14 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | English | Chinese | Notes |
 |---|---|---|
 | Note | 笔记 | The place the User writes in. 篇 counts it in prose ("3 篇笔记"); a label takes no measure word: "笔记（3）", "收起笔记". Where the User first meets it (the example's banner, the first empty Note, New Note's tooltip) one sentence says what it is: "笔记：在这里写作、向文档提问，每条引文都会核对。" |
-| Assistant | 助手 | The one per window. "显示助手", "收起助手". As Kimi, Doubao and Yuanbao call themselves (智能助手, AI 助手). |
+| Assistant | 助手 | The one per window. "展开助手", "收起助手". As Kimi, Doubao and Yuanbao call themselves (智能助手, AI 助手). |
 | Conversation | 对话 | New chat is "新对话", History "历史对话", counted with 个: "3 个对话". As Doubao, Yuanbao, DeepSeek, Qwen, Feishu, Cherry Studio and Open WebUI show it. |
 | Your text | 你写的内容 | A Block the User writes, as opposed to one the assistant wrote. Today's strings use 笔记 for it too ("笔记内容", "正在搜索笔记和文档…"); the string slices replace those, so 笔记 means the Note. |
 | Block | 块 | "块选项". As Feishu does. |
 | Question | 问题 | Ask: 提问. "就此文档提问". |
 | Answer | 回答 | Generate: 生成; Regenerate: 重新生成; Stop: 停止. |
 | Question context | 上下文 | |
-| Search scope | 搜索范围 | "仅搜索", "缩小范围". |
+| Search scope | 搜索范围 | "选择搜索范围", "缩小范围". |
 | Document | 文档 | Counted with 个. |
 | Missing Document | (status) 文件缺失 | Long form: "找不到文件：引用保留原文，搜索不再包含它。" |
 | Unavailable Document | (status) 无法访问 | |
@@ -82,7 +82,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Style (a Mind's font and text size) | 样式 | "样式…" in the Mind's menu. Its parts: 字体 (font), 字号 (text size: 小、默认、大) and "设为新建 Mind 的默认样式". The three fonts are 默认, 衬线 and 等宽, as Notion's; a font the computer lacks is "此电脑未安装该字体". |
 | Format (the selection menu's Aa) | 格式 | As Word and WPS name formatting: 字体、字号; alignment 左对齐、居中、右对齐、两端对齐; 行距 with 单倍、1.15、1.5、双倍、自定义…; space around a paragraph 添加/移除段前间距, 添加/移除段后间距, as Google Docs words it; 增加缩进, 减少缩进 and 首行缩进 2 字符; 文字颜色 with 自动; 上标, 下标. A Mind's own line spacing in 样式 is 行距 too, its first choice 默认. |
 | Folder | 文件夹 | |
-| Source location | 文件位置 | The sidebar view of the files as they are on disk. |
+| Source location | 磁盘上的文件夹 | The sidebar's name for the files as they are on disk; the Library's filter names it 文件位置. |
 | Tag | 标签 | Tagging is 打标签; automatic tagging is 自动打标签. |
 | Library | 资料库 | Where the User's files live in ChatGPT (资料库), Yuanbao (资料库, 加入资料库) and LobeChat. Not 知识库, which in Feishu and Yuque is a wiki and in AI clients a collection built for one assistant. |
 | Organize | 整理 | "整理此文件夹". As Tencent Docs (批量整理文档) and Apple Notes (整理备忘录). |

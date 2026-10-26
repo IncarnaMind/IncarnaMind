@@ -1871,6 +1871,15 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 106,
+    description: "Remote Connector transport and header names (#1995)",
+    sql: `
+      UPDATE connectors
+      SET config = json_set(config, '$.connection', 'http', '$.headers', json('[]'))
+      WHERE transport = 'http' AND json_valid(config);
+    `,
+  },
+  {
+    version: 107,
     description: "Answers in conversations keep their Analyses, and a Question that asked for one",
     sql: `
       ALTER TABLE conversation_messages ADD COLUMN analyses TEXT NOT NULL DEFAULT '[]';

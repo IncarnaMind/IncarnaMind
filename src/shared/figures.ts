@@ -136,6 +136,11 @@ export interface FigureContext {
    * out, it is worked out from the text read.
    */
   accounts?: boolean;
+  /**
+   * The text starts inside a line of its Document, as a quote from the middle of one does: a
+   * number at its start is neither a list's nor a heading's (#1969).
+   */
+  midLine?: boolean;
 }
 
 /** A scale or unit stated apart from the figures it applies to: "单位：万元", "(in millions)". */
@@ -189,12 +194,12 @@ interface Prepared {
  * the punctuation they are, so "增长3。5月" doesn't become 3.5.
  * Traditional characters read as simplified ones ("億" as "亿").
  */
-function prepare(text: string): Prepared {
+function prepare(text: string, midLine = false): Prepared {
   const { units } = normaliseWithOffsets(text);
   let s = "";
   const from: number[] = [];
   const to: number[] = [];
-  const lineStarts = new Set<number>([0]);
+  const lineStarts = new Set<number>(midLine ? [] : [0]);
   const spaced = new Set<number>();
   const tabbed = new Set<number>();
   let previousEnd = 0;
@@ -1498,7 +1503,7 @@ function readAround(
   // A list's number: "1." or "1)" or "1、" at the start of a line.
   let indent = left;
   while (s[indent - 1] === " " || s[indent - 1] === "\t") indent--;
-  const lineStart = indent === 0 || s[indent - 1] === "\n" || prepared.lineStarts.has(indent);
+  const lineStart = s[indent - 1] === "\n" || prepared.lineStarts.has(indent);
   const mark = s[found.to];
   const afterMark = s[found.to + 1];
   const listMark =
@@ -1616,9 +1621,11 @@ function readAround(
     (draft.unit.kind === "plain" || (draft.unit.kind === "currency" && !currencyAfter));
   const whole = found.number.point === found.number.digits.length && !found.formatted;
   if (looseReference && bare && whole && draft.unit.kind === "plain") return null;
-  // A heading's number at the start of a line: "1 Introduction", "2.1 Methods", "1 引言".
-  const followed =
-    s[right] === " " ? s[right + 1] : prepared.spaced.has(right) ? s[right] : undefined;
+  // A heading's number at the start of a line: "1 Introduction", "2.1 Methods", "1 引言". One
+  // joined to the next number ("88.0 和 91.5") is a figure: no heading reads so (#1969).
+  const after = s[right] === " " ? right + 1 : prepared.spaced.has(right) ? right : null;
+  const followed = after === null ? undefined : s[after];
+  const joined = after !== null && /^[和与及或至到] ?\d/.test(s.slice(after, after + 3));
   if (
     lineStart &&
     draft.unit.kind === "plain" &&
@@ -1626,7 +1633,8 @@ function readAround(
     !signed &&
     /^\d{1,2}(?:\.\d{1,2})?$/.test(s.slice(found.from, found.to)) &&
     followed !== undefined &&
-    /^[A-Z\p{Script=Han}]$/u.test(followed)
+    /^[A-Z\p{Script=Han}]$/u.test(followed) &&
+    !joined
   ) {
     return null;
   }
@@ -1971,7 +1979,7 @@ function dateFigures(s: string, span: Span): Draft[] {
  * header whose stated scale applies.
  */
 export function readFigures(text: string, context: FigureContext = {}): Figure[] {
-  const prepared = prepare(text);
+  const prepared = prepare(text, context.midLine);
   const { s } = prepared;
   const plain = settle(context);
   const statements = statementsIn(prepared, text, plain);
