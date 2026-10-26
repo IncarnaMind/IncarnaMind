@@ -173,8 +173,13 @@ export function useSorting() {
       settings = useAppStore.getState().library?.settings;
     }
     if (!settings) return false;
-    await core.saveLibrarySettings({ ...settings, classifier: option.classifier });
-    return true;
+    try {
+      await core.saveLibrarySettings({ ...settings, classifier: option.classifier });
+      return true;
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+      return false;
+    }
   };
   return { options, current, choose, loading: models === null, library };
 }

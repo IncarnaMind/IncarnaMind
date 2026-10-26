@@ -19,7 +19,8 @@ const linkClass =
   "text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline";
 
 function recipientOf(provider: ChatProvider, name: string): string | null {
-  if (provider.kind === "ollama") return null;
+  // A server on this computer sends nothing anywhere, whatever it is called.
+  if (provider.service === null) return null;
   if (provider.kind === "chatgpt") return CHATGPT_RECIPIENT;
   if (provider.kind === "claude-account") return "Anthropic";
   if (provider.kind === "copilot") return "GitHub";
@@ -79,7 +80,10 @@ export function SetupSteps() {
           <TranscriptionStep onDone={() => setDone((each) => ({ ...each, transcription: true }))} />
         </Step>
         <Step number={3} title={t("setup.step.sorting")} testId="sorting" done={done.sorting}>
-          <SortingStep onDone={() => setDone((each) => ({ ...each, sorting: true }))} />
+          <SortingStep
+            autoFocus={done.transcription}
+            onDone={() => setDone((each) => ({ ...each, sorting: true }))}
+          />
         </Step>
       </ol>
       <div data-setup-foot>
@@ -211,7 +215,7 @@ function TranscriptionStep({ onDone }: { onDone(): void }) {
 }
 
 /** What sorts Tags and Folders and names meeting hints, the best the keys reach picked first. */
-function SortingStep({ onDone }: { onDone(): void }) {
+function SortingStep({ onDone, autoFocus }: { onDone(): void; autoFocus: boolean }) {
   const t = useT();
   const { options, current, choose } = useSorting();
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
@@ -224,7 +228,7 @@ function SortingStep({ onDone }: { onDone(): void }) {
     <>
       <SortingSelect
         id="setup-sorting"
-        autoFocus
+        autoFocus={autoFocus}
         options={options}
         current={chosen}
         onChange={setPicked}
