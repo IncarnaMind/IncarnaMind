@@ -55,8 +55,8 @@ const PASSAGES_PER_DOCUMENT = 3;
  * The live Documents, not missing, whose Passages hold every word of the
  * query, the last letters of each still to type, best first, each with its
  * best Passage that holds one of them in its text: a word only in a
- * Document's name, which the index holds with each Passage, doesn't count.
- * See `CoreApi.searchDocumentText`.
+ * Document's name, which the index holds with its first Passage, doesn't
+ * count. See `CoreApi.searchDocumentText`.
  */
 export function textSearch(db: Database, query: string, limit: number): DocumentTextMatch[] {
   const terms = searchTerms(query);

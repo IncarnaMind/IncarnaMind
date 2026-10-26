@@ -90,6 +90,7 @@ import {
   CURRENT_SINCE,
   HAN_CURRENT_SINCE,
   METADATA_VERSION,
+  NAME_INDEX_CURRENT_SINCE,
   PICTURES_CURRENT_SINCE,
   PROCESSING_VERSION,
   type ProcessedPassage,
@@ -342,7 +343,11 @@ function searchLimit(limit: unknown = DEFAULT_SEARCH_LIMIT): number {
   return limit;
 }
 
-/** What the keyword index holds for a Passage: its Document's name, then its own words. */
+/**
+ * What the keyword index holds for a Passage: its own words, and its
+ * Document's name for the Document's first Passage alone, where a word of the
+ * name is one Passage's, not every Passage's (#2042).
+ */
 const indexedText = (nameKeywords: string, passageKeywords: string) =>
   nameKeywords ? `${nameKeywords} ${passageKeywords}` : passageKeywords;
 
@@ -766,16 +771,16 @@ export function createDocuments(options: DocumentsOptions) {
   const index = (seq: number, text: string) =>
     db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [BigInt(seq), text]);
 
-  /** Re-indexes a Document's live Passages' keywords, which include its name. Run in a transaction. */
-  function reindexName(id: string, name: string): void {
+  /** Re-indexes a Document's live Passages' keywords, which include its name (on its first Passage). Run in a transaction. */
+  function reindexKeywords(id: string, name: string): void {
     const nameKeywords = keywordText(name);
-    const passages = db.all<{ seq: number; text: string }>(
-      "SELECT seq, text FROM passages WHERE document_id = ? AND deleted_at IS NULL",
+    const passages = db.all<{ seq: number; position: number; text: string }>(
+      "SELECT seq, position, text FROM passages WHERE document_id = ? AND deleted_at IS NULL",
       [id],
     );
-    for (const { seq, text } of passages) {
+    for (const { seq, position, text } of passages) {
       db.run("DELETE FROM passages_fts WHERE rowid = ?", [BigInt(seq)]);
-      index(seq, indexedText(nameKeywords, keywordText(text)));
+      index(seq, indexedText(position === 0 ? nameKeywords : "", keywordText(text)));
     }
   }
 
@@ -837,7 +842,7 @@ export function createDocuments(options: DocumentsOptions) {
         ],
       );
       if (!stored) throw new Error("The Passage wasn't saved.");
-      index(stored.seq, indexedText(nameKeywords, passage.keywords));
+      index(stored.seq, indexedText(passage.position === 0 ? nameKeywords : "", passage.keywords));
     }
   }
 
@@ -952,6 +957,11 @@ export function createDocuments(options: DocumentsOptions) {
         result.contentHash === row.content_hash &&
         row.processing_version >= HAN_CURRENT_SINCE &&
         samePassages(row.id, result.passages);
+      // Its Passages are the ones it had, and so are their vectors; its index, built before
+      // NAME_INDEX_CURRENT_SINCE, still holds its name with every Passage (#2042).
+      if (unchanged && row.processing_version < NAME_INDEX_CURRENT_SINCE) {
+        reindexKeywords(row.id, row.name);
+      }
       if (!unchanged) {
         // Its content is new: Organize sees the Document anew (#2023).
         reembedding.delete(job.documentId);
@@ -1418,7 +1428,7 @@ export function createDocuments(options: DocumentsOptions) {
       },
       renamed: (id) => {
         const row = find(id);
-        if (row) db.transaction(() => reindexName(id, row.name));
+        if (row) db.transaction(() => reindexKeywords(id, row.name));
       },
       // Unlinked: the Units Citations point to stay, so those Citations can still be checked.
       remove: (ids, at) => removeFromIndex(ids, at, options.citedUnits?.(ids) ?? []),
@@ -1459,10 +1469,12 @@ export function createDocuments(options: DocumentsOptions) {
   };
 
   // Documents processed by an older pipeline are processed again, through the usual
-  // statuses: those whose kind it changed for (see `CURRENT_SINCE`), and those with Han
+  // statuses: those whose kind it changed for (see `CURRENT_SINCE`), those with Han
   // characters in their text or name, whose keyword index now folds them (see
-  // `HAN_CURRENT_SINCE`). The others are already what this pipeline builds: their version
-  // says so, so their text isn't looked through again at the next start.
+  // `HAN_CURRENT_SINCE`), and those with a Passage after their first, whose keyword index
+  // now holds their name with the first alone (see `NAME_INDEX_CURRENT_SINCE`). The others
+  // are already what this pipeline builds: their version says so, so their text isn't
+  // looked through again at the next start.
   db.transaction(() => {
     db.run(
       `UPDATE documents SET status = 'queued', updated_at = ?
@@ -1479,6 +1491,15 @@ export function createDocuments(options: DocumentsOptions) {
                                      WHERE p.document_id = documents.id
                                        AND p.deleted_at IS NULL AND p.text GLOB ?))`,
       [now(), BigInt(HAN_CURRENT_SINCE), HAS_HAN, HAS_HAN],
+    );
+    // Its index reads its name once either way, so a Document of one Passage has nothing to rebuild.
+    db.run(
+      `UPDATE documents SET status = 'queued', updated_at = ?
+       WHERE deleted_at IS NULL AND processing_version < ?
+         AND status IN ('ready', 'embedding', 'waiting-for-model')
+         AND (SELECT count(*) FROM passages p
+              WHERE p.document_id = documents.id AND p.deleted_at IS NULL) > 1`,
+      [now(), BigInt(NAME_INDEX_CURRENT_SINCE)],
     );
     // A workbook with no text to search can still have left sheets unread (#740): one read
     // before that was recorded is read again, once, unlike a ready workbook above.
@@ -2452,7 +2473,7 @@ export function createDocuments(options: DocumentsOptions) {
       if (!find(id)) throw new NotFoundError({ key: "error.document.notFound" });
       db.transaction(() => {
         db.run("UPDATE documents SET name = ?, updated_at = ? WHERE id = ?", [name, now(), id]);
-        reindexName(id, name);
+        reindexKeywords(id, name);
       });
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
@@ -2577,7 +2598,7 @@ export function createDocuments(options: DocumentsOptions) {
         [at, list],
       );
       for (const row of rows) {
-        reindexName(row.id, row.name);
+        reindexKeywords(row.id, row.name);
         if (row.status === "extracting") setStatus(row.id, "queued");
         else if (["ready", "embedding", "waiting-for-model"].includes(row.status)) {
           const status = indexedStatus(row);

@@ -82,7 +82,7 @@ async function beforeUnits(): Promise<{
           key === "pdf" ? 2n : null,
           paths[key],
           info.mtimeMs,
-          BigInt(key === "pdf" ? CURRENT_SINCE.pdf : 4),
+          BigInt(key === "pdf" ? PROCESSING_VERSION : 4),
           AT,
           AT,
         ],

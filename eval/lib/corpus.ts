@@ -1,11 +1,11 @@
 /**
  * The library's Passages as the evaluation's own searches see them (see
- * ./searches): each with the words the keyword index holds for it, its
- * Document's name then its text (src/core/documents/keywords.ts), and BM25
- * over them in memory, scored as FTS5 scores. FTS5 can't weigh one query term
- * more than another, or score a Document's Passages by that Document's own
- * term statistics, which keyword + feedback terms and document first need.
- * The app never searches with it.
+ * ./searches): each with the words the keyword index holds for it, its text
+ * and, on its Document's first Passage, its name (src/core/documents/keywords.ts),
+ * and BM25 over them in memory, scored as FTS5 scores. FTS5 can't weigh one
+ * query term more than another, or score a Document's Passages by that
+ * Document's own term statistics, which keyword + feedback terms and document
+ * first need. The app never searches with it.
  */
 import type { PassageSearchResult } from "../../src/core";
 import { keywordTerms, keywordText } from "../../src/core/documents/keywords";
@@ -149,7 +149,11 @@ export function createCorpus(passages: readonly CorpusPassage[]): Corpus {
     }
     const own = tokensOf(passage.text);
     textTokens.set(passage.seq, own);
-    return { seq: passage.seq, documentId: passage.documentId, tokens: [...name, ...own] };
+    return {
+      seq: passage.seq,
+      documentId: passage.documentId,
+      tokens: [...(passage.position === 0 ? name : []), ...own],
+    };
   });
   const documentIndexes = new Map<string, Bm25>();
   const documents = [...names.keys()].map((id) => {

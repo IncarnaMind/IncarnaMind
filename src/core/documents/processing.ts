@@ -53,9 +53,11 @@ import { unreadMessage } from "./unreadMessage";
  * print, from its page labels or its headers and footers). 12: #1819 (a
  * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
  * workbook records the hidden sheets and rows past the limit it left out).
- * 14: #1818 (PDF form fields are included in the pages' text).
+ * 14: #1818 (PDF form fields are included in the pages' text). 15:
+ * #2042 (a Document's name is indexed with its first Passage alone; see
+ * `NAME_INDEX_CURRENT_SINCE`).
  */
-export const PROCESSING_VERSION = 14;
+export const PROCESSING_VERSION = 15;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -71,6 +73,8 @@ export const PROCESSING_VERSION = 14;
  * orientation `SCAN_CURRENT_SINCE` reads again; version 13 only workbooks',
  * which record the hidden sheets and rows past the limit they left out, their
  * Units as they were; version 14 only PDFs', whose pages include form fields.
+ * Version 15 changed no Passage or Unit, only the keyword index (see
+ * `NAME_INDEX_CURRENT_SINCE`).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 14,
@@ -95,6 +99,19 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
  * through only once.
  */
 export const HAN_CURRENT_SINCE = 6;
+
+/**
+ * The oldest version whose keyword index holds a Document's name as this
+ * version does: since version 15, a Passage's row holds its Document's name
+ * with the Document's first Passage alone, not with every Passage (#2042).
+ * The index took the name as text every Passage says, so a long Document
+ * whose name held a word of a search counted as if all its Passages said it:
+ * its document frequency grew with the Document's length, and the word's
+ * IDF, and every match on it, fell. The Passages and their vectors are
+ * unchanged, so a Document processed by an older version is processed again
+ * at startup and keeps both (see `record` in ./index).
+ */
+export const NAME_INDEX_CURRENT_SINCE = 15;
 
 /**
  * For a PDF with a page that has little or no text (a scan, maybe), or a

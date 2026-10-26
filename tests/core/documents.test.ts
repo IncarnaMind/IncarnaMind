@@ -345,7 +345,7 @@ describe("Documents", { timeout: 30_000 }, () => {
     const traditionalQuery = await core.searchPassages("經濟增長", { mode: "keyword" });
     expect(traditionalQuery.map((result) => result.documentId)).toEqual([growth?.id]);
     expect(traditionalQuery[0]?.text).toContain("经济增长依赖于");
-    // A Document's name is folded too, where it is indexed with each of its Passages.
+    // A Document's name is folded too, where it is indexed with its first Passage.
     const byName = await core.searchPassages("季度报告", { mode: "keyword" });
     expect(byName.map((result) => result.documentName)).toEqual(["季度報告"]);
     expect(byName[0]?.documentId).toBe(report?.id);

@@ -2,7 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { DATABASE_FILE, type Document } from "../../src/core";
-import { PROCESSING_VERSION } from "../../src/core/documents/processing";
+import { keywordText } from "../../src/core/documents/keywords";
+import { NAME_INDEX_CURRENT_SINCE, PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
@@ -51,6 +52,33 @@ function asVersion5(dataDir: string): void {
         db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [
           BigInt(seq),
           `${unfoldedKeywords(name)} ${unfoldedKeywords(text)}`,
+        ]);
+      }
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Takes a data folder back to the keyword index before `NAME_INDEX_CURRENT_SINCE`:
+ * every Document marked as of the version before it, and each Passage's index
+ * row holding its Document's name along with its own words.
+ */
+function asNameWithEveryPassage(dataDir: string): void {
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  try {
+    db.transaction(() => {
+      db.run("UPDATE documents SET processing_version = ?", [BigInt(NAME_INDEX_CURRENT_SINCE - 1)]);
+      const passages = db.all<{ seq: number; text: string; name: string }>(
+        `SELECT p.seq, p.text, d.name FROM passages p JOIN documents d ON d.id = p.document_id
+         WHERE p.deleted_at IS NULL`,
+      );
+      for (const { seq, text, name } of passages) {
+        db.run("DELETE FROM passages_fts WHERE rowid = ?", [BigInt(seq)]);
+        db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [
+          BigInt(seq),
+          `${keywordText(name)} ${keywordText(text)}`,
         ]);
       }
     });
@@ -272,6 +300,53 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     ]);
     expect(later.filter((id) => id !== control?.id)).toEqual([]);
     third.close();
+  });
+
+  test("a Document whose index holds its name with every Passage is processed again, its Passages and vectors kept (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const embedder = createControlledEmbedder();
+    const entries = Array.from(
+      { length: 60 },
+      (_, line) => `Entry ${line} notes ordinary weather and quiet coastal traffic.`,
+    ).join("\n");
+    const first = startCore(dataDir, { embedder });
+    await turnOnEmbeddings(first);
+    const [report] = (await addAndProcess(first, [
+      await writeSourceFile(sources, "Annual Report.md", entries),
+    ])) as [Document];
+    first.close();
+    const live = () =>
+      queryDatabase<{ id: string; text: string; embedding: Uint8Array | null }>(
+        dataDir,
+        `SELECT id, text, embedding FROM passages
+         WHERE document_id = ? AND deleted_at IS NULL ORDER BY position`,
+        [report.id],
+      );
+    const before = live();
+    expect(before.length).toBeGreaterThan(1);
+    const matching = (word: string) =>
+      queryDatabase(dataDir, "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?", [
+        `"${word}"`,
+      ]).length;
+    expect(matching("report")).toBe(1);
+    // As version 14 left it: its name with every Passage.
+    asNameWithEveryPassage(dataDir);
+    expect(matching("report")).toBe(before.length);
+    const embeddedBefore = embedder.texts.length;
+
+    const second = startCore(dataDir, { embedder });
+    await waitForProcessing(second, [report.id]);
+    expect(matching("report")).toBe(1);
+    // Its Passages are the ones it had, and their vectors were kept: nothing to embed again.
+    expect(live()).toEqual(before);
+    expect(embedder.texts.length).toBe(embeddedBefore);
+    expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual([
+      { processing_version: PROCESSING_VERSION },
+    ]);
+    const byName = await second.searchPassages("annual", { mode: "keyword" });
+    expect(byName.map((passage) => passage.documentId)).toEqual([report.id]);
+    second.close();
   });
 
   test("Word Documents are processed once more, so their comments are searched; Documents of other kinds are left as they are (#76)", async () => {

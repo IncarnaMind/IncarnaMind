@@ -3,10 +3,10 @@
  * most 128 approximate tokens, with no overlap (the old command-line app
  * searched ~100-token chunks first), each mapped to the Passages that hold
  * it. The sub-chunks go into an FTS5 table built like the app's keyword index
- * (the Document's name, then the words, segmented the same way; the same
- * tokenizer), in a database of the evaluation's own in memory: the app's
- * schema doesn't change. A search ranks sub-chunks with BM25 and scores each
- * Passage by its best sub-chunk.
+ * (the words, segmented the same way, and the Document's name with the first
+ * sub-chunk; the same tokenizer), in a database of the evaluation's own in
+ * memory: the app's schema doesn't change. A search ranks sub-chunks with BM25
+ * and scores each Passage by its best sub-chunk.
  */
 import { keywordQuery, keywordText } from "../../src/core/documents/keywords";
 import { approximateTokens, buildPassages, type PageText } from "../../src/core/documents/passages";
@@ -175,12 +175,12 @@ export function buildSubChunkIndex(
       const found = subChunksOf(pagesOf(document.id), passages);
       unplaced += found.unplaced;
       const name = keywordText(document.name);
-      for (const chunk of found.chunks) {
+      for (const [index, chunk] of found.chunks.entries()) {
         subChunks++;
         tokens += approximateTokens(chunk.text);
         db.run("INSERT INTO chunks_fts (rowid, text) VALUES (?, ?)", [
           BigInt(subChunks),
-          indexedText(name, chunk.text),
+          indexedText(index === 0 ? name : "", chunk.text),
         ]);
         db.run("INSERT INTO chunks (id, passages) VALUES (?, ?)", [
           BigInt(subChunks),
@@ -199,7 +199,7 @@ export function buildSubChunkIndex(
     for (const passage of corpus.passages.values()) {
       passageDb.run("INSERT INTO chunks_fts (rowid, text) VALUES (?, ?)", [
         BigInt(passage.seq),
-        indexedText(keywordText(passage.documentName), passage.text),
+        indexedText(passage.position === 0 ? keywordText(passage.documentName) : "", passage.text),
       ]);
     }
   });

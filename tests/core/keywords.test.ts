@@ -7,7 +7,7 @@ import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
 import { keywordQuery, keywordTerms, keywordText } from "../../src/core/documents/keywords";
 import { SIMPLIFIED } from "../../src/shared/hanVariants";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
@@ -111,4 +111,52 @@ describe("Searching with a possessive or a split Chinese name", { timeout: 30_00
     expect(found).not.toContain("Scattered");
     expect(await namesFor(core, "茅台和五粮液")).toContain("Liquor");
   });
+});
+
+describe("A Document's name in the keyword index", { timeout: 30_000 }, () => {
+  /** More than one Passage: about 500 tokens each, and a Han character counts one. */
+  const LONG_ENGLISH = Array.from(
+    { length: 60 },
+    (_, line) => `Entry ${line} notes ordinary weather and quiet coastal traffic.`,
+  ).join("\n");
+  const LONG_CHINESE = Array.from(
+    { length: 160 },
+    (_, line) => `第${line}条记录只谈论普通的沿海天气和安静的交通。`,
+  ).join("\n");
+
+  async function passagesOf(dataDir: string, documentId: string) {
+    return queryDatabase<{ seq: number; position: number }>(
+      dataDir,
+      "SELECT seq, position FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position",
+      [documentId],
+    );
+  }
+
+  const matching = (dataDir: string, word: string) =>
+    queryDatabase(dataDir, "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?", [
+      `"${word}"`,
+    ]).length;
+
+  for (const [name, word, contents] of [
+    ["Annual Report", "report", LONG_ENGLISH],
+    ["年度报告", "报告", LONG_CHINESE],
+  ] as const) {
+    test(`“${word}” in ${name}'s name is one Passage's, whatever the Document's length (#2042)`, async () => {
+      const dataDir = await createTempDataFolder();
+      const core = startCore(dataDir);
+      const sources = await createSourceFolder();
+      const [document] = await addAndProcess(core, [
+        await writeSourceFile(sources, `${name}.txt`, contents),
+      ]);
+      if (!document) throw new Error("Nothing was added.");
+      expect((await passagesOf(dataDir, document.id)).length).toBeGreaterThan(1);
+
+      // The name's word is in its first Passage's row alone, not in every Passage's.
+      expect(matching(dataDir, word)).toBe(1);
+      const found = await core.searchPassages(word, { mode: "keyword" });
+      expect(found.map((passage) => passage.documentId)).toEqual([document.id]);
+      expect(found[0]?.position).toBe(0);
+      core.close();
+    });
+  }
 });
