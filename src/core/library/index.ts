@@ -715,17 +715,17 @@ export function createLibrary(options: {
     return { name, description, countsOwnFiles };
   }
 
+  // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
+  // waiting or failed), or while Organize files new Documents by itself.
+  const isOrganizing = (id: string): boolean => {
+    const held = assignment(id);
+    return !!held && (getSettings().automatic || held.status !== "classified");
+  };
+
   return {
     settings: getSettings,
     taggingStoppedFor,
-    /**
-     * Whether Organize holds the Document's Tags: it has an assignment that isn't finished (queued,
-     * running, waiting or failed), or, while Organize files new Documents by itself, any assignment.
-     */
-    isOrganizing(id: string): boolean {
-      const held = assignment(id);
-      return !!held && (getSettings().automatic || held.status !== "classified");
-    },
+    isOrganizing,
     taggingPlaces(): (string | null)[] {
       const ids = db
         .all<{ id: string }>(
@@ -1148,18 +1148,30 @@ export function createLibrary(options: {
       );
     },
     reject(input: unknown): AssignmentChange[] {
-      return review(input, (row) => {
+      const settled = new Set<string>();
+      const changes = review(input, (row) => {
+        // Only the tagging Organize held is the Reject's to settle; a state the tagger set, for a
+        // retag the User asked for, stays the tagger's (#1955).
+        const organizing = isOrganizing(row.document_id);
         const at = now();
+        // The User's decision settles the Document, so a run that failed before the rejection
+        // doesn't outlive it: it is finished, not one Organize couldn't sort (#1928).
         db.run(
-          "UPDATE document_groups SET group_id = NULL, suggested = 0, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+          "UPDATE document_groups SET group_id = NULL, suggested = 0, status = 'classified', error_kind = NULL, error_message = NULL, error_wording = NULL, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
           [randomUUID(), at, row.document_id],
         );
+        if (organizing) {
+          tagState(row.document_id, "classified");
+          settled.add(row.document_id);
+        }
         if (row.group_id && !rejected(row.document_id).has(row.group_id))
           db.run(
             "INSERT INTO document_group_rejections (id, document_id, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             [randomUUID(), row.document_id, row.group_id, at, at],
           );
       });
+      if (settled.size > 0) options.tagged([...settled]);
+      return changes;
     },
     target(input: unknown): string | null {
       if (input === undefined || input === null) return null;

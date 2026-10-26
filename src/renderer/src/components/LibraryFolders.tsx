@@ -8,6 +8,7 @@ import { useFolderContents } from "../folderContents";
 import { folderTarget, useDraggedOutOfFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
+import { formatCount } from "../linkedFolders";
 import { useRequests } from "../requests";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
@@ -44,6 +45,7 @@ const NOT_IN_A_FOLDER = "not-in-a-folder";
 
 const NO_DOCUMENTS: readonly Document[] = [];
 const NO_MINDS: readonly Mind[] = [];
+const NO_DOCUMENT_IDS: ReadonlySet<string> = new Set();
 
 const FOLDS_KEY = "incarnamind.sidebar.folders";
 
@@ -157,6 +159,17 @@ export function LibraryFolders({
   const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents, {
     hideExamples,
   });
+  const assignments = useAppStore((state) => state.library?.assignments);
+  const suggestedByFolder = useMemo(() => {
+    const byFolder = new Map<string, Set<string>>();
+    for (const item of assignments ?? []) {
+      if (!item.suggested || item.groupId === null) continue;
+      const ids = byFolder.get(item.groupId) ?? new Set<string>();
+      ids.add(item.documentId);
+      byFolder.set(item.groupId, ids);
+    }
+    return byFolder;
+  }, [assignments]);
 
   const draggingOut = useDraggedOutOfFolder();
   const looseMinds = mindsByFolder.get(null) ?? NO_MINDS;
@@ -192,6 +205,7 @@ export function LibraryFolders({
                 folder={folder}
                 minds={mindsByFolder.get(folder.id) ?? NO_MINDS}
                 documents={documentsByFolder.get(folder.id) ?? NO_DOCUMENTS}
+                suggested={suggestedByFolder.get(folder.id) ?? NO_DOCUMENT_IDS}
                 renderDocument={renderDocument}
               />
             ))}
@@ -287,11 +301,14 @@ function FolderGroup({
   folder,
   minds,
   documents,
+  suggested,
   renderDocument,
 }: {
   folder: LibraryGroup;
   minds: readonly Mind[];
   documents: readonly Document[];
+  /** The Documents this Folder only suggests, of those it lists. */
+  suggested: ReadonlySet<string>;
   renderDocument(document: Document, depth: number): ReactNode;
 }) {
   const expanded = useFolds((state) => state.open.has(folder.id));
@@ -329,10 +346,15 @@ function FolderGroup({
     return first ? nameNewFolder(folder.id, name) : renameFolder(folder.id, name);
   });
   const t = useT();
+  const language = useLanguage();
   const objectMenu = useObjectMenu(object);
   const treeItem = useTreeItem({ depth: 0, expanded, selected: lit });
   const fold = foldKeys(expanded, toggle);
   const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
+  const suggestedCount = useMemo(
+    () => documents.reduce((count, doc) => count + (suggested.has(doc.id) ? 1 : 0), 0),
+    [documents, suggested],
+  );
 
   return (
     <li
@@ -390,9 +412,13 @@ function FolderGroup({
             </span>
             <span
               data-testid="browse-count"
-              className="text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
+              className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
             >
               {minds.length + documents.length}
+              {suggestedCount > 0 &&
+                ` · ${t("sidebar.folder.suggested", {
+                  count: formatCount(suggestedCount, language),
+                })}`}
             </span>
             <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
           </button>

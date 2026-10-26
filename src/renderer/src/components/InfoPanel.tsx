@@ -337,7 +337,7 @@ function DocumentInfo({ document }: { document: Document }) {
           )}
         </Row>
         <Row label={t("info.organize")} testId="info-organize" focusRef={organizeRow}>
-          {t(organizeState(assignment))}
+          {t(organizeState(document, assignment))}
           {assignment?.model && (
             <span className="block text-ink-meta">{organizeModel(assignment.model, t)}</span>
           )}

@@ -2978,16 +2978,20 @@ export async function fontsDrawing(window: Page, selector: string) {
   }
 }
 
+/** What the local decision server says when it refuses a Document: the reason a row shows. */
+export const DECISION_FAILURE = "The model stopped answering";
+
 /**
  * A local decision server like Ollama's `/v1/systemone` (no model): a Folder chosen by what the
  * Document says (`folderFor`: Finance for an invoice, Reports otherwise), Invoice in the review
  * band for an invoice, Report likely for a report, nothing else. `requests` counts what it was asked;
- * `delayMs` holds each answer back, for a test that does something else while Organize works.
+ * `delayMs` holds each answer back, for a test that does something else while Organize works;
+ * `failFor` refuses those Documents, as a model that stops answering does.
  */
 export async function decisionServer(
   folderFor: (text: string) => string = (text) =>
     text.includes("invoice") ? "Finance" : "Reports",
-  { delayMs = 0 }: { delayMs?: number } = {},
+  { delayMs = 0, failFor }: { delayMs?: number; failFor?: (text: string) => boolean } = {},
 ): Promise<{ server: Server; readonly requests: number }> {
   let requests = 0;
   const server = createServer(async (request, response) => {
@@ -3002,6 +3006,11 @@ export async function decisionServer(
     requests++;
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
     const text = JSON.stringify(body.state).toLowerCase();
+    if (failFor?.(text)) {
+      response.statusCode = 400;
+      response.end(JSON.stringify({ detail: DECISION_FAILURE }));
+      return;
+    }
     const answers = Object.fromEntries(
       Object.entries(
         body.questions as Record<
