@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentClient, ChatProvider } from "../../../../core/api";
-import { SHOW_AGENT_CONNECTION } from "../../../../shared/agentConnection";
+import { SHOW_CLAUDE_APP_SETUP } from "../../../../shared/agentConnection";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
@@ -132,8 +132,7 @@ function ChooseAnAi() {
                   link: { label: t("setup.getOllama"), href: "https://ollama.com/download" },
                 })}
               />
-              {/* Connecting the Claude app needs the agent connection, which is off (#882). */}
-              {SHOW_AGENT_CONNECTION && !chinese && <ClaudeWay />}
+              {SHOW_CLAUDE_APP_SETUP && !chinese && <ClaudeWay />}
             </div>
           </details>
         </>

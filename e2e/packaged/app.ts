@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { cp, readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, _electron as electron } from "@playwright/test";
+import { homeEnv } from "../../tests/helpers/home";
 
 const root = resolve(__dirname, "../..");
 export const packagedExecutable =
@@ -40,7 +41,7 @@ export async function launchPackaged(
     ],
     env: {
       ...env,
-      HOME: home,
+      ...homeEnv(home),
       INCARNAMIND_DATA_DIR: data,
       ...(testHooks ? { INCARNAMIND_TEST_HOOKS: "1" } : {}),
     },
