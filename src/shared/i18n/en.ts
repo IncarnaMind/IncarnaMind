@@ -787,6 +787,8 @@ export const en = {
   "health.noCitation": "{count} with no Citation",
   "health.toCheck.one": "1 claim not checked yet",
   "health.toCheck": "{count} claims not checked yet",
+  "health.checking.one": "1 claim being checked",
+  "health.checking": "{count} claims being checked",
   "health.tableCells": "{count} table cells",
   "health.allChecked": "Everything checked",
   "health.state.notChecked": "Not checked",

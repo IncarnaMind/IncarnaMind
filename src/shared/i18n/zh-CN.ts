@@ -768,6 +768,8 @@ export const zhCN = {
   "health.noCitation": "{count} 条没有引用",
   "health.toCheck.one": "1 条说法待核对",
   "health.toCheck": "{count} 条说法待核对",
+  "health.checking.one": "正在核对 1 句",
+  "health.checking": "正在核对 {count} 句",
   "health.tableCells": "{count} 个表格单元格",
   "health.allChecked": "已全部核对",
   "health.state.notChecked": "未核对",

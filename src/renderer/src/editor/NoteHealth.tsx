@@ -219,7 +219,7 @@ export function HealthCard({
    * centred by its own position, not its paragraph's, which can be taller than the page, and clear
    * of the fade and the badge at the page's foot.
    */
-  const goToNext = (part: HealthPart) => {
+  const goToNext = (part: HealthPart | "checking") => {
     if (editor.isDestroyed) return;
     const cited = part === "found" || part === "notFound";
     const targets = health[part].map((pos) => (cited ? pos + 1 : pos));
@@ -250,22 +250,27 @@ export function HealthCard({
     testId: "checks-problem-close",
     onClick: () => dismissCheckProblem(mindId),
   };
-  const row = (part: HealthPart) => {
-    const text = label(part, health[part].length);
+  const row = (part: HealthPart | "checking") => {
+    const text =
+      part === "checking"
+        ? t(health.checking.length === 1 ? "health.checking.one" : "health.checking", {
+            count: format(health.checking.length),
+          })
+        : label(part, health[part].length);
     return (
       <button
         key={part}
         type="button"
         data-testid={`health-${part}`}
         data-count={health[part].length}
-        data-part={part}
+        data-part={part === "checking" ? "toCheck" : part}
         className="check-row"
         aria-label={t("health.next", { part: text })}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => goToNext(part)}
       >
         <span className="check-row-mark">
-          <PartMark part={part} />
+          <PartMark part={part === "checking" ? "toCheck" : part} />
         </span>
         <span className="check-row-text">
           <Counted text={text} count={format(health[part].length)} />
@@ -283,6 +288,9 @@ export function HealthCard({
       <div className="check-rows" data-testid="mind-health">
         {rows.map(row)}
         {health.noCitation.length > 0 && row("noCitation")}
+        {/* A claim being checked keeps its row: the card is as tall while a run is on as after
+            it, so nothing under it moves when the run ends (#1312). */}
+        {health.checking.length > 0 && row("checking")}
       </div>
       {health.kept.length > 0 && (
         <p data-testid="health-kept" className="mind-health-line">
