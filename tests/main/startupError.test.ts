@@ -25,10 +25,16 @@ describe("startupDialog", () => {
     expect(`${dialog.message}${dialog.detail}`).not.toMatch(/58|migration/);
   });
 
-  it("keeps the message of any other start-up failure", () => {
-    const dialog = startupDialog(new Error("disk full"), "en");
-    expect(dialog.title).toBe("IncarnaMind couldn’t start");
-    expect(dialog.detail).toContain("disk full");
+  it.each(["en", "zh-CN"] as const)("gives the next step and native detail (%s)", (language) => {
+    const dialog = startupDialog(new Error("disk I/O error"), language);
+    expect(dialog.title).toBe(
+      language === "en" ? "IncarnaMind couldn’t start" : "IncarnaMind 无法启动",
+    );
+    expect(dialog.detail).toBe(
+      language === "en"
+        ? "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\ndisk I/O error"
+        : "无法打开你的数据文件夹。请关闭此提示，然后重新打开 IncarnaMind。\n\ndisk I/O error",
+    );
     expect(dialog.buttons).toEqual([]);
   });
 

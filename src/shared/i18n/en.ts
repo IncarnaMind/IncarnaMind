@@ -3823,7 +3823,8 @@ export const en = {
   "error.system.nameTooLong": "That name is too long for the file system.",
   "error.system.exists": "A file or folder with that name is already there.",
   "error.startup.title": "IncarnaMind couldn’t start",
-  "error.startup.body": "Your data folder couldn’t be opened.\n\n{message}",
+  "error.startup.body":
+    "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n{message}",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
   "error.startup.starting":

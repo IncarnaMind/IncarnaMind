@@ -254,6 +254,10 @@ try {
     expect(mapper.exitCode).toBeNull();
     expect(mapper.signalCode).toBeNull();
     process.kill(mapped.pid, 0);
+    test.fail(
+      process.platform === "win32",
+      "The released runtime's SQLite cannot reopen mapped WAL shared memory (#2067).",
+    );
     const successor = startCopy(
       home,
       [

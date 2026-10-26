@@ -1,7 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -251,6 +251,38 @@ test("a killed copy leaves a slow fresh launch alone and keeps its saved text", 
 });
 
 for (const language of ["en", "zh-CN"]) {
+  test(`a content database that cannot open gives the next step and releases its folder (${language})`, async () => {
+    await mkdir(join(data, "incarnamind.db"));
+    const child = start("ready", [], language);
+    await done(child);
+    const recorded = await events();
+    const problems = recorded.filter((event) => event.kind === "problem");
+    expect(problems).toHaveLength(1);
+    const problem = problems[0];
+    expect(problem).toMatchObject({
+      pid: child.pid,
+      title: language === "en" ? "IncarnaMind couldn’t start" : "IncarnaMind 无法启动",
+      visibleWindows: 0,
+    });
+    const prefix =
+      language === "en"
+        ? "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n"
+        : "无法打开你的数据文件夹。请关闭此提示，然后重新打开 IncarnaMind。\n\n";
+    if (typeof problem?.content !== "string")
+      throw new Error("The startup problem has no native error detail.");
+    expect(problem.content.startsWith(prefix)).toBe(true);
+    expect(problem.content.slice(prefix.length).trim()).not.toBe("");
+    expect(
+      recorded.filter((event) => event.kind === "window-visibility" && event.visible === true),
+    ).toEqual([]);
+    expect(copiesWith(tag, true)).toEqual([]);
+    expect(
+      heldByAnotherCopy(data, (what, error) => {
+        throw new Error(what, { cause: error });
+      }),
+    ).toBe(false);
+  });
+
   test(`a starting copy without progress gives a starting problem (${language})`, async () => {
     test.setTimeout(90_000);
     const owner = start("slow", [], language);
