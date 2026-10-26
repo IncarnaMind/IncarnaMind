@@ -64,10 +64,10 @@ export function registerUpdateCheck(core: Pick<Core, "networkTraffic" | "getPriv
 export function startAutoUpdates(
   core: SettingsSource,
   settleQuit: () => Promise<boolean>,
-  releaseDataFolder: () => void,
+  installFailed: (error: unknown, language: Language) => void,
 ): void {
   if (!app.isPackaged) return;
-  checkForUpdates(core, settleQuit, releaseDataFolder).catch((error: unknown) => {
+  checkForUpdates(core, settleQuit, installFailed).catch((error: unknown) => {
     // Offline, rate-limited, or no release yet: the next start tries again.
     console.warn("The update check failed:", error);
   });
@@ -76,7 +76,7 @@ export function startAutoUpdates(
 async function checkForUpdates(
   core: SettingsSource,
   settleQuit: () => Promise<boolean>,
-  releaseDataFolder: () => void,
+  installFailed: (error: unknown, language: Language) => void,
 ): Promise<void> {
   if (!(await core.getPrivacySettings()).automaticUpdateChecks) return;
   const { autoUpdater } = await import("./autoUpdater");
@@ -105,21 +105,25 @@ async function checkForUpdates(
       {
         quitAndInstall() {
           installing = true;
-          const failed = () => {
-            installing = false;
+          let failureHandled = false;
+          const failed = (error: unknown) => {
+            if (failureHandled) return;
+            failureHandled = true;
+            autoUpdater.autoInstallOnAppQuit = false;
+            installFailed(error, language);
           };
           autoUpdater.once("error", failed);
           try {
             autoUpdater.quitAndInstall();
           } catch (error) {
             autoUpdater.removeListener("error", failed);
-            failed();
-            throw error;
+            if (failureHandled) throw error;
+            failed(error);
           }
         },
       },
       settleQuit,
-      releaseDataFolder,
+      app,
     );
   }
 }

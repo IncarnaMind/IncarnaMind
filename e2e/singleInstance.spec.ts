@@ -459,3 +459,148 @@ for (const language of ["en-US", "zh-CN"]) {
     }
   });
 }
+
+for (const { language, succeeds } of [
+  { language: "en", succeeds: false },
+  { language: "zh-CN", succeeds: false },
+  { language: "en", succeeds: true },
+] as const) {
+  test(`an update ${succeeds ? "succeeds" : "fails after a declined second start"}, closes its owned core and reopens (${language})`, async () => {
+    test.skip(process.platform === "win32", "lists the copies with ps");
+    test.setTimeout(120_000);
+    const home = await mkdtemp(join(tmpdir(), "incarnamind-update-"));
+    const events = join(home, "events.jsonl");
+    const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
+    const port = await freePort();
+    const start = (first: boolean, debugPort: number) => {
+      const copy = startCopy(
+        home,
+        [tag, `--remote-debugging-port=${debugPort}`, "-r", join(__dirname, "updateFailure.cjs")],
+        {
+          INCARNAMIND_TEST_HOOKS: "0",
+          INCARNAMIND_TEST_UPDATE_FOLDER: home,
+          INCARNAMIND_TEST_UPDATE_APP: resolve(__dirname, ".."),
+          INCARNAMIND_TEST_UPDATE_SUCCEEDS: succeeds ? "1" : "0",
+          INCARNAMIND_TEST_UPDATE_FIRST: first ? "1" : "0",
+          APPIMAGE: process.platform === "linux" ? require("electron") : "",
+        },
+      );
+      return copy;
+    };
+    const entries = async () =>
+      (await readFile(events, "utf8"))
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              kind: string;
+              pid: number;
+              native: boolean;
+              dataHeld?: boolean;
+              first?: boolean;
+              args?: string[];
+              options?: { args?: string[]; message?: string; detail?: string; buttons?: string[] };
+            },
+        );
+    try {
+      const old = start(true, port);
+      await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
+      await inCopyWindow(port, async (window) => {
+        await (await coreOf(window)).evaluate(async (api, value) => {
+          await api.updateSettings({ user: { language: value } });
+          await api.createMind({ title: "Kept after failed update" });
+        }, language);
+      });
+      const gone = exited(old);
+      await writeFile(join(home, "begin"), "");
+      await expect.poll(() => existsSync(join(home, "installing"))).toBe(true);
+      if (!succeeds) {
+        const second = start(false, await freePort());
+        expect((await exited(second))[0]).toBe(0);
+      }
+      expect((await gone)[0]).toBe(0);
+      await expect
+        .poll(
+          async () => ({
+            copies: copiesWith(tag).length,
+            windows: await windowsOf(port),
+          }),
+          { timeout: 30_000 },
+        )
+        .toEqual({ copies: 1, windows: 1 });
+      const recorded = await entries();
+      const install = recorded.find((it) => it.kind === "install");
+      expect(install).toMatchObject({ dataHeld: true, native: process.platform !== "linux" });
+      expect(recorded.filter((it) => it.kind === "problem")).toEqual(
+        succeeds
+          ? []
+          : [
+              expect.objectContaining({
+                pid: old.pid,
+                dataHeld: true,
+                options: expect.objectContaining({
+                  message: language === "en" ? "The update couldn't be installed" : "未能安装更新",
+                  detail:
+                    language === "en"
+                      ? "IncarnaMind will reopen when you close this message. You can install the update later."
+                      : "关闭此提示后，IncarnaMind 会重新打开。之后可以再安装更新。",
+                  buttons: [language === "en" ? "Reopen IncarnaMind" : "重新打开 IncarnaMind"],
+                }),
+              }),
+            ],
+      );
+      expect(recorded.filter((it) => it.kind === "relaunch")).toEqual(
+        succeeds && process.platform === "linux"
+          ? []
+          : [
+              expect.objectContaining({
+                pid: old.pid,
+                dataHeld: true,
+                options: expect.objectContaining({
+                  args: succeeds
+                    ? expect.not.arrayContaining(["--started-again-after-stall"])
+                    : expect.arrayContaining(["--started-again-after-stall"]),
+                }),
+              }),
+            ],
+      );
+      const fresh = recorded.filter(
+        (it) =>
+          it.kind === "start" &&
+          it.pid !== old.pid &&
+          (succeeds || it.args?.includes("--started-again-after-stall")),
+      );
+      expect(fresh).toHaveLength(1);
+      expect(fresh[0]?.pid).not.toBe(old.pid);
+      if (!succeeds) expect(await logOf(dataDir)).toContain("app.reopenAfterQuit reopens=false");
+      await inCopyWindow(port, async (window) => {
+        const minds = await (await coreOf(window)).evaluate((api) => api.listMinds());
+        expect(minds.map((mind) => mind.title)).toEqual(["Kept after failed update"]);
+      });
+      expect((await exited(start(false, await freePort())))[0]).toBe(0);
+      expect(await windowsOf(port)).toBe(1);
+    } finally {
+      try {
+        await test.info().attach(`update-failure-${language}`, {
+          body: JSON.stringify({
+            events: existsSync(events) ? await entries() : [],
+            log: await logOf(dataDir).catch((error: unknown) => String(error)),
+          }),
+          contentType: "application/json",
+        });
+      } finally {
+        await expect
+          .poll(
+            () => {
+              killAll(copiesWith(tag, true));
+              return copiesWith(tag, true);
+            },
+            { timeout: 30_000 },
+          )
+          .toEqual([]);
+        await rm(home, { recursive: true, force: true, maxRetries: 3 });
+      }
+    }
+  });
+}

@@ -33,6 +33,27 @@ function relaunchOptions(extra: string[] = []): RelaunchOptions {
   return { args, ...(appImage && { execPath: appImage }) };
 }
 
+/** The quit guard has committed: a failed installer must not leave that core running (#1448). */
+export function restartAfterFailedUpdate(
+  app: Pick<App, "relaunch" | "exit">,
+  showProblem: () => void,
+  closeCore: () => void,
+): void {
+  try {
+    showProblem();
+  } finally {
+    try {
+      app.relaunch(relaunchOptions([STARTED_AGAIN]));
+    } finally {
+      try {
+        closeCore();
+      } finally {
+        app.exit(0);
+      }
+    }
+  }
+}
+
 /**
  * Wires the quitting copy's side. The returned function is called for each start that reaches this
  * copy: true when the windows are closing for a quit, so the start must not open or show one, and

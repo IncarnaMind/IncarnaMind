@@ -6,12 +6,38 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   electronInstanceWasPresent,
   reopenAfterQuit,
+  restartAfterFailedUpdate,
   startAgainIfStalled,
 } from "../../src/main/startDuringQuit";
 
 vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs")>();
   return { ...original, lstatSync: vi.fn(original.lstatSync) };
+});
+
+describe("a failed update after the quit guard committed", () => {
+  test.each(["problem", "relaunch", "closeCore"])(
+    "%s failing still makes the fresh-start attempt and exits the old core",
+    (fails) => {
+      const calls: string[] = [];
+      const run = (name: string) => {
+        calls.push(name);
+        if (name === fails) throw new Error(name);
+      };
+      const app = {
+        relaunch: () => run("relaunch"),
+        exit: () => run("exit"),
+      };
+      expect(() =>
+        restartAfterFailedUpdate(
+          app,
+          () => run("problem"),
+          () => run("closeCore"),
+        ),
+      ).toThrow(fails);
+      expect(calls).toEqual(["problem", "relaunch", "closeCore", "exit"]);
+    },
+  );
 });
 
 const quitEvent = () => ({

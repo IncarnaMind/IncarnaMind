@@ -13,7 +13,7 @@ const fixture = vi.hoisted(() => ({
 }));
 
 vi.mock("electron", () => ({
-  app: { isPackaged: true },
+  app: { isPackaged: true, releaseSingleInstanceLock: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] },
 }));
 vi.mock("../../src/main/autoUpdater", () => ({ autoUpdater: fixture.updater }));
@@ -82,7 +82,7 @@ test("an explicit update restart owns reopening after quitting is settled", asyn
   const { updater, release, installed } = await downloaded(0);
   await installed;
   expect(updater.canReopenAfterUpdate()).toBe(false);
-  expect(release).toHaveBeenCalledOnce();
+  expect(release).not.toHaveBeenCalled();
   expect(fixture.updater.quitAndInstall).toHaveBeenCalledOnce();
 });
 
@@ -96,7 +96,7 @@ test("keeping the app open during an update restart still allows a later new sta
 });
 
 test.each(["throws", "emits"])(
-  "an installer that %s an error does not take the next start",
+  "an installer that %s an error delegates to the single failure/exit path",
   async (how) => {
     const failed = Promise.withResolvers<void>();
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -108,8 +108,14 @@ test.each(["throws", "emits"])(
       expect(typeof listener).toBe("function");
       if (typeof listener === "function") listener(error);
     });
-    const { updater } = await downloaded(0);
+    const { updater, release } = await downloaded(0);
     await failed.promise;
-    expect(updater.canReopenAfterUpdate()).toBe(true);
+    expect(release).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Installer failed" }),
+      "en",
+    );
+    expect(fixture.updater.autoInstallOnAppQuit).toBe(false);
+    expect(updater.canReopenAfterUpdate()).toBe(false);
   },
 );

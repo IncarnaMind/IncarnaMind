@@ -24,6 +24,7 @@ import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
 import { channelFor, EVENT_CHANNEL } from "../shared/bridge";
+import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
@@ -40,6 +41,7 @@ import { chooseExecutor, createElectronAdapters, homeFolder, systemBrowser } fro
 import {
   electronInstanceWasPresent,
   reopenAfterQuit,
+  restartAfterFailedUpdate,
   startAgainIfStalled,
 } from "./startDuringQuit";
 import { DOWNLOAD_BUTTON, RELEASES_PAGE, startupDialog, startupProblem } from "./startupError";
@@ -380,10 +382,24 @@ app.whenReady().then(async () => {
   installMenuInLanguage(core);
   // Only a packaged app checks for updates; the smoke tests must never reach GitHub.
   if (!testHooks) {
-    startAutoUpdates(core, settleQuit, () => {
-      if (process.platform !== "linux") return;
-      releaseDataFolder();
-      app.releaseSingleInstanceLock();
+    startAutoUpdates(core, settleQuit, (error, language) => {
+      restartAfterFailedUpdate(
+        app,
+        () => {
+          logger.exception("app.updateInstallFailed", error);
+          dialog.showMessageBoxSync({
+            type: "error",
+            title: translate(language, "update.failed.title"),
+            message: translate(language, "update.failed.title"),
+            detail: translate(language, "update.failed.detail"),
+            buttons: [translate(language, "update.failed.reopen")],
+            defaultId: 0,
+            cancelId: 0,
+            noLink: true,
+          });
+        },
+        () => core?.close(),
+      );
     });
   }
 
