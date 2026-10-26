@@ -123,6 +123,12 @@ test("a target shows progress, is kept for the Mind, and can be removed", async 
     window.locator('[data-testid="mind-count-basis"][aria-checked="true"]'),
   ).toBeFocused();
   const field = window.getByTestId("mind-count-target");
+  // Tab walks the menu's options into its target field, and the menu stays open while the focus is inside.
+  await window.keyboard.press("Tab");
+  await window.keyboard.press("Tab");
+  await window.keyboard.press("Tab");
+  await expect(field).toBeFocused();
+  await expect(menu).toBeVisible();
   await field.fill("words");
   await window.getByTestId("mind-count-set").click();
   await expect(menu.getByRole("alert")).toBeVisible();
@@ -131,6 +137,12 @@ test("a target shows progress, is kept for the Mind, and can be removed", async 
   await expect(menu).toBeHidden();
   await expect(button).toHaveText("5 / 20 words");
   await expect(window.getByTestId("mind-count-progress")).toHaveAttribute("aria-valuenow", "25");
+
+  // Shift+Tab from the first item leaves the menu, and it closes.
+  await button.click();
+  await expect(menu).toBeVisible();
+  await window.keyboard.press("Shift+Tab");
+  await expect(menu).toBeHidden();
 
   // What the count shows is chosen in the menu: characters without spaces here.
   await button.click();
