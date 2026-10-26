@@ -404,10 +404,10 @@ export interface DocumentsOptions {
   /** The Folders of Linked folders, which follow the disk. */
   folders: Folders;
   /**
-   * Pushes the "document.status" event; `restored` when the Document is back from Recently
-   * deleted, not changed.
+   * Pushes the "document.status" event; `unchanged` when the Document is as it was (back from
+   * Recently deleted, or embedded again), so Organize doesn't file it anew.
    */
-  emitStatus(document: Document, restored?: boolean): void;
+  emitStatus(document: Document, unchanged?: boolean): void;
   /** Pushes the "documents.moved" event. */
   emitMoved(documents: Document[]): void;
   /** Pushes the "documents.removed" event. */
@@ -591,10 +591,19 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists: Linked folders' progress follows their Documents.
   let progressed = (_linkedFolderId: string | null) => {};
 
-  const announce = (id: string, restored = false) => {
+  /**
+   * Documents whose embeddings are being made again, their Passages as they
+   * were: reporting them is no change Organize should file (#2023).
+   */
+  const reembedding = new Set<string>();
+
+  const announce = (id: string, unchanged = false) => {
     const row = find(id);
     if (!row) return;
-    emitStatus(toDocument(row), restored);
+    const reembedded = reembedding.has(id);
+    // Its re-embed ended, ready or failed: a Retry from here is a new run, filed as on main (#2023).
+    if (reembedded && (row.status === "ready" || row.status === "failed")) reembedding.delete(id);
+    emitStatus(toDocument(row), unchanged || reembedded);
     progressed(row.linked_folder_id);
   };
 
@@ -931,6 +940,8 @@ export function createDocuments(options: DocumentsOptions) {
         row.processing_version >= HAN_CURRENT_SINCE &&
         samePassages(row.id, result.passages);
       if (!unchanged) {
+        // Its content is new: Organize sees the Document anew (#2023).
+        reembedding.delete(job.documentId);
         db.run(
           `UPDATE passages SET deleted_at = ?, updated_at = ?, embedding = NULL
            WHERE document_id = ? AND deleted_at IS NULL`,
@@ -1605,6 +1616,7 @@ export function createDocuments(options: DocumentsOptions) {
          ORDER BY d.created_at, d.rowid`,
         [model.id, ...ids],
       );
+      for (const row of rows) reembedding.add(row.id);
       const target = ready ? "embedding" : "waiting-for-model";
       return rows.filter((row) => {
         if (row.status === target) return false;
@@ -2563,6 +2575,8 @@ export function createDocuments(options: DocumentsOptions) {
             reportError(error);
           }
         }
+        // Embedded again from here, before `embedWithCurrentModel` marks it below (#1433).
+        if (row.status === "embedding") reembedding.add(id);
         if (!(row.status === "embedding" && embedding.enqueue(id))) announce(id, true);
         if (row.status === "waiting-for-model") model.ensure();
       }

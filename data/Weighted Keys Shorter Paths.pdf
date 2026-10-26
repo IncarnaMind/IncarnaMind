@@ -1,0 +1,530 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R 10 0 R 12 0 R 14 0 R 16 0 R 18 0 R 20 0 R 22 0 R 24 0 R 26 0 R 28 0 R 30 0 R 32 0 R 34 0 R] /Count 15 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /epsilon 2 /carriagereturn] >> /ToUnicode 37 0 R /FirstChar 0 /LastChar 255 /Widths [500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 278 278 355 556 556 889 667 191 333 333 389 584 278 333 278 278 556 556 556 556 556 556 556 556 556 556 278 278 584 584 584 556 1015 667 667 722 722 667 611 778 722 278 500 667 556 833 722 778 667 778 722 667 611 722 667 944 667 667 611 278 278 278 469 556 333 556 556 500 556 556 278 556 556 222 222 500 222 833 556 556 556 556 333 500 278 556 500 722 500 500 500 334 260 334 584 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 333 333 333 333 350 556 1000 500 500 500 500 500 500 500 500 500 500 500 556 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500] >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor 5 0 R >>] >>
+endobj
+5 0 obj
+<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [-25 -254 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 1007 >>
+stream
+BT /F1 26 Tf 72 760 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 12 Tf 72 718 Td (A translation model without recurrence) Tj ET
+BT /F1 12 Tf 72 699 Td (A report from the Calventis Institute for Machine Intelligence) Tj ET
+BT /F1 14 Tf 72 680 Td (Summary) Tj ET
+BT /F1 11 Tf 72 658 Td (Translation systems usually carry information along a sequence one step at a time. The network) Tj ET
+BT /F1 11 Tf 72 644 Td (described here does not: the Calventis model is assembled entirely from weighted-key lookups,) Tj ET
+BT /F1 11 Tf 72 630 Td (with no recurrent or convolutional part anywhere in it.) Tj ET
+BT /F1 11 Tf 72 616 Td (On two directions of the Halden corpus it beat the recurrent systems we trained, and it was) Tj ET
+BT /F1 11 Tf 72 602 Td (cheaper to run in parallel. The largest configuration trained for 4.5 days on twelve accelerator) Tj ET
+BT /F1 11 Tf 72 588 Td (cards.) Tj ET
+BT /F1 10 Tf 72 538 Td (Prepared for software testing. The text is fictional.) Tj ET
+BT /F1 10 Tf 297 36 Td (1) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 1123 >>
+stream
+BT /F1 14 Tf 72 760 Td (1 Why leave recurrence behind) Tj ET
+BT /F1 11 Tf 72 738 Td (Recurrence ties each step of a computation to the one before it, which is why a recurrent model) Tj ET
+BT /F1 11 Tf 72 724 Td (cannot be spread across accelerators as freely as a feed-forward one.) Tj ET
+BT /F1 11 Tf 72 710 Td (A weight for a value comes from comparing a query against that value's key; the answer is the) Tj ET
+BT /F1 11 Tf 72 696 Td (weighted sum of the values. Nothing in that operation depends on the order in which positions) Tj ET
+BT /F1 11 Tf 72 682 Td (are read.) Tj ET
+BT /F1 11 Tf 72 668 Td (This report makes the case that a sequence model does not need a recurrent path, and) Tj ET
+BT /F1 11 Tf 72 654 Td (describes one whose whole computation is a stack of weighted-key lookups.) Tj ET
+BT /F1 11 Tf 72 640 Td (The result is shorter to implement and cheaper to parallelise, and on the tests below it needs) Tj ET
+BT /F1 11 Tf 72 626 Td (fewer operations than the recurrent baselines to reach the same quality.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 297 36 Td (2) Tj ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 11 0 R >>
+endobj
+11 0 obj
+<< /Length 1244 >>
+stream
+BT /F1 14 Tf 72 760 Td (2 The block) Tj ET
+BT /F1 11 Tf 72 738 Td (The shape is the usual encoder-decoder one: a source sentence goes in, a target sentence) Tj ET
+BT /F1 11 Tf 72 724 Td (comes out, and both sides repeat the same block.) Tj ET
+BT /F1 11 Tf 72 710 Td (Each stack holds seven identical blocks.) Tj ET
+BT /F1 11 Tf 72 696 Td (A block carries two sub-layers ó a weighted-key layer and a position-wise feed-forward layer ó) Tj ET
+BT /F1 11 Tf 72 682 Td (each with a residual path and a normalisation step around it.) Tj ET
+BT /F1 11 Tf 72 668 Td (A residual connection [1] wraps each sub-layer, and layer normalisation [2] follows it.) Tj ET
+BT /F1 11 Tf 72 654 Td (Both the encoder and the decoder are built from self-attention and position-wise feed-forward) Tj ET
+BT /F1 11 Tf 72 640 Td (layers.) Tj ET
+BT /F1 11 Tf 72 626 Td (The decoder adds a third sub-layer, so that its masked lookup can consult what the encoder) Tj ET
+BT /F1 11 Tf 72 612 Td (produced.) Tj ET
+BT /F1 11 Tf 72 598 Td (Masking, plus the one-position shift on the output side, keeps each prediction to positions) Tj ET
+BT /F1 11 Tf 72 584 Td (already produced.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 297 36 Td (3) Tj ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 13 0 R >>
+endobj
+13 0 obj
+<< /Length 2047 >>
+stream
+0.3 G 1 w 72 585 m 540 585 l S
+0.92 g 68 541 476 12 re f
+0.3 G 1 w 72 522 m 540 522 l S
+0.3 G 1 w 72 600 m 540 600 l S
+BT /F1 14 Tf 72 760 Td (2.1 One lookup or several) Tj ET
+BT /F1 11 Tf 72 738 Td (Several weightings in parallel let a layer consult different subspaces at once; one weighting) Tj ET
+BT /F1 11 Tf 72 724 Td (would have to average them into a single view.) Tj ET
+BT /F1 11 Tf 72 710 Td (On the decoder side the weighting is masked: a slot may look only at slots already produced,) Tj ET
+BT /F1 11 Tf 72 696 Td (never ahead at the target it should be predicting.) Tj ET
+BT /F1 11 Tf 72 682 Td (Two ways of drawing on a sequence are compared in Table 1: the step-by-step route and the) Tj ET
+BT /F1 11 Tf 72 668 Td (all-pairs route.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 72 611 Td (Table 1: Work per layer for three ways of drawing on a sequence, by sequence length n and width d.) Tj ET
+BT /F1 10 Tf 72 595 Td (Layer type) Tj ET
+BT /F1 10 Tf 197.56097560975613 595 Td (Operations) Tj ET
+BT /F1 10 Tf 311.70731707317077 595 Td (Sequential steps) Tj ET
+BT /F1 10 Tf 425.8536585365854 595 Td (Path length) Tj ET
+BT /F1 10 Tf 72 580 Td (Recurrent) Tj ET
+BT /F1 10 Tf 197.56097560975613 580 Td (O\(n d2\)) Tj ET
+BT /F1 10 Tf 311.70731707317077 580 Td (O\(n\)) Tj ET
+BT /F1 10 Tf 425.8536585365854 580 Td (O\(n\)) Tj ET
+BT /F1 10 Tf 72 565 Td (Convolutional) Tj ET
+BT /F1 10 Tf 197.56097560975613 565 Td (O\(k n d2\)) Tj ET
+BT /F1 10 Tf 311.70731707317077 565 Td (O\(1\)) Tj ET
+BT /F1 10 Tf 425.8536585365854 565 Td (O\(log n\)) Tj ET
+BT /F1 10 Tf 72 550 Td (Weighted keys) Tj ET
+BT /F1 10 Tf 197.56097560975613 550 Td (O\(n2 d\)) Tj ET
+BT /F1 10 Tf 311.70731707317077 550 Td (O\(1\)) Tj ET
+BT /F1 10 Tf 425.8536585365854 550 Td (O\(1\)) Tj ET
+BT /F1 10 Tf 72 535 Td (Local windowed keys) Tj ET
+BT /F1 10 Tf 197.56097560975613 535 Td (O\(r n d\)) Tj ET
+BT /F1 10 Tf 311.70731707317077 535 Td (O\(1\)) Tj ET
+BT /F1 10 Tf 425.8536585365854 535 Td (O\(n / r\)) Tj ET
+BT /F1 10 Tf 297 36 Td (4) Tj ET
+endstream
+endobj
+14 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 15 0 R >>
+endobj
+15 0 obj
+<< /Length 1336 >>
+stream
+0.3 G 1 w 72 461 m 432 461 l S
+0.55 g 90 462 54 102 re f
+0.55 g 180 462 54 108 re f
+0.55 g 270 462 54 110 re f
+0.55 g 360 462 54 109 re f
+BT /F1 14 Tf 72 760 Td (2.2 Several heads at once) Tj ET
+BT /F1 11 Tf 72 738 Td (Several weightings in parallel let a layer consult different subspaces at once; one weighting) Tj ET
+BT /F1 11 Tf 72 724 Td (would have to average them into a single view.) Tj ET
+BT /F1 11 Tf 72 710 Td (The base model runs twelve attention heads in each layer.) Tj ET
+BT /F1 11 Tf 72 696 Td (Each head works at a fraction of the full width, which keeps the layer's cost close to that of one) Tj ET
+BT /F1 11 Tf 72 682 Td (wide head.) Tj ET
+BT /F1 11 Tf 72 668 Td (The sweep over head counts and head widths holds the layer width fixed, so that only the split) Tj ET
+BT /F1 11 Tf 72 654 Td (changes.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 88 449 Td (1 head) Tj ET
+BT /F1 10 Tf 90 567 Td (32.1) Tj ET
+BT /F1 10 Tf 178 449 Td (6 heads) Tj ET
+BT /F1 10 Tf 180 573 Td (33.9) Tj ET
+BT /F1 10 Tf 268 449 Td (12 heads) Tj ET
+BT /F1 10 Tf 270 575 Td (34.6) Tj ET
+BT /F1 10 Tf 358 449 Td (24 heads) Tj ET
+BT /F1 10 Tf 360 574 Td (34.2) Tj ET
+BT /F1 10 Tf 72 435 Td (BLEU on the held-out German-English half, by head count, at a fixed layer width.) Tj ET
+BT /F1 10 Tf 297 36 Td (5) Tj ET
+endstream
+endobj
+16 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 17 0 R >>
+endobj
+17 0 obj
+<< /Length 989 >>
+stream
+BT /F1 14 Tf 72 760 Td (3 Telling positions apart) Tj ET
+BT /F1 11 Tf 72 738 Td (Nothing in the block tells it where a token sits, so a position signal is added to the embeddings) Tj ET
+BT /F1 11 Tf 72 724 Td (before the first layer.) Tj ET
+BT /F1 11 Tf 72 710 Td (Each position is encoded with sinusoids of geometrically spaced frequencies.) Tj ET
+BT /F1 11 Tf 72 696 Td (Because the frequencies are fixed rather than learned, a linear map can compare two positions) Tj ET
+BT /F1 11 Tf 72 682 Td (by the ratio between their encodings.) Tj ET
+BT /F1 11 Tf 72 668 Td (Fixed sinusoids were kept because they may carry over to sequences longer than those in) Tj ET
+BT /F1 11 Tf 72 654 Td (training.) Tj ET
+BT /F1 11 Tf 72 640 Td (Learned position embeddings were tried as well and gave about the same quality, which is why) Tj ET
+BT /F1 11 Tf 72 626 Td (the fixed version is the one reported.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 297 36 Td (6) Tj ET
+endstream
+endobj
+18 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 19 0 R >>
+endobj
+19 0 obj
+<< /Length 1843 >>
+stream
+0.3 G 1 w 72 560 m 540 560 l S
+0.3 G 1 w 72 467 m 540 467 l S
+0.3 G 1 w 72 575 m 540 575 l S
+BT /F1 14 Tf 72 760 Td (3.1 Data, batching and hardware) Tj ET
+BT /F1 11 Tf 72 738 Td (Two directions of the Halden corpus were used: 5.8 million sentence pairs one way and 31) Tj ET
+BT /F1 11 Tf 72 724 Td (million the other.) Tj ET
+BT /F1 11 Tf 72 710 Td (A shared byte-pair vocabulary encoded both sides, and batches were built by approximate) Tj ET
+BT /F1 11 Tf 72 696 Td (length so that each held a similar number of tokens.) Tj ET
+BT /F1 11 Tf 72 682 Td (All runs used a single machine holding twelve accelerator cards.) Tj ET
+BT /F1 11 Tf 72 668 Td (The optimiser was Adam, with a linear ramp at the start; we set warmup_steps = 6000.) Tj ET
+BT /F1 11 Tf 72 654 Td (Attention can also make a model easier to interpret, which is a useful side effect.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 72 586 Td (Table 2: The two configurations reported in this paper.) Tj ET
+BT /F1 10 Tf 72 570 Td (Setting) Tj ET
+BT /F1 10 Tf 306 570 Td (Base) Tj ET
+BT /F1 10 Tf 423 570 Td (Large) Tj ET
+BT /F1 10 Tf 72 555 Td (Blocks per stack) Tj ET
+BT /F1 10 Tf 306 555 Td (7) Tj ET
+BT /F1 10 Tf 423 555 Td (7) Tj ET
+BT /F1 10 Tf 72 540 Td (Width) Tj ET
+BT /F1 10 Tf 306 540 Td (640) Tj ET
+BT /F1 10 Tf 423 540 Td (1024) Tj ET
+BT /F1 10 Tf 72 525 Td (Heads) Tj ET
+BT /F1 10 Tf 306 525 Td (12) Tj ET
+BT /F1 10 Tf 423 525 Td (16) Tj ET
+BT /F1 10 Tf 72 510 Td (Feed-forward width) Tj ET
+BT /F1 10 Tf 306 510 Td (2560) Tj ET
+BT /F1 10 Tf 423 510 Td (4096) Tj ET
+BT /F1 10 Tf 72 495 Td (Dropout) Tj ET
+BT /F1 10 Tf 306 495 Td (0.12) Tj ET
+BT /F1 10 Tf 423 495 Td (0.3) Tj ET
+BT /F1 10 Tf 72 480 Td (Training steps) Tj ET
+BT /F1 10 Tf 306 480 Td (90,000) Tj ET
+BT /F1 10 Tf 423 480 Td (280,000) Tj ET
+BT /F1 10 Tf 297 36 Td (7) Tj ET
+endstream
+endobj
+20 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 21 0 R >>
+endobj
+21 0 obj
+<< /Length 2176 >>
+stream
+0.3 G 1 w 72 550 m 540 550 l S
+0.92 g 68 491 476 12 re f
+0.3 G 1 w 72 487 m 540 487 l S
+0.3 G 1 w 72 565 m 540 565 l S
+BT /F1 14 Tf 72 760 Td (4.1 Translation quality) Tj ET
+BT /F1 11 Tf 72 738 Td (On the German-English half of the held-out set the large configuration came out ahead of every) Tj ET
+BT /F1 11 Tf 72 724 Td (system we compared with, reaching 34.6 BLEU.) Tj ET
+BT /F1 11 Tf 72 710 Td (That is three points above the strongest baseline and was obtained at a small fraction of its) Tj ET
+BT /F1 11 Tf 72 696 Td (training cost.) Tj ET
+BT /F1 11 Tf 72 682 Td (Label smoothing of  = 0.04 [3] was applied throughout. It costs perplexity, since the model is) Tj ET
+BT /F1 11 Tf 72 668 Td (less sure of itself, but it gains accuracy and BLEU.) Tj ET
+BT /F1 11 Tf 72 654 Td (On French-English the same configuration reached 37.9 BLEU, and it trained in a quarter of the) Tj ET
+BT /F1 11 Tf 72 640 Td (time our previous best model needed.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 72 576 Td (Table 3: BLEU on the held-out set, with training cost.) Tj ET
+BT /F1 10 Tf 72 560 Td (System) Tj ET
+BT /F1 10 Tf 228.00000000000003 560 Td (German-English) Tj ET
+BT /F1 10 Tf 332.00000000000006 560 Td (French-English) Tj ET
+BT /F1 10 Tf 436.00000000000006 560 Td (Training cost) Tj ET
+BT /F1 10 Tf 72 545 Td (Recurrent baseline) Tj ET
+BT /F1 10 Tf 228.00000000000003 545 Td (29.4) Tj ET
+BT /F1 10 Tf 332.00000000000006 545 Td (32.8) Tj ET
+BT /F1 10 Tf 436.00000000000006 545 Td (High) Tj ET
+BT /F1 10 Tf 72 530 Td (Convolutional baseline) Tj ET
+BT /F1 10 Tf 228.00000000000003 530 Td (30.1) Tj ET
+BT /F1 10 Tf 332.00000000000006 530 Td (33.5) Tj ET
+BT /F1 10 Tf 436.00000000000006 530 Td (Medium) Tj ET
+BT /F1 10 Tf 72 515 Td (Calventis, base) Tj ET
+BT /F1 10 Tf 228.00000000000003 515 Td (31.8) Tj ET
+BT /F1 10 Tf 332.00000000000006 515 Td (35.2) Tj ET
+BT /F1 10 Tf 436.00000000000006 515 Td (Low) Tj ET
+BT /F1 10 Tf 72 500 Td (Calventis, large) Tj ET
+BT /F1 10 Tf 228.00000000000003 500 Td (34.6) Tj ET
+BT /F1 10 Tf 332.00000000000006 500 Td (37.9) Tj ET
+BT /F1 10 Tf 436.00000000000006 500 Td (Low) Tj ET
+BT /F1 10 Tf 297 36 Td (8) Tj ET
+endstream
+endobj
+22 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 23 0 R >>
+endobj
+23 0 obj
+<< /Length 1343 >>
+stream
+0.3 G 1 w 72 461 m 432 461 l S
+0.55 g 90 462 54 103 re f
+0.55 g 180 462 54 104 re f
+0.55 g 270 462 54 110 re f
+0.55 g 360 462 54 109 re f
+BT /F1 14 Tf 72 760 Td (4.2 What carries the gain) Tj ET
+BT /F1 11 Tf 72 738 Td (Head count, head width and the width of the feed-forward part were varied one at a time on the) Tj ET
+BT /F1 11 Tf 72 724 Td (development half.) Tj ET
+BT /F1 11 Tf 72 710 Td (The sweep over head counts and head widths holds the layer width fixed, so that only the split) Tj ET
+BT /F1 11 Tf 72 696 Td (changes.) Tj ET
+BT /F1 11 Tf 72 682 Td (With one head, the score falls by 2.5 BLEU against the best setting.) Tj ET
+BT /F1 11 Tf 72 668 Td (Cutting the feed-forward width hurts more than cutting the attention width, so much of the) Tj ET
+BT /F1 11 Tf 72 654 Td (capacity seems to sit in the position-wise part.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 88 449 Td (Base) Tj ET
+BT /F1 10 Tf 90 568 Td (31.8) Tj ET
+BT /F1 10 Tf 178 449 Td (1 head) Tj ET
+BT /F1 10 Tf 180 569 Td (32.1) Tj ET
+BT /F1 10 Tf 268 449 Td (6 heads) Tj ET
+BT /F1 10 Tf 270 575 Td (33.9) Tj ET
+BT /F1 10 Tf 358 449 Td (32 heads) Tj ET
+BT /F1 10 Tf 360 574 Td (33.6) Tj ET
+BT /F1 10 Tf 72 435 Td (BLEU on the held-out set as head count varies, wide and narrow settings mixed.) Tj ET
+BT /F1 10 Tf 297 36 Td (9) Tj ET
+endstream
+endobj
+24 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 25 0 R >>
+endobj
+25 0 obj
+<< /Length 1586 >>
+stream
+0.3 G 1 w 72 585 m 540 585 l S
+0.3 G 1 w 72 522 m 540 522 l S
+0.3 G 1 w 72 600 m 540 600 l S
+BT /F1 14 Tf 72 760 Td (5.1 A second task) Tj ET
+BT /F1 11 Tf 72 738 Td (A four-block model was trained on a public treebank to see whether the design transfers, and) Tj ET
+BT /F1 11 Tf 72 724 Td (scored on the standard splits.) Tj ET
+BT /F1 11 Tf 72 710 Td (The model does remarkably well here even though nothing was tuned for parsing, landing close) Tj ET
+BT /F1 11 Tf 72 696 Td (to the best published numbers on the benchmark.) Tj ET
+BT /F1 11 Tf 72 682 Td (A few heads were inspected by hand. Their weightings follow plausible syntactic groupings,) Tj ET
+BT /F1 11 Tf 72 668 Td (though we stop short of claiming a role for every head.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 72 611 Td (Table 4: Parsing accuracy on the held-out split.) Tj ET
+BT /F1 10 Tf 72 595 Td (System) Tj ET
+BT /F1 10 Tf 306 595 Td (Training) Tj ET
+BT /F1 10 Tf 430.8 595 Td (Accuracy) Tj ET
+BT /F1 10 Tf 72 580 Td (Recurrent baseline) Tj ET
+BT /F1 10 Tf 306 580 Td (Supervised) Tj ET
+BT /F1 10 Tf 430.8 580 Td (90.4) Tj ET
+BT /F1 10 Tf 72 565 Td (Convolutional baseline) Tj ET
+BT /F1 10 Tf 306 565 Td (Supervised) Tj ET
+BT /F1 10 Tf 430.8 565 Td (91.0) Tj ET
+BT /F1 10 Tf 72 550 Td (Calventis, 4 blocks) Tj ET
+BT /F1 10 Tf 306 550 Td (Supervised) Tj ET
+BT /F1 10 Tf 430.8 550 Td (91.1) Tj ET
+BT /F1 10 Tf 72 535 Td (Calventis, 4 blocks, extra data) Tj ET
+BT /F1 10 Tf 306 535 Td (Semi-supervised) Tj ET
+BT /F1 10 Tf 430.8 535 Td (92.3) Tj ET
+BT /F1 10 Tf 297 36 Td (10) Tj ET
+endstream
+endobj
+26 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 27 0 R >>
+endobj
+27 0 obj
+<< /Length 716 >>
+stream
+BT /F1 14 Tf 72 760 Td (6 Closing remarks) Tj ET
+BT /F1 11 Tf 72 738 Td (The Calventis model is a sequence transducer with no recurrent layers at all: weighted-key) Tj ET
+BT /F1 11 Tf 72 724 Td (lookups do the work that recurrence used to do.) Tj ET
+BT /F1 11 Tf 72 710 Td (On translation it trains faster than recurrent or convolutional systems and scores higher, on the) Tj ET
+BT /F1 11 Tf 72 696 Td (two directions measured here.) Tj ET
+BT /F1 11 Tf 72 682 Td (Later work could take the design to other input and output kinds, and to local or windowed) Tj ET
+BT /F1 11 Tf 72 668 Td (lookups for very long inputs.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 297 36 Td (11) Tj ET
+endstream
+endobj
+28 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 29 0 R >>
+endobj
+29 0 obj
+<< /Length 980 >>
+stream
+BT /F1 14 Tf 72 760 Td (References) Tj ET
+BT /F1 11 Tf 72 738 Td ([1] A. Author, B. Author, C. Author and D. Author. Residual learning for image recognition. In) Tj ET
+BT /F1 11 Tf 72 724 Td (Proceedings of the Conference on Computer Vision, 2016.) Tj ET
+BT /F1 11 Tf 72 710 Td ([2] L. Ba, J. Kiros and G. Hinton. Normalising layer inputs. A technical report, 2016.) Tj ET
+BT /F1 11 Tf 72 696 Td ([3] A. Author, B. Author, C. Author, D. Author and E. Author. Reconsidering the inception) Tj ET
+BT /F1 11 Tf 72 682 Td (architecture. In Proceedings of the Conference on Computer Vision, 2016.) Tj ET
+BT /F1 11 Tf 72 668 Td ([4] A. Author and B. Author. Training sequence models on accelerator hardware. A technical) Tj ET
+BT /F1 11 Tf 72 654 Td (report, 2017.) Tj ET
+BT /F1 11 Tf 72 640 Td ([5] A. Author. Reading weighting patterns in translation models. A technical report, 2018.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 297 36 Td (12) Tj ET
+endstream
+endobj
+30 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 31 0 R >>
+endobj
+31 0 obj
+<< /Length 1805 >>
+stream
+0.3 G 1 w 72 620 m 540 620 l S
+0.3 G 1 w 72 572 m 540 572 l S
+0.3 G 1 w 72 635 m 540 635 l S
+BT /F1 14 Tf 72 760 Td (Appendix A: Weighting patterns) Tj ET
+BT /F1 11 Tf 72 738 Td (The tables below record average weights for three heads on one sentence pair; rows are query) Tj ET
+BT /F1 11 Tf 72 724 Td (positions and columns key positions, and a darker cell means more weight.) Tj ET
+BT /F1 11 Tf 72 710 Td (One head mostly looks at the slot just before, another at the verb of the clause, and a third at) Tj ET
+BT /F1 11 Tf 72 696 Td (the final slot. The picture held for every sentence length we tried.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 72 646 Td (Table 5: Mean weight by relative offset, three heads of the base model.) Tj ET
+BT /F1 10 Tf 72 630 Td (Head) Tj ET
+BT /F1 10 Tf 165.60000000000002 630 Td (Offset -2) Tj ET
+BT /F1 10 Tf 259.20000000000005 630 Td (Offset -1) Tj ET
+BT /F1 10 Tf 352.80000000000007 630 Td (Offset 0) Tj ET
+BT /F1 10 Tf 446.4000000000001 630 Td (Offset +1) Tj ET
+BT /F1 10 Tf 72 615 Td (Head 2) Tj ET
+BT /F1 10 Tf 165.60000000000002 615 Td (0.07) Tj ET
+BT /F1 10 Tf 259.20000000000005 615 Td (0.38) Tj ET
+BT /F1 10 Tf 352.80000000000007 615 Td (0.16) Tj ET
+BT /F1 10 Tf 446.4000000000001 615 Td (0.06) Tj ET
+BT /F1 10 Tf 72 600 Td (Head 5) Tj ET
+BT /F1 10 Tf 165.60000000000002 600 Td (0.11) Tj ET
+BT /F1 10 Tf 259.20000000000005 600 Td (0.08) Tj ET
+BT /F1 10 Tf 352.80000000000007 600 Td (0.24) Tj ET
+BT /F1 10 Tf 446.4000000000001 600 Td (0.29) Tj ET
+BT /F1 10 Tf 72 585 Td (Head 9) Tj ET
+BT /F1 10 Tf 165.60000000000002 585 Td (0.05) Tj ET
+BT /F1 10 Tf 259.20000000000005 585 Td (0.06) Tj ET
+BT /F1 10 Tf 352.80000000000007 585 Td (0.13) Tj ET
+BT /F1 10 Tf 446.4000000000001 585 Td (0.09) Tj ET
+BT /F1 10 Tf 297 36 Td (13) Tj ET
+endstream
+endobj
+32 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 33 0 R >>
+endobj
+33 0 obj
+<< /Length 1105 >>
+stream
+0.3 G 1 w 72 516 m 432 516 l S
+0.55 g 90 517 54 110 re f
+0.55 g 180 517 54 91 re f
+0.55 g 270 517 54 78 re f
+0.55 g 360 517 54 70 re f
+BT /F1 14 Tf 72 760 Td (Appendix B: Loss curves) Tj ET
+BT /F1 11 Tf 72 738 Td (Development loss against training steps is plotted below for the base model and for the) Tj ET
+BT /F1 11 Tf 72 724 Td (recurrent baseline, at one batch size and on one dataset.) Tj ET
+BT /F1 11 Tf 72 710 Td (Loss falls more smoothly than in the recurrent baseline, and fewer steps are needed to reach a) Tj ET
+BT /F1 11 Tf 72 696 Td (given score; a shorter route between positions is our explanation.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 88 504 Td (10k) Tj ET
+BT /F1 10 Tf 90 630 Td (4.1) Tj ET
+BT /F1 10 Tf 178 504 Td (20k) Tj ET
+BT /F1 10 Tf 180 611 Td (3.4) Tj ET
+BT /F1 10 Tf 268 504 Td (40k) Tj ET
+BT /F1 10 Tf 270 598 Td (2.9) Tj ET
+BT /F1 10 Tf 358 504 Td (80k) Tj ET
+BT /F1 10 Tf 360 590 Td (2.6) Tj ET
+BT /F1 10 Tf 72 490 Td (Development loss of the base model against training steps, in thousands.) Tj ET
+BT /F1 10 Tf 297 36 Td (14) Tj ET
+endstream
+endobj
+34 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 35 0 R >>
+endobj
+35 0 obj
+<< /Length 1667 >>
+stream
+0.3 G 1 w 72 635 m 540 635 l S
+0.3 G 1 w 72 542 m 540 542 l S
+0.3 G 1 w 72 650 m 540 650 l S
+BT /F1 14 Tf 72 760 Td (Appendix C: Settings) Tj ET
+BT /F1 11 Tf 72 738 Td (The table records both configurations so that the runs can be repeated on the same data.) Tj ET
+BT /F1 11 Tf 72 724 Td (The large model used more dropout and a longer ramp than the base model, because a wider) Tj ET
+BT /F1 11 Tf 72 710 Td (stack made the first updates less stable.) Tj ET
+BT /F1 10 Tf 72 780 Td (Weighted Keys, Shorter Paths) Tj ET
+BT /F1 10 Tf 72 661 Td (Table 6: Settings of the two configurations.) Tj ET
+BT /F1 10 Tf 72 645 Td (Setting) Tj ET
+BT /F1 10 Tf 281.7931034482758 645 Td (Base) Tj ET
+BT /F1 10 Tf 410.8965517241379 645 Td (Large) Tj ET
+BT /F1 10 Tf 72 630 Td (Learning-rate decay) Tj ET
+BT /F1 10 Tf 281.7931034482758 630 Td (Inverse square root) Tj ET
+BT /F1 10 Tf 410.8965517241379 630 Td (Inverse square root) Tj ET
+BT /F1 10 Tf 72 615 Td (Ramp steps) Tj ET
+BT /F1 10 Tf 281.7931034482758 615 Td (6,000) Tj ET
+BT /F1 10 Tf 410.8965517241379 615 Td (6,000) Tj ET
+BT /F1 10 Tf 72 600 Td (Dropout) Tj ET
+BT /F1 10 Tf 281.7931034482758 600 Td (0.12) Tj ET
+BT /F1 10 Tf 410.8965517241379 600 Td (0.3) Tj ET
+BT /F1 10 Tf 72 585 Td (Label smoothing) Tj ET
+BT /F1 10 Tf 281.7931034482758 585 Td (0.04) Tj ET
+BT /F1 10 Tf 410.8965517241379 585 Td (0.04) Tj ET
+BT /F1 10 Tf 72 570 Td (Beam) Tj ET
+BT /F1 10 Tf 281.7931034482758 570 Td (5) Tj ET
+BT /F1 10 Tf 410.8965517241379 570 Td (5) Tj ET
+BT /F1 10 Tf 72 555 Td (Checkpoints averaged) Tj ET
+BT /F1 10 Tf 281.7931034482758 555 Td (4) Tj ET
+BT /F1 10 Tf 410.8965517241379 555 Td (4) Tj ET
+BT /F1 10 Tf 297 36 Td (15) Tj ET
+endstream
+endobj
+36 0 obj
+<< /Title (Weighted Keys Shorter Paths) /Author (Calventis Institute for Machine Intelligence) /Subject (Weighted Keys, Shorter Paths: a translation model without recurrence) /Keywords (sequence transduction, weighted keys, translation, machine learning) /Creator (IncarnaMind samples generator) /Producer (IncarnaMind) >>
+endobj
+37 0 obj
+<< /Length 46 >>
+stream
+beginbfchar
+<01> <03b5>
+<02> <21b5>
+endbfchar
+
+endstream
+endobj
+xref
+0 38
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000219 00000 n 
+0000001477 00000 n 
+0000001749 00000 n 
+0000001921 00000 n 
+0000002057 00000 n 
+0000003116 00000 n 
+0000003252 00000 n 
+0000004427 00000 n 
+0000004565 00000 n 
+0000005862 00000 n 
+0000006000 00000 n 
+0000008100 00000 n 
+0000008238 00000 n 
+0000009627 00000 n 
+0000009765 00000 n 
+0000010806 00000 n 
+0000010944 00000 n 
+0000012840 00000 n 
+0000012978 00000 n 
+0000015207 00000 n 
+0000015345 00000 n 
+0000016741 00000 n 
+0000016879 00000 n 
+0000018518 00000 n 
+0000018656 00000 n 
+0000019424 00000 n 
+0000019562 00000 n 
+0000020594 00000 n 
+0000020732 00000 n 
+0000022590 00000 n 
+0000022728 00000 n 
+0000023886 00000 n 
+0000024024 00000 n 
+0000025744 00000 n 
+0000026083 00000 n 
+trailer
+<< /Size 38 /Root 1 0 R /Info 36 0 R >>
+startxref
+26180
+%%EOF
