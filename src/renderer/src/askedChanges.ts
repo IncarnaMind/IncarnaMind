@@ -14,23 +14,26 @@ import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { useCallback, useSyncExternalStore } from "react";
 import type * as Y from "yjs";
 import { create } from "zustand";
-import type { ConversationAnswer } from "../../core/api";
+import type { AskedChangeApplication, ConversationAnswer } from "../../core/api";
 import { askedFor } from "../../shared/askedChanges";
 import {
   type AppliedAsked,
   applyArrived,
   canReviewApplied,
   onAskedApplied,
+  releaseCoreChange,
   reviewApplied,
+  undoCoreChange,
 } from "./appliedEdits";
 import { type ChangedMind, changedMinds } from "./changedMinds";
 import { core } from "./core";
 import type { FollowedSteps } from "./editor/editorUndo";
-import { mindEditor, whenMindEditor } from "./editor/openEditors";
+import { mindEditor, onMindEditorOpen, whenMindEditor } from "./editor/openEditors";
 import { applyingIn, editorDoc, setApplying } from "./editor/proposalReview";
 import { useAppStore } from "./store";
+import { undoSettled } from "./undo";
 
-export type AskedOutcome = "applied" | "held";
+export type AskedOutcome = "applied" | "held" | "undone";
 
 interface AskedChangesState {
   /** By Answer, then by Mind: whether the changes the User asked for there applied or wait. */
@@ -47,17 +50,22 @@ export const useAskedChanges = create<AskedChangesState>()(() => ({
   onTop: {},
 }));
 
+type ApplicationRef = Pick<AskedChangeApplication, "undoId" | "held">;
+
 interface Asked {
   answerId: string;
   mindId: string;
   requests: ReadonlySet<string>;
+  requested: readonly string[];
   facts: ChangedMind;
   applied: AppliedAsked | null;
+  application: ApplicationRef | null;
 }
 
 const asked = new Map<string, Asked>();
 const askedHere = new Set<string>();
 const finishing = new Map<string, Promise<unknown>>();
+const recovering = new Set<string>();
 
 /** Whether this window has a Question in flight whose request, as the Mind's record has it, asks for these changes. */
 export function askedInThisWindow(state: EditorState, request: string): boolean {
@@ -81,6 +89,23 @@ function setOutcome(each: Asked, outcome: AskedOutcome): void {
 export const useAskedFacts = (answerId: string, mindId: string): ChangedMind | undefined =>
   useAskedChanges((state) => state.facts[keyOf(answerId, mindId)]);
 
+async function makeWayForAnswer(
+  followed: FollowedSteps | null,
+  application: ApplicationRef | null,
+): Promise<"none" | "undone" | "stayed"> {
+  if (!followed) {
+    if (!application || application.held) return "none";
+    const undone = await core.undoAskedChanges(application.undoId);
+    await core.releaseAskedChanges(application.undoId).catch(useAppStore.getState().reportError);
+    return undone ? "undone" : "stayed";
+  }
+  await followed.settled?.();
+  if (followed.onTop()) await followed.undo();
+  const outcome = followed.state() === "undone" ? "undone" : "stayed";
+  releaseCoreChange(followed);
+  return outcome;
+}
+
 /**
  * An Answer this window asked for, or asks for again: what it was asked to write or change
  * applies here. Asked again, what it applied before makes way for what it writes now, while
@@ -92,6 +117,7 @@ export async function applyWhatWasAsked(
   { keepWritten = false } = {},
 ): Promise<void> {
   askedHere.add(answerId);
+  await undoSettled();
   const pending = finishing.get(answerId);
   if (pending) await pending.catch(useAppStore.getState().reportError);
   const stayed: string[] = [];
@@ -100,9 +126,8 @@ export async function applyWhatWasAsked(
     asked.delete(key);
     const { created, wrote, tables, charts } = each.facts;
     if (keepWritten && (created || wrote + tables + charts > 0)) continue;
-    const followed = each.applied?.followed;
-    if (followed?.onTop()) await followed.undo();
-    else if (followed && followed.state() !== "undone") stayed.push(key);
+    const outcome = await makeWayForAnswer(each.applied?.followed ?? null, each.application);
+    if (outcome === "stayed") stayed.push(key);
   }
   useAskedChanges.setState((state) => {
     const outcomes = { ...state.outcomes };
@@ -121,11 +146,14 @@ export const useWrittenOnTop = (answerId: string, mindId: string): boolean =>
 const askedOf = (doc: Y.Doc, row: ChangedMind): Set<string> =>
   new Set(row.requests.filter((request) => askedFor(doc, request)));
 
+const OPEN_WAIT_MS = 10_000;
+
+const refOf = ({ undoId, held }: AskedChangeApplication): ApplicationRef => ({ undoId, held });
+
 const openBeside = (mindId: string) =>
   useAppStore
     .getState()
-    .changeLayout({ type: "open", item: { kind: "mind", mindId }, where: { in: "place" } })
-    .catch(useAppStore.getState().reportError);
+    .changeLayout({ type: "open", item: { kind: "mind", mindId }, where: { in: "place" } });
 
 function follow(row: ChangedMind): void {
   const editor = mindEditor(row.mindId);
@@ -142,7 +170,13 @@ function follow(row: ChangedMind): void {
 
 /** Each Mind's changes apply at once, in its open editor or in the core. */
 const finish = (answer: ConversationAnswer): Promise<unknown> => {
-  const task = Promise.all(changedMinds(answer).map((row) => finishIn(answer, row)));
+  const task = Promise.allSettled(changedMinds(answer).map((row) => finishIn(answer, row))).then(
+    (results) => {
+      for (const result of results) {
+        if (result.status === "rejected") useAppStore.getState().reportError(result.reason);
+      }
+    },
+  );
   finishing.set(answer.id, task);
   return task.finally(() => {
     if (finishing.get(answer.id) === task) finishing.delete(answer.id);
@@ -169,14 +203,26 @@ async function finishIn(answer: ConversationAnswer, row: ChangedMind): Promise<v
       (call) => call.mindChange && requests.has(call.mindChange.request),
     );
     const [facts = row] = changedMinds({ toolCalls: calls });
-    const each: Asked = { answerId: answer.id, mindId: row.mindId, requests, facts, applied: null };
+    const each: Asked = {
+      answerId: answer.id,
+      mindId: row.mindId,
+      requests,
+      requested: row.requests,
+      facts,
+      applied: null,
+      application: refOf(application),
+    };
     asked.set(keyOf(answer.id, row.mindId), each);
     setOutcome(each, application.held ? "held" : "applied");
-    await openBeside(row.mindId);
-    const opened = await whenMindEditor(row.mindId, null);
+    if (!(await openBeside(row.mindId))) {
+      each.application = refOf(application);
+      return;
+    }
+    const opened = await whenMindEditor(row.mindId, OPEN_WAIT_MS);
     if (opened && editorDoc(opened)) {
       applyArrived(opened, row.mindId, requests, facts, { application });
     }
+    each.application = each.applied ? null : refOf(application);
     return;
   }
   const doc = editorDoc(editor);
@@ -194,7 +240,15 @@ async function finishIn(answer: ConversationAnswer, row: ChangedMind): Promise<v
     (call) => call.mindChange && requests.has(call.mindChange.request),
   );
   const [facts = row] = changedMinds({ toolCalls: calls });
-  const each: Asked = { answerId: answer.id, mindId: row.mindId, requests, facts, applied: null };
+  const each: Asked = {
+    answerId: answer.id,
+    mindId: row.mindId,
+    requests,
+    requested: row.requests,
+    facts,
+    applied: null,
+    application: null,
+  };
   asked.set(keyOf(answer.id, row.mindId), each);
   if (applyArrived(editor, row.mindId, requests, facts) === "held") setOutcome(each, "held");
 }
@@ -204,8 +258,40 @@ onAskedApplied((mindId, requests, applied) => {
     if (each.mindId !== mindId || ![...requests].some((request) => each.requests.has(request)))
       continue;
     each.applied = applied;
+    each.application = null;
     setOutcome(each, "applied");
   }
+});
+
+onMindEditorOpen((mindId, editor) => {
+  void Promise.all(
+    [...asked.values()].map(async (each) => {
+      const key = keyOf(each.answerId, mindId);
+      if (each.mindId !== mindId || each.applied || !each.application || recovering.has(key)) {
+        return;
+      }
+      recovering.add(key);
+      try {
+        const pending = finishing.get(each.answerId);
+        if (pending) await pending;
+        if (asked.get(key) !== each || each.applied || !each.application) return;
+        const application = await core.applyAskedChanges({
+          answerId: each.answerId,
+          mindId,
+          requests: each.requested,
+        });
+        if (asked.get(key) !== each || each.applied || !each.application) return;
+        if (!application) {
+          each.application = null;
+          return;
+        }
+        applyArrived(editor, mindId, each.requests, each.facts, { application });
+        each.application = each.applied ? null : refOf(application);
+      } finally {
+        recovering.delete(key);
+      }
+    }),
+  ).catch(useAppStore.getState().reportError);
 });
 
 export type AskedState = "can-undo" | "changed-since" | "undone" | "closed";
@@ -221,17 +307,34 @@ function stateOf(followed: FollowedSteps | null): AskedState {
 }
 
 export function useAskedState(answerId: string, mindId: string): AskedState {
+  const each = asked.get(keyOf(answerId, mindId));
   const followed = followedOf(answerId, mindId);
+  const outcome = useAskedChanges((state) => state.outcomes[answerId]?.[mindId]);
   const subscribe = useCallback(
     (changed: () => void) => followed?.observe(changed) ?? (() => undefined),
     [followed],
   );
-  return useSyncExternalStore(subscribe, () => stateOf(followed));
+  return useSyncExternalStore(subscribe, () => {
+    if (outcome === "undone") return "undone";
+    if (!followed && each?.application && !each.application.held) return "can-undo";
+    return stateOf(followed);
+  });
 }
 
 export function undoAsked(answerId: string, mindId: string): void {
   const followed = followedOf(answerId, mindId);
-  if (followed?.onTop()) followed.undo();
+  if (followed?.onTop()) {
+    void undoCoreChange(followed);
+    return;
+  }
+  const each = asked.get(keyOf(answerId, mindId));
+  if (!each?.application || each.application.held) return;
+  void makeWayForAnswer(null, each.application)
+    .then((outcome) => {
+      each.application = null;
+      setOutcome(each, outcome === "undone" ? "undone" : "applied");
+    })
+    .catch(useAppStore.getState().reportError);
 }
 
 function reviewableIn(mindId: string, followed: FollowedSteps | null): boolean {

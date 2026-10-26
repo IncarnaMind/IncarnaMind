@@ -650,6 +650,17 @@ test("a change in a Mind that isn't open applies in the core and survives a rest
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
     "Wrote 1 paragraph in “Project plan”",
   );
+  await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
+  await expect(window.getByTestId("mind-editor").locator(":scope > p")).toHaveText([
+    "Hire a designer.",
+  ]);
+  await expect(answer.getByTestId("mind-changes-undone")).toHaveText("Undone");
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(window.getByTestId("mind-editor").locator(":scope > p")).toHaveText([
+    "Hire a designer.",
+    "a note about the meeting",
+  ]);
+  await expect(answer.getByTestId("mind-changes-undone")).toHaveCount(0);
   await window.keyboard.press("ControlOrMeta+w");
   await forceQuit(app);
 

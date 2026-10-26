@@ -5604,6 +5604,15 @@ export interface ApplyAskedChangesInput {
   requests: readonly string[];
 }
 
+export interface AskedChangeTransition {
+  /** The clocks after Undo or Redo, for matching updates still arriving. */
+  vector: Uint8Array;
+  /** The content after Undo or Redo, which also changes when a deletion advances no clock. */
+  fingerprint: string;
+  /** The complete Undo or Redo as one Yjs update, for the renderer to apply before judging staleness. */
+  update: Uint8Array;
+}
+
 export interface AskedChangeApplication {
   /** Identifies this application's in-session Undo in the core. */
   undoId: string;
@@ -5611,6 +5620,10 @@ export interface AskedChangeApplication {
   reviewBefore: Uint8Array;
   /** The version after acceptance; Review is offered only while the editor is still at it. */
   afterVector: Uint8Array;
+  /** The content after acceptance, including deletions that advance no clock. */
+  afterFingerprint: string;
+  /** The Proposal ids actually accepted; stale ones were left waiting. */
+  accepted: readonly string[];
   requests: readonly string[];
   held: boolean;
 }
@@ -9045,10 +9058,10 @@ export interface CoreApi {
   resolveReference(reference: ArtifactReference): Promise<ReferenceTarget>;
   /** Applies a turn's asked changes without its editor, or null when none remain. */
   applyAskedChanges(input: ApplyAskedChangesInput): Promise<AskedChangeApplication | null>;
-  /** Takes back a core-applied change if nothing in its Mind followed it. */
-  undoAskedChanges(undoId: string): Promise<boolean>;
-  /** Does a core-applied change again after its Undo. */
-  redoAskedChanges(undoId: string): Promise<boolean>;
+  /** Takes back a core-applied change if nothing in its Mind followed it; returns the resulting state, or null when refused. */
+  undoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
+  /** Does a core-applied change again after its Undo, with the same result contract. */
+  redoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
   /** Lets go of a core-applied change's in-session Review and Undo records. */
   releaseAskedChanges(undoId: string): Promise<void>;
   /**

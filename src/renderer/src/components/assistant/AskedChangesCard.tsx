@@ -123,7 +123,9 @@ function AskedRow({
             {kept}
           </span>
         )}
-        {outcome === "applied" && <AppliedActions answerId={answerId} row={row} name={name} />}
+        {(outcome === "applied" || outcome === "undone") && (
+          <AppliedActions answerId={answerId} row={row} name={name} />
+        )}
         {outcome === "held" && (
           <>
             <Dot />

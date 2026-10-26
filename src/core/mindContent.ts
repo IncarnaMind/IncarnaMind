@@ -369,7 +369,9 @@ export function createMindContent(
     /**
      * Changes the Mind's Blocks in one Yjs transaction (the core's own edits,
      * e.g. writing an Answer), then stores and reports the change like any
-     * client's. `change` must not keep the Blocks, as for `read`.
+     * client's. `change` must not keep the Blocks, as for `read`, except for
+     * `createAskedChanges`'s explicit live-document Undo handle, which is
+     * released on a later edit, close or document destruction.
      */
     edit<T>(
       mindId: string,

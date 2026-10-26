@@ -1,8 +1,10 @@
 import * as Y from "yjs";
 import { askedFor, waitsForUser } from "../../shared/askedChanges";
 import { originMaps } from "../../shared/blockOrigins";
+import { fingerprintOfMind, transitionOfMind } from "../../shared/mindState";
 import {
   aiUseOfAccepted,
+  outOfDateProposals,
   pendingProposals,
   type ResolvedProposal,
   resolveProposals,
@@ -10,6 +12,7 @@ import {
 import {
   type ApplyAskedChangesInput,
   type AskedChangeApplication,
+  type AskedChangeTransition,
   MIND_REVISIONS_FIELD,
   type RecordAiUseInput,
 } from "../api";
@@ -23,14 +26,13 @@ interface CoreUndo {
   rejectOrigin: object;
   doc: Y.Doc;
   mindId: string;
-  requests: ReadonlySet<string>;
+  proposalIds: ReadonlySet<string>;
   scope: (Y.XmlFragment | Y.Map<unknown>)[];
   state: "done" | "undone";
   onTop: boolean;
-  stale: boolean;
   busy: boolean;
-  disposed: boolean;
   changed: () => void;
+  destroyed: () => void;
 }
 
 interface AppliedEntry {
@@ -54,17 +56,20 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
     JSON.stringify([answerId, mindId, [...requests].sort()]);
 
   const dispose = (step: CoreUndo) => {
-    if (step.disposed) return;
-    step.disposed = true;
     step.doc.off("update", step.changed);
+    step.doc.off("destroy", step.destroyed);
+    if (!step.doc.isDestroyed) {
+      step.manager.clear();
+      step.rejection?.clear();
+    }
     step.manager.destroy();
     step.rejection?.destroy();
   };
 
   const release = (undoId: string) => {
     const step = applied.get(undoId)?.undo;
-    if (step) dispose(step);
     applied.delete(undoId);
+    if (step) dispose(step);
   };
 
   const record = (entry: AppliedEntry) => {
@@ -109,18 +114,20 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
           const doc = blocks.doc;
           if (!doc) return null;
           const requests = new Set(wanted.filter((request) => askedFor(doc, request)));
-          if (
-            requests.size === 0 ||
-            !pendingProposals(blocks).some((ref) => requests.has(ref.request))
-          ) {
+          const pending = pendingProposals(blocks);
+          if (requests.size === 0 || !pending.some((ref) => requests.has(ref.request))) {
             return null;
           }
+          const stale = outOfDateProposals(blocks);
+          if (!pending.some((ref) => requests.has(ref.request) && !stale.has(ref.id))) return null;
           const picked = (ref: { request: string }) => requests.has(ref.request);
           if (waitsForUser(doc, requests)) {
             return {
               undoId,
               reviewBefore: new Uint8Array(),
               afterVector: new Uint8Array(),
+              afterFingerprint: "",
+              accepted: [],
               requests: [...requests],
               held: true,
             };
@@ -144,16 +151,23 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
             rejectOrigin: {},
             doc,
             mindId,
-            requests,
+            proposalIds: new Set(accepted.map((each) => each.id)),
             scope,
             state: "done",
             onTop: true,
-            stale: false,
             busy: false,
-            disposed: false,
             changed: () => undefined,
+            destroyed: () => undefined,
           });
-          return { undoId, reviewBefore, afterVector, requests: [...requests], held: false };
+          return {
+            undoId,
+            reviewBefore,
+            afterVector,
+            afterFingerprint: fingerprintOfMind(doc),
+            accepted: accepted.map((each) => each.id),
+            requests: [...new Set(accepted.map((each) => each.request))],
+            held: false,
+          };
         },
         origin,
       );
@@ -170,25 +184,32 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
       if (undo) {
         undo.changed = () => {
           undo.onTop = false;
-          if (undo.busy) return;
-          undo.stale = true;
-          if (undo.state === "done") dispose(undo);
+          if (!undo.busy) release(undoId);
         };
         undo.doc.on("update", undo.changed);
-        undo.doc.on("destroy", () => release(undoId));
+        undo.destroyed = () => release(undoId);
+        undo.doc.on("destroy", undo.destroyed);
       }
       record(entry);
       return application;
     },
 
-    undo(undoId: string): boolean {
+    undo(undoId: string): AskedChangeTransition | null {
       const step = applied.get(undoId)?.undo;
-      if (step?.state !== "done" || !step.onTop || step.busy || step.disposed) return false;
+      if (step?.state !== "done" || !step.onTop || step.busy) return null;
       options.requireMind(step.mindId);
       step.busy = true;
+      const before = Y.encodeStateVector(step.doc);
       try {
+        if (step.manager.undoStack.length === 0) return null;
+        if (!step.rejection) {
+          step.rejection = new Y.UndoManager(step.scope, {
+            captureTimeout: 0,
+            trackedOrigins: new Set([step.rejectOrigin]),
+          });
+        }
         const popped = step.manager.undo();
-        if (!popped) return false;
+        if (!popped) return null;
         if (!step.rejection) {
           step.rejection = new Y.UndoManager(step.scope, {
             captureTimeout: 0,
@@ -198,35 +219,33 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
         content.edit(
           step.mindId,
           (blocks) => {
-            resolveProposals(blocks, (ref) => step.requests.has(ref.request), "reject");
+            resolveProposals(blocks, (ref) => step.proposalIds.has(ref.id), "reject");
           },
           step.rejectOrigin,
         );
         step.state = "undone";
         step.onTop = false;
-        step.stale = false;
-        return true;
+        return transitionOfMind(step.doc, before);
       } finally {
         step.busy = false;
       }
     },
 
-    redo(undoId: string): boolean {
+    redo(undoId: string): AskedChangeTransition | null {
       const step = applied.get(undoId)?.undo;
-      if (step?.state !== "undone" || step.stale || step.busy || step.disposed || !step.rejection) {
-        return false;
-      }
+      if (step?.state !== "undone" || step.busy || !step.rejection) return null;
       options.requireMind(step.mindId);
       const rejection = step.rejection;
       step.busy = true;
+      const before = Y.encodeStateVector(step.doc);
       try {
-        if (!rejection.undo()) return false;
-        if (!step.manager.redo()) return false;
+        if (rejection.undoStack.length === 0 || step.manager.redoStack.length === 0) return null;
+        if (!rejection.undo()) return null;
+        if (!step.manager.redo()) return null;
         content.edit(step.mindId, () => undefined);
         step.state = "done";
         step.onTop = true;
-        step.stale = false;
-        return true;
+        return transitionOfMind(step.doc, before);
       } finally {
         step.busy = false;
       }
