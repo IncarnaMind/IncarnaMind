@@ -60,8 +60,8 @@ jobs:
                && ! echo "$files" | grep -qx 'docs/privacy.md'; then
               heavy=false
             fi
-            # Only a change to what the packaged transcription check covers runs it.
-            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/embedding/download\.ts$|src/main/meetings/|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|e2e/app\.ts$|e2e/packaged/|tests/fixtures/speech/|\.github/(actions/packaged-transcription/|workflows/ci\.yml$))'; then
+            # Only a change to what the packaged real-engine checks cover runs them.
+            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/documents/(extract|processing)\.ts$|src/core/documents/scan/|src/core/embedding/download\.ts$|src/main/(meetings/|scanReader(Process)?\.ts$)|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|e2e/app\.ts$|e2e/packaged/|tests/helpers/pdf\.ts$|tests/fixtures/(speech|scans|rotated-scans)/|\.github/(actions/packaged-transcription/|workflows/ci\.yml$))'; then
               packaged=true
             fi
           fi
@@ -113,12 +113,12 @@ jobs:
             test "${{ needs.unit.result }}" = skipped
           fi
 
-  # The packaged app, as the User installs it, transcribes a meeting with its real speech engine
-  # and model (#1239): #1233 broke transcription only there, while every test passed on the fake
-  # transcriber. macOS runners are few, so a pull request runs it only when it changes what the
-  # check covers; the nightly run and the release always do. Not a required check.
+  # The packaged app, as the User installs it, reads scans with its real OCR (#1819) and transcribes
+  # a meeting with its real speech engine and model (#1239): engine failures can appear only there,
+  # while every test passes on the fakes. macOS runners are few, so a pull request runs these only
+  # when it changes what they cover; the nightly run and the release always do. Not a required check.
   packaged-transcription:
-    name: Packaged app transcribes a meeting (macOS)
+    name: Packaged app's real engines (macOS)
     needs: changes
     if: needs.changes.outputs.packaged == 'true'
     runs-on: macos-latest
