@@ -185,6 +185,7 @@ const conversationWithChange = (application: AskedChangeApplication): Conversati
   text: "Done.",
   citations: [],
   figures: [],
+  analyses: [],
   model: null,
   status: "done",
   errorKind: null,
