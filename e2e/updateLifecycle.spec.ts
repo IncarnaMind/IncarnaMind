@@ -212,6 +212,7 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
       );
       test.setTimeout(120_000);
       const port = await freePort();
+      const beforeErrorPort = await freePort();
       const secondPort = await freePort();
       const old = start(scenario, true, port, port);
       await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
@@ -222,6 +223,10 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
       expect(beforeFailure.some((entry) => entry.kind === "before-quit")).toBe(false);
       if (scenario === "base-error") expect(await windowsOf(port)).toBe(1);
       else await expect.poll(() => has("windows-closed")).toBe(true);
+      const beforeError = start(scenario, false, beforeErrorPort, port);
+      await expect.poll(() => beforeError.exitCode, { timeout: 30_000 }).toBe(0);
+      expect(await windowsOf(beforeErrorPort)).toBe(0);
+      expect((await entries()).some((entry) => entry.kind === "before-quit")).toBe(false);
       await signal("fail");
       await expect.poll(() => has("problem")).toBe(true);
       const shown = (await entries()).filter((entry) => entry.kind === "problem");
@@ -253,7 +258,7 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
       ).toEqual([]);
       await signal("dismiss-problem");
       await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
-      await expectOneSavedWindow([port, secondPort]);
+      await expectOneSavedWindow([port, beforeErrorPort, secondPort]);
       const recorded = await entries();
       expect(recorded.filter((entry) => entry.kind === "relaunch")).toHaveLength(1);
       expect(recorded.filter((entry) => entry.kind === "startup-problem")).toEqual([]);

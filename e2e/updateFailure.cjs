@@ -198,24 +198,7 @@ autoUpdater.quitAndInstall = () => {
     app.quit();
     return;
   }
-  const event = {
-    defaultPrevented: false,
-    preventDefault() {
-      this.defaultPrevented = true;
-    },
-  };
-  app.emit("before-quit", event);
-  record("install", { dataHeld: dataHeld(), prevented: event.defaultPrevented });
-  const fail = () => {
-    record("installer-error", { dataHeld: dataHeld() });
-    autoUpdater.emit("error", new Error("The local installer fixture failed."));
-  };
-  const watcher = watch(folder, () => {
-    if (!existsSync(join(folder, "fail"))) return;
-    watcher.close();
-    fail();
-  });
-  writeFileSync(join(folder, "installing"), "");
+  throw new Error("An install fixture needs its lifecycle scenario or a success result.");
 };
 app.on("quit", () => record("quit"));
 
