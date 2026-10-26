@@ -198,7 +198,7 @@ export interface TaskPatch {
   finishedAt?: string | null;
 }
 
-/** The columns a patch writes, and whether the column stores JSON however the value's shape reads. */
+// Each column a patch writes, and whether it stores JSON whatever the value's shape.
 const PATCH_COLUMNS: Record<keyof TaskPatch, { column: string; json?: true }> = {
   input: { column: "input", json: true },
   status: { column: "status" },

@@ -54,7 +54,6 @@ function cellCounts(node: ReactNodeViewProps["node"]) {
   return { total, settled, toFill, stop: stop as RunStop | null };
 }
 
-/** Whether the focus is in a field the key is typed in; the note's editor is the page Esc acts on. */
 const typingFocused = (): boolean => {
   const active = document.activeElement;
   if (!typesText(active)) return false;

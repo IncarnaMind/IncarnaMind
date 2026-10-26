@@ -98,7 +98,6 @@ function taskInputOf(input: unknown): ComparisonTaskInput | null {
   };
 }
 
-/** The columns a stored Task fills; null when it fills the table. */
 function storedColumnIds(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
   const ids = value.filter((each): each is string => typeof each === "string" && each !== "");
@@ -111,7 +110,7 @@ export interface ComparisonTasks {
   /** Unfinished Tasks, with their kind and input. */
   unfinished(): readonly { id: string; kind: string; mindId: string | null; input: unknown }[];
   isLive(taskId: string): boolean;
-  /** Renames what a Task fills, so a run resumed after a quit fills those columns too. */
+  /** Changes what a Task fills, so a run resumed after a quit fills those columns too. */
   updateInput(taskId: string, input: ComparisonTaskInput): void;
   resume(taskId: string): Promise<unknown>;
   stop(taskId: string): Promise<unknown>;
@@ -229,7 +228,6 @@ function parseRef(input: unknown, what: string): ComparisonTableRef {
   return { mindId: String(input.mindId ?? ""), tableId: input.tableId };
 }
 
-/** A fill's table, and the columns it fills; null when it fills every cell to fill in the table. */
 function parseFillRef(input: unknown): ComparisonTableRef & { questionIds: string[] | null } {
   const ref = parseRef(input, "fillComparisonTable");
   const value = isRecord(input) ? input.questionIds : undefined;
@@ -247,7 +245,7 @@ const tableIn = (blocks: Y.XmlFragment, tableId: string) =>
 const elements = (parent: Y.XmlElement) =>
   parent.toArray().filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
 
-/** The cells to fill in a table, row by row, each row's in its columns' order; `only` limits them to some columns. */
+/** The cells to fill in a table, row by row, each row's in its columns' order. */
 function cellsToFill(table: Y.XmlElement, only: ReadonlySet<string> | null = null): Cell[] {
   const questions = comparisonQuestionsOf(table.getAttributes());
   const cells: Cell[] = [];
@@ -274,7 +272,7 @@ const cellJSON = (questionId: string): NodeJSON => ({
   content: EMPTY_CELL,
 });
 
-/** A table's cells settled (written, or without an Answer), and in all; `only` counts some columns alone. */
+/** A table's cells settled (written, or without an Answer), and in all. */
 function progressOf(
   table: Y.XmlElement,
   only: ReadonlySet<string> | null = null,
@@ -297,17 +295,12 @@ export function createComparisons(options: ComparisonsOptions) {
   const { content } = options;
   /** The fills going, by table. */
   const fills = new Map<string, Fill>();
-  /**
-   * Columns asked for while a table's Task runs or waits, by table: its own
-   * Task's scope plus these make the columns it fills. "all": the whole table.
-   */
+  // Columns asked for while a table's Task runs or waits: its Task's scope plus these
+  // make the columns it fills; "all" is the whole table.
   const extraScopes = new Map<string, Set<string> | "all">();
 
-  /**
-   * Adds a request's columns to a table's Task: to the columns its durable
-   * input records, so a run resumed after a quit fills them too, and to its
-   * fill going, if any.
-   */
+  // Adds a request's columns to the Task's durable input, so a run resumed after a
+  // quit fills them too, and to its fill going, if any.
   function widen(tableId: string, questionIds: readonly string[] | null): void {
     const task = taskOf(tableId);
     const input = task ? taskInputOf(task.input) : null;
@@ -579,8 +572,8 @@ export function createComparisons(options: ComparisonsOptions) {
 
   /**
    * Fills the table's cells to fill, again while a column added meanwhile, or
-   * asked for while it ran, leaves more; `fill.scope` keeps it to some
-   * columns. Returns the monthly cap or plan's limit that stopped it.
+   * asked for while it ran, leaves more. Returns the monthly cap or plan's
+   * limit that stopped it.
    */
   async function run(fill: Fill, tableId: string): Promise<RunStop | null> {
     const tried = new Set<string>();
