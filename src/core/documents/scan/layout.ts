@@ -13,7 +13,7 @@
  */
 
 import { isCjk } from "../../../shared/text";
-import type { Anchor, TextUnit, UnitScan } from "../../../shared/units";
+import type { Anchor, QuarterTurn, TextUnit, UnitScan } from "../../../shared/units";
 import type { RecognizedLine } from "../../adapters";
 
 /** A word the recognizer is less sure of than this, at its least sure character, is marked unsure. */
@@ -205,6 +205,7 @@ export function scannedUnit(
   lines: readonly RecognizedLine[],
   picture: { width: number; height: number },
   reader: string,
+  turn: QuarterTurn = 0,
 ): TextUnit {
   let text = "";
   const anchors: Anchor[] = [];
@@ -231,6 +232,10 @@ export function scannedUnit(
       for (const [from, to] of unsureWords(line)) unsure.push([start + from, start + to]);
     });
   }
-  const scan: UnitScan = { reader, ...(unsure.length > 0 && { unsure }) };
+  const scan: UnitScan = {
+    reader,
+    ...(turn !== 0 && { turn }),
+    ...(unsure.length > 0 && { unsure }),
+  };
   return { page, kind: "page", label: { scan }, text, anchors };
 }
