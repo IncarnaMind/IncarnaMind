@@ -18,7 +18,7 @@ export interface DocumentBlock {
 }
 
 function scannedParts(page: ScannedText["pages"][number]): PagePart[] | null {
-  const rows = scannedRows(page.text, page.anchors);
+  const rows = scannedRows(page.text, page.anchors, page.label?.scan?.turn ?? 0);
   const tables = findTables(rows);
   if (tables.length === 0) return null;
   const lines = page.text.split("\n");
