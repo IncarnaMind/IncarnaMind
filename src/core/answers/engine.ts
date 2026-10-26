@@ -1542,6 +1542,13 @@ const runMessage = (message: AnswerMessage): RunMessage =>
       }
     : { role: "assistant", text: message.content, toolCalls: [] };
 
+/**
+ * Said after the Passages searched before the first call: answered in one call, Answers stopped
+ * at what the Question's own words found, where the loop's model went on searching (#1633).
+ */
+const PRESEARCH_NOTE =
+  "IncarnaMind searched the Question's own words for you. If these Passages don't hold all of the answer, search again with other words before writing.";
+
 /** The search an Answer made before its first call (#1633), and the third-party text it read. */
 interface Presearched {
   query: string;
@@ -1559,7 +1566,7 @@ function presearchMessages(
   const fitted = loop ? loop.passages(result.text, result.passageCount, result.ranks) : result;
   return [
     { role: "assistant", text: "", toolCalls: [{ id, tool, input: { query } }] },
-    { role: "tool", id, tool, result: fitted.text, ok: true },
+    { role: "tool", id, tool, result: `${fitted.text}\n\n${PRESEARCH_NOTE}`, ok: true },
   ];
 }
 
