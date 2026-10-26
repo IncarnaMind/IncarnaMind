@@ -118,3 +118,7 @@ A rewrite of an Answer's text is written over the Blocks it changes (#1873), and
 - **Entries are kept for good.** An entry stays after the change is accepted, rejected or applied at once: History can bring back any earlier version of the Mind, with the change waiting again, and restoring it rejects that change, which needs the earlier origin. The map grows by one origin per Block a change was written over, the same size as that Block's own entry in `origins`, which also keeps entries for Blocks deleted since.
 - **No schema version.** An older version keeps the map as it is and leaves `origins` as the change set them: its Reject keeps the rewriting Answer's origin, as before, and no text is lost. It raises no content schema version.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: the action is called Check against Documents (2026-10-26, #2004)
+
+The action the amendments above call Find support is called Check against Documents in the interface (`editor.ai.checkAgainstDocuments`). A check made now stores `check-against-documents` as its mark's action; an older stored Note carries `find-support`, which still reads and runs as Check against Documents (`claimCheckActions` in `src/core/api.ts`, `src/shared/claimChecks.ts`, `src/renderer/src/checks.ts`). The command's ⌘K keywords keep "check find support", so the old name still finds it.

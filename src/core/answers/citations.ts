@@ -156,7 +156,7 @@ export function cleanQuote(raw: string): string {
 }
 
 /** How a Document's text is matched: whether it lost its f-ligatures (see `lostLigatures`). */
-type Matching = Pick<MatchOptions, "lostLigatures">;
+export type Matching = Pick<MatchOptions, "lostLigatures">;
 
 /** How quotes are matched in a Document's text, from all of it (its Units, as stored). */
 export const matchingOf = (units: readonly PageText[]): Matching => ({
@@ -1076,6 +1076,10 @@ export type QuoteInput = Omit<CitationRecordInput, "marker">;
 export interface Quoted {
   /** The Passage's id, as the model was given it: "P3". */
   passage: string;
+  /** The Passage's own text, as it was built: where a quote of it was taken from. */
+  passageText: string;
+  /** How the check matches the quote in its Units. */
+  matching: Matching;
   /** Its Citation, "checking". */
   citation: Citation;
   /** The stored text of the Units it cites, of the version it quotes. */
@@ -1438,6 +1442,8 @@ export function createCitationSession(
   /** A record as a calculated figure's input reads it. */
   const quotedOf = (record: Accepted): Quoted => ({
     passage: record.handle,
+    passageText: record.source.text,
+    matching: matchingFor(record.source),
     citation: toCitation(record, null),
     units: citedText(record),
     check: () => check(record),

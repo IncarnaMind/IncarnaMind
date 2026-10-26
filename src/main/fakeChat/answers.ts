@@ -23,9 +23,9 @@
  * ask for that and the quotes if not (#1382); one that asks for "narrow then wide" (先窄后宽) gets a
  * line, then a table whose first rows fit the assistant and whose last is wider than it; one that asks for
  * "long headings" (长标题) gets a table of four long headings and long rows, as a real model writes one;
- * one that asks for "forty citations" (四十条引用) gets forty sentences, each with a marker, one for
- * "four citations" (四条引用) four, and one that asks for "twelve in a row" (连续十二条) gets one
- * sentence with twelve markers side by side; one with "cited below" (or 引用在下) gets a
+ * one that asks for "forty
+ * citations" (四十条引用) gets forty sentences, each with a marker, and one that asks for "twelve in a
+ * row" (连续十二条) gets one sentence with twelve markers side by side; one with "cited below" (or 引用在下) gets a
  * table whose one Citation stands in a paragraph under it, and one with "framed" (or 带说明)
  * gets a lead-in before its content and a closing note after it (#702); one that says "without
  * searching" (不用搜索) cites the Passages given with it, as a model does that is given a short
@@ -48,14 +48,7 @@
  */
 
 import { cellReply, isCell } from "./cells";
-import {
-  FORTY_CITATIONS,
-  FOUR_CITATIONS,
-  passagesIn,
-  recordFor,
-  recordsFor,
-  TWELVE_IN_A_ROW,
-} from "./passages";
+import { FORTY_CITATIONS, passagesIn, recordFor, recordsFor, TWELVE_IN_A_ROW } from "./passages";
 import {
   lastQuestion,
   lastUserText,
@@ -378,9 +371,9 @@ function longHeadingsAnswer(question: string, marker: string): string {
   ].join("\n");
 }
 
-function citedSentencesAnswer(question: string, count: number): string {
+function fortyCitationsAnswer(question: string): string {
   const chinese = /\p{Script=Han}/u.test(question);
-  const sentences = Array.from({ length: count }, (_, index) =>
+  const sentences = Array.from({ length: 40 }, (_, index) =>
     chinese
       ? `第${index + 1}条说明潮水每天涨落两次，月亮的位置决定了涨落的时间[^${index + 1}]。`
       : `Statement ${index + 1} says the tide rises and falls twice a day, at hours that follow the moon [^${index + 1}].`,
@@ -590,8 +583,8 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
           ? twoTablesAnswer(question)
           : NINE_ROWS.test(question)
             ? nineRowsAnswer(question, recorded[0] ?? "")
-            : FORTY_CITATIONS.test(question) || FOUR_CITATIONS.test(question)
-              ? citedSentencesAnswer(question, FORTY_CITATIONS.test(question) ? 40 : 4)
+            : FORTY_CITATIONS.test(question)
+              ? fortyCitationsAnswer(question)
               : TWELVE_IN_A_ROW.test(question)
                 ? twelveInARowAnswer(question)
                 : CITED_BELOW.test(question) || FRAMED.test(question)
