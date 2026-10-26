@@ -57,7 +57,11 @@ test.afterEach(async () => {
 });
 
 async function launchWithSheets(language: "en" | "zh-CN" = "en", width = 1600, sandboxed = true) {
-  const launched = await launchApp(dataDir, { fakeChat: true, sandboxed });
+  const launched = await launchApp(dataDir, {
+    fakeChat: true,
+    sandboxed,
+    sandboxNotice: sandboxed ? undefined : "switch",
+  });
   const { app, window } = launched;
   await setWindowSize(app, window, width, 660);
   await dismissChatSetup(window);
