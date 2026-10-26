@@ -49,6 +49,7 @@ import type { SettingsPage } from "../settingsPages";
 import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { reasonKey } from "../webPages";
+import { AnalysisCall } from "./AnalysisCall";
 import { CommandApprovalCard } from "./CommandApprovalCard";
 import { ChevronRightSmallIcon, RegenerateSmallIcon } from "./icons";
 import { useMindId } from "./mindContext";
@@ -467,6 +468,7 @@ export function CallRows({
         (call.source === "connector" ||
           call.source === "sources" ||
           call.source === "web" ||
+          call.source === "analysis" ||
           (call.source === "skill" && call.tool === RUN_SCRIPT)),
     )
     .map((call) => <CallRow key={call.id} call={call} />);
@@ -482,10 +484,10 @@ export function CallRows({
   );
 }
 
-/** The row of a call through a Connector, of Find sources, of web search, of a Minds' Tool, or of a Skill script. */
 export function CallRow({ call }: { call: AnswerToolCall }) {
   if (call.source === "asks") return <AskCall call={call} />;
   if (call.source === "minds") return <MindCall call={call} />;
+  if (call.source === "analysis") return <AnalysisCall call={call} />;
   if (call.source === "commands") return <CommandCall call={call} />;
   if (call.source === "connector") return <ConnectorCall call={call} />;
   if (call.source === "sources") return <SourcesCall call={call} />;

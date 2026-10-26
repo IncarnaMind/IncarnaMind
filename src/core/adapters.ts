@@ -6,7 +6,12 @@
  * imports Electron (ADR-0004, ADR-0006).
  */
 import type { ChildProcess } from "node:child_process";
-import type { AnalysisJob, AnalysisResult, AnalysisVersions } from "../shared/analysis";
+import type {
+  AnalysisEnd,
+  AnalysisJob,
+  AnalysisResult,
+  AnalysisVersions,
+} from "../shared/analysis";
 import type { DrawnPage, PageCaptureRequest } from "../shared/citedPage";
 import type { PrintDocument } from "../shared/printDocument";
 import type { AgentLauncher } from "./agents";
@@ -783,6 +788,8 @@ export interface Pictures {
 export interface AnalysisRuntime {
   /** The languages it runs, each with what it runs them with; none when it can't run on this computer. */
   readonly languages: readonly AnalysisVersions[];
+  /** Why no language can run, so its problem keeps the right remedy. */
+  readonly unavailable?: Extract<AnalysisEnd, { kind: "unavailable" }>;
   /**
    * Runs a job in a namespace of its own, with the same seeds and no clock,
    * to its end, its time limit or `signal`, one job at a time. Never rejects:
