@@ -170,7 +170,7 @@ describe("the cite-first arm", () => {
       today
         .slice(today.indexOf("- Write nothing before a search"))
         .replace(
-          "- Write nothing before a search: only the Answer, once you have the Passages it needs.",
+          "- Write nothing before a search: only the Answer, once you have what it needs.",
           "- Write nothing before your Tool calls: only the Answer, after them.",
         ),
     );
