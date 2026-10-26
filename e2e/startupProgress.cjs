@@ -9,7 +9,7 @@ const mode = process.env.INCARNAMIND_TEST_STARTUP_MODE;
 const record = (kind, extra = {}) =>
   appendFileSync(
     join(folder, "events.jsonl"),
-    `${JSON.stringify({ kind, pid: process.pid, ...extra })}\n`,
+    `${JSON.stringify({ kind, at: new Date().toISOString(), pid: process.pid, ...extra })}\n`,
   );
 
 record("start", {
@@ -18,9 +18,15 @@ record("start", {
   packaged: app.isPackaged,
   appPath: app.getAppPath(),
   executable: process.execPath,
+  versions: {
+    electron: process.versions.electron,
+    node: process.versions.node,
+    sqlite: process.versions.sqlite ?? null,
+  },
 });
 const sampleVisibility = createVisibilitySampler(BrowserWindow, record);
 app.whenReady().then(() => {
+  record("native-ready");
   sampleVisibility();
   setImmediate(sampleVisibility);
   setInterval(sampleVisibility, 250).unref();
@@ -34,6 +40,17 @@ dialog.showErrorBox = (title, content) =>
     visibleWindows: BrowserWindow.getAllWindows().filter((window) => window.isVisible()).length,
   });
 app.on("browser-window-created", (_event, window) => {
+  const windowId = window.id;
+  record("window-created", { windowId });
+  window.webContents.on("did-start-loading", () =>
+    record("window-loading", { windowId, url: window.webContents.getURL() }),
+  );
+  window.webContents.on("did-finish-load", () =>
+    record("window-loaded", { windowId, url: window.webContents.getURL() }),
+  );
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, url, isMainFrame) =>
+    record("window-load-failed", { windowId, errorCode, errorDescription, url, isMainFrame }),
+  );
   window.setContentSize(1280, 660);
   window.once("ready-to-show", () => {
     record("window", { windowId: window.id, bounds: window.getContentBounds() });

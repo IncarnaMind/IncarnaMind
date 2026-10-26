@@ -1,12 +1,14 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "@playwright/test";
+import { isRecord } from "../src/core/errors";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
 import {
   coreOf,
@@ -21,6 +23,7 @@ import {
   freePort,
   inCopyWindow,
   killCopies,
+  lifecycleHomeEnv,
   prepareLifecycleApps,
   startLifecycleCopy,
   windowsOf,
@@ -99,6 +102,266 @@ test("a copy that was killed outright leaves the data folder free for the next s
   const minds = await (await coreOf(next.window)).evaluate(async (api) => api.listMinds());
   expect(minds.map((each) => each.title)).toEqual(["Kept"]);
   await next.app.close();
+});
+
+test("a Windows crash restart opens saved text while an owned helper maps WAL shared memory", async () => {
+  test.skip(
+    process.platform !== "win32" || !process.env.INCARNAMIND_PACKAGED_APP,
+    "A genuine Windows packaged app is needed for the Windows file-mapping behavior.",
+  );
+  const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
+  const sharedMemory = join(dataDir, "incarnamind.db-shm");
+  const boxes = join(home, "mapped-shm-boxes.jsonl");
+  const instanceTrace = join(home, "mapped-shm-events.jsonl");
+  const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
+  const port = await freePort();
+  const first = await launchApp(dataDir, { home });
+  let firstClosed = false;
+  first.app.once("close", () => {
+    firstClosed = true;
+  });
+  let mapper: ChildProcessWithoutNullStreams | undefined;
+  let mapperClosed: Promise<void> | undefined;
+  let successorPid: number | undefined;
+  let successorError: string | undefined;
+  let mapping: { pid: number; length: number; capacity: number } | undefined;
+  let firstMain:
+    | { pid: number; versions: NodeJS.ProcessVersions; packaged: boolean; dataDir: string }
+    | undefined;
+  const mapperOutput: string[] = [];
+  const mapperErrors: string[] = [];
+  const title = "Saved through a mapped WAL";
+  const text = "This Note was saved before the crash.";
+  try {
+    firstMain = await first.app.evaluate(({ app }) => ({
+      pid: process.pid,
+      versions: process.versions,
+      packaged: app.isPackaged,
+      dataDir: app.getPath("userData"),
+    }));
+    expect(firstMain.packaged).toBe(true);
+    expect(resolve(firstMain.dataDir).toLowerCase()).toBe(resolve(dataDir).toLowerCase());
+    await dismissChatSetup(first.window);
+    const noteId = await (await coreOf(first.window)).evaluate(async (api, title) => {
+      const mind = await api.createMind({ title });
+      await api.changeLayout("main", {
+        type: "open",
+        item: { kind: "mind", mindId: mind.id },
+        where: { in: "place" },
+      });
+      return mind.id;
+    }, title);
+    const editor = first.window.getByTestId("mind-editor");
+    await editor.fill(text);
+    await expect(editor).toHaveText(text);
+    expect(await (await coreOf(first.window)).evaluate((api) => api.saveChangesAgain())).toBeNull();
+    expect((await stat(sharedMemory)).size).toBeGreaterThan(0);
+
+    const mapperEnv: Record<string, string> = lifecycleHomeEnv(home);
+    for (const [name, value] of Object.entries(process.env)) {
+      if (
+        value !== undefined &&
+        ["PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP"].includes(
+          name.toUpperCase(),
+        )
+      )
+        mapperEnv[name] = value;
+    }
+    mapperEnv.INCARNAMIND_TEST_MAPPED_SHM = sharedMemory;
+    // No SQLite DMS lock: the extra mapping alone must not prevent crash recovery (#2022).
+    const script = `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$file = $env:INCARNAMIND_TEST_MAPPED_SHM
+$stream = $null
+$mapped = $null
+$view = $null
+try {
+  $share = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+  $stream = [System.IO.File]::Open($file, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, $share)
+  $mapped = [System.IO.MemoryMappedFiles.MemoryMappedFile]::CreateFromFile($stream, $null, [long]0, [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite, [System.IO.HandleInheritability]::None, $true)
+  $view = $mapped.CreateViewAccessor([long]0, [long]0, [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite)
+  $null = $view.ReadByte(0)
+  [Console]::Out.WriteLine((@{ event = 'mapped'; pid = $PID; file = $file; length = $stream.Length; capacity = $view.Capacity } | ConvertTo-Json -Compress))
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'release') { throw 'The mapping owner closed without releasing it.' }
+} finally {
+  if ($view) { $view.Dispose() }
+  if ($mapped) { $mapped.Dispose() }
+  if ($stream) { $stream.Dispose() }
+}
+`;
+    mapper = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+      env: mapperEnv,
+      windowsHide: true,
+      stdio: "pipe",
+    });
+    const child = mapper;
+    mapperClosed = new Promise((done) => child.once("close", () => done()));
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (data: string) => mapperErrors.push(data));
+    child.stdin.on("error", (error) => {
+      console.error("The owned WAL mapping helper could not receive its release", error);
+    });
+    const lines = createInterface({ input: child.stdout });
+    const mappingReady = new Promise<{ pid: number; length: number; capacity: number }>(
+      (done, fail) => {
+        let ready = false;
+        child.once("error", fail);
+        child.once("close", (code, signal) => {
+          if (!ready)
+            fail(
+              new Error(
+                `The shared-memory mapper ended before mapping: ${code}/${signal}. ${mapperErrors.join("")}`,
+              ),
+            );
+        });
+        lines.on("line", (line) => {
+          mapperOutput.push(line);
+          if (ready) return;
+          try {
+            const value: unknown = JSON.parse(line.replace(/^\uFEFF/, ""));
+            if (
+              !isRecord(value) ||
+              value.event !== "mapped" ||
+              value.file !== sharedMemory ||
+              typeof value.pid !== "number" ||
+              value.pid !== child.pid ||
+              typeof value.length !== "number" ||
+              value.length <= 0 ||
+              typeof value.capacity !== "number" ||
+              value.capacity < value.length
+            )
+              throw new Error("The shared-memory mapper did not confirm its owned mapping.");
+            ready = true;
+            done({ pid: value.pid, length: value.length, capacity: value.capacity });
+          } catch (error) {
+            fail(error);
+          }
+        });
+      },
+    );
+    const mapped = await mappingReady;
+    mapping = mapped;
+
+    expect(mapped.pid).not.toBe(firstMain.pid);
+    await forceQuit(first.app);
+    expect(
+      heldByAnotherCopy(dataDir, (what, error) => {
+        throw new Error(what, { cause: error });
+      }),
+    ).toBe(false);
+    expect(mapper.exitCode).toBeNull();
+    expect(mapper.signalCode).toBeNull();
+    process.kill(mapped.pid, 0);
+    const successor = startCopy(
+      home,
+      [
+        tag,
+        `--remote-debugging-port=${port}`,
+        "-r",
+        join(__dirname, "errorBoxes.cjs"),
+        "-r",
+        join(__dirname, "startDuringQuit.cjs"),
+      ],
+      {
+        INCARNAMIND_TEST_ERROR_BOXES: boxes,
+        INCARNAMIND_TEST_INSTANCE_TRACE: instanceTrace,
+      },
+    );
+    successorPid = successor.pid;
+    successor.once("error", (error) => {
+      successorError = String(error);
+    });
+    if (successorPid === undefined) throw new Error("The replacement app has no process id.");
+    const requireSuccessorRunning = () => {
+      const status = {
+        pid: successorPid,
+        code: successor.exitCode,
+        signal: successor.signalCode,
+        spawnError: successorError ?? null,
+      };
+      if (status.code !== null || status.signal !== null || status.spawnError !== null)
+        throw new Error(`The replacement app ended before its window: ${JSON.stringify(status)}`);
+    };
+    await expect
+      .poll(
+        async () => {
+          requireSuccessorRunning();
+          const windows = await windowsOf(port);
+          requireSuccessorRunning();
+          return windows;
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(1);
+    await inCopyWindow(port, async (window) => {
+      const core = await coreOf(window);
+      expect(
+        await core.evaluate(
+          async (api, id) => (await api.listMinds()).find((mind) => mind.id === id),
+          noteId,
+        ),
+      ).toMatchObject({ id: noteId, title });
+      await core.evaluate(
+        (api, id) =>
+          api.changeLayout("main", {
+            type: "open",
+            item: { kind: "mind", mindId: id },
+            where: { in: "place" },
+          }),
+        noteId,
+      );
+      await expect(window.getByTestId("mind-editor")).toHaveText(text);
+    });
+    await expect
+      .poll(async () => {
+        const recorded: unknown[] = (await readFile(instanceTrace, "utf8"))
+          .split("\n")
+          .slice(0, -1)
+          .map((line) => JSON.parse(line));
+        return recorded
+          .filter(isRecord)
+          .filter((event) => event.pid === successorPid && event.event === "window-visibility")
+          .at(-1)?.visibleWindows;
+      })
+      .toBe(1);
+    expect(copiesWith(tag)).toEqual([successorPid]);
+    expect(mapper.exitCode).toBeNull();
+    expect(mapper.signalCode).toBeNull();
+    process.kill(mapped.pid, 0);
+    expect(existsSync(boxes)).toBe(false);
+  } finally {
+    try {
+      await test.info().attach("mapped-shm-restart", {
+        body: JSON.stringify({
+          firstMain,
+          successorPid,
+          successorError,
+          mapping,
+          mapperOutput,
+          mapperErrors,
+          mapperExit: mapper && { code: mapper.exitCode, signal: mapper.signalCode },
+          boxes: existsSync(boxes) ? await readFile(boxes, "utf8") : "",
+          instanceTrace: existsSync(instanceTrace) ? await readFile(instanceTrace, "utf8") : "",
+          log: await logOf(dataDir),
+        }),
+        contentType: "application/json",
+      });
+    } finally {
+      if (mapper && mapperClosed) {
+        if (mapper.exitCode === null && mapper.signalCode === null) {
+          if (mapping) mapper.stdin.end("release\n");
+          else mapper.kill("SIGKILL");
+        }
+        await mapperClosed;
+      }
+      await expect.poll(() => killCopies(tag), { timeout: 30_000 }).toEqual([]);
+      if (!firstClosed) await forceQuit(first.app);
+      await rm(home, { recursive: true, force: true, maxRetries: 3 });
+      if (mapping) expect(mapper?.exitCode).toBe(0);
+    }
+  }
 });
 
 test("a forced quit ends the real main even when the launcher is a different process", async () => {

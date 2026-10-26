@@ -33,6 +33,21 @@ test.afterEach(async () => {
   const path = test.info().outputPath("startup-events.json");
   await writeFile(path, JSON.stringify(await events(), null, 2));
   await test.info().attach("startup-events", { path, contentType: "application/json" });
+  const state = test.info().outputPath("startup-state.json");
+  await writeFile(
+    state,
+    JSON.stringify(
+      {
+        at: new Date().toISOString(),
+        port,
+        owner: (await ownerState()) ?? null,
+        pids: copiesWith(tag, true),
+      },
+      null,
+      2,
+    ),
+  );
+  await test.info().attach("startup-state", { path: state, contentType: "application/json" });
   killCopies(tag);
   await expect.poll(() => copiesWith(tag, true)).toEqual([]);
   await removeDataFolder(data);
