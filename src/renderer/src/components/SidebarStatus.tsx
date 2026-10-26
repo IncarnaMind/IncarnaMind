@@ -319,11 +319,11 @@ function useStatuses(): Status[] {
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
   const allDocuments = useAppStore((state) => state.documents);
-  const liveAssignments = useMemo(() => {
+  const liveStates = useMemo(() => {
     const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
-    return allDocuments.flatMap((doc) => {
+    return allDocuments.map((doc) => {
       const item = held.get(doc.id);
-      return item ? [[doc, item] as const] : [];
+      return { item, state: organizeStateOf(doc, item) };
     });
   }, [allDocuments, library]);
   const organizing = organizes(library);
@@ -449,9 +449,7 @@ function useStatuses(): Status[] {
   );
   const taggingWaits = counts.waitingForTagger > 0;
   const tagging = !organizesNew && counts.tagging > 0;
-  const organizingNow =
-    organizing &&
-    liveAssignments.some(([, item]) => item.status === "pending" || item.status === "classifying");
+  const organizingNow = organizing && liveStates.some(({ state }) => state.run === "working");
   const taggingService = useTaggingService(
     organizingNow ? "classification" : "tagging",
     taggingWaits || tagging || organizingNow,
@@ -912,17 +910,15 @@ function useStatuses(): Status[] {
   }
 
   if (organizing && library) {
-    const pending = liveAssignments.filter(
-      ([, item]) => item.status === "pending" || item.status === "classifying",
-    ).length;
-    const attention = liveAssignments.filter(
-      ([doc, item]) =>
-        organizeStateOf(doc, item) !== "sorted" &&
-        ((item.status === "waiting" &&
-          item.error?.kind !== "rate-limit" &&
-          item.error?.kind !== "auth" &&
-          item.error?.kind !== "plan-limit") ||
-          item.status === "failed"),
+    const pending = liveStates.filter(({ state }) => state.run === "working").length;
+    const attention = liveStates.filter(
+      ({ item, state }) =>
+        !state.manual &&
+        (state.run === "failed" ||
+          (state.run === "waiting" &&
+            item?.error?.kind !== "rate-limit" &&
+            item?.error?.kind !== "auth" &&
+            item?.error?.kind !== "plan-limit")),
     ).length;
     if (attention)
       statuses.push({

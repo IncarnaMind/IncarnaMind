@@ -18,7 +18,7 @@ import {
   type LibrarySection as Section,
 } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
-import { organizeFailedIds } from "../../organizeOutcome";
+import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
 import { sayWhenOrganized, useOrganizeAsk } from "../../organizeRun";
 import { useRequests } from "../../requests";
 import { useAppStore } from "../../store";
@@ -277,13 +277,11 @@ function Organize({ documents }: { documents: readonly Document[] }) {
   const library = useAppStore((state) => state.library);
   const hasFolders = (library?.groups.length ?? 0) > 0;
   const hasModel = organizeHasModel(library?.settings);
-  const pending = useMemo(() => {
+  const states = useMemo(() => {
     const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
-    return all.filter((doc) => {
-      const status = held.get(doc.id)?.status;
-      return status === "pending" || status === "classifying";
-    }).length;
+    return all.map((doc) => organizeStateOf(doc, held.get(doc.id)));
   }, [all, library]);
+  const pending = states.filter((state) => state.run === "working").length;
   const failed = useMemo(() => organizeFailedIds(all, library?.assignments ?? []), [all, library]);
   const run = (ids: readonly string[]) => {
     const app = useAppStore.getState();

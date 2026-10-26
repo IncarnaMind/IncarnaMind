@@ -332,6 +332,15 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
         model: null,
       });
     });
+    // Automatic Organize is off (a cloud key's default): the Reject must settle the failed run
+    // for the Document's own tagging, or the sidebar goes on saying it couldn't be tagged.
+    await window.evaluate(async (url) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.saveLibrarySettings({
+        classifier: { kind: "ollama", baseUrl: url, modelId: "tev1:0.8b" },
+        automatic: false,
+      });
+    }, `http://127.0.0.1:${port}`);
     failing = true;
     await (await coreOf(window)).evaluate(async (core) => {
       const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
@@ -411,12 +420,15 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
         const held = assignments.find((each) => each.documentId === note?.id) ?? null;
         return {
           held,
+          tagging: note?.tagging ?? null,
           folder: groups.find((each) => each.id === held?.groupId)?.name ?? null,
         };
       });
     expect(await noteNow()).toMatchObject({
       held: { groupId: null, suggested: false, status: "classified", error: null },
+      tagging: "tagged",
     });
+    await expect(window.getByTestId("tagging-failed")).toHaveCount(0);
     // ⌘Z puts the Suggested Folder back as the failed re-run left it: reported, with Try again, and
     // still not one Organize couldn't sort, which takes no Folder. ⇧⌘Z turns it down again.
     await leaveText(window);

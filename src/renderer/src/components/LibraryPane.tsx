@@ -32,7 +32,7 @@ import {
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
-import { notSortedIds, organizeStateOf } from "../organizeOutcome";
+import { organizeStateOf } from "../organizeOutcome";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
@@ -162,9 +162,13 @@ export function LibraryPane() {
   );
   const folded = useLibraryFolds((state) => state.folded);
   const reviewOpen = useLibraryFolds((state) => state.reviewOpen);
+  const states = useMemo(() => {
+    const held = new Map((snapshot?.assignments ?? []).map((item) => [item.documentId, item]));
+    return new Map(documents.map((doc) => [doc.id, organizeStateOf(doc, held.get(doc.id))]));
+  }, [documents, snapshot?.assignments]);
   const unsortedIds = useMemo(
-    () => notSortedIds(documents, snapshot?.assignments ?? []),
-    [documents, snapshot?.assignments],
+    () => new Set([...states].flatMap(([id, state]) => (state.place === "notSorted" ? [id] : []))),
+    [states],
   );
   const notSortedOf = useCallback(
     (documentId: string) => {
@@ -177,12 +181,13 @@ export function LibraryPane() {
   );
   const sortFailedOf = useCallback(
     (documentId: string) => {
-      const item = assignments.get(documentId);
-      if (!item?.suggested || item.groupId === null || item.status !== "failed") return null;
-      const said = item.error ? providerErrorText(item.error, t) : "";
-      return said || t("library.notSorted.noReason");
+      const state = states.get(documentId);
+      if (!state?.suggested || state.run !== "failed") return null;
+      const said = assignments.get(documentId)?.error;
+      const text = said ? providerErrorText(said, t) : "";
+      return text || t("library.notSorted.noReason");
     },
-    [assignments, t],
+    [states, assignments, t],
   );
   const notSorted = useMemo(
     () =>
@@ -191,10 +196,8 @@ export function LibraryPane() {
   );
   const notSortedCount = unsortedIds.size;
   const allSorted = useMemo(
-    () =>
-      documents.length > 0 &&
-      documents.every((doc) => organizeStateOf(doc, assignments.get(doc.id)) === "sorted"),
-    [documents, assignments],
+    () => documents.length > 0 && documents.every((doc) => states.get(doc.id)?.place === "sorted"),
+    [documents, states],
   );
   const review = useMemo(
     () => toReviewOf(ordered, folders, snapshot?.assignments ?? []),
@@ -239,11 +242,11 @@ export function LibraryPane() {
 
   const suggestedOf = useCallback(
     (documentId: string) => {
-      const item = assignments.get(documentId);
-      if (!item?.suggested || item.groupId === null) return null;
-      return groups.find((group) => group.id === item.groupId)?.name ?? null;
+      if (!states.get(documentId)?.suggested) return null;
+      const folderId = assignments.get(documentId)?.groupId;
+      return groups.find((group) => group.id === folderId)?.name ?? null;
     },
-    [assignments, groups],
+    [states, assignments, groups],
   );
   const problem = useMemo(() => problemOf(documents), [documents]);
   // Files in the Linked folders that aren't Documents because their format isn't read yet (#740).
