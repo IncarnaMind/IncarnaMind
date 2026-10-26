@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -23,6 +24,7 @@ import {
   type SaveChatProviderInput,
 } from "../src/core/api";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
+import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
 import { translate } from "../src/shared/i18n";
@@ -377,6 +379,7 @@ export async function launchApp(
   });
   const window = await app.firstWindow();
   await window.getByTestId("plus-menu").waitFor();
+  await waitUntilLive(app, window);
   if (!keepWindow) {
     await resizeContent(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height, {
       waitForHeight: true,
@@ -385,6 +388,46 @@ export async function launchApp(
   }
   await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
+}
+
+/**
+ * The app is live: its core answers the page, and the page draws a frame after that. A launch
+ * asks for a size only once it is: a size asked during a first start waits for a frame that
+ * start hasn't drawn yet, and the resize's own wait then reports an app that isn't answering
+ * (#432, #1741). A window that has gone rejects at once, which is the clear error; a slow one
+ * is waited out here, where the app is, rather than inside the size check.
+ */
+async function waitUntilLive(app: ElectronApplication, window: Page): Promise<void> {
+  const answered = window
+    .evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.getSettings();
+      await new Promise<void>((drawn) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => drawn())),
+      );
+    })
+    .then(() => "live" as const);
+  // A launch that gave up on the page must not also fail on this answer, when it comes.
+  answered.catch(() => undefined);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"late">((settle) => {
+    timer = setTimeout(() => settle("late"), LIVE_WAIT_MS);
+  });
+  try {
+    if ((await Promise.race([answered, late])) === "late") {
+      throw new Error(`the main process did not answer within ${LIVE_WAIT_MS / 1000} s`);
+    }
+  } catch (error) {
+    const evidence = await keepWhatTheAppWasDoing(app);
+    throw new Error(
+      `The app did not come up: its window stopped before the core answered.${evidence}`,
+      {
+        cause: error,
+      },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function answerExportQuestions(
@@ -1356,6 +1399,9 @@ export async function interceptSkillPicker(window: Page, path: string): Promise<
 /** Not in a Folder lists its first five Documents, then "Show N more Documents". */
 const FIRST_LISTED = 5;
 
+/** How long the core may take to read a Document: expect's 5 s runs out on a loaded runner (#1741). */
+const DOCUMENT_READY_WAIT_MS = 30_000;
+
 /**
  * Adds files through the sidebar's file picker and waits until each is
  * processed and ready. Each shows Not in a Folder (its first five, if more).
@@ -1366,7 +1412,9 @@ export async function addDocuments(window: Page, paths: string[]): Promise<void>
   const listed = Math.min(paths.length, FIRST_LISTED);
   await expect(items).toHaveCount(listed);
   for (let index = 0; index < listed; index++) {
-    await expect(items.nth(index)).toHaveAttribute("data-status", "ready");
+    await expect(items.nth(index)).toHaveAttribute("data-status", "ready", {
+      timeout: DOCUMENT_READY_WAIT_MS,
+    });
   }
   if (paths.length > listed) await expectReadyDocuments(window, paths.length);
 }
@@ -1388,11 +1436,13 @@ export async function setWindowSize(
 
 const SIZE_WAIT_MS = 30_000;
 const REPORT_WAIT_MS = 2_000;
+/** How long the core may take to answer the page at a launch, on a loaded runner (#1741). */
+const LIVE_WAIT_MS = 30_000;
 
-async function within<T>(answer: Promise<T>, otherwise: T): Promise<T> {
+async function within<T>(answer: Promise<T>, otherwise: T, ms = REPORT_WAIT_MS): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<T>((settle) => {
-    timer = setTimeout(() => settle(otherwise), REPORT_WAIT_MS);
+    timer = setTimeout(() => settle(otherwise), ms);
   });
   try {
     return await Promise.race([answer, late]);
@@ -1418,14 +1468,25 @@ async function resizeContent(
   height: number,
   { message, waitForHeight = false }: { message?: string; waitForHeight?: boolean } = {},
 ): Promise<void> {
-  const browserWindow = await app.browserWindow(window);
-  await browserWindow.evaluate((win, asked) => win.setContentSize(asked.width, asked.height), {
-    width,
-    height,
-  });
+  let browserWindow: Awaited<ReturnType<ElectronApplication["browserWindow"]>> | null = null;
   const look = () =>
     window.evaluate(() => ({ width: globalThis.innerWidth, height: globalThis.innerHeight }));
+  // One budget for the whole size, so a step that stops answering can't hold the test past it
+  // and the report below still says what happened (#1741).
+  const deadline = Date.now() + SIZE_WAIT_MS;
+  const left = () => Math.max(1, deadline - Date.now());
   try {
+    browserWindow = await within(app.browserWindow(window), null, left());
+    if (browserWindow === null) throw new Error("the main process did not answer for its window");
+    const sized = browserWindow;
+    await within(
+      sized.evaluate((win, asked) => win.setContentSize(asked.width, asked.height), {
+        width,
+        height,
+      }),
+      undefined,
+      left(),
+    );
     await expect
       .poll(
         async () => {
@@ -1434,16 +1495,19 @@ async function resizeContent(
         },
         // A loaded runner can take far longer than expect's 5 s to draw the frame the size waits
         // for (#432); this still ends early enough in the test's 60 s to report what it saw.
-        { message, timeout: SIZE_WAIT_MS },
+        { message, timeout: left() },
       )
       .toEqual([width, height]);
   } catch (error) {
     // A window that has stopped answering must not take the report down with it.
+    const evidence = await keepWhatTheAppWasDoing(app);
     const [content, page, drawing] = await Promise.all([
-      within(
-        browserWindow.evaluate((win) => win.getContentSize().join(" × ")),
-        "unknown (the app's main process isn't answering)",
-      ),
+      browserWindow === null
+        ? "unknown (the app's main process didn't answer for its window)"
+        : within(
+            browserWindow.evaluate((win) => win.getContentSize().join(" × ")),
+            "unknown (the app's main process isn't answering)",
+          ),
       within(
         look().then((size) => `${size.width} × ${size.height}`),
         "unknown (the page isn't answering)",
@@ -1456,7 +1520,7 @@ async function resizeContent(
       ),
     ]);
     throw new Error(
-      `${message ?? "The window did not reach its size"}: asked ${width} × ${height}; the window's content is ${content}; the page is ${page}, ${drawing}.`,
+      `${message ?? "The window did not reach its size"}: asked ${width} × ${height}; the window's content is ${content}; the page is ${page}, ${drawing}.${evidence}`,
       { cause: error },
     );
   }
@@ -1464,6 +1528,64 @@ async function resizeContent(
     () =>
       new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(() => drawn(null)))),
   );
+}
+
+/**
+ * Keeps what the main process was doing when it stopped answering: a native stack sample, since
+ * a main thread blocked in a dialog can't answer for itself, and the end of its log. Both are
+ * kept with the failed test's attachments, and the log's last lines also go into the error, which
+ * CI shows without opening a file. A launch that passes pays none of it (#1741).
+ */
+async function keepWhatTheAppWasDoing(app: ElectronApplication): Promise<string> {
+  const info = test.info();
+  const pid = app.process().pid;
+  let sampled = false;
+  if (pid !== undefined) {
+    const path = info.outputPath("main-process-sample.txt");
+    sampled = sampleMainProcess(pid, path);
+    if (sampled) {
+      await info
+        .attach("main-process-sample", { path, contentType: "text/plain" })
+        .catch(() => undefined);
+    }
+  }
+  const log = lastLogLines(openApps.get(app));
+  return [
+    log === "" ? "" : `\nThe app's log ends with:\n${log}`,
+    sampled ? "\nThe main process's stack sample is attached as main-process-sample." : "",
+  ].join("");
+}
+
+function sampleMainProcess(pid: number, path: string): boolean {
+  if (process.platform === "darwin") {
+    const sampled = spawnSync("sample", [`${pid}`, "1", "-file", path], { timeout: 10_000 });
+    return sampled.status === 0 && existsSync(path);
+  }
+  if (process.platform !== "linux") return false;
+  for (const [command, args] of [
+    ["eu-stack", ["-p", `${pid}`]],
+    ["gdb", ["-batch", "-ex", "thread apply all bt", "-p", `${pid}`]],
+  ] as const) {
+    const stack = spawnSync(command, args, { encoding: "utf8", timeout: 12_000 });
+    if (stack.status === 0 && stack.stdout !== "") {
+      writeFileSync(path, stack.stdout);
+      return true;
+    }
+  }
+  return false;
+}
+
+function lastLogLines(dataDir: string | undefined, lines = 12): string {
+  if (dataDir === undefined) return "";
+  try {
+    return readFileSync(join(dataDir, "logs", LOG_FILE), "utf8")
+      .trimEnd()
+      .split("\n")
+      .slice(-lines)
+      .join("\n");
+  } catch {
+    return "";
+  }
 }
 
 /** What the page copies goes to `copied` instead of the machine's clipboard. */
