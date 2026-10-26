@@ -286,7 +286,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(composer.getByTestId("composer-scope-all")).toHaveText(
         language === "en" ? "All Documents" : "全部文档",
       );
-      await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "Tide notes" }));
+      const tideTab = window.getByTestId("mind-tab").filter({ hasText: "Tide notes" });
+      await pointAndClick(window, tideTab);
+      await expect(tideTab).toHaveAttribute("aria-selected", "true");
+      await expect(window.getByTestId("mind-editor")).toBeVisible();
       await expect(chips).toHaveCount(2);
       await openCitation(window, first, true);
       await expect(chips).toHaveCount(2);
