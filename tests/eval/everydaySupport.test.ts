@@ -15,7 +15,7 @@ import type { CheckClaimInput, ClaimCheckResult } from "../../src/core";
 
 const citation = (marker: number, quote: string) => ({
   marker,
-  documentName: "Attention Is All You Need",
+  documentName: "Weighted Keys Shorter Paths",
   documentId: `doc-${marker}`,
   contentHash: `hash-${marker}`,
   quote,
@@ -61,7 +61,7 @@ describe("The cited sentences of an Answer", () => {
       [
         "- Short inputs are cheap.[^1] Long ones are not.",
         "自注意力的代价随序列长度的平方增长[^1][^2]。这意味着长输入仍然昂贵。",
-        "[^1]: Attention Is All You Need, page 6.",
+        "[^1]: Weighted Keys, page 6.",
       ].join("\n"),
       CITATIONS,
     );
@@ -122,7 +122,7 @@ describe("Checking the cited sentences", () => {
     ]);
     expect(asked[0]?.cited).toEqual([
       {
-        documentName: "Attention Is All You Need",
+        documentName: "Weighted Keys Shorter Paths",
         documentId: "doc-2",
         contentHash: "hash-2",
         quote: "O(n^2 · d)",

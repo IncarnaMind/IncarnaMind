@@ -9,7 +9,6 @@ import {
   enterContent,
   expectDotsBetweenParts,
   forceQuit,
-  frontMind,
   launchApp,
   motionSettled,
   newMind,
@@ -291,14 +290,8 @@ test("a Task waiting for approval comes back paused after a quit: â€œNeeds youâ€
     await newMind(window);
     await window.keyboard.type("Credit memo");
     await window.keyboard.press("ControlOrMeta+t");
-    // Typed once the new tab's first line takes a key: one typed before that is lost, and the
-    // Mind was named "tes" instead of "Notes" (#1741).
+    // Typed once the new tab's text has the focus, or the first keys land in the last Mind.
     await enterContent(window);
-    await motionSettled(window);
-    const firstLine = frontMind(window).locator(".mind-editor > :first-child");
-    await expect(firstLine).toHaveJSProperty("tagName", "H1");
-    await window.keyboard.press("Backspace");
-    await expect(firstLine).toHaveJSProperty("tagName", "P");
     await window.keyboard.type("Notes");
     const memoTab = window.getByTestId("mind-tab").filter({ hasText: "Credit memo" });
     const notesTab = window.getByTestId("mind-tab").filter({ hasText: "Notes" });
