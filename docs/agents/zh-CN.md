@@ -148,12 +148,30 @@ A figure in an Answer is written as reports write it, with no space between the 
 | Unchecked figure | 未核对的数字 | |
 | Analysis | 数据分析 | Can't run: "这台电脑上无法运行数据分析：…". |
 | Sandbox (where Skill scripts and Analyses run) | 沙盒 | Never 沙箱. |
+| Analyse data… (⌘K, and the composer's chip) | 分析数据… | The chip reads 分析数据; a step that ran one, 对“{document}”运行了数据分析. |
 | Recalculate | 重新计算 | |
 | Run again | 重新运行 | |
 | percentage points | 个百分点 | A difference of two percents: "2.3个百分点", never "2.3%". |
 | about (an approximate figure) | 约 | "约1.2亿元". |
 | times (a multiple) | 倍 | "4.00倍". |
 | yes / no (what a comparison gives) | 是 / 否 | |
+
+### Finance and law
+
+The words the finance and law Skills (#1938) use, as Chinese research, banking and legal products
+write them.
+
+| English | Chinese | Notes |
+|---|---|---|
+| Covenant (financial) | 财务约定 | A term of a facility agreement: its test, its level and the latest figure. The Skill's title is 财务约定摘要. |
+| Confidential information memorandum (CIM) | 保密信息备忘录（CIM） | Its short form is 信息备忘录. The Skill's title is 信息备忘录疑点核查. |
+| Data room | 数据室 | Not 资料库, which is the Library. |
+| Red flag (a CIM claim the data room doesn't support or contradicts) | 疑点 | A claim that needs a look; not 红旗, a literal translation. |
+| Credit memo / credit committee paper | 授信报告 | Its outline is 授信报告提纲, as banks word it. |
+| Deposition | 证词 | The transcript is 证词笔录; a summary is 证词摘要. |
+| Guidance (a company's) | 业绩指引 | The forward-looking figures a company gives, as announcements and research write it. |
+| Earnings review | 业绩回顾 | The quarter against the prior period and the guidance. |
+| Chronology | 事件时间线 | The dated list of a record's events. |
 
 ### Dates and times
 

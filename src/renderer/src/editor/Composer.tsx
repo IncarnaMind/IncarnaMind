@@ -74,7 +74,7 @@ import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
 import { EditStatus } from "./EditStatus";
-import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon } from "./icons";
+import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from "./icons";
 import { ModelChip } from "./ModelChip";
 import { useMindSelection } from "./mindSelection";
 import { PasteChip, usePasteLabel } from "./PasteChip";
@@ -218,6 +218,7 @@ export function Composer({
   /** The Research plan open in the tray (#130): what is typed changes it. */
   const plan = useResearch((state) => (mindId ? state.plans[mindId] : undefined));
   const researching = mind !== null && draft.research === true;
+  const analysing = draft.analyse === true && !researching;
   /** Tell it… (#130): the running Task what is typed goes to. */
   const told = useTasks((state) => (draft.tell ? state.tasks[draft.tell] : undefined));
   const target = mind && tellable(told) ? told : undefined;
@@ -392,7 +393,12 @@ export function Composer({
 
   /** Research…: what is typed next is a topic (#130). */
   const chooseResearch = () => {
-    update({ research: true, skill: null, ...(picking && { text: withoutTyped(picking) }) });
+    update({
+      research: true,
+      skill: null,
+      analyse: false,
+      ...(picking && { text: withoutTyped(picking) }),
+    });
     useAnswers.getState().dismiss(composerKey(mindId));
     setPicking(null);
     field.current?.focus();
@@ -532,7 +538,9 @@ export function Composer({
     // ChatGPT and Claude, so a second press never asks the Question twice. The button is Stop.
     if (answerBeingWritten() !== null) return;
     const draft =
-      said === undefined ? current : { ...current, text: said, pastes: [], skill: null };
+      said === undefined
+        ? current
+        : { ...current, text: said, pastes: [], skill: null, analyse: false };
     const typed = draft.text.trim();
     // What is pasted, in chips, goes with the words typed.
     const text = [typed, ...draft.pastes.map((paste) => paste.text.trim())]
@@ -552,7 +560,8 @@ export function Composer({
     useAnswers.getState().dismiss(composerKey(mindId));
     // Words asked from ⌘K go alone: the draft, its chips too, stays for the User.
     const quotes = said === undefined ? (current.quotes ?? []) : [];
-    if (said === undefined) update({ text: "", skill: null, pastes: [], quotes: [] });
+    if (said === undefined)
+      update({ text: "", skill: null, pastes: [], quotes: [], analyse: false });
     setExpanded(false);
     setViewing(null);
     setPicking(null);
@@ -564,6 +573,7 @@ export function Composer({
       scope: composerScope(current, folderId),
       model: modelInUseOf(mind?.doc ?? null),
       forcedSkill: draft.skill,
+      ...(draft.analyse && { analyse: true }),
       quotes,
     });
     if (asked) {
@@ -575,7 +585,13 @@ export function Composer({
     const now = useComposer.getState().draft(key);
     const back = withQuotes(quotes, now.quotes ?? []);
     if (now.text === "" && now.pastes.length === 0) {
-      update({ text: typed, pastes: draft.pastes, skill: now.skill ?? draft.skill, quotes: back });
+      update({
+        text: typed,
+        pastes: draft.pastes,
+        skill: now.skill ?? draft.skill,
+        analyse: now.analyse || draft.analyse,
+        quotes: back,
+      });
     } else if (quotes.length > 0) {
       update({ quotes: back });
     }
@@ -680,6 +696,11 @@ export function Composer({
       // Back to asking; the next Esc is the assistant's.
       event.preventDefault();
       update({ research: false });
+      return;
+    }
+    if (event.key === "Escape" && analysing) {
+      event.preventDefault();
+      update({ analyse: false });
       return;
     }
     if (event.key === "Escape" && expanded) {
@@ -867,6 +888,28 @@ export function Composer({
               // The text keeps the focus.
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => update({ research: false })}
+              className="scope-chip-remove"
+            >
+              <RemoveIcon className="size-2.5" />
+            </button>
+          </span>
+        )}
+        {analysing && !target && (
+          <span
+            data-testid="composer-analyse"
+            title={t("analysis.chip.hint")}
+            className="question-skill"
+          >
+            <TableIcon className="question-skill-icon" />
+            <span className="truncate">{t("analysis.chip")}</span>
+            <button
+              type="button"
+              data-testid="composer-analyse-remove"
+              aria-label={t("analysis.chip.remove")}
+              title={t("analysis.chip.remove")}
+              // The text keeps the focus.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => update({ analyse: false })}
               className="scope-chip-remove"
             >
               <RemoveIcon className="size-2.5" />

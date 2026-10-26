@@ -300,6 +300,8 @@ export interface InstructionOptions {
   webTools?: boolean;
   /** The model is offered the Minds' Tools (#202). */
   mindTools?: boolean;
+  /** The model is offered `run_analysis` (#447). */
+  analysisTools?: boolean;
   /** The model is offered the commands' Tools (#1110). */
   commandTools?: boolean;
 }
@@ -540,6 +542,8 @@ export interface AiSdkAnswerEngineOptions {
 
 /** Model calls per Answer: a few searches, the records, and the Answer, with room to spare. */
 const MAX_STEPS = 10;
+/** More model calls for an Answer offered `run_analysis` (#447): its runs, and fixing their code. */
+const ANALYSIS_STEPS = 6;
 
 /**
  * The temperature Answers are written at. Providers default to about 1, which
@@ -1543,7 +1547,7 @@ const definitions = (tools: readonly Tool[]) =>
 async function* toolLoop(
   request: AnswerRequest,
   engine: RunEngine,
-  maxSteps: number,
+  stepLimit: number,
   mode: "tools" | "no-documents",
   temperature: number | undefined,
   budget: WindowBudget | null = null,
@@ -1635,12 +1639,15 @@ async function* toolLoop(
     ]).map((each) => [each.name, each]),
   );
   const tools = [...offered.values()];
+  const maxSteps =
+    stepLimit + (tools.some((each) => each.provider.kind === "analysis") ? ANALYSIS_STEPS : 0);
   const instructions = request.instructions(mode, {
     skillTools: request.tools.some((each) => each.provider.kind === "skills"),
     connectorTools: tools.some((each) => each.provider.kind === "connector"),
     sourceTools: tools.some((each) => each.provider.kind === "sources"),
     webTools: tools.some((each) => each.provider.kind === "web"),
     mindTools: tools.some((each) => each.provider.kind === "minds"),
+    analysisTools: tools.some((each) => each.provider.kind === "analysis"),
     commandTools: tools.some((each) => each.provider.kind === "commands"),
   });
 

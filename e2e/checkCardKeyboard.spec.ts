@@ -28,7 +28,9 @@ import {
  * for this sentence" command in ⌘K opens it with the focus on its first
  * action, Tab and Shift+Tab move through the actions in reading order and
  * wrap inside it, and Esc closes it with the caret back in the sentence. The
- * checks are written into the page, so no model is involved.
+ * card's ⋯ opens from the keyboard, and its menu closes when Tab leaves it,
+ * so no menu outlives the focus. The checks are written into the page, so no
+ * model is involved.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -390,7 +392,8 @@ for (const language of ["en", "zh-CN"] as const) {
         }),
       );
 
-      const actions = card.locator("button");
+      // The buttons the User can reach: a closed menu's items are in the card but not in the Tab order.
+      const actions = card.locator("button:visible");
       const count = await actions.count();
       expect(count, "the card has an action").toBeGreaterThan(0);
       const firstName =
@@ -427,6 +430,19 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Shift+Tab");
       await expect(actions.last()).toBeFocused();
 
+      if (state.first === "claim-cut-sentence") {
+        // The last action is the card's ⋯. Enter opens its menu; Tab leaves it, closing it, so the
+        // focus is back on an action and Esc closes the card, never a menu no longer holding the focus.
+        await window.keyboard.press("Enter");
+        const item = card.getByTestId("check.findSources");
+        await expect(item).toBeVisible();
+        await screenshot(window, `card-menu-${language}`);
+        await window.keyboard.press("Tab");
+        await expect(item).not.toBeVisible();
+        await expect(actions.first()).toBeFocused();
+        await screenshot(window, `card-menu-after-tab-${language}`);
+      }
+
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
       await expect(editor).toBeFocused();
@@ -460,7 +476,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const caret = await caretOf(editor);
       await showCheckFromCommand(window, t("claim.showCard"));
       await expect(card).toHaveAttribute("data-check", "supported");
-      const actions = card.locator("button");
+      // The buttons the User can reach: a closed menu's items are in the card but not in the Tab order.
+      const actions = card.locator("button:visible");
       const count = await actions.count();
       await expect(actions.first()).toBeFocused();
       expect(await actions.first().getAttribute("data-testid")).toBe(variant.first);
