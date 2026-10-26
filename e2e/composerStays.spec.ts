@@ -205,7 +205,6 @@ async function openCitation(window: Page, answer: Locator, keyboard = false) {
 
 for (const language of ["en", "zh-CN"] as const) {
   test(`an explicit Document scope survives checking a Citation and a follow-up (${language})`, async () => {
-    test.setTimeout(120_000);
     const cedarFinal = join(sources, "Cedar final.txt");
     const cedarNotes = join(sources, "Cedar notes.txt");
     await writeFile(
