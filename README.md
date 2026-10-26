@@ -90,6 +90,8 @@ Windows releases will be signed through the SignPath Foundation's free signing f
 
 **Connect apps and Skills that ask first.** Add Connectors (MCP servers), or bring over the ones you set up in Claude Desktop or Cursor, and Skills (standard `SKILL.md` folders), three of them built in; a tool that could change something, or a Skill's script, runs only after you say yes.
 
+**Use your own agent.** Connect [Claude Code](docs/claude-code.md), [Codex](docs/codex.md) or [Cursor](docs/cursor.md) to the Folders you choose, with checked Citations.
+
 **English and Chinese.** The whole app is in both.
 
 </details>

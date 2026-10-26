@@ -144,6 +144,13 @@ test("a target shows progress, is kept for the Mind, and can be removed", async 
   await window.keyboard.press("Shift+Tab");
   await expect(menu).toBeHidden();
 
+  // Tab from the last item leaves the menu too, and it closes.
+  await button.click();
+  await expect(menu).toBeVisible();
+  await window.getByTestId("mind-count-remove").focus();
+  await window.keyboard.press("Tab");
+  await expect(menu).toBeHidden();
+
   // What the count shows is chosen in the menu: characters without spaces here.
   await button.click();
   await window.locator('[data-testid="mind-count-basis"][data-basis="charactersNoSpaces"]').click();

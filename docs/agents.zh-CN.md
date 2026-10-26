@@ -1,8 +1,12 @@
 # 把你的 AI 智能体连接到 IncarnaMind
 
-*实验功能，在 alpha 版本中暂时隐藏，之后再决定去留。* [English](agents.md)
+[English](agents.md)
+
+从公开 alpha 版本开始提供；连接默认关闭，需要你开启并批准每个配对。
 
 如果你已经在用 AI 智能体，例如 Claude、ChatGPT、Codex、Cursor 或 Antigravity，可以让它搜索你在 IncarnaMind 中选择的文件夹并引用其中内容。它从 IncarnaMind 得到的每条引文都会与你的文档核对，你也可以在 IncarnaMind 中打开任意一条，查看它在文档中的位置。
+
+智能体指南：[Claude Code](claude-code.md)、[Codex](codex.md)、[Cursor](cursor.md)。每篇都说明连接、共享范围和断开连接。
 
 ## 开始之前
 

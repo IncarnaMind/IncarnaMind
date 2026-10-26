@@ -2578,26 +2578,26 @@ export const assistantAnswers = (window: Page) =>
 
 /**
  * The assistant's own word that the next Answer in a conversation has stopped streaming: the
- * core's `answer.finished` (done or stopped) or `answer.failed` for an Answer that wasn't there
- * before (`known`), not one in a Mind (#1741). A rendered status can lag the stream on a loaded
- * runner, so a spec waits for this before it reads the page.
+ * core's `answer.finished` (done or stopped) or `answer.failed`, with the Answer's id, for one
+ * that wasn't there before (`known`), not one in a Mind (#1741). A rendered status can lag the
+ * stream on a loaded runner, so a spec waits for this, and names the Answer by the id it gives.
  */
 const answerEnded = (window: Page, known: readonly string[]) =>
   window.evaluate(
     (before) =>
-      new Promise<string>((ended) => {
+      new Promise<{ answerId: string; status: string }>((ended) => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         const stops: (() => void)[] = [];
-        const end = (status: string) => {
+        const end = (answerId: string, status: string) => {
           for (const stop of stops) stop();
-          ended(status);
+          ended({ answerId, status });
         };
         stops.push(
           bridge.on("answer.finished", ({ answerId, mindId, status }) => {
-            if (mindId === null && !before.includes(answerId)) end(status);
+            if (mindId === null && !before.includes(answerId)) end(answerId, status);
           }),
           bridge.on("answer.failed", ({ answerId, mindId }) => {
-            if (mindId === null && !before.includes(answerId)) end("failed");
+            if (mindId === null && !before.includes(answerId)) end(answerId, "failed");
           }),
         );
       }),
@@ -2620,7 +2620,7 @@ export async function askInAssistant(
   const before = await answers.evaluateAll((all) =>
     all.map((element) => element.getAttribute("data-answer-id") ?? ""),
   );
-  const ended = answerEnded(window, before).catch(() => "closed");
+  const ended = answerEnded(window, before).catch(() => ({ answerId: "", status: "closed" }));
   await window.keyboard.press("ControlOrMeta+j");
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await window.keyboard.type(question);
@@ -2630,9 +2630,19 @@ export async function askInAssistant(
   await expect(answers).toHaveCount(before.length + 1);
   const answer = answers.last();
   // The assistant's own word that the stream ended, not the page's, which can lag it on a
-  // loaded runner (#1741); the page's done state follows, as the specs act on it.
-  await ended;
-  await expect(answer).toHaveAttribute("data-status", "done", { timeout });
+  // loaded runner (#1741), and the Answer that word names, by its id: a re-render, another
+  // Answer or a placeholder can't stand in for it.
+  const end = await ended;
+  const endedHere = end.answerId
+    ? window
+        .getByTestId("assistant")
+        .locator(`[data-testid="assistant-answer"][data-answer-id="${end.answerId}"]`)
+    : answer;
+  await expect(endedHere).toHaveAttribute(
+    "data-status",
+    end.status === "closed" ? "done" : end.status,
+    { timeout },
+  );
   return answer;
 }
 
