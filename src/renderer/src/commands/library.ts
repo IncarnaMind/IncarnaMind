@@ -1,5 +1,5 @@
 import { useAppStore } from "../store";
-import { waitingIds } from "../suggestionReview";
+import { hasNotSorted, waitingIds } from "../suggestionReview";
 import type { Command } from "./registry";
 
 export const libraryCommands: readonly Command[] = [
@@ -17,7 +17,7 @@ export const libraryCommands: readonly Command[] = [
     label: "library.review.open",
     keywords: ["library.review.open.keywords"],
     group: "open",
-    when: () => waitingIds().length > 0,
+    when: () => waitingIds().length > 0 || hasNotSorted(),
     reversible: true,
     run: () => useAppStore.getState().openLibrary("review"),
   },

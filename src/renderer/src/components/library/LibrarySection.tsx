@@ -1,5 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import type {
   Document,
   LibraryGroup,
@@ -20,6 +19,7 @@ import {
   type LibrarySection as Section,
 } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
+import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
 import { sayWhenOrganized, useOrganizeAsk } from "../../organizeRun";
 import { useRequests } from "../../requests";
 import { useAppStore } from "../../store";
@@ -52,6 +52,7 @@ export function LibrarySection({
   matches,
   suggestedOf,
   notSortedOf,
+  sortFailedOf,
 }: {
   section: Section;
   narrowing: boolean;
@@ -61,6 +62,8 @@ export function LibrarySection({
   suggestedOf(documentId: string): string | null;
   /** Why Organize couldn't sort a Document, by its id, if it couldn't. */
   notSortedOf(documentId: string): string | null;
+  /** Why a Suggested Folder's latest run failed, by a Document's id, if it did. */
+  sortFailedOf(documentId: string): string | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -92,6 +95,7 @@ export function LibrarySection({
             doc={doc}
             suggestedIn={suggestedOf(doc.id)}
             notSorted={notSortedOf(doc.id)}
+            sortFailed={sortFailedOf(doc.id)}
             match={matches?.get(doc.id) ?? null}
             path={matches && section.folder ? section.folder.name : null}
           />
@@ -271,22 +275,16 @@ const organizeHasModel = (settings: LibrarySettings | undefined) =>
  */
 function Organize({ documents }: { documents: readonly Document[] }) {
   const t = useT();
-  const { hasFolders, hasModel, pending, failed } = useAppStore(
-    useShallow((state) => {
-      let pending = 0;
-      let failed = 0;
-      for (const item of state.library?.assignments ?? []) {
-        if (item.status === "pending" || item.status === "classifying") pending++;
-        else if (item.status === "failed") failed++;
-      }
-      return {
-        hasFolders: (state.library?.groups.length ?? 0) > 0,
-        hasModel: organizeHasModel(state.library?.settings),
-        pending,
-        failed,
-      };
-    }),
-  );
+  const all = useAppStore((state) => state.documents);
+  const library = useAppStore((state) => state.library);
+  const hasFolders = (library?.groups.length ?? 0) > 0;
+  const hasModel = organizeHasModel(library?.settings);
+  const states = useMemo(() => {
+    const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
+    return all.map((doc) => organizeStateOf(doc, held.get(doc.id)));
+  }, [all, library]);
+  const pending = states.filter((state) => state.run === "working").length;
+  const failed = useMemo(() => organizeFailedIds(all, library?.assignments ?? []), [all, library]);
   const run = (ids: readonly string[]) => {
     const app = useAppStore.getState();
     if (!hasModel) {
@@ -315,21 +313,16 @@ function Organize({ documents }: { documents: readonly Document[] }) {
       </span>
     );
   }
-  if (failed > 0) {
-    const retry = () =>
-      run(
-        (useAppStore.getState().library?.assignments ?? [])
-          .filter((item) => item.status === "failed")
-          .map((item) => item.documentId),
-      );
+  if (failed.size > 0) {
+    const retry = () => run([...failed]);
     return (
       <span
         role="alert"
         data-testid="library-organize-failed"
         className="min-w-0 truncate text-[13px] text-ink-meta"
       >
-        {t(failed === 1 ? "library.organize.failed.one" : "library.organize.failed", {
-          count: failed,
+        {t(failed.size === 1 ? "library.organize.failed.one" : "library.organize.failed", {
+          count: failed.size,
         })}
         <span aria-hidden="true"> · </span>
         <button type="button" onClick={retry} className={quietButtonClass}>
