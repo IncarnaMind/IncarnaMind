@@ -473,8 +473,8 @@ describe("Organize suggests a Folder and waits for the User", () => {
     expect(redone?.taggingError).toBeNull();
   });
 
-  test("turning down a suggestion leaves a retag the User asked for to the tagger", async () => {
-    const { core, classifier, fake, sources } = await setUp();
+  test("turning down a suggestion leaves a retag the User asked for to the tagger, through Undo and Redo", async () => {
+    const { core, classifier, fake, finance, sources } = await setUp();
     const [invoice] = await addAndSort(core, sources, ["Invoice 1"]);
     if (!invoice) throw new Error("Not added.");
     await core.saveLibrarySettings({ classifier, automatic: false });
@@ -485,11 +485,32 @@ describe("Organize suggests a Folder and waits for the User", () => {
       expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
     });
 
-    await core.rejectAssignments([invoice.id]);
+    const [change] = await core.rejectAssignments([invoice.id]);
 
     // Organize didn't hold the tagging: the tagger's rate-limited run stays, and still runs.
     expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
     expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
+
+    // Its Undo and Redo touch only the assignment: the tagger's run is not theirs to restore.
+    if (!change) throw new Error("Not rejected.");
+    const { documentId: _id, ...before } = change.before;
+    await core.restoreAssignment(invoice.id, before);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: finance.id,
+      suggested: true,
+      status: "classified",
+    });
+    expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
+    expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
+    await core.rejectAssignments([invoice.id]);
+    expect(await assignmentOf(core, invoice.id)).toMatchObject({
+      groupId: null,
+      suggested: false,
+      status: "classified",
+    });
+    expect((await documentOf(core, invoice.id))?.tagging).toBe("waiting-for-provider");
+    expect((await documentOf(core, invoice.id))?.taggingError?.kind).toBe("rate-limit");
+
     fake.failTags(null);
     await core.retagDocuments([invoice.id]);
     await vi.waitFor(async () => {

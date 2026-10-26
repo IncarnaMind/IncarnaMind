@@ -50,6 +50,7 @@ import type {
   ClassificationModel,
   ClassificationStatus,
   DocumentGroupAssignment,
+  DocumentTagging,
   LibraryClassifier,
   LibraryGroup,
   LibrarySettings,
@@ -138,13 +139,26 @@ const CLASSIFICATION_STATUSES: readonly ClassificationStatus[] = [
   "failed",
 ];
 
-function parsePreviousAssignment(
-  input: unknown,
-): Omit<DocumentGroupAssignment, "documentId"> | null {
+const STORED_TAGGING_STATES: readonly DocumentTagging["status"][] = [
+  "pending",
+  "waiting-for-provider",
+  "tagging",
+  "tagged",
+  "no-tags",
+  "failed",
+  "stopped",
+  "off",
+];
+
+type PreviousAssignment = Omit<DocumentGroupAssignment, "documentId"> & {
+  tagging?: DocumentTagging;
+};
+
+function parsePreviousAssignment(input: unknown): PreviousAssignment | null {
   if (input === null) return null;
   const invalid = new InvalidInputError("A previous assignment is an assignment, or null.");
   if (!isRecord(input)) throw invalid;
-  const { groupId, filedAt, source, suggested, status, error, model } = input;
+  const { groupId, filedAt, source, suggested, status, error, model, tagging } = input;
   if (groupId !== null && (typeof groupId !== "string" || groupId === "")) throw invalid;
   if (
     filedAt !== undefined &&
@@ -163,6 +177,23 @@ function parsePreviousAssignment(
   )
     throw invalid;
   if (model !== null && !(isRecord(model) && typeof model.id === "string")) throw invalid;
+  let previousTagging: DocumentTagging | undefined;
+  if (tagging !== undefined) {
+    if (!isRecord(tagging)) throw invalid;
+    const taggingStatus = STORED_TAGGING_STATES.find((each) => each === tagging.status);
+    const taggingError = tagging.error;
+    if (
+      taggingStatus === undefined ||
+      (taggingError !== null &&
+        !(
+          isRecord(taggingError) &&
+          typeof taggingError.kind === "string" &&
+          typeof taggingError.message === "string"
+        ))
+    )
+      throw invalid;
+    previousTagging = { status: taggingStatus, error: taggingError as ProviderError | null };
+  }
   return {
     groupId,
     ...(filedAt !== undefined && { filedAt }),
@@ -171,6 +202,7 @@ function parsePreviousAssignment(
     status: known,
     error: error as ProviderError | null,
     model: model as ClassificationModel | null,
+    ...(previousTagging !== undefined && { tagging: previousTagging }),
   };
 }
 
@@ -408,6 +440,33 @@ export function createLibrary(options: {
       "UPDATE documents SET tagging_status = ?, tagging_error_kind = ?, tagging_error_message = ?, tagging_error_resets_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
       [tagging, error?.kind ?? null, error?.message ?? null, error?.resetsAt ?? null, now(), id],
     );
+  };
+  const taggingSnapshot = (id: string): DocumentTagging | null => {
+    const row = db.get<{
+      tagging_status: string;
+      tagging_error_kind: ProviderError["kind"] | null;
+      tagging_error_message: string | null;
+      tagging_error_resets_at: string | null;
+    }>(
+      "SELECT tagging_status, tagging_error_kind, tagging_error_message, tagging_error_resets_at FROM documents WHERE id = ? AND deleted_at IS NULL",
+      [id],
+    );
+    if (!row) return null;
+    const status = STORED_TAGGING_STATES.find((each) => each === row.tagging_status);
+    if (status === undefined) return null;
+    return {
+      status,
+      error:
+        row.tagging_error_kind === null
+          ? null
+          : {
+              kind: row.tagging_error_kind,
+              message: row.tagging_error_message ?? "",
+              ...(row.tagging_error_resets_at !== null && {
+                resetsAt: row.tagging_error_resets_at,
+              }),
+            },
+    };
   };
   const state = (id: string, status: ClassificationStatus, error?: ProviderError) => {
     db.run(
@@ -1131,9 +1190,20 @@ export function createLibrary(options: {
               doc.id,
             ],
           );
-        // The Document's own row comes back as the previous state had it, its provider error and
-        // reason too: Undo of a failed run must not leave it tagged (#1928).
-        tagState(doc.id, status, previous.error ?? undefined);
+        // Undo puts back the Document's own tagging exactly as the change found it; a change that
+        // didn't settle it leaves the tagger's state alone (#1928).
+        if (previous.tagging)
+          db.run(
+            "UPDATE documents SET tagging_status = ?, tagging_error_kind = ?, tagging_error_message = ?, tagging_error_resets_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            [
+              previous.tagging.status,
+              previous.tagging.error?.kind ?? null,
+              previous.tagging.error?.message ?? null,
+              previous.tagging.error?.resetsAt ?? null,
+              now(),
+              doc.id,
+            ],
+          );
       });
       options.tagged([doc.id]);
       announce([doc.id]);
@@ -1150,11 +1220,12 @@ export function createLibrary(options: {
       );
     },
     reject(input: unknown): AssignmentChange[] {
-      const settled = new Set<string>();
+      const settled = new Map<string, DocumentTagging>();
       const changes = review(input, (row) => {
         // Only the tagging Organize held is the Reject's to settle; a state the tagger set, for a
-        // retag the User asked for, stays the tagger's (#1955).
-        const organizing = isOrganizing(row.document_id);
+        // retag the User asked for, stays the tagger's (#1955). The settled ones keep the row they
+        // had, so Undo can put exactly that back (#1928).
+        const tagging = isOrganizing(row.document_id) ? taggingSnapshot(row.document_id) : null;
         const at = now();
         // The User's decision settles the Document, so a run that failed before the rejection
         // doesn't outlive it: it is finished, not one Organize couldn't sort (#1928).
@@ -1162,9 +1233,9 @@ export function createLibrary(options: {
           "UPDATE document_groups SET group_id = NULL, suggested = 0, status = 'classified', error_kind = NULL, error_message = NULL, error_wording = NULL, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
           [randomUUID(), at, row.document_id],
         );
-        if (organizing) {
+        if (tagging) {
           tagState(row.document_id, "classified");
-          settled.add(row.document_id);
+          settled.set(row.document_id, tagging);
         }
         if (row.group_id && !rejected(row.document_id).has(row.group_id))
           db.run(
@@ -1172,7 +1243,11 @@ export function createLibrary(options: {
             [randomUUID(), row.document_id, row.group_id, at, at],
           );
       });
-      if (settled.size > 0) options.tagged([...settled]);
+      for (const change of changes) {
+        const tagging = settled.get(change.before.documentId);
+        if (tagging) change.before.tagging = tagging;
+      }
+      if (settled.size > 0) options.tagged([...settled.keys()]);
       return changes;
     },
     target(input: unknown): string | null {

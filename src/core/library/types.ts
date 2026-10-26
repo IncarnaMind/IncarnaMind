@@ -1,4 +1,4 @@
-import type { ChatModelChoice, ProviderError } from "../api";
+import type { ChatModelChoice, ProviderError, TaggingState } from "../api";
 
 /** An in-app folder. The legacy Group API name keeps saved assignments compatible. */
 export interface LibraryGroup {
@@ -140,10 +140,20 @@ export interface DocumentGroupAssignment {
   model: ClassificationModel | null;
 }
 
+/** A Document's own tagging row as it was, for an Undo to put back. */
+export interface DocumentTagging {
+  /** As stored; "skipped" is worked out from the Document's status, never stored. */
+  status: Exclude<TaggingState, "skipped">;
+  error: ProviderError | null;
+}
+
 /** One Document's assignment as `acceptAssignments` or `rejectAssignments` changed it. */
 export interface AssignmentChange {
-  /** As it was: what undo puts back. */
-  before: DocumentGroupAssignment;
+  /**
+   * As it was: what undo puts back. `tagging` is there only when the change settled the Document's
+   * own tagging (a Reject of a Document Organize held); Undo leaves it alone otherwise.
+   */
+  before: DocumentGroupAssignment & { tagging?: DocumentTagging };
   after: DocumentGroupAssignment;
 }
 
