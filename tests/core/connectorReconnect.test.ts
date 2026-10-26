@@ -215,3 +215,21 @@ test("Local mode toggling never resends a key already refused by a remote server
   });
   expect(server.requests).toHaveLength(count);
 });
+
+test("two removals queued together both finish and leave no device header values", async () => {
+  const keychain = createMemoryKeychain();
+  const core = startCore(await createTempDataFolder(), { keychain });
+  const added = await core.addConnector({
+    name: "Tides",
+    url: "http://127.0.0.1:9/mcp",
+    headers: { "X-Key": "synthetic-device-key" },
+  });
+  await core.setConnectorEnabled(added.id, false);
+  const results = await Promise.allSettled([
+    core.deleteConnector(added.id),
+    core.deleteConnector(added.id),
+  ]);
+  expect(results.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"]);
+  expect(await core.listConnectors()).toEqual([]);
+  expect([...keychain.secrets.keys()].some((name) => name.includes(":header:"))).toBe(false);
+});

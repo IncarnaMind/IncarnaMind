@@ -1288,7 +1288,8 @@ export function createConnectors(options: ConnectorsOptions) {
     async delete(id: unknown): Promise<void> {
       const connectorId = requireRow(id).id;
       return changeSecrets(connectorId, async () => {
-        const row = requireRow(connectorId);
+        const row = rowById(connectorId);
+        if (!row) return;
         const service = serviceOf(row);
         const config = storedConfig(row);
         const runtime = runtimes.get(row.id);
