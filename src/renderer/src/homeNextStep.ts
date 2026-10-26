@@ -66,12 +66,13 @@ export function chooseHomeNextStep({
     if (!note) return { kind: hasDocuments ? "ask" : "add" };
   }
   if (!note) return null;
-  if (note.busy) return null;
+  // A run in flight, or one that gave no marks, has its own line in the note: Home would say it twice.
+  if (note.busy || note.problem) return null;
   const { health } = note;
   const needsLook = health.unsupported.length + health.contradicted.length + health.notFound.length;
   if (needsLook > 0) return { kind: "look", note, count: needsLook };
   if (health.toCheck.length > 0) return { kind: "check", note, count: health.toCheck.length };
-  return !exported && everythingChecked(health, { running: false, problem: note.problem === true })
+  return !exported && everythingChecked(health, { running: false, problem: false })
     ? { kind: "export", note, count: 0 }
     : null;
 }

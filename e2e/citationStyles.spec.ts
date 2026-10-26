@@ -162,8 +162,9 @@ test("a Mind citing a paper offers a citation style; chosen, its Citations and R
   const references = window.getByTestId("references");
   await expect(references).toHaveCount(0);
 
-  // It cites a paper (Tides has a record with its authors), so its end offers a style, APA
-  // first in English. Chosen, APA 7 writes the two side by side as one.
+  // It cites a paper (Tides has a record with its authors), so once the User has a second note
+  // its end offers a style, APA first in English. Chosen, APA 7 writes the two side by side as one.
+  await (await coreOf(window)).evaluate((core) => core.createMind({ title: "Second note" }));
   const prompt = window.getByTestId("citation-style-prompt");
   await expect(prompt).toHaveText("Choose a citation style? APA · GB/T 7714 · More…");
   await screenshot(window, "citation-style-prompt-en");
@@ -326,6 +327,7 @@ test("in Chinese: the offer puts GB/T 7714 first; chosen, raised numbers and 参
   });
 
   const answer = await ask(window, "开放的复杂巨系统 each");
+  await (await coreOf(window)).evaluate((core) => core.createMind({ title: "第二篇笔记" }));
   const prompt = window.getByTestId("citation-style-prompt");
   await expect(prompt).toHaveText("选择引用格式？GB/T 7714 · APA · 更多…");
   await screenshot(window, "citation-style-prompt-zh");

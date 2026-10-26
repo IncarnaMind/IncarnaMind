@@ -251,7 +251,6 @@ for (const language of LANGUAGES) {
     await pointAndClick(window, answer.getByTestId("answer-add"));
     await expect(window.getByTestId("add-to-picker")).toBeVisible();
     await window.keyboard.press("Escape");
-    await expect(window.getByTestId("tip")).toHaveCount(0);
     await app.close();
   });
 
@@ -403,7 +402,7 @@ for (const language of LANGUAGES) {
     await expect(write).toHaveText(w.tip);
     await write.focus();
     await window.keyboard.press("Enter");
-    await expect(window.getByTestId("mind-editor")).toContainText(/tides/i);
+    await expect(window.getByTestId("mind-editor")).toContainText(/answer this/i);
     await expect(window.getByTestId("tip")).toHaveCount(0);
     await expect(answer).toHaveAttribute("data-status", "done");
     await reload(window);

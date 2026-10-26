@@ -90,7 +90,16 @@ for (const language of ["en", "zh-CN"] as const)
         await goHome(window);
         await picture(window, `home-next-initial-${language}-${width}`);
         await expect(await shown(window, "add")).toHaveText(t("home.next.add"));
-        await (await coreOf(window)).evaluate((core) => core.askReadyQuestion());
+        // A first launch reads the example's Documents before its ready Answer can be asked.
+        const core = await coreOf(window);
+        await expect
+          .poll(() =>
+            core.evaluate(async (each) =>
+              (await each.listDocuments()).every((document) => document.status === "ready"),
+            ),
+          )
+          .toBe(true);
+        await core.evaluate((each) => each.askReadyQuestion());
         await expect(await shown(window, "add")).toHaveText(t("home.next.add"));
         await window.getByTestId("mind-tab").first().click();
         await exportFromMenu(window, "markdown");
@@ -106,7 +115,7 @@ for (const language of ["en", "zh-CN"] as const)
           .poll(async () =>
             (await coreOf(window)).evaluate(async (core) =>
               (await core.listDocuments()).some(
-                (document) => document.name === "Tides.pdf" && document.status === "ready",
+                (document) => document.name === "Tides" && document.status === "ready",
               ),
             ),
           )
@@ -116,6 +125,7 @@ for (const language of ["en", "zh-CN"] as const)
         const answer = await askInAssistant(window, "How do tides work?");
         await goHome(window);
         const write = await shown(window, "write");
+        await picture(window, `home-next-write-${language}-${width}`);
         const before = await (await coreOf(window)).evaluate(
           async (core) => (await core.listMinds()).length,
         );
@@ -127,7 +137,7 @@ for (const language of ["en", "zh-CN"] as const)
             button.click();
           });
         else await palette(window, write);
-        await expect(window.getByTestId("mind-editor")).toContainText(/tide/i);
+        await expect(window.getByTestId("mind-editor")).toContainText(/answer this/i);
         await expect
           .poll(async () =>
             (await coreOf(window)).evaluate(async (core) => (await core.listMinds()).length),
@@ -156,12 +166,16 @@ for (const language of ["en", "zh-CN"] as const)
         await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
         await window.keyboard.press("Escape");
         await goHome(window);
-        await keyboard(await shown(window, "export"));
+        const exporting = await shown(window, "export");
+        await picture(window, `home-next-export-${language}-${width}`);
+        await keyboard(exporting);
         await expect(window.getByTestId("export-done")).toBeVisible();
         await expect.poll(() => milestone(window)).toBe(true);
         await interceptOpenPath(app);
         await goHome(window);
-        await palette(window, await shown(window, "exported"));
+        const sent = await shown(window, "exported");
+        await picture(window, `home-next-exported-${language}-${width}`);
+        await palette(window, sent);
         await expect.poll(() => pathsOpened(app)).toHaveLength(1);
         await expect(row(window)).toHaveCount(0);
         await app.close();
@@ -182,8 +196,8 @@ for (const language of ["en", "zh-CN"] as const)
         await expect(row(window)).toHaveCount(0);
         await window.getByTestId("mind-tab").filter({ hasText: title }).click();
         await editor.click();
-        await window.keyboard.press("ControlOrMeta+Shift+z");
-        await expect(editor).toContainText("every 6 months");
+        await window.keyboard.press("ControlOrMeta+End");
+        await window.keyboard.type(" The harbour publishes tide times every 6 months.");
         await goHome(window);
         await palette(window, await shown(window, "check"));
         const again = window.getByTestId("mind-check-ask");

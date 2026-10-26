@@ -2,8 +2,10 @@ import { Fragment, type ReactNode } from "react";
 import type { ExampleGroup } from "../../../core/api";
 import { shortcutLabel } from "../commands/keymap";
 import { CheckMarkIcon } from "../editor/icons";
+import { useOwnMinds } from "../home";
 import { useGap, useT } from "../i18n";
 import { useLaterPromptsAllowed } from "../laterPrompts";
+import { useMindInFront } from "../mindInFront";
 import { allExamples, useAppStore } from "../store";
 import { closeTip, useFeatureTip } from "../tips";
 import { useAddYourDocuments } from "./AddYourDocuments";
@@ -166,7 +168,11 @@ function GuideStep({
 export function StartGuide({ mindId }: { mindId: string }) {
   const t = useT();
   const later = useLaterPromptsAllowed();
-  const connect = useFeatureTip("connect-app", mindId, later);
+  const inFront = useMindInFront(mindId);
+  // The guide of an older note is still mounted when a new one opens: only the newest offers,
+  // or a tip the User never saw would use up one of its two shows.
+  const latest = useOwnMinds()[0]?.id === mindId;
+  const connect = useFeatureTip("connect-app", "guide", later && inFront && latest);
   const gap = useGap();
   const progress = useAppStore((state) => state.settings?.device.gettingStarted);
   const examplesAvailable = useAppStore((state) => state.examples?.available === true);

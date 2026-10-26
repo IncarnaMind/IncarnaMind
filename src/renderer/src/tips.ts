@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { create } from "zustand";
 import { chooseNudge } from "./nudges";
 import { useAppStore } from "./store";
@@ -68,20 +68,22 @@ export function useTipRoom(id: TipId, key: string | null): boolean {
 }
 
 /**
- * A tip a feature offers while it is useful: it is offered once each time the feature is met,
- * at most twice on the device, and goes with the feature or its own ✕.
+ * A tip a feature offers while it is useful: it is offered once for what it teaches, at most
+ * twice on the device, and goes with the feature or its own ✕. Two surfaces showing the same
+ * feature (a note kept in a background tab, too) offer it once between them.
  */
+const offered = new Set<string>();
+
 export function useFeatureTip(id: TipId, key: string, wanted: boolean): boolean {
   const room = useTipRoom(id, key);
   const shown = useTipShown(id, key);
-  const offered = useRef(new Set<string>());
   useEffect(() => {
     if (!wanted) {
       releaseTip(id, key);
       return;
     }
     const identity = `${id}:${key}`;
-    if (room && !offered.current.has(identity) && offerTip(id, key)) offered.current.add(identity);
+    if (room && !offered.has(identity) && offerTip(id, key)) offered.add(identity);
   }, [wanted, room, id, key]);
   useEffect(() => () => releaseTip(id, key), [id, key]);
   return wanted && shown;

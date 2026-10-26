@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  useLocalChatModel as connectLocalChatModel,
   coreOf,
   createDataFolder,
   dismissChatSetup,
@@ -8,7 +9,6 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  useLocalChatModel,
 } from "./app";
 
 /*
@@ -32,7 +32,7 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       await setWindowSize(app, window, 900, 800);
       await dismissChatSetup(window);
-      await useLocalChatModel(window);
+      await connectLocalChatModel(window);
       await setLanguage(window, language);
       // The steps are open but their first-run card was never drawn: an empty note of the
       // User's own is where the guide, and with it the connect offer, shows.
@@ -43,16 +43,16 @@ for (const language of ["en", "zh-CN"] as const) {
         });
       });
       await newMind(window);
-      await expect(window.getByTestId("start-guide")).toBeVisible();
       const connect = window.getByTestId("start-connect-app");
-      await expect(connect).toHaveCount(0);
+      for (const width of [900, 1600]) {
+        await setWindowSize(app, window, width, 800);
+        await expect(window.getByTestId("start-guide")).toBeVisible();
+        await expect(connect).toHaveCount(0);
+      }
+      await setWindowSize(app, window, 900, 800);
       await newMind(window);
       await expect(window.getByTestId("tip")).toHaveAttribute("data-tip", "connect-app");
       await expect(connect).toBeVisible();
-      for (const width of [900, 1600]) {
-        await setWindowSize(app, window, width, 800);
-        await expect(connect).toBeVisible();
-      }
       await app.close();
 
       ({ app, window } = await launchApp(dataDir, { examples: false, fakeChat: true }));

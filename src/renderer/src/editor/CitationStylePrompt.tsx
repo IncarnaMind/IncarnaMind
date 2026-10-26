@@ -9,6 +9,7 @@ import { chooseCitationStyle, useCitationStylePicker } from "../citationStylePic
 import { CloseLineIcon } from "../components/lineIcons";
 import { useLanguage, useT } from "../i18n";
 import { useLaterPromptsAllowed } from "../laterPrompts";
+import { useMindInFront } from "../mindInFront";
 import { closeTip, restoreTip, useFeatureTip } from "../tips";
 import { useUndo } from "../undo";
 
@@ -42,7 +43,8 @@ export function CitationStylePrompt({
   const language = useLanguage();
   const citesWorks = useCitesWorks(editor);
   const allowed = useLaterPromptsAllowed();
-  const shown = useFeatureTip("citation-style", mindId, citesWorks && allowed);
+  const inFront = useMindInFront(mindId);
+  const shown = useFeatureTip("citation-style", mindId, citesWorks && allowed && inFront);
   if (!shown) return null;
 
   const backToNote = () => {

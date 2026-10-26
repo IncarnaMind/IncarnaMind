@@ -14,6 +14,15 @@ import { saidInLine } from "../../lineNames";
 import { showCheckCard, startCheckThisMind } from "../../mindCheck";
 import { useAppStore } from "../../store";
 
+/** Opens the Mind where Home is, once its tab is in the layout: its card and result line need it there. */
+const openInPlace = async (mindId: string): Promise<void> => {
+  await useAppStore.getState().changeLayout({
+    type: "open",
+    item: { kind: "mind", mindId },
+    where: { in: "place" },
+  });
+};
+
 export function HomeNextStep({ step }: { step: Step }) {
   const t = useT();
   const language = useLanguage();
@@ -71,11 +80,11 @@ export function HomeNextStep({ step }: { step: Step }) {
           await startCheckThisMind(step.note.mind.id);
           break;
         case "look":
-          await store.openMind(step.note.mind.id);
+          await openInPlace(step.note.mind.id);
           showCheckCard(step.note.mind.id);
           break;
         case "export":
-          await store.openMind(step.note.mind.id);
+          await openInPlace(step.note.mind.id);
           await exportMind(step.note.mind.id, "docx");
           break;
         case "exported":
