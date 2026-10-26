@@ -411,6 +411,52 @@ test("with no Tag yet, an Organize on the plan still says when its limit resets 
   }
 });
 
+test("with no Tag and no Folder, a Tagging that meets the plan's limit still says so, in English and Chinese (#1942)", async () => {
+  test.setTimeout(120_000);
+  const openai = await createFakeOpenAI();
+  openai.reply = {
+    kind: "answer",
+    text: JSON.stringify({ groupId: "__unsorted__", tags: [] }),
+  };
+  const sources = await createDataFolder();
+  const { app, window } = await launchApp(dataDir, { chatGpt: openai.endpoints.issuer, home });
+  try {
+    await setWindowSize(app, window, WIDE.width, WIDE.height);
+    await dismissChatSetup(window);
+    await signInWithChatGpt(app, window, openai);
+    await window.evaluate(async (model) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const plan = (await core.listChatProviders()).find((each) => each.kind === "chatgpt");
+      if (!plan) throw new Error("The ChatGPT plan isn't set up.");
+      // No Folder, so Organize never runs: only tagging meets the plan's limit.
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
+        automatic: true,
+      });
+    }, LUNA);
+
+    const resets = usedUp(openai, LUNA, 15 / 3600);
+    await addDocuments(window, await invoices(sources, ["Invoice 97"]));
+    // No Tag of the User's own, and no Organize: the limit is still the User's to act on.
+    await expect(window.getByTestId("sidebar-tags")).toHaveCount(0);
+    const label = window
+      .getByTestId("sidebar-status")
+      .getByTestId("tagging-paused")
+      .getByTestId("status-label");
+    await expect(label).toHaveText(
+      new RegExp(`^Your ChatGPT plan’s limit is reached until .*:${minutesOf(resets)}`),
+    );
+    await setLanguage(window, "zh-CN");
+    await expect(label).toHaveText(
+      new RegExp(`^ChatGPT 订阅额度已用完，.*:${minutesOf(resets)}.* 恢复$`),
+    );
+  } finally {
+    await app.close();
+    await openai.close();
+    await removeDataFolder(sources);
+  }
+});
+
 test("an Organize the User runs on the plan, while Automatic tagging goes to another service, names the plan in its line, in English and Chinese", async () => {
   const openai = await createFakeOpenAI();
   openai.reply = {

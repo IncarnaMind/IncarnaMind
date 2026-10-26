@@ -117,6 +117,45 @@ describe("the examples' Documents", () => {
     expect(all.map((each) => each.documentId)).toEqual([own.id]);
   });
 
+  test("a first search finds the examples' Documents, which the User's first Document leaves out (#1942)", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, {
+      paths: { dataDir, examples: EXAMPLES },
+      systemLanguages: () => ["en-US"],
+    });
+    const examples = await core.createExamples();
+    const inExample = async () =>
+      examples.linkedFolderId === null
+        ? []
+        : await core.listDocuments({ linkedFolderId: examples.linkedFolderId });
+    await vi.waitFor(
+      async () => {
+        const read = await inExample();
+        expect(read.length).toBeGreaterThan(0);
+        expect(read.every((each) => each.status === "ready")).toBe(true);
+      },
+      { timeout: 30_000 },
+    );
+    const exampleIds = (await inExample()).map((each) => each.id);
+
+    // A fresh data folder: the Library lists the examples, so the search finds in them.
+    const first = await core.searchDocumentText("Northwind Retail", { limit: 200 });
+    expect(first.length).toBeGreaterThan(0);
+    expect(exampleIds).toContain(first[0]?.documentId);
+
+    // The User's first Document: theirs is found, and the example's are left out.
+    const [own] = await addAndProcess(core, [
+      await writeSourceFile(
+        await createTempDataFolder(),
+        "northwind-notes.txt",
+        "Northwind Retail results and the facilities agreement, in my own words.",
+      ),
+    ]);
+    if (!own) throw new Error("No Document added.");
+    const after = await core.searchDocumentText("Northwind Retail", { limit: 200 });
+    expect(after.map((each) => each.documentId)).toEqual([own.id]);
+  });
+
   test("an example assignment stored by an earlier version is not worked on again at startup (#1942)", async () => {
     const dataDir = await createTempDataFolder();
     const fake = classifierModel();

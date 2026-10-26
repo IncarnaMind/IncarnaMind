@@ -3683,13 +3683,17 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return found;
     },
-    // The examples are found in the example, never among the User's own Documents (#1942): left
-    // out before the search's limit, so they never take one of its places.
-    searchDocumentText: async (query, options) =>
-      documents.searchText(query, {
+    // The Library lists the examples until the User has a Document of their own (#1942), so a first
+    // search looks in them; from the first Document of the User's own on, they are left out before
+    // the search's limit, so they never take one of its places.
+    searchDocumentText: async (query, options) => {
+      const example = examples.made().documentIds;
+      const own = documents.list().some((each) => !example.includes(each.id));
+      return documents.searchText(query, {
         ...options,
-        excludeDocumentIds: examples.made().documentIds,
-      }),
+        ...(own ? { excludeDocumentIds: example } : {}),
+      });
+    },
     renameConversation: async (conversationId, title) => {
       const conversation = conversations.rename(conversationId, title);
       conversationsChanged();
