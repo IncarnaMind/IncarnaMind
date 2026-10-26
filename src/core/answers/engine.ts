@@ -1605,8 +1605,12 @@ async function* toolLoop(
     thirdParty.push({ via: "read", source });
     unannounced.push(source);
   };
-  /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
-  const askedForFixes = new Map<string, boolean>();
+  /** `cite` or `calculate` while its last reply asked the model to fix what it gave: the Run owes that fix. */
+  const owed = new Set<Tool>();
+  const owes = (tool: Tool, asks: boolean) => {
+    if (asks) owed.add(tool);
+    else owed.delete(tool);
+  };
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
   /**
    * A Tool as the engine calls it: one with untrusted results taints the Run
@@ -1627,13 +1631,13 @@ async function* toolLoop(
         : result.trim() !== "";
       if (tool.untrustedResult && read) tainted = true;
       if (tool === cite) {
-        askedForFixes.set(context.toolCallId, asksForFixes(result));
+        owes(cite, asksForFixes(result));
         // Records for text a Mind will hold come first; an Answer's come with its text (#489).
         if (request.writeThenCite && !writesMinds && !MARKER.test(keptText + stepText)) {
           return result.replace(WRITE_NOW, NOTHING_SHOWN_YET);
         }
       }
-      if (tool === calculate) askedForFixes.set(context.toolCallId, asksForFigureFixes(result));
+      if (tool === calculate) owes(calculate, asksForFigureFixes(result));
       return result;
     },
   });
@@ -1796,18 +1800,13 @@ async function* toolLoop(
       return tool !== undefined && (request.streamsInput?.(tool) ?? false);
     },
     window,
-    // The Answer written beside `cite` or `calculate`, with all they were given taken, is complete:
-    // another call would only write it again. So is one whose records a later step fixed.
+    // The Answer written beside `cite` or `calculate` is complete once no fix they asked for is
+    // still owed, in this step or an earlier one: another call would only write it again.
     endsAfter: (step) => {
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
       writtenBesideRecords ||= recordsOnly && MARKER.test(step.text);
-      return (
-        cite !== null &&
-        writtenBesideRecords &&
-        recordsOnly &&
-        step.calls.every((call) => askedForFixes.get(call.id) === false)
-      );
+      return cite !== null && writtenBesideRecords && recordsOnly && owed.size === 0;
     },
     temperature,
     signal: AbortSignal.any([signal, rambling.signal]),
