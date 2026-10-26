@@ -18,12 +18,15 @@ const modelCache = process.env.INCARNAMIND_MODEL_CACHE;
 export async function launchPackaged(
   home: string,
   data: string,
-  { speech, testHooks }: { speech?: string; testHooks?: boolean } = {},
+  {
+    speech,
+    testHooks,
+    documents,
+  }: { speech?: string; testHooks?: boolean; documents?: boolean } = {},
 ): Promise<ElectronApplication> {
   const temp = join(home, "Temp");
   await mkdir(temp, { recursive: true });
-  // Windows resolves the redirected USERPROFILE's Documents only when the folder exists.
-  await mkdir(join(home, "Documents"), { recursive: true });
+  if (documents) await mkdir(join(home, "Documents"), { recursive: true });
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && !/KEY|TOKEN|SECRET|PASSWORD/.test(name)) env[name] = value;

@@ -39,8 +39,13 @@ test.afterEach(async () => {
   dataFolder = null;
 });
 
-for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
-  test(`the packaged shim searches and checks Citations with ${protocol}, and refuses unpaired, paused and revoked access`, async () => {
+for (const [protocol, documents] of [
+  ["2025-11-25", false],
+  ["2025-11-25", true],
+  ["2026-07-28", false],
+  ["2026-07-28", true],
+] as const) {
+  test(`with Documents ${documents ? "present" : "missing"}, the packaged shim searches and checks Citations with ${protocol}, and refuses unpaired, paused and revoked access`, async () => {
     expect(existsSync(packagedExecutable)).toBe(true);
     const home = await mkdtemp(
       join(process.platform === "win32" ? tmpdir() : "/tmp", "incarnamind-mcp-home-"),
@@ -49,11 +54,12 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
     const sources = await mkdtemp(join(tmpdir(), "incarnamind-mcp-sources-"));
     folders = [home, data, sources];
     dataFolder = data;
+    expect(existsSync(join(home, "Documents"))).toBe(false);
     const file = join(sources, "Tides.md");
     await writeFile(file, "Spring tides happen at new moon and full moon.");
     const app = await test.step(
       "Launch the packaged app",
-      () => launchPackaged(home, data, { testHooks: true }),
+      () => launchPackaged(home, data, { testHooks: true, documents }),
       { box: true },
     );
     const connect = protocol === "2026-07-28" ? modernAgentClient : legacyAgentClient;
@@ -61,6 +67,7 @@ for (const protocol of ["2025-11-25", "2026-07-28"] as const) {
       const window = await test.step("Reach the app window", () => app.firstWindow(), {
         box: true,
       });
+      expect(existsSync(join(home, "Documents"))).toBe(documents);
       await setWindowSize(app, window, 900, 700);
       await dismissChatSetup(window);
       await acceptPlainTextKeys(window);
