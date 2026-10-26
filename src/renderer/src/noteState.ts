@@ -12,7 +12,7 @@ import type * as Y from "yjs";
 import { type KeptCitationText, MIND_CONTENT_FIELD } from "../../core/api";
 import type { Language } from "../../core/language";
 import { citationState, type LiveDocument } from "../../shared/citations";
-import { checkedScope } from "../../shared/claimChecks";
+import { checkSearchedNarrowerThanAll } from "../../shared/claimChecks";
 import { formatDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { mindCheckOf } from "../../shared/mindCheck";
@@ -41,9 +41,9 @@ export interface NoteState {
   mark: NoteStateMark;
   /** The newest check among the claims that now hold (ISO 8601): the green's time. */
   checkedAt: string | null;
-  /** The files its checks couldn't read (#740, D261): in the green when they don't matter, or what keeps it amber. */
+  /** The files to name: the narrow-scope ones that keep it amber, or, in green, every file its checks couldn't read (#740, D261). */
   unread: number;
-  /** Whether an unread file could hold evidence the checks looked for: they searched a scope narrower than all Documents. */
+  /** Whether a file the checks couldn't read could hold evidence they looked for: one of them searched a scope narrower than all Documents. */
   unreadMatters: boolean;
   /** The claims a check reads: with none, there is nothing to say. */
   checkable: number;
@@ -54,14 +54,11 @@ export interface NoteState {
  * one whose every sentence is kept as the User's view, has nothing to show. A claim a check
  * failed, that no longer holds, or is checking right now is "Not checked": nothing has checked
  * it since its last edit, and a run in flight is never done. Unread files that could hold the
- * evidence — the checks searched a scope narrower than all Documents — keep the state amber and
- * are named.
+ * evidence — a check searched a scope narrower than all Documents — keep the state amber and are
+ * named; files only a search of all Documents couldn't read stay in the green's count.
  */
-export function noteStateOf(
-  health: NoteHealth,
-  unread = 0,
-  unreadMatters = false,
-): NoteState | null {
+export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): NoteState | null {
+  const unreadMatters = narrowUnread > 0;
   if (health.checkable === 0) return null;
   const look = health.unsupported.length + health.contradicted.length + health.notFound.length;
   const base = {
@@ -77,7 +74,7 @@ export function noteStateOf(
       look,
       tone: "error",
       mark: "contradicted",
-      unread: unreadMatters ? unread : 0,
+      unread: narrowUnread,
       unreadMatters,
     };
   }
@@ -89,7 +86,7 @@ export function noteStateOf(
       look,
       tone: "warning",
       mark,
-      unread: unreadMatters ? unread : 0,
+      unread: narrowUnread,
       unreadMatters,
     };
   }
@@ -97,29 +94,30 @@ export function noteStateOf(
     const mark: NoteStateMark = health.recheck.length > 0 ? "recheck" : "notChecked";
     return { ...base, kind: "not-checked", look: 0, tone: "neutral", mark };
   }
-  if (unreadMatters && unread > 0) {
+  if (unreadMatters) {
     return {
       ...base,
       kind: "needs-look",
       look: 0,
       tone: "warning",
       mark: "notChecked",
-      unread,
+      unread: narrowUnread,
       unreadMatters,
     };
   }
   return { ...base, kind: "checked", look: 0, tone: "success", mark: "checked", unread };
 }
 
-/**
- * Whether the checks that named its unread files looked in a Search scope narrower than all
- * Documents — a Folder, a Tag, or Documents the User picked — where one they couldn't read could
- * hold the evidence. A search of all Documents leaves it green with the count (D266).
- */
-export function checksSearchedNarrowerThanAll(claims: readonly ShownClaim[]): boolean {
-  return claims.some(
-    (claim) => !claim.check.scope.widened && checkedScope(claim.check.scope) !== null,
-  );
+/** The checks that looked in a scope narrower than all Documents: a Folder, a Tag, or Documents the User picked. */
+function narrowRequestsOf(claims: readonly ShownClaim[]): string[] {
+  return [
+    ...new Set(
+      claims
+        .filter((claim) => checkSearchedNarrowerThanAll(claim.check.scope))
+        .map((claim) => claim.check.request)
+        .filter((request) => request !== ""),
+    ),
+  ];
 }
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
@@ -192,8 +190,9 @@ export function readNoteState({
     claims.map((claim) => claim.check.request).filter((request) => request !== ""),
   );
   const unread = checkUnreadOf(doc, requests).length;
+  const narrowUnread = checkUnreadOf(doc, narrowRequestsOf(claims)).length;
   return {
     health,
-    state: noteStateOf(health, unread, checksSearchedNarrowerThanAll(claims)),
+    state: noteStateOf(health, unread, narrowUnread),
   };
 }

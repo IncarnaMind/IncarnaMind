@@ -124,6 +124,10 @@ export function checkedScope(scope: ClaimCheckScope): SearchScope | null {
   return !scope.widened && scope.folderId !== null ? folderScope(scope.folderId) : null;
 }
 
+/** Whether a check looked in a scope narrower than all Documents: a Folder, a Tag, or Documents the User picked. */
+export const checkSearchedNarrowerThanAll = (scope: ClaimCheckScope): boolean =>
+  !scope.widened && checkedScope(scope) !== null;
+
 /** A check's attributes as a mark holds them, or null when they aren't one's. Unknown values read safely. */
 export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   if (!isRecord(value)) return null;

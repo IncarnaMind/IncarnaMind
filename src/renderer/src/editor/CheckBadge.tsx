@@ -13,12 +13,7 @@ import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import { startCheckThisMind, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { useFade } from "../motion";
-import {
-  checksSearchedNarrowerThanAll,
-  type NoteState,
-  noteStateOf,
-  noteStateParts,
-} from "../noteState";
+import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { useGroupsMerged } from "../useWindowWidth";
@@ -28,7 +23,6 @@ import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
 import { useCardPlace } from "./checkPlace";
-import { shownClaims } from "./claimChecks";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, useHealth } from "./NoteHealth";
@@ -105,16 +99,13 @@ function MindBadge({
   const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
   const health = useHealth(editor, skipped);
   const unread = useCheckUnread(editor, doc);
+  const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);
   const running = useChecks((state) => state.running[mindId]);
   const problem = useChecks((state) => state.problems[mindId] !== undefined);
   const askingMind = useMindCheck((state) => state.asking[mindId] !== undefined);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
-  const state = noteStateOf(
-    health,
-    unread.length,
-    unread.length > 0 && checksSearchedNarrowerThanAll(shownClaims(editor.state)),
-  );
+  const state = noteStateOf(health, unread.length, narrowUnread.length);
   const input: BadgeInput = {
     marks: {
       contradicted: health.contradicted.length,

@@ -7,6 +7,7 @@ import {
   type ClaimCheckAttributes,
   MIND_CONTENT_FIELD,
   type SearchScope,
+  type UnreadFile,
 } from "../../src/core/api";
 import type { NoteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -125,7 +126,7 @@ describe("A note's state (D266)", () => {
   });
 
   test("stays amber, and names them, when the files it couldn't read could hold the evidence", () => {
-    const state = noteStateOf(health({ checkable: 2, found: [3], checkedAt: CHECKED_AT }), 3, true);
+    const state = noteStateOf(health({ checkable: 2, found: [3], checkedAt: CHECKED_AT }), 3, 3);
     expect(state).toMatchObject({
       kind: "needs-look",
       look: 0,
@@ -136,7 +137,7 @@ describe("A note's state (D266)", () => {
     });
   });
 
-  test("names what it didn't cover only when it is Checked", () => {
+  test("names only the narrow-scope unread files: a wide search's stay out of an amber state", () => {
     expect(noteStateOf(health({ checkable: 1, contradicted: [0] }), 3)?.unread).toBe(0);
     expect(noteStateOf(health({ checkable: 1, toCheck: [0] }), 3)?.unread).toBe(0);
   });
@@ -164,7 +165,7 @@ describe("A note's state (D266)", () => {
     expect(zh(done)).toBe(
       `已核对 ${formatDateTime(CHECKED_AT, "zh-CN", { now })} · 3 个文件未能读取`,
     );
-    const unread = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3, true) ?? fail();
+    const unread = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3, 3) ?? fail();
     expect(en(unread)).toBe("3 files couldn’t be read");
     expect(zh(unread)).toBe("3 个文件未能读取");
   });
@@ -216,6 +217,15 @@ function source(content: JSONContent[]): Y.Doc {
 
 const read = (doc: Y.Doc) =>
   readNoteState({ doc, documents: [], keptCitationTexts: [], folderId: null });
+
+const unreadFile = (name: string): UnreadFile => ({
+  id: name,
+  name,
+  reason: "password",
+  extension: null,
+  documentId: null,
+  pages: [],
+});
 
 describe("Reading a note's state from its Yjs document (Home and Export)", () => {
   test("reads what the badge reads: a fresh claim leaves it Not checked", () => {
@@ -397,6 +407,69 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       noteStateParts(state ?? fail(), (key, params) => translate(language, key, params), language);
     expect(words("en")).toEqual(["1 file couldn’t be read"]);
     expect(words("zh-CN")).toEqual(["1 个文件未能读取"]);
+    doc.destroy();
+  });
+
+  test("stays green when a widened claim's search couldn't read a file beside a Folder claim (D266)", () => {
+    const doc = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          id: "folder-check",
+          scope: { folderId: "tides", widened: false },
+        }),
+      ]),
+      paragraph([
+        checked("Neap tides happen twice a month as well.", "supported", {
+          id: "wide-check",
+          request: "r2",
+          scope: { folderId: null, widened: true },
+        }),
+      ]),
+    ]);
+    recordCheckUnread(doc, "r2", [unreadFile("Locked.pdf")], new Set(["r1", "r2"]));
+    const readFolder = () =>
+      readNoteState({ doc, documents: [], keptCitationTexts: [], folderId: "tides" }).state;
+    expect(readFolder()).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
+    // A file the narrow claim's own search couldn't read turns it amber, and only that one is named.
+    recordCheckUnread(doc, "r1", [unreadFile("Scan.pdf")], new Set(["r1", "r2"]));
+    expect(readFolder()).toMatchObject({
+      kind: "needs-look",
+      look: 0,
+      unread: 1,
+      unreadMatters: true,
+    });
+    doc.destroy();
+  });
+
+  test("stays green when a widened claim's search couldn't read a file beside a Tag claim (D266)", () => {
+    const tagScope: SearchScope = { folderIds: [], tagIds: ["tag-tides"], documentIds: [] };
+    const doc = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          id: "tag-check",
+          scope: { folderId: null, widened: false, chosen: tagScope },
+        }),
+      ]),
+      paragraph([
+        checked("Neap tides happen twice a month as well.", "supported", {
+          id: "wide-check",
+          request: "r2",
+          scope: { folderId: null, widened: true },
+        }),
+      ]),
+    ]);
+    setMindScope(doc, tagScope);
+    recordCheckUnread(doc, "r2", [unreadFile("Locked.pdf")], new Set(["r1", "r2"]));
+    const readTag = () =>
+      readNoteState({ doc, documents: [], keptCitationTexts: [], folderId: null }).state;
+    expect(readTag()).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
+    recordCheckUnread(doc, "r1", [unreadFile("Scan.pdf")], new Set(["r1", "r2"]));
+    expect(readTag()).toMatchObject({
+      kind: "needs-look",
+      look: 0,
+      unread: 1,
+      unreadMatters: true,
+    });
     doc.destroy();
   });
 
