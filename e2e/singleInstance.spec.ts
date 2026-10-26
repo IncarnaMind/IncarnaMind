@@ -460,12 +460,13 @@ for (const language of ["en-US", "zh-CN"]) {
   });
 }
 
-for (const { language, succeeds } of [
-  { language: "en", succeeds: false },
-  { language: "zh-CN", succeeds: false },
-  { language: "en", succeeds: true },
+for (const { language, succeeds, quitDelay } of [
+  { language: "en", succeeds: false, quitDelay: 0 },
+  { language: "zh-CN", succeeds: false, quitDelay: 0 },
+  { language: "en", succeeds: true, quitDelay: 0 },
+  { language: "en", succeeds: true, quitDelay: 6_000 },
 ] as const) {
-  test(`an update ${succeeds ? "succeeds" : "fails after a second start"}, closes its owned core and reopens (${language})`, async () => {
+  test(`an update ${succeeds ? "succeeds" : "fails after a second start"}, closes its owned core and reopens (${language}, quit delay ${quitDelay} ms)`, async () => {
     test.skip(process.platform === "win32", "lists the copies with ps");
     test.setTimeout(120_000);
     const home = await mkdtemp(join(tmpdir(), "incarnamind-update-"));
@@ -473,7 +474,8 @@ for (const { language, succeeds } of [
     const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
     const port = await freePort();
     const nextPort = await freePort();
-    const windowPort = succeeds && process.platform === "linux" ? nextPort : port;
+    const startsEarly = succeeds && (process.platform === "linux" || quitDelay > 0);
+    const windowPort = startsEarly ? nextPort : port;
     const start = (first: boolean, debugPort: number) => {
       const copy = startCopy(
         home,
@@ -484,6 +486,7 @@ for (const { language, succeeds } of [
           INCARNAMIND_TEST_UPDATE_APP: resolve(__dirname, ".."),
           INCARNAMIND_TEST_UPDATE_NEXT_PORT: String(nextPort),
           INCARNAMIND_TEST_UPDATE_SUCCEEDS: succeeds ? "1" : "0",
+          INCARNAMIND_TEST_UPDATE_QUIT_DELAY: String(quitDelay),
           INCARNAMIND_TEST_UPDATE_FIRST: first ? "1" : "0",
           APPIMAGE: process.platform === "linux" ? require("electron") : "",
         },
@@ -501,6 +504,7 @@ for (const { language, succeeds } of [
               pid: number;
               native: boolean;
               dataHeld?: boolean;
+              visibleWindows?: number;
               first?: boolean;
               args?: string[];
               options?: { args?: string[]; message?: string; detail?: string; buttons?: string[] };
@@ -535,7 +539,12 @@ for (const { language, succeeds } of [
         .toEqual({ copies: 1, windows: 1 });
       const recorded = await entries();
       const install = recorded.find((it) => it.kind === "install");
-      expect(install).toMatchObject({ dataHeld: true, native: process.platform !== "linux" });
+      expect(install).toMatchObject({
+        dataHeld: true,
+        native: process.platform !== "linux" && quitDelay === 0,
+      });
+      if (quitDelay > 0)
+        expect(recorded.find((it) => it.kind === "quit-delayed")).toMatchObject({ dataHeld: true });
       expect(recorded.filter((it) => it.kind === "problem")).toEqual(
         succeeds
           ? []
@@ -543,6 +552,7 @@ for (const { language, succeeds } of [
               expect.objectContaining({
                 pid: old.pid,
                 dataHeld: true,
+                visibleWindows: 0,
                 options: expect.objectContaining({
                   message: language === "en" ? "The update couldn’t be installed" : "未能安装更新",
                   detail:
@@ -555,7 +565,7 @@ for (const { language, succeeds } of [
             ],
       );
       expect(recorded.filter((it) => it.kind === "relaunch")).toEqual(
-        succeeds && process.platform === "linux"
+        startsEarly
           ? []
           : [
               expect.objectContaining({

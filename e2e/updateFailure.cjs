@@ -2,7 +2,7 @@ const { appendFileSync, existsSync, watch, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { createRequire } = require("node:module");
 const { DatabaseSync } = require("node:sqlite");
-const { app, dialog } = require("electron");
+const { app, BrowserWindow, dialog } = require("electron");
 const childProcess = require("node:child_process");
 
 const folder = process.env.INCARNAMIND_TEST_UPDATE_FOLDER;
@@ -68,7 +68,11 @@ autoUpdater.checkForUpdates = async () => {
 };
 dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false });
 dialog.showMessageBoxSync = (options) => {
-  record("problem", { options, dataHeld: dataHeld() });
+  record("problem", {
+    options,
+    dataHeld: dataHeld(),
+    visibleWindows: BrowserWindow.getAllWindows().filter((window) => window.isVisible()).length,
+  });
   return 0;
 };
 const relaunch = app.relaunch.bind(app);
@@ -78,9 +82,17 @@ app.relaunch = (options) => {
 };
 autoUpdater.quitAndInstall = () => {
   if (process.env.INCARNAMIND_TEST_UPDATE_SUCCEEDS === "1") {
+    const delay = Number(process.env.INCARNAMIND_TEST_UPDATE_QUIT_DELAY ?? "0");
+    if (delay > 0) {
+      app.releaseSingleInstanceLock();
+      app.once("will-quit", () => {
+        record("quit-delayed", { dataHeld: dataHeld() });
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+      });
+    }
     record("install", { dataHeld: dataHeld() });
     writeFileSync(join(folder, "installing"), "");
-    if (process.platform === "linux") {
+    if (process.platform === "linux" || delay > 0) {
       childProcess
         .spawn(
           process.execPath,

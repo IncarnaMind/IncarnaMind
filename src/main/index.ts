@@ -386,6 +386,7 @@ app.whenReady().then(async () => {
       restartAfterFailedUpdate(
         app,
         () => {
+          for (const window of BrowserWindow.getAllWindows()) window.hide();
           logger.exception("app.updateInstallFailed", error);
           dialog.showMessageBoxSync({
             type: "error",
