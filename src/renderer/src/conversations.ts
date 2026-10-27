@@ -162,8 +162,8 @@ export async function askReadyQuestion(mindId: string): Promise<void> {
     const ready = readyQuestionNow();
     if (!ready) return;
     if (ready.scope) {
-      const asked = await askInAssistant({ text: ready.question, mindId, scope: ready.scope });
-      if (asked) useAppStore.getState().updateGettingStarted({ askedReady: true });
+      // Asked like any Question: its step ticks when its Answer arrives, not when it is asked.
+      await askInAssistant({ text: ready.question, mindId, scope: ready.scope });
       return;
     }
     const { conversationId } = await core.askExampleReadyQuestion();

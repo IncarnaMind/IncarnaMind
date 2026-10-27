@@ -550,6 +550,8 @@ for (const { language, name, text, asks, question } of OWN_FILES) {
     await expect(
       window.getByTestId("citation-card").getByText(name.replace(/\.md$/, ""), { exact: true }),
     ).toBeVisible();
+    // The Answer that arrived is what ticks the step, not the click.
+    await expect(step(window, "question")).toHaveAttribute("data-state", "done");
     await app.close();
   });
 }
