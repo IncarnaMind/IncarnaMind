@@ -85,7 +85,7 @@ function whyNot(problem: MindProblem | undefined): string {
     case "new-mind":
       return "the User asked for a new Mind: make it with create_mind";
     case "uncited":
-      return "its sources were written as text, or as markers with no Citation recorded";
+      return "its sources were written as text, as markers with no Citation recorded, or not cited at all";
     case "local-mode":
       return "“Keep everything on this computer” is on";
     case "not-ready":
@@ -206,6 +206,11 @@ function lineOf(call: AnswerToolCall, names: MindNames, states?: ChangeStates): 
         return `run_skill_script ${field(call, "script")}: ${done ? "ran" : call.approval === "denied" ? "the User denied it" : "didn't run"}`;
       }
       return `${call.tool} ${quoted(field(call, "name") || field(call, "skill"))}: ${done ? "done" : "failed"}`;
+    case "analysis": {
+      const ran = call.analysis;
+      if (!ran) return `run_analysis ${quoted(field(call, "title"))}: didn't run`;
+      return `run_analysis ${quoted(ran.title)} (Analysis ${ran.number}, over ${ran.documents.map(quoted).join(", ") || "quoted numbers"}): ${ran.end === "done" ? "done" : ran.end}`;
+    }
     case "connector":
       if (call.signInRequired) return null;
       return `${call.tool} (the Connector ${quoted(call.connector?.name ?? "")}): ${
@@ -254,29 +259,26 @@ function commandLine(call: AnswerToolCall): string {
   const into = done.into ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
   const where = done.inOutputLocation === false ? "" : "the Output location, ";
   const file = done.file
-    ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(call, done)}`
+    ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(done)}`
     : "";
   return `run_command ${done.command}: ${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}`;
 }
 
 /** What a Word export did about marking the text IncarnaMind wrote, and why, as its result said. */
-function markingOf(call: AnswerToolCall, done: CommandDone): string {
+function markingOf(done: CommandDone): string {
   const { marking } = done;
   if (!marking) return "";
   const leaves =
     marking.choice === "mark"
       ? "the text IncarnaMind wrote is marked with comments"
       : "the text IncarnaMind wrote is left unmarked";
-  const chose = call.asked?.answer?.skipped === false ? call.asked.answer.chosen.map(quoted) : [];
   switch (marking.how) {
-    case "kept":
-      return chose.length > 0
-        ? `; ${leaves}: the User was asked in the tray and answered ${chose.join(" and ")}, a choice now saved for every Word export`
-        : `; ${leaves}: the User's request named it, a choice now saved for every Word export`;
     case "this-file":
       return `; ${leaves}, as the User's request named it for this file, their saved choice unchanged`;
     case "earlier":
-      return `; ${leaves}, following the choice the User saved earlier for Word exports`;
+      return `; ${leaves}, following the choice saved for Word exports`;
+    case "default":
+      return `; ${leaves}, using the default for Word exports; that choice is now saved`;
   }
 }
 

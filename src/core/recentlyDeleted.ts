@@ -376,7 +376,10 @@ export function createRecentlyDeleted(options: {
       if (done.conversations) options.conversationsChanged();
       if (done.documents.length > 0) {
         documents.restored(done.documents);
+        // Their assignments are as they were: said again for a client that read the Library while
+        // they waited, and Organize goes on with one it was already working on. Never claimed anew (#1433).
         library.announce(done.documents);
+        library.resume();
       }
       if (done.folders) library.restored();
       if (done.tags) options.tagsChanged();

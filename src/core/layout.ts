@@ -796,8 +796,6 @@ export interface LayoutDependencies {
   newId?: () => string;
 }
 
-export type Layouts = ReturnType<typeof createLayouts>;
-
 const WINDOW_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 function parseWindowId(value: unknown): string {

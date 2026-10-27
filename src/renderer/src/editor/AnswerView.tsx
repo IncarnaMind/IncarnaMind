@@ -11,7 +11,6 @@ import {
   SOURCE_KIND_PROVIDERS,
   type ToolApprovalRequest,
 } from "../../../core/api";
-import { billingUrlOf, catalogProviderOf } from "../../../core/providers/catalog/providers";
 import { isSignInRoute, isSignInRouteProblem } from "../../../core/providers/signInRoutes";
 import { asksAfterThirdParty } from "../../../shared/approvalRules";
 import { toolCallsOf } from "../../../shared/toolCalls";
@@ -39,7 +38,13 @@ import { formatResetTime } from "../cost";
 import { useDeclineEnded } from "../declineEnded";
 import { useFindSources } from "../findSources";
 import { useLanguage, useT } from "../i18n";
-import { useKeyRefusals, useKeySavedSince } from "../keyRefusals";
+import {
+  billingUrlOfProvider,
+  keyProviderOf,
+  useBillingOpenedSince,
+  useKeyRefusals,
+  useKeySavedSince,
+} from "../keyRefusals";
 import { requestModelMenu } from "../modelMenu";
 import { useModelNames, useServiceName } from "../modelNames";
 import { useStoppedByPlanLimit } from "../planLimits";
@@ -49,6 +54,7 @@ import type { SettingsPage } from "../settingsPages";
 import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { reasonKey } from "../webPages";
+import { AnalysisCall } from "./AnalysisCall";
 import { CommandApprovalCard } from "./CommandApprovalCard";
 import { ChevronRightSmallIcon, RegenerateSmallIcon } from "./icons";
 import { useMindId } from "./mindContext";
@@ -329,8 +335,7 @@ export function AnswerError({
   const provider = providerInUse?.kind;
   const service = useServiceName(providerId);
   const [shownAt] = useState(() => new Date().toISOString());
-  // Once the User has been sent to add credit, asking again is what's next.
-  const [billingOpened, setBillingOpened] = useState(false);
+  const billingOpened = useBillingOpenedSince(providerId, failedAt ?? shownAt);
   const keySaved = useKeySavedSince(providerId, failedAt ?? shownAt);
   const declineEnded = useDeclineEnded(
     providerInUse?.service?.id ?? null,
@@ -359,8 +364,7 @@ export function AnswerError({
         }
       : undefined;
   const offered = useRouteOffered(isSignInRoute(provider) ? provider : null);
-  const catalog = providerInUse && catalogProviderOf(providerInUse.kind, providerInUse.catalogId);
-  const billingUrl = catalog && billingUrlOf(catalog, providerInUse.endpoint);
+  const billingUrl = billingUrlOfProvider(providerInUse);
   const shown = failedAnswerLine(kind, provider, signInRoute, offered, {
     ...(billingUrl && { billingUrl }),
     ...(providerInUse && { local: providerInUse.service === null }),
@@ -382,7 +386,7 @@ export function AnswerError({
   const fix =
     kind === "consent-declined" && declineEnded
       ? retry
-      : kind === "out-of-credit" && billingOpened && onRetry
+      : kind === "out-of-credit" && (billingOpened || keySaved) && onRetry
         ? retry
         : shown.problem.fix;
   if (fix.kind === "ollama") return <OllamaNotRunningLine details={details} onRetry={onRetry} />;
@@ -419,8 +423,9 @@ export function AnswerError({
                 {
                   label: `${t(fix.label)} ↗`,
                   onClick: () => {
-                    window.open(fix.url, "_blank", "noreferrer");
-                    setBillingOpened(kind === "out-of-credit");
+                    if (kind === "out-of-credit")
+                      useKeyRefusals.getState().openBilling(providerId, fix.url);
+                    else window.open(fix.url, "_blank", "noreferrer");
                   },
                 }
               : fix.kind === "retry" && onRetry
@@ -430,6 +435,20 @@ export function AnswerError({
     <div contentEditable={false} data-testid="answer-error" data-error-kind={kind}>
       <ProblemLine
         action={action && { ...action, testId: "answer-error-action" }}
+        also={
+          kind === "out-of-credit" &&
+          line === "answer.error.out-of-credit" &&
+          keyProviderOf(providerInUse)
+            ? {
+                label: t("answer.error.useAnotherKey"),
+                testId: "answer-error-key",
+                onClick: () =>
+                  void useKeyRefusals
+                    .getState()
+                    .check(providerId, modelId ?? "", failedAt, "out-of-credit"),
+              }
+            : undefined
+        }
         // The provider's own words, for whoever wants them.
         title={details ?? undefined}
         className="mt-1 select-none"
@@ -467,6 +486,7 @@ export function CallRows({
         (call.source === "connector" ||
           call.source === "sources" ||
           call.source === "web" ||
+          call.source === "analysis" ||
           (call.source === "skill" && call.tool === RUN_SCRIPT)),
     )
     .map((call) => <CallRow key={call.id} call={call} />);
@@ -482,10 +502,10 @@ export function CallRows({
   );
 }
 
-/** The row of a call through a Connector, of Find sources, of web search, of a Minds' Tool, or of a Skill script. */
 export function CallRow({ call }: { call: AnswerToolCall }) {
   if (call.source === "asks") return <AskCall call={call} />;
   if (call.source === "minds") return <MindCall call={call} />;
+  if (call.source === "analysis") return <AnalysisCall call={call} />;
   if (call.source === "commands") return <CommandCall call={call} />;
   if (call.source === "connector") return <ConnectorCall call={call} />;
   if (call.source === "sources") return <SourcesCall call={call} />;

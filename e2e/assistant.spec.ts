@@ -157,7 +157,7 @@ test("a new window's assistant is docked on the right, outside the groups, the c
   );
   // An empty panel is that one line; the composer's placeholder says the rest.
   await expect(window.getByTestId("assistant-empty").locator("p")).toHaveCount(1);
-  await expect(assistant.getByText("Ask about this Mind")).toHaveCount(0);
+  await expect(assistant.getByText("Ask about this note")).toHaveCount(0);
   // The composer is the assistant's, the one in the window.
   await expect(window.getByTestId("composer")).toHaveCount(1);
   await expect(assistant.getByTestId("composer-input")).toBeVisible();

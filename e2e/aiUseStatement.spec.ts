@@ -50,15 +50,16 @@ const TEXTS = {
     title: "AI use statement: Thesis",
     sections: ["AI models and what they were used for", "AI text, by section", "Checks"],
     undo: "Undo",
-    added: "Answers added to the document",
+    added: "Answers added to the note",
     found: "Quote found",
     note: "Schools have their own forms for declaring AI use. Use these counts to fill in yours.",
     empty:
-      "There is nothing to report: IncarnaMind has no record of AI use in this document, and the document has no Citations or checks.",
+      "There is nothing to report: IncarnaMind has no record of AI use in this note, and the note has no Citations or checks.",
     checkedUse: "Sentences checked against the Documents",
     usesColumns: ["Use", "Model", "Times"],
     sentenceColumns: ["Sentence", "Result", "Model", "Checked"],
     supported: "Supported",
+    notFound: "Not found",
     unsupported: "Unsupported",
     noRecord: "has no record of AI writing",
     checkedIntro:
@@ -74,16 +75,17 @@ const TEXTS = {
       "三、引用与说法的核对",
     ],
     undo: "撤销",
-    added: "将助手的回答加入文档",
+    added: "将助手的回答加入笔记",
     found: "找到引文",
     note: "各学校对 AI 使用声明另有格式要求，请以学校提供的表格为准，可据此处的统计数字填写。",
-    empty: "无可说明的内容：IncarnaMind 中没有本文档使用 AI 的记录，文档中也没有引用和核对结果。",
+    empty: "无可说明的内容：IncarnaMind 中没有这篇笔记使用 AI 的记录，笔记中也没有引用和核对结果。",
     checkedUse: "对照文档核对句子",
     usesColumns: ["用途", "模型", "次数"],
     sentenceColumns: ["句子", "核对结果", "模型", "核对日期"],
     supported: "有依据",
+    notFound: "未找到",
     unsupported: "无依据",
-    noRecord: "中没有本文档使用 AI 撰写",
+    noRecord: "中没有这篇笔记使用 AI 撰写",
     checkedIntro: "以下是“对照文档核对”的结果：",
   },
 } as const;
@@ -313,7 +315,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(head).toEqual(text.sentenceColumns);
     expect(rows.map((row) => row.slice(0, 3))).toEqual([
       [sentences[0], text.supported, "fake-model"],
-      [sentences[1], text.unsupported, "fake-model"],
+      [sentences[1], text.notFound, "fake-model"],
     ]);
     for (const row of rows) expect(days).toContain(row[3]);
     await expect(statement.getByText(text.noRecord)).toHaveCount(0);

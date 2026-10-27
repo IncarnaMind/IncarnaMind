@@ -1,13 +1,21 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
+import { createElement } from "../../src/core/answers/blocks";
+import { GENERATED_MARK, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
-import { pendingProposals, proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
+import {
+  pendingProposals,
+  proposalRequestOf,
+  recordProposalRequest,
+  resolveProposals,
+} from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
+  claimCheckReply,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -130,18 +138,25 @@ describe("Every turn has the write and edit commands (#1559)", { timeout: 30_000
 });
 
 describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
-  // protects=a reply that claims a write no call made is held back, the model is asked once more with the record of what its calls did, and the write it then makes stands with its reply; fails_when=the claim shows, the model isn't asked again, or the second reply is flagged; no_claim=that a real model then writes.
+  // protects=a reply that claims a write no call made is checked, the model is asked once more with the record of what its calls did, and the write it then makes stands with its reply; fails_when=the final claim is unbacked, the model isn't asked again, or the second reply is flagged; no_claim=that a real model then writes.
   test("is asked for once more, and a write then made stands", async () => {
     const notes: string[] = [];
-    const model = scriptedModel((call): ScriptedReply => {
-      notes.push(asked(call));
-      if (!asked(call).includes(ASKED_AGAIN)) {
-        return { text: "I've added a Summary section to “Q3 review”." };
-      }
-      return called(call, "add_to_mind")
-        ? { text: "Added a summary to “Q3 review”." }
-        : { calls: [{ tool: "add_to_mind", input: { content: SUMMARY_PAGE } }] };
-    });
+    const claim = "I've added a Summary section to “Q3 review”.";
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        notes.push(asked(call));
+        if (!asked(call).includes(ASKED_AGAIN)) return { text: claim };
+        return called(call, "add_to_mind")
+          ? { text: "Added a summary to “Q3 review”." }
+          : { calls: [{ tool: "add_to_mind", input: { content: SUMMARY_PAGE } }] };
+      },
+      {
+        generate: (call) =>
+          claimCheckReply(call, (prompt) =>
+            prompt.includes('"tool": "add_to_mind"') ? [] : [{ sentence: claim, kind: "added" }],
+          ),
+      },
+    );
     const { core, mind } = await setUp(model);
     const shown: string[] = [];
     core.on("answer.delta", (event) => shown.push(event.text));
@@ -157,9 +172,10 @@ describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
 
   // protects=still claiming after its one retry, the reply stays and the Answer records the claim, for the "Nothing was written" line under it, with no third ask; fails_when=the model is asked again, the reply is lost, or the claim isn't recorded; no_claim=how the line reads.
   test("still claimed after the one retry, the reply stays and the claim is recorded", async () => {
-    const model = scriptedModel(
-      (): ScriptedReply => ({ text: "I've added a Summary section to “Q3 review”." }),
-    );
+    const claim = "I've added a Summary section to “Q3 review”.";
+    const model = scriptedModel((): ScriptedReply => ({ text: claim }), {
+      generate: (call) => claimCheckReply(call, [{ sentence: claim, kind: "added" }]),
+    });
     const { core, mind } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "add a summary", mindId: mind.id });
@@ -169,6 +185,53 @@ describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
     expect(answer.text).toBe("I've added a Summary section to “Q3 review”.");
     expect(answer.steps?.unbackedClaims).toEqual(["added"]);
     expect(changesIn(answer)).toEqual([]);
+  });
+
+  // protects=in Local mode the local quick model checks a claim and the reply still gets the line when it stays unbacked; fails_when=no local check runs, or the claim stands without the line; no_claim=that a cloud model is used.
+  test("Local mode checks the claim with the local model", async () => {
+    const claim = "I've added a Summary section to “Q3 review”.";
+    const model = scriptedModel((): ScriptedReply => ({ text: claim }), {
+      generate: (call) => claimCheckReply(call, [{ sentence: claim, kind: "added" }]),
+    });
+    const { core, mind } = await setUp(model);
+    await core.setLocalOnly(true);
+
+    const answer = await askAssistant(core, { text: "add a summary", mindId: mind.id });
+
+    expect(answer.steps?.unbackedClaims).toEqual(["added"]);
+    expect(model.doGenerateCalls).toHaveLength(2);
+  });
+
+  // protects=the change-claim judge goes to the provider's quick-tasks model, not a second full Answer's model; fails_when=the quick model is never asked, or the claim isn't checked; no_claim=which provider the test uses.
+  test("the quick-tasks model judges the reply", async () => {
+    const claim = "I've added a Summary section to “Q3 review”.";
+    const answering = scriptedModel(
+      (call): ScriptedReply => ({
+        text: call.prompt.includes(ASKED_AGAIN) ? "No section was added." : claim,
+      }),
+    );
+    const quick = scriptedModel(() => ({ text: "" }), {
+      generate: (call) => claimCheckReply(call, [{ sentence: claim, kind: "added" }]),
+    });
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: (spec) => (spec.thinking === "off" ? quick : answering),
+    });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+      apiKey: "sk-ant-test",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const mind = await core.createMind({ title: "Q3 review" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [heading(2, "Summary"), note("The quarter was very good.")]);
+    await client.settled();
+
+    const answer = await askAssistant(core, { text: "add a summary", mindId: mind.id });
+
+    expect(quick.doGenerateCalls).toHaveLength(2);
+    expect(answer.text).toBe("No section was added.");
+    expect(answer.steps?.unbackedClaims).toBeUndefined();
   });
 
   // protects=a reply that names a fix its edit didn't make (the 2026-10-21 run's "Fix the typos in this") is asked for once more with the word left and its edit's record reading as applied, not waiting (#1559's review: told it waits, Haiku and Kimi told the User so), and the honest reply then stands; fails_when=the claim passes, the model isn't told which word, or the record says the edit waits; no_claim=that a real model then fixes it.
@@ -198,6 +261,78 @@ describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
     expect(notes.at(-1)).not.toContain("waiting for the User");
     expect(answer.text).toBe("Fixed “visted” in “Trip notes”.");
     expect(answer.steps?.unbackedClaims).toBeUndefined();
+  });
+
+  // Value: protects=the claim record agrees with requested-only application; fails_when=an unrequested non-translation revision disables a translation's applied state; why_new=final review found the same boundary in appliedInTurn; seam=one public Answer with an unrequested revision and a destructive translation; no_claim=unrequested text itself applying (it is not part of the requested set)
+  test("an unrequested revision does not make an applied translation read as waiting", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) return { text: "## Summary\n\nGood." };
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits === 0) {
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Added", content: "## Added\n\nRewritten text" },
+            },
+          ],
+        };
+      }
+      if (edits === 1) {
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Summary", instruction: "Translate into English" },
+            },
+          ],
+        };
+      }
+      return { text: "Translated the summary." };
+    });
+    const { core, mind } = await setUp(model);
+    const client = await connectToMind(core, mind.id);
+    const proposal = (id: string) => ({ id, request: "old", kind: "insert" });
+    client.blocks.insert(client.blocks.length, [
+      createElement({
+        type: "heading",
+        attrs: { id: "old-heading", level: 2, [PROPOSAL_ATTRIBUTE]: proposal("old-heading") },
+        content: [{ type: "text", text: "Added", marks: [{ type: GENERATED_MARK }] }],
+      }),
+      createElement({
+        type: "paragraph",
+        attrs: { id: "old-text", [PROPOSAL_ATTRIBUTE]: proposal("old-text") },
+        content: [{ type: "text", text: "Unrequested text", marks: [{ type: GENERATED_MARK }] }],
+      }),
+    ]);
+    recordProposalRequest(client.doc, "old", {
+      source: "answer-added",
+      instruction: "write",
+      providerId: "local",
+      modelId: "local",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await client.settled();
+
+    const answer = await askAssistant(core, {
+      text: "rewrite the added text and translate the summary",
+      mindId: mind.id,
+    });
+
+    await client.settled();
+    const changes = answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange] : []));
+    const direct = changes[0];
+    const translation = changes[1];
+    if (!direct || !translation) throw new Error("The two revisions weren't recorded.");
+    const requestedOf = (request: string) => {
+      const made = proposalRequestOf(client.doc, request);
+      return made && "requested" in made ? made.requested : undefined;
+    };
+    expect(requestedOf(direct.request)).toBeUndefined();
+    expect(requestedOf(translation.request)).toBe("edit");
+    const prompt = JSON.stringify(model.doGenerateCalls.map((call) => call.prompt));
+    expect(prompt).toContain('\\"applied\\": true');
   });
 
   // protects=a request a Tool refused (no Mind open) isn't asked for again: the refusal is the answer; fails_when=the model is asked to write after it was told it can't; no_claim=none beyond protects.

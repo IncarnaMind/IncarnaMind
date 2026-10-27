@@ -29,4 +29,5 @@ The ten documents to verify (`received/`) and the two web pages (`web/`) were wr
 | `tests/fixtures/formats/Quarterly Research Update.pptx` and `Regional Revenue.xlsx` | Synthetic, written by the office-formats spike's generator; see `eval/retrieval/formats/ATTRIBUTION.md` | Apache-2.0 |
 | `eval/retrieval/fixtures/维基百科-可持续发展目标.pdf` | The Chinese Wikipedia article [可持续发展目标](https://zh.wikipedia.org/w/index.php?oldid=94740074), revision 94740074, rendered by Wikimedia's PDF service; see `eval/retrieval/fixtures/ATTRIBUTION.md` | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), © Wikipedia contributors |
 
-The sample PDFs in `data/` aren't used: the repository doesn't record their licences.
+The seven sample PDFs in `data/` aren't used here: they were made for this repository on
+2026-10-26, each in a fictional organisation's voice. They are licensed under Apache-2.0, like the rest of the repository (`data/README.md`).

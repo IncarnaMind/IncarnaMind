@@ -72,7 +72,7 @@ test("first run's local path starts ticked, because nothing in the cloud is set 
 
   await setup.getByTestId("ollama-use").click();
   await expect(setup.getByTestId("provider-page-title")).toHaveText("Ollama");
-  expect(await localOnly(window)).toBe(true);
+  await expect.poll(() => localOnly(window)).toBe(true);
   const undo = setup.getByTestId("undo-line-here");
   await expect(undo.getByTestId("undo-message")).toHaveText(
     "Turned on “Keep everything on this computer”",

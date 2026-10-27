@@ -74,6 +74,13 @@ export interface FilesBridge {
    */
   pickDocuments(): Promise<string[]>;
   /**
+   * Shows the system's open dialog for Documents to add, or one folder to read
+   * where it is (#1942), as a sheet on the window, starting in the folder last
+   * picked from. A file and a folder can't be chosen in one sheet on Windows and
+   * Linux, where only files are offered: a folder is dropped on the window there.
+   */
+  pickDocumentsOrFolder(): Promise<{ files: string[]; folders: string[] }>;
+  /**
    * Shows the system's open dialog for a reference file to import (CSL JSON,
    * BibTeX or RIS: see `CoreApi.importReferences`), as a sheet on the window,
    * starting in the folder last picked from (else Downloads). Resolves with
@@ -197,6 +204,7 @@ export const FILES_CHANNELS = {
   showDocumentInFolder: "files:showDocumentInFolder",
   pickLinkedFolder: "files:pickLinkedFolder",
   pickDocuments: "files:pickDocuments",
+  pickDocumentsOrFolder: "files:pickDocumentsOrFolder",
   pickReferenceFile: "files:pickReferenceFile",
   pickWordFile: "files:pickWordFile",
   pickPdfFile: "files:pickPdfFile",

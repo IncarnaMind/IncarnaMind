@@ -218,9 +218,9 @@ test("first run asks for no model; the first own Question waits while the setup 
   await expect(window.getByTestId("assistant-waiting-model")).toHaveText(
     "Waiting for you to choose a model",
   );
-  await expect(card).toContainText("Choose your AI");
+  await expect(card).toContainText("Set up your AI");
+  await expect(card.getByTestId("setup-key")).toHaveAttribute("placeholder", "Paste an API key");
   await expect(card.getByTestId("setup-chatgpt")).toHaveText("Use my ChatGPT plan");
-  await expect(card.getByTestId("setup-key")).toHaveText("Paste an API key");
   // Choosing it is the consent (ADR-0022): one line says what goes, and Details names it all.
   await expect(card.getByTestId("setup-chatgpt-line")).toHaveText("Plus or Pro · no key needed");
   await expect(card.getByTestId("setup-chatgpt-sends").locator("p")).toHaveText(
@@ -228,10 +228,9 @@ test("first run asks for no model; the first own Question waits while the setup 
   );
   // The card says what the Mind's "needs an AI model" line would, so that line steps aside.
   await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
-  // The other ways are folded under the two that lead.
-  await expect(card.getByTestId("way-local")).toBeHidden();
-  await card.getByTestId("setup-other").click();
+  // A model on this computer leads among the ways that need no key; the rest are folded.
   await expect(card.getByTestId("way-local")).toBeVisible();
+  await expect(card.getByTestId("setup-other")).toBeVisible();
 
   // In Chinese the key leads.
   await window.evaluate(async () =>
@@ -239,7 +238,7 @@ test("first run asks for no model; the first own Question waits while the setup 
       user: { language: "zh-CN" },
     }),
   );
-  await expect(card.getByTestId("setup-key")).toHaveText("粘贴 API 密钥");
+  await expect(card.getByTestId("setup-key")).toHaveAttribute("placeholder", "粘贴 API 密钥");
   await expect(card.getByTestId("setup-chatgpt-line")).toHaveText(
     "Plus 或 Pro（中国大陆不可用）· 无需密钥",
   );

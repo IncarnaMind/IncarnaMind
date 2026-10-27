@@ -207,7 +207,7 @@ test("typing in the composer and pressing Enter shows the Question in the assist
   // The composer, at the foot of the Mind: its placeholder, the model and the Search scope.
   const composer = window.getByTestId("composer");
   const input = composer.getByTestId("composer-input");
-  await expect(input).toHaveAttribute("placeholder", "Ask, or say what to change…");
+  await expect(input).toHaveAttribute("placeholder", "Ask, or say ‘write a note on…’");
   await expect(composer.getByTestId("composer-model")).toHaveText("fake-model");
   await expect(composer.getByTestId("composer-scope-all")).toHaveText("All Documents");
   const ask = composer.getByTestId("composer-ask");
@@ -268,12 +268,12 @@ test("typing in the composer and pressing Enter shows the Question in the assist
   await expect(input).toBeFocused();
   await expect(ask).toBeDisabled();
 
-  // The newest Answer shows its actions at rest, Copy and Add to note only; its steps, folded
-  // above it, say what it searched, and Regenerate is at their end.
+  // The newest Answer shows its actions at rest: Write as a note, Add to note and Copy; its
+  // steps, folded above it, say what it searched, and Regenerate is at their end.
   await window.mouse.move(10, 10);
   const actions = answer.getByTestId("answer-actions");
   await expect.poll(() => opacityOf(actions)).toBe(1);
-  await expect(actions).toHaveText("CopyAdd to noteNew Mind");
+  await expect(actions).toHaveText("Write as a noteAdd to noteCopy");
   await expect(answer.getByTestId("answer-steps")).toHaveText("Searched All Documents · 1 source");
   await expect(answer.getByTestId("answer-regenerate")).toHaveCount(0);
   await screenshot(window, "composer-answered-en");
@@ -707,8 +707,8 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(options).toHaveText([/fake-model/, /other-model/]);
     await expect(options.first()).toHaveAttribute("aria-checked", "true");
     await expect(options.first()).toBeFocused();
-    await expect(menu).not.toContainText("For this Mind’s Questions.");
-    await expect(menu).toContainText("Default for new Minds: fake-model · Change in Settings");
+    await expect(menu).not.toContainText("For this note’s Questions.");
+    await expect(menu).toContainText("Default for new notes: fake-model · Change in Settings");
     // What stays on this computer says so with its icon, in ink-secondary: green is for checks.
     const stays = menu.getByTestId("on-this-computer").first();
     await expect(stays).toHaveCSS("color", "rgb(74, 79, 87)");
@@ -771,7 +771,7 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await pointAndClick(window, window.getByTestId("composer-model"));
     const menuZh = window.getByTestId("composer-model-menu");
     await expect(menuZh.getByRole("group", { name: "在本机运行" })).toBeVisible();
-    await expect(menuZh).toContainText("新 Mind 的默认模型：fake-model · 在设置中更改");
+    await expect(menuZh).toContainText("新笔记的默认模型：fake-model · 在设置中更改");
     await screenshot(window, "composer-model-menu-zh");
     await window.keyboard.press("Escape");
     await screenshot(window, "composer-zh");
@@ -903,8 +903,8 @@ test("in Chinese: the composer with a Search scope and a Skill chosen from its p
   await window.keyboard.type("大潮每月出现两次。");
   const composer = window.getByTestId("composer");
   const input = composer.getByTestId("composer-input");
-  await expect(input).toHaveAttribute("placeholder", "提问，或说明要修改的内容…");
-  await expect(input).toHaveAccessibleName(/提问，或说明要修改的内容（(⌘J|Ctrl\+J)）/);
+  await expect(input).toHaveAttribute("placeholder", "提问，或说“写一篇关于……的笔记”");
+  await expect(input).toHaveAccessibleName(/提问，或说“写一篇关于……的笔记”（(⌘J|Ctrl\+J)）/);
   await expect(composer.getByTestId("composer-ask")).toHaveAccessibleName("提问（Enter）");
   await expect(composer.getByTestId("composer-scope-all")).toHaveText("全部文档");
 
