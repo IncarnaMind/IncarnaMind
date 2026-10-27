@@ -477,6 +477,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const unit = unstatedUnit([evidence, ...foundCitations(session.finalCitation, evidence)]);
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
       return unsupported(unit, evidence, null);
+    // An unsupported reply with no topic or part named can be missing only the derived figure.
+    // A found topic or an explicit part is independent evidence and stays unsupported.
     if (byCalculation && verdict.verdict === "unsupported") {
       const onTopic = verdict.topic !== "not found";
       const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;

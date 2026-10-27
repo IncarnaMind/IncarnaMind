@@ -72,6 +72,39 @@ describe("A currency the Document doesn't state", () => {
     expect(unitNotStated("Leverage was 2.82x.", read(cited))).toBeNull();
   });
 
+  test("a scale statement belongs to the Document that supplies the figure", () => {
+    const claim =
+      "Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the 3.25x covenant.";
+    const plain = read("Net debt at 30 June 2026 528.9");
+    const other = read("All amounts are in GBP millions.\nOther results 100.0");
+    expect(unitNotStated(claim, [...plain, ...other])).toEqual({
+      kind: "scale",
+      figure: "£528.9m",
+      amount: "528.9",
+    });
+  });
+
+  test("a plain scale statement does not establish a currency", () => {
+    const claim = "Net debt at 30 June 2026 was £528.9m.";
+    const plain = "All amounts are in millions.\nNet debt at 30 June 2026 528.9";
+    expect(unitNotStated(claim, read(plain))).toEqual({
+      kind: "currency",
+      currency: "£",
+      amount: "528.9",
+    });
+    expect(
+      unitNotStated("Net debt at 30 June 2026 was 528.9m.", read("Net debt at 30 June 2026 528.9")),
+    ).toEqual({
+      kind: "scale",
+      figure: "528.9m",
+      amount: "528.9",
+    });
+    expect(unitNotStated("Net debt at 30 June 2026 was 528.9m.", read(plain))).toBeNull();
+    expect(
+      unitNotStated(claim, read("All amounts are in millions.\nNet debt at 30 June 2026 £528.9")),
+    ).toBeNull();
+  });
+
   test("the same written number at another scale is not supported in Chinese either", () => {
     const claim = "2026年6月30日净负债为£528.9m，因此杠杆率仍应在3.25倍的契约上限之内。";
     expect(unitNotStated(claim, read("2026年6月30日净负债 528.9"))).toEqual({

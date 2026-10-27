@@ -87,7 +87,7 @@ export function unitNotStated(
           .map((reading) => ({ chars: each.chars, unit: reading.unit })),
       ),
     );
-    const sameWritten = read.flatMap(({ figures }) =>
+    const sameWritten = read.flatMap(({ text, context, figures }) =>
       figures.flatMap((each) => {
         if (each.ambiguous.some(({ kind }) => kind !== "scale")) return [];
         const readings = [
@@ -100,7 +100,7 @@ export function unitNotStated(
           .filter((reading) =>
             sameValue(reading.value / reading.scale, figure.value / figure.scale),
           )
-          .map((reading) => ({ chars: each.chars, scale: reading.scale }));
+          .map((reading) => ({ text, context, chars: each.chars, scale: reading.scale }));
       }),
     );
     if (
@@ -108,13 +108,13 @@ export function unitNotStated(
       sameWritten.length > 0 &&
       sameWritten.every(({ scale }) => scale !== figure.scale)
     ) {
-      const stated = read.some(({ text, context }) =>
+      const stated = sameWritten.some(({ text, context }) =>
         readStatedUnits(text.document(), context).some(
           (statement) =>
             statement.scale === figure.scale &&
-            (statement.unit.kind === "plain" ||
-              figure.unit.kind !== "currency" ||
-              (statement.unit.kind === "currency" && statement.unit.code === figure.unit.code)),
+            (figure.unit.kind !== "currency" ||
+              (statement.unit.kind === "currency" && statement.unit.code === figure.unit.code) ||
+              same.some(({ unit }) => unit.kind === "currency")),
         ),
       );
       if (!stated) {
@@ -134,6 +134,7 @@ export function unitNotStated(
     }
     if (same.some(({ unit }) => unit.kind !== "plain")) continue;
     const codes = new Set([...currenciesOf(figure), ...currenciesOfSign(figure)]);
+    if (codes.size === 0) continue;
     const names = (each: Set<string>) => [...codes].some((code) => each.has(code));
     const inCited = read.some((each) => {
       each.named ??= namedCurrencies(each.cited, each.context, each.figures);
