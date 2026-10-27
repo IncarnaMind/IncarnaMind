@@ -5660,6 +5660,296 @@
        "toolName": "cite",
        "output": {
         "type": "text",
+        "value": "Nothing was recorded. Fix these with another cite call:\n- [^1]: the quote occurs more than once in its cited Units; quote enough surrounding words to identify one place."
+       }
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "name": "search_documents",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "query": {
+        "type": "string",
+        "description": "What to look for: words likely to be in the Passages, in their language. Name what the Question refers to instead of pronouns or words that point back, such as \"it\", \"they\" or \"that paper\"."
+       },
+       "document": {
+        "type": "string",
+        "description": "Search only this Document, named as the instructions list it: to find what each of several Documents says."
+       }
+      },
+      "required": [
+       "query"
+      ]
+     },
+     "description": "Search the User's Documents. Returns the Passages that best match, each with an id, its Document, the Document's date when known, and where it is (pages, slides, sections, rows or lines). The search sees only the query, not the conversation: write it to stand on its own. The Documents are in English. Search finds Passages best in their own language: when the Question is in another language than the Documents it may be about, search with the query translated into their language too. Only the query is in their language: write the reply in the Question's."
+    },
+    {
+     "type": "function",
+     "name": "cite",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "citations": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "marker": {
+           "type": "integer",
+           "description": "The marker's number: 1 for [^1]."
+          },
+          "passage": {
+           "type": "string",
+           "description": "The Passage's id, e.g. P1; or, to keep a Citation shown in <mind>, read_mind or an earlier Answer, its id, e.g. C2."
+          },
+          "location": {
+           "type": "string",
+           "description": "Where the quote is, as the Passage names it: e.g. \"p. 4\", \"slide 4\", \"§ 2.1 Sensitivity\", \"Revenue, rows 12–14\" or \"lines 120–134\". One place, or two in a row."
+          },
+          "pageFrom": {
+           "type": "integer",
+           "description": "For a PDF, instead of location: the page the quote starts on. Leave out for other Passages."
+          },
+          "pageTo": {
+           "type": "integer",
+           "description": "For a PDF: the page the quote ends on: the same page, or the next one."
+          },
+          "quote": {
+           "type": "string",
+           "description": "A short quote, copied word for word from the Passage. Leave it out for a Citation's id: it keeps its own."
+          }
+         },
+         "required": [
+          "marker",
+          "passage"
+         ]
+        }
+       }
+      },
+      "required": [
+       "citations"
+      ]
+     },
+     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead."
+    },
+    {
+     "type": "function",
+     "name": "calculate",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "figures": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "marker": {
+           "type": "integer",
+           "description": "The figure's marker number: 1 for [=1]. Figures are numbered apart from Citations."
+          },
+          "label": {
+           "type": "string",
+           "description": "What the result is, with its period: \"Revenue growth 2025\"."
+          },
+          "inputs": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "name": {
+              "type": "string",
+              "description": "A short name for the formula: rev2024."
+             },
+             "label": {
+              "type": "string",
+              "description": "What it is, with its year or period: \"Revenue 2024\"."
+             },
+             "citation": {
+              "type": "integer",
+              "description": "The marker of a Citation record with the number in its quote: 1 for [^1]. Or give passage, location and quote instead."
+             },
+             "passage": {
+              "type": "string",
+              "description": "Instead of citation: the Passage's id, e.g. P1."
+             },
+             "location": {
+              "type": "string",
+              "description": "With passage: where the quote is, as for a Citation."
+             },
+             "quote": {
+              "type": "string",
+              "description": "With passage: a short quote holding the number, copied word for word."
+             },
+             "number": {
+              "type": "string",
+              "description": "The number as it is written in the quote: \"1.2亿\", \"$1,482.6 million\"."
+             },
+             "position": {
+              "type": "integer",
+              "description": "Instead of number, when the number is in the quote twice: its place among the quote's numbers, 1 for the first."
+             },
+             "unitQuote": {
+              "type": "string",
+              "description": "When the number's scale or currency is only in a table's heading or caption (\"单位：万元\", \"in millions\"): that line, copied word for word from the same Passage."
+             },
+             "reading": {
+              "type": "integer",
+              "description": "Only when told the number can be read more than one way: the reading to use, as numbered then."
+             },
+             "rate": {
+              "type": "string",
+              "description": "Only for an exchange rate: the currencies it converts, as \"CNY per USD\"."
+             },
+             "bracketedCost": {
+              "type": "boolean",
+              "description": "True when the number is a cost or deduction printed in brackets (\"Finance costs (41.2)\", \"财务费用 (41.2)\"), so its size is meant. Never for a loss or another result in brackets."
+             }
+            },
+            "required": [
+             "name"
+            ]
+           }
+          },
+          "formula": {
+           "type": "string",
+           "description": "In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b. A percent is a share, 25% is 0.25: never multiply by 100, give as instead. Inputs are in base units: never multiply or divide by 1000 or 10000 to change the scale, give scale instead."
+          },
+          "as": {
+           "type": "string",
+           "enum": [
+            "number",
+            "percent",
+            "points",
+            "currency",
+            "times",
+            "yes-no"
+           ],
+           "description": "How to show the result: percent for a growth rate or a share. Default: from the inputs."
+          },
+          "decimals": {
+           "type": "integer",
+           "description": "Decimal places, when the default won't do."
+          },
+          "scale": {
+           "type": "string",
+           "description": "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown."
+          },
+          "stated": {
+           "type": "string",
+           "description": "The number as the sentence to check writes it: \"1.1x\", \"12%\"."
+          },
+          "relation": {
+           "type": "string",
+           "enum": [
+            "equals",
+            "at most",
+            "at least"
+           ],
+           "description": "How the figure stands to stated: \"equals\" when stated is the figure; \"at most\" or \"at least\" when stated is a limit the sentence says the figure stays within or above (\"inside a 3.25x covenant\", \"不超过3.25倍\", \"至少5倍\")."
+          }
+         },
+         "required": [
+          "marker",
+          "inputs",
+          "formula",
+          "stated",
+          "relation"
+         ]
+        }
+       }
+      },
+      "required": [
+       "figures"
+      ]
+     },
+     "description": "Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. The formula is in Excel's syntax over the inputs' names. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025\", \"inputs\": [{\"name\": \"r24\", \"label\": \"Revenue 2024\", \"citation\": 1, \"number\": \"$1,231.0 million\"}, {\"name\": \"r25\", \"label\": \"Revenue 2025\", \"citation\": 1, \"number\": \"$1,482.6 million\"}], \"formula\": \"r25 / r24 - 1\", \"as\": \"percent\"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale (\"单位：万元\", \"in millions\") applied, so give scale (\"亿\", \"billion\") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, \"(12,500)\", is negative, so take a deduction off by adding it, never by subtracting it. Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above (\"leverage inside the 3.25x covenant\"), give relation \"at most\" or \"at least\"."
+    }
+   ],
+   "toolChoice": {
+    "type": "auto"
+   }
+  },
+  {
+   "prompt": [
+    {
+     "role": "system",
+     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Transcript · Meeting, 6 October (“We agreed the enterprise price is 45 dollars a seat”)\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\").\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say so plainly. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"The Documents don't record a Board approval; the 14 May memo asks for one.\" / \"文档中没有董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number the Answer gives that isn't written in a Passage (a difference, sum, average, ratio, share, growth rate, CAGR, change in percentage points, conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number's place, with no number or unit beside it: \"grew [=1] in 2025\", not \"grew 20.4% [=1]\".\n- Name each input's number as it is written in its quote, labelled with what it is and its period; give a table heading's unit line (\"单位：万元\", \"in millions\") as unitQuote. Inputs come in base units with that scale applied: give scale (\"亿\", \"billion\") to show another, never convert in the formula.\n- A number copied as it is from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what its reply says and call it again; never write that you couldn't calculate a number whose inputs you cited.\n\n- The Question is written in English, so answer in English."
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "<live-transcript>\n<passage id=\"P1\" document=\"Transcript · Meeting, 6 October\" file-modified=\"<date>\" location=\"0:00\">\n[0:00 Me] We agreed the enterprise price is 45 dollars a seat\n[0:00 Them] The budget is approved for this year\n[0:01 Me] Dana will send the contract by Friday\n[0:01 Them] The budget is approved for this year\n[0:03 Me] We agreed the enterprise price is 45 dollars a seat\n[0:03 Them] The budget is approved for this year\n[0:05 Me] Dana will send the contract by Friday\n[0:05 Them] The budget is approved for this year\n[0:07 Me] We agreed the enterprise price is 45 dollars a seat\n[0:07 Them] The budget is approved for this year\n[0:09 Me] Dana will send the contract by Friday\n[0:09 Them] The budget is approved for this year\n</passage>\n</live-transcript>\n\nThe transcript above is of a meeting the User just recorded: each line starts with its time and who spoke ([12:07 Them]).\nThe User took the notes below during the call, a line each. Fill them in from the transcript:\n- For each line, write what the call said about it: one to three short sentences.\n- Start each line's part with its marker alone as a heading (\"### L3\"), in the order of the notes. Leave out a line the call said nothing about.\n- Never repeat or reword the User's line: write only what goes under it. Write nothing for a heading.\n- Every sentence and bullet ends with its citation marker, citing the transcript line it comes from.\n- Write only what the transcript says. Leave out what it doesn't.\n- Write in the language of the call.\n\nThe notes:\n(heading) Pricing\nL1: price\n\nFill in my notes from the call."
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "tool-call",
+       "toolCallId": "call-0-0",
+       "toolName": "cite",
+       "input": {
+        "citations": [
+         {
+          "marker": 1,
+          "passage": "P1",
+          "quote": "We agreed the enterprise price is 45 dollars a seat"
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": [
+      {
+       "type": "tool-result",
+       "toolCallId": "call-0-0",
+       "toolName": "cite",
+       "output": {
+        "type": "text",
+        "value": "Nothing was recorded. Fix these with another cite call:\n- [^1]: the quote occurs more than once in its cited Units; quote enough surrounding words to identify one place."
+       }
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "tool-call",
+       "toolCallId": "call-1-0",
+       "toolName": "cite",
+       "input": {
+        "citations": [
+         {
+          "marker": 1,
+          "passage": "P1",
+          "quote": "We agreed the enterprise price is 45 dollars a seat\nThe budget is approved for this year\nDana will send the contract by Friday\nThe budget is approved for this year\nWe agreed the enterprise price is 45 dollars a seat\nThe budget is approved for this year\nDana will send the contract by Friday\nThe budget is approved for this year\nWe agreed the enterprise price is 45 dollars a seat\nThe budget is approved for this year\nDana will send the contract by Friday\nThe budget is approved for this year"
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": [
+      {
+       "type": "tool-result",
+       "toolCallId": "call-1-0",
+       "toolName": "cite",
+       "output": {
+        "type": "text",
         "value": "Recorded [^1]. Write the Answer now if you haven't yet; don't repeat it."
        }
       }

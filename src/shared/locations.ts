@@ -304,7 +304,7 @@ export function unitLocation(unit: UnitText): CitationLocation | null {
 export function quoteInUnits(
   units: readonly UnitText[],
   quote: string,
-  options: Pick<MatchOptions, "lostLigatures"> = {},
+  options: Pick<MatchOptions, "lostLigatures" | "unique"> = {},
 ): TextRange[] | null {
   const { text } = joinUnits(units);
   if (!quote || text.trim() === "") return null;
