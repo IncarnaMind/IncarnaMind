@@ -85,8 +85,47 @@ async function addSegments(window: Page, mindId: string) {
 /**
  * Runs Tie out figures from ⌘K. Billed per token, the one Check asks first, in the note's card;
  * in a window too narrow for groups side by side the schedule then waits in its tab beside the
- * note, and Tie out figures once more shows it when the Check has run.
+ * note, which the User opens once they've answered.
  */
+/** Clicks a tab as a person does, first saying what lies under the point (diagnosis, #2092). */
+async function clickTab(window: Page, tab: Locator, why: string) {
+  await motionSettled(window);
+  const box = await tab.boundingBox();
+  const seen = await tab.evaluate((element, label) => {
+    const rect = element.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    const describe = (node: Element | null) =>
+      node
+        ? `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}.${[...node.classList].join(".")}[testid=${node.getAttribute("data-testid") ?? ""}][role=${node.getAttribute("role") ?? ""}]`
+        : "none";
+    const strip = element.closest('[role="tablist"]');
+    const chain: string[] = [];
+    for (let node: Element | null = hit; node && chain.length < 6; node = node.parentElement)
+      chain.push(describe(node));
+    return JSON.stringify({
+      label,
+      rect: [rect.left, rect.top, rect.width, rect.height].map(Math.round),
+      inside: hit ? element.contains(hit) : false,
+      hit: chain,
+      strip: strip
+        ? {
+            rect: (() => {
+              const r = strip.getBoundingClientRect();
+              return [r.left, r.top, r.width, r.height].map(Math.round);
+            })(),
+            scroll: [strip.scrollLeft, strip.scrollWidth, strip.clientWidth],
+          }
+        : null,
+      viewport: [globalThis.innerWidth, globalThis.innerHeight, globalThis.devicePixelRatio],
+      region: getComputedStyle(hit ?? element).getPropertyValue("-webkit-app-region"),
+    });
+  }, why);
+  console.log(`tab click diagnosis (${process.platform}): ${seen} box=${JSON.stringify(box)}`);
+  await pointAndClick(window, tab);
+}
+
 async function tieOut(window: Page, schedule: Locator, title: string, label: string) {
   await runCommand(window, "mind.tieOut", label);
   const ask = window.getByTestId("mind-check-ask");
@@ -96,17 +135,29 @@ async function tieOut(window: Page, schedule: Locator, title: string, label: str
   const tab = window.getByRole("tab", { name: new RegExp(`^${title}`) });
   await expect(schedule.or(tab).first()).toBeVisible({ timeout: 30_000 });
   if (await schedule.isVisible()) return;
-  // Once the Check they answered has run, Tie out figures again shows the schedule at once:
-  // every figure is checked since its last edit.
-  await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 60_000 });
-  await runCommand(window, "mind.tieOut", label);
+  await clickTab(window, tab, "after the answered ask");
   await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect(schedule).toBeVisible({ timeout: 30_000 });
 }
 
+/** The contradicted figure's card names the number its source gives, and where (#1932). */
+async function contradictedCard(window: Page, language: "en" | "zh-CN") {
+  const mark = window.locator('[data-testid="claim-mark"][data-check="contradicted"]').first();
+  await pointAndClick(window, mark);
+  const card = window.getByTestId("claim-card");
+  await expect(card.getByTestId("claim-figure-source")).toContainText("£392m");
+  await expect(card.getByTestId("claim-figure-source")).toContainText(
+    language === "en" ? "p. 1" : "第 1 页",
+  );
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+}
+
 for (const [language, width] of [
   ["en", 1440],
+  ["en", 1100],
   ["zh-CN", 1100],
+  ["zh-CN", 1440],
 ] as const) {
   test(`Tie out figures opens the schedule beside the note and works row by row (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
@@ -203,12 +254,12 @@ for (const [language, width] of [
       await expect(why).toContainText(t("figures.foot.agrees"));
       await expect(why).toContainText(t("figures.foot.rows", { value: "£4,850m" }));
       await expect(why).toContainText(t("figures.foot.omitted", { rows: "Other £130m" }));
-      await shot(window, `tieout-all-${language}`);
+      await shot(window, `tieout-all-${language}-${width}`);
 
       // Needs a look: only the figures to fix.
       await pointAndClick(window, schedule.locator('[data-filter="look"]'));
       await expect(rows).toHaveCount(3);
-      await shot(window, `tieout-look-${language}`);
+      await shot(window, `tieout-look-${language}-${width}`);
       await pointAndClick(window, schedule.locator('[data-filter="all"]'));
       await expect(rows).toHaveCount(7);
 
@@ -219,7 +270,7 @@ for (const [language, width] of [
       await expect(rowOf(2)).toHaveAttribute("aria-selected", "true");
       if (width >= 1440) {
         await expect(outline.first()).toBeVisible();
-        await shot(window, `tieout-outline-${language}`);
+        await shot(window, `tieout-outline-${language}-${width}`);
         await window.keyboard.press("Escape");
         await expect(rowOf(2)).toHaveAttribute("aria-selected", "false");
         await expect(outline).toHaveCount(0);
@@ -228,9 +279,11 @@ for (const [language, width] of [
         await window.keyboard.press(" ");
         await expect(editor).toBeVisible();
         await expect(outline.first()).toBeVisible();
-        await shot(window, `tieout-outline-${language}`);
-        // Back to the schedule: Tie out figures shows it again, every figure checked.
-        await runCommand(window, "mind.tieOut", t("figures.command"));
+        await shot(window, `tieout-outline-${language}-${width}`);
+        await contradictedCard(window, language);
+        const tab = window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) });
+        await clickTab(window, tab, "back from the note");
+        await expect(tab).toHaveAttribute("aria-selected", "true");
         await expect(schedule).toBeVisible({ timeout: 30_000 });
         await pointAndClick(window, rowOf(2).locator("[data-tree-row]"));
         await window.keyboard.press("Escape");
@@ -238,13 +291,15 @@ for (const [language, width] of [
         await expect(rowOf(2).locator("[data-tree-row]")).toBeFocused();
       }
 
+      if (width >= 1440) await contradictedCard(window, language);
+
       // Two figures of one sentence: Keep as my view acts on the one chosen, the other keeps
       // its own result, and Undo takes it back.
       await pointAndClick(window, rowOf(1).locator("[data-tree-row]"));
       await pointAndClick(window, rowOf(1).locator("[data-figure-more]"));
       const menu = rowOf(1).getByRole("menu");
       await expect(menu).toBeVisible();
-      await shot(window, `tieout-menu-${language}`);
+      await shot(window, `tieout-menu-${language}-${width}`);
       await pointAndClick(window, menu.getByRole("menuitem", { name: t("claim.keepAsView") }));
       await expect(rowOf(1).locator(".figure-status")).toContainText(t("claim.keptAsView"));
       await expect(rowOf(0).locator(".figure-status")).toContainText(t("claim.state.supported"));

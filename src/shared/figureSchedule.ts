@@ -1,4 +1,10 @@
-import type { Citation, FigureInput, FigureSchedule, FigureScheduleRow } from "../core/api";
+import type {
+  Citation,
+  FigureFinding,
+  FigureInput,
+  FigureSchedule,
+  FigureScheduleRow,
+} from "../core/api";
 import type { Language } from "../core/language";
 import type { Figure, FigureUnit, Reading } from "./figures";
 import { type MessageKey, translate } from "./i18n";
@@ -165,6 +171,17 @@ function decimalsAt(like: Figure, read: Pick<Reading, "decimals" | "scale">): nu
 /** The decimals a row's source carries in the note's terms; a calculation keeps the figure's own. */
 function sourceDecimals(row: FigureScheduleRow): number {
   return row.sourceInput ? decimalsAt(row.reading, row.sourceInput.number) : row.reading.decimals;
+}
+
+/** The number a figure's quoted source gives, written as the note writes the figure. */
+export function quotedSourceText(figure: FigureFinding): string | null {
+  const { sourceInput } = figure;
+  if (!sourceInput) return null;
+  return writtenLike(
+    figure.reading,
+    sourceInput.number.value,
+    decimalsAt(figure.reading, sourceInput.number),
+  );
 }
 
 /** A row's source value in the note's terms, or null when there is none. */

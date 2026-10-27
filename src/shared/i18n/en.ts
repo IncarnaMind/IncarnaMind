@@ -730,6 +730,7 @@ export const en = {
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",
   "figures.inline.original": "Original input",
+  "figures.card.source": "{figure}: the source gives {value} ({source})",
   "figures.inline.openInput": "Open",
   "figures.export.sheet": "Schedule",
   "figures.export.rules": "Check rules",

@@ -18,6 +18,7 @@ import {
   SENTENCES_CHECKED_AT_MOST,
   saysNotFound,
 } from "../../../shared/claimChecks";
+import { quotedSourceText } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { comparableSentence } from "../../../shared/sentences";
@@ -542,6 +543,14 @@ function ClaimCard({
       ? coveredPart(check.unsupported)
       : null;
   const evidence = (decided && fromPassage) || differs ? check.evidence : (covers?.quoted ?? null);
+  // A figure's Contradicted is a comparison with the number it is bound to, not a reading of
+  // what a passage says: the card shows that number and where it is, to check at a glance.
+  const mismatched =
+    state === "contradicted"
+      ? (check.figures ?? []).filter(
+          (figure) => figure.state === "contradicted" && figure.sourceInput !== null,
+        )
+      : [];
   const location = evidence ? citationLocation(evidence) : null;
   const already = decision.kind === "already" ? decision.citation : null;
   const citedQuote = already?.attributes.quote ? already.attributes : evidence;
@@ -603,6 +612,25 @@ function ClaimCard({
             {check.says}
           </p>
         )}
+        {mismatched.map((figure) => {
+          const cited = figure.sourceInput?.citation;
+          const at = cited ? citationLocation(cited) : null;
+          const source = [
+            cited ? shownDocumentName(cited, documents) : null,
+            at ? formatLocation(at, t) : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return (
+            <p key={figure.id} data-testid="claim-figure-source" className="claim-card-says">
+              {t("figures.card.source", {
+                figure: figure.reading.chars,
+                value: quotedSourceText(figure) ?? "",
+                source,
+              })}
+            </p>
+          );
+        })}
         {differs && (
           <p data-testid="claim-differs" className="claim-card-says">
             {t("claim.unsupported.differs")}
