@@ -30,11 +30,11 @@
  * An Answer in another language than its Passages shares no words with them
  * (#1415: Claude Haiku 5.5's Chinese summary of English Documents stayed
  * uncited where its English one was asked), so it is asked when it shares
- * what survives translation instead: a number in Latin digits, or a name or
- * term in Latin letters, of four or more. Never more than once per Answer, so
- * an Answer saying the Documents don't cover the Question, a greeting or a
- * question back doesn't pay for it. In the Tool loop the ask is one of the
- * end-of-turn checks' (see ./turnChecks): `mayAsk`.
+ * what survives translation instead: a number in Latin digits of two or
+ * more, or a name or term in Latin letters of four or more. Never more than
+ * once per Answer, so an Answer saying the Documents don't cover the
+ * Question, a greeting or a question back doesn't pay for it. In the Tool
+ * loop the ask is one of the end-of-turn checks' (see ./turnChecks): `mayAsk`.
  */
 import { jsonSchema, Output, streamText } from "ai";
 import { answerSentences } from "../../shared/answerSentences";
@@ -282,9 +282,15 @@ function sharesWords(answer: string, passages: readonly ShownPassage[]): boolean
 const DIGITS = /\d+(?:[.,]\d+)*/g;
 const LATIN_TERM = /\p{Script=Latin}{4,}/gu;
 
+/** A figure of two or more digits: nearly every Passage has a one-digit one ("Table 2", "Section 3"), so sharing it says nothing. */
+const figuresOf = (text: string): string[] =>
+  [...text.matchAll(DIGITS)]
+    .map((found) => found[0].replace(/,(?=\d{3}(?!\d))/g, ""))
+    .filter((figure) => figure.length > 1);
+
 const figuresAndTerms = (text: string): Set<string> =>
   new Set([
-    ...[...text.matchAll(DIGITS)].map((found) => found[0].replace(/,(?=\d{3}(?!\d))/g, "")),
+    ...figuresOf(text),
     ...[...text.matchAll(LATIN_TERM)].map((found) => found[0].toLowerCase()),
   ]);
 

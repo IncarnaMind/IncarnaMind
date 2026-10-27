@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, MindChange, MindProblem } from "../../src/core/api";
+import type { AnswerToolCall, MarkedCitation, MindChange, MindProblem } from "../../src/core/api";
 import {
   problemText,
   unbackedClaimLine,
@@ -126,7 +126,21 @@ describe("The line under a reply with no Citation though it was asked for them (
   // protects=the line shows only for a reply with no Citation whose steps say the model was asked and none came, in English and Chinese; fails_when=it shows for a reply that was never asked, or one that has Citations; no_claim=when the core asks (tests/core/summaryAfterSkip.test.ts).
   test("asked and given none, with no Citation", () => {
     const steps = { notCitedAfterAsking: true as const };
+    const citation: MarkedCitation = {
+      marker: 1,
+      passageId: "P1",
+      documentId: "d1",
+      documentName: "Tea history",
+      contentHash: "h",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "A quote.",
+      check: "found",
+      checkReason: null,
+    };
     expect(uncitedReply({ steps, citations: [] })).toBe(true);
+    expect(uncitedReply({ steps, citations: [citation] })).toBe(false);
     expect(uncitedReply({ steps: {}, citations: [] })).toBe(false);
     expect(uncitedReply({ steps: null, citations: [] })).toBe(false);
     expect(en("answer.uncitedReply")).toBe(
