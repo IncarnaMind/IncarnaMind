@@ -43,7 +43,7 @@ import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
 import { wordFileOf } from "../shared/wordFiles";
 import { logActivity, silentLogger } from "./activityLog";
-import type { CoreAdapters } from "./adapters";
+import type { CoreAdapters, LogFields, Logger } from "./adapters";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
 import { createAiUse } from "./aiUse";
@@ -470,12 +470,41 @@ export function createCore(adapters: CoreAdapters): Core {
   const { dataDir } = adapters.paths;
   mkdirSync(dataDir, { recursive: true });
 
-  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  const diagnosticEntries: { event: string; fields?: LogFields }[] = [];
+  let collecting = true;
+  const record = (event: string, fields?: LogFields) => {
+    if (collecting) diagnosticEntries.push({ event, fields });
+  };
+  const diagnosticLog: Logger = { info: record, warn: record, error: record };
+  const openedAt = performance.now();
+  const db = openDatabase(join(dataDir, DATABASE_FILE), diagnosticLog);
+  const openedMs = performance.now() - openedAt;
   try {
+    const leadingLogAt = performance.now();
     adapters.log?.info("core.startup.databaseOpened");
-    migrate(db);
+    const leadingLogMs = performance.now() - leadingLogAt;
+    const migrationAt = performance.now();
+    migrate(db, undefined, diagnosticLog);
+    const migrationMs = performance.now() - migrationAt;
+    const storageLogAt = performance.now();
     adapters.log?.info("core.startup.storageReady");
+    const storageLogMs = performance.now() - storageLogAt;
+    collecting = false;
+    const flushAt = performance.now();
+    diagnosticEntries.forEach(({ event, fields }, index) => {
+      adapters.log?.info(event, { index, ...fields });
+    });
+    adapters.log?.info("diagnostic.summary", {
+      openedMs,
+      leadingLogMs,
+      migrationMs,
+      storageLogMs,
+      flushMs: performance.now() - flushAt,
+      entries: diagnosticEntries.length,
+    });
   } catch (error) {
+    collecting = false;
+    for (const { event, fields } of diagnosticEntries) adapters.log?.info(event, fields);
     db.close();
     throw error;
   }

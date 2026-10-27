@@ -33,6 +33,16 @@ test.beforeEach(async () => {
 test.afterEach(() => teardownStartup());
 
 async function collectStartupDiagnostics(): Promise<void> {
+  const logPath = test.info().outputPath("startup-migration.log");
+  try {
+    await writeFile(logPath, await readFile(join(data, "logs", "incarnamind.log")));
+    await test.info().attach("startup-migration", {
+      path: logPath,
+      contentType: "text/plain",
+    });
+  } catch (error) {
+    if (!isRecord(error) || error.code !== "ENOENT") throw error;
+  }
   const pids = copiesWith(tag, true);
   const path = test.info().outputPath("startup-events.json");
   await writeFile(path, JSON.stringify(await events(), null, 2));

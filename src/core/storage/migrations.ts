@@ -1,3 +1,4 @@
+import type { Logger } from "../adapters";
 import { DataFromNewerVersionError } from "../errors";
 import type { Database } from "./database";
 
@@ -1920,7 +1921,7 @@ export const migrations: readonly Migration[] = [
  * A database recording a migration this build doesn't know was written by a
  * newer version of IncarnaMind, and is refused.
  */
-export function migrate(db: Database, list: readonly Migration[] = migrations): void {
+export function migrate(db: Database, list: readonly Migration[] = migrations, log?: Logger): void {
   list.forEach((migration, index) => {
     const previous = list[index - 1];
     if (previous && migration.version <= previous.version) {
@@ -1939,16 +1940,26 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
 
   for (const migration of list) {
     if (applied.has(migration.version)) continue;
-    db.transaction(() => {
-      db.exec(migration.sql);
-      db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
-        migration.version,
-        new Date().toISOString(),
-      ]);
-      // Kept for tools that read it: the highest migration applied.
-      const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
-      db.exec(`PRAGMA user_version = ${highest ?? 0}`);
-    });
+    const at = performance.now();
+    log?.info("diagnostic.migrationBegin", { version: migration.version, at });
+    try {
+      db.transaction(() => {
+        db.exec(migration.sql);
+        db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
+          migration.version,
+          new Date().toISOString(),
+        ]);
+        // Kept for tools that read it: the highest migration applied.
+        const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
+        db.exec(`PRAGMA user_version = ${highest ?? 0}`);
+      });
+    } finally {
+      log?.info("diagnostic.migrationEnd", {
+        version: migration.version,
+        at,
+        ms: performance.now() - at,
+      });
+    }
   }
 }
 

@@ -1,4 +1,5 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import type { Logger } from "../adapters";
 import { isRecord } from "../errors";
 import type { Database, SqlValue } from "./database";
 
@@ -6,10 +7,24 @@ import type { Database, SqlValue } from "./database";
  * The `node:sqlite` adapter for the storage port. `node:sqlite` ships with
  * Electron's Node (24), so it needs no native module build.
  */
-export function openNodeSqlite(file: string): Database {
-  const db = new DatabaseSync(file);
+export function openNodeSqlite(file: string, log?: Logger): Database {
+  const measured = <T>(operation: string, sql: string, call: () => T): T => {
+    if (!log) return call();
+    const at = performance.now();
+    let ok = false;
+    try {
+      const value = call();
+      ok = true;
+      return value;
+    } finally {
+      const ms = performance.now() - at;
+      log?.info("diagnostic.native", { operation, sql, at, ms, ok });
+    }
+  };
+  const db = measured("open", "DatabaseSync", () => new DatabaseSync(file));
+  const exec = (sql: string) => measured("exec", sql, () => db.exec(sql));
   try {
-    db.exec("PRAGMA journal_mode = WAL");
+    exec("PRAGMA journal_mode = WAL");
   } catch (error) {
     if (
       process.platform !== "win32" ||
@@ -29,7 +44,7 @@ export function openNodeSqlite(file: string): Database {
       Atomics.wait(pause, 0, 0, Math.min(250, remaining));
       if (performance.now() >= deadline) throw failure;
       try {
-        db.exec("PRAGMA journal_mode = WAL");
+        exec("PRAGMA journal_mode = WAL");
       } catch (next) {
         if (!isRecord(next) || next.code !== "ERR_SQLITE_ERROR" || next.errcode !== 1546)
           throw next;
@@ -41,16 +56,16 @@ export function openNodeSqlite(file: string): Database {
     }
   }
   // Each commit is on disk before it returns: a Task's journal must survive a force-quit (#126).
-  db.exec("PRAGMA synchronous = FULL");
-  db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA busy_timeout = 5000");
+  exec("PRAGMA synchronous = FULL");
+  exec("PRAGMA foreign_keys = ON");
+  exec("PRAGMA busy_timeout = 5000");
 
   const reads = new Map<string, StatementSync>();
   const writes = new Map<string, StatementSync>();
   const prepare = (sql: string, cache: Map<string, StatementSync>): StatementSync => {
     let statement = cache.get(sql);
     if (!statement) {
-      statement = db.prepare(sql);
+      statement = measured("prepare", sql, () => db.prepare(sql));
       // run() reports the connection's last row id, which a contentless FTS5 delete can leave at
       // its tombstone page's, past 2^53. Node 26 throws reading that as a number, after the write
       // is done (#1289).
@@ -63,27 +78,30 @@ export function openNodeSqlite(file: string): Database {
 
   return {
     exec(sql) {
-      db.exec(sql);
+      exec(sql);
     },
     run(sql, params: readonly SqlValue[] = []) {
-      prepare(sql, writes).run(...params);
+      const statement = prepare(sql, writes);
+      measured("run", sql, () => statement.run(...params));
     },
     get<Row>(sql: string, params: readonly SqlValue[] = []) {
-      return prepare(sql, reads).get(...params) as Row | undefined;
+      const statement = prepare(sql, reads);
+      return measured("get", sql, () => statement.get(...params)) as Row | undefined;
     },
     all<Row>(sql: string, params: readonly SqlValue[] = []) {
-      return prepare(sql, reads).all(...params) as Row[];
+      const statement = prepare(sql, reads);
+      return measured("all", sql, () => statement.all(...params)) as Row[];
     },
     transaction(fn) {
       if (transactionDepth > 0) return fn();
-      db.exec("BEGIN IMMEDIATE");
+      exec("BEGIN IMMEDIATE");
       transactionDepth++;
       try {
         const result = fn();
-        db.exec("COMMIT");
+        exec("COMMIT");
         return result;
       } catch (error) {
-        db.exec("ROLLBACK");
+        exec("ROLLBACK");
         throw error;
       } finally {
         transactionDepth--;
