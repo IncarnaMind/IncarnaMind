@@ -47,7 +47,8 @@ export function UndoLine() {
 
 /**
  * The line of a change made in a place of its own, shown there instead of the sidebar's foot
- * (`Undoable.shownAt`), and so is a problem in taking it back or doing it again.
+ * (`Undoable.shownAt`): also a problem in taking it back or doing it again, and the note the undo
+ * leaves. Once the place has closed, a problem and a note show at the foot (`lineShownAt`).
  */
 export function UndoLineAt({ place, className }: { place: string; className?: string }) {
   const line = useUndo((state) => (lineShownAt(state) === place ? state.line : null));
@@ -168,10 +169,7 @@ export function UndoLineBody({
           <button
             type="button"
             data-testid={also.testId}
-            onClick={() => {
-              useUndo.getState().dismiss();
-              also.run();
-            }}
+            onClick={() => also.run()}
             className={actionClass}
           >
             {also.label(t)}

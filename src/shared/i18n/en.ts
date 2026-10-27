@@ -2070,7 +2070,7 @@ export const en = {
   "setup.other": "Other ways",
   "setup.way.local": "Use a model on this computer",
   "setup.way.local.install": "Install a model on this computer\u2026",
-  "setup.way.local.running": "Ollama is running \u00b7 free \u00b7 nothing leaves",
+  "setup.way.local.running": "Ollama is running \u00b7 free",
   "setup.way.local.notRunning": "Needs the free Ollama app",
   "setup.way.local.keeps": "Keeps everything on this computer",
   "setup.step.transcription": "Meeting transcription",

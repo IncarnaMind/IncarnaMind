@@ -9,13 +9,11 @@ import { useTranscriptionServicesList } from "../../transcriptionServices";
 import { CheckLineIcon } from "../lineIcons";
 import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
-import { UndoLineAt } from "../UndoLine";
 import { buttonStyle, fieldClass, hintClass } from "../ui";
 import { CHATGPT_RECIPIENT } from "./ChatGptSignIn";
 import { providerName } from "./ProviderPage";
 import { SendsLine } from "./SendsLine";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
-import { SETUP_UNDO_PLACE } from "./shared";
 
 const linkClass =
   "text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline";
@@ -71,8 +69,6 @@ export function SetupSteps() {
         <CheckLineIcon className="size-4 shrink-0 text-ink" />
         {name ? t("setup.ready", { name }) : t("setup.ready.generic")}
       </h2>
-      {/* Empty, it takes no room: the card's gap above it is taken back. */}
-      <UndoLineAt place={SETUP_UNDO_PLACE} className="pl-2 empty:-mb-2.5" />
       {recipient && <SendsLine provider={recipient} testId="setup-ready-sends" />}
       <ol className="flex flex-col gap-3">
         <Step

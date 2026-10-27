@@ -1978,7 +1978,7 @@ export const zhCN = {
   "setup.other": "其他方式",
   "setup.way.local": "使用本地模型",
   "setup.way.local.install": "安装本地模型…",
-  "setup.way.local.running": "Ollama 已运行 · 免费 · 不离开这台电脑",
+  "setup.way.local.running": "Ollama 已运行 · 免费",
   "setup.way.local.notRunning": "需要免费的 Ollama 应用",
   "setup.way.local.keeps": "所有内容都留在这台电脑上",
   "setup.step.transcription": "会议转写",
