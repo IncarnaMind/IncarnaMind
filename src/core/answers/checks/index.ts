@@ -247,7 +247,12 @@ function withResult(
   result: ClaimCheckResult,
   at: string,
 ): ClaimCheckAttributes {
-  const common = { versions: result.versions, excluded: result.excluded, checkedAt: at };
+  const common = {
+    versions: result.versions,
+    excluded: result.excluded,
+    recordCites: result.recordCites,
+    checkedAt: at,
+  };
   return result.verdict === "not-checked"
     ? { ...check, ...common, state: "not-checked", reason: result.reason, detail: result.detail }
     : {

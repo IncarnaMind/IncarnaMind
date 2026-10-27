@@ -210,8 +210,12 @@ export interface CreateMindInput {
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
+ * - 32: the individual record cites in a sentence's check (#1709): their raw
+ *   text, outcome, resolved Document/version/Location, passage and any
+ *   candidates or nearby suggestion, which an older editor would drop. Older
+ *   content is version 32 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 30;
+export const CONTENT_SCHEMA_VERSION = 32;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -5201,6 +5205,31 @@ export type UnlockDocumentResult =
   | { kind: "unlocked"; document: Document }
   | { kind: "wrong-password" };
 
+/** One record cite's own result inside a sentence's check (#1709). */
+export interface RecordCiteResult {
+  /** The cite as written and its UTF-16 span in the claim, when it has one. */
+  raw: string;
+  from?: number;
+  to?: number;
+  outcome: "supported" | "partly" | "choose" | "not-found";
+  documentId?: string;
+  documentName?: string;
+  contentHash?: string;
+  location?: CitationLocation;
+  /** The physical PDF Units the passage and viewer open, when it is one. */
+  pageFrom?: number;
+  pageTo?: number;
+  passage?: string;
+  /** Documents the User must choose between; never a silent first match. */
+  candidates?: { id: string; name: string }[];
+  nearby?: {
+    location: CitationLocation;
+    pageFrom: number;
+    pageTo: number;
+    passage: string;
+  };
+}
+
 /** What one claim check found: the claim-check function's result (`checkClaim`). */
 export type ClaimCheckResult =
   | {
@@ -5229,6 +5258,7 @@ export type ClaimCheckResult =
       /** The versions of the Documents it read, each once. */
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      recordCites?: RecordCiteResult[];
     }
   | {
       verdict: "not-checked";
@@ -5237,6 +5267,7 @@ export type ClaimCheckResult =
       detail: string | null;
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      recordCites?: RecordCiteResult[];
     };
 
 /**
@@ -5314,6 +5345,8 @@ export interface ClaimCheckAttributes {
   scope: ClaimCheckScope;
   versions: CheckedVersion[];
   excluded: LeftOutDocument[];
+  /** The individual record cites checked in this sentence, when it has any. */
+  recordCites?: RecordCiteResult[];
   /** When it was checked, or started. ISO 8601, UTC. */
   checkedAt: string;
   /**
