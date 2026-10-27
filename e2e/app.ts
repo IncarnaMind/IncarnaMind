@@ -1330,8 +1330,7 @@ export async function previewLink(
   if (button) await button.click();
   else {
     await window.getByTestId("plus-menu").click();
-    await window.getByTestId("plus-more").click();
-    await window.getByTestId("plus-link-folder").click();
+    await window.getByTestId("plus-add-documents").click();
   }
   const dialog = window.getByTestId("link-folder-dialog");
   await expect(dialog).toBeVisible();
@@ -3094,3 +3093,20 @@ export async function decisionServer(
     },
   };
 }
+
+/**
+ * What the one way in says on this machine: macOS takes files and a folder in
+ * one sheet; Windows and Linux offer files, so the words say files (#1942).
+ */
+export const addFilesLabel = (language: "en" | "zh-CN") =>
+  process.platform === "darwin"
+    ? language === "en"
+      ? "Add files or a folder…"
+      : "添加文件或文件夹…"
+    : language === "en"
+      ? "Add files…"
+      : "添加文件…";
+
+/** Its label's message key, for the menus and ⌘K that show it. */
+export const addFilesLabelKey =
+  process.platform === "darwin" ? "documents.add.filesOrFolder" : "startGuide.documents.addFiles";
