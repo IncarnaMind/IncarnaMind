@@ -166,6 +166,8 @@ async function checkWith(options: {
   askedAgain?: { note: string; text: string };
   /** The model's search finds nothing, as when it searched with other words. */
   findsNothing?: boolean;
+  /** It replies before it records its quotes, and records them only once asked to. */
+  citesWhenAsked?: boolean;
 }) {
   const body =
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
@@ -184,6 +186,13 @@ async function checkWith(options: {
       calls.push(call);
       if (!call.results.some((result) => result.tool === "search_documents"))
         return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      const asked = /never recorded/.test(call.prompt);
+      if (
+        options.citesWhenAsked &&
+        !asked &&
+        !call.results.some((result) => result.tool === "cite")
+      )
+        return { text: options.text };
       if (!call.results.some((result) => result.tool === "cite"))
         return {
           text: options.besideCite,
@@ -656,6 +665,19 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     reason: "no-evidence",
   });
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
+});
+
+test("asked to record a quote its Figures line names, the model's next step must call cite", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1", "£20", "Revenue in 2024")],
+    citesWhenAsked: true,
+    text: reply([
+      { ...item(), source: { citation: 1, number: "£20", reading: null, unitQuote: null } },
+    ]),
+  });
+  const asked = calls.find((call) => /never recorded/.test(call.prompt));
+  expect(asked?.options.toolChoice).toEqual({ type: "tool", toolName: "cite" });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
 
 test("narration with a marker beside cite isn't taken for the reply: the model goes on to write it", async () => {

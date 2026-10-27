@@ -468,6 +468,11 @@ export interface AnswerRequest {
   shownUpTo?(text: string): number;
   /** Whether a reply with no text still answers: the Answer changed a Mind, which its card reports. */
   mayEndBlank?(): boolean;
+  /**
+   * What to end with when the model wrote no reply: the app's own words, so
+   * a turn that ended after a refused Tool still says why. Null: end blank.
+   */
+  blankReply?(): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -1841,6 +1846,8 @@ async function* toolLoop(
   /** The reply that stands if the model, asked once more, fails: as it was before the last ask. */
   let standing: string | null = null;
   let again: readonly RunMessage[] | null = null;
+  /** The Tool the ask said to call: the asked-again Run's first step calls it. */
+  let mustCall: string | null = null;
   /** Model calls made so far: asked once more, the model gets what is left of `maxSteps`. */
   let steps = 0;
   const nudges = createNudges(maxSteps, () => steps);
@@ -1883,19 +1890,27 @@ async function* toolLoop(
   const runTools = tools.map(tracked);
   async function* runs(): AsyncGenerator<RunEvent> {
     let history: readonly RunMessage[] = [...messages.map(runMessage), ...first];
+    let calls: string | null = null;
     for (;;) {
-      yield* engine.run(runRequest(history, maxSteps - steps));
+      yield* engine.run(runRequest(history, maxSteps - steps, calls));
       if (!again) return;
       history = [...history, ...again];
       again = null;
+      calls = mustCall;
+      mustCall = null;
     }
   }
-  const runRequest = (history: readonly RunMessage[], stepsLeft: number): RunRequest => ({
+  const runRequest = (
+    history: readonly RunMessage[],
+    stepsLeft: number,
+    firstTool: string | null = null,
+  ): RunRequest => ({
     model: request.model,
     instructions,
     messages: history,
     tools: runTools,
     maxSteps: stepsLeft,
+    ...(firstTool && { firstTool }),
     cacheKey: request.cacheKey,
     lastStep: {
       ...(request.maxOutput !== undefined && { tokens: request.maxOutput }),
@@ -2095,13 +2110,16 @@ async function* toolLoop(
           besideRecords = "";
           setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
+          mustCall = settled.requires ?? null;
           break;
         }
         const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
         if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
-        if (taken.text !== keptText) {
-          yield* textEdits(keptText.slice(0, released), taken.text);
-          keptText = taken.text;
+        // A turn that ends with no reply after a refused Tool says why in the app's words.
+        const text = taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text;
+        if (text !== keptText) {
+          yield* textEdits(keptText.slice(0, released), text);
+          keptText = text;
           released = keptText.length;
         }
         yield* release(keptText.length);

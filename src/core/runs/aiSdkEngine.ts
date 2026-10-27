@@ -468,7 +468,17 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
       const write = stepNumber >= maxSteps - 1 || noRoom;
       writing = write;
       canCallAgain = stepNumber + 1 < maxSteps - 1;
-      if (!write) return { ...(messages && { messages }) };
+      if (!write)
+        return {
+          ...(messages && { messages }),
+          // A provider that thinks first refuses a forced Tool, as it does a changed tool list.
+          ...(stepNumber === 0 &&
+            request.firstTool &&
+            request.firstTool in tools &&
+            !request.lastStep?.keepTools && {
+              toolChoice: { type: "tool" as const, toolName: request.firstTool },
+            }),
+        };
       return {
         messages: [
           ...(messages ?? [...initialMessages, ...splice(responseMessages, inserted)]),

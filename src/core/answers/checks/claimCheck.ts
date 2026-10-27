@@ -255,7 +255,11 @@ function figuresReplied(
           ),
         ];
         return problems.length > 0
-          ? { claims: [], note: figureSourcesNote(problems, unrecorded) }
+          ? {
+              claims: [],
+              note: figureSourcesNote(problems, unrecorded),
+              ...(unrecorded.length > 0 && { requires: "cite" }),
+            }
           : null;
       },
     },

@@ -13,6 +13,11 @@ import type { ClaimedChange } from "../api";
 export interface TurnFinding {
   /** What to tell the model so it writes the reply again. */
   note: string;
+  /**
+   * The Tool the model calls first when asked: a record it names and never made. Claude Haiku
+   * 5.5, told to call `cite`, wrote the same reply again in about one ask in twenty.
+   */
+  requires?: string;
   /** What flags the reply if it stands: none, for a check that only asks. */
   claims: readonly ClaimedChange[];
 }
@@ -44,7 +49,7 @@ export function createNudges(maxSteps: number, steps: () => number): Nudges {
 }
 
 /** What the checks make of a reply: to ask the model once more, or the claims to flag it with. */
-export type Settled = { nudge: string } | { claims: ClaimedChange[] };
+export type Settled = { nudge: string; requires?: string } | { claims: ClaimedChange[] };
 
 export async function settleReply(
   checks: readonly TurnCheck[],
@@ -55,7 +60,8 @@ export async function settleReply(
   for (const each of checks) {
     const found = await each.check(reply);
     if (!found) continue;
-    if (found.note && nudges.take(each.name)) return { nudge: found.note };
+    if (found.note && nudges.take(each.name))
+      return { nudge: found.note, ...(found.requires && { requires: found.requires }) };
     for (const claim of found.claims) claims.add(claim);
   }
   return { claims: [...claims] };

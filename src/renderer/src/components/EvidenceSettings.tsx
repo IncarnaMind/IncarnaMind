@@ -1,14 +1,8 @@
-import { useId } from "react";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { DetailsLine } from "./DetailsLine";
-import {
-  rowTextClass,
-  rowTitleClass,
-  ruledListClass,
-  ruledRowClass,
-  sectionTitleClass,
-} from "./ui";
+import { SwitchSetting } from "./SwitchSetting";
+import { rowTextClass } from "./ui";
 
 /**
  * Settings → Search → Checks: the switch that leaves the files IncarnaMind
@@ -19,41 +13,24 @@ export function EvidenceSettings() {
   const t = useT();
   const on = useAppStore((state) => state.settings?.user.leaveOutOwnFiles);
   const updateSettings = useAppStore((state) => state.updateSettings);
-  const id = useId();
   if (on === undefined) return null;
   return (
-    <section data-testid="evidence-settings">
-      <h4 className={`mb-2 ${sectionTitleClass}`}>{t("evidence.settings.title")}</h4>
-      <div className={ruledListClass}>
-        <div className={ruledRowClass}>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <label htmlFor={id} className={rowTitleClass}>
-              {t("evidence.settings.switch")}
-            </label>
-            <DetailsLine
-              id={`${id}-description`}
-              testId="evidence-description"
-              className={rowTextClass}
-              details={t("evidence.settings.body.details")}
-            >
-              {t("evidence.settings.body")}
-            </DetailsLine>
-          </div>
-          <input
-            id={id}
-            type="checkbox"
-            role="switch"
-            aria-checked={on}
-            aria-describedby={`${id}-description`}
-            data-testid="evidence-switch"
-            checked={on}
-            onChange={(event) =>
-              void updateSettings({ user: { leaveOutOwnFiles: event.target.checked } })
-            }
-            className="switch"
-          />
-        </div>
-      </div>
-    </section>
+    <SwitchSetting
+      sectionTestId="evidence-settings"
+      heading={t("evidence.settings.title")}
+      title={t("evidence.settings.switch")}
+      description={
+        <DetailsLine
+          testId="evidence-description"
+          className={rowTextClass}
+          details={t("evidence.settings.body.details")}
+        >
+          {t("evidence.settings.body")}
+        </DetailsLine>
+      }
+      switchTestId="evidence-switch"
+      on={on}
+      onChange={(next) => void updateSettings({ user: { leaveOutOwnFiles: next } })}
+    />
   );
 }

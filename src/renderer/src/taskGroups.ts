@@ -31,6 +31,26 @@ export function taskGroups(tasks: readonly Task[]): TaskGroups {
   };
 }
 
+/**
+ * The Task the keyboard acts on: the one whose block or row held the focus,
+ * done or not, else the newest unfinished Task of the Mind in focus: none when
+ * no Mind is in focus and no Task holds it. A done Task in focus is never
+ * swapped for another one, which a command could act on by mistake.
+ */
+export function taskInFocus(
+  tasks: readonly Task[],
+  mindId: string | null,
+  focusedTaskId: string | null,
+): Task | undefined {
+  const focused =
+    focusedTaskId === null ? undefined : tasks.find((task) => task.id === focusedTaskId);
+  if (focused) return focused;
+  if (mindId === null) return undefined;
+  return tasks
+    .filter((task) => task.mindId === mindId && task.finishedAt === null)
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+}
+
 /** What the chip says, or null while no Task runs or needs the User (it isn't shown then). */
 export function chipOf(tasks: readonly Task[]): { running: number; needsYou: number } | null {
   const running = tasks.filter(isRunning).length;

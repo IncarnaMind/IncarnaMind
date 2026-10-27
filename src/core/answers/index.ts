@@ -158,6 +158,7 @@ import { scriptCallInput, skillTools } from "../skills/tools";
 import { asksForSources } from "../sources/intent";
 import { inFlow, inStep } from "../timing/flows";
 import {
+  ASK_TOOLS,
   COMMAND_TOOLS,
   DOCUMENT_TOOLS,
   MIND_TOOLS,
@@ -1142,6 +1143,8 @@ export function createAnswers(options: AnswersOptions) {
             : null,
         ...(read?.partial && { readShare }),
         ...(citedAfterChecking.count > 0 && { citedAfterChecking: citedAfterChecking.count }),
+        ...(citedAfterChecking.asked &&
+          citedAfterChecking.count === 0 && { notCitedAfterAsking: true as const }),
         ...(sentAt !== null &&
           firstWordAt !== Infinity && { firstWordMs: wordAfter(sentAt, firstWordAt) }),
         ...(careful && { careful: true as const }),
@@ -2092,6 +2095,19 @@ export function createAnswers(options: AnswersOptions) {
           ? {
               ask: (toolCallId: string, question: UserQuestion, signal: AbortSignal) =>
                 questions.ask({ ...place, answerId, toolCallId, question }, signal),
+              started: (toolCallId: string) => {
+                if (finished || toolCalls.some((each) => each.id === toolCallId)) return;
+                // The question reaches the User before the Run's card of its call can: the
+                // Answer keeps it, so it is still there when the Answer stops at the question.
+                callStarted({
+                  id: toolCallId,
+                  tool: ASK_TOOLS.ask,
+                  source: "asks",
+                  input: {},
+                  status: "running",
+                  resultCount: null,
+                });
+              },
               recorded: (toolCallId: string, question: UserQuestion) => {
                 userQuestions.set(toolCallId, question);
                 const call = toolCalls.find((each) => each.id === toolCallId);
@@ -2152,6 +2168,13 @@ export function createAnswers(options: AnswersOptions) {
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
+              searchedPassages: () =>
+                toolCalls.some(
+                  (call) =>
+                    call.status === "done" &&
+                    ((call.tool === DOCUMENT_TOOLS.search && (call.resultCount ?? 0) > 0) ||
+                      (call.webPage !== undefined && "documentId" in call.webPage)),
+                ),
               figure: (marker) => (calculating ? figures.figure(marker) : null),
               blocksOf: (text) => {
                 let found = 0;
@@ -2379,6 +2402,14 @@ export function createAnswers(options: AnswersOptions) {
         return mindsNow;
       };
       const changedAMind = () => [...mindChanges.values()].some(changesAMind);
+      const missingMindNames = () => [
+        ...new Set(
+          [...mindProblems.values()].flatMap((problem) =>
+            problem.kind === "not-found" && problem.name !== "" ? [problem.name] : [],
+          ),
+        ),
+      ];
+      const endedAfterRefusal = () => !changedAMind() && missingMindNames().length > 0;
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
@@ -2453,6 +2484,21 @@ export function createAnswers(options: AnswersOptions) {
               },
             ]
           : []),
+        {
+          name: "refused-no-reply",
+          check: (text) => {
+            const missing = missingMindNames();
+            if (text.trim() !== "" || !endedAfterRefusal()) return null;
+            const named =
+              missing.length === 1
+                ? `there is no note called “${missing[0]}”`
+                : `there are no notes called ${missing.map((name) => `“${name}”`).join(", ")}`;
+            return {
+              claims: [],
+              note: `Your reply is empty. Say in the User's language that ${named}, and that the change wasn't made. Don't say that you changed anything.`,
+            };
+          },
+        },
         {
           name: "claimed-fixes",
           check: (text) => {
@@ -2609,6 +2655,22 @@ export function createAnswers(options: AnswersOptions) {
           turnChecks,
           shownUpTo: heldBack,
           mayEndBlank: changedAMind,
+          blankReply: () => {
+            if (!endedAfterRefusal()) return null;
+            const language = answerLanguage(context.question);
+            const missing = missingMindNames();
+            const [only] = missing;
+            if (missing.length === 1 && only !== undefined) {
+              return translate(language, "answer.refused.noSuchMind", { name: only });
+            }
+            const quoted = missing.map((name) => `“${name}”`);
+            return translate(language, "answer.refused.noSuchMind.many", {
+              names:
+                language === "zh-CN"
+                  ? quoted.join("、")
+                  : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
+            });
+          },
         }),
         ...(input.checkScales && {
           turnChecks: [

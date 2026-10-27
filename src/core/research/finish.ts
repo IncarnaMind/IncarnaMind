@@ -46,6 +46,8 @@ export interface FinishOptions {
   folderOfMind(mindId: string): string | null;
   /** Makes a Mind in a Folder (or none), as New Mind does; returns its id. */
   createMind(title: string, folderId: string | null): string;
+  /** Puts a Mind in a Folder: where a Task's own Mind goes once its sources were filed. */
+  moveMind(mindId: string, folderId: string): void;
   documents: {
     /** Of these Documents, the live web pages added since `since` (ISO 8601), with their names. */
     webPagesSince(ids: readonly string[], since: string): { id: string; name: string }[];
@@ -292,16 +294,27 @@ function madeMind(options: FinishOptions, task: TaskRun, target: ResearchTarget)
   return earlier && options.mindExists(earlier) ? earlier : null;
 }
 
-/** The Mind the draft goes into: the one chosen, else the new one an earlier try made, else a new one. */
+/**
+ * The Mind the draft goes into: the one chosen, else the new one an earlier try made, else a new
+ * one. A Mind this Task made at its Start (`ownMind`) moves into the Folder its sources were
+ * filed in, so the draft sits beside them: unless the User has filed it somewhere since, whose
+ * Folder stays.
+ */
 export function draftMind(
   options: FinishOptions,
   task: TaskRun,
   target: ResearchTarget,
   title: string,
   folderId: string | null,
+  ownMind = false,
 ): string {
   const made = madeMind(options, task, target);
-  if (made) return made;
+  if (made) {
+    // Only while it is unfiled: a Folder the User gave it during the run is theirs to keep.
+    if (ownMind && folderId && options.folderOfMind(made) === null)
+      options.moveMind(made, folderId);
+    return made;
+  }
   const home = folderId ?? (task.mindId ? options.folderOfMind(task.mindId) : null);
   const mindId = options.createMind(cutTitle(title), home);
   task.started(MIND_RECORD);
@@ -322,7 +335,14 @@ export type AnswerStep = (
 export async function writeDraft(
   options: FinishOptions,
   task: TaskRun,
-  input: { topic: string; plan: ResearchPlan; draftRequest: string; writeInto: ResearchTarget },
+  input: {
+    topic: string;
+    plan: ResearchPlan;
+    draftRequest: string;
+    writeInto: ResearchTarget;
+    /** Whether the Task made its own Mind at its Start, rather than the User choosing one. */
+    ownMind: boolean;
+  },
   found: { notes: readonly string[]; documents: readonly string[]; folderId: string | null },
   model: ChatModelChoice,
   answer: AnswerStep,
@@ -368,7 +388,14 @@ export async function writeDraft(
     task.settled(DRAFT_STEP, "failed", { problem: "no-answer" });
     return { failed: "no-answer" };
   }
-  const mindId = draftMind(options, task, input.writeInto, input.plan.title, found.folderId);
+  const mindId = draftMind(
+    options,
+    task,
+    input.writeInto,
+    input.plan.title,
+    found.folderId,
+    input.ownMind,
+  );
   const proposed = await options.notes.propose(mindId, result.answer.blocks, input.draftRequest, {
     source: "research",
     taskId: task.id,
