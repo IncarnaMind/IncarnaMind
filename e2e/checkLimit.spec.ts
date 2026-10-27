@@ -63,7 +63,6 @@ test.afterEach(async () => {
 
 const marks = (window: Page) => window.getByTestId("claim-mark");
 
-/** Selects the line and chooses Check against Documents. */
 async function check(window: Page, line: Locator) {
   await slideSelect(window, line, MARKS.first, { line, words: MARKS.last });
   const menu = window.getByTestId("selection-menu");
