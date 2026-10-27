@@ -36,6 +36,7 @@ import {
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
+import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
@@ -95,6 +96,7 @@ import {
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
   type ProviderError,
+  type ReadyQuestion,
   type SavedExport,
   type SavedFile,
   type ScannedQuoteInput,
@@ -3066,6 +3068,14 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("document.status", () => examples.documentChanged());
   isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
+  const readyQuestionNow = (): ReadyQuestion | null => {
+    const exampleDocuments = new Set(examples.made().documentIds);
+    return readyQuestionOf({
+      own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
+      example: examples.exampleReady(),
+      language: settings.get().language,
+    });
+  };
   // Started here, not with the rest of the Library, so a Document an earlier version filed as an
   // example's is never worked on again (#1942).
   library.start();
@@ -3636,8 +3646,10 @@ export function createCore(adapters: CoreAdapters): Core {
     restoreCheckpoint: async (mindId, checkpointId) => checkpoints.restore(mindId, checkpointId),
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
-    askReadyQuestion: async () => {
-      const ready = examples.readyAnswer();
+    askExampleReadyQuestion: async () => {
+      // Only while the reader names the example's own Question, whose Answer is written in advance.
+      const named = readyQuestionNow();
+      const ready = named !== null && named.scope === null ? examples.readyAnswer() : null;
       if (!ready) {
         throw new InvalidInputError({ key: "error.examples.reading" });
       }
@@ -3943,6 +3955,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listUnmatchedReferences: async () => referenceImport.unmatched(),
     addReferenceFile: (recordId, path) => referenceImport.addFile(recordId, path),
     getExamples: async (group) => examples.status(group),
+    readyQuestion: async () => readyQuestionNow(),
     isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
     createExamples: async (group) => examples.create(group),

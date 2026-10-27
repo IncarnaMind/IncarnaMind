@@ -12,6 +12,7 @@ import { useT } from "../i18n";
 import { openModelSetup } from "../modelSetup";
 import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
+import { useReadyQuestion } from "../readyQuestion";
 import { useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
 import { ExampleBanner } from "./GettingStarted";
@@ -136,9 +137,8 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const pickDocuments = useAppStore((state) => state.pickDocuments);
   const addLinkedFolder = useAppStore((state) => state.addLinkedFolder);
   const updateGettingStarted = useAppStore((state) => state.updateGettingStarted);
-  const ready = useAppStore((state) => state.examples?.ready ?? null);
+  const ready = useReadyQuestion();
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
-  const placeAssistant = useAppStore((state) => state.placeAssistant);
   const skipped = useAppStore((state) => state.skippedFiles);
   const unread = useUnreadFiles(null);
   const addFiles = useRef<HTMLButtonElement>(null);
@@ -175,7 +175,6 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const chooseModel = () => {
     openModelSetup();
     revealAssistant();
-    if (useAppStore.getState().layout?.assistant.folded) void placeAssistant({ folded: false });
   };
 
   const layer = (stateOf: (key: StepKey) => StepState, hasModel: boolean, live: boolean) => {
@@ -261,11 +260,12 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
                     data-testid={only("first-open-ready")}
                     onClick={() => {
                       focusNext.current = true;
-                      void askReadyQuestion();
+                      revealAssistant();
+                      void askReadyQuestion(mindId);
                     }}
                     className={buttonStyle("secondary", "sm")}
                   >
-                    {t("firstOpen.step.question.ready", { question: ready })}
+                    {t("firstOpen.step.question.ready", { question: ready.question })}
                   </button>
                   <span className="text-[13px] leading-5 text-ink-meta">
                     <OwnQuestion message="firstOpen.step.question.own" />

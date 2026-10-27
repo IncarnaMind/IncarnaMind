@@ -1,9 +1,10 @@
 import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, useRef } from "react";
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
 import { displayName, sourceOf } from "../../../shared/documentNames";
+import { isProcessing } from "../../../shared/documentStatus";
 import type { MessageKey } from "../../../shared/i18n";
 import { useDocumentPlace } from "../documentPlaces";
-import { documentStatusText, isProcessing } from "../documentStatus";
+import { documentStatusText } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";

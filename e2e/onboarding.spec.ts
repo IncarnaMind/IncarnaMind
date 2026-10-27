@@ -497,6 +497,62 @@ test("in Chinese, the ready Question is the Chinese example's, answered with no 
   await app.close();
 });
 
+const OWN_FILES = [
+  {
+    language: "en",
+    name: "Project brief.md",
+    text: "# Project brief\n\nThe project brief sets out the harbour plan.\n",
+    asks: "Ask: “What does ‘Project brief’ say?”",
+    question: "What does ‘Project brief’ say?",
+  },
+  {
+    language: "zh-CN",
+    name: "项目简报.md",
+    text: "# 项目简报\n\n项目简报写明了港口计划。\n",
+    asks: "提问：“‘项目简报’讲了什么？”",
+    question: "‘项目简报’讲了什么？",
+  },
+] as const;
+
+for (const { language, name, text, asks, question } of OWN_FILES) {
+  test(`a file added from step 1 is what the ready Question asks about, and its Answer cites it (${language}, #2084)`, async () => {
+    const file = join(sources, name);
+    await writeFile(file, text);
+    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    await useLocalChatModel(window);
+    const files = step(window, "files");
+    await expect(files).toHaveAttribute("data-state", "open");
+    await interceptOpenDialog(app, file);
+    await pointAndClick(window, files.getByTestId("first-open-add-files"));
+
+    // Read, the file is the one step 2 offers a Question about.
+    const ready = step(window, "question").getByTestId("first-open-ready");
+    await expect(ready).toHaveText(asks, { timeout: 30_000 });
+    for (const width of [900, 1600]) {
+      await setWindowSize(app, window, width, 800);
+      const shown = await ready.boundingBox();
+      const card = await window.getByTestId("first-open-steps").boundingBox();
+      expect(shown && card && shown.x + shown.width <= card.x + card.width).toBe(true);
+    }
+    await setWindowSize(app, window, 1440, 900);
+    await pointAndClick(window, ready);
+
+    // Its Answer reads that file, and cites it: the example's Question was never asked.
+    await expect(window.getByTestId("assistant-question").last()).toContainText(question);
+    const answer = assistantAnswers(window).last();
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    const chip = answer.getByTestId("citation-chip").first();
+    await expect(chip).toBeVisible();
+    await pointAndClick(window, chip);
+    await expect(
+      window.getByTestId("citation-card").getByText(name.replace(/\.md$/, ""), { exact: true }),
+    ).toBeVisible();
+    await app.close();
+  });
+}
+
 test("Add files… with only a file it can't take says why in step 1, which stays open (#123)", async () => {
   const picture = join(sources, "Picture.png");
   await writeFile(picture, "not a document");

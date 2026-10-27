@@ -201,6 +201,17 @@ export function createExamples(options: ExamplesOptions) {
   };
 
   /**
+   * The example's own ready Question (#123), while the credit paper is the one shown; null
+   * otherwise, as for the earlier version's tea example. The one the first open offers is
+   * `readyQuestion`, which names the User's own Document instead as soon as theirs is ready.
+   */
+  const exampleReady = (): string | null => {
+    const examples = stored(DEFAULT_GROUP);
+    if (!examples || !options.mindExists(examples.mindId)) return null;
+    return EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready?.question ?? null;
+  };
+
+  /**
    * Each part while it exists: the Mind can be deleted, or the folder unlinked,
    * on its own. The default is the earlier version's tea example while there is
    * one and no credit paper.
@@ -221,12 +232,12 @@ export function createExamples(options: ExamplesOptions) {
         ...(group === DEFAULT_GROUP ? [] : [DEFAULT_GROUP]),
         ...order().filter((each) => each !== group),
       ],
-      ready: (!old && mind && EXAMPLE_SETS[group][mind.language].ready?.question) || null,
+      exampleReadyQuestion: exampleReady(),
     };
   };
 
   /**
-   * The ready Question with its Answer and Citations (`askReadyQuestion`),
+   * The ready Question with its Answer and Citations (`askExampleReadyQuestion`),
    * checked against the Documents now; null while the credit paper isn't
    * made or its Documents aren't all read.
    */
@@ -665,6 +676,8 @@ export function createExamples(options: ExamplesOptions) {
     },
 
     create,
+
+    exampleReady,
 
     readyAnswer,
 

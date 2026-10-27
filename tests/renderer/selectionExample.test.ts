@@ -39,7 +39,6 @@ describe("a viewer selection's Add to note", () => {
         linkedFolderId: null,
         answerId: null,
         more: [],
-        ready: null,
       },
       otherExamples: [],
     } as never);

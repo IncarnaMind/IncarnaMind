@@ -19,6 +19,7 @@ import { translateNow } from "./i18n";
 import { documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
+import { readyQuestionNow } from "./readyQuestion";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -147,12 +148,25 @@ export async function openConversation(conversationId: string, answerId?: string
 
 let readyAsking = false;
 
-export async function askReadyQuestion(): Promise<void> {
+/**
+ * Asks the first open's ready Question (see `ReadyQuestion`) from the Mind whose card shows it.
+ * About the User's own Document, it is asked like any Question, from the composer's path, so it
+ * waits for a model and says there why it couldn't be asked; the example's Answer is written in
+ * advance, and the core writes it.
+ */
+export async function askReadyQuestion(mindId: string): Promise<void> {
   // A double-click asks it once.
   if (readyAsking) return;
   readyAsking = true;
   try {
-    const { conversationId } = await core.askReadyQuestion();
+    const ready = readyQuestionNow();
+    if (!ready) return;
+    if (ready.scope) {
+      const asked = await askInAssistant({ text: ready.question, mindId, scope: ready.scope });
+      if (asked) useAppStore.getState().updateGettingStarted({ askedReady: true });
+      return;
+    }
+    const { conversationId } = await core.askExampleReadyQuestion();
     useAppStore.getState().updateGettingStarted({ askedReady: true });
     await openConversation(conversationId);
   } catch (error) {

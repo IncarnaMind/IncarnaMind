@@ -4398,6 +4398,7 @@ export const zhCN = {
   "firstOpen.step.question.ready": "提问：“{question}”",
   "firstOpen.step.question.own": "或按 {shortcut} 输入你自己的问题",
   "firstOpen.step.question.ownOnly": "按 {shortcut} 提出你自己的问题。",
+  "readyQuestion.document": "‘{document}’讲了什么？",
   "firstOpen.step.files.title": "添加你的文件",
   "firstOpen.step.files.done": "已添加你的文件",
   "firstOpen.step.files.body": "你的文件留在原处，IncarnaMind 在这台电脑上读取它们。",

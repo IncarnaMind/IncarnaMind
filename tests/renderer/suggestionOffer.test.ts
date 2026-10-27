@@ -99,7 +99,7 @@ describe("a pause while suggestions are off", () => {
         linkedFolderId: "examples",
         answerId: "example-answer",
         more: [],
-        ready: null,
+        exampleReadyQuestion: null,
       } satisfies Examples,
     });
     suggestNext.mockResolvedValue({ kind: "off", scopeHasDocuments: true });

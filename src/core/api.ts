@@ -2274,7 +2274,7 @@ export interface GettingStarted {
   indexed: boolean;
   /** The User asked a Question of their own, not the example's. */
   askedOwn: boolean;
-  /** The User asked the first open's ready Question (`askReadyQuestion`). */
+  /** The User asked the first open's ready Question (`readyQuestion`). */
   askedReady: boolean;
   /** An own note was exported successfully on this device. */
   exported: boolean;
@@ -3777,10 +3777,25 @@ export interface Examples {
   answerId: string | null;
   more: ExampleGroup[];
   /**
-   * The first open's ready Question (#123), whose Answer is written in advance
-   * (`askReadyQuestion`): the credit paper's, while it exists; null otherwise.
+   * The example's own ready Question (#123), while the credit paper is the one made: what the
+   * first open offered before the User had Documents, and what `readyQuestionOf` still offers
+   * while they have none. Not what it offers always: the reader decides (see `ReadyQuestion`).
    */
-  ready: string | null;
+  exampleReadyQuestion: string | null;
+}
+
+/**
+ * The first open's ready Question: the one its card offers to ask in one click. One reader
+ * decides it (`readyQuestion`), for every place that shows it.
+ */
+export interface ReadyQuestion {
+  /** What to ask, in the interface's language. */
+  question: string;
+  /**
+   * What its Answer reads, as the Question's Search scope: the User's own Document it is about,
+   * asked with a model. Null for the example's, whose Answer is written in advance.
+   */
+  scope: SearchScope | null;
 }
 
 /**
@@ -5682,7 +5697,7 @@ export interface AnswerSteps {
    * Absent: none.
    */
   unbackedClaims?: ClaimedChange[];
-  /** Written in advance for the example (`askReadyQuestion`): no model wrote it, and nothing was searched. */
+  /** Written in advance for the example (`askExampleReadyQuestion`): no model wrote it, and nothing was searched. */
   example?: true;
   /** It covered only some of the Documents in scope, and offers the rest. Absent: all of them. */
   coverage?: AnswerCoverage;
@@ -9121,13 +9136,11 @@ export interface CoreApi {
    */
   askInConversation(input: AskInConversationInput): Promise<ConversationAskResult>;
   /**
-   * Asks the first open's ready Question (`Examples.ready`, #123) in a new
-   * conversation, with its Answer written in advance and its Citations checked
-   * against the example Documents now: no model is asked, and no "answer.*"
-   * event is sent. Throws while the credit paper isn't made or its Documents
-   * aren't all read.
+   * Asks the example's ready Question, whose Answer is written in advance and
+   * needs no model, in a new conversation. Call it only while `readyQuestion`
+   * names the example's. Throws while it isn't made or its Documents aren't all read.
    */
-  askReadyQuestion(): Promise<{ conversationId: string; answerId: string }>;
+  askExampleReadyQuestion(): Promise<{ conversationId: string; answerId: string }>;
   /**
    * Writes an Answer of a conversation again, in place, for its Question as it was asked,
    * reading the Mind it was asked from as that Mind is now.
@@ -9532,6 +9545,12 @@ export interface CoreApi {
 
   /** An example Mind and its Documents, if made (see `Examples`); the credit paper by default. */
   getExamples(group?: ExampleGroup): Promise<Examples>;
+  /**
+   * The first open's ready Question (see `ReadyQuestion`): about the most recently added of
+   * the User's own Documents that a search can answer from, and the example's only while they
+   * have none. Null while theirs are still being read, or when there is nothing to ask.
+   */
+  readyQuestion(): Promise<ReadyQuestion | null>;
   /**
    * Whether a Document is one of the examples' (see `Examples`): read with them,
    * and left out of the User's own Folders, Tags and search (#1942).
@@ -10851,7 +10870,7 @@ const methods: Record<CoreApiMethod, true> = {
   compareCheckpoints: true,
   restoreCheckpoint: true,
   askInConversation: true,
-  askReadyQuestion: true,
+  askExampleReadyQuestion: true,
   regenerateConversationAnswer: true,
   countScopeDocuments: true,
   stopConversationAnswer: true,
@@ -11071,6 +11090,7 @@ const methods: Record<CoreApiMethod, true> = {
   listConnectors: true,
   addConnector: true,
   getExamples: true,
+  readyQuestion: true,
   isExampleDocument: true,
   offerExamples: true,
   createExamples: true,

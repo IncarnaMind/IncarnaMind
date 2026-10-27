@@ -33,6 +33,7 @@ import { EXAMPLE_GROUPS } from "../../core/api";
 import { resolveLanguage } from "../../core/language";
 import type { UiUsageEvent } from "../../core/usageEvents";
 import { displayName } from "../../shared/documentNames";
+import { isSearchable } from "../../shared/documentStatus";
 import type { DocumentLocation } from "../../shared/documentViewer";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
@@ -49,7 +50,6 @@ import {
 import { useComposer } from "./composer";
 import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
-import { isSearchable } from "./documentStatus";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
 import { languageNow } from "./i18n";
