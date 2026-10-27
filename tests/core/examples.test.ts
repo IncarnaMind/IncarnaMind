@@ -244,7 +244,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       await core.reconcileDocuments();
       await waitForProcessing(core, [document.id]);
 
-      const asked = await core.askReadyQuestion();
+      const asked = await core.askExampleReadyQuestion();
       const { messages } = await core.getConversation(asked.conversationId);
       const answer = messages.find((message) => message.id === asked.answerId);
       expect(answer?.kind === "answer" && answer.citations[0]).toMatchObject({
