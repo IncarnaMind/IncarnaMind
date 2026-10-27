@@ -156,7 +156,7 @@ import {
 } from "../skills/scripts";
 import { scriptCallInput, skillTools } from "../skills/tools";
 import { asksForSources } from "../sources/intent";
-import { inFlow } from "../timing/flows";
+import { inFlow, inStep } from "../timing/flows";
 import {
   COMMAND_TOOLS,
   DOCUMENT_TOOLS,
@@ -2415,17 +2415,13 @@ export function createAnswers(options: AnswersOptions) {
                       }
                     }
                     mindsNow = null;
-                    const checked = await claimsNoCallMade(
-                      text,
-                      toolCalls,
-                      mindsListed(),
-                      focusedId,
-                      {
+                    const checked = await inStep("change-claim-check", () =>
+                      claimsNoCallMade(text, toolCalls, mindsListed(), focusedId, {
                         model: judgeModel,
                         names: options.readableMindName,
                         states: appliedInTurn,
                         signal: controller.signal,
-                      },
+                      }),
                     );
                     if (checked.usage) {
                       usage.inputTokens += checked.usage.inputTokens ?? 0;

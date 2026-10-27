@@ -4,8 +4,9 @@
  * that keeps a Citation, an assistant turn, an assistant follow-up, and a Question and a check
  * whose record is fixed before the model writes on; and Claude Haiku 5.5's in a comparison
  * table's cell and a Meeting's notes. Each with its system prompt, messages, Tool definitions and
- * Tool results, against the requests recorded on main: so its Runs also end where main's do. A change meant for every model records them again:
- * `npx vitest run tests/core/unlistedRequests.test.ts -u`.
+ * Tool results, against the requests recorded on main: so its Runs also end where main's do. A
+ * change meant for every model, a prompt's or a Tool description's, records them again in the
+ * same pull request: `npx vitest run tests/core/unlistedRequests.test.ts -u`.
  */
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
