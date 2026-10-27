@@ -138,7 +138,7 @@ function refuse(kind: FormulaProblemKind, message: string): never {
 }
 
 /** Long and deep enough for any figure; beyond them a formula is an attack on the parser's stack. */
-const MAX_LENGTH = 2000;
+export const FORMULA_MAX_LENGTH = 2000;
 const MAX_DEPTH = 50;
 
 interface Token {
@@ -242,8 +242,8 @@ type Node = { from: number; to: number } & (
  * the number before it by 100. A formula reads the same here as in a sheet.
  */
 function parse(formula: string): Node {
-  if (formula.length > MAX_LENGTH)
-    refuse("syntax", `formula: it's longer than ${MAX_LENGTH} characters; write it in fewer.`);
+  if (formula.length > FORMULA_MAX_LENGTH)
+    refuse("syntax", `formula: it's longer than ${FORMULA_MAX_LENGTH} characters; write it in fewer.`);
   const tokens = lex(formula);
   const end: Token = { kind: "end", text: "", at: formula.length };
   let index = 0;

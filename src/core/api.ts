@@ -44,6 +44,7 @@ import type {
   AnalysisLanguage,
   AnalysisOutput,
   AnalysisUnavailableReason,
+  AnalysisValue,
   AnalysisVersions,
 } from "../shared/analysis";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
@@ -211,7 +212,7 @@ export interface CreateMindInput {
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 30;
+export const CONTENT_SCHEMA_VERSION = 31;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -314,6 +315,8 @@ export const MIND_CONTENT_FIELD = "blocks";
  * before has none, and uses the defaults.
  */
 export const MIND_SETTINGS_FIELD = "settings";
+
+export const MIND_FIGURE_RUNS_FIELD = "figureRuns";
 
 /**
  * The name of the Y.Map, beside a Mind's Blocks, that says where Blocks came
@@ -1237,6 +1240,8 @@ export interface SkillScriptRun {
  */
 export const CITATION_NODE = "citation";
 
+export const CALCULATED_FIGURE_NODE = "calculatedFigure";
+
 /**
  * The node type of a footnote the User writes: an inline node at its marker,
  * holding the footnote's text (text with marks, line breaks and Citations, but
@@ -2027,6 +2032,12 @@ export interface MarkedFigure extends CalculatedFigure {
   marker: number;
 }
 
+export interface CalculatedFigureAttributes {
+  id: string;
+  figure: CalculatedFigure;
+  analysisId: string | null;
+}
+
 export interface FigureFromAnalysis {
   /** The Answer's Analysis, by its number. */
   analysis: number;
@@ -2093,6 +2104,16 @@ export interface AnswerAnalysis {
     tables: { result: string; marker: number }[];
     charts: number[];
   };
+}
+
+/** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
+export interface RetainedFigureAnalysis
+  extends Pick<
+    AnswerAnalysis,
+    "title" | "language" | "code" | "inputs" | "versions" | "codeSha256" | "ranAt"
+  > {
+  id: string;
+  values: Extract<AnalysisValue, { kind: "figure" }>[];
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */

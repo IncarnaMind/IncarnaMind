@@ -66,6 +66,8 @@ export interface Reading {
    * worked out from the figure is shown with as many.
    */
   decimals: number;
+  /** Last shown place in base units; null for exact fractions, undefined for legacy or unrepresentable precision. */
+  precision?: number | null;
 }
 
 /**
@@ -995,6 +997,11 @@ interface Digits {
 
 const decimalsOf = (number: Digits): number => Math.max(0, number.digits.length - number.point);
 
+function precisionOf(number: Digits, exponent: number): number | undefined {
+  const precision = 10 ** (exponent - decimalsOf(number));
+  return Number.isFinite(precision) && precision > 0 ? precision : undefined;
+}
+
 /** The double nearest to the digits × 10^exponent, as a spreadsheet reads the same number written out. */
 function decimalValue(number: Digits, exponent: number, negative: boolean): number {
   if (!/[1-9]/.test(number.digits)) return 0;
@@ -1836,6 +1843,7 @@ function readingOf(draft: Draft, written?: Written, number: Digits = draft.core.
     scaleWord: draft.scaleAt && written ? written(draft.scaleAt) : draft.scaleWord,
     unit,
     decimals: fraction !== null ? 0 : decimalsOf(number),
+    precision: fraction !== null ? null : precisionOf(number, draft.exponent + draft.unitExponent),
   };
 }
 
@@ -1870,6 +1878,7 @@ function statedReadings(draft: Draft, statements: readonly Statement[]): Reading
       scaleWord: statement.scaleWord,
       unit,
       decimals: decimalsOf(draft.core.number),
+      precision: precisionOf(draft.core.number, statement.exponent + unitExponent),
     });
   }
   return readings;

@@ -28,6 +28,7 @@
  * a sum that subtracts it is recorded all the same, with a line telling the
  * model it adds (#978).
  */
+import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import {
   type Figure,
   type FigureContext,
@@ -81,7 +82,7 @@ function scaleChangeProblem(change: ScaleChange, language: Language): string {
 
 /** The most figures one call records, and inputs one figure has. */
 export const MAX_FIGURES_PER_CALL = 20;
-export const MAX_INPUTS_PER_FIGURE = 30;
+export { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 /** How many times one Answer may call `calculate`; later calls are refused, so the model answers. */
 const MAX_CALLS_PER_ANSWER = 5;
 
