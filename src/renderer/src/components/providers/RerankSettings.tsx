@@ -16,6 +16,7 @@ import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
+import { SettingsAdvanced } from "../SettingsAdvanced";
 import {
   buttonClass,
   choiceListClass,
@@ -29,7 +30,6 @@ import {
   noticeClass,
   primaryButtonClass,
   rowButtonsClass,
-  rowStatusClass,
   rowTextClass,
   ruledListClass,
   ruledRow,
@@ -87,12 +87,76 @@ export function RerankSettingsSection() {
       </DetailsLine>
 
       {!editing && (
-        <div className={ruledListClass}>
-          <div className={rerank.enabled ? ruledRowClass : ruledRow("center", true)}>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              {rerank.enabled && builtIn ? (
+        <>
+          <div className={ruledListClass}>
+            <div className={rerank.enabled ? ruledRowClass : ruledRow("center", true)}>
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <p data-testid="rerank-state" className="text-ui text-ink">
+                  {rerank.enabled
+                    ? builtIn
+                      ? t("rerank.settings.stateOn")
+                      : t("rerank.settings.stateSent", { service })
+                    : t("privacy.traffic.off")}
+                </p>
+                {rerank.enabled && rerank.paused && (
+                  <p className={`mt-1.5 ${noticeClass}`}>{t("rerank.settings.paused")}</p>
+                )}
+                {rerank.enabled && !builtIn && !rerank.hasApiKey && (
+                  <p className={`mt-1.5 ${noticeClass}`}>
+                    {t("rerank.settings.keyMissing", { service })}
+                  </p>
+                )}
+                {rerank.enabled && builtIn && <BuiltInModelState model={rerank.model} />}
+              </div>
+              <div className={rowButtonsClass}>
+                {builtIn && rerank.model.state === "failed" && (
+                  <button
+                    type="button"
+                    data-testid="rerank-retry"
+                    onClick={() => void run(() => core.downloadRerankingModel())}
+                    className={buttonClass}
+                  >
+                    {t("rerank.settings.retry")}
+                  </button>
+                )}
+                {rerank.enabled ? (
+                  <>
+                    <button
+                      type="button"
+                      data-testid="rerank-change"
+                      onClick={() => setEditing(true)}
+                      className={buttonClass}
+                    >
+                      {t("rerank.settings.change")}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="rerank-remove"
+                      onClick={() => void run(() => core.removeRerankSettings())}
+                      className={buttonClass}
+                    >
+                      {t("rerank.settings.remove")}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="rerank-set-up"
+                    onClick={() => setEditing(true)}
+                    className={buttonClass}
+                  >
+                    {t("rerank.settings.setUp")}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {rerank.enabled && (
+            <SettingsAdvanced testId="rerank-advanced">
+              {builtIn ? (
                 <>
-                  <p data-testid="rerank-current" className="text-ui text-ink">
+                  <p data-testid="rerank-current" className="text-[13px] leading-5 text-ink">
                     {t(
                       rerank.byDefault
                         ? "rerank.settings.builtInDefault"
@@ -108,70 +172,18 @@ export function RerankSettingsSection() {
                     </p>
                   )}
                   <p className={rowTextClass}>{t("rerank.settings.builtInNote")}</p>
-                  <BuiltInModelState model={rerank.model} />
                 </>
-              ) : rerank.enabled ? (
+              ) : (
                 <>
-                  <p data-testid="rerank-current" className="text-ui text-ink">
+                  <p data-testid="rerank-current" className="text-[13px] leading-5 text-ink">
                     {t("rerank.settings.inUse", { service, model: rerank.modelId ?? "" })}
                   </p>
                   <p className={rowTextClass}>{t("rerank.settings.sends", { service })}</p>
-                  {rerank.paused && (
-                    <p className={`mt-1.5 ${noticeClass}`}>{t("rerank.settings.paused")}</p>
-                  )}
-                  {!rerank.hasApiKey && (
-                    <p className={`mt-1.5 ${noticeClass}`}>
-                      {t("rerank.settings.keyMissing", { service })}
-                    </p>
-                  )}
                 </>
-              ) : (
-                <p className={rowStatusClass}>{t("privacy.traffic.off")}</p>
               )}
-            </div>
-            <div className={rowButtonsClass}>
-              {builtIn && rerank.model.state === "failed" && (
-                <button
-                  type="button"
-                  data-testid="rerank-retry"
-                  onClick={() => void run(() => core.downloadRerankingModel())}
-                  className={buttonClass}
-                >
-                  {t("rerank.settings.retry")}
-                </button>
-              )}
-              {rerank.enabled ? (
-                <>
-                  <button
-                    type="button"
-                    data-testid="rerank-change"
-                    onClick={() => setEditing(true)}
-                    className={buttonClass}
-                  >
-                    {t("rerank.settings.change")}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="rerank-remove"
-                    onClick={() => void run(() => core.removeRerankSettings())}
-                    className={buttonClass}
-                  >
-                    {t("rerank.settings.remove")}
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  data-testid="rerank-set-up"
-                  onClick={() => setEditing(true)}
-                  className={buttonClass}
-                >
-                  {t("rerank.settings.setUp")}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+            </SettingsAdvanced>
+          )}
+        </>
       )}
 
       {editing && (

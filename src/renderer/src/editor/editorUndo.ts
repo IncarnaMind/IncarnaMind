@@ -21,6 +21,7 @@ export interface UndoStack {
   lastChange: number;
   stopCapturing(): void;
   addTrackedOrigin(origin: unknown): void;
+  removeTrackedOrigin(origin: unknown): void;
   addToScope: Y.UndoManager["addToScope"];
   on(event: StackEvent, listener: StackListener): void;
   on(event: "stack-cleared", listener: () => void): void;

@@ -1699,6 +1699,7 @@ export function createCore(adapters: CoreAdapters): Core {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       unfinished: () => tasks.unfinished(),
       isLive: (taskId) => tasks.isLive(taskId),
+      updateInput: (taskId, input) => tasks.updateInput(taskId, input),
       resume: (taskId) => tasks.resume(taskId),
       stop: (taskId) => tasks.stop(taskId),
     },
@@ -2418,6 +2419,8 @@ export function createCore(adapters: CoreAdapters): Core {
     timers: paceTimers,
   });
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
+  // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
+  let isExampleDocument: (documentId: string) => boolean = () => false;
   const library = createLibrary({
     db,
     tags,
@@ -2425,6 +2428,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     settings,
     background,
+    isExampleDocument: (documentId) => isExampleDocument(documentId),
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
@@ -2569,7 +2573,6 @@ export function createCore(adapters: CoreAdapters): Core {
     },
   });
   libraryDocumentChanged = (id) => library.documentChanged(id);
-  library.start();
 
   // Reference records (#286): read from files as they're processed, edited by the User, and
   // filled by Look up, which sends a DOI or an arXiv id only, with consent, never in local mode.
@@ -3057,6 +3060,10 @@ export function createCore(adapters: CoreAdapters): Core {
     changed: (value) => events.emit("examples.changed", value),
   });
   events.on("document.status", () => examples.documentChanged());
+  isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
+  // Started here, not with the rest of the Library, so a Document an earlier version filed as an
+  // example's is never worked on again (#1942).
+  library.start();
   // A new version of a Document in a Folder: its Minds' cited claims are checked for contradictions (#112).
   checks.startWatching();
   events.on("document.status", (document) => checks.documentChanged(document));
@@ -3145,7 +3152,10 @@ export function createCore(adapters: CoreAdapters): Core {
         add: (id, name, file) => documents.addSnapshot(id, name, file, () => {}, "transcript"),
         file: (documentId, folderId) => library.assign(documentId, folderId),
         check: (path) => documents.check(path),
-        moveFile: (id, path) => documents.moveFile(id, path),
+        checkNow: async (documentId, path) => {
+          await documents.checkNow(path);
+          if (documentId) await processed(documentId);
+        },
         find: (id) => {
           try {
             return documents.get(id);
@@ -3154,7 +3164,6 @@ export function createCore(adapters: CoreAdapters): Core {
           }
         },
       },
-      saveFile: (file) => outputs.save(file),
       name: (meetingId) => {
         const meeting = listMeetings?.().find((each) => each.id === meetingId);
         const mind = meeting ? minds.get(meeting.mindId) : null;
@@ -3187,11 +3196,19 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
+      purgedPaths: () =>
+        db
+          .all<{ path: string }>(
+            `SELECT path FROM documents
+             WHERE kind = 'transcript' AND source_kind = 'data-folder' AND purged_at IS NOT NULL`,
+          )
+          .map((row) => row.path),
       saved: (meetingId) => transcriptSaved(meetingId),
       changed: meetingsChanged,
       log: adapters.log ?? silentLogger,
     });
 
+  transcripts?.dropPurged();
   // Meetings (#135): while audio is being captured, background model work holds back.
   const meetings = createMeetings({
     db,
@@ -3292,8 +3309,8 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return result;
   };
-  /** Resolves once a Document's newest version has its Passages, or after `ms` with the last version's. */
-  const extracted = (documentId: string, ms: number) =>
+  /** Resolves once a Document is no longer queued or being read; `ms` null waits as long as it takes. */
+  const settled = (documentId: string, ms: number | null) =>
     new Promise<void>((resolve) => {
       const busy = (status: DocumentStatus | null) =>
         status === "queued" || status === "extracting";
@@ -3308,15 +3325,19 @@ export function createCore(adapters: CoreAdapters): Core {
         return;
       }
       const done = () => {
-        clearTimeout(timer);
+        if (timer !== null) clearTimeout(timer);
         stop();
         resolve();
       };
-      const timer = setTimeout(done, ms);
+      const timer = ms === null ? null : setTimeout(done, ms);
       const stop = events.on("document.status", (document) => {
         if (document.id === documentId && !busy(document.status)) done();
       });
     });
+  /** Resolves once a Document's newest version has its Passages, or after `ms` with the last version's. */
+  const extracted = (documentId: string, ms: number) => settled(documentId, ms);
+  /** Resolves once a Document's newest version is read: its Passages are then the file's text. */
+  const processed = (documentId: string) => settled(documentId, null);
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     content,
@@ -3685,7 +3706,17 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return found;
     },
-    searchDocumentText: async (query, options) => documents.searchText(query, options),
+    // The Library lists the examples until the User has a Document of their own (#1942), so a first
+    // search looks in them; from the first Document of the User's own on, they are left out before
+    // the search's limit, so they never take one of its places.
+    searchDocumentText: async (query, options) => {
+      const example = examples.made().documentIds;
+      const own = documents.list().some((each) => !example.includes(each.id));
+      return documents.searchText(query, {
+        ...options,
+        ...(own ? { excludeDocumentIds: example } : {}),
+      });
+    },
     renameConversation: async (conversationId, title) => {
       const conversation = conversations.rename(conversationId, title);
       conversationsChanged();
@@ -3907,6 +3938,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listUnmatchedReferences: async () => referenceImport.unmatched(),
     addReferenceFile: (recordId, path) => referenceImport.addFile(recordId, path),
     getExamples: async (group) => examples.status(group),
+    isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
     createExamples: async (group) => examples.create(group),
     removeExamples: async (group) => examples.remove(group),
@@ -4313,6 +4345,7 @@ export function createCore(adapters: CoreAdapters): Core {
         wordImports.dropPurged(),
         documents.dropPurged(),
       ]);
+      transcripts?.dropPurged();
     },
     acceptAssignments: async (ids) => library.accept(ids),
     rejectAssignments: async (ids) => library.reject(ids),
@@ -4701,6 +4734,7 @@ export function createCore(adapters: CoreAdapters): Core {
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
     setTranscriptionKey: (input) => cloudTranscription.setKey(input),
+    getTranscriptionModel: async () => transcriptionModel?.status() ?? null,
     getTranscriptionSpeed: async () => {
       const speed = settings.readDeviceValue(TRANSCRIPTION_SPEED);
       const ratio =

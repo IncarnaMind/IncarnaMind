@@ -207,7 +207,7 @@ for (const [language, width] of [
         .getByRole("menuitem")
         .allTextContents();
       await window.keyboard.press("Escape");
-      expect(sidebarItems).toHaveLength(4);
+      expect(sidebarItems).toHaveLength(5);
       const trigger = window.getByTestId("home-new-menu");
       await expect(trigger).toHaveAccessibleName(t("home.newMind.more"));
       const items = window.getByTestId("home-plus-menu-items").getByRole("menuitem");
