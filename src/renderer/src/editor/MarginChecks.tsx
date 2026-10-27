@@ -3,7 +3,7 @@ import type { Editor } from "@tiptap/react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { setClaimFocus, setOpenClaim } from "../checks";
-import { useFigureFocus } from "../figures";
+import { focusFigure, useFigureFocus } from "../figures";
 import { useT } from "../i18n";
 import { motionMode, subscribeMotion } from "../motion";
 import { checkStateKey } from "../unsupportedFixes";
@@ -14,6 +14,7 @@ import { textBlockEdited } from "./citationNumbers";
 import { type ShownClaim, shownClaims } from "./claimChecks";
 import { figurePlace } from "./figureActions";
 import type { ClaimMarkState } from "./icons";
+import { scrollMindTo } from "./reviewPick";
 
 const MARK_HEIGHT = 18;
 /** Between two marks stacked because their sentences start on the same line (or nearly). */
@@ -90,7 +91,27 @@ export function MarginChecks({
   const t = useT();
   const place = useCardPlace(mind.id);
   const layer = useRef<HTMLDivElement>(null);
+  // The outline draws in the layer, which a figure shown before this note opened waits for.
+  const [layerReady, setLayerReady] = useState(false);
+  useEffect(() => setLayerReady(true), []);
   const focusedFigure = useFigureFocus((state) => (state.mindId === mind.id ? state.row : null));
+  const shownFigure = useFigureFocus((state) =>
+    state.mindId === mind.id && state.shown ? state.row : null,
+  );
+  // A figure shown from its schedule, in a note that may only now have opened.
+  useEffect(() => {
+    if (!shownFigure) return;
+    const place = figurePlace(editor.state.doc, shownFigure);
+    if (place) scrollMindTo(editor, place.from, place.to);
+    const dom = editor.view.dom;
+    const done = () => focusFigure(mind.id, null);
+    dom.addEventListener("pointerdown", done);
+    dom.addEventListener("keydown", done);
+    return () => {
+      dom.removeEventListener("pointerdown", done);
+      dom.removeEventListener("keydown", done);
+    };
+  }, [editor, mind.id, shownFigure]);
   const [marks, setMarks] = useState<readonly Mark[]>([]);
   /** Each mark's state as last drawn: a change from "checking" is its check finishing. */
   const seen = useRef(new Map<string, ClaimMarkState>());
@@ -231,7 +252,7 @@ export function MarginChecks({
 
   return (
     <div ref={layer} className="margin-checks" data-testid="margin-checks">
-      {focusedFigure && layer.current && (
+      {focusedFigure && layerReady && layer.current && (
         <ClaimOutline
           editor={editor}
           layer={layer.current}

@@ -61,7 +61,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
       setCopy(null);
       for (const change of made.splice(0)) useUndo.getState().withdraw(change);
       sequence.current++;
-      focusFigure(mindId, null);
+      focusFigure(mindId, null, "left");
     };
   }, [mindId, report]);
 
@@ -146,8 +146,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
         onFocusFigure={(row) => focusFigure(mindId, row)}
         onShowFigure={(row) => {
           useAppStore.getState().openMind(mindId);
-          // Once the note is the shown tab, so its outline and scroll land where the User looks.
-          requestAnimationFrame(() => focusFigure(mindId, row));
+          focusFigure(mindId, row, "shown");
         }}
         onOpenSource={(citation) =>
           openCited(citation, {

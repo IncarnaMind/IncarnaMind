@@ -129,12 +129,28 @@ export async function tieOutFigures(mindId: string): Promise<void> {
   await openFigureSchedule(mindId, !(asks && groupsMerged()));
 }
 
-export const useFigureFocus = create<{ mindId: string | null; row: FigureScheduleRow | null }>(
-  () => ({ mindId: null, row: null }),
-);
-export function focusFigure(mindId: string, row: FigureScheduleRow | null): void {
-  if (row === null && useFigureFocus.getState().mindId !== mindId) return;
-  useFigureFocus.setState({ mindId: row ? mindId : null, row });
+/**
+ * The figure outlined in its note: the one chosen in the schedule, or the one Show in the note
+ * (Space) took the User to, which stays outlined when the schedule's tab gives way to the note
+ * and goes at the User's next click or key there.
+ */
+export const useFigureFocus = create<{
+  mindId: string | null;
+  row: FigureScheduleRow | null;
+  shown: boolean;
+}>(() => ({ mindId: null, row: null, shown: false }));
+export function focusFigure(
+  mindId: string,
+  row: FigureScheduleRow | null,
+  how: "chosen" | "shown" | "left" = "chosen",
+): void {
+  const current = useFigureFocus.getState();
+  if (row === null && (current.mindId !== mindId || (how === "left" && current.shown))) return;
+  useFigureFocus.setState({
+    mindId: row ? mindId : null,
+    row,
+    shown: row !== null && how === "shown",
+  });
   const editor = mindEditor(mindId);
   const place = row && editor ? figurePlace(editor.state.doc, row) : null;
   if (editor && place) scrollMindTo(editor, place.from, place.to);

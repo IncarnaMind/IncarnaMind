@@ -100,10 +100,9 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
     setCurrent(null);
     setFilter("all");
     useSelection.getState().clear("figures");
-    return () => {
-      useSelection.getState().clear("figures");
-      focus.current(null);
-    };
+    // The outline outlives the schedule while Show in the note took the User there: its tab
+    // says when the schedule is gone (`focusFigure`).
+    return () => useSelection.getState().clear("figures");
   }, [mindId]);
 
   const sourceLabel = (line: ScheduleLine) => {
